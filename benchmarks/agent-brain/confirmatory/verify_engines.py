@@ -91,6 +91,7 @@ class PreparedArm:
 @dataclasses.dataclass(frozen=True)
 class RuntimeBundle:
     binary: pathlib.Path
+    binary_attestation: pathlib.Path
     facts_source: pathlib.Path
     session_dates_source: pathlib.Path
     embedding_model: pathlib.Path
@@ -109,7 +110,8 @@ class ServerEvidence:
     stdout_path: pathlib.Path
     stderr_path: pathlib.Path
     attestation_path: pathlib.Path
-    observe: Callable[[str], None]
+    observe: Callable[[str], dict[str, Any]]
+    record_recall_window: Callable[[str, str], None]
 
 
 RunCommand = Callable[..., subprocess.CompletedProcess[bytes]]
@@ -232,6 +234,8 @@ def validate_development_query(settings: Settings, pins: dict[str, Any]) -> None
     require(isinstance(query, dict), "query id is not in the canonical development pin set")
     require(query.get("query_text") == settings.query, "query text does not match its canonical development pin")
     require(hashlib.sha256(settings.query.encode()).hexdigest() == query.get("query_sha256"), "query hash is stale")
+    require(settings.branch == task.get("branch"), "development task branch changed")
+    require(settings.k == task.get("k"), "development task k changed")
     require(settings.eligible_before == task.get("eligible_before"), "development task temporal cutoff changed")
     require(
         sorted(settings.exclude_session_ids) == sorted(task.get("exclude_session_ids", [])),
@@ -244,6 +248,8 @@ def validate_source_inputs(settings: Settings, pins: dict[str, Any], authority: 
     require(settings.k > 0, "k must be positive")
     require(settings.query_id and settings.query, "query id and query text must be non-empty")
     validate_development_query(settings, pins)
+    binary = pins["binary"]
+    require_pinned_file(settings.binary, binary, "binary", "canonical entire-brain binary")
     corpus = pins["corpus"]
     model = pins["embedding_model"]
     require_pinned_file(settings.frozen_facts, corpus, "facts", "frozen facts")
@@ -253,6 +259,10 @@ def validate_source_inputs(settings: Settings, pins: dict[str, Any], authority: 
     require(settings.embedding_model.stat().st_size == model["size_bytes"], "EmbeddingGemma model size changed")
 
     runtime = pins["runtime"]
+    require(
+        settings.server_health_interval_seconds == runtime["server_health_interval_seconds"],
+        "server health interval differs from the canonical pin",
+    )
     server_script = REPO / runtime["server_script_repo_path"]
     package_manifest = REPO / runtime["package_manifest_repo_path"]
     package_lock = REPO / runtime["package_lock_repo_path"]
@@ -320,6 +330,7 @@ def retain_runtime_bundle(
     runtime_dir = artifacts / "runtime"
     bundle = RuntimeBundle(
         binary=artifacts / "bin" / "entire-brain",
+        binary_attestation=artifacts / "bin" / "binary-attestation.json",
         facts_source=artifacts / "sources" / "facts.ndjson",
         session_dates_source=artifacts / "sources" / "session_dates.json",
         embedding_model=artifacts / "models" / settings.embedding_model.name,
@@ -332,6 +343,29 @@ def retain_runtime_bundle(
     )
     runtime = pins["runtime"]
     copy_file(settings.binary, bundle.binary)
+    binary = pins["binary"]
+    require_sha256(sha256_file(bundle.binary), binary["binary_sha256"], "retained canonical binary")
+    require(bundle.binary.stat().st_size == binary["binary_size_bytes"], "retained canonical binary size changed")
+    bundle.binary_attestation.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pin_set_id": pins["pin_set_id"],
+                "provenance_mode": binary["provenance_mode"],
+                "binary_path": artifact_path(bundle.binary, settings.artifact_root),
+                "binary_sha256": binary["binary_sha256"],
+                "binary_size_bytes": binary["binary_size_bytes"],
+                "source_commit": binary["source_commit"],
+                "source_tree": binary["source_tree"],
+                "build_command": binary["build_command"],
+                "go_version": binary["go_version"],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     copy_file(settings.frozen_facts, bundle.facts_source)
     copy_file(settings.session_dates, bundle.session_dates_source)
     copy_file(settings.embedding_model, bundle.embedding_model)
@@ -426,7 +460,7 @@ def recall_command(settings: Settings, bundle: RuntimeBundle, arm: str) -> list[
     return command
 
 
-def parse_vector_artifact(path: pathlib.Path) -> tuple[str, int, int]:
+def parse_vector_artifact(path: pathlib.Path) -> tuple[str, int, int, tuple[str, ...]]:
     raw = path.read_bytes()
     require(raw[:4] == b"EBV1", f"unsupported or corrupt vector artifact magic: {path}")
     offset = 4
@@ -458,7 +492,7 @@ def parse_vector_artifact(path: pathlib.Path) -> tuple[str, int, int]:
         require(offset + vector_bytes <= len(raw), f"truncated vector values for {fact_id!r}: {path}")
         offset += vector_bytes
     require(offset == len(raw), f"vector artifact has trailing bytes: {path}")
-    return model_id, dimension, count
+    return model_id, dimension, count, tuple(seen)
 
 
 def parse_runtime_output(
@@ -491,6 +525,10 @@ def parse_runtime_output(
         require(engine.get("vector_cache_read_only") is False, f"{arm} vector cache was read-only")
         require(engine.get("vector_cache_backend") == "flat_file", f"{arm} did not use the retained flat-file cache")
         require(isinstance(engine.get("vector_count"), int) and engine["vector_count"] > 0, f"{arm} vector count is invalid")
+        require(
+            isinstance(engine.get("resident_vector_count"), int) and engine["resident_vector_count"] > 0,
+            f"{arm} resident vector count is invalid",
+        )
     else:
         require(not engine.get("embedder_id"), "lexical arm reported an embedder")
         require(engine.get("embedding_dimension") is None, "lexical arm reported an embedding dimension")
@@ -524,7 +562,7 @@ def parse_runtime_output(
         except ValueError as exc:
             raise VerificationError(f"{arm} vector cache escaped its derived data root: {cache_path}") from exc
         require(cache_path.is_file() and not cache_path.is_symlink(), f"{arm} vector artifact was not persisted")
-        model_id, dimension, resident_count = parse_vector_artifact(cache_path)
+        model_id, dimension, resident_count, _ = parse_vector_artifact(cache_path)
         require(model_id == engine.get("embedder_id"), f"{arm} vector header model does not match runtime")
         require(dimension == engine.get("embedding_dimension"), f"{arm} vector header dimension does not match runtime")
         require(resident_count == engine.get("resident_vector_count"), f"{arm} vector header count does not match runtime")
@@ -558,7 +596,8 @@ def run_arm(
     descriptor: dict[str, str],
     *,
     run_command: RunCommand = subprocess.run,
-    during_observer: Callable[[str], None] | None = None,
+    during_observer: Callable[[str], dict[str, Any]] | None = None,
+    recall_window_observer: Callable[[str, str], None] | None = None,
 ) -> dict[str, Any]:
     arm = prepared.arm
     run_dir = settings.output_dir / "runs" / arm
@@ -570,26 +609,48 @@ def run_arm(
     if during_observer is None:
         completed = run_command(command, cwd=settings.repo_root, env=environment, capture_output=True, check=False)
     else:
+        require(recall_window_observer is not None, "recall-window observer is required with live server observation")
         result: list[subprocess.CompletedProcess[bytes]] = []
         failure: list[BaseException] = []
+        recall_started = threading.Event()
+        recall_finished = threading.Event()
+        timing: dict[str, str] = {}
 
         def invoke_recall() -> None:
+            timing["started_at"] = dt.datetime.now(dt.UTC).isoformat()
+            recall_started.set()
             try:
                 result.append(
                     run_command(command, cwd=settings.repo_root, env=environment, capture_output=True, check=False)
                 )
             except BaseException as exc:  # propagate the runner's original failure after joining
                 failure.append(exc)
+            finally:
+                timing["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
+                recall_finished.set()
 
         worker = threading.Thread(target=invoke_recall, name="embeddinggemma-recall")
         worker.start()
         try:
-            during_observer("during_recall")
+            require(
+                recall_started.wait(timeout=settings.server_start_timeout_seconds),
+                f"{arm} recall worker did not report startup",
+            )
+            completed_before_observation = recall_finished.is_set()
+            if not completed_before_observation:
+                during_observer("during_recall")
+            completed_before_observation_returned = recall_finished.is_set()
         finally:
             worker.join()
         if failure:
             raise failure[0]
+        require(not completed_before_observation, f"{arm} recall completed before the during-recall health request")
+        require(
+            not completed_before_observation_returned,
+            f"{arm} recall did not remain active for the complete during-recall health request",
+        )
         require(len(result) == 1, f"{arm} recall runner produced no completion result")
+        recall_window_observer(timing["started_at"], timing["finished_at"])
         completed = result[0]
     require(isinstance(completed.stdout, bytes) and isinstance(completed.stderr, bytes), "runner must capture byte output")
     stdout_path.write_bytes(completed.stdout)
@@ -608,6 +669,10 @@ def run_arm(
         vector_path, vector_hash = hashed_artifact(retained_vector, settings.artifact_root)
 
     binary_path, binary_hash = hashed_artifact(bundle.binary, settings.artifact_root)
+    binary_attestation_path, binary_attestation_hash = hashed_artifact(
+        bundle.binary_attestation,
+        settings.artifact_root,
+    )
     stdout_rel, stdout_hash = hashed_artifact(stdout_path, settings.artifact_root)
     stderr_rel, stderr_hash = hashed_artifact(stderr_path, settings.artifact_root)
     facts_source_path, facts_source_hash = hashed_artifact(bundle.facts_source, settings.artifact_root)
@@ -623,6 +688,8 @@ def run_arm(
     artifacts: dict[str, Any] = {
         "binary_path": binary_path,
         "binary_sha256": binary_hash,
+        "binary_attestation_path": binary_attestation_path,
+        "binary_attestation_sha256": binary_attestation_hash,
         "stdout_path": stdout_rel,
         "stdout_sha256": stdout_hash,
         "stderr_path": stderr_rel,
@@ -652,6 +719,7 @@ def run_arm(
             "embedder_id": runtime_engine.get("embedder_id") if semantic else None,
             "embedding_dimension": runtime_engine.get("embedding_dimension") if semantic else None,
             "vector_count": runtime_engine.get("vector_count", 0) if semantic else 0,
+            "resident_vector_count": runtime_engine.get("resident_vector_count", 0) if semantic else 0,
             "vector_namespace": matrix_arm["namespace"],
         },
         "artifacts": artifacts,
@@ -732,40 +800,57 @@ class HealthMonitor:
         self.observations: list[dict[str, Any]] = []
         self.errors: list[str] = []
         self._lock = threading.Lock()
+        self._observe_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._last_health_request_count = 0
 
-    def observe(self, phase: str) -> None:
-        require(self.process.poll() is None, f"owned embedding server exited before {phase}")
-        result = request_json(urllib.request.Request(self.url, method="GET"))
-        model = self.pins["embedding_model"]
-        runtime = self.pins["runtime"]
-        require(result.get("pid") == self.process.pid, f"health PID mismatch during {phase}")
-        require(result.get("verification_token") == self.token, f"health ownership token mismatch during {phase}")
-        require(pathlib.Path(result.get("model_path", "")).resolve() == self.model_path, f"health model path mismatch during {phase}")
-        require(result.get("model_sha256") == model["sha256"], f"health model hash mismatch during {phase}")
-        require(result.get("embedding_dimension") == model["dimension"], f"health dimension mismatch during {phase}")
-        require(result.get("node_version") == runtime["node_version"], f"health Node version mismatch during {phase}")
-        observation = {
-            "sequence": 0,
-            "phase": phase,
-            "observed_at": dt.datetime.now(dt.UTC).isoformat(),
-            "pid": result["pid"],
-            "ownership_token_sha256": hashlib.sha256(self.token.encode()).hexdigest(),
-            "model_path": str(self.model_path),
-            "model_sha256": result["model_sha256"],
-            "embedding_dimension": result["embedding_dimension"],
-            "node_version": result["node_version"],
-            "healthy": True,
-        }
-        with self._lock:
-            observation["sequence"] = len(self.observations)
-            self.observations.append(observation)
+    def observe(self, phase: str) -> dict[str, Any]:
+        with self._observe_lock:
+            require(self.process.poll() is None, f"owned embedding server exited before {phase}")
+            nonce = secrets.token_hex(16)
+            url = self.url + "?nonce=" + urllib.parse.quote(nonce, safe="")
+            result = request_json(urllib.request.Request(url, method="GET"))
+            model = self.pins["embedding_model"]
+            runtime = self.pins["runtime"]
+            require(result.get("pid") == self.process.pid, f"health PID mismatch during {phase}")
+            require(result.get("verification_token") == self.token, f"health ownership token mismatch during {phase}")
+            require(result.get("request_nonce") == nonce, f"health nonce mismatch during {phase}")
+            request_count = result.get("health_request_count")
+            require(
+                isinstance(request_count, int)
+                and not isinstance(request_count, bool)
+                and request_count > self._last_health_request_count,
+                f"health request counter did not advance during {phase}",
+            )
+            self._last_health_request_count = request_count
+            require(pathlib.Path(result.get("model_path", "")).resolve() == self.model_path, f"health model path mismatch during {phase}")
+            require(result.get("model_sha256") == model["sha256"], f"health model hash mismatch during {phase}")
+            require(result.get("embedding_dimension") == model["dimension"], f"health dimension mismatch during {phase}")
+            require(result.get("node_version") == runtime["node_version"], f"health Node version mismatch during {phase}")
+            observation = {
+                "sequence": 0,
+                "phase": phase,
+                "observed_at": dt.datetime.now(dt.UTC).isoformat(),
+                "pid": result["pid"],
+                "ownership_token_sha256": hashlib.sha256(self.token.encode()).hexdigest(),
+                "request_nonce_sha256": hashlib.sha256(nonce.encode()).hexdigest(),
+                "health_request_count": request_count,
+                "model_path": str(self.model_path),
+                "model_sha256": result["model_sha256"],
+                "embedding_dimension": result["embedding_dimension"],
+                "node_version": result["node_version"],
+                "healthy": True,
+            }
+            with self._lock:
+                observation["sequence"] = len(self.observations)
+                self.observations.append(observation)
+            return dict(observation)
 
     def _loop(self) -> None:
         while not self._stop.wait(self.interval_seconds):
             try:
-                self.observe("during_recall")
+                self.observe("heartbeat")
             except (OSError, VerificationError, urllib.error.URLError, json.JSONDecodeError) as exc:
                 with self._lock:
                     self.errors.append(str(exc))
@@ -843,6 +928,12 @@ def managed_embedding_server(
         }
     )
     monitor: HealthMonitor | None = None
+    recall_window: dict[str, str] = {}
+
+    def record_recall_window(started_at: str, finished_at: str) -> None:
+        require(not recall_window, "embedding recall window was recorded more than once")
+        recall_window.update({"started_at": started_at, "finished_at": finished_at})
+
     with stdout_path.open("wb") as stdout_handle, stderr_path.open("wb") as stderr_handle:
         process = subprocess.Popen(
             command,
@@ -862,10 +953,19 @@ def managed_embedding_server(
                 settings.server_health_interval_seconds,
             )
             monitor.start()
-            yield ServerEvidence(command, environment, stdout_path, stderr_path, attestation_path, monitor.observe)
+            yield ServerEvidence(
+                command,
+                environment,
+                stdout_path,
+                stderr_path,
+                attestation_path,
+                monitor.observe,
+                record_recall_window,
+            )
             monitor.finish()
+            require(set(recall_window) == {"started_at", "finished_at"}, "embedding recall window was not recorded")
             attestation = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "pin_set_id": pins["pin_set_id"],
                 "process_pid": process.pid,
                 "ownership_token_sha256": hashlib.sha256(token.encode()).hexdigest(),
@@ -873,6 +973,8 @@ def managed_embedding_server(
                 "model_sha256": pins["embedding_model"]["sha256"],
                 "embedding_dimension": pins["embedding_model"]["dimension"],
                 "node_version": pins["runtime"]["node_version"],
+                "health_interval_seconds": settings.server_health_interval_seconds,
+                "recall_window": recall_window,
                 "observations": monitor.observations,
             }
             attestation_path.write_text(json.dumps(attestation, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -992,6 +1094,7 @@ def _execute(
             descriptor,
             run_command=run_command,
             during_observer=evidence.observe,
+            recall_window_observer=evidence.record_recall_window,
         )
     add_server_evidence(embedding_record, evidence, bundle, settings)
     records.append(embedding_record)

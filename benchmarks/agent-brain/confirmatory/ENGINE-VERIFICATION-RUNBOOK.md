@@ -9,10 +9,20 @@ individual commands below remain useful diagnostics but cannot by themselves sat
 ## Preflight
 
 ```sh
-go build -o /tmp/entire-brain-ws6 ./cmd/entire-brain
-sha256sum /tmp/entire-brain-ws6
+git worktree add --detach /tmp/entire-brain-build-bb68c0ac bb68c0ac7fe9690bea81c97ae9def2abf1b6a549
+(cd /tmp/entire-brain-build-bb68c0ac && \
+  go build -trimpath -buildvcs=false \
+    -o /tmp/entire-brain-engine-evidence-bb68c0ac ./cmd/entire-brain)
+go version
+sha256sum /tmp/entire-brain-engine-evidence-bb68c0ac
 python3 benchmarks/agent-brain/confirmatory/check_protocol.py
 ```
+
+The detached checkout must resolve to source commit `bb68c0ac7fe9690bea81c97ae9def2abf1b6a549`
+and tree `a15e4ec365b7887f48e46b2bc7fc386ac89c435f`. The deterministic build flags,
+Go version, exact binary size, and SHA-256 are part of the production pin. The wrapper refuses a
+different binary before creating its output directory and retains a machine-checked build
+attestation beside the binary.
 
 Set `FROZEN_CONFIG`, `FROZEN_DATA`, `FROZEN_STATE`, and `FROZEN_REPO_ROOT` to a read-only frozen
 corpus resolution. Set `FROZEN_FACTS`, `SESSION_DATES`, `QUERY`, `QUERY_ID`, and `K` from the exposed
@@ -44,7 +54,7 @@ the wrapper succeeds.
 
 ```sh
 python3 benchmarks/agent-brain/confirmatory/verify_engines.py \
-  --binary /tmp/entire-brain-ws6 \
+  --binary /tmp/entire-brain-engine-evidence-bb68c0ac \
   --frozen-config-dir "$FROZEN_CONFIG" \
   --frozen-data-dir "$FROZEN_DATA" \
   --frozen-state-dir "$FROZEN_STATE" \
@@ -66,7 +76,8 @@ python3 benchmarks/agent-brain/confirmatory/verify_engines.py \
 
 Publication is atomic at the evidence-contract level: `engine-verification.json` is written only
 after all three arms pass runtime identity, eligibility reconciliation, vector-header attribution,
-source-integrity rechecks, complete dependency-byte inventory, owned-server continuity checks,
+retained-stdout reconciliation, source-integrity rechecks, complete dependency-byte inventory,
+owned-server continuity checks,
 artifact hashing, and `check_protocol.validate_engine_verification`. Validation occurs against a
 temporary manifest followed by an atomic rename. On any failure, neither a final nor temporary
 manifest is retained.
@@ -81,7 +92,7 @@ env -u ENTIRE_BRAIN_EMBEDDER -u ENTIRE_BRAIN_EMBED_URL \
   ENTIRE_PLUGIN_STATE_DIR="$FROZEN_STATE" \
   ENTIRE_PLUGIN_CACHE_DIR="$RUN_ROOT/cache/lexical_handrolled-v1" \
   ENTIRE_REPO_ROOT="$FROZEN_REPO_ROOT" \
-  /tmp/entire-brain-ws6 recall "$QUERY" --k "$K" --no-semantic --json
+  /tmp/entire-brain-engine-evidence-bb68c0ac recall "$QUERY" --k "$K" --no-semantic --json
 ```
 
 ## Bundled Model2Vec RRF arm
@@ -94,7 +105,7 @@ env -u ENTIRE_BRAIN_EMBEDDER -u ENTIRE_BRAIN_EMBED_URL \
   ENTIRE_PLUGIN_STATE_DIR="$FROZEN_STATE" \
   ENTIRE_PLUGIN_CACHE_DIR="$RUN_ROOT/cache/model2vec_rrf-v1" \
   ENTIRE_REPO_ROOT="$FROZEN_REPO_ROOT" \
-  /tmp/entire-brain-ws6 recall "$QUERY" --k "$K" --json
+  /tmp/entire-brain-engine-evidence-bb68c0ac recall "$QUERY" --k "$K" --json
 ```
 
 ## Pinned EmbeddingGemma RRF arm
@@ -103,7 +114,10 @@ Before starting a diagnostic server, verify the GGUF, Node executable, server sc
 dependency-tree pins. The server must bind loopback. The current `scripts/bench/embed-server.mjs` is
 the supported local endpoint. The authoritative wrapper additionally gives the server a random
 ownership token and continuously checks `/health` for the same PID, token, GGUF hash, embedding
-dimension, and Node version before, during, and after recall.
+dimension, and Node version. Every health request has a fresh echoed nonce and monotonic counter.
+The explicit during-recall observation must complete while the recall worker is demonstrably live;
+timezone-aware timestamps must strictly order pre-health, recall start, during-health, recall finish,
+and post-health.
 
 ```sh
 sha256sum "$EMBEDDINGGEMMA_GGUF" "$NODE_RUNTIME" scripts/bench/embed-server.mjs
@@ -121,20 +135,26 @@ ENTIRE_PLUGIN_DATA_DIR="$RUN_ROOT/data/embeddinggemma_rrf-v1" \
 ENTIRE_PLUGIN_STATE_DIR="$FROZEN_STATE" \
 ENTIRE_PLUGIN_CACHE_DIR="$RUN_ROOT/cache/embeddinggemma_rrf-v1" \
 ENTIRE_REPO_ROOT="$FROZEN_REPO_ROOT" \
-/tmp/entire-brain-ws6 recall "$QUERY" --k "$K" --json
+/tmp/entire-brain-engine-evidence-bb68c0ac recall "$QUERY" --k "$K" --json
 ```
 
 ## Required verification record
 
 For every command, retain stdout/stderr and a record conforming to
-`schemas/engine-verification.schema.json`. Effective engine must come from machine-readable runtime
+`schemas/engine-verification.schema.json`. The only accepted evidence entry point is one regular JSON
+file conforming to `schemas/engine-verification-manifest.schema.json`, with exactly
+`schema_version: 2` and `records`; directories, raw arrays, single records, `record_paths`, and extra
+wrapper keys are rejected. Effective engine must come from machine-readable runtime
 output, not inferred environment intent. Recall JSON now exposes the observed `effective_engine`,
 embedder ID/dimension, BM25 and fallback state, cache backend/path, and vector counts. The verification
 wrapper must still bind those observations to the requested namespace and retain the source and
 derived corpus bytes, vector, binary, model, complete server runtime, stdout, stderr, command,
 environment, and health-attestation hashes required by the schema. The checker independently
 re-hashes every named byte and requires production records to name the checked-in canonical pin-set
-descriptor. Final freeze remains blocked until one real record for each arm passes those checks.
+descriptor. It also parses retained recall stdout and EBV1 vector bytes (model, dimension, resident
+count, and fact IDs), reconciles them to each record/runtime/corpus, and requires every arm command
+to invoke the same retained canonical binary. Final freeze remains blocked until one real record for
+each arm passes those checks.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between

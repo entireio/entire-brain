@@ -4,6 +4,8 @@
   "authority": "production",
   "development_task": {
     "task_id": "entire-cli-c0701-6699ec40a",
+    "branch": "main",
+    "k": 5,
     "queries": [
       {
         "query_id": "entire-cli-c0701-6699ec40a:brain-query-1",
@@ -30,6 +32,23 @@
     "exclude_session_ids": [
       "019f1893-b810-7992-afb4-8c4bddc4ae3c"
     ]
+  },
+  "binary": {
+    "provenance_mode": "reproducible_build_v1",
+    "binary_sha256": "c2953ffd37e49ca1128f4a6c60d43ccab9926b077e99c4730d6825d70333cfa1",
+    "binary_size_bytes": 58683314,
+    "source_commit": "bb68c0ac7fe9690bea81c97ae9def2abf1b6a549",
+    "source_tree": "a15e4ec365b7887f48e46b2bc7fc386ac89c435f",
+    "build_command": [
+      "go",
+      "build",
+      "-trimpath",
+      "-buildvcs=false",
+      "-o",
+      "/tmp/entire-brain-engine-evidence-bb68c0ac",
+      "./cmd/entire-brain"
+    ],
+    "go_version": "go version go1.26.2 darwin/arm64"
   },
   "corpus": {
     "facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -68,7 +87,7 @@
     "node_version": "v23.3.0",
     "node_sha256": "28a340907b2628c508d3de60406fcde378fdd77a984aab32ee117352b15c02e6",
     "server_script_repo_path": "scripts/bench/embed-server.mjs",
-    "server_script_sha256": "50093e086755890025efc65240ba755867a65ec24c92ce7a4709d6737dd1dd6e",
+    "server_script_sha256": "d6893dc33b96d1d2d593cec25da67efe8bc8f21f7e0f3b25367662d8125b2971",
     "package_manifest_repo_path": "scripts/bench/package.json",
     "package_manifest_sha256": "8c8a9c0b6a6944c86799559d776862d0e679e7ba826823e5c96d5940f450ee75",
     "package_lock_repo_path": "scripts/bench/package-lock.json",
@@ -79,6 +98,7 @@
     "dependency_total_bytes": 46597247,
     "node_llama_cpp_version": "3.18.1",
     "platform_package": "@node-llama-cpp/mac-arm64-metal",
-    "platform_package_version": "3.18.1"
+    "platform_package_version": "3.18.1",
+    "server_health_interval_seconds": 2.0
   }
 }

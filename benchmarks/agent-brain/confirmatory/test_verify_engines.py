@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -55,7 +56,7 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         self.state.mkdir(parents=True)
         self.facts = self.data / "repos/local/example/facts/main-0d6e4079/facts.ndjson"
         self.facts.parent.mkdir(parents=True)
-        self.facts.write_text('{"id":"fact:a"}\n', encoding="utf-8")
+        self.facts.write_text('{"id":"fact:a"}\n{"id":"fact:b"}\n', encoding="utf-8")
         taxonomy = self.data / "repos/local/example/facts/taxonomy.json"
         taxonomy.write_text('{"categories":{},"paths":[]}\n', encoding="utf-8")
         manifest = self.data / "repos/local/example/manifest.json"
@@ -91,6 +92,8 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             "authority": "test_fixture",
             "development_task": {
                 "task_id": "test-task",
+                "branch": "main",
+                "k": 5,
                 "queries": [
                     {
                         "query_id": "test-task:query-1",
@@ -100,6 +103,23 @@ class EngineVerificationRunnerTest(unittest.TestCase):
                 ],
                 "eligible_before": "2026-07-01T19:32:18+02:00",
                 "exclude_session_ids": ["excluded-session"],
+            },
+            "binary": {
+                "provenance_mode": "reproducible_build_v1",
+                "binary_sha256": digest(self.binary),
+                "binary_size_bytes": self.binary.stat().st_size,
+                "source_commit": "a" * 40,
+                "source_tree": "b" * 40,
+                "build_command": [
+                    "go",
+                    "build",
+                    "-trimpath",
+                    "-buildvcs=false",
+                    "-o",
+                    "/tmp/fixture-entire-brain",
+                    "./cmd/entire-brain",
+                ],
+                "go_version": "go version go-test fixture/arch",
             },
             "corpus": {
                 "facts_sha256": digest(self.facts),
@@ -146,6 +166,7 @@ class EngineVerificationRunnerTest(unittest.TestCase):
                 "node_llama_cpp_version": "test-version",
                 "platform_package": "fixture-platform-package",
                 "platform_package_version": "test-version",
+                "server_health_interval_seconds": 0.01,
             },
         }
         self.repo = self.root / "repo"
@@ -175,6 +196,8 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             artifact_root=self.root,
         )
         self.attestation_mutator = None
+        self.embedding_delay_seconds = 0.05
+        self.during_observe_hook = None
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -228,6 +251,8 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             },
             "facts": [{"id": "fact:a"}],
         }
+        if embeddinggemma and self.embedding_delay_seconds:
+            time.sleep(self.embedding_delay_seconds)
         return subprocess.CompletedProcess(command, 0, json.dumps(payload).encode(), b"")
 
     @contextlib.contextmanager
@@ -244,22 +269,31 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         pid = 4242
         observations: list[dict[str, object]] = []
+        recall_window: dict[str, str] = {}
 
-        def observe(phase: str) -> None:
-            observations.append(
-                {
-                    "sequence": len(observations),
-                    "phase": phase,
-                    "observed_at": "2026-07-15T00:00:00+00:00",
-                    "pid": pid,
-                    "ownership_token_sha256": token_hash,
-                    "model_path": str(bundle.embedding_model),
-                    "model_sha256": pins["embedding_model"]["sha256"],
-                    "embedding_dimension": pins["embedding_model"]["dimension"],
-                    "node_version": pins["runtime"]["node_version"],
-                    "healthy": True,
-                }
-            )
+        def observe(phase: str) -> dict[str, object]:
+            if phase == "during_recall" and self.during_observe_hook is not None:
+                self.during_observe_hook()
+            sequence = len(observations)
+            observation = {
+                "sequence": sequence,
+                "phase": phase,
+                "observed_at": VERIFY.dt.datetime.now(VERIFY.dt.UTC).isoformat(),
+                "pid": pid,
+                "ownership_token_sha256": token_hash,
+                "request_nonce_sha256": hashlib.sha256(f"fixture-{sequence}".encode()).hexdigest(),
+                "health_request_count": sequence + 1,
+                "model_path": str(bundle.embedding_model),
+                "model_sha256": pins["embedding_model"]["sha256"],
+                "embedding_dimension": pins["embedding_model"]["dimension"],
+                "node_version": pins["runtime"]["node_version"],
+                "healthy": True,
+            }
+            observations.append(observation)
+            return observation
+
+        def record_recall_window(started_at: str, finished_at: str) -> None:
+            recall_window.update({"started_at": started_at, "finished_at": finished_at})
 
         observe("pre_recall")
         evidence = VERIFY.ServerEvidence(
@@ -274,11 +308,12 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             stderr,
             attestation_path,
             observe,
+            record_recall_window,
         )
         yield evidence
         observe("post_recall")
         attestation = {
-            "schema_version": 1,
+            "schema_version": 2,
             "pin_set_id": pins["pin_set_id"],
             "process_pid": pid,
             "ownership_token_sha256": token_hash,
@@ -286,6 +321,8 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             "model_sha256": pins["embedding_model"]["sha256"],
             "embedding_dimension": pins["embedding_model"]["dimension"],
             "node_version": pins["runtime"]["node_version"],
+            "health_interval_seconds": pins["runtime"]["server_health_interval_seconds"],
+            "recall_window": recall_window,
             "observations": observations,
         }
         if self.attestation_mutator is not None:
@@ -330,6 +367,114 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         self.assertEqual(len({record["artifacts"]["derived_facts_path"] for record in records}), 3)
         self.assertEqual(len({record["artifacts"]["facts_source_path"] for record in records}), 1)
         self.assertEqual(self.checker_errors(manifest_path), [])
+
+    def test_checker_requires_exact_v2_manifest_wrapper_file(self) -> None:
+        manifest_path = self.execute()
+        canonical = json.loads(manifest_path.read_text(encoding="utf-8"))
+        variants = (
+            (canonical["records"], "manifest object"),
+            ({"schema_version": 2, "records": canonical["records"], "extra": True}, "exactly schema_version and records"),
+            ({"schema_version": 1, "records": canonical["records"]}, "manifest schema_version must be 2"),
+            ({"record_paths": []}, "exactly schema_version and records"),
+            (canonical["records"][0], "exactly schema_version and records"),
+        )
+        for value, expected in variants:
+            with self.subTest(expected=expected):
+                manifest_path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+                self.assertTrue(any(expected in error for error in self.checker_errors(manifest_path)))
+        manifest_path.write_text(json.dumps(canonical) + "\n", encoding="utf-8")
+        errors = self.checker_errors(self.output)
+        self.assertTrue(any("exactly one regular JSON file" in error for error in errors))
+        link = self.root / "manifest-link.json"
+        link.symlink_to(manifest_path)
+        errors = self.checker_errors(link)
+        self.assertTrue(any("must not traverse a symlink" in error for error in errors))
+
+    def test_checker_rejects_binary_substitution_even_when_records_are_rehashed(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        replacement = self.root / "replacement-entire-brain"
+        replacement.write_bytes(b"other executable bytes\n")
+        replacement.chmod(0o755)
+        replacement_rel = replacement.relative_to(self.root).as_posix()
+        attestation_path = self.root / manifest["records"][0]["artifacts"]["binary_attestation_path"]
+        attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+        attestation["binary_path"] = replacement_rel
+        attestation["binary_sha256"] = digest(replacement)
+        attestation["binary_size_bytes"] = replacement.stat().st_size
+        attestation_path.write_text(json.dumps(attestation, sort_keys=True) + "\n", encoding="utf-8")
+        for record in manifest["records"]:
+            record["artifacts"]["binary_path"] = replacement_rel
+            record["artifacts"]["binary_sha256"] = digest(replacement)
+            record["artifacts"]["binary_attestation_sha256"] = digest(attestation_path)
+            record["requested"]["command"][0] = str(replacement.resolve())
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("retained binary differs from canonical pin" in error for error in errors))
+        self.assertTrue(any("binary attestation differs" in error for error in errors))
+
+    def test_checker_rejects_stdout_substitution_with_matching_artifact_hashes(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        left = manifest["records"][1]["artifacts"]
+        right = manifest["records"][2]["artifacts"]
+        left["stdout_path"], right["stdout_path"] = right["stdout_path"], left["stdout_path"]
+        left["stdout_sha256"], right["stdout_sha256"] = right["stdout_sha256"], left["stdout_sha256"]
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("stdout top-level engine differs from record" in error for error in errors))
+
+    def test_checker_rejects_vector_substitution_with_matching_artifact_hashes(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        left = manifest["records"][1]["artifacts"]
+        right = manifest["records"][2]["artifacts"]
+        left["vector_artifact_path"], right["vector_artifact_path"] = right["vector_artifact_path"], left["vector_artifact_path"]
+        left["vector_artifact_sha256"], right["vector_artifact_sha256"] = right["vector_artifact_sha256"], left["vector_artifact_sha256"]
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("EBV1 model id differs from record/runtime" in error for error in errors))
+
+    def test_recall_must_remain_active_through_during_health_request(self) -> None:
+        embedding_returned = VERIFY.threading.Event()
+        self.embedding_delay_seconds = 0
+
+        def instant_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            completed = self.fake_run(command, **kwargs)
+            env = kwargs["env"]
+            if env["ENTIRE_BRAIN_EMBEDDER"] == "ollama":
+                embedding_returned.set()
+            return completed
+
+        def await_completion() -> None:
+            self.assertTrue(embedding_returned.wait(timeout=1))
+            time.sleep(0.01)
+
+        self.during_observe_hook = await_completion
+        with self.assertRaisesRegex(VERIFY.VerificationError, "did not remain active"):
+            self.execute(run=instant_run)
+        self.assertFalse((self.output / "engine-verification.json").exists())
+
+    def test_checker_rejects_invalid_and_out_of_window_liveness_timestamps(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        record = manifest["records"][2]
+        attestation_path = self.root / record["artifacts"]["embedding_server_attestation_path"]
+        attestation = json.loads(attestation_path.read_text(encoding="utf-8"))
+        during = next(item for item in attestation["observations"] if item["phase"] == "during_recall")
+        during["observed_at"] = attestation["observations"][-1]["observed_at"]
+        attestation_path.write_text(json.dumps(attestation, sort_keys=True) + "\n", encoding="utf-8")
+        record["artifacts"]["embedding_server_attestation_sha256"] = digest(attestation_path)
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("does not strictly bound active recall" in error for error in errors))
+
+        attestation["recall_window"]["started_at"] = "not-rfc3339"
+        attestation_path.write_text(json.dumps(attestation, sort_keys=True) + "\n", encoding="utf-8")
+        record["artifacts"]["embedding_server_attestation_sha256"] = digest(attestation_path)
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("recall start is not timezone-aware RFC3339" in error for error in errors))
 
     def test_fixture_evidence_is_rejected_by_production_checker(self) -> None:
         manifest_path = self.execute()
@@ -438,6 +583,12 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             self.execute(pins=pins)
         self.assertFalse(self.output.exists())
 
+    def test_binary_pin_mismatch_refuses_before_output(self) -> None:
+        self.binary.write_bytes(b"substituted before execution\n")
+        with self.assertRaisesRegex(VERIFY.VerificationError, "canonical entire-brain binary SHA-256 mismatch"):
+            self.execute()
+        self.assertFalse(self.output.exists())
+
     def test_non_exposed_query_is_rejected_before_output(self) -> None:
         self.settings = VERIFY.dataclasses.replace(
             self.settings,
@@ -486,6 +637,50 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         path.write_bytes(path.read_bytes() + b"x")
         with self.assertRaisesRegex(VERIFY.VerificationError, "trailing bytes"):
             VERIFY.parse_vector_artifact(path)
+
+    def test_health_monitor_binds_fresh_requests_to_a_real_owned_process(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        counter = 0
+
+        def fake_request(request: object, timeout: float = 3) -> dict[str, object]:
+            nonlocal counter
+            del timeout
+            counter += 1
+            query = VERIFY.urllib.parse.parse_qs(VERIFY.urllib.parse.urlparse(request.full_url).query)
+            return {
+                "pid": process.pid,
+                "verification_token": "owned-token",
+                "request_nonce": query["nonce"][0],
+                "health_request_count": counter,
+                "model_path": str(self.model.resolve()),
+                "model_sha256": self.pins["embedding_model"]["sha256"],
+                "embedding_dimension": self.pins["embedding_model"]["dimension"],
+                "node_version": self.pins["runtime"]["node_version"],
+            }
+
+        try:
+            monitor = VERIFY.HealthMonitor(
+                process,
+                self.settings.embed_url,
+                "owned-token",
+                self.pins,
+                self.model,
+                1.0,
+            )
+            with mock.patch.object(VERIFY, "request_json", side_effect=fake_request):
+                monitor.start()
+                monitor.observe("during_recall")
+                monitor.finish()
+            self.assertEqual([item["phase"] for item in monitor.observations], ["pre_recall", "during_recall", "post_recall"])
+            self.assertEqual([item["health_request_count"] for item in monitor.observations], [1, 2, 3])
+            self.assertEqual(len({item["request_nonce_sha256"] for item in monitor.observations}), 3)
+        finally:
+            process.terminate()
+            process.wait(timeout=2)
 
 
 if __name__ == "__main__":

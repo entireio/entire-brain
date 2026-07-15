@@ -37,12 +37,15 @@ approval. The confirmatory analyzer is implemented and path-locked.
 - `offline-relevance-dataset.json`: generated 12-query/11-task development set with 38 judgments and
   zero corpus-closed nulls; its sealed holdout intentionally contains no plaintext labels.
 - `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms and verification steps.
-- `engine-verification-pins.json`: gate-authoritative corpus, query, GGUF, resolved Node, server
-  script, package/lockfile, and dependency-inventory expectations; the runner does not accept these
-  values from its caller.
-- `schemas/engine-verification.schema.json`: required machine output for every engine execution.
+- `engine-verification-pins.json`: gate-authoritative corpus, query, reproducible binary build,
+  GGUF, resolved Node, server script, package/lockfile, health interval, and dependency-inventory
+  expectations; the runner does not accept these values from its caller.
+- `schemas/engine-verification.schema.json` and
+  `schemas/engine-verification-manifest.schema.json`: required per-arm output and the exact
+  three-record manifest wrapper.
 - `verify_engines.py`: fail-closed retained runner with isolated arms, owned-server continuity
-  attestation, byte-complete artifacts, and checker-before-atomic-publication semantics.
+  attestation overlapping live recall, byte-complete artifacts, and
+  checker-before-atomic-publication semantics.
 - `ENGINE-PROBE-READINESS-2026-07-15.md`: unpaid three-path runtime smoke and the remaining vector
   isolation/evidence blocker; it is not final engine verification.
 - `power_analysis.py`, `power-analysis.json`, and `POWER-DESIGN-OPTIONS-2026-07-15.md`: deterministic

@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime as dt
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
 import pathlib
 import re
+import struct
+import subprocess
 import sys
 from typing import Any
 
@@ -167,6 +170,22 @@ def _evidence_path(evidence: Any, here: pathlib.Path = HERE, repo: pathlib.Path 
     relative = pathlib.Path(raw_path)
     base = repo if relative.parts and relative.parts[0] == "benchmarks" else here
     return _safe_relative_path(raw_path, base)
+
+
+def _evidence_path_contains_symlink(evidence: Any, here: pathlib.Path, repo: pathlib.Path) -> bool:
+    if not isinstance(evidence, str) or not evidence:
+        return False
+    raw_path = evidence.split("#", 1)[0]
+    relative = pathlib.Path(raw_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        return False
+    base = repo if relative.parts and relative.parts[0] == "benchmarks" else here
+    current = base
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
 
 
 def _load_artifact(path: pathlib.Path, errors: list[str], label: str) -> Any | None:
@@ -1188,42 +1207,103 @@ def validate_dataset(dataset: dict[str, Any], protocol: dict[str, Any], freeze: 
 
 
 def _load_engine_records(path: pathlib.Path, errors: list[str], repo: pathlib.Path) -> list[Any]:
-    if path.is_dir():
-        records: list[Any] = []
-        for record_path in sorted(path.glob("*.json")):
-            record = _load_artifact(record_path, errors, f"engine verification record {record_path.name}")
-            if record is not None:
-                records.append(record)
-        return records
-    artifact = _load_artifact(path, errors, "engine verification evidence")
-    if isinstance(artifact, list):
-        return artifact
-    if not isinstance(artifact, dict):
+    _error(errors, path.is_file(), "engine verification evidence must be exactly one regular JSON file")
+    if not path.is_file():
         return []
-    if "records" in artifact:
-        records = artifact.get("records")
-        if not isinstance(records, list):
-            errors.append("engine verification manifest records must be an array")
-            return []
-        return records
-    if "record_paths" in artifact:
-        record_paths = artifact.get("record_paths")
-        if not isinstance(record_paths, list):
-            errors.append("engine verification record_paths must be an array")
-            return []
-        records = []
-        for index, raw_path in enumerate(record_paths):
-            target = _safe_relative_path(raw_path, repo)
-            _error(errors, target is not None, f"engine record_paths[{index}] is unsafe or invalid")
-            if target is None:
-                continue
-            _error(errors, target.is_file(), f"engine record does not exist: {raw_path}")
-            if target.is_file():
-                record = _load_artifact(target, errors, f"engine verification record {raw_path}")
-                if record is not None:
-                    records.append(record)
-        return records
-    return [artifact]
+    artifact = _load_artifact(path, errors, "engine verification evidence")
+    if not isinstance(artifact, dict):
+        errors.append("engine verification evidence must be a manifest object")
+        return []
+    _error(
+        errors,
+        set(artifact) == {"schema_version", "records"},
+        "engine verification manifest must contain exactly schema_version and records",
+    )
+    _error(errors, artifact.get("schema_version") == 2, "engine verification manifest schema_version must be 2")
+    records = artifact.get("records")
+    if not isinstance(records, list):
+        errors.append("engine verification manifest records must be an array")
+        return []
+    return records
+
+
+def _parse_rfc3339(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed
+
+
+def _parse_vector_artifact(path: pathlib.Path, errors: list[str], label: str) -> dict[str, Any] | None:
+    try:
+        raw = path.read_bytes()
+        if raw[:4] != b"EBV1":
+            raise ValueError("magic is not EBV1")
+        offset = 4
+
+        def take(fmt: str) -> tuple[int, ...]:
+            nonlocal offset
+            size = struct.calcsize(fmt)
+            if offset + size > len(raw):
+                raise ValueError("truncated header")
+            values = struct.unpack_from(fmt, raw, offset)
+            offset += size
+            return values
+
+        (model_len,) = take("<H")
+        if offset + model_len > len(raw):
+            raise ValueError("truncated model id")
+        model_id = raw[offset : offset + model_len].decode("utf-8")
+        offset += model_len
+        (dimension,) = take("<I")
+        (count,) = take("<I")
+        if not model_id or dimension <= 0:
+            raise ValueError("empty model id or zero dimension")
+        fact_ids: list[str] = []
+        seen: set[str] = set()
+        for _ in range(count):
+            (fact_id_len,) = take("<H")
+            if offset + fact_id_len > len(raw):
+                raise ValueError("truncated fact id")
+            fact_id = raw[offset : offset + fact_id_len].decode("utf-8")
+            offset += fact_id_len
+            if not fact_id or fact_id in seen:
+                raise ValueError("empty or duplicate fact id")
+            seen.add(fact_id)
+            fact_ids.append(fact_id)
+            vector_bytes = dimension * 4
+            if offset + vector_bytes > len(raw):
+                raise ValueError(f"truncated vector for {fact_id}")
+            offset += vector_bytes
+        if offset != len(raw):
+            raise ValueError("trailing bytes")
+    except (OSError, UnicodeDecodeError, ValueError, struct.error) as exc:
+        errors.append(f"{label}: invalid EBV1 vector artifact: {exc}")
+        return None
+    return {"model_id": model_id, "dimension": dimension, "count": count, "fact_ids": fact_ids}
+
+
+def _load_ndjson_fact_ids(path: pathlib.Path, errors: list[str], label: str) -> set[str] | None:
+    fact_ids: set[str] = set()
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                item = json.loads(line)
+                fact_id = item.get("id") if isinstance(item, dict) else None
+                if not isinstance(fact_id, str) or not fact_id or fact_id in fact_ids:
+                    raise ValueError(f"line {line_number} has an invalid or duplicate id")
+                fact_ids.add(fact_id)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        errors.append(f"{label}: retained facts are not valid unique-id NDJSON: {exc}")
+        return None
+    return fact_ids
 
 
 def _dependency_inventory_sha256(rows: list[tuple[str, str]]) -> str:
@@ -1246,6 +1326,22 @@ def _engine_pin_descriptor(pins: dict[str, Any], *, require_production: bool) ->
     return {"id": pins.get("pin_set_id"), "sha256": digest_value, "authority": authority}
 
 
+def _git_value(repo: pathlib.Path, *args: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except OSError:
+        return None
+    if completed.returncode != 0:
+        return None
+    return completed.stdout.strip()
+
+
 def _validate_engine_pins(
     pins: Any,
     errors: list[str],
@@ -1264,6 +1360,37 @@ def _validate_engine_pins(
         _error(errors, pins.get("authority") == "test_fixture", "injected engine pins must have test_fixture authority")
     _error(errors, pins.get("schema_version") == 1, "engine pin schema_version must be 1")
     _error(errors, isinstance(pins.get("pin_set_id"), str) and bool(pins.get("pin_set_id")), "engine pin_set_id is missing")
+
+    binary = pins.get("binary", {})
+    _error(errors, binary.get("provenance_mode") == "reproducible_build_v1", "engine binary provenance mode is invalid")
+    _error(errors, _is_sha256(binary.get("binary_sha256")), "engine binary hash pin is invalid")
+    _error(
+        errors,
+        _is_nonnegative_int(binary.get("binary_size_bytes")) and binary.get("binary_size_bytes", 0) > 0,
+        "engine binary size pin is invalid",
+    )
+    _error(errors, _is_commit(binary.get("source_commit")), "engine binary source commit is invalid")
+    _error(errors, _is_commit(binary.get("source_tree")), "engine binary source tree is invalid")
+    build_command = binary.get("build_command")
+    _error(
+        errors,
+        isinstance(build_command, list)
+        and len(build_command) == 7
+        and build_command[:5] == ["go", "build", "-trimpath", "-buildvcs=false", "-o"]
+        and isinstance(build_command[5], str)
+        and bool(build_command[5])
+        and build_command[6] == "./cmd/entire-brain",
+        "engine binary build command is not the deterministic contract",
+    )
+    _error(
+        errors,
+        isinstance(binary.get("go_version"), str) and binary.get("go_version", "").startswith("go version go"),
+        "engine binary Go version is invalid",
+    )
+    if require_production and _is_commit(binary.get("source_commit")):
+        commit = binary["source_commit"]
+        _error(errors, _git_value(repo, "rev-parse", f"{commit}^{{commit}}") == commit, "engine binary source commit is unavailable")
+        _error(errors, _git_value(repo, "show", "-s", "--format=%T", commit) == binary.get("source_tree"), "engine binary source tree differs from commit")
 
     task = pins.get("development_task", {})
     queries = task.get("queries", []) if isinstance(task, dict) else []
@@ -1288,6 +1415,8 @@ def _validate_engine_pins(
     exclusions = task.get("exclude_session_ids") if isinstance(task, dict) else None
     _error(errors, isinstance(exclusions, list) and _unique_strings(exclusions), "engine pin excluded sessions are invalid")
     _error(errors, isinstance(task.get("eligible_before"), str) and bool(task.get("eligible_before")), "engine pin cutoff is missing")
+    _error(errors, isinstance(task.get("branch"), str) and bool(task.get("branch")), "engine pin branch is missing")
+    _error(errors, _is_nonnegative_int(task.get("k")) and task.get("k", 0) > 0, "engine pin k is invalid")
 
     corpus = pins.get("corpus", {})
     for key in ("facts_sha256", "session_dates_sha256"):
@@ -1322,6 +1451,14 @@ def _validate_engine_pins(
     )
     for key in ("dependency_file_count", "dependency_total_bytes"):
         _error(errors, _is_nonnegative_int(runtime.get(key)), f"engine runtime pin {key} is invalid")
+    interval = runtime.get("server_health_interval_seconds")
+    _error(
+        errors,
+        isinstance(interval, (int, float))
+        and not isinstance(interval, bool)
+        and 0 < interval <= 10,
+        "engine runtime health interval is invalid or unbounded",
+    )
     for stem in ("server_script", "package_manifest", "package_lock"):
         raw_path = runtime.get(f"{stem}_repo_path")
         target = _safe_relative_path(raw_path, repo)
@@ -1396,6 +1533,111 @@ def _validate_dependency_manifest(
         _error(errors, actual == seen_relative, f"{label}: retained dependency file set differs from manifest")
 
 
+def _validate_binary_attestation(
+    raw_path: Any,
+    retained_binary_path: Any,
+    pins: dict[str, Any],
+    errors: list[str],
+    label: str,
+    *,
+    repo: pathlib.Path,
+) -> None:
+    target = _safe_relative_path(raw_path, repo)
+    if target is None or not target.is_file():
+        return
+    artifact = _load_artifact(target, errors, f"{label} binary attestation")
+    if not isinstance(artifact, dict):
+        return
+    binary = pins.get("binary", {})
+    expected = {
+        "schema_version": 1,
+        "pin_set_id": pins.get("pin_set_id"),
+        "provenance_mode": binary.get("provenance_mode"),
+        "binary_path": retained_binary_path,
+        "binary_sha256": binary.get("binary_sha256"),
+        "binary_size_bytes": binary.get("binary_size_bytes"),
+        "source_commit": binary.get("source_commit"),
+        "source_tree": binary.get("source_tree"),
+        "build_command": binary.get("build_command"),
+        "go_version": binary.get("go_version"),
+    }
+    _error(errors, artifact == expected, f"{label}: binary attestation differs from the pinned build contract")
+
+
+def _load_runtime_stdout(raw_path: Any, errors: list[str], label: str, *, repo: pathlib.Path) -> dict[str, Any] | None:
+    target = _safe_relative_path(raw_path, repo)
+    if target is None or not target.is_file():
+        return None
+    artifact = _load_artifact(target, errors, f"{label} retained stdout")
+    if not isinstance(artifact, dict):
+        errors.append(f"{label}: retained stdout must be one JSON object")
+        return None
+    return artifact
+
+
+def _validate_runtime_stdout_reconciliation(
+    output: dict[str, Any],
+    arm_id: Any,
+    engine_pin: dict[str, Any],
+    effective: dict[str, Any],
+    corpus: dict[str, Any],
+    result: dict[str, Any],
+    errors: list[str],
+    label: str,
+) -> None:
+    engine = output.get("retrieval_engine")
+    eligibility = output.get("eligibility")
+    facts = output.get("facts")
+    _error(errors, output.get("effective_engine") == arm_id, f"{label}: stdout top-level engine differs from record")
+    if not isinstance(engine, dict):
+        errors.append(f"{label}: stdout retrieval_engine is missing")
+    else:
+        semantic = engine_pin.get("semantic") is True
+        comparisons = (
+            ("effective_engine", arm_id),
+            ("semantic_requested", semantic),
+            ("semantic_applied", semantic),
+            ("semantic_available", effective.get("semantic_available")),
+            ("bm25_enabled", effective.get("bm25_enabled")),
+            ("fallback_used", effective.get("fallback_used")),
+        )
+        for field, expected in comparisons:
+            _error(errors, engine.get(field) == expected, f"{label}: stdout {field} differs from record/pin")
+        _error(errors, engine.get("identity_verified") is True, f"{label}: stdout engine identity is not verified")
+        _error(
+            errors,
+            (engine.get("embedder_id") if semantic else None) == effective.get("embedder_id"),
+            f"{label}: stdout embedder differs from record",
+        )
+        _error(
+            errors,
+            (engine.get("embedding_dimension") if semantic else None) == effective.get("embedding_dimension"),
+            f"{label}: stdout embedding dimension differs from record",
+        )
+        _error(
+            errors,
+            (engine.get("vector_count", 0) if semantic else 0) == effective.get("vector_count"),
+            f"{label}: stdout vector_count differs from record",
+        )
+        _error(
+            errors,
+            (engine.get("resident_vector_count", 0) if semantic else 0) == effective.get("resident_vector_count"),
+            f"{label}: stdout resident_vector_count differs from record",
+        )
+        if semantic:
+            _error(errors, engine.get("vector_cache_backend") == "flat_file", f"{label}: stdout vector backend is not flat_file")
+            _error(errors, engine.get("vector_cache_read_only") is False, f"{label}: stdout vector cache is read-only")
+    if not isinstance(eligibility, dict):
+        errors.append(f"{label}: stdout eligibility is missing")
+    else:
+        _error(errors, eligibility.get("prefilter_corpus_count") == corpus.get("prefilter_count"), f"{label}: stdout prefilter count differs from record")
+        _error(errors, eligibility.get("eligible_count") == corpus.get("eligible_count"), f"{label}: stdout eligible count differs from record")
+        _error(errors, eligibility.get("excluded_counts") == corpus.get("excluded_by_reason"), f"{label}: stdout excluded counts differ from record")
+        _error(errors, eligibility.get("delivered_count") == corpus.get("delivered_count"), f"{label}: stdout delivered count differs from record")
+    fact_ids = [fact.get("id") if isinstance(fact, dict) else None for fact in facts] if isinstance(facts, list) else None
+    _error(errors, fact_ids == result.get("fact_ids_in_order"), f"{label}: stdout ranked fact ids differ from record")
+
+
 def _validate_server_attestation(
     raw_path: Any,
     requested: dict[str, Any],
@@ -1413,7 +1655,25 @@ def _validate_server_attestation(
         return
     model = pins.get("embedding_model", {})
     runtime = pins.get("runtime", {})
-    _error(errors, artifact.get("schema_version") == 1, f"{label}: server attestation schema_version must be 1")
+    _error(
+        errors,
+        set(artifact)
+        == {
+            "schema_version",
+            "pin_set_id",
+            "process_pid",
+            "ownership_token_sha256",
+            "model_path",
+            "model_sha256",
+            "embedding_dimension",
+            "node_version",
+            "health_interval_seconds",
+            "recall_window",
+            "observations",
+        },
+        f"{label}: server attestation fields differ from the v2 contract",
+    )
+    _error(errors, artifact.get("schema_version") == 2, f"{label}: server attestation schema_version must be 2")
     _error(errors, artifact.get("pin_set_id") == pins.get("pin_set_id"), f"{label}: server attestation pin set differs")
     pid = artifact.get("process_pid")
     _error(errors, _is_nonnegative_int(pid) and pid > 0, f"{label}: server attestation PID is invalid")
@@ -1424,6 +1684,11 @@ def _validate_server_attestation(
     _error(errors, artifact.get("model_sha256") == model.get("sha256"), f"{label}: attested model hash differs from pin")
     _error(errors, artifact.get("embedding_dimension") == model.get("dimension"), f"{label}: attested dimension differs from pin")
     _error(errors, artifact.get("node_version") == runtime.get("node_version"), f"{label}: attested Node version differs from pin")
+    _error(
+        errors,
+        artifact.get("health_interval_seconds") == runtime.get("server_health_interval_seconds"),
+        f"{label}: attested health interval differs from pin",
+    )
     environment = requested.get("embedding_server_environment")
     _error(errors, isinstance(environment, dict), f"{label}: embedding server environment is missing")
     if isinstance(environment, dict) and isinstance(environment.get("ENGINE_VERIFICATION_TOKEN"), str):
@@ -1442,9 +1707,25 @@ def _validate_server_attestation(
         )
     else:
         errors.append(f"{label}: server environment ownership token is missing")
+    recall_window = artifact.get("recall_window")
+    _error(
+        errors,
+        isinstance(recall_window, dict) and set(recall_window) == {"started_at", "finished_at"},
+        f"{label}: recall window is invalid",
+    )
+    recall_started = _parse_rfc3339(recall_window.get("started_at")) if isinstance(recall_window, dict) else None
+    recall_finished = _parse_rfc3339(recall_window.get("finished_at")) if isinstance(recall_window, dict) else None
+    _error(errors, recall_started is not None, f"{label}: recall start is not timezone-aware RFC3339")
+    _error(errors, recall_finished is not None, f"{label}: recall finish is not timezone-aware RFC3339")
+    if recall_started is not None and recall_finished is not None:
+        _error(errors, recall_started < recall_finished, f"{label}: recall window is empty or reversed")
+
     observations = artifact.get("observations")
     _error(errors, isinstance(observations, list) and len(observations) >= 3, f"{label}: server health observations are incomplete")
     phases: list[Any] = []
+    observed_times: list[dt.datetime] = []
+    request_counts: list[Any] = []
+    nonce_hashes: list[Any] = []
     if isinstance(observations, list):
         for index, observation in enumerate(observations):
             observation_label = f"{label}.server observations[{index}]"
@@ -1457,6 +1738,8 @@ def _validate_server_attestation(
                     "observed_at",
                     "pid",
                     "ownership_token_sha256",
+                    "request_nonce_sha256",
+                    "health_request_count",
                     "model_path",
                     "model_sha256",
                     "embedding_dimension",
@@ -1467,7 +1750,17 @@ def _validate_server_attestation(
             ):
                 continue
             phases.append(observation.get("phase"))
+            observed_at = _parse_rfc3339(observation.get("observed_at"))
+            if observed_at is not None:
+                observed_times.append(observed_at)
+            request_counts.append(observation.get("health_request_count"))
+            nonce_hashes.append(observation.get("request_nonce_sha256"))
             _error(errors, observation.get("sequence") == index, f"{observation_label}: sequence is not contiguous")
+            _error(
+                errors,
+                observation.get("phase") in {"pre_recall", "heartbeat", "during_recall", "post_recall"},
+                f"{observation_label}: phase is invalid",
+            )
             _error(errors, observation.get("healthy") is True, f"{observation_label}: health is not true")
             _error(errors, observation.get("pid") == pid, f"{observation_label}: PID changed")
             _error(errors, observation.get("ownership_token_sha256") == token_hash, f"{observation_label}: ownership token changed")
@@ -1475,10 +1768,45 @@ def _validate_server_attestation(
             _error(errors, observation.get("model_sha256") == model.get("sha256"), f"{observation_label}: model hash changed")
             _error(errors, observation.get("embedding_dimension") == model.get("dimension"), f"{observation_label}: dimension changed")
             _error(errors, observation.get("node_version") == runtime.get("node_version"), f"{observation_label}: Node version changed")
-            _error(errors, isinstance(observation.get("observed_at"), str) and bool(observation.get("observed_at")), f"{observation_label}: timestamp is missing")
-    _error(errors, "pre_recall" in phases, f"{label}: no pre-recall health attestation")
-    _error(errors, "during_recall" in phases, f"{label}: no during-recall health attestation")
+            _error(errors, observed_at is not None, f"{observation_label}: timestamp is not timezone-aware RFC3339")
+            _error(errors, _is_sha256(observation.get("request_nonce_sha256")), f"{observation_label}: nonce hash is invalid")
+            _error(
+                errors,
+                _is_nonnegative_int(observation.get("health_request_count"))
+                and observation.get("health_request_count", 0) > 0,
+                f"{observation_label}: health request counter is invalid",
+            )
+    _error(errors, phases and phases[0] == "pre_recall", f"{label}: first health attestation is not pre-recall")
+    _error(errors, phases.count("pre_recall") == 1, f"{label}: pre-recall health attestation must occur exactly once")
+    _error(errors, phases.count("during_recall") == 1, f"{label}: during-recall health attestation must occur exactly once")
+    _error(errors, phases.count("post_recall") == 1, f"{label}: post-recall health attestation must occur exactly once")
     _error(errors, phases and phases[-1] == "post_recall", f"{label}: final health attestation is not post-recall")
+    _error(
+        errors,
+        len(observed_times) == len(phases)
+        and all(left < right for left, right in zip(observed_times, observed_times[1:])),
+        f"{label}: health observation timestamps are not strictly increasing",
+    )
+    _error(
+        errors,
+        all(_is_nonnegative_int(value) for value in request_counts)
+        and all(left < right for left, right in zip(request_counts, request_counts[1:])),
+        f"{label}: health request counters are not strictly increasing",
+    )
+    _error(errors, _unique_strings(nonce_hashes), f"{label}: health request nonces are invalid or reused")
+    if (
+        recall_started is not None
+        and recall_finished is not None
+        and len(observed_times) == len(phases)
+        and phases.count("during_recall") == 1
+        and phases
+    ):
+        during_time = observed_times[phases.index("during_recall")]
+        _error(
+            errors,
+            observed_times[0] < recall_started < during_time < recall_finished < observed_times[-1],
+            f"{label}: pre/during/post health evidence does not strictly bound active recall",
+        )
 
 
 def validate_engine_verification(
@@ -1504,6 +1832,11 @@ def validate_engine_verification(
     expected_descriptor = _engine_pin_descriptor(pin_data, require_production=require_production)
     evidence_path = _evidence_path(check.get("evidence"), here, repo)
     _error(errors, evidence_path is not None and evidence_path.exists(), "engine pass evidence is missing")
+    _error(
+        errors,
+        not _evidence_path_contains_symlink(check.get("evidence"), here, repo),
+        "engine verification evidence must not traverse a symlink",
+    )
     if evidence_path is None or not evidence_path.exists():
         return errors
     records = _load_engine_records(evidence_path, errors, repo)
@@ -1527,6 +1860,7 @@ def validate_engine_verification(
         f"{stem}_{suffix}"
         for stem in (
             "binary",
+            "binary_attestation",
             "stdout",
             "stderr",
             "facts_source",
@@ -1563,6 +1897,9 @@ def validate_engine_verification(
     facts_source_paths: list[Any] = []
     session_source_paths: list[Any] = []
     derived_facts_paths: list[Any] = []
+    binary_paths: list[Any] = []
+    binary_hashes: list[Any] = []
+    binary_attestation_paths: list[Any] = []
     for index, record in enumerate(records):
         label = f"engine records[{index}]"
         if not _required_object_fields(
@@ -1589,7 +1926,7 @@ def validate_engine_verification(
         effective_ok = _required_object_fields(
             errors,
             effective,
-            ("engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "vector_namespace"),
+            ("engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "resident_vector_count", "vector_namespace"),
             f"{label}.effective",
         )
         artifacts_ok = _required_object_fields(errors, artifacts, artifact_fields, f"{label}.artifacts")
@@ -1603,9 +1940,7 @@ def validate_engine_verification(
 
         if requested_ok:
             command = requested.get("command")
-            command_ok = (isinstance(command, str) and bool(command)) or (
-                isinstance(command, list) and bool(command) and all(isinstance(part, str) for part in command)
-            )
+            command_ok = isinstance(command, list) and bool(command) and all(isinstance(part, str) and part for part in command)
             _error(errors, command_ok, f"{label}: requested command is invalid")
             environment = requested.get("environment")
             _error(errors, isinstance(environment, dict), f"{label}: requested environment must be an object")
@@ -1625,29 +1960,127 @@ def validate_engine_verification(
             _error(errors, namespace == arm.get("namespace"), f"{label}: effective namespace mismatch")
             _error(errors, isinstance(namespace, str) and bool(namespace), f"{label}: vector namespace is missing")
             _error(errors, _is_nonnegative_int(effective.get("vector_count")), f"{label}: vector_count is invalid")
+            _error(errors, _is_nonnegative_int(effective.get("resident_vector_count")), f"{label}: resident_vector_count is invalid")
+            if arm.get("semantic") is True:
+                _error(
+                    errors,
+                    _is_nonnegative_int(effective.get("vector_count")) and effective.get("vector_count", 0) > 0,
+                    f"{label}: semantic vector_count must be positive",
+                )
+                _error(
+                    errors,
+                    _is_nonnegative_int(effective.get("resident_vector_count"))
+                    and effective.get("resident_vector_count", 0) > 0,
+                    f"{label}: semantic resident_vector_count must be positive",
+                )
             _error(errors, effective.get("embedder_id") == engine_pin.get("embedder_id"), f"{label}: embedder differs from canonical pin")
             _error(errors, effective.get("embedding_dimension") == engine_pin.get("dimension"), f"{label}: dimension differs from canonical pin")
 
         if artifacts_ok:
-            for stem in ("binary", "stdout", "stderr", "facts_source", "session_dates_source", "derived_facts"):
+            for stem in ("binary", "binary_attestation", "stdout", "stderr", "facts_source", "session_dates_source", "derived_facts"):
                 _verify_hashed_file(
                     errors,
                     {"path": artifacts.get(f"{stem}_path"), "sha256": artifacts.get(f"{stem}_sha256")},
                     f"{label}.{stem} artifact",
                     repo=repo,
                 )
+            binary_paths.append(artifacts.get("binary_path"))
+            binary_hashes.append(artifacts.get("binary_sha256"))
+            binary_attestation_paths.append(artifacts.get("binary_attestation_path"))
             facts_source_paths.append(artifacts.get("facts_source_path"))
             session_source_paths.append(artifacts.get("session_dates_source_path"))
             derived_facts_paths.append(artifacts.get("derived_facts_path"))
             _error(errors, artifacts.get("facts_source_sha256") == corpus_pin.get("facts_sha256"), f"{label}: retained facts source differs from pin")
             _error(errors, artifacts.get("session_dates_source_sha256") == corpus_pin.get("session_dates_sha256"), f"{label}: retained session dates differ from pin")
             _error(errors, artifacts.get("derived_facts_sha256") == corpus_pin.get("facts_sha256"), f"{label}: derived facts changed during recall")
+            binary_target = _safe_relative_path(artifacts.get("binary_path"), repo)
+            sessions_target = _safe_relative_path(artifacts.get("session_dates_source_path"), repo)
+            derived_target = _safe_relative_path(artifacts.get("derived_facts_path"), repo)
+            _error(errors, artifacts.get("binary_sha256") == pin_data.get("binary", {}).get("binary_sha256"), f"{label}: retained binary differs from canonical pin")
+            if binary_target is not None and binary_target.is_file():
+                _error(
+                    errors,
+                    binary_target.stat().st_size == pin_data.get("binary", {}).get("binary_size_bytes"),
+                    f"{label}: retained binary size differs from canonical pin",
+                )
+            _validate_binary_attestation(
+                artifacts.get("binary_attestation_path"),
+                artifacts.get("binary_path"),
+                pin_data,
+                errors,
+                label,
+                repo=repo,
+            )
+            command = requested.get("command") if isinstance(requested, dict) else None
+            query_id = result.get("query_id") if isinstance(result, dict) else None
+            query_pin = pinned_queries.get(query_id)
+            if (
+                isinstance(command, list)
+                and binary_target is not None
+                and sessions_target is not None
+                and isinstance(query_pin, dict)
+            ):
+                task_pin = pin_data.get("development_task", {})
+                expected_command = [
+                    str(binary_target),
+                    "recall",
+                    query_pin.get("query_text"),
+                    "--branch",
+                    task_pin.get("branch"),
+                    "--k",
+                    str(task_pin.get("k")),
+                    "--eligible-before",
+                    task_pin.get("eligible_before"),
+                    "--session-dates",
+                    str(sessions_target),
+                ]
+                for session_id in task_pin.get("exclude_session_ids", []):
+                    expected_command.extend(("--exclude-session-id", session_id))
+                if arm_id == "lexical_handrolled":
+                    expected_command.append("--no-semantic")
+                expected_command.append("--json")
+                _error(errors, command == expected_command, f"{label}: requested recall command differs from the pinned retained-binary invocation")
+
+            stdout = _load_runtime_stdout(artifacts.get("stdout_path"), errors, label, repo=repo)
+            if (
+                stdout is not None
+                and isinstance(effective, dict)
+                and isinstance(corpus, dict)
+                and isinstance(result, dict)
+            ):
+                _validate_runtime_stdout_reconciliation(
+                    stdout,
+                    arm_id,
+                    engine_pin,
+                    effective,
+                    corpus,
+                    result,
+                    errors,
+                    label,
+                )
 
             vector_path = artifacts.get("vector_artifact_path")
             vector_hash = artifacts.get("vector_artifact_sha256")
             if arm.get("semantic") is True:
                 semantic_vector_paths.append(vector_path)
                 _verify_hashed_file(errors, {"path": vector_path, "sha256": vector_hash}, f"{label}.vector artifact", repo=repo)
+                vector_target = _safe_relative_path(vector_path, repo)
+                parsed_vector = (
+                    _parse_vector_artifact(vector_target, errors, f"{label}.vector artifact")
+                    if vector_target is not None and vector_target.is_file()
+                    else None
+                )
+                fact_ids = (
+                    _load_ndjson_fact_ids(derived_target, errors, f"{label}.derived facts")
+                    if derived_target is not None and derived_target.is_file()
+                    else None
+                )
+                if parsed_vector is not None and isinstance(effective, dict):
+                    _error(errors, parsed_vector["model_id"] == effective.get("embedder_id"), f"{label}: EBV1 model id differs from record/runtime")
+                    _error(errors, parsed_vector["dimension"] == effective.get("embedding_dimension"), f"{label}: EBV1 dimension differs from record/runtime")
+                    _error(errors, parsed_vector["count"] == effective.get("resident_vector_count"), f"{label}: EBV1 count differs from record/runtime")
+                    if fact_ids is not None:
+                        _error(errors, set(parsed_vector["fact_ids"]).issubset(fact_ids), f"{label}: EBV1 contains fact ids outside retained corpus")
             else:
                 _error(errors, vector_path is None and vector_hash is None, f"{label}: lexical vector artifact must be null")
 
@@ -1757,6 +2190,9 @@ def validate_engine_verification(
     _error(errors, _all_equal(query_ids), "engine verification query ids differ")
     _error(errors, _all_equal(facts_source_paths), "engine verification retained facts sources differ")
     _error(errors, _all_equal(session_source_paths), "engine verification retained session-date sources differ")
+    _error(errors, _all_equal(binary_paths), "engine verification retained binary paths differ")
+    _error(errors, _all_equal(binary_hashes), "engine verification retained binary hashes differ")
+    _error(errors, _all_equal(binary_attestation_paths), "engine verification binary attestations differ")
     _error(errors, _unique_strings(derived_facts_paths), "engine verification derived facts paths are not unique")
     return errors
 

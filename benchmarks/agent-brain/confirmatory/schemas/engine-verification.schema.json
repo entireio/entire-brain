@@ -21,10 +21,7 @@
       "required": ["command", "environment", "namespace"],
       "properties": {
         "command": {
-          "oneOf": [
-            {"type": "string", "minLength": 1},
-            {"type": "array", "minItems": 1, "items": {"type": "string"}}
-          ]
+          "type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}
         },
         "environment": {"type": "object", "additionalProperties": {"type": "string"}},
         "namespace": {"type": "string", "minLength": 1},
@@ -35,7 +32,7 @@
     },
     "effective": {
       "type": "object",
-      "required": ["engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "vector_namespace"],
+      "required": ["engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "resident_vector_count", "vector_namespace"],
       "properties": {
         "engine": {"enum": ["lexical_handrolled", "model2vec_rrf", "embeddinggemma_rrf"]},
         "semantic_available": {"type": "boolean"},
@@ -44,6 +41,7 @@
         "embedder_id": {"type": ["string", "null"]},
         "embedding_dimension": {"type": ["integer", "null"], "minimum": 1},
         "vector_count": {"type": "integer", "minimum": 0},
+        "resident_vector_count": {"type": "integer", "minimum": 0},
         "vector_namespace": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
@@ -52,6 +50,7 @@
       "type": "object",
       "required": [
         "binary_path", "binary_sha256",
+        "binary_attestation_path", "binary_attestation_sha256",
         "stdout_path", "stdout_sha256",
         "stderr_path", "stderr_sha256",
         "facts_source_path", "facts_source_sha256",
@@ -71,6 +70,8 @@
       "properties": {
         "binary_path": {"type": "string", "minLength": 1},
         "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "binary_attestation_path": {"type": "string", "minLength": 1},
+        "binary_attestation_sha256": {"$ref": "#/$defs/sha256"},
         "stdout_path": {"type": "string", "minLength": 1},
         "stdout_sha256": {"$ref": "#/$defs/sha256"},
         "stderr_path": {"type": "string", "minLength": 1},

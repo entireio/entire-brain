@@ -47,10 +47,13 @@ const model = await llama.loadModel({ modelPath });
 const ctx = await model.createEmbeddingContext();
 const probe = await ctx.getEmbeddingFor("title: none | text: probe");
 console.log("ready: dim =", probe.vector.length, "on :" + port);
+let healthRequestCount = 0;
 
 http.createServer((req, res) => {
-  const path = (req.url || "/").split("?")[0];
+  const requestUrl = new URL(req.url || "/", `http://${host}:${port}`);
+  const path = requestUrl.pathname;
   if (req.method === "GET" && path === "/health" && verificationToken) {
+    healthRequestCount += 1;
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({
       pid: process.pid,
@@ -59,6 +62,8 @@ http.createServer((req, res) => {
       model_sha256: modelSha256,
       embedding_dimension: probe.vector.length,
       node_version: process.version,
+      request_nonce: requestUrl.searchParams.get("nonce") || "",
+      health_request_count: healthRequestCount,
     }));
     return;
   }
