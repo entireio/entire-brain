@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "2447fb0c5979",
+  "strategy": "manual-commit",
+  "branch": "codex/ws5-evidence-provenance",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/analysis/README.md",
+    "benchmarks/agent-brain/analysis/__init__.py",
+    "benchmarks/agent-brain/analysis/common.py",
+    "benchmarks/agent-brain/analysis/evidence.py",
+    "benchmarks/agent-brain/analysis/metrics.py",
+    "benchmarks/agent-brain/analysis/reports/README.md",
+    "benchmarks/agent-brain/analysis/reports/existing-winner-suites-exploratory.md",
+    "benchmarks/agent-brain/analysis/schemas/run-v1.schema.json",
+    "benchmarks/agent-brain/analysis/schemas/suite-v1.schema.json",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/24/47fb0c5979/0/metadata.json",
+      "transcript": "/24/47fb0c5979/0/full.jsonl",
+      "compact_transcript": "/24/47fb0c5979/0/transcript.jsonl",
+      "content_hash": "/24/47fb0c5979/0/content_hash.txt",
+      "prompt": "/24/47fb0c5979/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 225847,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6817536,
+    "output_tokens": 28896,
+    "api_call_count": 61
+  }
+}
