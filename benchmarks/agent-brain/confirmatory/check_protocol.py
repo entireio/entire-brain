@@ -65,7 +65,18 @@ RELEVANCE_ARTIFACTS = {
     "labels": ("offline-relevance-development-labels.json", "schemas/relevance-label-source.schema.json"),
     "snapshot": ("offline-relevance-fact-snapshot.json", "schemas/relevance-fact-snapshot.schema.json"),
     "dataset": ("offline-relevance-dataset.json", "schemas/relevance-dataset.schema.json"),
+    "review_ledger": ("offline-relevance-review-ledger.json", "schemas/relevance-review-ledger.schema.json"),
 }
+RELEVANCE_SOURCE_CONTRACT_FILE = "relevance-source-contract.json"
+RELEVANCE_SOURCE_MEMBERSHIP_FILE = "offline-relevance-source-membership.json"
+RELEVANCE_SOURCE_MEMBERSHIP_REPO_PATH = (
+    "benchmarks/agent-brain/confirmatory/offline-relevance-source-membership.json"
+)
+RELEVANCE_REVIEW_LEDGER_REPO_PATH = (
+    "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
+)
+# Reviewed independently of preregistration.json's routinely regenerated artifact hashes.
+RELEVANCE_SOURCE_CONTRACT_SHA256 = "a1e38838638a25accdc8a959d5f00a4d92257da70e411f90757e99f38e587678"
 
 
 def load(path: pathlib.Path) -> Any:
@@ -854,6 +865,48 @@ def validate_relevance_bundle(
 ) -> list[str]:
     """Validate committed relevance sources, schemas, generated output, and versioned hashes."""
     errors: list[str] = []
+    reviewed_contract_path = here / RELEVANCE_SOURCE_CONTRACT_FILE
+    membership_path = here / RELEVANCE_SOURCE_MEMBERSHIP_FILE
+    reviewed_contract: dict[str, Any] | None = None
+    membership: dict[str, Any] | None = None
+    if not reviewed_contract_path.is_file():
+        errors.append("reviewed relevance source contract is missing")
+    else:
+        _error(
+            errors,
+            digest(reviewed_contract_path) == RELEVANCE_SOURCE_CONTRACT_SHA256,
+            "reviewed relevance source contract digest differs from hardcoded trust root",
+        )
+        loaded_contract = _load_artifact(reviewed_contract_path, errors, "reviewed relevance source contract")
+        if isinstance(loaded_contract, dict):
+            reviewed_contract = loaded_contract
+        else:
+            errors.append("reviewed relevance source contract must be an object")
+    if not membership_path.is_file():
+        errors.append("complete relevance source membership catalog is missing")
+    else:
+        loaded_membership = _load_artifact(membership_path, errors, "complete relevance source membership catalog")
+        if isinstance(loaded_membership, dict):
+            membership = loaded_membership
+        else:
+            errors.append("complete relevance source membership catalog must be an object")
+    if reviewed_contract is not None:
+        _error(
+            errors,
+            reviewed_contract.get("membership_path") == RELEVANCE_SOURCE_MEMBERSHIP_REPO_PATH,
+            "reviewed relevance source membership path changed",
+        )
+    for value, schema_name, label in (
+        (reviewed_contract, "relevance-source-contract.schema.json", "source contract"),
+        (membership, "relevance-source-membership.schema.json", "source membership"),
+    ):
+        schema_path = here / "schemas" / schema_name
+        if not schema_path.is_file():
+            errors.append(f"relevance {label} schema is missing")
+            continue
+        schema = _load_artifact(schema_path, errors, f"relevance {label} schema")
+        if isinstance(value, dict) and isinstance(schema, dict):
+            errors.extend(relevance_dataset.validate_schema_instance(value, schema, label))
     offline = protocol.get("offline_dataset")
     if not isinstance(offline, dict):
         return ["offline_dataset protocol section must be an object"]
@@ -937,10 +990,40 @@ def validate_relevance_bundle(
         labels = loaded["labels"]
         snapshot = loaded["snapshot"]
         dataset = loaded["dataset"]
+        review_ledger = loaded["review_ledger"]
         try:
             errors.extend(
-                relevance_dataset.validate_relevance_schemas(labels, snapshot, dataset, here / "schemas")
+                relevance_dataset.validate_relevance_schemas(
+                    labels, snapshot, dataset, here / "schemas", review_ledger
+                )
             )
+        except relevance_dataset.DatasetError as exc:
+            errors.append(f"relevance schema validation failed: {exc}")
+        try:
+            if reviewed_contract is None or membership is None:
+                raise relevance_dataset.DatasetError("reviewed source contract/membership is unavailable")
+            relevance_dataset.validate_source_membership(
+                labels,
+                snapshot,
+                reviewed_contract,
+                membership,
+                membership_sha256=digest(membership_path),
+            )
+        except relevance_dataset.DatasetError as exc:
+            errors.append(f"relevance source membership validation failed: {exc}")
+        try:
+            if reviewed_contract is None:
+                raise relevance_dataset.DatasetError("reviewed source contract is unavailable")
+            relevance_dataset.validate_review_ledger(
+                labels,
+                review_ledger,
+                reviewed_contract,
+                ledger_path=RELEVANCE_REVIEW_LEDGER_REPO_PATH,
+                ledger_sha256=digest(paths["review_ledger"]),
+            )
+        except relevance_dataset.DatasetError as exc:
+            errors.append(f"relevance review ledger validation failed: {exc}")
+        try:
             expected = relevance_dataset.materialize(
                 repo.resolve(),
                 paths["labels"],

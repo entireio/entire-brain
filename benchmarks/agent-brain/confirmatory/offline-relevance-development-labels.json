@@ -22,10 +22,11 @@
       "query_source": "user_prompt_derived",
       "null_query": false,
       "label_evidence": {
-        "type": "legacy_agent_packet",
-        "source_id": "opus3d-s0/full_brain/r1",
-        "source_sha256": "473d637492db2d135c12fc18b9da7f184836b7a2510187f5cc4b86e5a6e8ee78",
-        "rationale": "The retained packet placed fact:30c6c2e4a031d91df16e4d27 first; exact text was matched back to the pinned full fact corpus before grading."
+        "type": "manual_frozen_corpus_review",
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-4dd458656",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0",
+        "rationale": "Manual review of the exposed product prompt against the pinned fact membership identified the wrapper-migration fact as solving and retained the exact three judgments below; unavailable historical packet bytes are not evidence for this label.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
       "judgments": [
         {
@@ -58,10 +59,11 @@
       "query_text": "How should an Entire-managed Cursor hook be migrated when reinstalling changes its wrapper between sh and cmd.exe?",
       "null_query": false,
       "label_evidence": {
-        "type": "legacy_agent_packet",
-        "source_id": "opus3d-s0/full_brain/r1",
-        "source_sha256": "473d637492db2d135c12fc18b9da7f184836b7a2510187f5cc4b86e5a6e8ee78",
-        "rationale": "This oracle wording names the exact wrapper migration represented by the retained packet's first fact."
+        "type": "manual_frozen_corpus_review",
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-oracle-4dd458656",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0",
+        "rationale": "Manual review of the explicit oracle wording against the pinned fact membership identified the wrapper-migration fact as solving and retained the exact three judgments below; unavailable historical packet bytes are not evidence for this label.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
       "judgments": [
         {
@@ -93,10 +95,11 @@
       "query_source": "user_prompt_derived",
       "null_query": false,
       "label_evidence": {
-        "type": "legacy_agent_packet",
-        "source_id": "opus3-s2/full_brain/r1",
-        "source_sha256": "e78454d0e55755e8c65e19d0324e13d330640439e109319b5ccc5cf42d3ed1b3",
-        "rationale": "The retained packet supplied token-accounting invariants; exact packet text was mapped to pinned corpus fact IDs before grading."
+        "type": "manual_frozen_corpus_review",
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-6699ec40a",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0",
+        "rationale": "Manual review of the exposed product prompt against the pinned fact membership identified token-accounting invariants as a relevant alternative and retained the exact three judgments below; unavailable historical packet bytes are not evidence for this label.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
       "judgments": [
         {
@@ -129,8 +132,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "Human review compared the exposed task prompt with eligible facts proposed from the pinned corpus; no agent memory packet was retained for this no-memory development run."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-855b8cdab",
+        "rationale": "Human review compared the exposed task prompt with eligible facts proposed from the pinned corpus; no agent memory packet was retained for this no-memory development run.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -162,10 +167,11 @@
       "query_source": "user_prompt_derived",
       "null_query": false,
       "label_evidence": {
-        "type": "legacy_agent_packet",
-        "source_id": "opus3-s0/full_brain/r1",
-        "source_sha256": "79f3ac6234b284184c9bcda9db60b877fd1764bd1b55a041d8f01d91fd8300f0",
-        "rationale": "The retained packet contains no direct solution, while exposed full-corpus review found a branch-oriented remote-resume contract that is useful context. Without exhaustive active-corpus closure this query is not labeled null."
+        "type": "manual_frozen_corpus_review",
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-8828752a7",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0",
+        "rationale": "Manual review of the exposed product prompt against the pinned fact membership identified a branch-oriented remote-resume contract as relevant context and retained the exact four judgments below; no exhaustive corpus closure or historical packet evidence is claimed.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
       "judgments": [
         {
@@ -205,8 +211,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "The exposed prompt and eligible facts contain the exact synthetic-promisor mechanism, while the named-remote rejection is counterevidence rather than a solution to bulk-fetch participation."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-d9df8fcca",
+        "rationale": "The exposed prompt and eligible facts contain the exact synthetic-promisor mechanism, while the named-remote rejection is counterevidence rather than a solution to bulk-fetch participation.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -246,8 +254,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "This task was already retrieval-probed; manual review found an eligible fact that records removal of automatic enable-time import prompting."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-d90849ac5",
+        "rationale": "This task was already retrieval-probed; manual review found an eligible fact that records removal of automatic enable-time import prompting.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -280,8 +290,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "Manual review found security invariants that constrain bearer-token destinations, but no fact that describes this API client's redirect callback implementation exactly."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-aaeb8546c",
+        "rationale": "Manual review found security invariants that constrain bearer-token destinations, but no fact that describes this API client's redirect callback implementation exactly.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -314,8 +326,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "The eligible corpus contains the stale-cache fallback policy and separate cache architecture needed to judge this discovery regression."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-b3f0deb5b",
+        "rationale": "The eligible corpus contains the stale-cache fallback policy and separate cache architecture needed to judge this discovery regression.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -348,8 +362,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "Manual review found separate eligible facts for imported-checkpoint constraints and strategy-owned orphan classification; neither was inferred from the prompt alone."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-21fcaf5f2",
+        "rationale": "Manual review found separate eligible facts for imported-checkpoint constraints and strategy-owned orphan classification; neither was inferred from the prompt alone.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -382,8 +398,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "Manual review found an eligible imported-kind contract and a separate stale-session policy, allowing an honest partial-relevance judgment."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-996336140",
+        "rationale": "Manual review found an eligible imported-kind contract and a separate stale-session policy, allowing an honest partial-relevance judgment.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -416,8 +434,10 @@
       "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "Eligible facts prove trail findings are a real user-facing workflow and provide both a relevant command contract and nearby help/discovery distractors."
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-e52b748b4",
+        "rationale": "Eligible facts prove trail findings are a real user-facing workflow and provide both a relevant command contract and nearby help/discovery distractors.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0"
       },
       "judgments": [
         {
@@ -442,46 +462,12 @@
           "fact_sha256": "af79cbf23674b2b0db228be97863a29428b68a2b3f32aa03b312f7aed4c121e7"
         }
       ]
-    },
-    {
-      "query_id": "dev-product-b72a6e621",
-      "task_id": "entire-cli-c0701-b72a6e621",
-      "query_source": "user_prompt_derived",
-      "null_query": false,
-      "label_evidence": {
-        "type": "manual_frozen_corpus_review",
-        "source_id": "full-quarantine-084f5170",
-        "rationale": "No retained fact directly solves mirror-placement search statistics, but the corpus contains a cross-domain aggregation decision about eliminating double-counted contributors. Without exhaustive active-corpus closure this query is not labeled null."
-      },
-      "judgments": [
-        {
-          "fact_id": "fact:9c39a262ba60f7ed28023b46",
-          "grade": "relevant_alternative",
-          "cluster_id": "cluster:recap-aggregation-drift",
-          "rationale": "It records replacing a parallel aggregator because it double-counted contributors and drifted totals, a useful cross-domain alternative for deduplicating aggregate statistics, though it does not specify mirror-cell search accounting.",
-          "fact_sha256": "8c6e698e5ea6bb04de40fdcbc0f1d41d4e8bcd35f3bb6e33c40d216169a3876b"
-        },
-        {
-          "fact_id": "fact:3b0199c75a7f4b613beb6bd8",
-          "grade": "hard_topical_distractor",
-          "cluster_id": "cluster:mirror-id-routing",
-          "rationale": "It uses mirror metadata for API routing, not per-cell search-result deduplication.",
-          "fact_sha256": "e5568c5b4254ac8b28d3e1c68fc78e5d983a13fb64b2253573f295a228b86214"
-        },
-        {
-          "fact_id": "fact:c9cfe5bcac4d18cc84df6128",
-          "grade": "irrelevant",
-          "cluster_id": "cluster:worktree-shadow-scope",
-          "rationale": "Worktree shadow-branch scoping has no relationship to code-search statistics.",
-          "fact_sha256": "3071cd334ecdde4ca6cabae3db4e58f10ca31a832b13fde13836f6e8e9dd9193"
-        }
-      ]
     }
   ],
   "snapshot_commitment": {
-    "fact_count": 39,
-    "facts_sha256": "64b52512611a2e82c801169e8ecb6ccd5ca86e6f4b7d605eb7fd4c65207870d1",
-    "session_date_count": 36,
-    "session_dates_sha256": "0c32e70b86f091c974397c14790bea2ce7b1c8ca75f34ef0b6a6f6cd422ec3aa"
+    "fact_count": 37,
+    "facts_sha256": "138d416dfd71d7c15b46fb5bc8ff4f88a6ba1ee4e76a1a9fa7a62be252b31f07",
+    "session_date_count": 34,
+    "session_dates_sha256": "bc0577cafdaa520a8d214764f01d15d554a2f23c5718e1c4b1f046943b085abc"
   }
 }

@@ -29,21 +29,27 @@
       "artifacts": {
         "labels": {
           "path": "offline-relevance-development-labels.json",
-          "sha256": "7f8ad9f1459038dbbbec6f16f5792559c50b031641be20ec2d15413fd89f7297",
+          "sha256": "068644afc8d3eb14313f77e9107e484b04d48d07d961b812936edc1de626eb42",
           "schema_path": "schemas/relevance-label-source.schema.json",
-          "schema_sha256": "17eb91c75e5c1fefb11330d5e73398c6fffd577900952dab88a814622f8ebde1"
+          "schema_sha256": "841a096916d72fb885f40b6543a8490f62843d14ae7ad08623fc81f522cb3cde"
         },
         "snapshot": {
           "path": "offline-relevance-fact-snapshot.json",
-          "sha256": "5baa6c3f54a0042180ac43f148e7f109db8ce033b5f8f3ae56a16f7ca265a201",
+          "sha256": "0de5511ed1991ba757d618bbfbf59878dd7e59a9ba680c03c13b9f395263285a",
           "schema_path": "schemas/relevance-fact-snapshot.schema.json",
           "schema_sha256": "6ef8ac13cd2fd65cd7b2a349f592439a098fe5058606f39d3a05a3ca96bb66e0"
         },
         "dataset": {
           "path": "offline-relevance-dataset.json",
-          "sha256": "8f6e79b890830e9add5b0c1354d6641bfb1017567ac673a95d01ebb25e866b6a",
+          "sha256": "82d253f5b6dc43d7b5b705a597609b0c6dfe2cd31c5cc44954b833ff7ddfc63d",
           "schema_path": "schemas/relevance-dataset.schema.json",
-          "schema_sha256": "727b185939166a8e484dc01f56af7b868c9e895a31fda1b7123d1ad2d31d7d6c"
+          "schema_sha256": "478aa0e443cc0b8bbeadcec83b6965de6ebd31099b769467fe7e9df7f48171a4"
+        },
+        "review_ledger": {
+          "path": "offline-relevance-review-ledger.json",
+          "sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0",
+          "schema_path": "schemas/relevance-review-ledger.schema.json",
+          "schema_sha256": "29e921ae53a20feebdf87fc99ed6c02eb2bb3db5e1edf8af557f621ebe60b747"
         }
       }
     }

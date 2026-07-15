@@ -146,6 +146,20 @@ class ProtocolCheckTest(unittest.TestCase):
         self._write_json(here / "pricing-budget.json", contract)
         return protocol, checks, contract
 
+    @staticmethod
+    def _copy_relevance_bundle(target: pathlib.Path) -> None:
+        for name in (
+            "offline-relevance-development-labels.json",
+            "offline-relevance-fact-snapshot.json",
+            "offline-relevance-dataset.json",
+            "offline-relevance-review-ledger.json",
+            "offline-relevance-source-membership.json",
+            "relevance-source-contract.json",
+            "task-inventory.json",
+        ):
+            shutil.copy2(HERE / name, target / name)
+        shutil.copytree(HERE / "schemas", target / "schemas")
+
     def test_preparation_artifacts_are_consistent(self) -> None:
         self.assertEqual(CHECK.validate(freeze=False), [])
 
@@ -155,6 +169,8 @@ class ProtocolCheckTest(unittest.TestCase):
         self.assertNotIn("WS2-WS5 dependencies are pending", errors)
         self.assertIn("fresh holdout commitment is not frozen", errors)
         self.assertIn("paid-run checklist is not all pass", errors)
+        self.assertIn("too few development relevance tasks", errors)
+        self.assertIn("too few corpus-closed development null queries", errors)
 
     def test_inventory_is_unique_and_contamination_is_explicit(self) -> None:
         inventory = json.loads((HERE / "task-inventory.json").read_text())
@@ -471,6 +487,9 @@ class ProtocolCheckTest(unittest.TestCase):
                 "offline-relevance-development-labels.json",
                 "offline-relevance-fact-snapshot.json",
                 "offline-relevance-dataset.json",
+                "offline-relevance-review-ledger.json",
+                "offline-relevance-source-membership.json",
+                "relevance-source-contract.json",
                 "task-inventory.json",
             ):
                 shutil.copy2(HERE / name, temp / name)
@@ -515,6 +534,9 @@ class ProtocolCheckTest(unittest.TestCase):
                 "offline-relevance-development-labels.json",
                 "offline-relevance-fact-snapshot.json",
                 "offline-relevance-dataset.json",
+                "offline-relevance-review-ledger.json",
+                "offline-relevance-source-membership.json",
+                "relevance-source-contract.json",
                 "task-inventory.json",
             ):
                 shutil.copy2(HERE / name, temp / name)
@@ -527,6 +549,102 @@ class ProtocolCheckTest(unittest.TestCase):
             errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
             self.assertIn("relevance labels artifact schema content hash mismatch", errors)
             self.assertTrue(any("labels$.schema_version: value differs from schema const" in error for error in errors))
+
+    def test_hard_pinned_membership_rejects_fabricated_fact_or_date_after_hash_refresh(self) -> None:
+        for attack in ("fact", "date"):
+            with self.subTest(attack=attack), tempfile.TemporaryDirectory() as temp_raw:
+                temp = pathlib.Path(temp_raw)
+                self._copy_relevance_bundle(temp)
+                protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
+                labels_path = temp / "offline-relevance-development-labels.json"
+                snapshot_path = temp / "offline-relevance-fact-snapshot.json"
+                dataset_path = temp / "offline-relevance-dataset.json"
+                labels = json.loads(labels_path.read_text(encoding="utf-8"))
+                snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                if attack == "fact":
+                    changed_fact = snapshot["facts"][0]
+                    changed_fact["text"] += " Fabricated but internally rehashed."
+                    changed_hash = CHECK.relevance_dataset.fact_sha256(changed_fact)
+                    for item in labels["items"]:
+                        for judgment in item["judgments"]:
+                            if judgment["fact_id"] == changed_fact["id"]:
+                                judgment["fact_sha256"] = changed_hash
+                else:
+                    session_id = next(iter(snapshot["session_dates"]))
+                    snapshot["session_dates"][session_id] = "2020-01-01T00:00:00Z"
+                snapshot["facts_sha256"] = CHECK.relevance_dataset.sha256_bytes(
+                    CHECK.relevance_dataset.canonical_json(snapshot["facts"])
+                )
+                snapshot["session_dates_sha256"] = CHECK.relevance_dataset.sha256_bytes(
+                    CHECK.relevance_dataset.canonical_json(snapshot["session_dates"])
+                )
+                labels["snapshot_commitment"] = CHECK.relevance_dataset._snapshot_commitment(snapshot)
+                self._write_json(labels_path, labels)
+                self._write_json(snapshot_path, snapshot)
+                regenerated = CHECK.relevance_dataset.materialize(
+                    CHECK.REPO,
+                    labels_path,
+                    temp / "task-inventory.json",
+                    snapshot_path,
+                )
+                self._write_json(dataset_path, regenerated)
+                for role in ("labels", "snapshot", "dataset"):
+                    artifact_path = temp / protocol["offline_dataset"]["development_artifact_contract"]["artifacts"][role]["path"]
+                    protocol["offline_dataset"]["development_artifact_contract"]["artifacts"][role]["sha256"] = self._sha(artifact_path)
+
+                errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
+                self.assertFalse(any("artifact content hash mismatch" in error for error in errors))
+                expected = (
+                    "snapshot fact differs from reviewed full-source membership"
+                    if attack == "fact"
+                    else "snapshot session date differs from reviewed full-source membership"
+                )
+                self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_source_contract_digest_is_not_refreshable_through_preregistration(self) -> None:
+        protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temp_raw:
+            temp = pathlib.Path(temp_raw)
+            self._copy_relevance_bundle(temp)
+            contract_path = temp / "relevance-source-contract.json"
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["contract_id"] = "attacker-refreshed-contract"
+            self._write_json(contract_path, contract)
+            errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
+            self.assertIn(
+                "reviewed relevance source contract digest differs from hardcoded trust root",
+                errors,
+            )
+
+    def test_review_ledger_cannot_be_missing_or_unhashed(self) -> None:
+        protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temp_raw:
+            temp = pathlib.Path(temp_raw)
+            self._copy_relevance_bundle(temp)
+            (temp / "offline-relevance-review-ledger.json").unlink()
+            errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
+            self.assertIn("relevance review_ledger artifact path is unsafe or missing", errors)
+        with tempfile.TemporaryDirectory() as temp_raw:
+            temp = pathlib.Path(temp_raw)
+            self._copy_relevance_bundle(temp)
+            labels_path = temp / "offline-relevance-development-labels.json"
+            labels = json.loads(labels_path.read_text(encoding="utf-8"))
+            del labels["items"][0]["label_evidence"]["source_sha256"]
+            self._write_json(labels_path, labels)
+            protocol["offline_dataset"]["development_artifact_contract"]["artifacts"]["labels"]["sha256"] = self._sha(labels_path)
+            errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
+            self.assertTrue(any("missing schema-required field source_sha256" in error for error in errors))
+            self.assertTrue(any("evidence source hash differs" in error for error in errors))
+
+    def test_b72_is_removed_and_development_task_floor_remains_open(self) -> None:
+        labels = json.loads((HERE / "offline-relevance-development-labels.json").read_text())
+        dataset = json.loads((HERE / "offline-relevance-dataset.json").read_text())
+        self.assertNotIn("dev-product-b72a6e621", {item["query_id"] for item in labels["items"]})
+        self.assertEqual(dataset["development"]["item_count"], 12)
+        self.assertEqual(dataset["development"]["unique_task_count"], 11)
+        protocol = json.loads((HERE / "preregistration.json").read_text())
+        errors = CHECK.validate_dataset(dataset, protocol, freeze=True)
+        self.assertIn("too few development relevance tasks", errors)
 
     def test_engine_gate_verifies_exact_arms_runtime_state_and_artifact_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

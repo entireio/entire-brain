@@ -72,10 +72,11 @@
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "labelEvidence": {
       "type": "object",
-      "required": ["type", "source_id", "rationale"],
+      "required": ["type", "source_id", "source_path", "source_sha256", "rationale"],
       "properties": {
         "type": {"enum": ["legacy_agent_packet", "manual_frozen_corpus_review"]},
         "source_id": {"type": "string", "minLength": 1},
+        "source_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
         "source_sha256": {"$ref": "#/$defs/sha256"},
         "rationale": {"type": "string", "minLength": 1}
       },

@@ -1,3 +1,4 @@
+import copy
 import importlib.util
 import json
 import pathlib
@@ -87,9 +88,13 @@ class RelevanceDatasetTests(unittest.TestCase):
         }
         snapshot_path = repo / "snapshot.json"
         snapshot_path.write_text(json.dumps(snapshot))
+        review_ledger_path = repo / "review-ledger.json"
+        review_ledger_path.write_text("fixture retained review bytes\n")
         evidence = {
             "type": "manual_frozen_corpus_review",
-            "source_id": "fixture",
+            "source_id": "review-ledger.json#fixture",
+            "source_path": "review-ledger.json",
+            "source_sha256": relevance.sha256_bytes(review_ledger_path.read_bytes()),
             "rationale": "Reviewed the fixture.",
         }
         labels = {
@@ -283,6 +288,22 @@ class RelevanceDatasetTests(unittest.TestCase):
         with self.assertRaisesRegex(relevance.DatasetError, "derive exactly from task prompt"):
             relevance.materialize(repo, labels, inventory, snapshot)
 
+    def test_materialize_requires_retained_evidence_path_and_hash(self):
+        temporary, repo, labels, inventory, snapshot = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        payload = json.loads(labels.read_text())
+        del payload["items"][0]["label_evidence"]["source_path"]
+        labels.write_text(json.dumps(payload))
+        with self.assertRaisesRegex(relevance.DatasetError, "label_evidence source path is missing"):
+            relevance.materialize(repo, labels, inventory, snapshot)
+
+    def test_materialize_rejects_mismatched_retained_evidence_bytes(self):
+        temporary, repo, labels, inventory, snapshot = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        (repo / "review-ledger.json").write_text("changed bytes\n")
+        with self.assertRaisesRegex(relevance.DatasetError, "retained source hash differs"):
+            relevance.materialize(repo, labels, inventory, snapshot)
+
     def test_null_query_cannot_have_eligible_positive(self):
         temporary, repo, labels, inventory, snapshot = self._fixture()
         self.addCleanup(temporary.cleanup)
@@ -325,10 +346,10 @@ class RelevanceDatasetTests(unittest.TestCase):
         expected = relevance.materialize(REPO, labels, inventory, snapshot)
         actual = relevance.load_json(dataset)
         relevance.validate_dataset(actual, expected)
-        self.assertEqual(actual["development"]["item_count"], 13)
-        self.assertEqual(actual["development"]["unique_task_count"], 12)
+        self.assertEqual(actual["development"]["item_count"], 12)
+        self.assertEqual(actual["development"]["unique_task_count"], 11)
         self.assertEqual(actual["development"]["null_query_count"], 0)
-        self.assertEqual(actual["development"]["judgment_count"], 41)
+        self.assertEqual(actual["development"]["judgment_count"], 38)
         schema_errors = relevance.validate_relevance_schemas(
             relevance.load_json(labels),
             relevance.load_json(snapshot),
@@ -337,6 +358,56 @@ class RelevanceDatasetTests(unittest.TestCase):
         )
         self.assertEqual(schema_errors, [])
         self.assertEqual(actual["sealed_holdout"]["items"], [])
+
+    def test_complete_membership_rejects_fabricated_fact_and_date(self):
+        labels = relevance.load_json(HERE / "offline-relevance-development-labels.json")
+        snapshot = relevance.load_json(HERE / "offline-relevance-fact-snapshot.json")
+        contract = relevance.load_json(HERE / "relevance-source-contract.json")
+        membership_path = HERE / "offline-relevance-source-membership.json"
+        membership = relevance.load_json(membership_path)
+        fabricated = copy.deepcopy(snapshot)
+        fabricated["facts"][0]["text"] += " Fabricated."
+        session_id = next(iter(fabricated["session_dates"]))
+        fabricated["session_dates"][session_id] = "2020-01-01T00:00:00Z"
+        with self.assertRaisesRegex(
+            relevance.DatasetError,
+            "snapshot fact differs from reviewed full-source membership",
+        ):
+            relevance.validate_source_membership(
+                labels,
+                fabricated,
+                contract,
+                membership,
+                membership_sha256=relevance.sha256_bytes(membership_path.read_bytes()),
+            )
+        date_only = copy.deepcopy(snapshot)
+        date_only["session_dates"][session_id] = "2020-01-01T00:00:00Z"
+        with self.assertRaisesRegex(
+            relevance.DatasetError,
+            "snapshot session date differs from reviewed full-source membership",
+        ):
+            relevance.validate_source_membership(
+                labels,
+                date_only,
+                contract,
+                membership,
+                membership_sha256=relevance.sha256_bytes(membership_path.read_bytes()),
+            )
+
+    def test_review_ledger_is_exact_per_query_and_judgment(self):
+        labels = relevance.load_json(HERE / "offline-relevance-development-labels.json")
+        contract = relevance.load_json(HERE / "relevance-source-contract.json")
+        ledger_path = HERE / "offline-relevance-review-ledger.json"
+        ledger = relevance.load_json(ledger_path)
+        ledger["items"][0]["judgments"][0]["grade"] = "irrelevant"
+        with self.assertRaisesRegex(relevance.DatasetError, "ledger judgments differ from labels"):
+            relevance.validate_review_ledger(
+                labels,
+                ledger,
+                contract,
+                ledger_path="benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+                ledger_sha256=relevance.sha256_bytes(ledger_path.read_bytes()),
+            )
 
 
 if __name__ == "__main__":

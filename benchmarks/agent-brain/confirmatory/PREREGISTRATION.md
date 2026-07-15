@@ -15,17 +15,29 @@ set will be mined only after this methodology and the WS2-WS5 interfaces are fro
 hidden validation, solving fact IDs, temporal cutoffs, and split assignments will be committed by
 content hash without exposing holdout labels to ranking work.
 
-The offline relevance dataset now contains 13 development queries over 12 exposed legacy tasks: 12
-product queries, one oracle upper-bound query, explicit hard topical distractors, and no defensible
-null/no-answer query. Two provisional nulls were withdrawn because they lacked exhaustive closure
-against all 2,531 active facts; any future null requires the versioned active-corpus catalog plus
-identical eligible/reviewed counts and hashes. This satisfies the development count floor only. It
-does not pass the offline engine threshold, choose K/aggregation, or substitute for the still-empty
-sealed holdout. Final freeze requires at least one corpus-closed development null query. The final
-dataset must contain at least 12 sealed holdout queries over at least 12
-unique untouched tasks. The fresh agent holdout target is 24 unique tasks. If the pre-run power
+The offline relevance dataset now contains 12 development queries over 11 exposed legacy tasks: 11
+product queries, one oracle upper-bound query, 38 explicit judgments including hard topical
+distractors, and no defensible null/no-answer query. The query floor is met exactly, but the
+12-unique-task floor is short by one. `dev-product-b72a6e621` was removed because its cross-domain
+recap-aggregation fact was not a genuine relevant alternative and no retained exhaustive review
+supported a null label. The retained `dev-product-8828752a7` query has a genuine branch-oriented
+relevant alternative and remains non-null. Any future null requires exhaustive closure against all
+2,531 active facts in the authenticated active-corpus catalog, with identical eligible/reviewed
+counts and hashes. These labels do not pass the offline engine threshold, choose K/aggregation, or
+substitute for the still-empty sealed holdout. Final freeze requires at least 12 development tasks
+and at least one corpus-closed development null query. The final dataset must contain at least 12
+sealed holdout queries over at least 12 unique untouched tasks. The fresh agent holdout target is 24
+unique tasks. If the pre-run power
 calculation misses 80% power for a 12% token reduction at the correctness gate, task count or
 repetitions must increase before sealing; they may not change after the holdout is opened.
+
+All 12 label decisions are retained as per-query/per-judgment manual review records in
+`offline-relevance-review-ledger.json`; unavailable historical packet bytes are not claimed as label
+evidence. `offline-relevance-source-membership.json` authenticates all 2,621 source facts (2,531
+active) and all 2,248 session dates. Its small reviewed `relevance-source-contract.json` is pinned by
+raw SHA-256 in `check_protocol.py`, independently of routinely updated preregistration artifact
+hashes. Normal validation therefore rejects a fabricated fact or session date even if labels,
+snapshot, dataset, ledger, and preregistration hashes are refreshed together.
 
 ## Retrieval matrix
 
@@ -118,5 +130,6 @@ The final freeze requires contracts, fixtures, and passing evidence from:
 The implementation contracts are integrated and backed by content-addressed source and unpaid test
 evidence in `integration-verification.json`, but they are not substitutes for fresh prompt reviews,
 actual engine records, or final experimental inputs. `check_protocol.py --freeze` must remain red
-while any task-validity review, engine verification, development threshold, powered design,
-model/budget cap, or fresh holdout commitment is pending or failed.
+while the development task floor is short, null coverage is absent, or any task-validity review,
+engine verification, development threshold, powered design, model/budget cap, or fresh holdout
+commitment is pending or failed.

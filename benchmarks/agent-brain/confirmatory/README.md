@@ -6,11 +6,12 @@ paid agent run and it does not contain or open a fresh confirmatory holdout.
 Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 treatment contract,
 WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
 integrated and verified by content-addressed source and test evidence. An exposed-only offline
-development relevance set now meets the 12-query/12-task count floor, but no three-engine metrics
-have been computed, no corpus-closed null query exists, and the relevance holdout remains unopened
-and empty. Final freeze remains blocked on fresh-task validity review, real three-engine records and
-development threshold, null-query coverage, relevance holdout sealing, a defensible powered design,
-and model pricing/budget approval. The confirmatory analyzer is implemented and path-locked.
+development relevance set now meets the 12-query floor exactly but has only 11 of the required 12
+unique tasks. No three-engine metrics have been computed, no corpus-closed null query exists, and the
+relevance holdout remains unopened and empty. Final freeze remains blocked on one additional labeled
+development task, fresh-task validity review, real three-engine records and development threshold,
+null-query coverage, relevance holdout sealing, a defensible powered design, and model pricing/budget
+approval. The confirmatory analyzer is implemented and path-locked.
 
 ## Artifacts
 
@@ -18,16 +19,23 @@ and model pricing/budget approval. The confirmatory analyzer is implemented and 
 - `task-inventory.json`: content-addressed reconciliation of all 46 unique C0701 tasks.
 - `schemas/task-inventory.schema.json`: task exposure/contamination contract.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
-  contract; the two adjacent relevance schemas cover reviewed labels and the fact excerpt.
-- `OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md`: counts, contamination boundary, evidence tiers,
-  reproducible commands, and exact remaining threshold/holdout blockers.
+  contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
+  excerpt, and the complete source-membership contract.
+- `OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md`: counts, contamination boundary, retained evidence
+  binding, reproducible commands, and exact remaining count/threshold/holdout blockers.
 - `offline-relevance-development-labels.json`: reviewed exposed-task label source.
-- `offline-relevance-fact-snapshot.json`: content-addressed 39-fact/36-date excerpt of the pinned
+- `offline-relevance-review-ledger.json`: retained per-query/per-judgment manual review evidence for
+  all 12 queries; no label claims unavailable historical packet bytes as evidence.
+- `offline-relevance-source-membership.json`: complete authenticated catalog of 2,621 facts (2,531
+  active) and 2,248 session dates.
+- `relevance-source-contract.json`: small reviewed contract for the complete membership catalog; its
+  raw digest is pinned independently in `check_protocol.py`, outside routine preregistration hashes.
+- `offline-relevance-fact-snapshot.json`: content-addressed 37-fact/34-date excerpt of the pinned
   full quarantine, sufficient for offline rebuild and validation.
 - `relevance_dataset.py` and `test_relevance_dataset.py`: exposed-only proposal, snapshot,
   materialization, and fail-closed validation workflow.
-- `offline-relevance-dataset.json`: generated 13-query/12-task development set; its sealed holdout
-  intentionally contains no plaintext labels.
+- `offline-relevance-dataset.json`: generated 12-query/11-task development set with 38 judgments and
+  zero corpus-closed nulls; its sealed holdout intentionally contains no plaintext labels.
 - `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms and verification steps.
 - `schemas/engine-verification.schema.json`: required machine output for every engine execution.
 - `ENGINE-PROBE-READINESS-2026-07-15.md`: unpaid three-path runtime smoke and the remaining vector
@@ -46,9 +54,10 @@ and model pricing/budget approval. The confirmatory analyzer is implemented and 
 - `integration-verification.json` and `integration-logs/`: exact WS2-WS5 source commits, content
   hashes, unpaid commands, and captured test outputs for the locked integration commit.
 - `analyzer-lock.json`: path-bound hash of the exact confirmatory analyzer sources and schemas.
-- `check_protocol.py`: offline integrity checker. It validates the versioned relevance artifact and
-  schema hashes, applies all three relevance schemas, and rematerializes the dataset. `--freeze`
-  additionally enforces final-freeze gates.
+- `check_protocol.py`: offline integrity checker. It validates the independently pinned complete
+  fact/date membership and per-query ledger bytes, validates the versioned relevance artifact and
+  schema hashes, applies every checked-in relevance schema, and rematerializes the dataset. `--freeze`
+  additionally enforces final-freeze gates, including the development task and null-query floors.
 
 Run the non-paid checks with:
 
@@ -59,14 +68,18 @@ python3 benchmarks/agent-brain/confirmatory/relevance_dataset.py validate \
   --labels benchmarks/agent-brain/confirmatory/offline-relevance-development-labels.json \
   --inventory benchmarks/agent-brain/confirmatory/task-inventory.json \
   --snapshot benchmarks/agent-brain/confirmatory/offline-relevance-fact-snapshot.json \
-  --dataset benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json
+  --dataset benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json \
+  --source-contract benchmarks/agent-brain/confirmatory/relevance-source-contract.json \
+  --source-membership benchmarks/agent-brain/confirmatory/offline-relevance-source-membership.json \
+  --review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json
 python3 -m unittest benchmarks/agent-brain/confirmatory/test_relevance_dataset.py
 ```
 
 The preparation and relevance validation commands must pass now. The following command must fail
-until fresh-task review, three-engine development evaluation and threshold selection, relevance
-holdout sealing, powered-design repair, final pricing/budget approval, and durable engine verification
-are complete:
+until the one-task development shortfall and null-query coverage are repaired, fresh-task review and
+three-engine development evaluation/threshold selection are complete, the relevance holdout is
+sealed, the powered design is repaired, final pricing/budget is approved, and durable engine
+verification exists:
 
 ```sh
 python3 benchmarks/agent-brain/confirmatory/check_protocol.py --freeze

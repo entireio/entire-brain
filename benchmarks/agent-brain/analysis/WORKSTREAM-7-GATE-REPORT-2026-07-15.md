@@ -26,9 +26,9 @@ not used for tuning and no model/agent cell was run.
 | Required evidence | Status | Audit result |
 |---|---:|---|
 | Identical-cell full-versus-tight corpus comparison changes the delivered packet | **Absent** | No artifact supplies paired prompt, engine, task config, temporal eligibility, and delivered packet hashes for both corpus sizes. |
-| Solving-fact rank or packet precision degrades reproducibly | **Absent** | WS6 now supplies 13 labeled development queries over 12 exposed tasks, but no corpus-closed null query, verified three-engine outputs, threshold result, or counterbalanced repeated packet evidence exists. |
+| Solving-fact rank or packet precision degrades reproducibly | **Absent** | WS6 now supplies 12 labeled development queries over 11 exposed tasks, backed by a retained manual-review ledger and independently pinned complete source membership, but no corpus-closed null query, verified three-engine outputs, threshold result, or counterbalanced repeated packet evidence exists. |
 | Engine, prompt, temporal, cache, and contamination confounds excluded | **Absent** | Existing evidence does not jointly verify those controls; the required repaired-workstream artifacts are not integrated here. |
-| WS6 development relevance set and untouched holdout designated | **Partial** | The exposed-only development count floor is met and content-addressed; the untouched relevance holdout remains empty/uncommitted, so the conjunctive gate is still false. |
+| WS6 development relevance set and untouched holdout designated | **Partial** | The exposed-only 12-query floor is met, but the development task floor is short by one (11/12), corpus-closed null coverage is absent, and the untouched relevance holdout remains empty/uncommitted, so the conjunctive gate is still false. |
 
 Because all four requirements must be true, no candidate ranking implementation is authorized.
 

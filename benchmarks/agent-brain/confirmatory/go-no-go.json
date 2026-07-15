@@ -13,7 +13,7 @@
     {"id": "holdout_unopened", "status": "pass", "evidence": "preregistration.json#fresh_holdout"},
     {"id": "analyzer_hash_frozen", "status": "pass", "evidence": "analyzer-lock.json"},
     {"id": "all_engines_machine_verified", "status": "pending", "evidence": "ENGINE-PROBE-READINESS-2026-07-15.md"},
-    {"id": "offline_development_threshold", "status": "pending", "evidence": null},
+    {"id": "offline_development_threshold", "status": "pending", "evidence": "OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md"},
     {"id": "power_target_met", "status": "fail", "evidence": "power-analysis.json"},
     {"id": "model_runner_price_pinned", "status": "pending", "evidence": null},
     {"id": "paid_budget_cap_approved", "status": "pending", "evidence": null},

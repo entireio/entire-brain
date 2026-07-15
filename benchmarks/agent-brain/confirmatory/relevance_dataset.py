@@ -28,6 +28,7 @@ GRADES = ("solving", "relevant_alternative", "hard_topical_distractor", "irrelev
 QUERY_SOURCES = ("user_prompt_derived", "oracle_upper_bound")
 EVIDENCE_TYPES = ("legacy_agent_packet", "manual_frozen_corpus_review")
 NULL_CLOSURE_METHOD = "exhaustive_active_corpus_review_v1"
+REVIEW_METHOD = "manual_judgment_from_exposed_prompt_and_pinned_membership_v1"
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "in", "is",
     "it", "of", "on", "or", "that", "the", "their", "this", "to", "was", "when", "with",
@@ -64,6 +65,100 @@ def fact_catalog_sha256(facts: list[dict[str, Any]]) -> str:
     if len({record["fact_id"] for record in records}) != len(records):
         raise DatasetError("fact catalog contains duplicate fact ids")
     return sha256_bytes(canonical_json(records))
+
+
+def _membership_fact_records(facts: list[dict[str, Any]]) -> list[dict[str, str]]:
+    records = sorted(({
+        "fact_id": str(fact.get("id") or ""),
+        "fact_sha256": fact_sha256(fact),
+        "status": str(fact.get("status") or ""),
+    } for fact in facts), key=lambda record: record["fact_id"])
+    if any(not record["fact_id"] or not record["status"] for record in records):
+        raise DatasetError("source membership contains an empty fact id or status")
+    if len({record["fact_id"] for record in records}) != len(records):
+        raise DatasetError("source membership contains duplicate fact ids")
+    return records
+
+
+def fact_membership_root_sha256(records: list[dict[str, Any]]) -> str:
+    normalized = sorted(({
+        "fact_id": str(record.get("fact_id") or ""),
+        "fact_sha256": str(record.get("fact_sha256") or ""),
+        "status": str(record.get("status") or ""),
+    } for record in records), key=lambda record: record["fact_id"])
+    if any(
+        not record["fact_id"] or not _is_sha256(record["fact_sha256"]) or not record["status"]
+        for record in normalized
+    ):
+        raise DatasetError("source membership fact record is malformed")
+    if len({record["fact_id"] for record in normalized}) != len(normalized):
+        raise DatasetError("source membership contains duplicate fact ids")
+    return sha256_bytes(canonical_json(normalized))
+
+
+def fact_record_catalog_sha256(records: list[dict[str, Any]], *, status: str | None = None) -> str:
+    selected = [record for record in records if status is None or record.get("status") == status]
+    normalized = sorted(({
+        "fact_id": str(record.get("fact_id") or ""),
+        "fact_sha256": str(record.get("fact_sha256") or ""),
+    } for record in selected), key=lambda record: record["fact_id"])
+    if any(not record["fact_id"] or not _is_sha256(record["fact_sha256"]) for record in normalized):
+        raise DatasetError("source membership fact catalog record is malformed")
+    if len({record["fact_id"] for record in normalized}) != len(normalized):
+        raise DatasetError("source membership fact catalog contains duplicate ids")
+    return sha256_bytes(canonical_json(normalized))
+
+
+def session_date_membership_root_sha256(session_dates: dict[str, Any]) -> str:
+    normalized: dict[str, str] = {}
+    for session_id, value in session_dates.items():
+        if not isinstance(session_id, str) or not session_id or not isinstance(value, str):
+            raise DatasetError("source membership session-date record is malformed")
+        _parse_time(value, f"source membership session date {session_id}")
+        normalized[session_id] = value
+    return sha256_bytes(canonical_json(normalized))
+
+
+def build_source_membership(
+    facts: list[dict[str, Any]],
+    session_dates: dict[str, str],
+    facts_source_sha256: str,
+    session_dates_source_sha256: str,
+) -> dict[str, Any]:
+    """Build a complete authenticated ID/hash/status and session/date catalog."""
+    records = _membership_fact_records(facts)
+    active = [record for record in records if record["status"] == "active"]
+    return {
+        "schema_version": 1,
+        "source_facts_sha256": facts_source_sha256,
+        "source_session_dates_sha256": session_dates_source_sha256,
+        "fact_count": len(records),
+        "active_fact_count": len(active),
+        "fact_membership_root_sha256": fact_membership_root_sha256(records),
+        "active_fact_catalog_sha256": fact_record_catalog_sha256(records, status="active"),
+        "facts": records,
+        "session_date_count": len(session_dates),
+        "session_date_membership_root_sha256": session_date_membership_root_sha256(session_dates),
+        "session_dates": dict(sorted(session_dates.items())),
+    }
+
+
+def build_source_contract(membership_path: str, membership: dict[str, Any], membership_sha256: str) -> dict[str, Any]:
+    """Build the small reviewed trust-root document for a complete membership catalog."""
+    return {
+        "schema_version": 1,
+        "contract_id": "agent-brain-offline-relevance-source-2026-07-15",
+        "membership_path": membership_path,
+        "membership_sha256": membership_sha256,
+        "source_facts_sha256": membership["source_facts_sha256"],
+        "source_session_dates_sha256": membership["source_session_dates_sha256"],
+        "fact_count": membership["fact_count"],
+        "active_fact_count": membership["active_fact_count"],
+        "fact_membership_root_sha256": membership["fact_membership_root_sha256"],
+        "active_fact_catalog_sha256": membership["active_fact_catalog_sha256"],
+        "session_date_count": membership["session_date_count"],
+        "session_date_membership_root_sha256": membership["session_date_membership_root_sha256"],
+    }
 
 
 def temporal_policy_sha256(cutoff: str, excluded_sessions: list[str]) -> str:
@@ -183,6 +278,22 @@ def _task_config(repo: pathlib.Path, inventory_row: dict[str, Any]) -> dict[str,
     if not isinstance(config, dict):
         raise DatasetError(f"task config {path} is not an object")
     return config
+
+
+def _repo_relative_file(repo: pathlib.Path, value: Any, label: str) -> pathlib.Path:
+    if not isinstance(value, str) or not value:
+        raise DatasetError(f"{label} path is missing")
+    relative = pathlib.PurePosixPath(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise DatasetError(f"{label} path is unsafe")
+    target = (repo / pathlib.Path(*relative.parts)).resolve()
+    try:
+        target.relative_to(repo.resolve())
+    except ValueError as exc:
+        raise DatasetError(f"{label} path escapes the repository") from exc
+    if not target.is_file():
+        raise DatasetError(f"{label} path does not exist")
+    return target
 
 
 def _snapshot_payload(facts: list[dict[str, Any]], session_dates: dict[str, str], wanted: set[str],
@@ -315,6 +426,218 @@ def build_snapshot(labels: dict[str, Any], facts: list[dict[str, Any]], session_
     if labels.get("snapshot_commitment") != _snapshot_commitment(snapshot):
         raise DatasetError("label snapshot commitment differs from the pinned full-source excerpt")
     return snapshot
+
+
+def validate_source_membership(
+    labels: dict[str, Any],
+    snapshot: dict[str, Any],
+    contract: dict[str, Any],
+    membership: dict[str, Any],
+    *,
+    membership_sha256: str,
+) -> None:
+    """Prove every selected fact and date belongs to the independently pinned full source."""
+    contract_fields = {
+        "schema_version", "contract_id", "membership_path", "membership_sha256",
+        "source_facts_sha256", "source_session_dates_sha256", "fact_count",
+        "active_fact_count", "fact_membership_root_sha256", "active_fact_catalog_sha256",
+        "session_date_count", "session_date_membership_root_sha256",
+    }
+    if not isinstance(contract, dict) or set(contract) != contract_fields or contract.get("schema_version") != 1:
+        raise DatasetError("source contract fields or schema version changed")
+    if contract.get("membership_sha256") != membership_sha256:
+        raise DatasetError("source membership content hash differs from reviewed contract")
+    membership_fields = {
+        "schema_version", "source_facts_sha256", "source_session_dates_sha256", "fact_count",
+        "active_fact_count", "fact_membership_root_sha256", "active_fact_catalog_sha256", "facts",
+        "session_date_count", "session_date_membership_root_sha256", "session_dates",
+    }
+    if not isinstance(membership, dict) or set(membership) != membership_fields or membership.get("schema_version") != 1:
+        raise DatasetError("source membership fields or schema version changed")
+    facts = membership.get("facts")
+    session_dates = membership.get("session_dates")
+    if not isinstance(facts, list) or not all(isinstance(record, dict) for record in facts):
+        raise DatasetError("source membership facts are malformed")
+    if not isinstance(session_dates, dict):
+        raise DatasetError("source membership session dates are malformed")
+    expected_fact_record_fields = {"fact_id", "fact_sha256", "status"}
+    if any(set(record) != expected_fact_record_fields for record in facts):
+        raise DatasetError("source membership fact record fields changed")
+    if membership.get("fact_count") != len(facts):
+        raise DatasetError("source membership fact count is stale")
+    if membership.get("active_fact_count") != sum(record.get("status") == "active" for record in facts):
+        raise DatasetError("source membership active fact count is stale")
+    if membership.get("fact_membership_root_sha256") != fact_membership_root_sha256(facts):
+        raise DatasetError("source membership fact root is stale")
+    if membership.get("active_fact_catalog_sha256") != fact_record_catalog_sha256(facts, status="active"):
+        raise DatasetError("source membership active fact root is stale")
+    if membership.get("session_date_count") != len(session_dates):
+        raise DatasetError("source membership session-date count is stale")
+    if membership.get("session_date_membership_root_sha256") != session_date_membership_root_sha256(session_dates):
+        raise DatasetError("source membership session-date root is stale")
+    for field in (
+        "source_facts_sha256", "source_session_dates_sha256", "fact_count", "active_fact_count",
+        "fact_membership_root_sha256", "active_fact_catalog_sha256", "session_date_count",
+        "session_date_membership_root_sha256",
+    ):
+        if contract.get(field) != membership.get(field):
+            raise DatasetError(f"source membership {field} differs from reviewed contract")
+
+    source = labels.get("source_corpus") if isinstance(labels.get("source_corpus"), dict) else {}
+    expected_source = {
+        "facts_sha256": contract["source_facts_sha256"],
+        "session_dates_sha256": contract["source_session_dates_sha256"],
+        "active_fact_count": contract["active_fact_count"],
+        "active_fact_catalog_sha256": contract["active_fact_catalog_sha256"],
+    }
+    if source != expected_source:
+        raise DatasetError("labels full-source fields differ from reviewed source contract")
+    snapshot_source = {
+        "facts_sha256": snapshot.get("source_facts_sha256"),
+        "session_dates_sha256": snapshot.get("source_session_dates_sha256"),
+        "active_fact_count": snapshot.get("source_active_fact_count"),
+        "active_fact_catalog_sha256": snapshot.get("source_active_fact_catalog_sha256"),
+    }
+    if snapshot_source != expected_source:
+        raise DatasetError("snapshot full-source fields differ from reviewed source contract")
+
+    member_index = _unique_index(facts, "fact_id", "source membership")
+    selected_facts = snapshot.get("facts")
+    selected_dates = snapshot.get("session_dates")
+    if not isinstance(selected_facts, list) or not isinstance(selected_dates, dict):
+        raise DatasetError("snapshot facts/session dates are malformed")
+    selected_index = _unique_index(selected_facts, "id", "fact snapshot")
+    for fact_id, fact in selected_index.items():
+        member = member_index.get(fact_id)
+        if member is None:
+            raise DatasetError(f"snapshot fact is absent from reviewed full-source membership: {fact_id}")
+        if member.get("fact_sha256") != fact_sha256(fact):
+            raise DatasetError(f"snapshot fact differs from reviewed full-source membership: {fact_id}")
+        if member.get("status") != "active":
+            raise DatasetError(f"snapshot fact is not active in reviewed full-source membership: {fact_id}")
+    expected_session_ids = {
+        str(anchor.get("session_id") or "")
+        for fact in selected_facts
+        for anchor in (fact.get("provenance") or [])
+        if isinstance(anchor, dict) and str(anchor.get("session_id") or "")
+    }
+    if set(selected_dates) != expected_session_ids:
+        raise DatasetError("snapshot session-date keys do not exactly cover selected fact provenance")
+    for session_id, value in selected_dates.items():
+        if session_dates.get(session_id) != value:
+            raise DatasetError(f"snapshot session date differs from reviewed full-source membership: {session_id}")
+    for item in labels.get("items") or []:
+        query_id = str(item.get("query_id") or "")
+        for judgment in item.get("judgments") or []:
+            fact_id = str(judgment.get("fact_id") or "")
+            member = member_index.get(fact_id)
+            if member is None or member.get("fact_sha256") != judgment.get("fact_sha256"):
+                raise DatasetError(f"{query_id}/{fact_id}: judgment differs from reviewed full-source membership")
+
+
+def _ledger_judgments(item: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{
+        "fact_id": judgment.get("fact_id"),
+        "fact_sha256": judgment.get("fact_sha256"),
+        "grade": judgment.get("grade"),
+        "cluster_id": judgment.get("cluster_id"),
+        "rationale": judgment.get("rationale"),
+    } for judgment in item.get("judgments") or []]
+
+
+def build_review_ledger(
+    labels: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    reviewed_at: str,
+    reviewer: str,
+) -> dict[str, Any]:
+    _parse_time(reviewed_at, "reviewed_at")
+    if not reviewer.strip():
+        raise DatasetError("reviewer must be non-empty")
+    roots = {
+        "source_facts_sha256": contract["source_facts_sha256"],
+        "source_session_dates_sha256": contract["source_session_dates_sha256"],
+        "fact_membership_root_sha256": contract["fact_membership_root_sha256"],
+        "active_fact_catalog_sha256": contract["active_fact_catalog_sha256"],
+        "session_date_membership_root_sha256": contract["session_date_membership_root_sha256"],
+    }
+    return {
+        "schema_version": 1,
+        "ledger_id": "agent-brain-offline-relevance-review-2026-07-15",
+        "items": [{
+            "query_id": item.get("query_id"),
+            "task_id": item.get("task_id"),
+            "query_source": item.get("query_source"),
+            "reviewed_at": reviewed_at,
+            "reviewer": reviewer,
+            "review_method": REVIEW_METHOD,
+            **roots,
+            "decision_summary": (item.get("label_evidence") or {}).get("rationale"),
+            "judgments": _ledger_judgments(item),
+        } for item in labels.get("items") or []],
+    }
+
+
+def validate_review_ledger(
+    labels: dict[str, Any],
+    ledger: dict[str, Any],
+    contract: dict[str, Any],
+    *,
+    ledger_path: str,
+    ledger_sha256: str,
+) -> None:
+    if not isinstance(ledger, dict) or set(ledger) != {"schema_version", "ledger_id", "items"}:
+        raise DatasetError("review ledger fields changed")
+    if ledger.get("schema_version") != 1 or not isinstance(ledger.get("ledger_id"), str):
+        raise DatasetError("review ledger schema version or id is invalid")
+    entries = ledger.get("items")
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        raise DatasetError("review ledger items are malformed")
+    entry_index = _unique_index(entries, "query_id", "review ledger")
+    label_items = labels.get("items")
+    if not isinstance(label_items, list):
+        raise DatasetError("labels items are malformed")
+    if set(entry_index) != {str(item.get("query_id") or "") for item in label_items}:
+        raise DatasetError("review ledger query coverage differs from labels")
+    root_fields = (
+        "source_facts_sha256", "source_session_dates_sha256", "fact_membership_root_sha256",
+        "active_fact_catalog_sha256", "session_date_membership_root_sha256",
+    )
+    required = {
+        "query_id", "task_id", "query_source", "reviewed_at", "reviewer", "review_method",
+        *root_fields, "decision_summary", "judgments",
+    }
+    for item in label_items:
+        query_id = str(item.get("query_id") or "")
+        evidence = item.get("label_evidence")
+        if not isinstance(evidence, dict):
+            raise DatasetError(f"{query_id}: label evidence is malformed")
+        if evidence.get("type") != "manual_frozen_corpus_review":
+            raise DatasetError(f"{query_id}: only retained manual review ledger evidence is accepted")
+        if evidence.get("source_path") != ledger_path:
+            raise DatasetError(f"{query_id}: evidence source_path does not identify the retained review ledger")
+        if evidence.get("source_sha256") != ledger_sha256:
+            raise DatasetError(f"{query_id}: evidence source hash differs from retained review ledger")
+        if evidence.get("source_id") != f"{ledger_path}#{query_id}":
+            raise DatasetError(f"{query_id}: evidence source_id does not identify its precise ledger entry")
+        entry = entry_index[query_id]
+        if set(entry) != required:
+            raise DatasetError(f"{query_id}: review ledger entry fields changed")
+        if entry.get("task_id") != item.get("task_id") or entry.get("query_source") != item.get("query_source"):
+            raise DatasetError(f"{query_id}: review ledger task/query source differs from labels")
+        if entry.get("review_method") != REVIEW_METHOD:
+            raise DatasetError(f"{query_id}: review ledger method is invalid")
+        _parse_time(entry.get("reviewed_at"), f"{query_id} reviewed_at")
+        if not isinstance(entry.get("reviewer"), str) or not entry["reviewer"].strip():
+            raise DatasetError(f"{query_id}: review ledger reviewer is missing")
+        if entry.get("decision_summary") != evidence.get("rationale"):
+            raise DatasetError(f"{query_id}: review ledger decision summary differs from labels")
+        if entry.get("judgments") != _ledger_judgments(item):
+            raise DatasetError(f"{query_id}: review ledger judgments differ from labels")
+        for field in root_fields:
+            if entry.get(field) != contract.get(field):
+                raise DatasetError(f"{query_id}: review ledger {field} differs from source contract")
 
 
 def _validate_null_closure(query_id: str, closure: Any, source: dict[str, Any], query_hash: str,
@@ -464,11 +787,12 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
         if not isinstance(evidence.get("source_id"), str) or not evidence["source_id"].strip():
             raise DatasetError(f"{query_id}: label_evidence source_id is missing")
         source_hash = evidence.get("source_sha256")
-        if source_hash is not None and (
-            not isinstance(source_hash, str)
-            or re.fullmatch(r"[0-9a-f]{64}", source_hash) is None
-        ):
-            raise DatasetError(f"{query_id}: label_evidence source_sha256 is invalid")
+        if not _is_sha256(source_hash):
+            raise DatasetError(f"{query_id}: label_evidence source_sha256 is missing or invalid")
+        source_path = evidence.get("source_path")
+        retained_source = _repo_relative_file(repo, source_path, f"{query_id}: label_evidence source")
+        if sha256_bytes(retained_source.read_bytes()) != source_hash:
+            raise DatasetError(f"{query_id}: label_evidence retained source hash differs")
         if not isinstance(evidence.get("rationale"), str) or not evidence["rationale"].strip():
             raise DatasetError(f"{query_id}: label_evidence rationale is missing")
         evidence_counts[evidence["type"]] += 1
@@ -727,13 +1051,15 @@ def validate_schema_instance(value: Any, schema: dict[str, Any], label: str) -> 
 
 
 def validate_relevance_schemas(labels: dict[str, Any], snapshot: dict[str, Any], dataset: dict[str, Any],
-                               schema_dir: pathlib.Path) -> list[str]:
+                               schema_dir: pathlib.Path, ledger: dict[str, Any] | None = None) -> list[str]:
     errors: list[str] = []
-    artifacts = (
+    artifacts: list[tuple[dict[str, Any], str, str]] = [
         (labels, "relevance-label-source.schema.json", "labels"),
         (snapshot, "relevance-fact-snapshot.schema.json", "snapshot"),
         (dataset, "relevance-dataset.schema.json", "dataset"),
-    )
+    ]
+    if ledger is not None:
+        artifacts.append((ledger, "relevance-review-ledger.schema.json", "review ledger"))
     for artifact, filename, label in artifacts:
         schema = load_json(schema_dir / filename)
         if not isinstance(schema, dict):
@@ -835,6 +1161,32 @@ def main() -> int:
     snapshot_parser.add_argument("--output", type=pathlib.Path, required=True)
     snapshot_parser.add_argument("--check", action="store_true")
 
+    membership_parser = subparsers.add_parser(
+        "source-membership", help="build the complete authenticated fact/date membership catalog"
+    )
+    membership_parser.add_argument("--facts", type=pathlib.Path, required=True)
+    membership_parser.add_argument("--session-dates", type=pathlib.Path, required=True)
+    membership_parser.add_argument("--output", type=pathlib.Path, required=True)
+    membership_parser.add_argument("--check", action="store_true")
+
+    contract_parser = subparsers.add_parser(
+        "source-contract", help="build the small reviewed contract that pins a membership catalog"
+    )
+    contract_parser.add_argument("--membership", type=pathlib.Path, required=True)
+    contract_parser.add_argument("--membership-path", required=True)
+    contract_parser.add_argument("--output", type=pathlib.Path, required=True)
+    contract_parser.add_argument("--check", action="store_true")
+
+    ledger_parser = subparsers.add_parser(
+        "review-ledger", help="build retained per-query/per-judgment manual review evidence"
+    )
+    ledger_parser.add_argument("--labels", type=pathlib.Path, required=True)
+    ledger_parser.add_argument("--source-contract", type=pathlib.Path, required=True)
+    ledger_parser.add_argument("--reviewed-at", required=True)
+    ledger_parser.add_argument("--reviewer", required=True)
+    ledger_parser.add_argument("--output", type=pathlib.Path, required=True)
+    ledger_parser.add_argument("--check", action="store_true")
+
     materialize_parser = subparsers.add_parser("materialize", help="derive the checked-in dataset from labels and fact snapshot")
     materialize_parser.add_argument("--repo", type=pathlib.Path, default=pathlib.Path.cwd())
     materialize_parser.add_argument("--labels", type=pathlib.Path, required=True)
@@ -849,6 +1201,9 @@ def main() -> int:
     validate_parser.add_argument("--inventory", type=pathlib.Path, required=True)
     validate_parser.add_argument("--snapshot", type=pathlib.Path, required=True)
     validate_parser.add_argument("--dataset", type=pathlib.Path, required=True)
+    validate_parser.add_argument("--source-contract", type=pathlib.Path, required=True)
+    validate_parser.add_argument("--source-membership", type=pathlib.Path, required=True)
+    validate_parser.add_argument("--review-ledger", type=pathlib.Path, required=True)
     validate_parser.add_argument(
         "--schemas",
         type=pathlib.Path,
@@ -885,6 +1240,39 @@ def main() -> int:
                 sha256_bytes(args.session_dates.read_bytes()),
             )
             _write_or_check(args.output, value, args.check)
+        elif args.command == "source-membership":
+            sessions = load_json(args.session_dates)
+            if not isinstance(sessions, dict):
+                raise DatasetError("session dates must be a JSON object")
+            value = build_source_membership(
+                load_facts(args.facts),
+                {str(k): str(v) for k, v in sessions.items()},
+                sha256_bytes(args.facts.read_bytes()),
+                sha256_bytes(args.session_dates.read_bytes()),
+            )
+            _write_or_check(args.output, value, args.check)
+        elif args.command == "source-contract":
+            membership = load_json(args.membership)
+            if not isinstance(membership, dict):
+                raise DatasetError("source membership must be a JSON object")
+            value = build_source_contract(
+                args.membership_path,
+                membership,
+                sha256_bytes(args.membership.read_bytes()),
+            )
+            _write_or_check(args.output, value, args.check)
+        elif args.command == "review-ledger":
+            labels = load_json(args.labels)
+            contract = load_json(args.source_contract)
+            if not isinstance(labels, dict) or not isinstance(contract, dict):
+                raise DatasetError("labels/source contract must be JSON objects")
+            value = build_review_ledger(
+                labels,
+                contract,
+                reviewed_at=args.reviewed_at,
+                reviewer=args.reviewer,
+            )
+            _write_or_check(args.output, value, args.check)
         elif args.command == "materialize":
             value = materialize(args.repo.resolve(), args.labels, args.inventory, args.snapshot)
             _write_or_check(args.output, value, args.check)
@@ -896,9 +1284,26 @@ def main() -> int:
             validate_dataset(dataset, value)
             labels = load_json(args.labels)
             snapshot = load_json(args.snapshot)
-            if not isinstance(labels, dict) or not isinstance(snapshot, dict):
-                raise DatasetError("labels/snapshot must be objects")
-            schema_errors = validate_relevance_schemas(labels, snapshot, dataset, args.schemas)
+            contract = load_json(args.source_contract)
+            membership = load_json(args.source_membership)
+            ledger = load_json(args.review_ledger)
+            if not all(isinstance(value, dict) for value in (labels, snapshot, contract, membership, ledger)):
+                raise DatasetError("labels/snapshot/source contract/source membership/review ledger must be objects")
+            validate_source_membership(
+                labels,
+                snapshot,
+                contract,
+                membership,
+                membership_sha256=sha256_bytes(args.source_membership.read_bytes()),
+            )
+            validate_review_ledger(
+                labels,
+                ledger,
+                contract,
+                ledger_path=args.review_ledger.resolve().relative_to(args.repo.resolve()).as_posix(),
+                ledger_sha256=sha256_bytes(args.review_ledger.read_bytes()),
+            )
+            schema_errors = validate_relevance_schemas(labels, snapshot, dataset, args.schemas, ledger)
             if schema_errors:
                 raise DatasetError("schema validation failed: " + "; ".join(schema_errors))
             print(

@@ -4,8 +4,8 @@
   "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
   "source_active_fact_count": 2531,
   "source_active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
-  "fact_count": 39,
-  "facts_sha256": "64b52512611a2e82c801169e8ecb6ccd5ca86e6f4b7d605eb7fd4c65207870d1",
+  "fact_count": 37,
+  "facts_sha256": "138d416dfd71d7c15b46fb5bc8ff4f88a6ba1ee4e76a1a9fa7a62be252b31f07",
   "facts": [
     {
       "id": "fact:0539f87b0bf63eaf40ae9eec",
@@ -256,31 +256,6 @@
       ],
       "created_at": "2026-07-14T10:32:08.351592Z",
       "updated_at": "2026-07-14T10:32:08.351592Z"
-    },
-    {
-      "id": "fact:3b0199c75a7f4b613beb6bd8",
-      "paths": [
-        "architecture.data.flow"
-      ],
-      "kind": "decision",
-      "locus": [
-        "mirrorid"
-      ],
-      "text": "For entire-api recap routing, use core mirror metadata’s MirrorId directly as the repo ULID; it is the same identifier entire-api expects, avoiding an extra GET /repos list-and-match request.",
-      "branch": "main",
-      "origin": "distilled",
-      "status": "active",
-      "confidence": "1.00",
-      "provenance": [
-        {
-          "session_id": "473b5e55-d61f-4bc6-bcae-ab078e0d3cdd",
-          "checkpoint_id": "3dc687406d87",
-          "transcript": "sessions/main/20260702T164323Z_claude-code_473b5e55-d61f-4bc6-bcae-ab078e0d3cdd_3dc687406d87.jsonl",
-          "line": 72
-        }
-      ],
-      "created_at": "2026-07-14T20:59:44.616542Z",
-      "updated_at": "2026-07-14T20:59:44.616542Z"
     },
     {
       "id": "fact:42e169e787462c51357851e2",
@@ -810,34 +785,6 @@
       "updated_at": "2026-07-14T10:32:08.351592Z"
     },
     {
-      "id": "fact:c9cfe5bcac4d18cc84df6128",
-      "paths": [
-        "architecture.boundaries.rationale",
-        "constraints.invariants.general"
-      ],
-      "kind": "decision",
-      "locus": [
-        "git",
-        "move",
-        "worktree"
-      ],
-      "text": "Shadow branches should be scoped per Git worktree rather than shared solely by base commit, because independent worktrees can start from the same commit and must not collide; derive the suffix from the internal Git worktree name so it remains stable across `git worktree move`.",
-      "branch": "main",
-      "origin": "distilled",
-      "status": "active",
-      "confidence": "1.00",
-      "provenance": [
-        {
-          "session_id": "4b3ddf27-d7f7-4773-b4f2-b94b999c661d",
-          "checkpoint_id": "7ec034df6095",
-          "transcript": "sessions/main/20260204T111922Z_claude-code_4b3ddf27-d7f7-4773-b4f2-b94b999c661d_7ec034df6095.jsonl",
-          "line": 5
-        }
-      ],
-      "created_at": "2026-07-14T09:28:10.897043Z",
-      "updated_at": "2026-07-14T09:28:10.897043Z"
-    },
-    {
       "id": "fact:ca0150e655d12006e8ca74f8",
       "paths": [
         "constraints.invariants.general"
@@ -1050,8 +997,8 @@
       "updated_at": "2026-07-14T10:32:08.351592Z"
     }
   ],
-  "session_date_count": 36,
-  "session_dates_sha256": "0c32e70b86f091c974397c14790bea2ce7b1c8ca75f34ef0b6a6f6cd422ec3aa",
+  "session_date_count": 34,
+  "session_dates_sha256": "bc0577cafdaa520a8d214764f01d15d554a2f23c5718e1c4b1f046943b085abc",
   "session_dates": {
     "019d6e6b-85e7-75a0-81d0-82e45fb1af91": "2026-04-09T11:10:51.268374Z",
     "019d7050-c22a-7f33-96fa-ccb004f5a6aa": "2026-04-09T05:53:33.236656Z",
@@ -1073,8 +1020,6 @@
     "25787f85-5c77-4384-9355-bf3dfe687bde": "2026-06-02T08:15:04.541139Z",
     "2946988e-fe9b-4ca5-8f30-3c60037a41d9": "2026-06-03T01:31:58.429753Z",
     "3d67832d-f293-4b14-873f-1ca34ff07313": "2026-04-22T11:13:35.006782Z",
-    "473b5e55-d61f-4bc6-bcae-ab078e0d3cdd": "2026-07-02T16:43:23.423221Z",
-    "4b3ddf27-d7f7-4773-b4f2-b94b999c661d": "2026-02-04T11:19:22.347697Z",
     "58ea4463-8f4c-4d99-9a40-a61b6d54552f": "2026-05-22T08:29:48.50169Z",
     "6b26d89b-433f-4dab-8cf7-8faa6ae827a5": "2026-06-09T02:18:52.063827Z",
     "86a4c45c-4c6f-441c-9e41-80eb453d2c7d": "2026-03-04T00:50:24.292592Z",
