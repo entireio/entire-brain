@@ -56,7 +56,11 @@
     "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
     "session_dates_size_bytes": 165511,
     "prefilter_count": 2621,
-    "eligible_count": 2529
+    "eligible_count": 2529,
+    "candidate_ids_algorithm": "sha256_canonical_sorted_id_array_v1",
+    "eligible_ids_sha256": "3c160a46df3d158ebefa95bd9e10973a5c88d78244e2698d9e85389cdc4b5f85",
+    "semantic_candidate_count": 2442,
+    "semantic_candidate_ids_sha256": "6e037c551e1b368329917d1cb2d2e35dc376bb19459ef3eb4ed0b6fadaa63ee4"
   },
   "embedding_model": {
     "model_id": "embeddinggemma",

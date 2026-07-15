@@ -144,17 +144,24 @@ For every command, retain stdout/stderr and a record conforming to
 `schemas/engine-verification.schema.json`. The only accepted evidence entry point is one regular JSON
 file conforming to `schemas/engine-verification-manifest.schema.json`, with exactly
 `schema_version: 2` and `records`; directories, raw arrays, single records, `record_paths`, and extra
-wrapper keys are rejected. Effective engine must come from machine-readable runtime
+wrapper keys are rejected. The checker recursively applies the record schema as well, including
+every nested `additionalProperties: false`; a structurally valid wrapper cannot hide extra record or
+requested fields. Effective engine must come from machine-readable runtime
 output, not inferred environment intent. Recall JSON now exposes the observed `effective_engine`,
 embedder ID/dimension, BM25 and fallback state, cache backend/path, and vector counts. The verification
 wrapper must still bind those observations to the requested namespace and retain the source and
 derived corpus bytes, vector, binary, model, complete server runtime, stdout, stderr, command,
 environment, and health-attestation hashes required by the schema. The checker independently
 re-hashes every named byte and requires production records to name the checked-in canonical pin-set
-descriptor. It also parses retained recall stdout and EBV1 vector bytes (model, dimension, resident
-count, and fact IDs), reconciles them to each record/runtime/corpus, and requires every arm command
-to invoke the same retained canonical binary. Final freeze remains blocked until one real record for
-each arm passes those checks.
+descriptor. From the pinned facts, complete session-date map, cutoff, exclusions, and active status,
+it independently derives 2,529 temporally eligible facts and the exact 2,442 active+eligible semantic
+candidate IDs. Both semantic arms must report candidate, valid-vector, and resident counts of 2,442,
+zero inherited vectors in their clean namespaces, and EBV1 IDs exactly equal to that committed set.
+The EBV1 parser decodes every float32 and rejects truncation, trailing bytes, NaN, or infinity. Every
+delivered stdout/record fact ID must be active+eligible, in retained facts, in identical order, and
+the delivered count must equal the ID count and remain at or below pinned K. The checker also
+requires every arm command to invoke the same retained canonical binary. Final freeze remains
+blocked until one real record for each arm passes those checks.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between

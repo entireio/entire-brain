@@ -14,6 +14,7 @@ import dataclasses
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import pathlib
 import platform
@@ -47,6 +48,7 @@ SAFE_PARENT_ENV = ("HOME", "LANG", "LC_ALL", "PATH", "TMPDIR")
 DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newline_v1"
 PRODUCTION_AUTHORITY = "production"
 TEST_AUTHORITY = "test_fixture"
+CANDIDATE_IDS_ALGORITHM = "sha256_canonical_sorted_id_array_v1"
 
 
 class VerificationError(RuntimeError):
@@ -86,6 +88,14 @@ class PreparedArm:
     state_dir: pathlib.Path
     cache_dir: pathlib.Path
     facts: pathlib.Path
+
+
+@dataclasses.dataclass(frozen=True)
+class CandidateAudit:
+    all_ids: frozenset[str]
+    eligible_ids: frozenset[str]
+    active_eligible_ids: frozenset[str]
+    excluded_counts: dict[str, int]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -132,6 +142,131 @@ def sha256_file(path: pathlib.Path) -> str:
 def canonical_sha256(value: Any) -> str:
     encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def parse_eligibility_time(value: Any) -> dt.datetime:
+    require(isinstance(value, str) and bool(value.strip()), "eligibility timestamp is missing")
+    normalized = value.strip()
+    if normalized.endswith("z") or normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise VerificationError(f"invalid eligibility timestamp: {value!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed
+
+
+def derive_candidate_audit(facts_path: pathlib.Path, sessions_path: pathlib.Path, pins: dict[str, Any]) -> CandidateAudit:
+    try:
+        session_dates = json.loads(sessions_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise VerificationError(f"session dates cannot establish candidate coverage: {exc}") from exc
+    require(
+        isinstance(session_dates, dict)
+        and all(isinstance(key, str) and isinstance(value, str) for key, value in session_dates.items()),
+        "session dates must be a string-to-string object",
+    )
+    task = pins["development_task"]
+    cutoff = parse_eligibility_time(task["eligible_before"])
+    excluded = {
+        value.strip()
+        for value in task["exclude_session_ids"]
+        if isinstance(value, str) and value.strip()
+    }
+    excluded_counts = {
+        "empty_provenance": 0,
+        "excluded_session": 0,
+        "unknown_session": 0,
+        "at_or_after_cutoff": 0,
+    }
+    all_ids: set[str] = set()
+    eligible_ids: set[str] = set()
+    active_eligible_ids: set[str] = set()
+    try:
+        lines = facts_path.read_text(encoding="utf-8").splitlines()
+        for line_number, line in enumerate(lines, 1):
+            if not line.strip():
+                continue
+            fact = json.loads(line)
+            require(isinstance(fact, dict), f"facts line {line_number} is not an object")
+            fact_id = fact.get("id")
+            require(
+                isinstance(fact_id, str) and bool(fact_id) and fact_id not in all_ids,
+                f"facts line {line_number} has an invalid or duplicate id",
+            )
+            status = fact.get("status")
+            require(status in {"active", "superseded", "retracted"}, f"facts line {line_number} has invalid status")
+            all_ids.add(fact_id)
+            provenance = fact.get("provenance")
+            has_empty_anchor = not isinstance(provenance, list) or len(provenance) == 0
+            has_excluded_session = False
+            has_unknown_session = False
+            has_at_or_after_cutoff = False
+            if isinstance(provenance, list):
+                for anchor in provenance:
+                    if not isinstance(anchor, dict):
+                        has_empty_anchor = True
+                        continue
+                    session_id = anchor.get("session_id")
+                    if not isinstance(session_id, str) or not session_id.strip():
+                        has_empty_anchor = True
+                        continue
+                    session_id = session_id.strip()
+                    if session_id in excluded:
+                        has_excluded_session = True
+                        continue
+                    created_raw = session_dates.get(session_id)
+                    try:
+                        created = parse_eligibility_time(created_raw)
+                    except VerificationError:
+                        has_unknown_session = True
+                        continue
+                    if created >= cutoff:
+                        has_at_or_after_cutoff = True
+            reason = ""
+            if has_empty_anchor:
+                reason = "empty_provenance"
+            elif has_excluded_session:
+                reason = "excluded_session"
+            elif has_unknown_session:
+                reason = "unknown_session"
+            elif has_at_or_after_cutoff:
+                reason = "at_or_after_cutoff"
+            if reason:
+                excluded_counts[reason] += 1
+                continue
+            eligible_ids.add(fact_id)
+            if status == "active":
+                active_eligible_ids.add(fact_id)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise VerificationError(f"facts cannot establish candidate coverage: {exc}") from exc
+    return CandidateAudit(
+        frozenset(all_ids),
+        frozenset(eligible_ids),
+        frozenset(active_eligible_ids),
+        excluded_counts,
+    )
+
+
+def validate_candidate_pins(audit: CandidateAudit, pins: dict[str, Any]) -> None:
+    corpus = pins["corpus"]
+    require(corpus.get("candidate_ids_algorithm") == CANDIDATE_IDS_ALGORITHM, "candidate-id pin algorithm changed")
+    require(len(audit.all_ids) == corpus["prefilter_count"], "derived prefilter fact count differs from pin")
+    require(len(audit.eligible_ids) == corpus["eligible_count"], "derived eligible fact count differs from pin")
+    require(
+        canonical_sha256(sorted(audit.eligible_ids)) == corpus["eligible_ids_sha256"],
+        "derived eligible fact IDs differ from pin",
+    )
+    require(
+        len(audit.active_eligible_ids) == corpus["semantic_candidate_count"],
+        "derived semantic candidate count differs from pin",
+    )
+    require(
+        canonical_sha256(sorted(audit.active_eligible_ids)) == corpus["semantic_candidate_ids_sha256"],
+        "derived semantic candidate IDs differ from pin",
+    )
 
 
 def require(condition: bool, message: str) -> None:
@@ -254,6 +389,7 @@ def validate_source_inputs(settings: Settings, pins: dict[str, Any], authority: 
     model = pins["embedding_model"]
     require_pinned_file(settings.frozen_facts, corpus, "facts", "frozen facts")
     require_pinned_file(settings.session_dates, corpus, "session_dates", "session dates")
+    validate_candidate_pins(derive_candidate_audit(settings.frozen_facts, settings.session_dates, pins), pins)
     require(settings.embedding_model.is_file() and not settings.embedding_model.is_symlink(), "EmbeddingGemma model is missing")
     require_sha256(sha256_file(settings.embedding_model), model["sha256"], "EmbeddingGemma model")
     require(settings.embedding_model.stat().st_size == model["size_bytes"], "EmbeddingGemma model size changed")
@@ -490,6 +626,9 @@ def parse_vector_artifact(path: pathlib.Path) -> tuple[str, int, int, tuple[str,
         seen.add(fact_id)
         vector_bytes = dimension * 4
         require(offset + vector_bytes <= len(raw), f"truncated vector values for {fact_id!r}: {path}")
+        for component in range(dimension):
+            (value,) = struct.unpack_from("<f", raw, offset + component * 4)
+            require(math.isfinite(value), f"non-finite vector value for {fact_id!r} component {component}: {path}")
         offset += vector_bytes
     require(offset == len(raw), f"vector artifact has trailing bytes: {path}")
     return model_id, dimension, count, tuple(seen)
@@ -502,6 +641,9 @@ def parse_runtime_output(
     prepared: PreparedArm,
     pins: dict[str, Any],
 ) -> dict[str, Any]:
+    candidate_audit = derive_candidate_audit(prepared.facts, settings.session_dates, pins)
+    validate_candidate_pins(candidate_audit, pins)
+    semantic_candidate_count = len(candidate_audit.active_eligible_ids)
     try:
         output = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -524,10 +666,12 @@ def parse_runtime_output(
         require(engine.get("embedding_dimension") == engine_pin["dimension"], f"{arm} dimension mismatch")
         require(engine.get("vector_cache_read_only") is False, f"{arm} vector cache was read-only")
         require(engine.get("vector_cache_backend") == "flat_file", f"{arm} did not use the retained flat-file cache")
-        require(isinstance(engine.get("vector_count"), int) and engine["vector_count"] > 0, f"{arm} vector count is invalid")
+        require(engine.get("vector_candidate_count") == semantic_candidate_count, f"{arm} vector candidate count is incomplete")
+        require(engine.get("vector_count") == semantic_candidate_count, f"{arm} valid vector count is incomplete")
+        require(engine.get("loaded_vector_count") == 0, f"{arm} inherited vectors in a clean derived namespace")
         require(
-            isinstance(engine.get("resident_vector_count"), int) and engine["resident_vector_count"] > 0,
-            f"{arm} resident vector count is invalid",
+            engine.get("resident_vector_count") == semantic_candidate_count,
+            f"{arm} resident vector count is incomplete",
         )
     else:
         require(not engine.get("embedder_id"), "lexical arm reported an embedder")
@@ -544,12 +688,14 @@ def parse_runtime_output(
         all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in excluded.values()),
         f"{arm} excluded counts contain an invalid value",
     )
+    require(excluded == candidate_audit.excluded_counts, f"{arm} excluded counts differ from retained fact-level eligibility")
     require(sum(excluded.values()) == corpus_pin["prefilter_count"] - corpus_pin["eligible_count"], f"{arm} eligibility counts do not reconcile")
     facts = output.get("facts")
     require(isinstance(facts, list), f"{arm} facts result is not an array")
     fact_ids = [fact.get("id") if isinstance(fact, dict) else None for fact in facts]
     require(all(isinstance(fact_id, str) and fact_id for fact_id in fact_ids), f"{arm} result contains an invalid fact id")
     require(len(fact_ids) == len(set(fact_ids)), f"{arm} result contains duplicate fact ids")
+    require(set(fact_ids).issubset(candidate_audit.active_eligible_ids), f"{arm} delivered an inactive or temporally ineligible fact")
     require(eligibility.get("delivered_count") == len(fact_ids), f"{arm} delivered count mismatch")
     require(len(fact_ids) <= settings.k, f"{arm} delivered more than k facts")
 
@@ -562,10 +708,14 @@ def parse_runtime_output(
         except ValueError as exc:
             raise VerificationError(f"{arm} vector cache escaped its derived data root: {cache_path}") from exc
         require(cache_path.is_file() and not cache_path.is_symlink(), f"{arm} vector artifact was not persisted")
-        model_id, dimension, resident_count, _ = parse_vector_artifact(cache_path)
+        model_id, dimension, resident_count, vector_fact_ids = parse_vector_artifact(cache_path)
         require(model_id == engine.get("embedder_id"), f"{arm} vector header model does not match runtime")
         require(dimension == engine.get("embedding_dimension"), f"{arm} vector header dimension does not match runtime")
         require(resident_count == engine.get("resident_vector_count"), f"{arm} vector header count does not match runtime")
+        require(
+            set(vector_fact_ids) == set(candidate_audit.active_eligible_ids),
+            f"{arm} vector artifact does not cover the exact active+eligible candidate set",
+        )
     return output
 
 
@@ -656,10 +806,10 @@ def run_arm(
     stdout_path.write_bytes(completed.stdout)
     stderr_path.write_bytes(completed.stderr)
     require(completed.returncode == 0, f"{arm} recall exited {completed.returncode}; see {stderr_path}")
-    output = parse_runtime_output(completed.stdout, arm, settings, prepared, pins)
-    runtime_engine = output["retrieval_engine"]
     corpus_hash = pins["corpus"]["facts_sha256"]
     require_sha256(sha256_file(prepared.facts), corpus_hash, f"{arm} derived facts after recall")
+    output = parse_runtime_output(completed.stdout, arm, settings, prepared, pins)
+    runtime_engine = output["retrieval_engine"]
 
     vector_path: str | None = None
     vector_hash: str | None = None
@@ -719,6 +869,8 @@ def run_arm(
             "embedder_id": runtime_engine.get("embedder_id") if semantic else None,
             "embedding_dimension": runtime_engine.get("embedding_dimension") if semantic else None,
             "vector_count": runtime_engine.get("vector_count", 0) if semantic else 0,
+            "vector_candidate_count": runtime_engine.get("vector_candidate_count", 0) if semantic else 0,
+            "loaded_vector_count": runtime_engine.get("loaded_vector_count", 0) if semantic else 0,
             "resident_vector_count": runtime_engine.get("resident_vector_count", 0) if semantic else 0,
             "vector_namespace": matrix_arm["namespace"],
         },

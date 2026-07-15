@@ -56,13 +56,21 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         self.state.mkdir(parents=True)
         self.facts = self.data / "repos/local/example/facts/main-0d6e4079/facts.ndjson"
         self.facts.parent.mkdir(parents=True)
-        self.facts.write_text('{"id":"fact:a"}\n{"id":"fact:b"}\n', encoding="utf-8")
+        self.facts.write_text(
+            '{"id":"fact:a","status":"active","provenance":[{"session_id":"session-1"}]}\n'
+            '{"id":"fact:b","status":"active","provenance":[{"session_id":"session-1"}]}\n'
+            '{"id":"fact:c","status":"active","provenance":[{"session_id":"late-session"}]}\n',
+            encoding="utf-8",
+        )
         taxonomy = self.data / "repos/local/example/facts/taxonomy.json"
         taxonomy.write_text('{"categories":{},"paths":[]}\n', encoding="utf-8")
         manifest = self.data / "repos/local/example/manifest.json"
         manifest.write_text('{"schema_version":3}\n', encoding="utf-8")
         self.sessions = self.frozen / "session_dates.json"
-        self.sessions.write_text('{"session-1":"2026-01-01T00:00:00Z"}\n', encoding="utf-8")
+        self.sessions.write_text(
+            '{"session-1":"2026-01-01T00:00:00Z","late-session":"2027-01-01T00:00:00Z"}\n',
+            encoding="utf-8",
+        )
 
         inputs = self.root / "input"
         inputs.mkdir()
@@ -128,6 +136,10 @@ class EngineVerificationRunnerTest(unittest.TestCase):
                 "session_dates_size_bytes": self.sessions.stat().st_size,
                 "prefilter_count": 3,
                 "eligible_count": 2,
+                "candidate_ids_algorithm": VERIFY.CANDIDATE_IDS_ALGORITHM,
+                "eligible_ids_sha256": VERIFY.canonical_sha256(["fact:a", "fact:b"]),
+                "semantic_candidate_count": 2,
+                "semantic_candidate_ids_sha256": VERIFY.canonical_sha256(["fact:a", "fact:b"]),
             },
             "embedding_model": {
                 "model_id": "embeddinggemma-fixture",
@@ -234,6 +246,8 @@ class EngineVerificationRunnerTest(unittest.TestCase):
                     "embedder_id": engine_pin["embedder_id"],
                     "embedding_dimension": engine_pin["dimension"],
                     "vector_count": 2,
+                    "vector_candidate_count": 2,
+                    "loaded_vector_count": 0,
                     "resident_vector_count": 2,
                     "vector_cache_backend": "flat_file",
                     "vector_cache_path": str(vectors),
@@ -246,7 +260,12 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             "eligibility": {
                 "prefilter_corpus_count": 3,
                 "eligible_count": 2,
-                "excluded_counts": {"at_or_after_cutoff": 1},
+                "excluded_counts": {
+                    "empty_provenance": 0,
+                    "excluded_session": 0,
+                    "unknown_session": 0,
+                    "at_or_after_cutoff": 1,
+                },
                 "delivered_count": 1,
             },
             "facts": [{"id": "fact:a"}],
@@ -390,6 +409,44 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         errors = self.checker_errors(link)
         self.assertTrue(any("must not traverse a symlink" in error for error in errors))
 
+    def test_checker_applies_recursive_record_schema_and_rejects_nested_extras(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["records"][0]["extra_top_level"] = True
+        manifest["records"][0]["requested"]["extra_nested"] = "forbidden"
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("schema prohibits additional property extra_top_level" in error for error in errors))
+        self.assertTrue(any("schema prohibits additional property extra_nested" in error for error in errors))
+
+    def test_checker_rejects_self_consistent_delivered_fact_outside_retained_corpus(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        record = manifest["records"][0]
+        stdout_path = self.root / record["artifacts"]["stdout_path"]
+        stdout = json.loads(stdout_path.read_text(encoding="utf-8"))
+        stdout["facts"] = [{"id": "fact:not-in-retained-corpus"}]
+        stdout_path.write_text(json.dumps(stdout, sort_keys=True) + "\n", encoding="utf-8")
+        record["artifacts"]["stdout_sha256"] = digest(stdout_path)
+        record["result"]["fact_ids_in_order"] = ["fact:not-in-retained-corpus"]
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("delivered fact ids are inactive or temporally ineligible" in error for error in errors))
+
+    def test_checker_reconciles_delivered_count_to_ranked_fact_count(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        record = manifest["records"][0]
+        stdout_path = self.root / record["artifacts"]["stdout_path"]
+        stdout = json.loads(stdout_path.read_text(encoding="utf-8"))
+        stdout["eligibility"]["delivered_count"] = 2
+        stdout_path.write_text(json.dumps(stdout, sort_keys=True) + "\n", encoding="utf-8")
+        record["artifacts"]["stdout_sha256"] = digest(stdout_path)
+        record["corpus"]["delivered_count"] = 2
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("delivered_count does not equal ranked fact count" in error for error in errors))
+
     def test_checker_rejects_binary_substitution_even_when_records_are_rehashed(self) -> None:
         manifest_path = self.execute()
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -434,6 +491,60 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
         errors = self.checker_errors(manifest_path)
         self.assertTrue(any("EBV1 model id differs from record/runtime" in error for error in errors))
+
+    def test_checker_rejects_self_consistent_one_vector_coverage_shrink(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        record = manifest["records"][1]
+        vector_path = self.root / record["artifacts"]["vector_artifact_path"]
+        write_vectors(vector_path, "minishlab/potion-retrieval-32M", 512, ["fact:a"])
+        record["artifacts"]["vector_artifact_sha256"] = digest(vector_path)
+        for field in ("vector_count", "vector_candidate_count", "resident_vector_count"):
+            record["effective"][field] = 1
+        stdout_path = self.root / record["artifacts"]["stdout_path"]
+        stdout = json.loads(stdout_path.read_text(encoding="utf-8"))
+        for field in ("vector_count", "vector_candidate_count", "resident_vector_count"):
+            stdout["retrieval_engine"][field] = 1
+        stdout_path.write_text(json.dumps(stdout, sort_keys=True) + "\n", encoding="utf-8")
+        record["artifacts"]["stdout_sha256"] = digest(stdout_path)
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.checker_errors(manifest_path)
+        self.assertTrue(any("vector_count does not cover exact active+eligible candidates" in error for error in errors))
+        self.assertTrue(any("EBV1 fact IDs do not exactly cover active+eligible candidates" in error for error in errors))
+
+    def test_checker_independently_rejects_every_non_finite_ebv1_float_class(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        record = manifest["records"][1]
+        vector_path = self.root / record["artifacts"]["vector_artifact_path"]
+        canonical = vector_path.read_bytes()
+        model_length = struct.unpack_from("<H", canonical, 4)[0]
+        first_fact_length_offset = 4 + 2 + model_length + 4 + 4
+        first_fact_length = struct.unpack_from("<H", canonical, first_fact_length_offset)[0]
+        first_float_offset = first_fact_length_offset + 2 + first_fact_length
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                raw = bytearray(canonical)
+                struct.pack_into("<f", raw, first_float_offset, value)
+                vector_path.write_bytes(raw)
+                record["artifacts"]["vector_artifact_sha256"] = digest(vector_path)
+                manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+                errors = self.checker_errors(manifest_path)
+                self.assertTrue(any("non-finite float" in error for error in errors))
+
+    def test_checker_independently_rejects_truncated_and_trailing_ebv1_payloads(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        record = manifest["records"][1]
+        vector_path = self.root / record["artifacts"]["vector_artifact_path"]
+        canonical = vector_path.read_bytes()
+        for payload in (canonical[:-1], canonical + b"x"):
+            with self.subTest(size=len(payload)):
+                vector_path.write_bytes(payload)
+                record["artifacts"]["vector_artifact_sha256"] = digest(vector_path)
+                manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+                errors = self.checker_errors(manifest_path)
+                self.assertTrue(any("invalid EBV1 vector artifact" in error for error in errors))
 
     def test_recall_must_remain_active_through_during_health_request(self) -> None:
         embedding_returned = VERIFY.threading.Event()

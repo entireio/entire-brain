@@ -53,23 +53,29 @@ environment or accepting caller-defined expected values:
   by another process; fresh nonce/counter health requests attest the same PID, ownership token,
   model hash, dimension, and Node version, with strict RFC3339 pre/start/during/finish/post ordering
   and an explicit during-health request that must finish while recall is still active;
-- it rejects fallback, BM25, partial semantic coverage, temporal-count drift, results above `K`,
-  vector paths outside an arm's derived data root, and vector header/model/dimension/count drift;
+- it independently derives and pins 2,529 temporally eligible facts and the exact 2,442
+  active+eligible semantic candidate IDs; it rejects fallback, BM25, partial semantic coverage,
+  inherited clean-namespace vectors, temporal/status drift, results above `K`, vector paths outside
+  an arm's derived data root, and vector header/model/dimension/count/ID drift;
 - it retains and hashes the facts/session sources, every derived facts file, binary/build
   attestation, recall and
   server logs, one vector artifact per semantic arm, GGUF, exact Node executable, server script,
   package and lockfile, dependency tree/inventory, and server attestation; and
-- it independently parses retained recall stdout and EBV1 model/dimension/count/fact IDs, binds all
-  commands to the same canonical retained binary, and reconciles those bytes to the records; and
+- it recursively applies the exact manifest and record schemas, independently parses retained recall
+  stdout plus every EBV1 float/model/dimension/count/fact ID, rejects non-finite/truncated/trailing
+  payloads, binds all commands to the same canonical retained binary, and reconciles delivered facts
+  to the retained active+eligible set; and
 - it accepts only the exact v2 regular-file manifest wrapper, validates a temporary manifest with
   the protocol checker, and atomically renames it only after all three canonical records pass.
   Failed validation leaves no manifest.
 
-Twenty-two hermetic wrapper tests pass, including a full synthetic three-arm publication, exact
+Twenty-eight hermetic wrapper tests pass, including a full synthetic three-arm publication, exact
 manifest-shape rejection, production rejection of test-fixture evidence, binary/stdout/vector
-substitution, retained-source and derived-facts rehashing, atomic publication failure, live-process
-health monitoring, recall-overlap and timestamp-ordering failures, server PID/phase discontinuity,
-fallback, input-pin, development-query, and endpoint-ownership cases.
+substitution, recursive extra-field rejection, one-vector coverage shrink, inactive/ineligible fact
+delivery, delivered-count drift, NaN/infinity/truncation/trailing vectors, retained-source and
+derived-facts rehashing, atomic publication failure, live-process health monitoring, recall-overlap
+and timestamp-ordering failures, server PID/phase discontinuity, fallback, input-pin,
+development-query, and endpoint-ownership cases.
 
 The real retained run was preflighted against development task `6699ec40a`. It correctly refused
 before creating an evidence directory because a pre-existing, unowned Node process (PID 70028 at the

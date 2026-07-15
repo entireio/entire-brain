@@ -32,7 +32,7 @@
     },
     "effective": {
       "type": "object",
-      "required": ["engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "resident_vector_count", "vector_namespace"],
+      "required": ["engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "vector_candidate_count", "loaded_vector_count", "resident_vector_count", "vector_namespace"],
       "properties": {
         "engine": {"enum": ["lexical_handrolled", "model2vec_rrf", "embeddinggemma_rrf"]},
         "semantic_available": {"type": "boolean"},
@@ -41,6 +41,8 @@
         "embedder_id": {"type": ["string", "null"]},
         "embedding_dimension": {"type": ["integer", "null"], "minimum": 1},
         "vector_count": {"type": "integer", "minimum": 0},
+        "vector_candidate_count": {"type": "integer", "minimum": 0},
+        "loaded_vector_count": {"type": "integer", "minimum": 0},
         "resident_vector_count": {"type": "integer", "minimum": 0},
         "vector_namespace": {"type": "string", "minLength": 1}
       },

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
+import math
 import pathlib
 import re
 import struct
@@ -82,6 +83,7 @@ RELEVANCE_REVIEW_LEDGER_REPO_PATH = (
 RELEVANCE_SOURCE_CONTRACT_SHA256 = "a1e38838638a25accdc8a959d5f00a4d92257da70e411f90757e99f38e587678"
 ENGINE_PINS = HERE / "engine-verification-pins.json"
 DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newline_v1"
+CANDIDATE_IDS_ALGORITHM = "sha256_canonical_sorted_id_array_v1"
 
 
 def load(path: pathlib.Path) -> Any:
@@ -194,6 +196,183 @@ def _load_artifact(path: pathlib.Path, errors: list[str], label: str) -> Any | N
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         errors.append(f"{label} is not valid readable JSON: {exc}")
         return None
+
+
+def _json_type_matches(value: Any, expected: str) -> bool:
+    if expected == "null":
+        return value is None
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return False
+
+
+def _json_equal(left: Any, right: Any) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left == right
+    return type(left) is type(right) and left == right
+
+
+def _resolve_schema_pointer(root: dict[str, Any], fragment: str) -> dict[str, Any] | None:
+    current: Any = root
+    if fragment in {"", "/"}:
+        return current if isinstance(current, dict) else None
+    for encoded in fragment.removeprefix("/").split("/"):
+        token = encoded.replace("~1", "/").replace("~0", "~")
+        if not isinstance(current, dict) or token not in current:
+            return None
+        current = current[token]
+    return current if isinstance(current, dict) else None
+
+
+def _validate_schema_node(
+    value: Any,
+    schema: dict[str, Any],
+    errors: list[str],
+    label: str,
+    *,
+    root_schema: dict[str, Any],
+    schema_dir: pathlib.Path,
+) -> None:
+    reference = schema.get("$ref")
+    if isinstance(reference, str):
+        if reference.startswith("#"):
+            target_root = root_schema
+            target = _resolve_schema_pointer(target_root, reference[1:])
+            target_dir = schema_dir
+        else:
+            raw_path, separator, fragment = reference.partition("#")
+            target_path = schema_dir / raw_path
+            try:
+                target_root = load(target_path)
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                errors.append(f"{label}: cannot load referenced schema {reference}: {exc}")
+                return
+            target = _resolve_schema_pointer(target_root, fragment if separator else "")
+            target_dir = target_path.parent
+        if target is None:
+            errors.append(f"{label}: unresolved schema reference {reference}")
+            return
+        _validate_schema_node(
+            value,
+            target,
+            errors,
+            label,
+            root_schema=target_root,
+            schema_dir=target_dir,
+        )
+        return
+
+    expected_type = schema.get("type")
+    if isinstance(expected_type, str):
+        allowed_types = [expected_type]
+    elif isinstance(expected_type, list) and all(isinstance(item, str) for item in expected_type):
+        allowed_types = expected_type
+    else:
+        allowed_types = []
+    if allowed_types and not any(_json_type_matches(value, item) for item in allowed_types):
+        errors.append(f"{label}: schema type must be {' or '.join(allowed_types)}")
+        return
+    if "const" in schema and not _json_equal(value, schema["const"]):
+        errors.append(f"{label}: value differs from schema const")
+    enum = schema.get("enum")
+    if isinstance(enum, list) and not any(_json_equal(value, item) for item in enum):
+        errors.append(f"{label}: value is outside schema enum")
+
+    if isinstance(value, dict):
+        required = schema.get("required", [])
+        if isinstance(required, list):
+            for key in required:
+                if isinstance(key, str) and key not in value:
+                    errors.append(f"{label}: schema requires property {key}")
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            properties = {}
+        for key, child_schema in properties.items():
+            if key in value and isinstance(child_schema, dict):
+                _validate_schema_node(
+                    value[key],
+                    child_schema,
+                    errors,
+                    f"{label}.{key}",
+                    root_schema=root_schema,
+                    schema_dir=schema_dir,
+                )
+        extras = set(value) - set(properties)
+        additional = schema.get("additionalProperties", True)
+        if additional is False:
+            for key in sorted(extras):
+                errors.append(f"{label}: schema prohibits additional property {key}")
+        elif isinstance(additional, dict):
+            for key in sorted(extras):
+                _validate_schema_node(
+                    value[key],
+                    additional,
+                    errors,
+                    f"{label}.{key}",
+                    root_schema=root_schema,
+                    schema_dir=schema_dir,
+                )
+    elif isinstance(value, list):
+        minimum_items = schema.get("minItems")
+        maximum_items = schema.get("maxItems")
+        if isinstance(minimum_items, int) and len(value) < minimum_items:
+            errors.append(f"{label}: array has fewer than {minimum_items} items")
+        if isinstance(maximum_items, int) and len(value) > maximum_items:
+            errors.append(f"{label}: array has more than {maximum_items} items")
+        items = schema.get("items")
+        if isinstance(items, dict):
+            for index, item in enumerate(value):
+                _validate_schema_node(
+                    item,
+                    items,
+                    errors,
+                    f"{label}[{index}]",
+                    root_schema=root_schema,
+                    schema_dir=schema_dir,
+                )
+    elif isinstance(value, str):
+        minimum_length = schema.get("minLength")
+        if isinstance(minimum_length, int) and len(value) < minimum_length:
+            errors.append(f"{label}: string is shorter than {minimum_length}")
+        pattern = schema.get("pattern")
+        if isinstance(pattern, str) and re.search(pattern, value) is None:
+            errors.append(f"{label}: string does not match schema pattern")
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        if isinstance(minimum, (int, float)) and value < minimum:
+            errors.append(f"{label}: number is below schema minimum {minimum}")
+
+
+def _validate_engine_manifest_schema(path: pathlib.Path, errors: list[str]) -> None:
+    artifact = _load_artifact(path, errors, "engine verification schema input")
+    if artifact is None:
+        return
+    schema_path = HERE / "schemas" / "engine-verification-manifest.schema.json"
+    try:
+        schema = load(schema_path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        errors.append(f"engine verification manifest schema is unreadable: {exc}")
+        return
+    _validate_schema_node(
+        artifact,
+        schema,
+        errors,
+        "engine manifest",
+        root_schema=schema,
+        schema_dir=schema_path.parent,
+    )
 
 
 def _required_object_fields(errors: list[str], value: Any, fields: tuple[str, ...], label: str) -> bool:
@@ -1279,6 +1458,10 @@ def _parse_vector_artifact(path: pathlib.Path, errors: list[str], label: str) ->
             vector_bytes = dimension * 4
             if offset + vector_bytes > len(raw):
                 raise ValueError(f"truncated vector for {fact_id}")
+            for component in range(dimension):
+                (value,) = struct.unpack_from("<f", raw, offset + component * 4)
+                if not math.isfinite(value):
+                    raise ValueError(f"non-finite float for {fact_id} component {component}")
             offset += vector_bytes
         if offset != len(raw):
             raise ValueError("trailing bytes")
@@ -1288,22 +1471,120 @@ def _parse_vector_artifact(path: pathlib.Path, errors: list[str], label: str) ->
     return {"model_id": model_id, "dimension": dimension, "count": count, "fact_ids": fact_ids}
 
 
-def _load_ndjson_fact_ids(path: pathlib.Path, errors: list[str], label: str) -> set[str] | None:
-    fact_ids: set[str] = set()
+def _parse_eligibility_time(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("z") or normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
     try:
-        with path.open(encoding="utf-8") as handle:
+        parsed = dt.datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.UTC)
+    return parsed
+
+
+def _derive_fact_eligibility(
+    facts_path: pathlib.Path,
+    sessions_path: pathlib.Path,
+    pins: dict[str, Any],
+    errors: list[str],
+    label: str,
+) -> dict[str, Any] | None:
+    try:
+        session_dates = load(sessions_path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        errors.append(f"{label}: retained session dates are unreadable: {exc}")
+        return None
+    if not isinstance(session_dates, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in session_dates.items()
+    ):
+        errors.append(f"{label}: retained session dates must be a string-to-string object")
+        return None
+    task = pins.get("development_task", {})
+    cutoff = _parse_eligibility_time(task.get("eligible_before"))
+    if cutoff is None:
+        errors.append(f"{label}: pinned temporal cutoff is invalid")
+        return None
+    excluded = {
+        value.strip()
+        for value in task.get("exclude_session_ids", [])
+        if isinstance(value, str) and value.strip()
+    }
+    excluded_counts = {
+        "empty_provenance": 0,
+        "excluded_session": 0,
+        "unknown_session": 0,
+        "at_or_after_cutoff": 0,
+    }
+    all_ids: set[str] = set()
+    eligible_ids: set[str] = set()
+    active_eligible_ids: set[str] = set()
+    try:
+        with facts_path.open(encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, 1):
                 if not line.strip():
                     continue
-                item = json.loads(line)
-                fact_id = item.get("id") if isinstance(item, dict) else None
-                if not isinstance(fact_id, str) or not fact_id or fact_id in fact_ids:
+                fact = json.loads(line)
+                if not isinstance(fact, dict):
+                    raise ValueError(f"line {line_number} is not an object")
+                fact_id = fact.get("id")
+                if not isinstance(fact_id, str) or not fact_id or fact_id in all_ids:
                     raise ValueError(f"line {line_number} has an invalid or duplicate id")
-                fact_ids.add(fact_id)
+                status = fact.get("status")
+                if status not in {"active", "superseded", "retracted"}:
+                    raise ValueError(f"line {line_number} has invalid status")
+                all_ids.add(fact_id)
+                provenance = fact.get("provenance")
+                has_empty_anchor = not isinstance(provenance, list) or len(provenance) == 0
+                has_excluded_session = False
+                has_unknown_session = False
+                has_at_or_after_cutoff = False
+                if isinstance(provenance, list):
+                    for anchor in provenance:
+                        if not isinstance(anchor, dict):
+                            has_empty_anchor = True
+                            continue
+                        session_id = anchor.get("session_id")
+                        if not isinstance(session_id, str) or not session_id.strip():
+                            has_empty_anchor = True
+                            continue
+                        session_id = session_id.strip()
+                        if session_id in excluded:
+                            has_excluded_session = True
+                            continue
+                        created = _parse_eligibility_time(session_dates.get(session_id))
+                        if created is None:
+                            has_unknown_session = True
+                            continue
+                        if created >= cutoff:
+                            has_at_or_after_cutoff = True
+                reason = ""
+                if has_empty_anchor:
+                    reason = "empty_provenance"
+                elif has_excluded_session:
+                    reason = "excluded_session"
+                elif has_unknown_session:
+                    reason = "unknown_session"
+                elif has_at_or_after_cutoff:
+                    reason = "at_or_after_cutoff"
+                if reason:
+                    excluded_counts[reason] += 1
+                    continue
+                eligible_ids.add(fact_id)
+                if status == "active":
+                    active_eligible_ids.add(fact_id)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        errors.append(f"{label}: retained facts are not valid unique-id NDJSON: {exc}")
+        errors.append(f"{label}: retained facts cannot establish temporal/status eligibility: {exc}")
         return None
-    return fact_ids
+    return {
+        "all_ids": all_ids,
+        "eligible_ids": eligible_ids,
+        "active_eligible_ids": active_eligible_ids,
+        "excluded_counts": excluded_counts,
+    }
 
 
 def _dependency_inventory_sha256(rows: list[tuple[str, str]]) -> str:
@@ -1421,10 +1702,29 @@ def _validate_engine_pins(
     corpus = pins.get("corpus", {})
     for key in ("facts_sha256", "session_dates_sha256"):
         _error(errors, _is_sha256(corpus.get(key)), f"engine pin {key} is invalid")
-    for key in ("facts_size_bytes", "session_dates_size_bytes", "prefilter_count", "eligible_count"):
+    for key in ("eligible_ids_sha256", "semantic_candidate_ids_sha256"):
+        _error(errors, _is_sha256(corpus.get(key)), f"engine pin {key} is invalid")
+    _error(
+        errors,
+        corpus.get("candidate_ids_algorithm") == CANDIDATE_IDS_ALGORITHM,
+        "engine pin candidate-id algorithm is unsupported",
+    )
+    for key in (
+        "facts_size_bytes",
+        "session_dates_size_bytes",
+        "prefilter_count",
+        "eligible_count",
+        "semantic_candidate_count",
+    ):
         _error(errors, _is_nonnegative_int(corpus.get(key)), f"engine pin {key} is invalid")
     if _is_nonnegative_int(corpus.get("eligible_count")) and _is_nonnegative_int(corpus.get("prefilter_count")):
         _error(errors, corpus["eligible_count"] <= corpus["prefilter_count"], "engine pin eligibility counts are impossible")
+    if _is_nonnegative_int(corpus.get("semantic_candidate_count")) and _is_nonnegative_int(corpus.get("eligible_count")):
+        _error(
+            errors,
+            0 < corpus["semantic_candidate_count"] <= corpus["eligible_count"],
+            "engine pin semantic candidate count is impossible",
+        )
 
     model = pins.get("embedding_model", {})
     _error(errors, _is_sha256(model.get("sha256")), "engine model pin hash is invalid")
@@ -1618,6 +1918,17 @@ def _validate_runtime_stdout_reconciliation(
             errors,
             (engine.get("vector_count", 0) if semantic else 0) == effective.get("vector_count"),
             f"{label}: stdout vector_count differs from record",
+        )
+        _error(
+            errors,
+            (engine.get("vector_candidate_count", 0) if semantic else 0)
+            == effective.get("vector_candidate_count"),
+            f"{label}: stdout vector_candidate_count differs from record",
+        )
+        _error(
+            errors,
+            (engine.get("loaded_vector_count", 0) if semantic else 0) == effective.get("loaded_vector_count"),
+            f"{label}: stdout loaded_vector_count differs from record",
         )
         _error(
             errors,
@@ -1839,6 +2150,7 @@ def validate_engine_verification(
     )
     if evidence_path is None or not evidence_path.exists():
         return errors
+    _validate_engine_manifest_schema(evidence_path, errors)
     records = _load_engine_records(evidence_path, errors, repo)
     record_arms = [record.get("arm") if isinstance(record, dict) else None for record in records]
     _error(errors, len(record_arms) == len(ARMS), "engine verification must contain exactly one record per primary arm")
@@ -1922,11 +2234,14 @@ def validate_engine_verification(
         artifacts = record.get("artifacts")
         corpus = record.get("corpus")
         result = record.get("result")
+        derived_fact_ids: set[str] | None = None
+        active_eligible_ids: set[str] | None = None
+        derived_eligibility: dict[str, Any] | None = None
         requested_ok = _required_object_fields(errors, requested, ("command", "environment", "namespace"), f"{label}.requested")
         effective_ok = _required_object_fields(
             errors,
             effective,
-            ("engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "resident_vector_count", "vector_namespace"),
+            ("engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "vector_candidate_count", "loaded_vector_count", "resident_vector_count", "vector_namespace"),
             f"{label}.effective",
         )
         artifacts_ok = _required_object_fields(errors, artifacts, artifact_fields, f"{label}.artifacts")
@@ -1960,6 +2275,8 @@ def validate_engine_verification(
             _error(errors, namespace == arm.get("namespace"), f"{label}: effective namespace mismatch")
             _error(errors, isinstance(namespace, str) and bool(namespace), f"{label}: vector namespace is missing")
             _error(errors, _is_nonnegative_int(effective.get("vector_count")), f"{label}: vector_count is invalid")
+            _error(errors, _is_nonnegative_int(effective.get("vector_candidate_count")), f"{label}: vector_candidate_count is invalid")
+            _error(errors, _is_nonnegative_int(effective.get("loaded_vector_count")), f"{label}: loaded_vector_count is invalid")
             _error(errors, _is_nonnegative_int(effective.get("resident_vector_count")), f"{label}: resident_vector_count is invalid")
             if arm.get("semantic") is True:
                 _error(
@@ -1996,6 +2313,63 @@ def validate_engine_verification(
             binary_target = _safe_relative_path(artifacts.get("binary_path"), repo)
             sessions_target = _safe_relative_path(artifacts.get("session_dates_source_path"), repo)
             derived_target = _safe_relative_path(artifacts.get("derived_facts_path"), repo)
+            if (
+                derived_target is not None
+                and derived_target.is_file()
+                and sessions_target is not None
+                and sessions_target.is_file()
+            ):
+                derived_eligibility = _derive_fact_eligibility(
+                    derived_target,
+                    sessions_target,
+                    pin_data,
+                    errors,
+                    f"{label}.derived eligibility",
+                )
+                if derived_eligibility is not None:
+                    derived_fact_ids = derived_eligibility["all_ids"]
+                    active_eligible_ids = derived_eligibility["active_eligible_ids"]
+                    eligible_ids = derived_eligibility["eligible_ids"]
+                    _error(errors, len(derived_fact_ids) == corpus_pin.get("prefilter_count"), f"{label}: derived prefilter count differs from pin")
+                    _error(errors, len(eligible_ids) == corpus_pin.get("eligible_count"), f"{label}: derived eligible count differs from pin")
+                    _error(
+                        errors,
+                        canonical_json_sha256(sorted(eligible_ids)) == corpus_pin.get("eligible_ids_sha256"),
+                        f"{label}: derived eligible fact IDs differ from pin",
+                    )
+                    _error(
+                        errors,
+                        len(active_eligible_ids) == corpus_pin.get("semantic_candidate_count"),
+                        f"{label}: derived semantic candidate count differs from pin",
+                    )
+                    _error(
+                        errors,
+                        canonical_json_sha256(sorted(active_eligible_ids))
+                        == corpus_pin.get("semantic_candidate_ids_sha256"),
+                        f"{label}: derived semantic candidate IDs differ from pin",
+                    )
+                    if isinstance(effective, dict):
+                        if arm.get("semantic") is True:
+                            expected_count = len(active_eligible_ids)
+                            for field in ("vector_count", "vector_candidate_count", "resident_vector_count"):
+                                _error(
+                                    errors,
+                                    effective.get(field) == expected_count,
+                                    f"{label}: {field} does not cover exact active+eligible candidates",
+                                )
+                            _error(
+                                errors,
+                                effective.get("loaded_vector_count") == 0,
+                                f"{label}: clean derived namespace inherited vectors",
+                            )
+                        else:
+                            for field in (
+                                "vector_count",
+                                "vector_candidate_count",
+                                "loaded_vector_count",
+                                "resident_vector_count",
+                            ):
+                                _error(errors, effective.get(field) == 0, f"{label}: lexical {field} must be zero")
             _error(errors, artifacts.get("binary_sha256") == pin_data.get("binary", {}).get("binary_sha256"), f"{label}: retained binary differs from canonical pin")
             if binary_target is not None and binary_target.is_file():
                 _error(
@@ -2070,17 +2444,16 @@ def validate_engine_verification(
                     if vector_target is not None and vector_target.is_file()
                     else None
                 )
-                fact_ids = (
-                    _load_ndjson_fact_ids(derived_target, errors, f"{label}.derived facts")
-                    if derived_target is not None and derived_target.is_file()
-                    else None
-                )
                 if parsed_vector is not None and isinstance(effective, dict):
                     _error(errors, parsed_vector["model_id"] == effective.get("embedder_id"), f"{label}: EBV1 model id differs from record/runtime")
                     _error(errors, parsed_vector["dimension"] == effective.get("embedding_dimension"), f"{label}: EBV1 dimension differs from record/runtime")
                     _error(errors, parsed_vector["count"] == effective.get("resident_vector_count"), f"{label}: EBV1 count differs from record/runtime")
-                    if fact_ids is not None:
-                        _error(errors, set(parsed_vector["fact_ids"]).issubset(fact_ids), f"{label}: EBV1 contains fact ids outside retained corpus")
+                    if active_eligible_ids is not None:
+                        _error(
+                            errors,
+                            set(parsed_vector["fact_ids"]) == active_eligible_ids,
+                            f"{label}: EBV1 fact IDs do not exactly cover active+eligible candidates",
+                        )
             else:
                 _error(errors, vector_path is None and vector_hash is None, f"{label}: lexical vector artifact must be null")
 
@@ -2169,6 +2542,12 @@ def validate_engine_verification(
             if isinstance(excluded, dict) and _is_nonnegative_int(prefilter_count) and _is_nonnegative_int(eligible_count):
                 _error(errors, all(_is_nonnegative_int(value) for value in excluded.values()), f"{label}: excluded count is invalid")
                 _error(errors, sum(excluded.values()) == prefilter_count - eligible_count, f"{label}: excluded counts do not reconcile")
+                if derived_eligibility is not None:
+                    _error(
+                        errors,
+                        excluded == derived_eligibility["excluded_counts"],
+                        f"{label}: excluded counts differ from fact-level temporal eligibility",
+                    )
             if _is_nonnegative_int(eligible_count) and _is_nonnegative_int(delivered_count):
                 _error(errors, delivered_count <= eligible_count, f"{label}: delivered_count exceeds eligible_count")
             corpus_signatures.append((facts_hash, prefilter_count, eligible_count))
@@ -2181,6 +2560,18 @@ def validate_engine_verification(
             _error(errors, isinstance(fact_ids, list) and all(isinstance(fact_id, str) for fact_id in fact_ids), f"{label}: fact_ids_in_order is invalid")
             if isinstance(fact_ids, list) and all(isinstance(fact_id, str) for fact_id in fact_ids):
                 _error(errors, _unique_strings(fact_ids), f"{label}: ranked fact ids are not unique")
+                if active_eligible_ids is not None:
+                    _error(
+                        errors,
+                        set(fact_ids).issubset(active_eligible_ids),
+                        f"{label}: delivered fact ids are inactive or temporally ineligible",
+                    )
+                if isinstance(corpus, dict):
+                    _error(
+                        errors,
+                        corpus.get("delivered_count") == len(fact_ids),
+                        f"{label}: delivered_count does not equal ranked fact count",
+                    )
             _error(errors, result.get("output_valid") is True, f"{label}: output_valid must be true")
 
     _error(errors, _all_equal(pin_descriptors), "engine verification pin descriptors differ")
