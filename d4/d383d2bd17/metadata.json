@@ -3,7 +3,7 @@
   "checkpoint_id": "d4d383d2bd17",
   "strategy": "manual-commit",
   "branch": "wip/memory-lifecycle-plan-handoff-20260712",
-  "checkpoints_count": 246,
+  "checkpoints_count": 247,
   "files_touched": [
     "benchmarks/agent-brain/mined-candidates/MANIFEST.md",
     "benchmarks/agent-brain/mined-candidates/entire-cli-mined-0fccf698a.json",
@@ -169,13 +169,20 @@
       "compact_transcript": "/d4/d383d2bd17/0/transcript.jsonl",
       "content_hash": "/d4/d383d2bd17/0/content_hash.txt",
       "prompt": "/d4/d383d2bd17/0/prompt.txt"
+    },
+    {
+      "metadata": "/d4/d383d2bd17/1/metadata.json",
+      "transcript": "/d4/d383d2bd17/1/full.jsonl",
+      "compact_transcript": "/d4/d383d2bd17/1/transcript.jsonl",
+      "content_hash": "/d4/d383d2bd17/1/content_hash.txt",
+      "prompt": "/d4/d383d2bd17/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 113115,
-    "cache_creation_tokens": 13476385,
-    "cache_read_tokens": 750552050,
-    "output_tokens": 1642288,
-    "api_call_count": 1470
+    "input_tokens": 113117,
+    "cache_creation_tokens": 13487536,
+    "cache_read_tokens": 750567216,
+    "output_tokens": 1642292,
+    "api_call_count": 1471
   }
 }
