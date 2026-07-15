@@ -86,7 +86,7 @@ RELEVANCE_NULL_REVIEW_LEDGER_REPO_PATH = (
 )
 # Reviewed independently of preregistration.json's routinely regenerated artifact hashes.
 RELEVANCE_SOURCE_CONTRACT_SHA256 = "5708b8f6f0ade1cedf4e1f7d0b4ff499d707e2c9cd93034d9e38a0aebb9836e1"
-RELEVANCE_NULL_REVIEW_CONTRACT_SHA256 = "413136af21dd001e38aec29899d3e4fff37443c126b0428c3a129f3a3026e643"
+RELEVANCE_NULL_REVIEW_CONTRACT_SHA256 = "e606192db0f30cb091338db578cb88c7accb61e391a3ec21f06d83f6c40ecf0b"
 ENGINE_PINS = HERE / "engine-verification-pins.json"
 DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newline_v1"
 CANDIDATE_IDS_ALGORITHM = "sha256_canonical_sorted_id_array_v1"

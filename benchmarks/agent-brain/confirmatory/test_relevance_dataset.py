@@ -414,15 +414,36 @@ class RelevanceDatasetTests(unittest.TestCase):
         inventory = HERE / "task-inventory.json"
         snapshot = HERE / "offline-relevance-fact-snapshot.json"
         dataset = HERE / "offline-relevance-dataset.json"
-        expected = relevance.materialize(REPO, labels, inventory, snapshot)
+        membership = relevance.load_json(HERE / "offline-relevance-source-membership.json")
+        null_ledger_path = HERE / "offline-relevance-null-review-ledger.json"
+        null_ledger = relevance.load_json(null_ledger_path)
+        expected = relevance.materialize(
+            REPO,
+            labels,
+            inventory,
+            snapshot,
+            source_membership=membership,
+            null_review_ledger=null_ledger,
+            null_review_ledger_path=null_ledger_path.relative_to(REPO).as_posix(),
+            null_review_ledger_sha256=relevance.sha256_bytes(null_ledger_path.read_bytes()),
+        )
         actual = relevance.load_json(dataset)
         relevance.validate_dataset(actual, expected)
-        self.assertEqual(actual["development"]["item_count"], 12)
-        self.assertEqual(actual["development"]["unique_task_count"], 11)
-        self.assertEqual(actual["development"]["null_query_count"], 0)
-        self.assertEqual(actual["development"]["unique_answerable_product_task_count"], 11)
-        self.assertEqual(actual["development"]["product_null_query_count"], 0)
-        self.assertEqual(actual["development"]["judgment_count"], 38)
+        self.assertEqual(actual["development"]["item_count"], 14)
+        self.assertEqual(actual["development"]["unique_task_count"], 13)
+        self.assertEqual(actual["development"]["null_query_count"], 1)
+        self.assertEqual(actual["development"]["unique_answerable_product_task_count"], 12)
+        self.assertEqual(actual["development"]["product_null_query_count"], 1)
+        self.assertEqual(actual["development"]["judgment_count"], 46)
+        null_item = next(
+            item for item in actual["development"]["items"]
+            if item["query_id"] == "dev-product-b72a6e621"
+        )
+        self.assertEqual(null_item["null_closure"]["reviewed_fact_count"], 2531)
+        self.assertEqual(null_item["null_closure"]["positive_fact_count"], 0)
+        decisions = null_ledger["items"][0]["decisions"]
+        self.assertEqual(sum(row["grade"] == "hard_topical_distractor" for row in decisions), 4)
+        self.assertEqual(sum(row["grade"] == "irrelevant" for row in decisions), 2527)
         schema_errors = relevance.validate_relevance_schemas(
             relevance.load_json(labels),
             relevance.load_json(snapshot),

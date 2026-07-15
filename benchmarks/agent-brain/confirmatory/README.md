@@ -5,14 +5,13 @@ paid agent run and it does not contain or open a fresh confirmatory holdout.
 
 Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 treatment contract,
 WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
-integrated and verified by content-addressed source and test evidence. An exposed-only offline
-development relevance set now meets the 12-query floor exactly but has only 11 of the required 12
-answerable product-derived tasks. No three-engine metrics have been computed, no corpus-closed product
-null query exists, and the
-relevance holdout remains unopened and empty. Final freeze remains blocked on one additional labeled
-development task, fresh-task validity review, real three-engine records and development threshold,
-null-query coverage, relevance holdout sealing, a defensible powered design, and model pricing/budget
-approval. The confirmatory analyzer is implemented and path-locked.
+integrated and verified by content-addressed source and test evidence. The exposed-only offline
+development relevance set now contains 14 queries over 13 tasks, meets the 12-answerable-product-task
+floor, and includes one corpus-closed product null. No three-engine metrics have been computed, and
+the relevance holdout remains unopened and empty. Final freeze remains blocked on fresh-task validity
+review, real three-engine records and development-threshold selection, relevance holdout sealing, a
+defensible powered design, and model pricing/budget approval. The confirmatory analyzer is implemented
+and path-locked.
 
 ## Artifacts
 
@@ -26,21 +25,21 @@ approval. The confirmatory analyzer is implemented and path-locked.
   binding, reproducible commands, and exact remaining count/threshold/holdout blockers.
 - `offline-relevance-development-labels.json`: reviewed exposed-task label source.
 - `offline-relevance-review-ledger.json`: retained per-query/per-judgment manual review evidence for
-  all 12 queries; no label claims unavailable historical packet bytes as evidence.
+  all 14 queries; no label claims unavailable historical packet bytes as evidence.
 - `offline-relevance-source-membership.json`: complete authenticated catalog of 2,621 facts (2,531
   active), their canonical provenance-session IDs, and 2,248 session dates; it derives exact
   active+eligible catalogs for each task policy.
 - `relevance-source-contract.json`: small reviewed contract for the complete membership catalog; its
   raw digest is pinned independently in `check_protocol.py`, outside routine preregistration hashes.
-- `offline-relevance-null-review-ledger.json` and `relevance-null-review-contract.json`: currently
-  empty exhaustive-review ledger and its separately hard-pinned contract. A future null must add one
-  grade decision for every derived active+eligible fact and explicitly update the reviewed trust root.
-- `offline-relevance-fact-snapshot.json`: content-addressed 37-fact/34-date excerpt of the pinned
+- `offline-relevance-null-review-ledger.json` and `relevance-null-review-contract.json`: retain the
+  exhaustive 2,531-decision review for `dev-product-b72a6e621` and its separately
+  hard-pinned contract: four hard topical distractors, 2,527 irrelevant facts, and zero positives.
+- `offline-relevance-fact-snapshot.json`: content-addressed 44-fact/39-date excerpt of the pinned
   full quarantine, sufficient for offline rebuild and validation.
 - `relevance_dataset.py` and `test_relevance_dataset.py`: exposed-only proposal, snapshot,
   materialization, and fail-closed validation workflow.
-- `offline-relevance-dataset.json`: generated 12-query/11-task development set with 38 judgments and
-  zero corpus-closed nulls; its sealed holdout intentionally contains no plaintext labels.
+- `offline-relevance-dataset.json`: generated 14-query/13-task development set with 46 judgments and
+  one corpus-closed null; its sealed holdout intentionally contains no plaintext labels.
 - `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms and verification steps.
 - `engine-verification-pins.json`: gate-authoritative corpus, query, reproducible binary build,
   GGUF, resolved Node, server script, package/lockfile, health interval, and dependency-inventory
@@ -92,10 +91,9 @@ python3 -m unittest benchmarks/agent-brain/confirmatory/test_relevance_dataset.p
 ```
 
 The preparation and relevance validation commands must pass now. The following command must fail
-until the one-task development shortfall and null-query coverage are repaired, fresh-task review and
-three-engine development evaluation/threshold selection are complete, the relevance holdout is
-sealed, the powered design is repaired, final pricing/budget is approved, and durable engine
-verification exists:
+until fresh-task review and three-engine development evaluation/threshold selection are complete, the
+relevance holdout is sealed, the powered design is repaired, final pricing/budget is approved, and
+durable engine verification exists:
 
 ```sh
 python3 benchmarks/agent-brain/confirmatory/check_protocol.py --freeze

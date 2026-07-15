@@ -1,7 +1,7 @@
 # Offline relevance development set — 2026-07-15
 
-Status: **query count floor met; development task floor short by one; null coverage pending; offline
-engine threshold not evaluated; holdout unopened**.
+Status: **development query, answerable product-task, and corpus-closed null floors met; offline engine
+threshold not evaluated; holdout unopened**.
 
 This artifact uses only legacy C0701 tasks already marked exposed in `task-inventory.json`. It does
 not read, label, or commit any fresh task or relevance holdout. The historical C0701 source split is
@@ -11,32 +11,33 @@ not treated as secrecy: every selected task is assigned `development` by the rec
 
 | Measure | Count |
 |---|---:|
-| Development queries | 12 |
-| Unique development tasks | 11 |
-| Product queries | 11 |
+| Development queries | 14 |
+| Unique development tasks | 13 |
+| Product queries | 13 |
+| Answerable product queries / unique tasks | 12 / 12 |
 | Oracle upper-bound queries | 1 |
-| Corpus-closed null/no-answer queries | 0 |
-| Judgments | 38 |
-| Unique frozen facts in the committed snapshot | 37 |
+| Corpus-closed null/no-answer queries | 1 |
+| Judgments | 46 |
+| Unique frozen facts in the committed snapshot | 44 |
 | Legacy-packet-backed queries | 0 |
-| Manual frozen-corpus-review queries | 12 |
+| Manual frozen-corpus-review queries | 14 |
 | Sealed-holdout queries / tasks | 0 / 0 |
 
-Judgments comprise 4 `solving`, 8 `relevant_alternative`, 14 `hard_topical_distractor`, and 12
-`irrelevant` grades. The 12 queries come from three `agent_run` task queries, two queries on the one
-`optimization_used` task, one `retrieval_probed` task, and six `prompt_inspected` tasks. Prompt
+Judgments comprise 5 `solving`, 9 `relevant_alternative`, 19 `hard_topical_distractor`, and 13
+`irrelevant` grades. The 14 queries come from three `agent_run` task queries, two queries on the one
+`optimization_used` task, one `retrieval_probed` task, and eight `prompt_inspected` tasks. Prompt
 inspection is safe here because the inventory records every selected legacy prompt as exposed and
 development-only; it would not be safe for a fresh or `unseen` task.
 
-The preregistered **query floor** is met exactly (12 >= 12), but the **answerable product-task floor
-is not** (11 < 12). Oracle and null queries cannot close that task floor. One additional exposed
-answerable product task with defensible labels is required. This is not
-the `offline_development_threshold` gate. No three-engine ranked outputs have been measured against
-these labels. `dev-product-b72a6e621` was removed: its cross-domain recap-aggregation fact was not a
-genuine relevant alternative, while no retained exhaustive review justified restoring the query as
-null. The retained `dev-product-8828752a7` query has a genuine branch-oriented relevant alternative
-and remains non-null. Consequently null false-positive rate is unmeasurable. Recall@5, null coverage,
-temporal leakage, packet cluster occupancy, K, and aggregation selection remain pending.
+The preregistered **query floor** is met (14 >= 12), the **answerable product-task floor** is met
+(12 >= 12), and the **corpus-closed product-null floor** is met (1 >= 1). The additional answerable
+task is `dev-product-250538b1f`: its exact product prompt has a solving Last Prompt rule, a relevant
+imported-turn reconstruction fact, one hard topical distractor, and one irrelevant control.
+`dev-product-b72a6e621` is retained as a null after exhaustive review of all 2,531 exact
+active+eligible facts found zero positives, four hard topical distractors, and 2,527 irrelevant
+facts. This does not pass the `offline_development_threshold` gate. No three-engine ranked outputs
+have been measured against these labels, so Recall@5, null false-positive rate, temporal leakage,
+packet cluster occupancy, K, and aggregation selection remain pending.
 
 The sealed relevance holdout remains exactly empty and unopened. Its current shortfall is 12 queries
 and 12 unique tasks relative to the final-freeze minimum. No holdout commitment exists.
@@ -47,11 +48,16 @@ and 12 unique tasks relative to the final-freeze minimum. No holdout commitment 
   hand-tuned: the materializer requires it to equal the inventory-pinned task prompt byte for byte.
   Oracle text is explicit. Every judgment pins the canonical full-source fact hash and an exact entry
   in `offline-relevance-review-ledger.json`.
-- `offline-relevance-review-ledger.json` retains all 12 per-query manual decisions, the exact judged
+- `offline-relevance-review-ledger.json` retains all 14 per-query manual decisions, the exact judged
   fact IDs/hashes/grades/rationales, reviewer and method, and the source-membership roots. Every label
   records its repo-relative ledger path, exact query fragment, and the ledger's raw SHA-256.
-- `offline-relevance-fact-snapshot.json` retains only the 37 referenced records from the full frozen
-  quarantine plus the 34 provenance session dates needed to re-evaluate temporal eligibility.
+- `offline-relevance-null-review-ledger.json` retains one grade decision for each of the 2,531
+  active+eligible facts for `dev-product-b72a6e621`; `relevance-null-review-contract.json` pins the
+  ledger bytes and full-source eligibility root, and `check_protocol.py` separately pins that
+  contract at raw SHA-256
+  `e606192db0f30cb091338db578cb88c7accb61e391a3ec21f06d83f6c40ecf0b`.
+- `offline-relevance-fact-snapshot.json` retains only the 44 referenced records from the full frozen
+  quarantine plus the 39 provenance session dates needed to re-evaluate temporal eligibility.
 - The full source facts file is pinned by SHA-256
   `084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793`; its full session-date map
   is pinned by `0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a`.
@@ -88,12 +94,11 @@ the task's bug. The companion literal-URL fact remains a relevant alternative be
 that mechanism without prescribing the `skipFetchAll` / `skipDefaultUpdate` solution.
 
 This is a single-reviewer development label set, suitable for choosing and debugging the offline
-evaluation mechanics. A future product-derived null label must use
-`exhaustive_active_corpus_review_v2`: the checker derives the exact active+eligible catalog from the
-authenticated provenance membership and requires one retained grade decision per fact. Counts,
-catalog hashes, decision hash, and zero positives are derived. The separate null-review ledger and
-contract are currently empty and hard-pinned; adding a null requires an explicit trust-root update.
-Any later decision to require independent double
+evaluation mechanics. The product-derived null uses `exhaustive_active_corpus_review_v2`: the checker
+derives the exact active+eligible catalog from the authenticated provenance membership and requires
+one retained grade decision per fact. Counts, catalog hashes, decision hash, and zero positives are
+derived. The populated null-review ledger and contract are hard-pinned; changing the exhaustive
+review requires an explicit trust-root update. Any later decision to require independent double
 annotation or adjudication must be made before the dataset is frozen; these labels do not imply
 inter-rater reliability.
 
@@ -146,7 +151,7 @@ python3 benchmarks/agent-brain/confirmatory/relevance_dataset.py snapshot \
 python3 benchmarks/agent-brain/confirmatory/relevance_dataset.py review-ledger \
   --labels benchmarks/agent-brain/confirmatory/offline-relevance-development-labels.json \
   --source-contract benchmarks/agent-brain/confirmatory/relevance-source-contract.json \
-  --reviewed-at 2026-07-15T09:15:00+02:00 \
+  --reviewed-at 2026-07-15T15:30:00+02:00 \
   --reviewer codex-relevance-label-audit \
   --output benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json \
   --check

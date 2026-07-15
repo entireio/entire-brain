@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
   "dataset_id": "agent-brain-relevance-v2-development",
-  "label_set_id": "exposed-c0701-manual-review-2026-07-15-v2",
-  "created_at": "2026-07-15T14:08:00+02:00",
+  "label_set_id": "exposed-c0701-manual-review-2026-07-15-v3",
+  "created_at": "2026-07-15T15:30:00+02:00",
   "source_corpus": {
     "facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
     "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
@@ -24,7 +24,7 @@
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-4dd458656",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270",
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55",
         "rationale": "Manual review of the exposed product prompt against the pinned fact membership identified the wrapper-migration fact as solving and retained the exact three judgments below; unavailable historical packet bytes are not evidence for this label.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
@@ -61,7 +61,7 @@
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-oracle-4dd458656",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270",
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55",
         "rationale": "Manual review of the explicit oracle wording against the pinned fact membership identified the wrapper-migration fact as solving and retained the exact three judgments below; unavailable historical packet bytes are not evidence for this label.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
@@ -97,7 +97,7 @@
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-6699ec40a",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270",
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55",
         "rationale": "Manual review of the exposed product prompt against the pinned fact membership identified token-accounting invariants as a relevant alternative and retained the exact three judgments below; unavailable historical packet bytes are not evidence for this label.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
@@ -135,7 +135,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-855b8cdab",
         "rationale": "Human review compared the exposed task prompt with eligible facts proposed from the pinned corpus; no agent memory packet was retained for this no-memory development run.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -169,7 +169,7 @@
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-8828752a7",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270",
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55",
         "rationale": "Manual review of the exposed product prompt against the pinned fact membership identified a branch-oriented remote-resume contract as relevant context and retained the exact four judgments below; no exhaustive corpus closure or historical packet evidence is claimed.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
       },
@@ -214,7 +214,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-d9df8fcca",
         "rationale": "The exposed prompt and eligible facts contain the exact synthetic-promisor mechanism, while the named-remote rejection is counterevidence rather than a solution to bulk-fetch participation.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -257,7 +257,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-d90849ac5",
         "rationale": "This task was already retrieval-probed; manual review found an eligible fact that records removal of automatic enable-time import prompting.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -293,7 +293,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-aaeb8546c",
         "rationale": "Manual review found security invariants that constrain bearer-token destinations, but no fact that describes this API client's redirect callback implementation exactly.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -329,7 +329,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-b3f0deb5b",
         "rationale": "The eligible corpus contains the stale-cache fallback policy and separate cache architecture needed to judge this discovery regression.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -365,7 +365,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-21fcaf5f2",
         "rationale": "Manual review found separate eligible facts for imported-checkpoint constraints and strategy-owned orphan classification; neither was inferred from the prompt alone.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -401,7 +401,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-996336140",
         "rationale": "Manual review found an eligible imported-kind contract and a separate stale-session policy, allowing an honest partial-relevance judgment.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -437,7 +437,7 @@
         "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-e52b748b4",
         "rationale": "Eligible facts prove trail findings are a real user-facing workflow and provide both a relevant command contract and nearby help/discovery distractors.",
         "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
-        "source_sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270"
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
       },
       "judgments": [
         {
@@ -462,12 +462,103 @@
           "fact_sha256": "af79cbf23674b2b0db228be97863a29428b68a2b3f32aa03b312f7aed4c121e7"
         }
       ]
+    },
+    {
+      "query_id": "dev-product-250538b1f",
+      "task_id": "entire-cli-c0701-250538b1f",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-250538b1f",
+        "rationale": "Manual review of the exposed imported-session prompt against the pinned fact membership identified the general Last Prompt rule as solving, an imported-turn reconstruction fact as relevant context, and retained the exact four judgments below.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:ebce57dacaa78919f1358d5d",
+          "grade": "solving",
+          "cluster_id": "cluster:last-prompt-most-recent-user",
+          "rationale": "It states directly that Last Prompt uses the session's most recent user prompt rather than its first prompt.",
+          "fact_sha256": "93928aac7363824e2839564ecf61dfaf4a77b8574cd7faa30f5771bdb411fe64"
+        },
+        {
+          "fact_id": "fact:2a918a67f91db46f44a8c8a4",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:imported-turn-boundary-user-prompts",
+          "rationale": "It explains that imported turn boundaries must be reconstructed from user-prompt records, which supplies the final user turn but does not itself set LastPrompt.",
+          "fact_sha256": "c0b281cb5c6e1c0546d5ea12b752c3868407d5e471d0462c5020ba7b7bbe03a2"
+        },
+        {
+          "fact_id": "fact:63485ff4d3e7da4d742dacda",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:last-prompt-display-format",
+          "rationale": "It governs Last Prompt formatting and whitespace, not selection of the first versus most recent prompt.",
+          "fact_sha256": "880e3df66c580bf27b1c5ff77533595176a5bfb88bca0b468aaddf2c65f2de4c"
+        },
+        {
+          "fact_id": "fact:80545a403b658bba19a7a6b0",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:trail-pr-base-retarget",
+          "rationale": "A stale PR Trail base is unrelated to imported-session prompt selection.",
+          "fact_sha256": "e4893ea28e67e2dfc21a8ee051308b883d9462e9a5d4854c2eb0e89d4301c196"
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-b72a6e621",
+      "task_id": "entire-cli-c0701-b72a6e621",
+      "query_source": "user_prompt_derived",
+      "null_query": true,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json#dev-product-b72a6e621",
+        "rationale": "Exhaustive review of every authenticated active and eligible fact found no solving or relevant-alternative fact for mirror-placement search-stat deduplication; the four nearest search facts are topical distractors.",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json",
+        "source_sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55"
+      },
+      "null_review": {
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json#dev-product-b72a6e621",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json",
+        "source_sha256": "d9e7d71334a88a60cdbf4f71c8808c5383d616f54bc7fcda59ef7460e5d01e0b"
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:2b0e4f409de31a6aa95ce0a0",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:multi-repo-search-filtering",
+          "rationale": "It concerns the same multi-repo search surface, but query syntax does not address duplicate home-and-mirror result or statistics aggregation.",
+          "fact_sha256": "eb5c798b174c349c4631c3704e0abc74e572198e70e78e7eb83bb62cf4217252"
+        },
+        {
+          "fact_id": "fact:b595408fe6e2b06173a5175f",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:multi-repo-search-filtering",
+          "rationale": "It covers backend multi-repository filter semantics, not deduplication of mirrored placements or their aggregate counts.",
+          "fact_sha256": "102f82e005e1f0e0fbf46e1a1388e2d9173b6146754fe1e2806da78ff5bb2798"
+        },
+        {
+          "fact_id": "fact:eb2b14667d471c0689193974",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:multi-repo-search-filtering",
+          "rationale": "It concerns repeated repo-parameter filtering, not home-and-mirror result deduplication or aggregate corrections.",
+          "fact_sha256": "b1c2422d3517a28f5205cfe856a0652f98edd2c8fd388fc3921a5ad7b7b29b19"
+        },
+        {
+          "fact_id": "fact:f3d79fb1403f802256402f52",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:search-pagination-truncation",
+          "rationale": "It is topical to search truncation and pagination, but does not address inflated aggregate counts from duplicate placements.",
+          "fact_sha256": "ae287ab084cbdf3b412890a1745c42f146c9dd0aa6b5d717f339832ea9022838"
+        }
+      ]
     }
   ],
   "snapshot_commitment": {
-    "fact_count": 37,
-    "facts_sha256": "138d416dfd71d7c15b46fb5bc8ff4f88a6ba1ee4e76a1a9fa7a62be252b31f07",
-    "session_date_count": 34,
-    "session_dates_sha256": "bc0577cafdaa520a8d214764f01d15d554a2f23c5718e1c4b1f046943b085abc"
+    "fact_count": 44,
+    "facts_sha256": "4f2f5269770444a912d53b759f86ae43bc17b6e4a16096eeb115206fae748410",
+    "session_date_count": 39,
+    "session_dates_sha256": "5293a15ee69018a5c1ba639f30cb2f7c67e325dca4c674ea54b7eee17f74456a"
   }
 }

@@ -162,6 +162,28 @@ class ProtocolCheckTest(unittest.TestCase):
             shutil.copy2(HERE / name, target / name)
         shutil.copytree(HERE / "schemas", target / "schemas")
 
+    @staticmethod
+    def _materialize_relevance_bundle(
+        bundle: pathlib.Path,
+        labels_path: pathlib.Path,
+        snapshot_path: pathlib.Path,
+    ) -> dict[str, object]:
+        null_ledger_path = bundle / "offline-relevance-null-review-ledger.json"
+        return CHECK.relevance_dataset.materialize(
+            CHECK.REPO,
+            labels_path,
+            bundle / "task-inventory.json",
+            snapshot_path,
+            source_membership=json.loads(
+                (bundle / "offline-relevance-source-membership.json").read_text(encoding="utf-8")
+            ),
+            null_review_ledger=json.loads(null_ledger_path.read_text(encoding="utf-8")),
+            null_review_ledger_path=(
+                "benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json"
+            ),
+            null_review_ledger_sha256=hashlib.sha256(null_ledger_path.read_bytes()).hexdigest(),
+        )
+
     def test_preparation_artifacts_are_consistent(self) -> None:
         self.assertEqual(CHECK.validate(freeze=False), [])
 
@@ -171,8 +193,8 @@ class ProtocolCheckTest(unittest.TestCase):
         self.assertNotIn("WS2-WS5 dependencies are pending", errors)
         self.assertIn("fresh holdout commitment is not frozen", errors)
         self.assertIn("paid-run checklist is not all pass", errors)
-        self.assertIn("too few answerable product-derived development relevance tasks", errors)
-        self.assertIn("too few corpus-closed product-derived development null queries", errors)
+        self.assertNotIn("too few answerable product-derived development relevance tasks", errors)
+        self.assertNotIn("too few corpus-closed product-derived development null queries", errors)
 
     def test_inventory_is_unique_and_contamination_is_explicit(self) -> None:
         inventory = json.loads((HERE / "task-inventory.json").read_text())
@@ -563,12 +585,7 @@ class ProtocolCheckTest(unittest.TestCase):
             labels["snapshot_commitment"]["facts_sha256"] = snapshot["facts_sha256"]
             self._write_json(labels_path, labels)
             self._write_json(snapshot_path, snapshot)
-            regenerated = CHECK.relevance_dataset.materialize(
-                CHECK.REPO,
-                labels_path,
-                temp / "task-inventory.json",
-                snapshot_path,
-            )
+            regenerated = self._materialize_relevance_bundle(temp, labels_path, snapshot_path)
             self._write_json(dataset_path, regenerated)
 
             errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
@@ -633,12 +650,7 @@ class ProtocolCheckTest(unittest.TestCase):
                 labels["snapshot_commitment"] = CHECK.relevance_dataset._snapshot_commitment(snapshot)
                 self._write_json(labels_path, labels)
                 self._write_json(snapshot_path, snapshot)
-                regenerated = CHECK.relevance_dataset.materialize(
-                    CHECK.REPO,
-                    labels_path,
-                    temp / "task-inventory.json",
-                    snapshot_path,
-                )
+                regenerated = self._materialize_relevance_bundle(temp, labels_path, snapshot_path)
                 self._write_json(dataset_path, regenerated)
                 for role in ("labels", "snapshot", "dataset"):
                     artifact_path = temp / protocol["offline_dataset"]["development_artifact_contract"]["artifacts"][role]["path"]
@@ -688,15 +700,26 @@ class ProtocolCheckTest(unittest.TestCase):
             self.assertTrue(any("missing schema-required field source_sha256" in error for error in errors))
             self.assertTrue(any("evidence source hash differs" in error for error in errors))
 
-    def test_b72_is_removed_and_development_task_floor_remains_open(self) -> None:
+    def test_b72_null_and_250_answerable_query_close_development_floors(self) -> None:
         labels = json.loads((HERE / "offline-relevance-development-labels.json").read_text())
         dataset = json.loads((HERE / "offline-relevance-dataset.json").read_text())
-        self.assertNotIn("dev-product-b72a6e621", {item["query_id"] for item in labels["items"]})
-        self.assertEqual(dataset["development"]["item_count"], 12)
-        self.assertEqual(dataset["development"]["unique_task_count"], 11)
+        query_ids = {item["query_id"] for item in labels["items"]}
+        self.assertIn("dev-product-b72a6e621", query_ids)
+        self.assertIn("dev-product-250538b1f", query_ids)
+        self.assertEqual(dataset["development"]["item_count"], 14)
+        self.assertEqual(dataset["development"]["unique_task_count"], 13)
+        self.assertEqual(dataset["development"]["unique_answerable_product_task_count"], 12)
+        self.assertEqual(dataset["development"]["product_null_query_count"], 1)
+        null_item = next(
+            item for item in dataset["development"]["items"]
+            if item["query_id"] == "dev-product-b72a6e621"
+        )
+        self.assertEqual(null_item["null_closure"]["reviewed_fact_count"], 2531)
+        self.assertEqual(null_item["null_closure"]["positive_fact_count"], 0)
         protocol = json.loads((HERE / "preregistration.json").read_text())
         errors = CHECK.validate_dataset(dataset, protocol, freeze=True)
-        self.assertIn("too few answerable product-derived development relevance tasks", errors)
+        self.assertNotIn("too few answerable product-derived development relevance tasks", errors)
+        self.assertNotIn("too few corpus-closed product-derived development null queries", errors)
 
     def test_engine_gate_rejects_legacy_unpinned_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

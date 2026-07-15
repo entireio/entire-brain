@@ -4,8 +4,8 @@
   "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
   "source_active_fact_count": 2531,
   "source_active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
-  "fact_count": 37,
-  "facts_sha256": "138d416dfd71d7c15b46fb5bc8ff4f88a6ba1ee4e76a1a9fa7a62be252b31f07",
+  "fact_count": 44,
+  "facts_sha256": "4f2f5269770444a912d53b759f86ae43bc17b6e4a16096eeb115206fae748410",
   "facts": [
     {
       "id": "fact:0539f87b0bf63eaf40ae9eec",
@@ -138,6 +138,55 @@
           "session_id": "9191cbda-fdd5-41ea-8c6a-d8e7fa6d3b23",
           "checkpoint_id": "2af10577d3ac",
           "transcript": "sessions/main/20260312T145147Z_claude-code_9191cbda-fdd5-41ea-8c6a-d8e7fa6d3b23_2af10577d3ac.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:2a918a67f91db46f44a8c8a4",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "invariant",
+      "text": "Imported pre-enable sessions cannot be rewindable because their transcripts contain no historical working-tree snapshots, and turn boundaries must be reconstructed from user-prompt records because no lifecycle hooks were captured.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "65bd6f32-b465-4fea-807f-040f6d9ac558",
+          "checkpoint_id": "217723121355",
+          "transcript": "sessions/main/20260629T162443Z_claude-code_65bd6f32-b465-4fea-807f-040f6d9ac558_217723121355.jsonl",
+          "line": 9
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:2b0e4f409de31a6aa95ce0a0",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "owner/a",
+        "owner/b",
+        "repo:owner/a,owner/b"
+      ],
+      "text": "Multi-repo search uses the shared inline syntax `repo:owner/a,owner/b` in both CLI and TUI, preserving current-repository scope when omitted; this was chosen to match the TUI’s existing inline-filter model rather than add a dedicated selector or CLI-only flag.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d4a75-32c0-7c01-8ff2-e73490bea568",
+          "checkpoint_id": "fd342fecde72",
+          "transcript": "sessions/main/20260401T201937Z_codex_019d4a75-32c0-7c01-8ff2-e73490bea568_fd342fecde72.jsonl",
           "line": 4
         }
       ],
@@ -370,6 +419,33 @@
       ],
       "created_at": "2026-07-14T10:32:08.351592Z",
       "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:63485ff4d3e7da4d742dacda",
+      "paths": [
+        "preferences.coding.style"
+      ],
+      "kind": "decision",
+      "locus": [
+        "<prompt>",
+        "last",
+        "prompt"
+      ],
+      "text": "The user chose the unquoted `Last Prompt: <prompt>` display format; prompt whitespace should be collapsed before display so multiline input cannot disrupt the interactive or git-comment layout.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "2026-01-09-97007e37-53bd-4456-9a49-c0f8081081a7",
+          "checkpoint_id": "191cb6003d79",
+          "transcript": "sessions/main/20260109T144732Z_agent_2026-01-09-97007e37-53bd-4456-9a49-c0f8081081a7_191cb6003d79.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
     },
     {
       "id": "fact:653adbd42aa9c222acb547d9",
@@ -711,6 +787,33 @@
       "updated_at": "2026-07-14T10:32:08.351592Z"
     },
     {
+      "id": "fact:b595408fe6e2b06173a5175f",
+      "paths": [
+        "architecture.data.flow",
+        "constraints.invariants.general"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "repo:*",
+        "repo="
+      ],
+      "text": "Repeated `repo=` parameters were tried for multi-repo search and rejected because the search service reads and filters on only one repo; the client supports one explicit repo or omits the parameter via `repo:*`, and multi-repo parameters should be revisited only after the backend supports plural repo filters.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d4a75-32c0-7c01-8ff2-e73490bea568",
+          "checkpoint_id": "fd342fecde72",
+          "transcript": "sessions/main/20260401T201937Z_codex_019d4a75-32c0-7c01-8ff2-e73490bea568_fd342fecde72.jsonl",
+          "line": 328
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
       "id": "fact:b7a1d34e559873a769bf585a",
       "paths": [
         "constraints.invariants.general"
@@ -946,6 +1049,82 @@
       "updated_at": "2026-07-14T10:32:08.351592Z"
     },
     {
+      "id": "fact:eb2b14667d471c0689193974",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "repo"
+      ],
+      "text": "Multi-repo filtering relies on the search service interpreting repeated `repo` query parameters as an OR across repositories; this wire behavior was assumed rather than verified during implementation.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d4a75-32c0-7c01-8ff2-e73490bea568",
+          "checkpoint_id": "fd342fecde72",
+          "transcript": "sessions/main/20260401T201937Z_codex_019d4a75-32c0-7c01-8ff2-e73490bea568_fd342fecde72.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:ebce57dacaa78919f1358d5d",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "system/ide"
+      ],
+      "text": "Commit-link context uses the session’s most recent user prompt rather than its first prompt because it better represents the work being committed; both interactive and editor flows label it “Last Prompt,” use the session’s dynamic agent type, and strip injected system/IDE tags.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "2026-01-09-880d23f9-86b3-4345-af42-46381ab10e4d",
+          "checkpoint_id": "3f603dd13c2c",
+          "transcript": "sessions/main/20260109T130834Z_agent_2026-01-09-880d23f9-86b3-4345-af42-46381ab10e4d_3f603dd13c2c.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:f3d79fb1403f802256402f52",
+      "paths": [
+        "constraints.pagination.server"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "limit",
+        "page"
+      ],
+      "text": "Server-side search pagination was rejected as the TUI’s primary strategy because the worker applies `limit` as both page size and total-fetch cap, so `page` cannot expose additional results; the TUI requests the API maximum of 200 and paginates client-side, and server paging should be revisited only when the worker separates total retrieval from page size.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "8edfb99e-6863-40f4-953e-8d779deab794",
+          "checkpoint_id": "d57341dbb0a2",
+          "transcript": "sessions/main/20260331T220651Z_claude-code_8edfb99e-6863-40f4-953e-8d779deab794_d57341dbb0a2.jsonl",
+          "line": 2
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
       "id": "fact:f43f95628493822bad1fcda2",
       "paths": [
         "constraints.git.remote_config"
@@ -997,9 +1176,10 @@
       "updated_at": "2026-07-14T10:32:08.351592Z"
     }
   ],
-  "session_date_count": 34,
-  "session_dates_sha256": "bc0577cafdaa520a8d214764f01d15d554a2f23c5718e1c4b1f046943b085abc",
+  "session_date_count": 39,
+  "session_dates_sha256": "5293a15ee69018a5c1ba639f30cb2f7c67e325dca4c674ea54b7eee17f74456a",
   "session_dates": {
+    "019d4a75-32c0-7c01-8ff2-e73490bea568": "2026-04-01T20:19:37.021646Z",
     "019d6e6b-85e7-75a0-81d0-82e45fb1af91": "2026-04-09T11:10:51.268374Z",
     "019d7050-c22a-7f33-96fa-ccb004f5a6aa": "2026-04-09T05:53:33.236656Z",
     "019d8606-ed6a-75d0-a76c-2ef8b805600c": "2026-04-13T11:44:38.851334Z",
@@ -1016,13 +1196,17 @@
     "019f0998-b0f5-7202-9db6-34d41fd9be38": "2026-06-29T21:59:47.271678Z",
     "11d2da51-c8a1-4732-a135-6b5807ea5114": "2026-04-13T08:56:24.462329Z",
     "14ee15d2-fbee-40f3-b61a-fd98f0bbf18e": "2026-02-27T05:26:56.816124Z",
+    "2026-01-09-880d23f9-86b3-4345-af42-46381ab10e4d": "2026-01-09T13:08:34.841539Z",
+    "2026-01-09-97007e37-53bd-4456-9a49-c0f8081081a7": "2026-01-09T14:47:32.08606Z",
     "253fd5ef-38bf-4f4a-804a-98df5088a868": "2026-02-03T06:34:50.246415Z",
     "25787f85-5c77-4384-9355-bf3dfe687bde": "2026-06-02T08:15:04.541139Z",
     "2946988e-fe9b-4ca5-8f30-3c60037a41d9": "2026-06-03T01:31:58.429753Z",
     "3d67832d-f293-4b14-873f-1ca34ff07313": "2026-04-22T11:13:35.006782Z",
     "58ea4463-8f4c-4d99-9a40-a61b6d54552f": "2026-05-22T08:29:48.50169Z",
+    "65bd6f32-b465-4fea-807f-040f6d9ac558": "2026-06-29T16:24:43.120027Z",
     "6b26d89b-433f-4dab-8cf7-8faa6ae827a5": "2026-06-09T02:18:52.063827Z",
     "86a4c45c-4c6f-441c-9e41-80eb453d2c7d": "2026-03-04T00:50:24.292592Z",
+    "8edfb99e-6863-40f4-953e-8d779deab794": "2026-03-31T22:06:51.763616Z",
     "9191cbda-fdd5-41ea-8c6a-d8e7fa6d3b23": "2026-03-12T14:51:47.842877Z",
     "996d1339-56fe-42f0-be83-3dc15df1c5be": "2026-04-03T23:50:26.770637Z",
     "a38d5b65-e04c-4025-b7ec-8f2b68cd2df5": "2026-06-04T00:24:16.168409Z",

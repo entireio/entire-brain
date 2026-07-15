@@ -2,7 +2,7 @@
   "schema_version": 1,
   "contract_id": "agent-brain-offline-relevance-null-review-2026-07-15",
   "ledger_path": "benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json",
-  "ledger_sha256": "1045911b47f4bff2c67ba066c69b3c16839a1ae164850732907d8edd9c3f6e1d",
+  "ledger_sha256": "d9e7d71334a88a60cdbf4f71c8808c5383d616f54bc7fcda59ef7460e5d01e0b",
   "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
   "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
   "eligibility_membership_root_sha256": "d1ecd24bfbd590a800e9323868f73131b498d84bd055880505dfc0dc757174af"

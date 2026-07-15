@@ -6,7 +6,7 @@
       "query_id": "dev-product-4dd458656",
       "task_id": "entire-cli-c0701-4dd458656",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -44,7 +44,7 @@
       "query_id": "dev-oracle-4dd458656",
       "task_id": "entire-cli-c0701-4dd458656",
       "query_source": "oracle_upper_bound",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -82,7 +82,7 @@
       "query_id": "dev-product-6699ec40a",
       "task_id": "entire-cli-c0701-6699ec40a",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -120,7 +120,7 @@
       "query_id": "dev-product-855b8cdab",
       "task_id": "entire-cli-c0701-855b8cdab",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -158,7 +158,7 @@
       "query_id": "dev-product-8828752a7",
       "task_id": "entire-cli-c0701-8828752a7",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -203,7 +203,7 @@
       "query_id": "dev-product-d9df8fcca",
       "task_id": "entire-cli-c0701-d9df8fcca",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -248,7 +248,7 @@
       "query_id": "dev-product-d90849ac5",
       "task_id": "entire-cli-c0701-d90849ac5",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -286,7 +286,7 @@
       "query_id": "dev-product-aaeb8546c",
       "task_id": "entire-cli-c0701-aaeb8546c",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -324,7 +324,7 @@
       "query_id": "dev-product-b3f0deb5b",
       "task_id": "entire-cli-c0701-b3f0deb5b",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -362,7 +362,7 @@
       "query_id": "dev-product-21fcaf5f2",
       "task_id": "entire-cli-c0701-21fcaf5f2",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -400,7 +400,7 @@
       "query_id": "dev-product-996336140",
       "task_id": "entire-cli-c0701-996336140",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -438,7 +438,7 @@
       "query_id": "dev-product-e52b748b4",
       "task_id": "entire-cli-c0701-e52b748b4",
       "query_source": "user_prompt_derived",
-      "reviewed_at": "2026-07-15T09:15:00+02:00",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
       "reviewer": "codex-relevance-label-audit",
       "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
       "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
@@ -471,6 +471,101 @@
           "rationale": "Codex session registry behavior is unrelated to trail help."
         }
       ]
+    },
+    {
+      "query_id": "dev-product-250538b1f",
+      "task_id": "entire-cli-c0701-250538b1f",
+      "query_source": "user_prompt_derived",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
+      "reviewer": "codex-relevance-label-audit",
+      "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
+      "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+      "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+      "fact_membership_root_sha256": "9a3ce47d43fa2455fb1792d6a512dffebcb20ca8ae74a44e9caaf91095b95fba",
+      "eligibility_membership_root_sha256": "d1ecd24bfbd590a800e9323868f73131b498d84bd055880505dfc0dc757174af",
+      "active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
+      "session_date_membership_root_sha256": "6b38bff80edf9c471f7fdc4c4c817bff7cf4d6b2a2d5f641ec740c113ade95ae",
+      "decision_summary": "Manual review of the exposed imported-session prompt against the pinned fact membership identified the general Last Prompt rule as solving, an imported-turn reconstruction fact as relevant context, and retained the exact four judgments below.",
+      "judgments": [
+        {
+          "fact_id": "fact:ebce57dacaa78919f1358d5d",
+          "fact_sha256": "93928aac7363824e2839564ecf61dfaf4a77b8574cd7faa30f5771bdb411fe64",
+          "grade": "solving",
+          "cluster_id": "cluster:last-prompt-most-recent-user",
+          "rationale": "It states directly that Last Prompt uses the session's most recent user prompt rather than its first prompt."
+        },
+        {
+          "fact_id": "fact:2a918a67f91db46f44a8c8a4",
+          "fact_sha256": "c0b281cb5c6e1c0546d5ea12b752c3868407d5e471d0462c5020ba7b7bbe03a2",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:imported-turn-boundary-user-prompts",
+          "rationale": "It explains that imported turn boundaries must be reconstructed from user-prompt records, which supplies the final user turn but does not itself set LastPrompt."
+        },
+        {
+          "fact_id": "fact:63485ff4d3e7da4d742dacda",
+          "fact_sha256": "880e3df66c580bf27b1c5ff77533595176a5bfb88bca0b468aaddf2c65f2de4c",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:last-prompt-display-format",
+          "rationale": "It governs Last Prompt formatting and whitespace, not selection of the first versus most recent prompt."
+        },
+        {
+          "fact_id": "fact:80545a403b658bba19a7a6b0",
+          "fact_sha256": "e4893ea28e67e2dfc21a8ee051308b883d9462e9a5d4854c2eb0e89d4301c196",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:trail-pr-base-retarget",
+          "rationale": "A stale PR Trail base is unrelated to imported-session prompt selection."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-b72a6e621",
+      "task_id": "entire-cli-c0701-b72a6e621",
+      "query_source": "user_prompt_derived",
+      "reviewed_at": "2026-07-15T15:30:00+02:00",
+      "reviewer": "codex-relevance-label-audit",
+      "review_method": "manual_judgment_from_exposed_prompt_and_pinned_membership_v1",
+      "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+      "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+      "fact_membership_root_sha256": "9a3ce47d43fa2455fb1792d6a512dffebcb20ca8ae74a44e9caaf91095b95fba",
+      "eligibility_membership_root_sha256": "d1ecd24bfbd590a800e9323868f73131b498d84bd055880505dfc0dc757174af",
+      "active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
+      "session_date_membership_root_sha256": "6b38bff80edf9c471f7fdc4c4c817bff7cf4d6b2a2d5f641ec740c113ade95ae",
+      "decision_summary": "Exhaustive review of every authenticated active and eligible fact found no solving or relevant-alternative fact for mirror-placement search-stat deduplication; the four nearest search facts are topical distractors.",
+      "judgments": [
+        {
+          "fact_id": "fact:2b0e4f409de31a6aa95ce0a0",
+          "fact_sha256": "eb5c798b174c349c4631c3704e0abc74e572198e70e78e7eb83bb62cf4217252",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:multi-repo-search-filtering",
+          "rationale": "It concerns the same multi-repo search surface, but query syntax does not address duplicate home-and-mirror result or statistics aggregation."
+        },
+        {
+          "fact_id": "fact:b595408fe6e2b06173a5175f",
+          "fact_sha256": "102f82e005e1f0e0fbf46e1a1388e2d9173b6146754fe1e2806da78ff5bb2798",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:multi-repo-search-filtering",
+          "rationale": "It covers backend multi-repository filter semantics, not deduplication of mirrored placements or their aggregate counts."
+        },
+        {
+          "fact_id": "fact:eb2b14667d471c0689193974",
+          "fact_sha256": "b1c2422d3517a28f5205cfe856a0652f98edd2c8fd388fc3921a5ad7b7b29b19",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:multi-repo-search-filtering",
+          "rationale": "It concerns repeated repo-parameter filtering, not home-and-mirror result deduplication or aggregate corrections."
+        },
+        {
+          "fact_id": "fact:f3d79fb1403f802256402f52",
+          "fact_sha256": "ae287ab084cbdf3b412890a1745c42f146c9dd0aa6b5d717f339832ea9022838",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:search-pagination-truncation",
+          "rationale": "It is topical to search truncation and pagination, but does not address inflated aggregate counts from duplicate placements."
+        }
+      ],
+      "null_review": {
+        "source_id": "benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json#dev-product-b72a6e621",
+        "source_path": "benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json",
+        "source_sha256": "d9e7d71334a88a60cdbf4f71c8808c5383d616f54bc7fcda59ef7460e5d01e0b"
+      }
     }
   ]
 }
