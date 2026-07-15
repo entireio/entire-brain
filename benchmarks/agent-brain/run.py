@@ -6247,9 +6247,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             if condition in task.get("conditions", [])
         ),
         "isolation_flags": {
-            "checkpoint_limit": args.checkpoint_limit,
-            "brain_cache_enabled": not args.no_brain_cache,
-            "brain_cache_refresh": args.refresh_brain_cache,
+            "checkpoint_limit": getattr(args, "checkpoint_limit", None),
+            "brain_cache_enabled": not bool(getattr(args, "no_brain_cache", False)),
+            "brain_cache_refresh": bool(getattr(args, "refresh_brain_cache", False)),
         },
         "runner_cli_versions": runner_cli_versions(runners),
     }
