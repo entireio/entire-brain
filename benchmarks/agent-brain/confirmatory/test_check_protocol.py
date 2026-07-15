@@ -155,6 +155,8 @@ class ProtocolCheckTest(unittest.TestCase):
             "offline-relevance-review-ledger.json",
             "offline-relevance-source-membership.json",
             "relevance-source-contract.json",
+            "offline-relevance-null-review-ledger.json",
+            "relevance-null-review-contract.json",
             "task-inventory.json",
         ):
             shutil.copy2(HERE / name, target / name)
@@ -169,8 +171,8 @@ class ProtocolCheckTest(unittest.TestCase):
         self.assertNotIn("WS2-WS5 dependencies are pending", errors)
         self.assertIn("fresh holdout commitment is not frozen", errors)
         self.assertIn("paid-run checklist is not all pass", errors)
-        self.assertIn("too few development relevance tasks", errors)
-        self.assertIn("too few corpus-closed development null queries", errors)
+        self.assertIn("too few answerable product-derived development relevance tasks", errors)
+        self.assertIn("too few corpus-closed product-derived development null queries", errors)
 
     def test_inventory_is_unique_and_contamination_is_explicit(self) -> None:
         inventory = json.loads((HERE / "task-inventory.json").read_text())
@@ -479,6 +481,52 @@ class ProtocolCheckTest(unittest.TestCase):
         self.assertIn("development query hashes are not unique strings", errors)
         self.assertIn("plaintext sealed holdout labels are prohibited while unopened", errors)
 
+    def test_oracle_only_task_and_null_cannot_close_product_floors(self) -> None:
+        product = {
+            "query_id": "product-1",
+            "task_id": "task-1",
+            "query_source": "user_prompt_derived",
+            "query_text": "real product prompt",
+            "query_sha256": hashlib.sha256(b"real product prompt").hexdigest(),
+            "temporal_cutoff": "2026-07-15T00:00:00Z",
+            "null_query": False,
+            "judgments": [],
+        }
+        oracle = {
+            "query_id": "oracle-2",
+            "task_id": "task-2",
+            "query_source": "oracle_upper_bound",
+            "query_text": "hand tuned no-answer wording",
+            "query_sha256": hashlib.sha256(b"hand tuned no-answer wording").hexdigest(),
+            "temporal_cutoff": "2026-07-15T00:00:00Z",
+            "null_query": True,
+            "judgments": [],
+        }
+        dataset = {
+            "development": {"items": [product, oracle]},
+            "sealed_holdout": {
+                "item_count": 0,
+                "unique_task_count": 0,
+                "commitment_sha256": "d" * 64,
+                "opened_at": None,
+                "items": [],
+            },
+        }
+        protocol = {
+            "offline_dataset": {
+                "minimum_development_queries": 2,
+                "minimum_development_tasks": 2,
+                "minimum_development_null_queries": 1,
+                "minimum_sealed_holdout_queries": 0,
+                "minimum_sealed_holdout_tasks": 0,
+            },
+            "fresh_holdout": {"commitment_sha256": "d" * 64},
+        }
+        errors = CHECK.validate_dataset(dataset, protocol, freeze=True)
+        self.assertTrue(any("oracle_upper_bound queries cannot be null" in error for error in errors))
+        self.assertIn("too few answerable product-derived development relevance tasks", errors)
+        self.assertIn("too few corpus-closed product-derived development null queries", errors)
+
     def test_relevance_contract_rejects_coordinated_snapshot_and_dataset_mutation(self) -> None:
         protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as temp_raw:
@@ -490,6 +538,8 @@ class ProtocolCheckTest(unittest.TestCase):
                 "offline-relevance-review-ledger.json",
                 "offline-relevance-source-membership.json",
                 "relevance-source-contract.json",
+                "offline-relevance-null-review-ledger.json",
+                "relevance-null-review-contract.json",
                 "task-inventory.json",
             ):
                 shutil.copy2(HERE / name, temp / name)
@@ -537,6 +587,8 @@ class ProtocolCheckTest(unittest.TestCase):
                 "offline-relevance-review-ledger.json",
                 "offline-relevance-source-membership.json",
                 "relevance-source-contract.json",
+                "offline-relevance-null-review-ledger.json",
+                "relevance-null-review-contract.json",
                 "task-inventory.json",
             ):
                 shutil.copy2(HERE / name, temp / name)
@@ -644,7 +696,7 @@ class ProtocolCheckTest(unittest.TestCase):
         self.assertEqual(dataset["development"]["unique_task_count"], 11)
         protocol = json.loads((HERE / "preregistration.json").read_text())
         errors = CHECK.validate_dataset(dataset, protocol, freeze=True)
-        self.assertIn("too few development relevance tasks", errors)
+        self.assertIn("too few answerable product-derived development relevance tasks", errors)
 
     def test_engine_gate_rejects_legacy_unpinned_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

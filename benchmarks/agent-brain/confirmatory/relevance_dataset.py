@@ -23,11 +23,13 @@ from typing import Any
 
 
 SCHEMA_VERSION = 2
+SOURCE_MEMBERSHIP_SCHEMA_VERSION = 2
+SOURCE_CONTRACT_SCHEMA_VERSION = 2
 SAFE_STATES = ("prompt_inspected", "retrieval_probed", "agent_run", "optimization_used")
 GRADES = ("solving", "relevant_alternative", "hard_topical_distractor", "irrelevant")
 QUERY_SOURCES = ("user_prompt_derived", "oracle_upper_bound")
 EVIDENCE_TYPES = ("legacy_agent_packet", "manual_frozen_corpus_review")
-NULL_CLOSURE_METHOD = "exhaustive_active_corpus_review_v1"
+NULL_CLOSURE_METHOD = "exhaustive_active_corpus_review_v2"
 REVIEW_METHOD = "manual_judgment_from_exposed_prompt_and_pinned_membership_v1"
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "in", "is",
@@ -67,11 +69,28 @@ def fact_catalog_sha256(facts: list[dict[str, Any]]) -> str:
     return sha256_bytes(canonical_json(records))
 
 
-def _membership_fact_records(facts: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _provenance_session_ids(fact: dict[str, Any]) -> list[str]:
+    """Return the canonical provenance IDs, or an empty list for any malformed provenance."""
+    provenance = fact.get("provenance")
+    if not isinstance(provenance, list) or not provenance:
+        return []
+    session_ids: list[str] = []
+    for anchor in provenance:
+        if not isinstance(anchor, dict):
+            return []
+        session_id = str(anchor.get("session_id") or "").strip()
+        if not session_id:
+            return []
+        session_ids.append(session_id)
+    return sorted(set(session_ids))
+
+
+def _membership_fact_records(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     records = sorted(({
         "fact_id": str(fact.get("id") or ""),
         "fact_sha256": fact_sha256(fact),
         "status": str(fact.get("status") or ""),
+        "provenance_session_ids": _provenance_session_ids(fact),
     } for fact in facts), key=lambda record: record["fact_id"])
     if any(not record["fact_id"] or not record["status"] for record in records):
         raise DatasetError("source membership contains an empty fact id or status")
@@ -93,6 +112,33 @@ def fact_membership_root_sha256(records: list[dict[str, Any]]) -> str:
         raise DatasetError("source membership fact record is malformed")
     if len({record["fact_id"] for record in normalized}) != len(normalized):
         raise DatasetError("source membership contains duplicate fact ids")
+    return sha256_bytes(canonical_json(normalized))
+
+
+def eligibility_membership_root_sha256(records: list[dict[str, Any]]) -> str:
+    normalized: list[dict[str, Any]] = []
+    for record in records:
+        session_ids = record.get("provenance_session_ids")
+        if not isinstance(session_ids, list) or not all(
+            isinstance(session_id, str) and bool(session_id) for session_id in session_ids
+        ):
+            raise DatasetError("source eligibility membership provenance is malformed")
+        if session_ids != sorted(set(session_ids)):
+            raise DatasetError("source eligibility membership provenance is not canonical")
+        normalized.append({
+            "fact_id": str(record.get("fact_id") or ""),
+            "fact_sha256": str(record.get("fact_sha256") or ""),
+            "status": str(record.get("status") or ""),
+            "provenance_session_ids": session_ids,
+        })
+    normalized.sort(key=lambda record: record["fact_id"])
+    if any(
+        not record["fact_id"] or not _is_sha256(record["fact_sha256"]) or not record["status"]
+        for record in normalized
+    ):
+        raise DatasetError("source eligibility membership fact record is malformed")
+    if len({record["fact_id"] for record in normalized}) != len(normalized):
+        raise DatasetError("source eligibility membership contains duplicate fact ids")
     return sha256_bytes(canonical_json(normalized))
 
 
@@ -129,12 +175,13 @@ def build_source_membership(
     records = _membership_fact_records(facts)
     active = [record for record in records if record["status"] == "active"]
     return {
-        "schema_version": 1,
+        "schema_version": SOURCE_MEMBERSHIP_SCHEMA_VERSION,
         "source_facts_sha256": facts_source_sha256,
         "source_session_dates_sha256": session_dates_source_sha256,
         "fact_count": len(records),
         "active_fact_count": len(active),
         "fact_membership_root_sha256": fact_membership_root_sha256(records),
+        "eligibility_membership_root_sha256": eligibility_membership_root_sha256(records),
         "active_fact_catalog_sha256": fact_record_catalog_sha256(records, status="active"),
         "facts": records,
         "session_date_count": len(session_dates),
@@ -146,7 +193,7 @@ def build_source_membership(
 def build_source_contract(membership_path: str, membership: dict[str, Any], membership_sha256: str) -> dict[str, Any]:
     """Build the small reviewed trust-root document for a complete membership catalog."""
     return {
-        "schema_version": 1,
+        "schema_version": SOURCE_CONTRACT_SCHEMA_VERSION,
         "contract_id": "agent-brain-offline-relevance-source-2026-07-15",
         "membership_path": membership_path,
         "membership_sha256": membership_sha256,
@@ -155,6 +202,7 @@ def build_source_contract(membership_path: str, membership: dict[str, Any], memb
         "fact_count": membership["fact_count"],
         "active_fact_count": membership["active_fact_count"],
         "fact_membership_root_sha256": membership["fact_membership_root_sha256"],
+        "eligibility_membership_root_sha256": membership["eligibility_membership_root_sha256"],
         "active_fact_catalog_sha256": membership["active_fact_catalog_sha256"],
         "session_date_count": membership["session_date_count"],
         "session_date_membership_root_sha256": membership["session_date_membership_root_sha256"],
@@ -232,14 +280,8 @@ def _unique_index(rows: list[dict[str, Any]], key: str, label: str) -> dict[str,
 def _eligible(fact: dict[str, Any], session_dates: dict[str, str], cutoff: str,
               excluded_sessions: set[str]) -> bool:
     cutoff_at = _parse_time(cutoff, "temporal cutoff")
-    provenance = fact.get("provenance")
-    if not isinstance(provenance, list) or not provenance:
-        return False
-    session_ids = [
-        str(anchor.get("session_id") or "").strip()
-        for anchor in provenance if isinstance(anchor, dict)
-    ]
-    if not session_ids or any(not session_id for session_id in session_ids):
+    session_ids = _provenance_session_ids(fact)
+    if not session_ids:
         return False
     if any(session_id in excluded_sessions for session_id in session_ids):
         return False
@@ -250,6 +292,55 @@ def _eligible(fact: dict[str, Any], session_dates: dict[str, str], cutoff: str,
         if not _parse_time(created, f"session date {session_id}") < cutoff_at:
             return False
     return True
+
+
+def active_eligible_fact_catalog(
+    membership: dict[str, Any], cutoff: str, excluded_sessions: list[str]
+) -> list[dict[str, str]]:
+    """Derive the exact active+eligible ID/hash catalog from authenticated membership metadata."""
+    cutoff_at = _parse_time(cutoff, "temporal cutoff")
+    excluded = set(excluded_sessions)
+    facts = membership.get("facts")
+    session_dates = membership.get("session_dates")
+    if membership.get("schema_version") != SOURCE_MEMBERSHIP_SCHEMA_VERSION:
+        raise DatasetError("null review requires provenance-aware source membership schema")
+    if not isinstance(facts, list) or not isinstance(session_dates, dict):
+        raise DatasetError("null review source membership is malformed")
+    output: list[dict[str, str]] = []
+    for record in facts:
+        if not isinstance(record, dict) or record.get("status") != "active":
+            continue
+        session_ids = record.get("provenance_session_ids")
+        if not isinstance(session_ids, list) or not session_ids:
+            continue
+        if session_ids != sorted(set(session_ids)) or not all(
+            isinstance(session_id, str) and bool(session_id) for session_id in session_ids
+        ):
+            raise DatasetError("null review source membership provenance is malformed")
+        if any(session_id in excluded for session_id in session_ids):
+            continue
+        eligible = True
+        for session_id in session_ids:
+            created = session_dates.get(session_id)
+            if not isinstance(created, str):
+                eligible = False
+                break
+            try:
+                created_at = _parse_time(created, f"source membership session date {session_id}")
+            except DatasetError:
+                eligible = False
+                break
+            if not created_at < cutoff_at:
+                eligible = False
+                break
+        if eligible:
+            output.append({
+                "fact_id": str(record.get("fact_id") or ""),
+                "fact_sha256": str(record.get("fact_sha256") or ""),
+            })
+    output.sort(key=lambda record: record["fact_id"])
+    fact_record_catalog_sha256(output)
+    return output
 
 
 def _load_inventory(inventory_path: pathlib.Path) -> dict[str, dict[str, Any]]:
@@ -440,19 +531,29 @@ def validate_source_membership(
     contract_fields = {
         "schema_version", "contract_id", "membership_path", "membership_sha256",
         "source_facts_sha256", "source_session_dates_sha256", "fact_count",
-        "active_fact_count", "fact_membership_root_sha256", "active_fact_catalog_sha256",
+        "active_fact_count", "fact_membership_root_sha256", "eligibility_membership_root_sha256",
+        "active_fact_catalog_sha256",
         "session_date_count", "session_date_membership_root_sha256",
     }
-    if not isinstance(contract, dict) or set(contract) != contract_fields or contract.get("schema_version") != 1:
+    if (
+        not isinstance(contract, dict)
+        or set(contract) != contract_fields
+        or contract.get("schema_version") != SOURCE_CONTRACT_SCHEMA_VERSION
+    ):
         raise DatasetError("source contract fields or schema version changed")
     if contract.get("membership_sha256") != membership_sha256:
         raise DatasetError("source membership content hash differs from reviewed contract")
     membership_fields = {
         "schema_version", "source_facts_sha256", "source_session_dates_sha256", "fact_count",
-        "active_fact_count", "fact_membership_root_sha256", "active_fact_catalog_sha256", "facts",
+        "active_fact_count", "fact_membership_root_sha256", "eligibility_membership_root_sha256",
+        "active_fact_catalog_sha256", "facts",
         "session_date_count", "session_date_membership_root_sha256", "session_dates",
     }
-    if not isinstance(membership, dict) or set(membership) != membership_fields or membership.get("schema_version") != 1:
+    if (
+        not isinstance(membership, dict)
+        or set(membership) != membership_fields
+        or membership.get("schema_version") != SOURCE_MEMBERSHIP_SCHEMA_VERSION
+    ):
         raise DatasetError("source membership fields or schema version changed")
     facts = membership.get("facts")
     session_dates = membership.get("session_dates")
@@ -460,7 +561,7 @@ def validate_source_membership(
         raise DatasetError("source membership facts are malformed")
     if not isinstance(session_dates, dict):
         raise DatasetError("source membership session dates are malformed")
-    expected_fact_record_fields = {"fact_id", "fact_sha256", "status"}
+    expected_fact_record_fields = {"fact_id", "fact_sha256", "status", "provenance_session_ids"}
     if any(set(record) != expected_fact_record_fields for record in facts):
         raise DatasetError("source membership fact record fields changed")
     if membership.get("fact_count") != len(facts):
@@ -469,6 +570,8 @@ def validate_source_membership(
         raise DatasetError("source membership active fact count is stale")
     if membership.get("fact_membership_root_sha256") != fact_membership_root_sha256(facts):
         raise DatasetError("source membership fact root is stale")
+    if membership.get("eligibility_membership_root_sha256") != eligibility_membership_root_sha256(facts):
+        raise DatasetError("source membership eligibility root is stale")
     if membership.get("active_fact_catalog_sha256") != fact_record_catalog_sha256(facts, status="active"):
         raise DatasetError("source membership active fact root is stale")
     if membership.get("session_date_count") != len(session_dates):
@@ -477,7 +580,8 @@ def validate_source_membership(
         raise DatasetError("source membership session-date root is stale")
     for field in (
         "source_facts_sha256", "source_session_dates_sha256", "fact_count", "active_fact_count",
-        "fact_membership_root_sha256", "active_fact_catalog_sha256", "session_date_count",
+        "fact_membership_root_sha256", "eligibility_membership_root_sha256",
+        "active_fact_catalog_sha256", "session_date_count",
         "session_date_membership_root_sha256",
     ):
         if contract.get(field) != membership.get(field):
@@ -535,6 +639,31 @@ def validate_source_membership(
                 raise DatasetError(f"{query_id}/{fact_id}: judgment differs from reviewed full-source membership")
 
 
+def validate_null_review_contract(
+    contract: dict[str, Any],
+    ledger: dict[str, Any],
+    source_contract: dict[str, Any],
+    *,
+    ledger_path: str,
+    ledger_sha256: str,
+) -> None:
+    required = {
+        "schema_version", "contract_id", "ledger_path", "ledger_sha256",
+        "source_facts_sha256", "source_session_dates_sha256",
+        "eligibility_membership_root_sha256",
+    }
+    if not isinstance(contract, dict) or set(contract) != required or contract.get("schema_version") != 1:
+        raise DatasetError("null review contract fields or schema version changed")
+    if contract.get("ledger_path") != ledger_path or contract.get("ledger_sha256") != ledger_sha256:
+        raise DatasetError("null review ledger path or content hash differs from reviewed contract")
+    for field in (
+        "source_facts_sha256", "source_session_dates_sha256", "eligibility_membership_root_sha256"
+    ):
+        if contract.get(field) != source_contract.get(field):
+            raise DatasetError(f"null review contract {field} differs from source contract")
+    _null_review_index(ledger)
+
+
 def _ledger_judgments(item: dict[str, Any]) -> list[dict[str, Any]]:
     return [{
         "fact_id": judgment.get("fact_id"),
@@ -543,6 +672,24 @@ def _ledger_judgments(item: dict[str, Any]) -> list[dict[str, Any]]:
         "cluster_id": judgment.get("cluster_id"),
         "rationale": judgment.get("rationale"),
     } for judgment in item.get("judgments") or []]
+
+
+def _ledger_item(item: dict[str, Any], roots: dict[str, Any], reviewed_at: str,
+                 reviewer: str) -> dict[str, Any]:
+    entry = {
+        "query_id": item.get("query_id"),
+        "task_id": item.get("task_id"),
+        "query_source": item.get("query_source"),
+        "reviewed_at": reviewed_at,
+        "reviewer": reviewer,
+        "review_method": REVIEW_METHOD,
+        **roots,
+        "decision_summary": (item.get("label_evidence") or {}).get("rationale"),
+        "judgments": _ledger_judgments(item),
+    }
+    if item.get("null_query") is True:
+        entry["null_review"] = copy.deepcopy(item.get("null_review"))
+    return entry
 
 
 def build_review_ledger(
@@ -559,23 +706,17 @@ def build_review_ledger(
         "source_facts_sha256": contract["source_facts_sha256"],
         "source_session_dates_sha256": contract["source_session_dates_sha256"],
         "fact_membership_root_sha256": contract["fact_membership_root_sha256"],
+        "eligibility_membership_root_sha256": contract["eligibility_membership_root_sha256"],
         "active_fact_catalog_sha256": contract["active_fact_catalog_sha256"],
         "session_date_membership_root_sha256": contract["session_date_membership_root_sha256"],
     }
     return {
         "schema_version": 1,
         "ledger_id": "agent-brain-offline-relevance-review-2026-07-15",
-        "items": [{
-            "query_id": item.get("query_id"),
-            "task_id": item.get("task_id"),
-            "query_source": item.get("query_source"),
-            "reviewed_at": reviewed_at,
-            "reviewer": reviewer,
-            "review_method": REVIEW_METHOD,
-            **roots,
-            "decision_summary": (item.get("label_evidence") or {}).get("rationale"),
-            "judgments": _ledger_judgments(item),
-        } for item in labels.get("items") or []],
+        "items": [
+            _ledger_item(item, roots, reviewed_at, reviewer)
+            for item in labels.get("items") or []
+        ],
     }
 
 
@@ -602,7 +743,8 @@ def validate_review_ledger(
         raise DatasetError("review ledger query coverage differs from labels")
     root_fields = (
         "source_facts_sha256", "source_session_dates_sha256", "fact_membership_root_sha256",
-        "active_fact_catalog_sha256", "session_date_membership_root_sha256",
+        "eligibility_membership_root_sha256", "active_fact_catalog_sha256",
+        "session_date_membership_root_sha256",
     )
     required = {
         "query_id", "task_id", "query_source", "reviewed_at", "reviewer", "review_method",
@@ -622,7 +764,8 @@ def validate_review_ledger(
         if evidence.get("source_id") != f"{ledger_path}#{query_id}":
             raise DatasetError(f"{query_id}: evidence source_id does not identify its precise ledger entry")
         entry = entry_index[query_id]
-        if set(entry) != required:
+        expected_fields = required | ({"null_review"} if item.get("null_query") is True else set())
+        if set(entry) != expected_fields:
             raise DatasetError(f"{query_id}: review ledger entry fields changed")
         if entry.get("task_id") != item.get("task_id") or entry.get("query_source") != item.get("query_source"):
             raise DatasetError(f"{query_id}: review ledger task/query source differs from labels")
@@ -635,67 +778,135 @@ def validate_review_ledger(
             raise DatasetError(f"{query_id}: review ledger decision summary differs from labels")
         if entry.get("judgments") != _ledger_judgments(item):
             raise DatasetError(f"{query_id}: review ledger judgments differ from labels")
+        if item.get("null_query") is True and entry.get("null_review") != item.get("null_review"):
+            raise DatasetError(f"{query_id}: review ledger null review differs from labels")
         for field in root_fields:
             if entry.get(field) != contract.get(field):
                 raise DatasetError(f"{query_id}: review ledger {field} differs from source contract")
 
 
-def _validate_null_closure(query_id: str, closure: Any, source: dict[str, Any], query_hash: str,
-                           cutoff: str, excluded_sessions: list[str]) -> None:
-    if not isinstance(closure, dict):
-        raise DatasetError(f"{query_id}: null query requires exhaustive active-corpus closure evidence")
+def _null_review_index(ledger: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(ledger, dict) or set(ledger) != {"schema_version", "ledger_id", "items"}:
+        raise DatasetError("null review ledger fields changed")
+    if ledger.get("schema_version") != 1 or not isinstance(ledger.get("ledger_id"), str):
+        raise DatasetError("null review ledger schema version or id is invalid")
+    items = ledger.get("items")
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise DatasetError("null review ledger items are malformed")
+    return _unique_index(items, "query_id", "null review ledger")
+
+
+def _derive_null_closure(
+    query_id: str,
+    task_id: str,
+    reference: Any,
+    review_entry: dict[str, Any],
+    source: dict[str, Any],
+    membership: dict[str, Any],
+    query_hash: str,
+    cutoff: str,
+    excluded_sessions: list[str],
+    *,
+    ledger_path: str,
+    ledger_sha256: str,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    reference_fields = {"source_id", "source_path", "source_sha256"}
+    if not isinstance(reference, dict) or set(reference) != reference_fields:
+        raise DatasetError(f"{query_id}: null query requires exact retained review evidence")
+    if reference.get("source_id") != f"{ledger_path}#{query_id}":
+        raise DatasetError(f"{query_id}: null review source_id differs")
+    if reference.get("source_path") != ledger_path or reference.get("source_sha256") != ledger_sha256:
+        raise DatasetError(f"{query_id}: null review source path or hash differs")
     required = {
-        "method",
-        "query_sha256",
-        "temporal_policy_sha256",
-        "source_facts_sha256",
-        "source_session_dates_sha256",
-        "active_fact_count",
-        "active_fact_catalog_sha256",
-        "eligible_fact_count",
-        "eligible_fact_catalog_sha256",
-        "reviewed_fact_count",
-        "reviewed_fact_catalog_sha256",
-        "positive_fact_count",
-        "reviewer_assertion",
+        "query_id", "task_id", "query_sha256", "temporal_policy_sha256", "reviewed_at",
+        "reviewer", "method", "source_facts_sha256", "source_session_dates_sha256",
+        "eligibility_membership_root_sha256", "reviewer_assertion", "decisions",
     }
-    if set(closure) != required:
-        raise DatasetError(f"{query_id}: null closure fields differ from the exhaustive review contract")
-    if closure.get("method") != NULL_CLOSURE_METHOD:
-        raise DatasetError(f"{query_id}: null closure method is invalid")
-    if closure.get("query_sha256") != query_hash:
-        raise DatasetError(f"{query_id}: null closure query hash differs")
-    expected_policy_hash = temporal_policy_sha256(cutoff, excluded_sessions)
-    if closure.get("temporal_policy_sha256") != expected_policy_hash:
-        raise DatasetError(f"{query_id}: null closure temporal policy hash differs")
-    if closure.get("source_facts_sha256") != source.get("facts_sha256"):
-        raise DatasetError(f"{query_id}: null closure full fact source hash differs")
-    if closure.get("source_session_dates_sha256") != source.get("session_dates_sha256"):
-        raise DatasetError(f"{query_id}: null closure session-date source hash differs")
-    if closure.get("active_fact_count") != source.get("active_fact_count"):
-        raise DatasetError(f"{query_id}: null closure active fact count differs")
-    if closure.get("active_fact_catalog_sha256") != source.get("active_fact_catalog_sha256"):
-        raise DatasetError(f"{query_id}: null closure active catalog hash differs")
-    for field in ("active_fact_count", "eligible_fact_count", "reviewed_fact_count", "positive_fact_count"):
-        if not _is_nonnegative_int(closure.get(field)):
-            raise DatasetError(f"{query_id}: null closure {field} is invalid")
-    for field in ("active_fact_catalog_sha256", "eligible_fact_catalog_sha256", "reviewed_fact_catalog_sha256"):
-        if not _is_sha256(closure.get(field)):
-            raise DatasetError(f"{query_id}: null closure {field} is invalid")
-    if closure["eligible_fact_count"] > closure["active_fact_count"]:
-        raise DatasetError(f"{query_id}: null closure eligible count exceeds active corpus")
-    if closure["reviewed_fact_count"] != closure["eligible_fact_count"]:
-        raise DatasetError(f"{query_id}: null closure did not review every eligible active fact")
-    if closure["reviewed_fact_catalog_sha256"] != closure["eligible_fact_catalog_sha256"]:
-        raise DatasetError(f"{query_id}: null closure reviewed catalog is not the eligible catalog")
-    if closure["positive_fact_count"] != 0:
-        raise DatasetError(f"{query_id}: null closure records positive facts")
-    if not isinstance(closure.get("reviewer_assertion"), str) or not closure["reviewer_assertion"].strip():
-        raise DatasetError(f"{query_id}: null closure reviewer assertion is missing")
+    if set(review_entry) != required:
+        raise DatasetError(f"{query_id}: null review ledger entry fields changed")
+    if review_entry.get("task_id") != task_id or review_entry.get("query_sha256") != query_hash:
+        raise DatasetError(f"{query_id}: null review task or query hash differs")
+    if review_entry.get("method") != NULL_CLOSURE_METHOD:
+        raise DatasetError(f"{query_id}: null review method is invalid")
+    if review_entry.get("temporal_policy_sha256") != temporal_policy_sha256(cutoff, excluded_sessions):
+        raise DatasetError(f"{query_id}: null review temporal policy hash differs")
+    if review_entry.get("source_facts_sha256") != source.get("facts_sha256"):
+        raise DatasetError(f"{query_id}: null review full fact source hash differs")
+    if review_entry.get("source_session_dates_sha256") != source.get("session_dates_sha256"):
+        raise DatasetError(f"{query_id}: null review session-date source hash differs")
+    if review_entry.get("eligibility_membership_root_sha256") != membership.get(
+        "eligibility_membership_root_sha256"
+    ):
+        raise DatasetError(f"{query_id}: null review eligibility membership root differs")
+    _parse_time(review_entry.get("reviewed_at"), f"{query_id} null reviewed_at")
+    if not isinstance(review_entry.get("reviewer"), str) or not review_entry["reviewer"].strip():
+        raise DatasetError(f"{query_id}: null review reviewer is missing")
+    if not isinstance(review_entry.get("reviewer_assertion"), str) or not review_entry["reviewer_assertion"].strip():
+        raise DatasetError(f"{query_id}: null review reviewer assertion is missing")
+
+    eligible = active_eligible_fact_catalog(membership, cutoff, excluded_sessions)
+    eligible_index = {record["fact_id"]: record for record in eligible}
+    decisions = review_entry.get("decisions")
+    if not isinstance(decisions, list) or not all(isinstance(decision, dict) for decision in decisions):
+        raise DatasetError(f"{query_id}: null review decisions are malformed")
+    decision_index: dict[str, dict[str, Any]] = {}
+    normalized_decisions: list[dict[str, str]] = []
+    for decision in decisions:
+        if set(decision) != {"fact_id", "fact_sha256", "grade"}:
+            raise DatasetError(f"{query_id}: null review decision fields changed")
+        fact_id = decision.get("fact_id")
+        fact_hash = decision.get("fact_sha256")
+        grade = decision.get("grade")
+        if not isinstance(fact_id, str) or not fact_id or fact_id in decision_index:
+            raise DatasetError(f"{query_id}: null review fact ids are missing or duplicated")
+        if not _is_sha256(fact_hash) or grade not in GRADES:
+            raise DatasetError(f"{query_id}/{fact_id}: null review hash or grade is invalid")
+        decision_index[fact_id] = decision
+        normalized_decisions.append({"fact_id": fact_id, "fact_sha256": fact_hash, "grade": grade})
+    if set(decision_index) != set(eligible_index):
+        raise DatasetError(f"{query_id}: null review does not exactly cover the derived active+eligible catalog")
+    for fact_id, record in eligible_index.items():
+        if decision_index[fact_id].get("fact_sha256") != record["fact_sha256"]:
+            raise DatasetError(f"{query_id}/{fact_id}: null review fact hash differs from membership")
+    normalized_decisions.sort(key=lambda decision: decision["fact_id"])
+    positive_count = sum(
+        decision["grade"] in {"solving", "relevant_alternative"}
+        for decision in normalized_decisions
+    )
+    if positive_count:
+        raise DatasetError(f"{query_id}: null review contains positive facts")
+    catalog_hash = fact_record_catalog_sha256(eligible)
+    closure = {
+        "method": NULL_CLOSURE_METHOD,
+        "query_sha256": query_hash,
+        "temporal_policy_sha256": temporal_policy_sha256(cutoff, excluded_sessions),
+        "source_facts_sha256": source["facts_sha256"],
+        "source_session_dates_sha256": source["session_dates_sha256"],
+        "eligibility_membership_root_sha256": membership["eligibility_membership_root_sha256"],
+        "active_fact_count": membership["active_fact_count"],
+        "active_fact_catalog_sha256": membership["active_fact_catalog_sha256"],
+        "eligible_fact_count": len(eligible),
+        "eligible_fact_catalog_sha256": catalog_hash,
+        "reviewed_fact_count": len(normalized_decisions),
+        "reviewed_fact_catalog_sha256": fact_record_catalog_sha256(normalized_decisions),
+        "review_decisions_sha256": sha256_bytes(canonical_json(normalized_decisions)),
+        "positive_fact_count": positive_count,
+        "reviewer_assertion": review_entry["reviewer_assertion"],
+    }
+    return closure, {fact_id: str(decision["grade"]) for fact_id, decision in decision_index.items()}
 
 
-def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: pathlib.Path,
-                snapshot_path: pathlib.Path) -> dict[str, Any]:
+def materialize(
+    repo: pathlib.Path,
+    labels_path: pathlib.Path,
+    inventory_path: pathlib.Path,
+    snapshot_path: pathlib.Path,
+    *,
+    source_membership: dict[str, Any] | None = None,
+    null_review_ledger: dict[str, Any] | None = None,
+    null_review_ledger_path: str = "",
+    null_review_ledger_sha256: str = "",
+) -> dict[str, Any]:
     labels = load_json(labels_path)
     snapshot = load_json(snapshot_path)
     if not isinstance(labels, dict) or labels.get("schema_version") != SCHEMA_VERSION:
@@ -734,6 +945,8 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
     allowed_states = labels.get("allowed_inventory_states")
     if allowed_states != list(SAFE_STATES):
         raise DatasetError(f"allowed_inventory_states must be {list(SAFE_STATES)!r}")
+    null_review_index = _null_review_index(null_review_ledger) if null_review_ledger is not None else {}
+    consumed_null_reviews: set[str] = set()
 
     items: list[dict[str, Any]] = []
     query_ids: set[str] = set()
@@ -840,10 +1053,32 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
         null_query = source_item.get("null_query")
         if not isinstance(null_query, bool):
             raise DatasetError(f"{query_id}: null_query must be boolean")
+        closure: dict[str, Any] | None = None
+        null_decision_grades: dict[str, str] = {}
         if null_query:
-            _validate_null_closure(query_id, source_item.get("null_closure"), source, query_hash, cutoff, excluded)
-        elif "null_closure" in source_item:
-            raise DatasetError(f"{query_id}: non-null query cannot carry null closure evidence")
+            if query_source != "user_prompt_derived":
+                raise DatasetError(f"{query_id}: null queries must be product-derived")
+            if source_membership is None or null_review_ledger is None:
+                raise DatasetError(f"{query_id}: null query requires authenticated membership and review ledger")
+            review_entry = null_review_index.get(query_id)
+            if review_entry is None:
+                raise DatasetError(f"{query_id}: null review ledger entry is missing")
+            closure, null_decision_grades = _derive_null_closure(
+                query_id,
+                task_id,
+                source_item.get("null_review"),
+                review_entry,
+                source,
+                source_membership,
+                query_hash,
+                cutoff,
+                excluded,
+                ledger_path=null_review_ledger_path,
+                ledger_sha256=null_review_ledger_sha256,
+            )
+            consumed_null_reviews.add(query_id)
+        elif "null_review" in source_item:
+            raise DatasetError(f"{query_id}: non-null query cannot carry null review evidence")
         eligible_positive = [row for row in judgments if row["eligible"] and row["grade"] in {"solving", "relevant_alternative"}]
         if null_query and eligible_positive:
             raise DatasetError(f"{query_id}: null query has eligible positive judgments")
@@ -851,6 +1086,12 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
             raise DatasetError(f"{query_id}: answerable query has no eligible positive judgment")
         if not any(row["grade"] == "hard_topical_distractor" for row in judgments):
             raise DatasetError(f"{query_id}: a hard topical distractor judgment is required")
+        if null_query:
+            for judgment in judgments:
+                if null_decision_grades.get(judgment["fact_id"]) != judgment["grade"]:
+                    raise DatasetError(
+                        f"{query_id}/{judgment['fact_id']}: judgment differs from exhaustive null review"
+                    )
         materialized_item = {
             "query_id": query_id,
             "task_id": task_id,
@@ -865,11 +1106,13 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
             "judgments": judgments,
         }
         if null_query:
-            materialized_item["null_closure"] = source_item["null_closure"]
+            materialized_item["null_closure"] = closure
         items.append(materialized_item)
 
     if not items:
         raise DatasetError("development labels cannot be empty")
+    if set(null_review_index) != consumed_null_reviews:
+        raise DatasetError("null review ledger coverage differs from null labels")
     observed_query_sources = {item["query_source"] for item in items}
     if observed_query_sources != set(QUERY_SOURCES):
         raise DatasetError(f"development labels must cover both query sources: {list(QUERY_SOURCES)!r}")
@@ -883,6 +1126,14 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
     _parse_time(created_at, "label created_at")
     task_count = len({item["task_id"] for item in items})
     null_query_count = sum(item["null_query"] for item in items)
+    answerable_product_items = [
+        item for item in items
+        if item["query_source"] == "user_prompt_derived" and not item["null_query"]
+    ]
+    product_null_items = [
+        item for item in items
+        if item["query_source"] == "user_prompt_derived" and item["null_query"]
+    ]
     return {
         "schema_version": SCHEMA_VERSION,
         "dataset_id": dataset_id,
@@ -905,6 +1156,9 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
             "item_count": len(items),
             "unique_task_count": task_count,
             "null_query_count": null_query_count,
+            "answerable_product_item_count": len(answerable_product_items),
+            "unique_answerable_product_task_count": len({item["task_id"] for item in answerable_product_items}),
+            "product_null_query_count": len(product_null_items),
             "judgment_count": sum(grade_counts.values()),
             "grade_counts": {grade: grade_counts[grade] for grade in GRADES},
             "evidence_counts": {evidence: evidence_counts[evidence] for evidence in EVIDENCE_TYPES},
@@ -1192,6 +1446,8 @@ def main() -> int:
     materialize_parser.add_argument("--labels", type=pathlib.Path, required=True)
     materialize_parser.add_argument("--inventory", type=pathlib.Path, required=True)
     materialize_parser.add_argument("--snapshot", type=pathlib.Path, required=True)
+    materialize_parser.add_argument("--source-membership", type=pathlib.Path)
+    materialize_parser.add_argument("--null-review-ledger", type=pathlib.Path)
     materialize_parser.add_argument("--output", type=pathlib.Path, required=True)
     materialize_parser.add_argument("--check", action="store_true")
 
@@ -1204,6 +1460,8 @@ def main() -> int:
     validate_parser.add_argument("--source-contract", type=pathlib.Path, required=True)
     validate_parser.add_argument("--source-membership", type=pathlib.Path, required=True)
     validate_parser.add_argument("--review-ledger", type=pathlib.Path, required=True)
+    validate_parser.add_argument("--null-review-ledger", type=pathlib.Path, required=True)
+    validate_parser.add_argument("--null-review-contract", type=pathlib.Path, required=True)
     validate_parser.add_argument(
         "--schemas",
         type=pathlib.Path,
@@ -1274,21 +1532,47 @@ def main() -> int:
             )
             _write_or_check(args.output, value, args.check)
         elif args.command == "materialize":
-            value = materialize(args.repo.resolve(), args.labels, args.inventory, args.snapshot)
+            membership = load_json(args.source_membership) if args.source_membership else None
+            null_ledger = load_json(args.null_review_ledger) if args.null_review_ledger else None
+            ledger_path = (
+                args.null_review_ledger.resolve().relative_to(args.repo.resolve()).as_posix()
+                if args.null_review_ledger else ""
+            )
+            value = materialize(
+                args.repo.resolve(), args.labels, args.inventory, args.snapshot,
+                source_membership=membership if isinstance(membership, dict) else None,
+                null_review_ledger=null_ledger if isinstance(null_ledger, dict) else None,
+                null_review_ledger_path=ledger_path,
+                null_review_ledger_sha256=(
+                    sha256_bytes(args.null_review_ledger.read_bytes()) if args.null_review_ledger else ""
+                ),
+            )
             _write_or_check(args.output, value, args.check)
         else:
-            value = materialize(args.repo.resolve(), args.labels, args.inventory, args.snapshot)
-            dataset = load_json(args.dataset)
-            if not isinstance(dataset, dict):
-                raise DatasetError("dataset must be an object")
-            validate_dataset(dataset, value)
             labels = load_json(args.labels)
             snapshot = load_json(args.snapshot)
             contract = load_json(args.source_contract)
             membership = load_json(args.source_membership)
             ledger = load_json(args.review_ledger)
-            if not all(isinstance(value, dict) for value in (labels, snapshot, contract, membership, ledger)):
-                raise DatasetError("labels/snapshot/source contract/source membership/review ledger must be objects")
+            null_ledger = load_json(args.null_review_ledger)
+            null_contract = load_json(args.null_review_contract)
+            if not all(isinstance(value, dict) for value in (
+                labels, snapshot, contract, membership, ledger, null_ledger, null_contract
+            )):
+                raise DatasetError("relevance validation artifacts must be objects")
+            null_ledger_path = args.null_review_ledger.resolve().relative_to(args.repo.resolve()).as_posix()
+            null_ledger_sha = sha256_bytes(args.null_review_ledger.read_bytes())
+            value = materialize(
+                args.repo.resolve(), args.labels, args.inventory, args.snapshot,
+                source_membership=membership,
+                null_review_ledger=null_ledger,
+                null_review_ledger_path=null_ledger_path,
+                null_review_ledger_sha256=null_ledger_sha,
+            )
+            dataset = load_json(args.dataset)
+            if not isinstance(dataset, dict):
+                raise DatasetError("dataset must be an object")
+            validate_dataset(dataset, value)
             validate_source_membership(
                 labels,
                 snapshot,
@@ -1302,6 +1586,13 @@ def main() -> int:
                 contract,
                 ledger_path=args.review_ledger.resolve().relative_to(args.repo.resolve()).as_posix(),
                 ledger_sha256=sha256_bytes(args.review_ledger.read_bytes()),
+            )
+            validate_null_review_contract(
+                null_contract,
+                null_ledger,
+                contract,
+                ledger_path=null_ledger_path,
+                ledger_sha256=null_ledger_sha,
             )
             schema_errors = validate_relevance_schemas(labels, snapshot, dataset, args.schemas, ledger)
             if schema_errors:

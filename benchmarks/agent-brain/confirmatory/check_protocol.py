@@ -79,8 +79,14 @@ RELEVANCE_SOURCE_MEMBERSHIP_REPO_PATH = (
 RELEVANCE_REVIEW_LEDGER_REPO_PATH = (
     "benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json"
 )
+RELEVANCE_NULL_REVIEW_LEDGER_FILE = "offline-relevance-null-review-ledger.json"
+RELEVANCE_NULL_REVIEW_CONTRACT_FILE = "relevance-null-review-contract.json"
+RELEVANCE_NULL_REVIEW_LEDGER_REPO_PATH = (
+    "benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json"
+)
 # Reviewed independently of preregistration.json's routinely regenerated artifact hashes.
-RELEVANCE_SOURCE_CONTRACT_SHA256 = "a1e38838638a25accdc8a959d5f00a4d92257da70e411f90757e99f38e587678"
+RELEVANCE_SOURCE_CONTRACT_SHA256 = "5708b8f6f0ade1cedf4e1f7d0b4ff499d707e2c9cd93034d9e38a0aebb9836e1"
+RELEVANCE_NULL_REVIEW_CONTRACT_SHA256 = "413136af21dd001e38aec29899d3e4fff37443c126b0428c3a129f3a3026e643"
 ENGINE_PINS = HERE / "engine-verification-pins.json"
 DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newline_v1"
 CANDIDATE_IDS_ALGORITHM = "sha256_canonical_sorted_id_array_v1"
@@ -1067,8 +1073,12 @@ def validate_relevance_bundle(
     errors: list[str] = []
     reviewed_contract_path = here / RELEVANCE_SOURCE_CONTRACT_FILE
     membership_path = here / RELEVANCE_SOURCE_MEMBERSHIP_FILE
+    null_review_contract_path = here / RELEVANCE_NULL_REVIEW_CONTRACT_FILE
+    null_review_ledger_path = here / RELEVANCE_NULL_REVIEW_LEDGER_FILE
     reviewed_contract: dict[str, Any] | None = None
     membership: dict[str, Any] | None = None
+    null_review_contract: dict[str, Any] | None = None
+    null_review_ledger: dict[str, Any] | None = None
     if not reviewed_contract_path.is_file():
         errors.append("reviewed relevance source contract is missing")
     else:
@@ -1096,9 +1106,28 @@ def validate_relevance_bundle(
             reviewed_contract.get("membership_path") == RELEVANCE_SOURCE_MEMBERSHIP_REPO_PATH,
             "reviewed relevance source membership path changed",
         )
+    if not null_review_contract_path.is_file():
+        errors.append("reviewed relevance null-review contract is missing")
+    else:
+        _error(
+            errors,
+            digest(null_review_contract_path) == RELEVANCE_NULL_REVIEW_CONTRACT_SHA256,
+            "reviewed relevance null-review contract digest differs from hardcoded trust root",
+        )
+        loaded = _load_artifact(null_review_contract_path, errors, "reviewed relevance null-review contract")
+        if isinstance(loaded, dict):
+            null_review_contract = loaded
+    if not null_review_ledger_path.is_file():
+        errors.append("relevance null-review ledger is missing")
+    else:
+        loaded = _load_artifact(null_review_ledger_path, errors, "relevance null-review ledger")
+        if isinstance(loaded, dict):
+            null_review_ledger = loaded
     for value, schema_name, label in (
         (reviewed_contract, "relevance-source-contract.schema.json", "source contract"),
         (membership, "relevance-source-membership.schema.json", "source membership"),
+        (null_review_contract, "relevance-null-review-contract.schema.json", "null-review contract"),
+        (null_review_ledger, "relevance-null-review-ledger.schema.json", "null-review ledger"),
     ):
         schema_path = here / "schemas" / schema_name
         if not schema_path.is_file():
@@ -1107,6 +1136,17 @@ def validate_relevance_bundle(
         schema = _load_artifact(schema_path, errors, f"relevance {label} schema")
         if isinstance(value, dict) and isinstance(schema, dict):
             errors.extend(relevance_dataset.validate_schema_instance(value, schema, label))
+    if null_review_contract is not None and null_review_ledger is not None and reviewed_contract is not None:
+        try:
+            relevance_dataset.validate_null_review_contract(
+                null_review_contract,
+                null_review_ledger,
+                reviewed_contract,
+                ledger_path=RELEVANCE_NULL_REVIEW_LEDGER_REPO_PATH,
+                ledger_sha256=digest(null_review_ledger_path),
+            )
+        except relevance_dataset.DatasetError as exc:
+            errors.append(f"relevance null-review contract validation failed: {exc}")
     offline = protocol.get("offline_dataset")
     if not isinstance(offline, dict):
         return ["offline_dataset protocol section must be an object"]
@@ -1229,6 +1269,10 @@ def validate_relevance_bundle(
                 paths["labels"],
                 here / "task-inventory.json",
                 paths["snapshot"],
+                source_membership=membership,
+                null_review_ledger=null_review_ledger,
+                null_review_ledger_path=RELEVANCE_NULL_REVIEW_LEDGER_REPO_PATH,
+                null_review_ledger_sha256=digest(null_review_ledger_path),
             )
             relevance_dataset.validate_dataset(dataset, expected)
         except relevance_dataset.DatasetError as exc:
@@ -1301,6 +1345,11 @@ def _validate_query_items(items: Any, label: str) -> tuple[list[str], list[dict[
             expected_hash = hashlib.sha256(query_text.encode("utf-8")).hexdigest()
             _error(errors, query_hash == expected_hash, f"{item_label}: query text hash mismatch")
         _error(errors, isinstance(item.get("null_query"), bool), f"{item_label}: null_query must be boolean")
+        _error(
+            errors,
+            not (item.get("query_source") == "oracle_upper_bound" and item.get("null_query") is True),
+            f"{item_label}: oracle_upper_bound queries cannot be null",
+        )
         judgments = item.get("judgments")
         if not isinstance(judgments, list):
             errors.append(f"{item_label}: judgments must be an array")
@@ -1323,12 +1372,39 @@ def validate_dataset(dataset: dict[str, Any], protocol: dict[str, Any], freeze: 
     dev_task_ids = [item.get("task_id") for item in dev_items if isinstance(item.get("task_id"), str)]
     dev_task_count = len(set(dev_task_ids))
     dev_null_count = sum(item.get("null_query") is True for item in dev_items)
+    answerable_product_items = [
+        item for item in dev_items
+        if item.get("query_source") == "user_prompt_derived" and item.get("null_query") is False
+    ]
+    answerable_product_task_count = len({item.get("task_id") for item in answerable_product_items})
+    product_null_count = sum(
+        item.get("query_source") == "user_prompt_derived" and item.get("null_query") is True
+        for item in dev_items
+    )
     if "item_count" in development:
         _error(errors, development.get("item_count") == len(dev_items), "development item_count is stale")
     if "unique_task_count" in development:
         _error(errors, development.get("unique_task_count") == dev_task_count, "development unique_task_count is stale")
     if "null_query_count" in development:
         _error(errors, development.get("null_query_count") == dev_null_count, "development null_query_count is stale")
+    if "answerable_product_item_count" in development:
+        _error(
+            errors,
+            development.get("answerable_product_item_count") == len(answerable_product_items),
+            "development answerable_product_item_count is stale",
+        )
+    if "unique_answerable_product_task_count" in development:
+        _error(
+            errors,
+            development.get("unique_answerable_product_task_count") == answerable_product_task_count,
+            "development unique_answerable_product_task_count is stale",
+        )
+    if "product_null_query_count" in development:
+        _error(
+            errors,
+            development.get("product_null_query_count") == product_null_count,
+            "development product_null_query_count is stale",
+        )
 
     sealed = dataset.get("sealed_holdout", {})
     if not isinstance(sealed, dict):
@@ -1371,11 +1447,15 @@ def validate_dataset(dataset: dict[str, Any], protocol: dict[str, Any], freeze: 
     if freeze:
         offline = protocol.get("offline_dataset", {})
         _error(errors, len(dev_items) >= offline.get("minimum_development_queries", 0), "too few development relevance queries")
-        _error(errors, dev_task_count >= offline.get("minimum_development_tasks", 0), "too few development relevance tasks")
         _error(
             errors,
-            dev_null_count >= offline.get("minimum_development_null_queries", 0),
-            "too few corpus-closed development null queries",
+            answerable_product_task_count >= offline.get("minimum_development_tasks", 0),
+            "too few answerable product-derived development relevance tasks",
+        )
+        _error(
+            errors,
+            product_null_count >= offline.get("minimum_development_null_queries", 0),
+            "too few corpus-closed product-derived development null queries",
         )
         _error(errors, sealed.get("item_count", 0) >= offline.get("minimum_sealed_holdout_queries", 0), "too few sealed relevance queries")
         _error(errors, sealed.get("unique_task_count", 0) >= offline.get("minimum_sealed_holdout_tasks", 0), "too few sealed relevance tasks")

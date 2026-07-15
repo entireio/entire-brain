@@ -28,8 +28,9 @@ Judgments comprise 4 `solving`, 8 `relevant_alternative`, 14 `hard_topical_distr
 inspection is safe here because the inventory records every selected legacy prompt as exposed and
 development-only; it would not be safe for a fresh or `unseen` task.
 
-The preregistered **query floor** is met exactly (12 >= 12), but the **unique-task floor is not**
-(11 < 12). One additional exposed development task with defensible labels is required. This is not
+The preregistered **query floor** is met exactly (12 >= 12), but the **answerable product-task floor
+is not** (11 < 12). Oracle and null queries cannot close that task floor. One additional exposed
+answerable product task with defensible labels is required. This is not
 the `offline_development_threshold` gate. No three-engine ranked outputs have been measured against
 these labels. `dev-product-b72a6e621` was removed: its cross-domain recap-aggregation fact was not a
 genuine relevant alternative, while no retained exhaustive review justified restoring the query as
@@ -55,15 +56,17 @@ and 12 unique tasks relative to the final-freeze minimum. No holdout commitment 
   `084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793`; its full session-date map
   is pinned by `0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a`.
 - `offline-relevance-source-membership.json` retains the complete authenticated membership of 2,621
-  facts (2,531 active) and all 2,248 session dates. It binds every fact ID to its canonical content
-  hash and status and every session ID to its date. The active ID/content-hash catalog remains
+  facts (2,531 active), their canonical provenance-session IDs, and all 2,248 session dates. It binds
+  every fact ID to its canonical content hash/status/provenance and every session ID to its date. The active ID/content-hash catalog remains
   `22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c`; the complete fact/status
   membership root is `9a3ce47d43fa2455fb1792d6a512dffebcb20ca8ae74a44e9caaf91095b95fba`, and the session/date
   root is `6b38bff80edf9c471f7fdc4c4c817bff7cf4d6b2a2d5f641ec740c113ade95ae`.
+  The provenance-aware eligibility membership root is
+  `d1ecd24bfbd590a800e9323868f73131b498d84bd055880505dfc0dc757174af`.
 - `relevance-source-contract.json` pins that complete membership file and all source counts, raw
   hashes, and roots. Independently of routinely refreshed preregistration artifact hashes,
   `check_protocol.py` pins the contract's raw SHA-256 as
-  `a1e38838638a25accdc8a959d5f00a4d92257da70e411f90757e99f38e587678`. Changing the source trust
+  `5708b8f6f0ade1cedf4e1f7d0b4ff499d707e2c9cd93034d9e38a0aebb9836e1`. Changing the source trust
   root therefore requires an explicit reviewed checker-code change.
 - `offline-relevance-dataset.json` is generated. Query hashes are SHA-256 of exact UTF-8 query text.
   Fact hashes are SHA-256 of canonical JSON fact records (UTF-8, sorted keys, compact separators).
@@ -85,9 +88,12 @@ the task's bug. The companion literal-URL fact remains a relevant alternative be
 that mechanism without prescribing the `skipFetchAll` / `skipDefaultUpdate` solution.
 
 This is a single-reviewer development label set, suitable for choosing and debugging the offline
-evaluation mechanics. A future null label must use `exhaustive_active_corpus_review_v1`: query and
-temporal-policy hashes, the pinned active catalog, identical eligible/reviewed counts and catalog
-hashes, and zero positives are all mandatory. Any later decision to require independent double
+evaluation mechanics. A future product-derived null label must use
+`exhaustive_active_corpus_review_v2`: the checker derives the exact active+eligible catalog from the
+authenticated provenance membership and requires one retained grade decision per fact. Counts,
+catalog hashes, decision hash, and zero positives are derived. The separate null-review ledger and
+contract are currently empty and hard-pinned; adding a null requires an explicit trust-root update.
+Any later decision to require independent double
 annotation or adjudication must be made before the dataset is frozen; these labels do not imply
 inter-rater reliability.
 
@@ -149,6 +155,8 @@ python3 benchmarks/agent-brain/confirmatory/relevance_dataset.py materialize \
   --labels benchmarks/agent-brain/confirmatory/offline-relevance-development-labels.json \
   --inventory benchmarks/agent-brain/confirmatory/task-inventory.json \
   --snapshot benchmarks/agent-brain/confirmatory/offline-relevance-fact-snapshot.json \
+  --source-membership benchmarks/agent-brain/confirmatory/offline-relevance-source-membership.json \
+  --null-review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json \
   --output benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json
 ```
 
@@ -174,7 +182,9 @@ python3 benchmarks/agent-brain/confirmatory/relevance_dataset.py validate \
   --dataset benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json \
   --source-contract benchmarks/agent-brain/confirmatory/relevance-source-contract.json \
   --source-membership benchmarks/agent-brain/confirmatory/offline-relevance-source-membership.json \
-  --review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json
+  --review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json \
+  --null-review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json \
+  --null-review-contract benchmarks/agent-brain/confirmatory/relevance-null-review-contract.json
 
 python3 -m unittest benchmarks/agent-brain/confirmatory/test_relevance_dataset.py
 python3 benchmarks/agent-brain/confirmatory/check_protocol.py

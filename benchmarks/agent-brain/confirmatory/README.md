@@ -7,7 +7,8 @@ Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 t
 WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
 integrated and verified by content-addressed source and test evidence. An exposed-only offline
 development relevance set now meets the 12-query floor exactly but has only 11 of the required 12
-unique tasks. No three-engine metrics have been computed, no corpus-closed null query exists, and the
+answerable product-derived tasks. No three-engine metrics have been computed, no corpus-closed product
+null query exists, and the
 relevance holdout remains unopened and empty. Final freeze remains blocked on one additional labeled
 development task, fresh-task validity review, real three-engine records and development threshold,
 null-query coverage, relevance holdout sealing, a defensible powered design, and model pricing/budget
@@ -27,9 +28,13 @@ approval. The confirmatory analyzer is implemented and path-locked.
 - `offline-relevance-review-ledger.json`: retained per-query/per-judgment manual review evidence for
   all 12 queries; no label claims unavailable historical packet bytes as evidence.
 - `offline-relevance-source-membership.json`: complete authenticated catalog of 2,621 facts (2,531
-  active) and 2,248 session dates.
+  active), their canonical provenance-session IDs, and 2,248 session dates; it derives exact
+  active+eligible catalogs for each task policy.
 - `relevance-source-contract.json`: small reviewed contract for the complete membership catalog; its
   raw digest is pinned independently in `check_protocol.py`, outside routine preregistration hashes.
+- `offline-relevance-null-review-ledger.json` and `relevance-null-review-contract.json`: currently
+  empty exhaustive-review ledger and its separately hard-pinned contract. A future null must add one
+  grade decision for every derived active+eligible fact and explicitly update the reviewed trust root.
 - `offline-relevance-fact-snapshot.json`: content-addressed 37-fact/34-date excerpt of the pinned
   full quarantine, sufficient for offline rebuild and validation.
 - `relevance_dataset.py` and `test_relevance_dataset.py`: exposed-only proposal, snapshot,
@@ -80,7 +85,9 @@ python3 benchmarks/agent-brain/confirmatory/relevance_dataset.py validate \
   --dataset benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json \
   --source-contract benchmarks/agent-brain/confirmatory/relevance-source-contract.json \
   --source-membership benchmarks/agent-brain/confirmatory/offline-relevance-source-membership.json \
-  --review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json
+  --review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-review-ledger.json \
+  --null-review-ledger benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json \
+  --null-review-contract benchmarks/agent-brain/confirmatory/relevance-null-review-contract.json
 python3 -m unittest benchmarks/agent-brain/confirmatory/test_relevance_dataset.py
 ```
 

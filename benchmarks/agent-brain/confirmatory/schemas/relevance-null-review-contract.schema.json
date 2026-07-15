@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/relevance-null-review-contract-v1.json",
+  "type": "object",
+  "required": [
+    "schema_version", "contract_id", "ledger_path", "ledger_sha256",
+    "source_facts_sha256", "source_session_dates_sha256", "eligibility_membership_root_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "contract_id": {"type": "string", "minLength": 1},
+    "ledger_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+    "ledger_sha256": {"$ref": "#/$defs/sha256"},
+    "source_facts_sha256": {"$ref": "#/$defs/sha256"},
+    "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+    "eligibility_membership_root_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

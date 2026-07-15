@@ -4,27 +4,33 @@
   "type": "object",
   "required": [
     "schema_version", "source_facts_sha256", "source_session_dates_sha256", "fact_count",
-    "active_fact_count", "fact_membership_root_sha256", "active_fact_catalog_sha256", "facts",
+    "active_fact_count", "fact_membership_root_sha256", "eligibility_membership_root_sha256", "active_fact_catalog_sha256", "facts",
     "session_date_count", "session_date_membership_root_sha256", "session_dates"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "source_facts_sha256": {"$ref": "#/$defs/sha256"},
     "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
     "fact_count": {"type": "integer", "minimum": 1},
     "active_fact_count": {"type": "integer", "minimum": 1},
     "fact_membership_root_sha256": {"$ref": "#/$defs/sha256"},
+    "eligibility_membership_root_sha256": {"$ref": "#/$defs/sha256"},
     "active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
     "facts": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["fact_id", "fact_sha256", "status"],
+        "required": ["fact_id", "fact_sha256", "status", "provenance_session_ids"],
         "properties": {
           "fact_id": {"type": "string", "minLength": 1},
           "fact_sha256": {"$ref": "#/$defs/sha256"},
-          "status": {"type": "string", "minLength": 1}
+          "status": {"type": "string", "minLength": 1},
+          "provenance_session_ids": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          }
         },
         "additionalProperties": false
       }

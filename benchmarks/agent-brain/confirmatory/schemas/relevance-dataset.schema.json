@@ -26,11 +26,14 @@
     },
     "development": {
       "type": "object",
-      "required": ["item_count", "unique_task_count", "null_query_count", "judgment_count", "grade_counts", "evidence_counts", "source_facts_sha256", "source_session_dates_sha256", "source_active_fact_count", "source_active_fact_catalog_sha256", "snapshot_facts_sha256", "snapshot_session_dates_sha256", "labels_sha256", "fact_snapshot_sha256", "items"],
+      "required": ["item_count", "unique_task_count", "null_query_count", "answerable_product_item_count", "unique_answerable_product_task_count", "product_null_query_count", "judgment_count", "grade_counts", "evidence_counts", "source_facts_sha256", "source_session_dates_sha256", "source_active_fact_count", "source_active_fact_catalog_sha256", "snapshot_facts_sha256", "snapshot_session_dates_sha256", "labels_sha256", "fact_snapshot_sha256", "items"],
       "properties": {
         "item_count": {"type": "integer", "minimum": 0},
         "unique_task_count": {"type": "integer", "minimum": 0},
         "null_query_count": {"type": "integer", "minimum": 0},
+        "answerable_product_item_count": {"type": "integer", "minimum": 0},
+        "unique_answerable_product_task_count": {"type": "integer", "minimum": 0},
+        "product_null_query_count": {"type": "integer", "minimum": 0},
         "judgment_count": {"type": "integer", "minimum": 0},
         "grade_counts": {"$ref": "#/$defs/gradeCounts"},
         "evidence_counts": {
@@ -95,19 +98,21 @@
     },
     "nullClosure": {
       "type": "object",
-      "required": ["method", "query_sha256", "temporal_policy_sha256", "source_facts_sha256", "source_session_dates_sha256", "active_fact_count", "active_fact_catalog_sha256", "eligible_fact_count", "eligible_fact_catalog_sha256", "reviewed_fact_count", "reviewed_fact_catalog_sha256", "positive_fact_count", "reviewer_assertion"],
+      "required": ["method", "query_sha256", "temporal_policy_sha256", "source_facts_sha256", "source_session_dates_sha256", "eligibility_membership_root_sha256", "active_fact_count", "active_fact_catalog_sha256", "eligible_fact_count", "eligible_fact_catalog_sha256", "reviewed_fact_count", "reviewed_fact_catalog_sha256", "review_decisions_sha256", "positive_fact_count", "reviewer_assertion"],
       "properties": {
-        "method": {"const": "exhaustive_active_corpus_review_v1"},
+        "method": {"const": "exhaustive_active_corpus_review_v2"},
         "query_sha256": {"$ref": "#/$defs/sha256"},
         "temporal_policy_sha256": {"$ref": "#/$defs/sha256"},
         "source_facts_sha256": {"$ref": "#/$defs/sha256"},
         "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "eligibility_membership_root_sha256": {"$ref": "#/$defs/sha256"},
         "active_fact_count": {"type": "integer", "minimum": 1},
         "active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
         "eligible_fact_count": {"type": "integer", "minimum": 0},
         "eligible_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
         "reviewed_fact_count": {"type": "integer", "minimum": 0},
         "reviewed_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "review_decisions_sha256": {"$ref": "#/$defs/sha256"},
         "positive_fact_count": {"const": 0},
         "reviewer_assertion": {"type": "string", "minLength": 1}
       },

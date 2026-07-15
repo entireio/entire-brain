@@ -29,9 +29,9 @@
       "artifacts": {
         "labels": {
           "path": "offline-relevance-development-labels.json",
-          "sha256": "068644afc8d3eb14313f77e9107e484b04d48d07d961b812936edc1de626eb42",
+        "sha256": "ddd7f191501d0be0d15e3bcfee7fec00badd7e3fd071c83a74d097ea8529f1b6",
           "schema_path": "schemas/relevance-label-source.schema.json",
-          "schema_sha256": "841a096916d72fb885f40b6543a8490f62843d14ae7ad08623fc81f522cb3cde"
+        "schema_sha256": "b08229827fe3568dba23cec244aa9c9f73619e826a35cbd681b13edbfc1c5eb4"
         },
         "snapshot": {
           "path": "offline-relevance-fact-snapshot.json",
@@ -41,15 +41,15 @@
         },
         "dataset": {
           "path": "offline-relevance-dataset.json",
-          "sha256": "82d253f5b6dc43d7b5b705a597609b0c6dfe2cd31c5cc44954b833ff7ddfc63d",
+        "sha256": "86b80443e1fcf872f0f136fd304fd5686f0c049e5ac8a11078f223e585c120a1",
           "schema_path": "schemas/relevance-dataset.schema.json",
-          "schema_sha256": "478aa0e443cc0b8bbeadcec83b6965de6ebd31099b769467fe7e9df7f48171a4"
+        "schema_sha256": "9aa46c6a16e396f95dcc8ee6ad9954089294b7862e3c3a95f7a9b9f7e7bb1aa7"
         },
         "review_ledger": {
           "path": "offline-relevance-review-ledger.json",
-          "sha256": "286e897756edd655ec774dfb30e5306232936dcf8b7ab69d717abc75bb028bc0",
+        "sha256": "0ee734fe6ed87604086170db8590bb1fb691579c5cace74ebce3ce42424c0270",
           "schema_path": "schemas/relevance-review-ledger.schema.json",
-          "schema_sha256": "29e921ae53a20feebdf87fc99ed6c02eb2bb3db5e1edf8af557f621ebe60b747"
+        "schema_sha256": "17646e1928a5e45ad2efcf457927e217ddc3b790a394d9d31b0203bc3a646ebe"
         }
       }
     }

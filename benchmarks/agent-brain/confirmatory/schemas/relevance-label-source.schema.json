@@ -45,7 +45,7 @@
           "query_source": {"enum": ["user_prompt_derived", "oracle_upper_bound"]},
           "query_text": {"type": "string", "minLength": 1},
           "null_query": {"type": "boolean"},
-          "null_closure": {"$ref": "#/$defs/nullClosure"},
+          "null_review": {"$ref": "#/$defs/nullReviewReference"},
           "label_evidence": {"$ref": "#/$defs/labelEvidence"},
           "judgments": {
             "type": "array",
@@ -82,23 +82,13 @@
       },
       "additionalProperties": false
     },
-    "nullClosure": {
+    "nullReviewReference": {
       "type": "object",
-      "required": ["method", "query_sha256", "temporal_policy_sha256", "source_facts_sha256", "source_session_dates_sha256", "active_fact_count", "active_fact_catalog_sha256", "eligible_fact_count", "eligible_fact_catalog_sha256", "reviewed_fact_count", "reviewed_fact_catalog_sha256", "positive_fact_count", "reviewer_assertion"],
+      "required": ["source_id", "source_path", "source_sha256"],
       "properties": {
-        "method": {"const": "exhaustive_active_corpus_review_v1"},
-        "query_sha256": {"$ref": "#/$defs/sha256"},
-        "temporal_policy_sha256": {"$ref": "#/$defs/sha256"},
-        "source_facts_sha256": {"$ref": "#/$defs/sha256"},
-        "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
-        "active_fact_count": {"type": "integer", "minimum": 1},
-        "active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
-        "eligible_fact_count": {"type": "integer", "minimum": 0},
-        "eligible_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
-        "reviewed_fact_count": {"type": "integer", "minimum": 0},
-        "reviewed_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
-        "positive_fact_count": {"const": 0},
-        "reviewer_assertion": {"type": "string", "minLength": 1}
+        "source_id": {"type": "string", "minLength": 1},
+        "source_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "source_sha256": {"$ref": "#/$defs/sha256"}
       },
       "additionalProperties": false
     }
