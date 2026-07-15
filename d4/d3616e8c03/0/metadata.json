@@ -1,0 +1,61 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "d4d3616e8c03",
+  "session_id": "019f64ec-e096-7983-b5a5-ff278c96c51f",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-15T09:17:05.83521Z",
+  "branch": "codex/ws3-temporal-eligibility",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/TEMPORAL-ELIGIBILITY-DESIGN.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "internal/cli/facts_eligibility.go",
+    "internal/cli/facts_eligibility_test.go",
+    "internal/cli/facts_read_cmd.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "478f9c7f71d2",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 208460,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6039040,
+    "output_tokens": 21508,
+    "api_call_count": 62
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-15T09:17:05.737388Z",
+    "agent_lines": 1147,
+    "agent_removed": 2844,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1147,
+    "total_lines_changed": 3991,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 585,
+      "agent_lines_removed": 22
+    }
+  ]
+}
