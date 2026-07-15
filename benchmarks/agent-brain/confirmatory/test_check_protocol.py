@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
@@ -25,6 +26,124 @@ class ProtocolCheckTest(unittest.TestCase):
     @staticmethod
     def _sha(path: pathlib.Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def _complete_pricing_budget(
+        self,
+        repo: pathlib.Path,
+        here: pathlib.Path,
+    ) -> tuple[dict[str, object], dict[str, dict[str, str]], dict[str, object]]:
+        quote_source = here / "pricing-evidence" / "synthetic-quote.txt"
+        quote_source.parent.mkdir(parents=True, exist_ok=True)
+        quote_source.write_text("synthetic test quote; not a provider price\n", encoding="utf-8")
+        runner = {
+            "provider": "synthetic-provider",
+            "runner_id": "synthetic-runner",
+            "runner_version": "test-v1",
+            "model_id": "synthetic-model",
+            "effort": "synthetic-effort",
+        }
+        protocol: dict[str, object] = {
+            "protocol_id": "synthetic-protocol",
+            "agent_design": {
+                "primary_treatments": ["a", "b", "c"],
+                "tasks": 2,
+                "repetitions_per_treatment": 1,
+                "requested_cells": 6,
+                "maximum_calls_with_reserve": 7,
+                "power": {"status": "pass", "design_decision_required": False},
+            },
+            "paid_budget": {
+                "contract": "pricing-budget.json",
+                "status": "approved",
+                "currency": "USD",
+                "formula_id": CHECK.pricing_budget.FORMULA_ID,
+                "maximum_usd": None,
+            },
+        }
+        contract: dict[str, object] = {
+            "schema_version": 1,
+            "runner": runner,
+            "pricing_quote": {
+                "status": "pinned",
+                "source_uri": "synthetic://unit-test-quote",
+                "source_artifact_path": quote_source.relative_to(repo).as_posix(),
+                "source_artifact_sha256": self._sha(quote_source),
+                "as_of": "2026-07-14T10:00:00+00:00",
+                "retrieved_at": "2026-07-14T10:01:00+00:00",
+                "expires_at": "2026-07-20T10:00:00+00:00",
+                "maximum_age_days": 7,
+                "currency": "USD",
+                "tokens_per_price_unit": 1_000_000,
+                "prices_usd_per_unit": {
+                    "uncached_input": "2",
+                    "cached_input": "0.5",
+                    "output": "8",
+                },
+            },
+            "design": {
+                "protocol_id": "synthetic-protocol",
+                "power_status_at_binding": "pass",
+                "approved_for_budgeting": True,
+                "tasks": 2,
+                "treatments": ["a", "b", "c"],
+                "repetitions_per_treatment": 1,
+                "requested_calls": 6,
+                "reserve_calls": 1,
+                "maximum_calls_with_reserve": 7,
+            },
+            "token_assumptions": {
+                "mode": "explicit_per_call_caps",
+                "explicit_per_call_caps": {
+                    "uncached_input": 1000,
+                    "cached_input": 500,
+                    "output": 100,
+                    "rationale": "synthetic unit-test caps",
+                },
+                "empirical_bound": {
+                    "runner": None,
+                    "evidence_path": None,
+                    "evidence_sha256": None,
+                    "statistic": None,
+                    "quantile": None,
+                    "safety_multiplier": None,
+                    "observed_tokens_per_call": {
+                        "uncached_input": None,
+                        "cached_input": None,
+                        "output": None,
+                    },
+                },
+            },
+            "calculation": None,
+            "approval": {
+                "status": "pending",
+                "approved_cap_usd": None,
+                "approved_by": None,
+                "approver_role": None,
+                "approved_at": None,
+                "expires_at": None,
+                "notes": None,
+            },
+        }
+        calculation = CHECK.pricing_budget.calculate(contract)
+        self.assertEqual(calculation["per_call_maximum_usd"], "0.00305")
+        self.assertEqual(calculation["maximum_usd"], "0.02135")
+        contract["calculation"] = calculation
+        contract["approval"] = {
+            "status": "approved",
+            "approved_cap_usd": calculation["maximum_usd"],
+            "approved_by": "synthetic-approver",
+            "approver_role": "unit-test-owner",
+            "approved_at": "2026-07-14T11:00:00+00:00",
+            "expires_at": "2026-07-19T10:00:00+00:00",
+            "notes": "synthetic test approval",
+        }
+        protocol["paid_budget"]["maximum_usd"] = calculation["maximum_usd"]  # type: ignore[index]
+        checks = {
+            "model_runner_price_pinned": {"status": "pass", "evidence": "pricing-budget.json"},
+            "paid_budget_cap_approved": {"status": "pass", "evidence": "pricing-budget.json"},
+        }
+        self._write_json(here / "pricing-budget.json", contract)
+        return protocol, checks, contract
 
     def test_preparation_artifacts_are_consistent(self) -> None:
         self.assertEqual(CHECK.validate(freeze=False), [])
@@ -106,6 +225,108 @@ class ProtocolCheckTest(unittest.TestCase):
                 "power-analysis.json is stale or does not match power_analysis.build_report()",
                 errors,
             )
+
+    def test_pricing_budget_draft_is_valid_and_both_gates_remain_pending(self) -> None:
+        protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
+        gate = json.loads((HERE / "go-no-go.json").read_text(encoding="utf-8"))
+        checks = {item["id"]: item for item in gate["checks"]}
+        self.assertEqual(CHECK.validate_pricing_budget(protocol, checks), [])
+        contract = json.loads((HERE / "pricing-budget.json").read_text(encoding="utf-8"))
+        self.assertEqual(contract["pricing_quote"]["status"], "pending")
+        self.assertIsNone(contract["token_assumptions"]["mode"])
+        self.assertIsNone(contract["calculation"])
+        self.assertEqual(contract["approval"]["status"], "pending")
+        self.assertEqual(checks["model_runner_price_pinned"]["status"], "pending")
+        self.assertEqual(checks["paid_budget_cap_approved"]["status"], "pending")
+
+        claimed = copy.deepcopy(checks)
+        claimed["model_runner_price_pinned"] = {
+            "status": "pass",
+            "evidence": "pricing-budget.json",
+        }
+        errors = CHECK.validate_pricing_budget(protocol, claimed)
+        self.assertIn(
+            "model/runner/price gate cannot pass until the quote is pinned",
+            errors,
+        )
+
+    def test_pricing_budget_pass_requires_fresh_quote_exact_calculation_and_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = pathlib.Path(temp)
+            here = repo / "benchmarks" / "agent-brain" / "confirmatory"
+            protocol, checks, contract = self._complete_pricing_budget(repo, here)
+            now = datetime(2026, 7, 15, 12, tzinfo=timezone.utc)
+            self.assertEqual(
+                CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now),
+                [],
+            )
+
+            contract["calculation"]["maximum_usd"] = "999"  # type: ignore[index]
+            self._write_json(here / "pricing-budget.json", contract)
+            errors = CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now)
+            self.assertIn("pricing budget calculation is stale or incorrect", errors)
+
+            contract["calculation"] = CHECK.pricing_budget.calculate(contract)
+            contract["approval"]["status"] = "pending"  # type: ignore[index]
+            self._write_json(here / "pricing-budget.json", contract)
+            errors = CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now)
+            self.assertIn("paid budget gate cannot pass without explicit approval", errors)
+
+            _, _, contract = self._complete_pricing_budget(repo, here)
+            stale_now = datetime(2026, 7, 30, 12, tzinfo=timezone.utc)
+            errors = CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=stale_now)
+            self.assertIn("pricing quote has expired", errors)
+            self.assertIn("pricing quote exceeds its maximum age", errors)
+
+    def test_empirical_token_bound_is_hashed_and_bound_to_the_pinned_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = pathlib.Path(temp)
+            here = repo / "benchmarks" / "agent-brain" / "confirmatory"
+            protocol, checks, contract = self._complete_pricing_budget(repo, here)
+            evidence = here / "pricing-evidence" / "synthetic-token-sample.json"
+            evidence.write_text('{"synthetic": true}\n', encoding="utf-8")
+            contract["token_assumptions"] = {
+                "mode": "empirical_bound",
+                "explicit_per_call_caps": {
+                    "uncached_input": None,
+                    "cached_input": None,
+                    "output": None,
+                    "rationale": None,
+                },
+                "empirical_bound": {
+                    "runner": copy.deepcopy(contract["runner"]),
+                    "evidence_path": evidence.relative_to(repo).as_posix(),
+                    "evidence_sha256": self._sha(evidence),
+                    "statistic": "synthetic upper quantile",
+                    "quantile": 0.95,
+                    "safety_multiplier": "1.25",
+                    "observed_tokens_per_call": {
+                        "uncached_input": 800,
+                        "cached_input": 400,
+                        "output": 80,
+                    },
+                },
+            }
+            contract["calculation"] = CHECK.pricing_budget.calculate(contract)
+            contract["approval"]["approved_cap_usd"] = contract["calculation"]["maximum_usd"]  # type: ignore[index]
+            protocol["paid_budget"]["maximum_usd"] = contract["calculation"]["maximum_usd"]  # type: ignore[index]
+            self._write_json(here / "pricing-budget.json", contract)
+            now = datetime(2026, 7, 15, 12, tzinfo=timezone.utc)
+            self.assertEqual(
+                CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now),
+                [],
+            )
+
+            contract["token_assumptions"]["empirical_bound"]["runner"]["model_id"] = "different-model"  # type: ignore[index]
+            self._write_json(here / "pricing-budget.json", contract)
+            errors = CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now)
+            self.assertIn("empirical token evidence runner does not match the pinned runner", errors)
+
+            contract["token_assumptions"]["empirical_bound"]["runner"] = copy.deepcopy(contract["runner"])  # type: ignore[index]
+            evidence.write_text('{"synthetic": false}\n', encoding="utf-8")
+            self._write_json(here / "pricing-budget.json", contract)
+            errors = CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now)
+            self.assertTrue(any("empirical token evidence: content hash mismatch" in error for error in errors))
 
     def test_integration_dependency_evidence_hashes_source_and_logs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

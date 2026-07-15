@@ -72,12 +72,12 @@
     "stopping_rule": "fixed_cells_or_budget_or_integrity_pause_no_efficacy_peeking"
   },
   "paid_budget": {
-    "model_id": null,
-    "input_price_per_token": null,
-    "cached_input_price_per_token": null,
-    "output_price_per_token": null,
+    "contract": "pricing-budget.json",
+    "status": "pending",
+    "currency": "USD",
+    "formula_id": "worst_case_token_envelope_v1",
     "maximum_usd": null,
-    "formula": "sum(input_tokens*input_price + cached_input_tokens*cached_input_price + output_tokens*output_price)"
+    "formula": "maximum_calls_with_reserve * (uncached_input_tokens_per_call*uncached_input_price + cached_input_tokens_per_call*cached_input_price + output_tokens_per_call*output_price)"
   },
   "dependencies": {
     "ws2_treatment_and_task_validity": "pass",

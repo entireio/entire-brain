@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import copy
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import hashlib
 import json
 import pathlib
@@ -20,6 +22,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import power_analysis  # noqa: E402  (local deterministic companion module)
+import pricing_budget  # noqa: E402  (local deterministic companion module)
 
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -467,6 +470,373 @@ def validate_power_analysis(
     if check.get("status") in {"pass", "fail"}:
         target = _evidence_path(check.get("evidence"), here, repo)
         _error(errors, target == artifact_path.resolve(), "power decision evidence must reference power-analysis.json")
+    return errors
+
+
+def _parse_timestamp(errors: list[str], value: Any, label: str) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        errors.append(f"{label} is missing")
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        errors.append(f"{label} is not a valid ISO-8601 timestamp")
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        errors.append(f"{label} must include a UTC offset")
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _require_nonempty_strings(errors: list[str], value: Any, fields: tuple[str, ...], label: str) -> bool:
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be an object")
+        return False
+    complete = True
+    for field in fields:
+        present = isinstance(value.get(field), str) and bool(value[field])
+        _error(errors, present, f"{label}.{field} is missing")
+        complete = complete and present
+    return complete
+
+
+def _require_exact_fields(errors: list[str], value: Any, fields: tuple[str, ...], label: str) -> bool:
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be an object")
+        return False
+    exact = set(value) == set(fields)
+    _error(errors, exact, f"{label} fields changed or are incomplete")
+    return exact
+
+
+def validate_pricing_budget(
+    protocol: dict[str, Any],
+    checks: dict[str, dict[str, Any]],
+    *,
+    here: pathlib.Path = HERE,
+    repo: pathlib.Path = REPO,
+    now: datetime | None = None,
+) -> list[str]:
+    """Validate a provider-neutral quote, token envelope, calculation, and approval."""
+    errors: list[str] = []
+    artifact_path = here / "pricing-budget.json"
+    paid_budget = protocol.get("paid_budget", {})
+    _error(errors, paid_budget.get("contract") == "pricing-budget.json", "paid budget contract must reference pricing-budget.json")
+    _error(errors, paid_budget.get("currency") == "USD", "paid budget currency must be USD")
+    _error(errors, paid_budget.get("formula_id") == pricing_budget.FORMULA_ID, "paid budget formula_id changed")
+    _error(errors, artifact_path.is_file(), "pricing-budget.json is missing")
+    if not artifact_path.is_file():
+        return errors
+    artifact = _load_artifact(artifact_path, errors, "pricing-budget.json")
+    if not isinstance(artifact, dict):
+        return errors
+    required = (
+        "schema_version",
+        "runner",
+        "pricing_quote",
+        "design",
+        "token_assumptions",
+        "calculation",
+        "approval",
+    )
+    if not _required_object_fields(errors, artifact, required, "pricing-budget.json"):
+        return errors
+    _require_exact_fields(errors, artifact, required, "pricing-budget.json")
+    _error(errors, artifact.get("schema_version") == 1, "pricing budget schema_version must be 1")
+
+    runner = artifact.get("runner")
+    if not isinstance(runner, dict):
+        errors.append("pricing runner must be an object")
+        runner = {}
+    runner_fields = ("provider", "runner_id", "runner_version", "model_id", "effort")
+    _require_exact_fields(errors, runner, runner_fields, "pricing runner")
+    for field in runner_fields:
+        value = runner.get(field)
+        _error(errors, value is None or (isinstance(value, str) and bool(value)), f"pricing runner.{field} must be null or a non-empty string")
+
+    quote = artifact.get("pricing_quote")
+    if not isinstance(quote, dict):
+        errors.append("pricing_quote must be an object")
+        quote = {}
+    quote_fields = (
+        "status",
+        "source_uri",
+        "source_artifact_path",
+        "source_artifact_sha256",
+        "as_of",
+        "retrieved_at",
+        "expires_at",
+        "maximum_age_days",
+        "currency",
+        "tokens_per_price_unit",
+        "prices_usd_per_unit",
+    )
+    _require_exact_fields(errors, quote, quote_fields, "pricing_quote")
+    _error(errors, quote.get("status") in {"pending", "pinned"}, "pricing quote status is invalid")
+    _error(errors, quote.get("currency") == "USD", "pricing quote currency must be USD")
+    _error(errors, quote.get("tokens_per_price_unit") == 1_000_000, "pricing quote unit must be USD per 1,000,000 tokens")
+    prices = quote.get("prices_usd_per_unit")
+    if not isinstance(prices, dict):
+        errors.append("prices_usd_per_unit must be an object")
+        prices = {}
+    _error(errors, set(prices) == set(pricing_budget.TOKEN_KEYS), "pricing quote token categories changed")
+    for key in pricing_budget.TOKEN_KEYS:
+        value = prices.get(key)
+        if value is not None:
+            try:
+                pricing_budget.parse_decimal(value, f"prices_usd_per_unit.{key}")
+            except ValueError as exc:
+                errors.append(str(exc))
+
+    agent_design = protocol.get("agent_design", {})
+    power = agent_design.get("power", {})
+    design = artifact.get("design")
+    if not isinstance(design, dict):
+        errors.append("pricing design must be an object")
+        design = {}
+    design_fields = (
+        "protocol_id",
+        "power_status_at_binding",
+        "approved_for_budgeting",
+        "tasks",
+        "treatments",
+        "repetitions_per_treatment",
+        "requested_calls",
+        "reserve_calls",
+        "maximum_calls_with_reserve",
+    )
+    _require_exact_fields(errors, design, design_fields, "pricing design")
+    treatments = agent_design.get("primary_treatments", [])
+    tasks = agent_design.get("tasks")
+    repetitions = agent_design.get("repetitions_per_treatment")
+    expected_requested = (
+        tasks * len(treatments) * repetitions
+        if isinstance(tasks, int)
+        and not isinstance(tasks, bool)
+        and isinstance(treatments, list)
+        and isinstance(repetitions, int)
+        and not isinstance(repetitions, bool)
+        else None
+    )
+    expected_maximum = agent_design.get("maximum_calls_with_reserve")
+    expected_reserve = (
+        expected_maximum - expected_requested
+        if isinstance(expected_maximum, int)
+        and not isinstance(expected_maximum, bool)
+        and isinstance(expected_requested, int)
+        else None
+    )
+    expected_design = {
+        "protocol_id": protocol.get("protocol_id"),
+        "power_status_at_binding": power.get("status"),
+        "tasks": tasks,
+        "treatments": treatments,
+        "repetitions_per_treatment": repetitions,
+        "requested_calls": agent_design.get("requested_cells"),
+        "reserve_calls": expected_reserve,
+        "maximum_calls_with_reserve": expected_maximum,
+    }
+    for field, expected in expected_design.items():
+        _error(errors, design.get(field) == expected, f"pricing design does not match preregistration: {field}")
+    _error(errors, design.get("requested_calls") == expected_requested, "pricing design requested_calls arithmetic is inconsistent")
+    _error(errors, isinstance(design.get("approved_for_budgeting"), bool), "pricing design approved_for_budgeting must be boolean")
+
+    price_check = checks.get("model_runner_price_pinned", {})
+    budget_check = checks.get("paid_budget_cap_approved", {})
+    quote_pinned = quote.get("status") == "pinned"
+    quote_times: dict[str, datetime | None] = {"as_of": None, "retrieved_at": None, "expires_at": None}
+    if quote_pinned:
+        _require_nonempty_strings(errors, runner, runner_fields, "pricing runner")
+        _require_nonempty_strings(errors, quote, ("source_uri",), "pricing_quote")
+        source_record = {
+            "path": quote.get("source_artifact_path"),
+            "sha256": quote.get("source_artifact_sha256"),
+        }
+        _verify_hashed_file(errors, source_record, "pricing quote source artifact", repo=repo)
+        for key in pricing_budget.TOKEN_KEYS:
+            try:
+                pricing_budget.parse_decimal(prices.get(key), f"prices_usd_per_unit.{key}")
+            except ValueError as exc:
+                errors.append(str(exc))
+        for field in quote_times:
+            quote_times[field] = _parse_timestamp(errors, quote.get(field), f"pricing_quote.{field}")
+        maximum_age_days = quote.get("maximum_age_days")
+        _error(
+            errors,
+            isinstance(maximum_age_days, int) and not isinstance(maximum_age_days, bool) and maximum_age_days > 0,
+            "pricing_quote.maximum_age_days must be a positive integer",
+        )
+        as_of = quote_times["as_of"]
+        retrieved_at = quote_times["retrieved_at"]
+        expires_at = quote_times["expires_at"]
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        if as_of is not None and retrieved_at is not None:
+            _error(errors, retrieved_at >= as_of, "pricing quote was retrieved before its as-of timestamp")
+        if as_of is not None and expires_at is not None:
+            _error(errors, expires_at > as_of, "pricing quote expiry must be after its as-of timestamp")
+        if retrieved_at is not None:
+            _error(errors, retrieved_at <= current, "pricing quote retrieval timestamp is in the future")
+        if expires_at is not None:
+            _error(errors, current <= expires_at, "pricing quote has expired")
+        if as_of is not None and isinstance(maximum_age_days, int) and not isinstance(maximum_age_days, bool) and maximum_age_days > 0:
+            _error(errors, current <= as_of + timedelta(days=maximum_age_days), "pricing quote exceeds its maximum age")
+
+    if price_check.get("status") == "pass":
+        _error(errors, quote_pinned, "model/runner/price gate cannot pass until the quote is pinned")
+        target = _evidence_path(price_check.get("evidence"), here, repo)
+        _error(errors, target == artifact_path.resolve(), "model/runner/price pass evidence must reference pricing-budget.json")
+
+    assumptions = artifact.get("token_assumptions")
+    if not isinstance(assumptions, dict):
+        errors.append("token_assumptions must be an object")
+        assumptions = {}
+    _require_exact_fields(
+        errors,
+        assumptions,
+        ("mode", "explicit_per_call_caps", "empirical_bound"),
+        "token_assumptions",
+    )
+    caps = assumptions.get("explicit_per_call_caps")
+    if not isinstance(caps, dict):
+        errors.append("explicit_per_call_caps must be an object")
+        caps = {}
+    _require_exact_fields(
+        errors,
+        caps,
+        ("uncached_input", "cached_input", "output", "rationale"),
+        "explicit_per_call_caps",
+    )
+    empirical = assumptions.get("empirical_bound")
+    if not isinstance(empirical, dict):
+        errors.append("empirical_bound must be an object")
+        empirical = {}
+    _require_exact_fields(
+        errors,
+        empirical,
+        (
+            "runner",
+            "evidence_path",
+            "evidence_sha256",
+            "statistic",
+            "quantile",
+            "safety_multiplier",
+            "observed_tokens_per_call",
+        ),
+        "empirical_bound",
+    )
+    observed = empirical.get("observed_tokens_per_call")
+    if not isinstance(observed, dict):
+        errors.append("empirical observed_tokens_per_call must be an object")
+        observed = {}
+    _require_exact_fields(
+        errors,
+        observed,
+        pricing_budget.TOKEN_KEYS,
+        "empirical observed_tokens_per_call",
+    )
+    empirical_runner = empirical.get("runner")
+    if empirical_runner is not None:
+        _require_exact_fields(errors, empirical_runner, runner_fields, "empirical runner")
+    mode = assumptions.get("mode")
+    _error(errors, mode in {None, "explicit_per_call_caps", "empirical_bound"}, "token assumption mode is invalid")
+    if mode == "explicit_per_call_caps":
+        _error(errors, isinstance(caps.get("rationale"), str) and bool(caps["rationale"]), "explicit per-call caps require a rationale")
+        try:
+            pricing_budget.effective_tokens_per_call(artifact)
+        except ValueError as exc:
+            errors.append(str(exc))
+    elif mode == "empirical_bound":
+        _error(errors, empirical.get("runner") == runner, "empirical token evidence runner does not match the pinned runner")
+        _verify_hashed_file(
+            errors,
+            {"path": empirical.get("evidence_path"), "sha256": empirical.get("evidence_sha256")},
+            "empirical token evidence",
+            repo=repo,
+        )
+        _error(errors, isinstance(empirical.get("statistic"), str) and bool(empirical["statistic"]), "empirical token statistic is missing")
+        quantile = empirical.get("quantile")
+        _error(
+            errors,
+            isinstance(quantile, (int, float)) and not isinstance(quantile, bool) and 0 < quantile <= 1,
+            "empirical token quantile must be in (0, 1]",
+        )
+        try:
+            pricing_budget.effective_tokens_per_call(artifact)
+        except ValueError as exc:
+            errors.append(str(exc))
+
+    expected_calculation: dict[str, Any] | None = None
+    if quote_pinned and mode in {"explicit_per_call_caps", "empirical_bound"}:
+        try:
+            expected_calculation = pricing_budget.calculate(artifact)
+        except ValueError as exc:
+            errors.append(f"cannot calculate paid budget: {exc}")
+        if expected_calculation is not None:
+            _error(errors, artifact.get("calculation") == expected_calculation, "pricing budget calculation is stale or incorrect")
+    elif artifact.get("calculation") is not None:
+        errors.append("pricing budget calculation must remain null until quote and token assumptions are complete")
+
+    approval = artifact.get("approval")
+    if not isinstance(approval, dict):
+        errors.append("pricing budget approval must be an object")
+        approval = {}
+    _require_exact_fields(
+        errors,
+        approval,
+        (
+            "status",
+            "approved_cap_usd",
+            "approved_by",
+            "approver_role",
+            "approved_at",
+            "expires_at",
+            "notes",
+        ),
+        "pricing budget approval",
+    )
+    _error(errors, approval.get("status") in {"pending", "approved"}, "pricing budget approval status is invalid")
+    approval_is_final = approval.get("status") == "approved"
+    if approval_is_final:
+        _error(errors, quote_pinned, "budget approval requires a pinned pricing quote")
+        _error(errors, expected_calculation is not None, "budget approval requires a computed maximum")
+        _error(errors, design.get("approved_for_budgeting") is True, "budget approval cannot use an unapproved experimental design")
+        _error(errors, power.get("status") == "pass" and power.get("design_decision_required") is False, "budget approval requires an approved powered design")
+        _require_nonempty_strings(errors, approval, ("approved_by", "approver_role"), "approval")
+        approved_at = _parse_timestamp(errors, approval.get("approved_at"), "approval.approved_at")
+        approval_expires = _parse_timestamp(errors, approval.get("expires_at"), "approval.expires_at")
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        if approved_at is not None:
+            _error(errors, approved_at <= current, "budget approval timestamp is in the future")
+            retrieved_at = quote_times.get("retrieved_at")
+            if retrieved_at is not None:
+                _error(errors, approved_at >= retrieved_at, "budget was approved before the pricing quote was retrieved")
+        if approval_expires is not None:
+            _error(errors, current <= approval_expires, "budget approval has expired")
+            quote_expires = quote_times.get("expires_at")
+            if quote_expires is not None:
+                _error(errors, approval_expires <= quote_expires, "budget approval cannot outlive the pricing quote")
+        approved_cap: Decimal | None = None
+        try:
+            approved_cap = pricing_budget.parse_decimal(approval.get("approved_cap_usd"), "approval.approved_cap_usd")
+        except ValueError as exc:
+            errors.append(str(exc))
+        if approved_cap is not None and expected_calculation is not None:
+            calculated_maximum = pricing_budget.parse_decimal(expected_calculation["maximum_usd"], "calculation.maximum_usd")
+            _error(errors, approved_cap >= calculated_maximum, "approved USD cap is below the calculated maximum")
+
+    if budget_check.get("status") == "pass":
+        _error(errors, price_check.get("status") == "pass", "budget gate cannot pass before model/runner/price gate")
+        _error(errors, approval_is_final, "paid budget gate cannot pass without explicit approval")
+        _error(errors, expected_calculation is not None, "paid budget gate cannot pass without a computed maximum")
+        _error(errors, design.get("approved_for_budgeting") is True, "paid budget gate cannot use an unapproved experimental design")
+        _error(errors, power.get("status") == "pass" and power.get("design_decision_required") is False, "paid budget gate requires an approved powered design")
+        target = _evidence_path(budget_check.get("evidence"), here, repo)
+        _error(errors, target == artifact_path.resolve(), "paid budget pass evidence must reference pricing-budget.json")
+        _error(errors, paid_budget.get("status") == "approved", "preregistration paid budget status must be approved")
+        _error(errors, paid_budget.get("maximum_usd") == approval.get("approved_cap_usd"), "preregistration maximum_usd must match the approved cap")
+    else:
+        _error(errors, paid_budget.get("status") == "pending", "preregistration paid budget must remain pending until the gate passes")
+        _error(errors, paid_budget.get("maximum_usd") is None, "preregistration maximum_usd must remain null until approval")
     return errors
 
 
@@ -925,6 +1295,7 @@ def validate(freeze: bool = False) -> list[str]:
     errors.extend(validate_analyzer_lock(protocol, checks.get("analyzer_hash_frozen", {})))
     errors.extend(validate_power_analysis(protocol, checks.get("power_target_met", {})))
     errors.extend(validate_engine_verification(matrix, checks.get("all_engines_machine_verified", {})))
+    errors.extend(validate_pricing_budget(protocol, checks))
 
     freeze_info = protocol.get("freeze", {})
     recorded_protocol_hash = freeze_info.get("protocol_sha256")
@@ -943,9 +1314,6 @@ def validate(freeze: bool = False) -> list[str]:
         _error(errors, selection.get("selected_aggregation_rule") is not None, "aggregation rule is not frozen")
         _error(errors, protocol.get("agent_design", {}).get("power", {}).get("completed") is True, "power calculation is pending")
         _error(errors, _is_sha256(protocol.get("analyzer_sha256")), "analyzer hash is not frozen")
-        budget = protocol.get("paid_budget", {})
-        for key in ("model_id", "input_price_per_token", "cached_input_price_per_token", "output_price_per_token", "maximum_usd"):
-            _error(errors, budget.get(key) is not None, f"paid budget field is pending: {key}")
         holdout = protocol.get("fresh_holdout", {})
         _error(errors, _is_sha256(holdout.get("commitment_sha256")), "fresh holdout commitment is not frozen")
         _error(errors, dataset.get("status") == "frozen_unopened", "offline relevance dataset is not frozen_unopened")

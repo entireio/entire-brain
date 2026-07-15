@@ -27,6 +27,10 @@ path-locked.
 - `power-calibration-exploratory-v1.json`: content-addressed manifest for sparse retained legacy
   outcomes. The derived diagnostics are quarantined from confirmatory assumptions and cannot pass
   the power gate.
+- `pricing-budget.json`, `pricing_budget.py`, and `schemas/pricing-budget.schema.json`: provider-neutral
+  pricing quote, token-envelope arithmetic, staleness, and explicit budget-approval contract. All
+  human/model/price fields remain pending. `PRICING-BUDGET-READINESS-2026-07-15.md` lists the exact
+  decisions and evidence needed to close the two budget gates.
 - `go-no-go.json`: paid-run gate. Every item must be `pass`; `pending` is a hard no-go.
 - `integration-verification.json` and `integration-logs/`: exact WS2-WS5 source commits, content
   hashes, unpaid commands, and captured test outputs for the locked integration commit.

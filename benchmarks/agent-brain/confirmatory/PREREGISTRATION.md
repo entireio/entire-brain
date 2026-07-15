@@ -62,12 +62,16 @@ The analysis hierarchy is fixed:
 4. Wall time: separately controlled secondary endpoint using both harness wall time and agent-reported
    API duration; neither substitutes for the other.
 
-The target design is 24 fresh tasks x 3 primary treatments x 4 repetitions = 288 requested paid cells,
-counterbalanced by WS4. A 10% operational reserve yields a maximum authorization envelope of 317
-calls; reserve is only for predeclared infrastructure-invalid replacements. Dollar cost remains a
-formula until the final model and observed development token distribution are pinned:
-`sum(input_tokens * input_price + output_tokens * output_price)`, with cached-token prices recorded
-separately. No run may start with an unbounded or blank dollar cap.
+The provisional target design is 24 fresh tasks x 3 primary treatments x 4 repetitions = 288
+requested paid cells, counterbalanced by WS4. Its 29-call operational reserve yields 317 maximum
+calls; reserve is only for predeclared infrastructure-invalid replacements. This design is mirrored
+in `pricing-budget.json` for drift detection but is explicitly not approved for budgeting while the
+power gate is failed. Dollar cost remains null until the final powered design, exact
+provider/runner/model/effort, byte-hashed current quote, and per-call token envelope are pinned. The
+machine calculation separately prices uncached input, cached input, and output for every requested
+and reserve call. A named budget owner must approve a non-expired USD cap at least as large as that
+computed maximum. See `PRICING-BUDGET-READINESS-2026-07-15.md`; no run may start with an unbounded,
+stale, or blank dollar cap.
 
 The checked-in confirmatory decision calculation does **not** substantiate this target design. Under
 its explicitly hypothetical conservative scenario, marginal power is 0.370207 for the 12% token
