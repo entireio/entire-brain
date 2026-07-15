@@ -54,11 +54,16 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         self.state = self.frozen / "state"
         self.config.mkdir(parents=True)
         self.state.mkdir(parents=True)
+        self.active_ids = ["fact:a", "fact:b", "fact:d", "fact:e", "fact:f", "fact:g"]
         self.facts = self.data / "repos/local/example/facts/main-0d6e4079/facts.ndjson"
         self.facts.parent.mkdir(parents=True)
         self.facts.write_text(
             '{"id":"fact:a","status":"active","provenance":[{"session_id":"session-1"}]}\n'
             '{"id":"fact:b","status":"active","provenance":[{"session_id":"session-1"}]}\n'
+            '{"id":"fact:d","status":"active","provenance":[{"session_id":"session-1"}]}\n'
+            '{"id":"fact:e","status":"active","provenance":[{"session_id":"session-1"}]}\n'
+            '{"id":"fact:f","status":"active","provenance":[{"session_id":"session-1"}]}\n'
+            '{"id":"fact:g","status":"active","provenance":[{"session_id":"session-1"}]}\n'
             '{"id":"fact:c","status":"active","provenance":[{"session_id":"late-session"}]}\n',
             encoding="utf-8",
         )
@@ -134,12 +139,12 @@ class EngineVerificationRunnerTest(unittest.TestCase):
                 "facts_size_bytes": self.facts.stat().st_size,
                 "session_dates_sha256": digest(self.sessions),
                 "session_dates_size_bytes": self.sessions.stat().st_size,
-                "prefilter_count": 3,
-                "eligible_count": 2,
+                "prefilter_count": 7,
+                "eligible_count": 6,
                 "candidate_ids_algorithm": VERIFY.CANDIDATE_IDS_ALGORITHM,
-                "eligible_ids_sha256": VERIFY.canonical_sha256(["fact:a", "fact:b"]),
-                "semantic_candidate_count": 2,
-                "semantic_candidate_ids_sha256": VERIFY.canonical_sha256(["fact:a", "fact:b"]),
+                "eligible_ids_sha256": VERIFY.canonical_sha256(self.active_ids),
+                "semantic_candidate_count": 6,
+                "semantic_candidate_ids_sha256": VERIFY.canonical_sha256(self.active_ids),
             },
             "embedding_model": {
                 "model_id": "embeddinggemma-fixture",
@@ -240,15 +245,15 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             data_dir = pathlib.Path(env["ENTIRE_PLUGIN_DATA_DIR"])
             derived_facts = next(data_dir.rglob("facts.ndjson"))
             vectors = derived_facts.parent / "embeddings/vectors.bin"
-            write_vectors(vectors, engine_pin["embedder_id"], engine_pin["dimension"], ["fact:a", "fact:b"])
+            write_vectors(vectors, engine_pin["embedder_id"], engine_pin["dimension"], self.active_ids)
             engine.update(
                 {
                     "embedder_id": engine_pin["embedder_id"],
                     "embedding_dimension": engine_pin["dimension"],
-                    "vector_count": 2,
-                    "vector_candidate_count": 2,
+                    "vector_count": 6,
+                    "vector_candidate_count": 6,
                     "loaded_vector_count": 0,
-                    "resident_vector_count": 2,
+                    "resident_vector_count": 6,
                     "vector_cache_backend": "flat_file",
                     "vector_cache_path": str(vectors),
                     "vector_cache_read_only": False,
@@ -258,8 +263,8 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             "effective_engine": arm,
             "retrieval_engine": engine,
             "eligibility": {
-                "prefilter_corpus_count": 3,
-                "eligible_count": 2,
+                "prefilter_corpus_count": 7,
+                "eligible_count": 6,
                 "excluded_counts": {
                     "empty_provenance": 0,
                     "excluded_session": 0,
@@ -446,6 +451,23 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
         errors = self.checker_errors(manifest_path)
         self.assertTrue(any("delivered_count does not equal ranked fact count" in error for error in errors))
+
+    def test_checker_rejects_exact_k_plus_one_self_consistent_delivery(self) -> None:
+        manifest_path = self.execute()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        record = manifest["records"][0]
+        stdout_path = self.root / record["artifacts"]["stdout_path"]
+        stdout = json.loads(stdout_path.read_text(encoding="utf-8"))
+        stdout["facts"] = [{"id": fact_id} for fact_id in self.active_ids]
+        stdout["eligibility"]["delivered_count"] = len(self.active_ids)
+        stdout_path.write_text(json.dumps(stdout, sort_keys=True) + "\n", encoding="utf-8")
+        record["artifacts"]["stdout_sha256"] = digest(stdout_path)
+        record["corpus"]["delivered_count"] = len(self.active_ids)
+        record["result"]["fact_ids_in_order"] = self.active_ids
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+
+        errors = self.checker_errors(manifest_path)
+        self.assertEqual(errors, ["engine records[0]: ranked fact count exceeds pinned development task k"])
 
     def test_checker_rejects_binary_substitution_even_when_records_are_rehashed(self) -> None:
         manifest_path = self.execute()

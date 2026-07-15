@@ -1947,6 +1947,20 @@ def _validate_runtime_stdout_reconciliation(
         _error(errors, eligibility.get("delivered_count") == corpus.get("delivered_count"), f"{label}: stdout delivered count differs from record")
     fact_ids = [fact.get("id") if isinstance(fact, dict) else None for fact in facts] if isinstance(facts, list) else None
     _error(errors, fact_ids == result.get("fact_ids_in_order"), f"{label}: stdout ranked fact ids differ from record")
+    if isinstance(fact_ids, list) and isinstance(result.get("fact_ids_in_order"), list):
+        result_count = len(result["fact_ids_in_order"])
+        _error(errors, len(fact_ids) == result_count, f"{label}: stdout fact count differs from ranked fact count")
+        _error(
+            errors,
+            corpus.get("delivered_count") == result_count,
+            f"{label}: corpus delivered_count differs from ranked fact count",
+        )
+        if isinstance(eligibility, dict):
+            _error(
+                errors,
+                eligibility.get("delivered_count") == result_count,
+                f"{label}: stdout delivered_count differs from ranked fact count",
+            )
 
 
 def _validate_server_attestation(
@@ -2164,6 +2178,7 @@ def validate_engine_verification(
         for item in pin_data.get("development_task", {}).get("queries", [])
         if isinstance(item, dict) and isinstance(item.get("query_id"), str)
     }
+    development_k = pin_data.get("development_task", {}).get("k")
     corpus_pin = pin_data.get("corpus", {})
     runtime_pin = pin_data.get("runtime", {})
     model_pin = pin_data.get("embedding_model", {})
@@ -2560,6 +2575,11 @@ def validate_engine_verification(
             _error(errors, isinstance(fact_ids, list) and all(isinstance(fact_id, str) for fact_id in fact_ids), f"{label}: fact_ids_in_order is invalid")
             if isinstance(fact_ids, list) and all(isinstance(fact_id, str) for fact_id in fact_ids):
                 _error(errors, _unique_strings(fact_ids), f"{label}: ranked fact ids are not unique")
+                _error(
+                    errors,
+                    _is_nonnegative_int(development_k) and len(fact_ids) <= development_k,
+                    f"{label}: ranked fact count exceeds pinned development task k",
+                )
                 if active_eligible_ids is not None:
                     _error(
                         errors,
