@@ -1,6 +1,6 @@
 {
-  "analysis_kind": "deterministic_data_free_sensitivity",
-  "artifact_id": "agent-brain-confirmatory-power-v1",
+  "analysis_kind": "deterministic_assumption_sensitivity_with_quarantined_exploratory_calibration",
+  "artifact_id": "agent-brain-confirmatory-power-v2",
   "conservative_repetition_limit": {
     "correctness_marginal_power_ceiling": 0.432069,
     "correctness_task_level_sd_floor": 0.273861,
@@ -10,23 +10,447 @@
     "token_task_level_sd_floor": 0.25
   },
   "decision": {
-    "conclusion": "The proposed 24-task x 4-repetition design does not substantiate the declared power target under the conservative planning scenario. Do not mark power_target_met pass.",
+    "conclusion": "The proposed 24-task x 4-repetition design does not substantiate the declared power target under the conservative planning scenario. Quarantined legacy outcomes cannot repair that failure. Do not mark power_target_met pass.",
     "passed": false,
     "rule": "pass only if token and correctness marginal power are each at least 0.80",
     "scenario": "conservative_planning"
+  },
+  "design_options": {
+    "arithmetic_extremes_in_listed_repetition_options": {
+      "fewest_requested_cells": {
+        "maximum_calls_with_10_percent_reserve": 974,
+        "minimum_tasks_for_both_marginal_targets": 295,
+        "minimum_tasks_for_correctness_noninferiority_target": 295,
+        "minimum_tasks_for_token_target": 142,
+        "repetitions_per_treatment": 1,
+        "requested_cells_at_minimum_tasks": 885
+      },
+      "fewest_task_clusters": {
+        "maximum_calls_with_10_percent_reserve": 3129,
+        "minimum_tasks_for_both_marginal_targets": 79,
+        "minimum_tasks_for_correctness_noninferiority_target": 79,
+        "minimum_tasks_for_token_target": 46,
+        "repetitions_per_treatment": 12,
+        "requested_cells_at_minimum_tasks": 2844
+      }
+    },
+    "current_design": {
+      "both_marginal_targets_met": false,
+      "correctness_noninferiority_marginal_power": 0.243511,
+      "correctness_task_level_pass_rate_difference_sd": 0.387298,
+      "maximum_calls_with_10_percent_reserve": 317,
+      "repetitions_per_treatment": 4,
+      "requested_cells": 288,
+      "tasks": 24,
+      "token_marginal_power": 0.370207,
+      "token_task_level_log_ratio_sd": 0.327872
+    },
+    "interpretation": "More independent task clusters are substantially more cell-efficient than additional repetitions under the stated positive ICC and irreducible task heterogeneity. These rows are conditional on hypothetical assumptions and are not recommendations or budget approvals.",
+    "minimum_repetitions_by_tasks": [
+      {
+        "maximum_calls_with_10_percent_reserve": null,
+        "minimum_repetitions_for_both_marginal_targets": null,
+        "minimum_repetitions_for_correctness_noninferiority_target": null,
+        "minimum_repetitions_for_token_target": null,
+        "requested_cells_at_minimum_repetitions": null,
+        "tasks": 24
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": null,
+        "minimum_repetitions_for_both_marginal_targets": null,
+        "minimum_repetitions_for_correctness_noninferiority_target": null,
+        "minimum_repetitions_for_token_target": 9,
+        "requested_cells_at_minimum_repetitions": null,
+        "tasks": 48
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 9716,
+        "minimum_repetitions_for_both_marginal_targets": 46,
+        "minimum_repetitions_for_correctness_noninferiority_target": 46,
+        "minimum_repetitions_for_token_target": 4,
+        "requested_cells_at_minimum_repetitions": 8832,
+        "tasks": 64
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 3169,
+        "minimum_repetitions_for_both_marginal_targets": 12,
+        "minimum_repetitions_for_correctness_noninferiority_target": 12,
+        "minimum_repetitions_for_token_target": 3,
+        "requested_cells_at_minimum_repetitions": 2880,
+        "tasks": 80
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 2218,
+        "minimum_repetitions_for_both_marginal_targets": 7,
+        "minimum_repetitions_for_correctness_noninferiority_target": 7,
+        "minimum_repetitions_for_token_target": 2,
+        "requested_cells_at_minimum_repetitions": 2016,
+        "tasks": 96
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 1558,
+        "minimum_repetitions_for_both_marginal_targets": 4,
+        "minimum_repetitions_for_correctness_noninferiority_target": 4,
+        "minimum_repetitions_for_token_target": 2,
+        "requested_cells_at_minimum_repetitions": 1416,
+        "tasks": 118
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 1690,
+        "minimum_repetitions_for_both_marginal_targets": 4,
+        "minimum_repetitions_for_correctness_noninferiority_target": 4,
+        "minimum_repetitions_for_token_target": 2,
+        "requested_cells_at_minimum_repetitions": 1536,
+        "tasks": 128
+      }
+    ],
+    "minimum_tasks_by_repetitions": [
+      {
+        "maximum_calls_with_10_percent_reserve": 974,
+        "minimum_tasks_for_both_marginal_targets": 295,
+        "minimum_tasks_for_correctness_noninferiority_target": 295,
+        "minimum_tasks_for_token_target": 142,
+        "repetitions_per_treatment": 1,
+        "requested_cells_at_minimum_tasks": 885
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 1169,
+        "minimum_tasks_for_both_marginal_targets": 177,
+        "minimum_tasks_for_correctness_noninferiority_target": 177,
+        "minimum_tasks_for_token_target": 89,
+        "repetitions_per_treatment": 2,
+        "requested_cells_at_minimum_tasks": 1062
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 1367,
+        "minimum_tasks_for_both_marginal_targets": 138,
+        "minimum_tasks_for_correctness_noninferiority_target": 138,
+        "minimum_tasks_for_token_target": 72,
+        "repetitions_per_treatment": 3,
+        "requested_cells_at_minimum_tasks": 1242
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 1558,
+        "minimum_tasks_for_both_marginal_targets": 118,
+        "minimum_tasks_for_correctness_noninferiority_target": 118,
+        "minimum_tasks_for_token_target": 63,
+        "repetitions_per_treatment": 4,
+        "requested_cells_at_minimum_tasks": 1416
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 1961,
+        "minimum_tasks_for_both_marginal_targets": 99,
+        "minimum_tasks_for_correctness_noninferiority_target": 99,
+        "minimum_tasks_for_token_target": 54,
+        "repetitions_per_treatment": 6,
+        "requested_cells_at_minimum_tasks": 1782
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 2350,
+        "minimum_tasks_for_both_marginal_targets": 89,
+        "minimum_tasks_for_correctness_noninferiority_target": 89,
+        "minimum_tasks_for_token_target": 50,
+        "repetitions_per_treatment": 8,
+        "requested_cells_at_minimum_tasks": 2136
+      },
+      {
+        "maximum_calls_with_10_percent_reserve": 3129,
+        "minimum_tasks_for_both_marginal_targets": 79,
+        "minimum_tasks_for_correctness_noninferiority_target": 79,
+        "minimum_tasks_for_token_target": 46,
+        "repetitions_per_treatment": 12,
+        "requested_cells_at_minimum_tasks": 2844
+      }
+    ],
+    "repetition_options": [
+      1,
+      2,
+      3,
+      4,
+      6,
+      8,
+      12
+    ],
+    "scenario": "conservative_planning",
+    "status": "arithmetic_sensitivity_not_an_approved_design",
+    "task_options": [
+      24,
+      48,
+      64,
+      80,
+      96,
+      118,
+      128
+    ]
   },
   "design_tolerance_at_24_tasks": {
     "interpretation": "The design can meet the marginal targets only if actual task-level variability is no larger than these thresholds under the planning approximation.",
     "maximum_task_level_log_ratio_sd_for_80_percent_token_power": 0.203129,
     "maximum_task_level_pass_rate_difference_sd_for_80_percent_noninferiority_power_at_true_parity": 0.174865
   },
-  "empirical_variance_used": false,
+  "empirical_variance_computed_for_exploratory_diagnostics": true,
+  "empirical_variance_used_in_confirmatory_decision": false,
+  "exploratory_calibration": {
+    "confirmatory_assumption_source": false,
+    "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+    "excluded_sources": [
+      {
+        "id": "existing_winner_suites_report",
+        "path": "benchmarks/agent-brain/analysis/reports/existing-winner-suites-exploratory.md",
+        "reason": "the report references 29 raw records that are not retained at the referenced paths, so its aggregate rows cannot be independently re-derived here",
+        "sha256": "b1810656810fc004c4e5718ce7e32bda568a21278a25864e63c696d3dde001c0"
+      }
+    ],
+    "executed_run_predicate_version": 1,
+    "interpretation": "The byte-verified legacy records show material heterogeneity and correctness saturation, but their selected tasks, legacy treatments, runners, and harness contracts are not exchangeable with the candidate confirmatory experiment. They cannot select assumptions or pass the power gate.",
+    "manifest_path": "benchmarks/agent-brain/confirmatory/power-calibration-exploratory-v1.json",
+    "manifest_sha256": "88a371da61d5aa9552fd6ccfeda13199cbe068831ff0992310aa251c12727d6b",
+    "paired_task_cluster_instances": 14,
+    "pooled_estimate_prohibited": true,
+    "pooling_policy": "report_each_source_separately; do_not_pool_across_legacy_treatments_or_runners",
+    "source_count": 4,
+    "sources": [
+      {
+        "arms": {
+          "no_brain": {
+            "correctness_measurements": 7,
+            "mean_total_tokens": 661219.142857,
+            "pass_rate": 1.0,
+            "token_measurements": 7
+          },
+          "semantic_brain": {
+            "correctness_measurements": 7,
+            "mean_total_tokens": 625930.714286,
+            "pass_rate": 1.0,
+            "token_measurements": 7
+          }
+        },
+        "contamination": [
+          "legacy semantic treatment is not the frozen retrieved_memory treatment",
+          "tasks and outputs were inspected before this power analysis",
+          "one repetition and incomplete treatment pairs cannot identify within-task variance",
+          "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "sparse_between_task_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "semantic_layer_b_pilot",
+        "memory_condition": "semantic_brain",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": null,
+          "same_repetition_cross_condition_residual_pairs": 7,
+          "task_mean_log_token_ratio_count": 7,
+          "task_mean_log_token_ratio_sd": 0.812434,
+          "task_pass_rate_difference_count": 7,
+          "task_pass_rate_difference_sd": 0.0,
+          "within_task_arm_log_token_residual_count": 14,
+          "within_task_arm_log_token_residual_sd": 0.0
+        },
+        "paired_task_clusters": 7,
+        "paired_task_ids": [
+          "github-cli-auth-env-token",
+          "github-cli-format-web-conflict",
+          "github-cli-ghrepo-url-git-suffix",
+          "github-cli-json-web-conflict",
+          "github-cli-pr-checks-summary",
+          "github-cli-repo-name-trims-dotgit",
+          "github-cli-tenant-name-dot"
+        ],
+        "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-pilot-20260611/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 4,
+          "dirty_harness_true": 13,
+          "dirty_harness_unknown": 0,
+          "executed": 17,
+          "raw": 17,
+          "selected_conditions": 17
+        },
+        "sha256": "7c816f74c8cdd4481bc76ba50b39a350510dde4e63d007f7cb46b95ff1b642c5"
+      },
+      {
+        "arms": {
+          "no_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 888519.125,
+            "pass_rate": 0.875,
+            "token_measurements": 8
+          },
+          "semantic_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 508212.125,
+            "pass_rate": 1.0,
+            "token_measurements": 8
+          }
+        },
+        "contamination": [
+          "legacy semantic treatment is not the frozen retrieved_memory treatment",
+          "two selected task clusters are too few for confirmatory variance calibration",
+          "the retained provenance reports a dirty harness",
+          "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "two_task_repetition_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "semantic_layer_b_proof",
+        "memory_condition": "semantic_brain",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": -0.056566,
+          "same_repetition_cross_condition_residual_pairs": 8,
+          "task_mean_log_token_ratio_count": 2,
+          "task_mean_log_token_ratio_sd": 0.381915,
+          "task_pass_rate_difference_count": 2,
+          "task_pass_rate_difference_sd": 0.176777,
+          "within_task_arm_log_token_residual_count": 16,
+          "within_task_arm_log_token_residual_sd": 0.452065
+        },
+        "paired_task_clusters": 2,
+        "paired_task_ids": [
+          "github-cli-format-web-conflict",
+          "github-cli-json-web-conflict"
+        ],
+        "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-proof-20260611/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 0,
+          "dirty_harness_true": 16,
+          "dirty_harness_unknown": 0,
+          "executed": 16,
+          "raw": 16,
+          "selected_conditions": 16
+        },
+        "sha256": "2ca207a7e8133a18c150694929c3c6691f6384ad55c8195aca3926f85f2a3ee8"
+      },
+      {
+        "arms": {
+          "full_cli_compact": {
+            "correctness_measurements": 12,
+            "mean_total_tokens": 2071290.083333,
+            "pass_rate": 0.333333,
+            "token_measurements": 12
+          },
+          "no_brain": {
+            "correctness_measurements": 12,
+            "mean_total_tokens": 3140005.666667,
+            "pass_rate": 0.666667,
+            "token_measurements": 12
+          }
+        },
+        "contamination": [
+          "legacy full_cli_compact treatment is not the frozen retrieved_memory treatment",
+          "three selected task clusters are too few for confirmatory variance calibration",
+          "the retained provenance reports a dirty harness",
+          "tasks, runner, repository, retrieval, and packet contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "three_task_repetition_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "legacy_full_cli_compact",
+        "memory_condition": "full_cli_compact",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": 0.248087,
+          "same_repetition_cross_condition_residual_pairs": 12,
+          "task_mean_log_token_ratio_count": 3,
+          "task_mean_log_token_ratio_sd": 0.398176,
+          "task_pass_rate_difference_count": 3,
+          "task_pass_rate_difference_sd": 0.288675,
+          "within_task_arm_log_token_residual_count": 24,
+          "within_task_arm_log_token_residual_sd": 0.354692
+        },
+        "paired_task_clusters": 3,
+        "paired_task_ids": [
+          "entireio-cli-condense-drops-latest-turn",
+          "entireio-cli-finalize-redaction-raw-live",
+          "entireio-cli-uncommitted-filter-exact-compare"
+        ],
+        "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-hist-proof-20260611/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 0,
+          "dirty_harness_true": 24,
+          "dirty_harness_unknown": 0,
+          "executed": 24,
+          "raw": 24,
+          "selected_conditions": 24
+        },
+        "sha256": "11f85178682ad629fc1cc439f37ee1bc94ca5147830bf1ce9c8e88e18baeee95"
+      },
+      {
+        "arms": {
+          "full_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 2104804.25,
+            "pass_rate": 1.0,
+            "token_measurements": 8
+          },
+          "no_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 3596077.0,
+            "pass_rate": 0.5,
+            "token_measurements": 8
+          }
+        },
+        "contamination": [
+          "legacy full_brain treatment is not the frozen retrieved_memory treatment",
+          "two deliberately selected proof tasks are outcome-conditioned and not representative",
+          "the retained provenance reports a dirty harness",
+          "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "two_task_repetition_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "legacy_full_brain_replay",
+        "memory_condition": "full_brain",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": 0.068219,
+          "same_repetition_cross_condition_residual_pairs": 8,
+          "task_mean_log_token_ratio_count": 2,
+          "task_mean_log_token_ratio_sd": 1.030708,
+          "task_pass_rate_difference_count": 2,
+          "task_pass_rate_difference_sd": 0.707107,
+          "within_task_arm_log_token_residual_count": 16,
+          "within_task_arm_log_token_residual_sd": 0.413534
+        },
+        "paired_task_clusters": 2,
+        "paired_task_ids": [
+          "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "entire-brain-clean-default-fact-merge-confidence"
+        ],
+        "path": "benchmarks/agent-brain/evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260618T195058Z/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 0,
+          "dirty_harness_true": 16,
+          "dirty_harness_unknown": 0,
+          "executed": 16,
+          "raw": 16,
+          "selected_conditions": 16
+        },
+        "sha256": "24a1630f817a698d97ce862e2e1895508062474e6f1ebfd4c685e60e753a5962"
+      }
+    ],
+    "unique_task_ids_across_sources": 12
+  },
+  "exploratory_outcomes_analyzed": true,
   "method": {
     "correctness": "One-sided normal non-inferiority power for the paired task-level pass-rate difference; repeated Bernoulli variance is inflated by a stated ICC.",
     "joint_power_caveat": "Endpoint dependence is unspecified. Frechet bounds and an independence sensitivity are reported, but the pass rule uses the two marginal targets.",
     "multiplicity": "Holm first-step alpha=0.05/2 is used for both retained-vs-control comparisons.",
     "small_sample_caveat": "The normal approximation does not model discrete correctness outcomes or the exact small-sample bootstrap tails at 24 task clusters; required task counts are sensitivity estimates, not a final design recommendation.",
     "token": "Two-sided normal power for the paired task-level mean log token ratio; task SD is sqrt(between-task treatment-effect variance + averaged within-attempt variance)."
+  },
+  "next_decision": {
+    "prohibited_until_decision": [
+      "mark power_target_met pass",
+      "seal or open the fresh confirmatory holdout",
+      "authorize paid confirmatory cells",
+      "promote exploratory variance estimates into confirmatory assumptions"
+    ],
+    "recommended_action": "choose_calibration_basis_before_resizing_or_sealing_holdout",
+    "smallest_defensible_step": "Keep the gate failed and the fresh holdout unopened. Decide whether to (a) explicitly accept the hypothetical conservative assumptions and their resulting task/cell envelope, or (b) preregister and budget a separate development-only calibration under the final runner and treatment contracts. Do not choose task count from the legacy point estimates.",
+    "status": "human_methodology_decision_required",
+    "why_no_automatic_design_is_selected": [
+      "the decision scenario is hypothetical rather than empirically calibrated",
+      "the retained outcomes use legacy treatments and non-exchangeable runners and harnesses",
+      "the byte-verifiable sources contain only sparse, selected task clusters with saturated or unstable correctness",
+      "the apparent cell minimum trades repetitions for hundreds of task clusters and is only arithmetic sensitivity"
+    ]
   },
   "paid_runs_performed": false,
   "protocol_inputs": {
@@ -173,6 +597,6 @@
       }
     }
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "fail"
 }

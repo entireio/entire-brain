@@ -1,22 +1,37 @@
 #!/usr/bin/env python3
-"""Deterministic, data-free power sensitivity analysis for the WS6 design.
+"""Deterministic power sensitivity and design-options analysis for WS6.
 
-The calculation intentionally uses no benchmark outcomes.  Every variance and
-correlation input is a labeled planning assumption.  The normal approximation
-is a screening calculation rather than a substitute for the preregistered
-task-clustered bootstrap, so it cannot justify a paid design that fails the
-conservative scenario.
+The confirmatory decision intentionally uses no benchmark outcomes.  Every
+variance and correlation input to that decision is a labeled planning
+assumption.  Retained legacy outcomes are analyzed in a separate, explicitly
+quarantined calibration section: they can expose variability risk, but code and
+metadata prohibit them from selecting assumptions, shrinking the design, or
+passing the power gate.
+
+The normal approximation is a screening calculation rather than a substitute
+for the preregistered task-clustered bootstrap, so it cannot justify a paid
+design that fails the decision scenario.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import pathlib
 import sys
-from statistics import NormalDist
+from statistics import NormalDist, fmean, stdev
 from typing import Any, Callable
+
+
+HERE = pathlib.Path(__file__).resolve().parent
+REPO = HERE.parents[2]
+AGENT_BRAIN = REPO / "benchmarks" / "agent-brain"
+if str(AGENT_BRAIN) not in sys.path:
+    sys.path.insert(0, str(AGENT_BRAIN))
+
+from analysis.common import EXECUTED_RUN_PREDICATE_VERSION, is_executed_run  # noqa: E402
 
 
 TASKS = 24
@@ -33,6 +48,9 @@ FAMILY_COMPARISONS = 2
 # endpoint family also contains placebo-vs-no-memory.
 PLANNING_ALPHA = FAMILY_ALPHA / FAMILY_COMPARISONS
 NORMAL = NormalDist()
+CALIBRATION_MANIFEST = HERE / "power-calibration-exploratory-v1.json"
+REPETITION_TRADEOFFS = (1, 2, 3, 4, 6, 8, 12)
+TASK_TRADEOFFS = (24, 48, 64, 80, 96, 118, 128)
 
 
 SCENARIOS: tuple[dict[str, Any], ...] = (
@@ -88,6 +106,321 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         },
     },
 )
+
+
+def _sha256(path: pathlib.Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _repo_file(raw_path: Any) -> pathlib.Path:
+    if not isinstance(raw_path, str) or not raw_path:
+        raise ValueError("calibration path must be a non-empty repo-relative string")
+    relative = pathlib.Path(raw_path)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"unsafe calibration path: {raw_path!r}")
+    resolved = (REPO / relative).resolve()
+    try:
+        resolved.relative_to(REPO.resolve())
+    except ValueError as exc:
+        raise ValueError(f"calibration path escapes repository: {raw_path!r}") from exc
+    if not resolved.is_file():
+        raise ValueError(f"calibration file does not exist: {raw_path}")
+    return resolved
+
+
+def _verified_file(record: dict[str, Any]) -> pathlib.Path:
+    path = _repo_file(record.get("path"))
+    expected = record.get("sha256")
+    actual = _sha256(path)
+    if not isinstance(expected, str) or expected != actual:
+        raise ValueError(f"calibration content hash mismatch: {record.get('path')}")
+    return path
+
+
+def _load_ndjson(path: pathlib.Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError(f"{path}:{line_number}: calibration record must be an object")
+        records.append(value)
+    return records
+
+
+def _positive_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) and number > 0.0 else None
+
+
+def _record_tokens(record: dict[str, Any]) -> float | None:
+    agent_info = record.get("agent_info")
+    usage = agent_info.get("usage") if isinstance(agent_info, dict) else None
+    return _positive_number(usage.get("total_tokens")) if isinstance(usage, dict) else None
+
+
+def _record_correct(record: dict[str, Any]) -> float | None:
+    validation = record.get("validation")
+    value = validation.get("ok") if isinstance(validation, dict) else None
+    return float(value) if isinstance(value, bool) else None
+
+
+def _sample_sd(values: list[float]) -> float | None:
+    return stdev(values) if len(values) >= 2 else None
+
+
+def _correlation(left: list[float], right: list[float]) -> float | None:
+    if len(left) != len(right) or len(left) < 2:
+        return None
+    left_mean, right_mean = fmean(left), fmean(right)
+    left_delta = [value - left_mean for value in left]
+    right_delta = [value - right_mean for value in right]
+    denominator = math.sqrt(
+        sum(value * value for value in left_delta) * sum(value * value for value in right_delta)
+    )
+    if denominator == 0.0:
+        return None
+    return sum(a * b for a, b in zip(left_delta, right_delta)) / denominator
+
+
+def _dirty_state(record: dict[str, Any]) -> bool | None:
+    provenance = record.get("provenance")
+    harness = provenance.get("harness") if isinstance(provenance, dict) else None
+    dirty = harness.get("dirty") if isinstance(harness, dict) else None
+    value = dirty.get("dirty") if isinstance(dirty, dict) else None
+    return value if isinstance(value, bool) else None
+
+
+def _source_calibration(source: dict[str, Any]) -> dict[str, Any]:
+    path = _verified_file(source)
+    records = _load_ndjson(path)
+    control = source.get("control_condition")
+    memory = source.get("memory_condition")
+    if not isinstance(control, str) or not isinstance(memory, str) or control == memory:
+        raise ValueError(f"invalid calibration conditions for {source.get('id')}")
+    contamination = source.get("contamination")
+    if (
+        not isinstance(contamination, list)
+        or not contamination
+        or any(not isinstance(reason, str) or not reason for reason in contamination)
+    ):
+        raise ValueError(f"calibration contamination reasons are missing for {source.get('id')}")
+    executed = [record for record in records if is_executed_run(record)]
+    selected = [record for record in executed if record.get("condition") in {control, memory}]
+    tasks: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    seen_cells: set[tuple[str, str, Any]] = set()
+    for record in selected:
+        task_id = record.get("task_id")
+        condition = record.get("condition")
+        if not isinstance(task_id, str) or not task_id:
+            raise ValueError(f"calibration record in {source.get('path')} has no task_id")
+        repetition = record.get("repetition")
+        try:
+            cell = (task_id, condition, repetition)
+            duplicate = cell in seen_cells
+        except TypeError as exc:
+            raise ValueError(f"calibration repetition is not hashable for {task_id}") from exc
+        if duplicate:
+            raise ValueError(
+                f"duplicate calibration task/condition/repetition cell: {task_id}/{condition}/{repetition}"
+            )
+        seen_cells.add(cell)
+        tasks.setdefault(task_id, {}).setdefault(condition, []).append(record)
+
+    task_rows: list[dict[str, Any]] = []
+    token_residuals: list[float] = []
+    paired_residual_control: list[float] = []
+    paired_residual_memory: list[float] = []
+    arm_values: dict[str, dict[str, list[float]]] = {
+        control: {"tokens": [], "correctness": []},
+        memory: {"tokens": [], "correctness": []},
+    }
+    for task_id in sorted(tasks):
+        by_condition = tasks[task_id]
+        if control not in by_condition or memory not in by_condition:
+            continue
+        row: dict[str, Any] = {"task_id": task_id, "conditions": {}}
+        condition_log_means: dict[str, float] = {}
+        repetition_logs: dict[str, dict[Any, float]] = {}
+        for condition in (control, memory):
+            condition_records = by_condition[condition]
+            tokens = [
+                value
+                for value in (_record_tokens(record) for record in condition_records)
+                if value is not None
+            ]
+            correctness = [
+                value
+                for value in (_record_correct(record) for record in condition_records)
+                if value is not None
+            ]
+            arm_values[condition]["tokens"].extend(tokens)
+            arm_values[condition]["correctness"].extend(correctness)
+            log_tokens = [math.log(value) for value in tokens]
+            if log_tokens:
+                condition_log_means[condition] = fmean(log_tokens)
+                token_residuals.extend(value - condition_log_means[condition] for value in log_tokens)
+            repetitions: dict[Any, float] = {}
+            for record in condition_records:
+                token = _record_tokens(record)
+                repetition = record.get("repetition")
+                if token is not None and repetition not in repetitions:
+                    repetitions[repetition] = math.log(token)
+            repetition_logs[condition] = repetitions
+            row["conditions"][condition] = {
+                "executed_attempts": len(condition_records),
+                "token_measurements": len(tokens),
+                "correctness_measurements": len(correctness),
+                "mean_total_tokens": fmean(tokens) if tokens else None,
+                "pass_rate": fmean(correctness) if correctness else None,
+            }
+        control_tokens = row["conditions"][control]["mean_total_tokens"]
+        memory_tokens = row["conditions"][memory]["mean_total_tokens"]
+        control_pass = row["conditions"][control]["pass_rate"]
+        memory_pass = row["conditions"][memory]["pass_rate"]
+        row["mean_token_log_ratio_memory_vs_control"] = (
+            math.log(memory_tokens / control_tokens)
+            if control_tokens is not None and memory_tokens is not None
+            else None
+        )
+        row["pass_rate_difference_memory_minus_control"] = (
+            memory_pass - control_pass
+            if control_pass is not None and memory_pass is not None
+            else None
+        )
+        task_rows.append(row)
+
+        paired_repetitions = sorted(
+            set(repetition_logs[control]) & set(repetition_logs[memory]), key=lambda value: str(value)
+        )
+        for repetition in paired_repetitions:
+            if control in condition_log_means and memory in condition_log_means:
+                paired_residual_control.append(
+                    repetition_logs[control][repetition] - condition_log_means[control]
+                )
+                paired_residual_memory.append(
+                    repetition_logs[memory][repetition] - condition_log_means[memory]
+                )
+
+    log_ratios = [
+        row["mean_token_log_ratio_memory_vs_control"]
+        for row in task_rows
+        if row["mean_token_log_ratio_memory_vs_control"] is not None
+    ]
+    pass_differences = [
+        row["pass_rate_difference_memory_minus_control"]
+        for row in task_rows
+        if row["pass_rate_difference_memory_minus_control"] is not None
+    ]
+    dirty_states = [_dirty_state(record) for record in selected]
+    arms = {}
+    for condition in (control, memory):
+        tokens = arm_values[condition]["tokens"]
+        correctness = arm_values[condition]["correctness"]
+        arms[condition] = {
+            "token_measurements": len(tokens),
+            "correctness_measurements": len(correctness),
+            "mean_total_tokens": fmean(tokens) if tokens else None,
+            "pass_rate": fmean(correctness) if correctness else None,
+        }
+    return {
+        "id": source.get("id"),
+        "path": source.get("path"),
+        "sha256": source.get("sha256"),
+        "diagnostic_role": source.get("diagnostic_role"),
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "control_condition": control,
+        "memory_condition": memory,
+        "contamination": contamination,
+        "record_counts": {
+            "raw": len(records),
+            "executed": len(executed),
+            "selected_conditions": len(selected),
+            "dirty_harness_true": sum(value is True for value in dirty_states),
+            "dirty_harness_false": sum(value is False for value in dirty_states),
+            "dirty_harness_unknown": sum(value is None for value in dirty_states),
+        },
+        "paired_task_clusters": len(task_rows),
+        "arms": arms,
+        "observed_diagnostics": {
+            "task_mean_log_token_ratio_count": len(log_ratios),
+            "task_mean_log_token_ratio_sd": _sample_sd(log_ratios),
+            "task_pass_rate_difference_count": len(pass_differences),
+            "task_pass_rate_difference_sd": _sample_sd(pass_differences),
+            "within_task_arm_log_token_residual_count": len(token_residuals),
+            "within_task_arm_log_token_residual_sd": _sample_sd(token_residuals),
+            "same_repetition_cross_condition_residual_pairs": len(paired_residual_control),
+            "same_repetition_cross_condition_residual_correlation": _correlation(
+                paired_residual_control, paired_residual_memory
+            ),
+        },
+        "paired_task_ids": [row["task_id"] for row in task_rows],
+    }
+
+
+def build_calibration_diagnostics(
+    manifest_path: pathlib.Path = CALIBRATION_MANIFEST,
+) -> dict[str, Any]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("schema_version") != 1:
+        raise ValueError("calibration manifest schema_version must be 1")
+    if manifest.get("eligibility") != "exploratory_only":
+        raise ValueError("calibration manifest must remain exploratory_only")
+    if manifest.get("confirmatory_assumption_source") is not False:
+        raise ValueError("exploratory calibration cannot be a confirmatory assumption source")
+    decision_use = manifest.get("decision_use")
+    prohibited = (
+        "may_select_confirmatory_assumptions",
+        "may_reduce_task_count_or_repetitions",
+        "may_pass_power_gate",
+    )
+    if not isinstance(decision_use, dict) or any(decision_use.get(key) is not False for key in prohibited):
+        raise ValueError("calibration decision-use quarantine is missing")
+    sources = manifest.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("calibration manifest must contain sources")
+    source_ids = [source.get("id") for source in sources if isinstance(source, dict)]
+    if len(source_ids) != len(sources) or any(not isinstance(value, str) for value in source_ids):
+        raise ValueError("calibration sources require string ids")
+    if len(source_ids) != len(set(source_ids)):
+        raise ValueError("calibration source ids must be unique")
+    diagnostics = [_source_calibration(source) for source in sources]
+
+    excluded = manifest.get("excluded_sources")
+    if not isinstance(excluded, list):
+        raise ValueError("calibration excluded_sources must be an array")
+    verified_exclusions = []
+    for record in excluded:
+        if not isinstance(record, dict):
+            raise ValueError("calibration excluded source must be an object")
+        _verified_file(record)
+        verified_exclusions.append(record)
+
+    unique_tasks = {task_id for source in diagnostics for task_id in source["paired_task_ids"]}
+    cluster_instances = sum(source["paired_task_clusters"] for source in diagnostics)
+    return {
+        "manifest_path": str(manifest_path.resolve().relative_to(REPO.resolve())),
+        "manifest_sha256": _sha256(manifest_path),
+        "executed_run_predicate_version": EXECUTED_RUN_PREDICATE_VERSION,
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "confirmatory_assumption_source": False,
+        "pooling_policy": manifest.get("pooling_policy"),
+        "source_count": len(diagnostics),
+        "paired_task_cluster_instances": cluster_instances,
+        "unique_task_ids_across_sources": len(unique_tasks),
+        "pooled_estimate_prohibited": True,
+        "sources": diagnostics,
+        "excluded_sources": verified_exclusions,
+        "interpretation": (
+            "The byte-verified legacy records show material heterogeneity and correctness saturation, "
+            "but their selected tasks, legacy treatments, runners, and harness contracts are not "
+            "exchangeable with the candidate confirmatory experiment. They cannot select assumptions "
+            "or pass the power gate."
+        ),
+    }
 
 
 def normal_two_sided_power(effect: float, standard_error: float, alpha: float) -> float:
@@ -166,6 +499,179 @@ def _maximum_sd(power_at_sd: Callable[[float], float], target: float) -> float:
         else:
             high = midpoint
     return low
+
+
+def _design_power(scenario: dict[str, Any], tasks: int, repetitions: int) -> dict[str, Any]:
+    if tasks < 2 or repetitions < 1:
+        raise ValueError("power design requires at least two tasks and one repetition")
+    token_sd = token_task_sd(scenario["token"], repetitions)
+    token_power = normal_two_sided_power(
+        abs(math.log(TOKEN_RATIO_TARGET)), token_sd / math.sqrt(tasks), PLANNING_ALPHA
+    )
+    correctness = scenario["correctness"]
+    true_difference = (
+        correctness["retrieved_memory_pass_probability"]
+        - correctness["no_memory_pass_probability"]
+    )
+    correctness_sd = correctness_task_sd(correctness, repetitions)
+    correctness_power = normal_noninferiority_power(
+        true_difference,
+        CORRECTNESS_MARGIN,
+        correctness_sd / math.sqrt(tasks),
+        PLANNING_ALPHA,
+    )
+    return {
+        "tasks": tasks,
+        "repetitions_per_treatment": repetitions,
+        "requested_cells": tasks * repetitions * PRIMARY_TREATMENTS,
+        "maximum_calls_with_10_percent_reserve": math.ceil(
+            tasks * repetitions * PRIMARY_TREATMENTS * 1.10
+        ),
+        "token_task_level_log_ratio_sd": token_sd,
+        "token_marginal_power": token_power,
+        "correctness_task_level_pass_rate_difference_sd": correctness_sd,
+        "correctness_noninferiority_marginal_power": correctness_power,
+        "both_marginal_targets_met": token_power >= TARGET_POWER
+        and correctness_power >= TARGET_POWER,
+    }
+
+
+def _minimum_repetitions(
+    power_at_repetitions: Callable[[int], float], target: float, maximum: int = 10_000
+) -> int | None:
+    for repetitions in range(1, maximum + 1):
+        if power_at_repetitions(repetitions) >= target:
+            return repetitions
+    return None
+
+
+def _design_tradeoffs(scenario: dict[str, Any]) -> dict[str, Any]:
+    token_effect = abs(math.log(TOKEN_RATIO_TARGET))
+    correctness = scenario["correctness"]
+    true_difference = (
+        correctness["retrieved_memory_pass_probability"]
+        - correctness["no_memory_pass_probability"]
+    )
+    by_repetitions: list[dict[str, Any]] = []
+    for repetitions in REPETITION_TRADEOFFS:
+        token_sd = token_task_sd(scenario["token"], repetitions)
+        correctness_sd = correctness_task_sd(correctness, repetitions)
+        token_tasks = _minimum_tasks(
+            lambda tasks: normal_two_sided_power(
+                token_effect, token_sd / math.sqrt(tasks), PLANNING_ALPHA
+            ),
+            TARGET_POWER,
+        )
+        correctness_tasks = _minimum_tasks(
+            lambda tasks: normal_noninferiority_power(
+                true_difference,
+                CORRECTNESS_MARGIN,
+                correctness_sd / math.sqrt(tasks),
+                PLANNING_ALPHA,
+            ),
+            TARGET_POWER,
+        )
+        tasks_for_both = (
+            max(token_tasks, correctness_tasks)
+            if token_tasks is not None and correctness_tasks is not None
+            else None
+        )
+        row = {
+            "repetitions_per_treatment": repetitions,
+            "minimum_tasks_for_token_target": token_tasks,
+            "minimum_tasks_for_correctness_noninferiority_target": correctness_tasks,
+            "minimum_tasks_for_both_marginal_targets": tasks_for_both,
+            "requested_cells_at_minimum_tasks": (
+                tasks_for_both * repetitions * PRIMARY_TREATMENTS
+                if tasks_for_both is not None
+                else None
+            ),
+            "maximum_calls_with_10_percent_reserve": (
+                math.ceil(tasks_for_both * repetitions * PRIMARY_TREATMENTS * 1.10)
+                if tasks_for_both is not None
+                else None
+            ),
+        }
+        by_repetitions.append(row)
+
+    by_tasks: list[dict[str, Any]] = []
+    for tasks in TASK_TRADEOFFS:
+        token_repetitions = _minimum_repetitions(
+            lambda repetitions: normal_two_sided_power(
+                token_effect,
+                token_task_sd(scenario["token"], repetitions) / math.sqrt(tasks),
+                PLANNING_ALPHA,
+            ),
+            TARGET_POWER,
+        )
+        correctness_repetitions = _minimum_repetitions(
+            lambda repetitions: normal_noninferiority_power(
+                true_difference,
+                CORRECTNESS_MARGIN,
+                correctness_task_sd(correctness, repetitions) / math.sqrt(tasks),
+                PLANNING_ALPHA,
+            ),
+            TARGET_POWER,
+        )
+        repetitions_for_both = (
+            max(token_repetitions, correctness_repetitions)
+            if token_repetitions is not None and correctness_repetitions is not None
+            else None
+        )
+        by_tasks.append(
+            {
+                "tasks": tasks,
+                "minimum_repetitions_for_token_target": token_repetitions,
+                "minimum_repetitions_for_correctness_noninferiority_target": correctness_repetitions,
+                "minimum_repetitions_for_both_marginal_targets": repetitions_for_both,
+                "requested_cells_at_minimum_repetitions": (
+                    tasks * repetitions_for_both * PRIMARY_TREATMENTS
+                    if repetitions_for_both is not None
+                    else None
+                ),
+                "maximum_calls_with_10_percent_reserve": (
+                    math.ceil(tasks * repetitions_for_both * PRIMARY_TREATMENTS * 1.10)
+                    if repetitions_for_both is not None
+                    else None
+                ),
+            }
+        )
+
+    feasible_by_repetitions = [
+        row for row in by_repetitions if row["requested_cells_at_minimum_tasks"] is not None
+    ]
+    fewest_cells = min(
+        feasible_by_repetitions,
+        key=lambda row: (
+            row["requested_cells_at_minimum_tasks"],
+            row["minimum_tasks_for_both_marginal_targets"],
+        ),
+    )
+    fewest_tasks = min(
+        feasible_by_repetitions,
+        key=lambda row: (
+            row["minimum_tasks_for_both_marginal_targets"],
+            row["requested_cells_at_minimum_tasks"],
+        ),
+    )
+    return {
+        "scenario": scenario["id"],
+        "status": "arithmetic_sensitivity_not_an_approved_design",
+        "repetition_options": list(REPETITION_TRADEOFFS),
+        "task_options": list(TASK_TRADEOFFS),
+        "minimum_tasks_by_repetitions": by_repetitions,
+        "minimum_repetitions_by_tasks": by_tasks,
+        "current_design": _design_power(scenario, TASKS, REPETITIONS),
+        "arithmetic_extremes_in_listed_repetition_options": {
+            "fewest_requested_cells": fewest_cells,
+            "fewest_task_clusters": fewest_tasks,
+        },
+        "interpretation": (
+            "More independent task clusters are substantially more cell-efficient than additional "
+            "repetitions under the stated positive ICC and irreducible task heterogeneity. These rows "
+            "are conditional on hypothetical assumptions and are not recommendations or budget approvals."
+        ),
+    }
 
 
 def _scenario_result(scenario: dict[str, Any]) -> dict[str, Any]:
@@ -306,14 +812,19 @@ def build_report() -> dict[str, Any]:
     )
     scenarios = [_scenario_result(scenario) for scenario in SCENARIOS]
     conservative = next(item for item in scenarios if item["role"] == "decision_scenario")
+    conservative_inputs = next(item for item in SCENARIOS if item["role"] == "decision_scenario")
     passed = conservative["results"]["both_endpoints"]["both_marginal_targets_met"]
+    calibration = build_calibration_diagnostics()
+    tradeoffs = _design_tradeoffs(conservative_inputs)
     report = {
-        "schema_version": 1,
-        "artifact_id": "agent-brain-confirmatory-power-v1",
+        "schema_version": 2,
+        "artifact_id": "agent-brain-confirmatory-power-v2",
         "status": "pass" if passed else "fail",
-        "analysis_kind": "deterministic_data_free_sensitivity",
+        "analysis_kind": "deterministic_assumption_sensitivity_with_quarantined_exploratory_calibration",
         "paid_runs_performed": False,
-        "empirical_variance_used": False,
+        "empirical_variance_used_in_confirmatory_decision": False,
+        "empirical_variance_computed_for_exploratory_diagnostics": True,
+        "exploratory_outcomes_analyzed": True,
         "protocol_inputs": {
             "tasks": TASKS,
             "repetitions_per_treatment": REPETITIONS,
@@ -357,14 +868,39 @@ def build_report() -> dict[str, Any]:
         },
         "scenarios": scenarios,
         "conservative_repetition_limit": _asymptotic_repetition_result(conservative),
+        "design_options": tradeoffs,
+        "exploratory_calibration": calibration,
         "decision": {
             "scenario": conservative["id"],
             "rule": "pass only if token and correctness marginal power are each at least 0.80",
             "passed": passed,
             "conclusion": (
                 "The proposed 24-task x 4-repetition design does not substantiate the declared power "
-                "target under the conservative planning scenario. Do not mark power_target_met pass."
+                "target under the conservative planning scenario. Quarantined legacy outcomes cannot "
+                "repair that failure. Do not mark power_target_met pass."
             ),
+        },
+        "next_decision": {
+            "status": "human_methodology_decision_required",
+            "recommended_action": "choose_calibration_basis_before_resizing_or_sealing_holdout",
+            "smallest_defensible_step": (
+                "Keep the gate failed and the fresh holdout unopened. Decide whether to (a) explicitly "
+                "accept the hypothetical conservative assumptions and their resulting task/cell envelope, "
+                "or (b) preregister and budget a separate development-only calibration under the final "
+                "runner and treatment contracts. Do not choose task count from the legacy point estimates."
+            ),
+            "why_no_automatic_design_is_selected": [
+                "the decision scenario is hypothetical rather than empirically calibrated",
+                "the retained outcomes use legacy treatments and non-exchangeable runners and harnesses",
+                "the byte-verifiable sources contain only sparse, selected task clusters with saturated or unstable correctness",
+                "the apparent cell minimum trades repetitions for hundreds of task clusters and is only arithmetic sensitivity",
+            ],
+            "prohibited_until_decision": [
+                "mark power_target_met pass",
+                "seal or open the fresh confirmatory holdout",
+                "authorize paid confirmatory cells",
+                "promote exploratory variance estimates into confirmatory assumptions",
+            ],
         },
     }
     return _round_floats(report)
@@ -378,7 +914,11 @@ def main() -> int:
         help="fail if this JSON artifact differs semantically from the deterministic report",
     )
     args = parser.parse_args()
-    report = build_report()
+    try:
+        report = build_report()
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        print(f"ERROR: cannot build deterministic power report: {exc}", file=sys.stderr)
+        return 2
     if args.check is not None:
         existing = json.loads(args.check.read_text(encoding="utf-8"))
         if existing != report:

@@ -411,7 +411,11 @@ def validate_power_analysis(
     artifact = _load_artifact(artifact_path, errors, "power-analysis.json")
     if not isinstance(artifact, dict):
         return errors
-    expected = power_analysis.build_report()
+    try:
+        expected = power_analysis.build_report()
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        errors.append(f"cannot derive power-analysis.json: {exc}")
+        return errors
     _error(errors, artifact == expected, "power-analysis.json is stale or does not match power_analysis.build_report()")
     decision_passed = artifact.get("decision", {}).get("passed") is True
     status_passed = artifact.get("status") == "pass"
@@ -421,12 +425,42 @@ def validate_power_analysis(
     protocol_evidence = _evidence_path(power.get("evidence"), here, repo)
     _error(errors, protocol_evidence == artifact_path.resolve(), "protocol power evidence must reference power-analysis.json")
     _error(errors, power.get("analysis_kind") == artifact.get("analysis_kind"), "protocol power analysis_kind does not match artifact")
+    if artifact.get("schema_version") == 2:
+        _error(
+            errors,
+            power.get("design_options_evidence") == "power-analysis.json#design_options",
+            "protocol design_options_evidence must reference power-analysis.json#design_options",
+        )
+        artifact_calibration = artifact.get("exploratory_calibration", {})
+        protocol_calibration = power.get("exploratory_calibration", {})
+        expected_calibration = {
+            "manifest": pathlib.Path(str(artifact_calibration.get("manifest_path") or "")).name,
+            "eligibility": "exploratory_only",
+            "confirmatory_assumption_source": False,
+            "unique_task_ids": artifact_calibration.get("unique_task_ids_across_sources"),
+            "paired_task_cluster_instances": artifact_calibration.get(
+                "paired_task_cluster_instances"
+            ),
+            "pooled_estimate_prohibited": artifact_calibration.get(
+                "pooled_estimate_prohibited"
+            ),
+        }
+        _error(
+            errors,
+            protocol_calibration == expected_calibration,
+            "protocol exploratory calibration summary does not match power artifact",
+        )
     protocol_status = power.get("status")
     _error(
         errors,
         isinstance(protocol_status, str)
         and (protocol_status == "pass" if decision_passed else protocol_status.startswith("fail")),
         "protocol power status does not match deterministic decision",
+    )
+    _error(
+        errors,
+        power.get("design_decision_required") is (not decision_passed),
+        "protocol design_decision_required does not match deterministic decision",
     )
     expected_gate_status = "pass" if decision_passed else "fail"
     _error(errors, check.get("status") == expected_gate_status, "power_target_met status does not match deterministic decision")

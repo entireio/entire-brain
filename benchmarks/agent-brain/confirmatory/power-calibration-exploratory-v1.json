@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "artifact_id": "agent-brain-power-calibration-exploratory-v1",
+  "eligibility": "exploratory_only",
+  "confirmatory_assumption_source": false,
+  "pooling_policy": "report_each_source_separately; do_not_pool_across_legacy_treatments_or_runners",
+  "correctness_field": "validation.ok",
+  "token_field": "agent_info.usage.total_tokens",
+  "sources": [
+    {
+      "id": "semantic_layer_b_pilot",
+      "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-pilot-20260611/records.ndjson",
+      "sha256": "7c816f74c8cdd4481bc76ba50b39a350510dde4e63d007f7cb46b95ff1b642c5",
+      "control_condition": "no_brain",
+      "memory_condition": "semantic_brain",
+      "diagnostic_role": "sparse_between_task_sensitivity",
+      "contamination": [
+        "legacy semantic treatment is not the frozen retrieved_memory treatment",
+        "tasks and outputs were inspected before this power analysis",
+        "one repetition and incomplete treatment pairs cannot identify within-task variance",
+        "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+      ]
+    },
+    {
+      "id": "semantic_layer_b_proof",
+      "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-proof-20260611/records.ndjson",
+      "sha256": "2ca207a7e8133a18c150694929c3c6691f6384ad55c8195aca3926f85f2a3ee8",
+      "control_condition": "no_brain",
+      "memory_condition": "semantic_brain",
+      "diagnostic_role": "two_task_repetition_sensitivity",
+      "contamination": [
+        "legacy semantic treatment is not the frozen retrieved_memory treatment",
+        "two selected task clusters are too few for confirmatory variance calibration",
+        "the retained provenance reports a dirty harness",
+        "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+      ]
+    },
+    {
+      "id": "legacy_full_cli_compact",
+      "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-hist-proof-20260611/records.ndjson",
+      "sha256": "11f85178682ad629fc1cc439f37ee1bc94ca5147830bf1ce9c8e88e18baeee95",
+      "control_condition": "no_brain",
+      "memory_condition": "full_cli_compact",
+      "diagnostic_role": "three_task_repetition_sensitivity",
+      "contamination": [
+        "legacy full_cli_compact treatment is not the frozen retrieved_memory treatment",
+        "three selected task clusters are too few for confirmatory variance calibration",
+        "the retained provenance reports a dirty harness",
+        "tasks, runner, repository, retrieval, and packet contracts differ from the candidate protocol"
+      ]
+    },
+    {
+      "id": "legacy_full_brain_replay",
+      "path": "benchmarks/agent-brain/evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260618T195058Z/records.ndjson",
+      "sha256": "24a1630f817a698d97ce862e2e1895508062474e6f1ebfd4c685e60e753a5962",
+      "control_condition": "no_brain",
+      "memory_condition": "full_brain",
+      "diagnostic_role": "two_task_repetition_sensitivity",
+      "contamination": [
+        "legacy full_brain treatment is not the frozen retrieved_memory treatment",
+        "two deliberately selected proof tasks are outcome-conditioned and not representative",
+        "the retained provenance reports a dirty harness",
+        "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+      ]
+    }
+  ],
+  "excluded_sources": [
+    {
+      "id": "existing_winner_suites_report",
+      "path": "benchmarks/agent-brain/analysis/reports/existing-winner-suites-exploratory.md",
+      "sha256": "b1810656810fc004c4e5718ce7e32bda568a21278a25864e63c696d3dde001c0",
+      "reason": "the report references 29 raw records that are not retained at the referenced paths, so its aggregate rows cannot be independently re-derived here"
+    }
+  ],
+  "decision_use": {
+    "may_describe_variability_risk": true,
+    "may_select_confirmatory_assumptions": false,
+    "may_reduce_task_count_or_repetitions": false,
+    "may_pass_power_gate": false
+  }
+}

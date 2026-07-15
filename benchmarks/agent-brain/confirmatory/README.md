@@ -21,9 +21,12 @@ path-locked.
 - `schemas/engine-verification.schema.json`: required machine output for every engine execution.
 - `ENGINE-PROBE-READINESS-2026-07-15.md`: unpaid three-path runtime smoke and the remaining vector
   isolation/evidence blocker; it is not final engine verification.
-- `power_analysis.py` and `power-analysis.json`: deterministic unpaid sensitivity calculation. The
-  current 24-task x 4-repetition design fails the conservative planning scenario; this is a no-go,
-  not a reason to adopt the scenario's task-count estimate as empirical truth.
+- `power_analysis.py`, `power-analysis.json`, and `POWER-DESIGN-OPTIONS-2026-07-15.md`: deterministic
+  unpaid sensitivity and task/repetition tradeoffs. The current 24-task x 4-repetition design fails;
+  no alternative row is approved without a human choice of calibration basis.
+- `power-calibration-exploratory-v1.json`: content-addressed manifest for sparse retained legacy
+  outcomes. The derived diagnostics are quarantined from confirmatory assumptions and cannot pass
+  the power gate.
 - `go-no-go.json`: paid-run gate. Every item must be `pass`; `pending` is a hard no-go.
 - `integration-verification.json` and `integration-logs/`: exact WS2-WS5 source commits, content
   hashes, unpaid commands, and captured test outputs for the locked integration commit.

@@ -44,12 +44,21 @@
       "target": 0.8,
       "token_reduction_target": 0.12,
       "completed": true,
-      "status": "fail_conservative_sensitivity",
+      "status": "fail_calibration_insufficient",
       "evidence": "power-analysis.json",
-      "analysis_kind": "deterministic_data_free_sensitivity",
+      "analysis_kind": "deterministic_assumption_sensitivity_with_quarantined_exploratory_calibration",
       "conservative_marginal_power": {
         "tokens": 0.370207,
         "correctness_noninferiority": 0.243511
+      },
+      "design_options_evidence": "power-analysis.json#design_options",
+      "exploratory_calibration": {
+        "manifest": "power-calibration-exploratory-v1.json",
+        "eligibility": "exploratory_only",
+        "confirmatory_assumption_source": false,
+        "unique_task_ids": 12,
+        "paired_task_cluster_instances": 14,
+        "pooled_estimate_prohibited": true
       },
       "design_decision_required": true
     },

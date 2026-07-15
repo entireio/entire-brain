@@ -69,12 +69,23 @@ formula until the final model and observed development token distribution are pi
 `sum(input_tokens * input_price + output_tokens * output_price)`, with cached-token prices recorded
 separately. No run may start with an unbounded or blank dollar cap.
 
-The checked-in, data-free sensitivity calculation does **not** substantiate this target design. Under
+The checked-in confirmatory decision calculation does **not** substantiate this target design. Under
 its explicitly hypothetical conservative scenario, marginal power is 0.370207 for the 12% token
 effect and 0.243511 for correctness non-inferiority; repetitions alone cannot overcome the assumed
-task-level heterogeneity. The calculation is complete, but the power gate is failed. Its 118-task
-sensitivity estimate must not be adopted automatically: the design requires a defensible variance
-source or an explicit new planning decision before any holdout is sealed.
+task-level heterogeneity. The calculation is complete, but the power gate is failed. At four
+repetitions, 118 tasks and 1,416 cells meet both marginal targets only conditionally on those
+hypothetical assumptions. Across the listed tradeoff grid, the arithmetic cell minimum is 295 tasks
+x 1 repetition = 885 cells; it is not an approved design or evidence that one repetition is
+operationally sufficient.
+
+The v2 artifact also analyzes byte-verified retained exploratory outcomes under
+`power-calibration-exploratory-v1.json`. Those records use selected tasks, legacy treatments,
+non-exchangeable runners/harnesses, and only 12 unique paired task IDs across four heterogeneous
+sources. They may reveal variability risk but are programmatically quarantined: they cannot select
+confirmatory assumptions, reduce the design, be pooled, or pass the gate. Before any holdout is
+sealed, a methodology owner must either explicitly accept an assumption-only design and its call
+envelope or preregister and budget a separate development-only calibration under the final runner
+and treatment contracts. See `POWER-DESIGN-OPTIONS-2026-07-15.md`.
 
 Use 10,000 task-clustered bootstrap resamples with a checked-in seed. Holm correction applies within
 each endpoint family for retrieved-vs-no-memory and placebo-vs-no-memory comparisons. All valid

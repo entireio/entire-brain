@@ -64,9 +64,19 @@ class ProtocolCheckTest(unittest.TestCase):
                 "agent_design": {
                     "power": {
                         "completed": True,
-                        "status": "fail_conservative_sensitivity",
+                        "status": "fail_calibration_insufficient",
                         "evidence": "power-analysis.json",
                         "analysis_kind": artifact["analysis_kind"],
+                        "design_options_evidence": "power-analysis.json#design_options",
+                        "exploratory_calibration": {
+                            "manifest": "power-calibration-exploratory-v1.json",
+                            "eligibility": "exploratory_only",
+                            "confirmatory_assumption_source": False,
+                            "unique_task_ids": 12,
+                            "paired_task_cluster_instances": 14,
+                            "pooled_estimate_prohibited": True,
+                        },
+                        "design_decision_required": True,
                     }
                 }
             }
@@ -74,6 +84,18 @@ class ProtocolCheckTest(unittest.TestCase):
             self.assertEqual(
                 CHECK.validate_power_analysis(protocol, check, here=here, repo=here),
                 [],
+            )
+
+            drifted_protocol = copy.deepcopy(protocol)
+            drifted_protocol["agent_design"]["power"]["exploratory_calibration"][
+                "unique_task_ids"
+            ] += 1
+            errors = CHECK.validate_power_analysis(
+                drifted_protocol, check, here=here, repo=here
+            )
+            self.assertIn(
+                "protocol exploratory calibration summary does not match power artifact",
+                errors,
             )
 
             stale = copy.deepcopy(artifact)
