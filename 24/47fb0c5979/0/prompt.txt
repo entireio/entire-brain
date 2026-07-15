@@ -1,14 +1,4 @@
 <codex_delegation>
   <source_thread_id>019f64dd-263f-7e71-b679-a326a94ac0d4</source_thread_id>
-  <input>You own Workstream 5: content-addressed provenance and checked-in analysis.
-Read the complete execution plan at /Users/thomi/Projects/entire-plan/ENTIRE-BRAIN-BENCHMARK-REPAIR-EXECUTION-PLAN-2026-07-15.md, especially sections 1–4 and the workstream named below. This is an execution task, not merely a request to restate the plan.
-
-Global constraints:
-- For entire-brain code, verify the required harness baseline exists on origin/wip/memory-lifecycle-plan-handoff-20260712 at or after bbe1bdf5. Your Codex worktree may start from the default branch; if so, bring the required WIP baseline into your codex/ branch non-destructively before editing. Do not silently implement against an older main.
-- Never modify entire-sem.
-- Do not run paid benchmark agent/model cells. Local deterministic probes and unit tests are allowed.
-- Preserve unrelated changes. Do not push or open a PR.
-- Implement only this workstream, run focused tests plus the full harness test suite when implementation changes the harness, and report exact artifacts, tests, remaining risks, and integration notes.
-
-Implement section 9. Create checked-in analysis code with one shared executed-run predicate, schema-versioned suite/run evidence manifests, direct prompt/packet retention and hashes, dirty-harness capture/fail-closed behavior, and a verify-evidence command plus tests. Migrate the useful analyzer behavior without survivorship-filtered primary metrics. Do not alter prompt treatments, temporal filtering, scheduling algorithms, or ranking.</input>
+  <input>Integration preparation: commit the complete verified WS5 implementation currently in your worktree. First confirm only WS5-owned changes are present, run git diff --check, stage exactly those files, and create one descriptive commit after the existing baseline merge commit. Do not modify behavior, rebase, push, open a PR, or touch entire-graph. Report commit SHA and clean git status.</input>
 </codex_delegation>
