@@ -15,8 +15,38 @@
     "path": "offline-relevance-dataset.json",
     "minimum_development_queries": 12,
     "minimum_development_tasks": 12,
+    "minimum_development_null_queries": 1,
     "minimum_sealed_holdout_queries": 12,
-    "minimum_sealed_holdout_tasks": 12
+    "minimum_sealed_holdout_tasks": 12,
+    "development_artifact_contract": {
+      "schema_version": 1,
+      "source_corpus": {
+        "facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+        "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+        "active_fact_count": 2531,
+        "active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c"
+      },
+      "artifacts": {
+        "labels": {
+          "path": "offline-relevance-development-labels.json",
+          "sha256": "7f8ad9f1459038dbbbec6f16f5792559c50b031641be20ec2d15413fd89f7297",
+          "schema_path": "schemas/relevance-label-source.schema.json",
+          "schema_sha256": "17eb91c75e5c1fefb11330d5e73398c6fffd577900952dab88a814622f8ebde1"
+        },
+        "snapshot": {
+          "path": "offline-relevance-fact-snapshot.json",
+          "sha256": "5baa6c3f54a0042180ac43f148e7f109db8ce033b5f8f3ae56a16f7ca265a201",
+          "schema_path": "schemas/relevance-fact-snapshot.schema.json",
+          "schema_sha256": "6ef8ac13cd2fd65cd7b2a349f592439a098fe5058606f39d3a05a3ca96bb66e0"
+        },
+        "dataset": {
+          "path": "offline-relevance-dataset.json",
+          "sha256": "8f6e79b890830e9add5b0c1354d6641bfb1017567ac673a95d01ebb25e866b6a",
+          "schema_path": "schemas/relevance-dataset.schema.json",
+          "schema_sha256": "727b185939166a8e484dc01f56af7b868c9e895a31fda1b7123d1ad2d31d7d6c"
+        }
+      }
+    }
   },
   "engine_matrix": "engine-matrix.json",
   "development_selection": {

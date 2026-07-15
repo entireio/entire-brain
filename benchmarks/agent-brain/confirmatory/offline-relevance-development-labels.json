@@ -1,11 +1,13 @@
 {
-  "schema_version": 1,
-  "dataset_id": "agent-brain-relevance-v1-development",
-  "label_set_id": "exposed-c0701-manual-review-2026-07-15",
-  "created_at": "2026-07-15T13:45:00+02:00",
+  "schema_version": 2,
+  "dataset_id": "agent-brain-relevance-v2-development",
+  "label_set_id": "exposed-c0701-manual-review-2026-07-15-v2",
+  "created_at": "2026-07-15T14:08:00+02:00",
   "source_corpus": {
     "facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
-    "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a"
+    "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+    "active_fact_count": 2531,
+    "active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c"
   },
   "allowed_inventory_states": [
     "prompt_inspected",
@@ -30,19 +32,22 @@
           "fact_id": "fact:30c6c2e4a031d91df16e4d27",
           "grade": "solving",
           "cluster_id": "cluster:managed-hook-wrapper-migration",
-          "rationale": "It states the required stale Entire-managed wrapper replacement rule and the sh/cmd.exe migration behavior directly."
+          "rationale": "It states the required stale Entire-managed wrapper replacement rule and the sh/cmd.exe migration behavior directly.",
+          "fact_sha256": "639d9e4dcc928a94da2bf74c4af98d3fc2021c75569af1c48ffc1fbc63658cbd"
         },
         {
           "fact_id": "fact:ca0150e655d12006e8ca74f8",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:hook-ownership-copilot",
-          "rationale": "It concerns ownership-safe hook replacement, but for Copilot commands rather than Cursor wrapper-form migration."
+          "rationale": "It concerns ownership-safe hook replacement, but for Copilot commands rather than Cursor wrapper-form migration.",
+          "fact_sha256": "d3d53bf160d1e6875b8371121fae70b505be617e05ac0a9344ea2a1ccfcd31cf"
         },
         {
           "fact_id": "fact:ab03900e702414db4d6b15f3",
           "grade": "irrelevant",
           "cluster_id": "cluster:checkpoint-metadata-refetch",
-          "rationale": "Avoiding duplicate checkpoint database rows is unrelated to replacing installed hook entries."
+          "rationale": "Avoiding duplicate checkpoint database rows is unrelated to replacing installed hook entries.",
+          "fact_sha256": "9375115e3ff51f9c096733222c2be0b99c9a8bb4ecef9ffe9b5b8a3c6188f16d"
         }
       ]
     },
@@ -63,19 +68,22 @@
           "fact_id": "fact:30c6c2e4a031d91df16e4d27",
           "grade": "solving",
           "cluster_id": "cluster:managed-hook-wrapper-migration",
-          "rationale": "The fact is an exact answer to the oracle query."
+          "rationale": "The fact is an exact answer to the oracle query.",
+          "fact_sha256": "639d9e4dcc928a94da2bf74c4af98d3fc2021c75569af1c48ffc1fbc63658cbd"
         },
         {
           "fact_id": "fact:32a34f711bb107845dc407c3",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:duplicate-cross-agent-hooks",
-          "rationale": "It describes duplicate lifecycle hooks, but the cause is cross-agent dispatch rather than wrapper-form migration."
+          "rationale": "It describes duplicate lifecycle hooks, but the cause is cross-agent dispatch rather than wrapper-form migration.",
+          "fact_sha256": "53bb5f98f72f969878ee27c15f2dbbcba2660493311169908a901765ccd7b1b4"
         },
         {
           "fact_id": "fact:0d1104c5493d9d6febcb7600",
           "grade": "irrelevant",
           "cluster_id": "cluster:gitops-package-boundary",
-          "rationale": "A Git operations package boundary does not answer hook migration behavior."
+          "rationale": "A Git operations package boundary does not answer hook migration behavior.",
+          "fact_sha256": "32b2edefa6629d0574264fa481b2d6668895c5f02587e6448a483f7884e363ce"
         }
       ]
     },
@@ -95,19 +103,22 @@
           "fact_id": "fact:653adbd42aa9c222acb547d9",
           "grade": "relevant_alternative",
           "cluster_id": "cluster:cumulative-token-events",
-          "rationale": "It establishes cumulative event-stream token accounting, a useful analogue for Pi's cumulative cache-token handling, without specifying Pi's event shape."
+          "rationale": "It establishes cumulative event-stream token accounting, a useful analogue for Pi's cumulative cache-token handling, without specifying Pi's event shape.",
+          "fact_sha256": "2064997a5572644e69de291e01f30b862f0f050b5874806e699c6b8d7f65475c"
         },
         {
           "fact_id": "fact:d6d013154da56499fbf92453",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:codex-inclusive-token-accounting",
-          "rationale": "It is strongly topical to cache-token double counting but describes Codex inclusive fields rather than Pi stream accumulation."
+          "rationale": "It is strongly topical to cache-token double counting but describes Codex inclusive fields rather than Pi stream accumulation.",
+          "fact_sha256": "9f2134808d0ce24d3822b8606c038d946136ecb48d5b1654362ca4461192b7be"
         },
         {
           "fact_id": "fact:9c39a262ba60f7ed28023b46",
           "grade": "irrelevant",
           "cluster_id": "cluster:recap-aggregation-drift",
-          "rationale": "Its double-counting issue concerns recap contributors and API data sources, not reviewer token events."
+          "rationale": "Its double-counting issue concerns recap contributors and API data sources, not reviewer token events.",
+          "fact_sha256": "8c6e698e5ea6bb04de40fdcbc0f1d41d4e8bcd35f3bb6e33c40d216169a3876b"
         }
       ]
     },
@@ -126,51 +137,64 @@
           "fact_id": "fact:a9d6e9f86b6d576fb8e30a5f",
           "grade": "relevant_alternative",
           "cluster_id": "cluster:checkpoint-url-from-push-remote",
-          "rationale": "It establishes that checkpoint URL/auth derivation follows the active push remote, which is central context, but does not state same-cluster entire:// derivation."
+          "rationale": "It establishes that checkpoint URL/auth derivation follows the active push remote, which is central context, but does not state same-cluster entire:// derivation.",
+          "fact_sha256": "c527d8bf21486164b6edcb98206a88a2d04617a1ab75ef568ad6e52324081002"
         },
         {
           "fact_id": "fact:73a7cd4f05b859958bffc347",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:checkpoint-token-forces-https",
-          "rationale": "It correctly covers the token-forces-HTTPS exception but not mirror-cluster routing in the tokenless matching-forge case."
+          "rationale": "It correctly covers the token-forces-HTTPS exception but not mirror-cluster routing in the tokenless matching-forge case.",
+          "fact_sha256": "37629ef4d4e635aaaa31bbecb7d60fd707b52ea3acbddbfd8080ce3c036c741b"
         },
         {
           "fact_id": "fact:09ef343c6580f47c54dece07",
           "grade": "irrelevant",
           "cluster_id": "cluster:local-checkpoint-discovery",
-          "rationale": "Local checkpoint discovery has no bearing on remote URL derivation."
+          "rationale": "Local checkpoint discovery has no bearing on remote URL derivation.",
+          "fact_sha256": "74170632bbdcbb3778443db4b470cf1aa7c76ae1644d9182f2638b0fd1abcd1e"
         }
       ]
     },
     {
-      "query_id": "dev-null-8828752a7",
+      "query_id": "dev-product-8828752a7",
       "task_id": "entire-cli-c0701-8828752a7",
       "query_source": "user_prompt_derived",
-      "null_query": true,
+      "null_query": false,
       "label_evidence": {
         "type": "legacy_agent_packet",
         "source_id": "opus3-s0/full_brain/r1",
         "source_sha256": "79f3ac6234b284184c9bcda9db60b877fd1764bd1b55a041d8f01d91fd8300f0",
-        "rationale": "All twelve retained packet facts were reviewed; none describes resume auto-detection ordering or fetching a remote-only branch, so this is an observed no-answer case for the frozen corpus."
+        "rationale": "The retained packet contains no direct solution, while exposed full-corpus review found a branch-oriented remote-resume contract that is useful context. Without exhaustive active-corpus closure this query is not labeled null."
       },
       "judgments": [
+        {
+          "fact_id": "fact:c5cb42b0c94c08b5b5b5e1a8",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:branch-oriented-remote-resume",
+          "rationale": "It establishes that remote resume is branch-oriented via `entire resume <branch>`, useful context for a remote-branch fallback, but does not specify target-resolution ordering or fetching.",
+          "fact_sha256": "7b4eb04b1480f2a335daef23d46dc6b0a3dc8b0292e985a1bbd2ac31adc12140"
+        },
         {
           "fact_id": "fact:fd2481fbb3a8ca7ce9f85e63",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:remote-tracking-v11-mirror",
-          "rationale": "It mentions a deliberately omitted remote-tracking fallback, but for the local-only v1.1 metadata mirror rather than resume target resolution."
+          "rationale": "It mentions a deliberately omitted remote-tracking fallback, but for the local-only v1.1 metadata mirror rather than resume target resolution.",
+          "fact_sha256": "40aaaabb30726c95e522df47f8033485493685c979d1b536611fe774861c6bd0"
         },
         {
           "fact_id": "fact:86eeae1918bb7aa4eca19306",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:policy-remote-resolution",
-          "rationale": "It discusses branch/push remote resolution, but for policy refs rather than checkpoint resume auto-detection."
+          "rationale": "It discusses branch/push remote resolution, but for policy refs rather than checkpoint resume auto-detection.",
+          "fact_sha256": "2bde5c87ab7f19e5937d3683461f890d719a1a33c9be906df5988c95477dfaeb"
         },
         {
           "fact_id": "fact:1560962204e7614f27850c22",
           "grade": "irrelevant",
           "cluster_id": "cluster:trails-remote-ownership",
-          "rationale": "Trail branch ownership does not address resolving a resume target."
+          "rationale": "Trail branch ownership does not address resolving a resume target.",
+          "fact_sha256": "a51ac77f3b810b9870494548b30fac16660d2be78c4d47818f71ec93f95ebcc2"
         }
       ]
     },
@@ -182,32 +206,36 @@
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
         "source_id": "full-quarantine-084f5170",
-        "rationale": "The exposed prompt and eligible corpus facts contain a direct, independently distilled account of Git's persisted promisor sections and the URL-fetch constraint."
+        "rationale": "The exposed prompt and eligible facts contain the exact synthetic-promisor mechanism, while the named-remote rejection is counterevidence rather than a solution to bulk-fetch participation."
       },
       "judgments": [
         {
           "fact_id": "fact:8325ce8c7c9c08ba273c812f",
-          "grade": "solving",
+          "grade": "hard_topical_distractor",
           "cluster_id": "cluster:filtered-fetch-config-pollution",
-          "rationale": "It directly prescribes URL-based filtered fetches to avoid named-remote config pollution while retaining filtered retrieval."
+          "rationale": "It rejects named-remote filtered fetches and prescribes URL fetches, but URL fetches create the synthetic promisor entries that this task must exclude from `fetch --all` and `remote update`; it does not solve that behavior.",
+          "fact_sha256": "3d61a368808930f8d776e3928c78ae890e4a13a15709a8eebbf7e88f75e03a0e"
         },
         {
           "fact_id": "fact:11af406c1bcd1c4994261a6c",
           "grade": "relevant_alternative",
           "cluster_id": "cluster:literal-url-promisor-section",
-          "rationale": "It explains that literal URL/path fetches can still persist synthetic promisor sections, the exact mechanism behind bulk-fetch exposure."
+          "rationale": "It explains that literal URL/path fetches can still persist synthetic promisor sections, the exact mechanism behind bulk-fetch exposure.",
+          "fact_sha256": "92791a30a6518bdebfc98e28ead63cb5b505150a93632908fc1ae2d049210de3"
         },
         {
           "fact_id": "fact:f43f95628493822bad1fcda2",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:origin-promisor-migration",
-          "rationale": "It concerns legacy origin pollution and cleanup, not suppressing accumulated literal-URL remotes during bulk fetch/update."
+          "rationale": "It concerns legacy origin pollution and cleanup, not suppressing accumulated literal-URL remotes during bulk fetch/update.",
+          "fact_sha256": "f494eeeb6dec29786a1be462c3662706c0cc5139847c17a37b9cbcf80faf43f4"
         },
         {
           "fact_id": "fact:80545a403b658bba19a7a6b0",
           "grade": "irrelevant",
           "cluster_id": "cluster:trail-pr-base-retarget",
-          "rationale": "Trail PR base synchronization is unrelated to Git promisor configuration."
+          "rationale": "Trail PR base synchronization is unrelated to Git promisor configuration.",
+          "fact_sha256": "e4893ea28e67e2dfc21a8ee051308b883d9462e9a5d4854c2eb0e89d4301c196"
         }
       ]
     },
@@ -226,19 +254,22 @@
           "fact_id": "fact:80dfd6321fdef23175afc388",
           "grade": "solving",
           "cluster_id": "cluster:explicit-session-import",
-          "rationale": "It states the safe product rule directly: imports are explicit manual commands rather than an enable-time side effect."
+          "rationale": "It states the safe product rule directly: imports are explicit manual commands rather than an enable-time side effect.",
+          "fact_sha256": "24daeeccef3968b4c839de71d9c49d2df69cc5b8530872d280230822ceb1d2b1"
         },
         {
           "fact_id": "fact:4ffcd573803e604fcb1ea1b3",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:enable-yes-bootstrap",
-          "rationale": "It specifies non-interactive enable behavior, but does not establish repository-policy validation for history imports."
+          "rationale": "It specifies non-interactive enable behavior, but does not establish repository-policy validation for history imports.",
+          "fact_sha256": "90231ffb41e03c2ea9799db82d6b45703eeeb9f6f793862134f51ce0ae5bc954"
         },
         {
           "fact_id": "fact:42e169e787462c51357851e2",
           "grade": "irrelevant",
           "cluster_id": "cluster:token-usage-import-cycle",
-          "rationale": "A Go import cycle in token usage code does not affect enable-time history import."
+          "rationale": "A Go import cycle in token usage code does not affect enable-time history import.",
+          "fact_sha256": "1ea45d11f7cc4588e54843f86a8ed6192a9aa79a1f635998996d111aa174fff3"
         }
       ]
     },
@@ -257,19 +288,22 @@
           "fact_id": "fact:c9b44a5e5e1678e0a21270d3",
           "grade": "relevant_alternative",
           "cluster_id": "cluster:token-audience-origin-validation",
-          "rationale": "It establishes that a raw token may only be sent to a validated HTTPS origin, useful security guidance for rejecting off-origin redirects."
+          "rationale": "It establishes that a raw token may only be sent to a validated HTTPS origin, useful security guidance for rejecting off-origin redirects.",
+          "fact_sha256": "42263e1bb3aaae582d8112a71e7105b28353a7b0dacea518e0c07269ee4e9fd1"
         },
         {
           "fact_id": "fact:0539f87b0bf63eaf40ae9eec",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:split-host-auth-redirect",
-          "rationale": "It is about cross-host auth redirects, but the failure is device-grant store separation rather than Authorization-header leakage."
+          "rationale": "It is about cross-host auth redirects, but the failure is device-grant store separation rather than Authorization-header leakage.",
+          "fact_sha256": "5189c3e71db2b4c47aa8f0f0b0ba5960f29d8d19cf4fde3a42df52779a208187"
         },
         {
           "fact_id": "fact:b492d36505d004ee3f331cc1",
           "grade": "irrelevant",
           "cluster_id": "cluster:expired-recap-token",
-          "rationale": "Bearer expiry during recap does not address redirect host validation."
+          "rationale": "Bearer expiry during recap does not address redirect host validation.",
+          "fact_sha256": "7723f810337cd265f6087413e7820811f07ac0f3c9b074567f8e9248ede721c5"
         }
       ]
     },
@@ -288,19 +322,22 @@
           "fact_id": "fact:d75f426867c91b5437248c77",
           "grade": "solving",
           "cluster_id": "cluster:discovery-stale-cache-fallback",
-          "rationale": "It directly distinguishes expired-entry fallback from the hard error required when no usable entry exists."
+          "rationale": "It directly distinguishes expired-entry fallback from the hard error required when no usable entry exists.",
+          "fact_sha256": "26afb5a04e73943449501edc66f5b408a3d9df14208c317c22d4a93430c60a58"
         },
         {
           "fact_id": "fact:556c688f7e3ecb06f7a95f0b",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:discovery-cache-separation",
-          "rationale": "It describes discovery cache structure and TTL, but not audience-aware fallback eligibility."
+          "rationale": "It describes discovery cache structure and TTL, but not audience-aware fallback eligibility.",
+          "fact_sha256": "534d9a36788448d8afe0f5bb1c4eb30f911f353fc250c2d16b0f2a98d3e36c0a"
         },
         {
           "fact_id": "fact:7f36ef3dd79da3aee5a556e3",
           "grade": "irrelevant",
           "cluster_id": "cluster:recap-expired-token-401",
-          "rationale": "An expired recap token is unrelated to cluster-core discovery fallback."
+          "rationale": "An expired recap token is unrelated to cluster-core discovery fallback.",
+          "fact_sha256": "2ad3b12956a8b532874c72477b8e2880647cc596945b05764147c9722ceb22d0"
         }
       ]
     },
@@ -319,19 +356,22 @@
           "fact_id": "fact:b7a1d34e559873a769bf585a",
           "grade": "relevant_alternative",
           "cluster_id": "cluster:imported-checkpoint-read-only",
-          "rationale": "It establishes imported checkpoints as a distinct protected kind, supporting exclusion from destructive generic cleanup."
+          "rationale": "It establishes imported checkpoints as a distinct protected kind, supporting exclusion from destructive generic cleanup.",
+          "fact_sha256": "ec0d4ef7a748e65687131e2dfe80491b7259f89b5b8d3cf193801968e006b52a"
         },
         {
           "fact_id": "fact:ca30b3f899d29db801519c07",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:active-session-orphan-cleanup",
-          "rationale": "It is about preventing cleanup of legitimate session state, but for active carry-forward work rather than imported sessions."
+          "rationale": "It is about preventing cleanup of legitimate session state, but for active carry-forward work rather than imported sessions.",
+          "fact_sha256": "9dbaf31ac1457a5e6896de434fde15a9434e52c12c19933de7185a3eeefe0244"
         },
         {
           "fact_id": "fact:32203deb1036cba4d14b243c",
           "grade": "irrelevant",
           "cluster_id": "cluster:recap-response-aggregates",
-          "rationale": "Recap response completeness does not affect orphan classification."
+          "rationale": "Recap response completeness does not affect orphan classification.",
+          "fact_sha256": "0690dc160144c900086e1e46bc9f623d5114917713bd5fa9316871234ebdef15"
         }
       ]
     },
@@ -350,19 +390,22 @@
           "fact_id": "fact:5c23e28b4902b6162eca87e4",
           "grade": "relevant_alternative",
           "cluster_id": "cluster:imported-checkpoint-kind",
-          "rationale": "It defines imported checkpoints as a distinct kind that unsupported consumers must filter, relevant to exempting them from generic staleness consumers."
+          "rationale": "It defines imported checkpoints as a distinct kind that unsupported consumers must filter, relevant to exempting them from generic staleness consumers.",
+          "fact_sha256": "26c760ec01a6ceb5b1d21b5056ee5fa4680a766f05e4d7b8e5bb69e404151394"
         },
         {
           "fact_id": "fact:aeac17d3e3f7c90103b4b128",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:active-session-staleness",
-          "rationale": "It defines stale ACTIVE display behavior, not imported-session lifetime or purge eligibility."
+          "rationale": "It defines stale ACTIVE display behavior, not imported-session lifetime or purge eligibility.",
+          "fact_sha256": "3b25e9cb5915cb1018a5919c1da507080256a230ddba0615c9e04b5f5964d398"
         },
         {
           "fact_id": "fact:d939db93c090d7ab800329a0",
           "grade": "irrelevant",
           "cluster_id": "cluster:explain-metadata-fetch",
-          "rationale": "Fetching a metadata branch for explain is unrelated to session auto-purge."
+          "rationale": "Fetching a metadata branch for explain is unrelated to session auto-purge.",
+          "fact_sha256": "ec686eca78d1b77c76e35ecfffe2664c01dbd82b4841ed1d8ef280e69f36dd71"
         }
       ]
     },
@@ -381,52 +424,64 @@
           "fact_id": "fact:e3e7d5ba3d7767d06ea91f5e",
           "grade": "relevant_alternative",
           "cluster_id": "cluster:trail-finding-command",
-          "rationale": "It documents a concrete trail finding command and limitation, making findings relevant to the trail help surface without prescribing wording."
+          "rationale": "It documents a concrete trail finding command and limitation, making findings relevant to the trail help surface without prescribing wording.",
+          "fact_sha256": "7ce4f73fc5442500b9a6e08cae1a510e2d1d4fd08c56d0e54ab832816af77bf4"
         },
         {
           "fact_id": "fact:2f3eb1f9194691d5d97d97bb",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:experimental-help-discovery",
-          "rationale": "It addresses help as a discovery surface, but for experimental commands rather than trail findings."
+          "rationale": "It addresses help as a discovery surface, but for experimental commands rather than trail findings.",
+          "fact_sha256": "82f021ee8198cf77ad01503638038b716b9a1d98c26d965933c5e9b824d54839"
         },
         {
           "fact_id": "fact:8c7cbd18b936edc149a64ec1",
           "grade": "irrelevant",
           "cluster_id": "cluster:codex-resume-registry",
-          "rationale": "Codex session registry behavior is unrelated to trail help."
+          "rationale": "Codex session registry behavior is unrelated to trail help.",
+          "fact_sha256": "af79cbf23674b2b0db228be97863a29428b68a2b3f32aa03b312f7aed4c121e7"
         }
       ]
     },
     {
-      "query_id": "dev-null-b72a6e621",
+      "query_id": "dev-product-b72a6e621",
       "task_id": "entire-cli-c0701-b72a6e621",
       "query_source": "user_prompt_derived",
-      "null_query": true,
+      "null_query": false,
       "label_evidence": {
         "type": "manual_frozen_corpus_review",
         "source_id": "full-quarantine-084f5170",
-        "rationale": "Eligible-corpus review found no fact about deduplicating mirror-placement search statistics; the nearest facts only share mirror, aggregation, or double-count vocabulary."
+        "rationale": "No retained fact directly solves mirror-placement search statistics, but the corpus contains a cross-domain aggregation decision about eliminating double-counted contributors. Without exhaustive active-corpus closure this query is not labeled null."
       },
       "judgments": [
         {
           "fact_id": "fact:9c39a262ba60f7ed28023b46",
-          "grade": "hard_topical_distractor",
+          "grade": "relevant_alternative",
           "cluster_id": "cluster:recap-aggregation-drift",
-          "rationale": "It reports double-counted aggregates, but in recap contributor data rather than mirror-placement code search stats."
+          "rationale": "It records replacing a parallel aggregator because it double-counted contributors and drifted totals, a useful cross-domain alternative for deduplicating aggregate statistics, though it does not specify mirror-cell search accounting.",
+          "fact_sha256": "8c6e698e5ea6bb04de40fdcbc0f1d41d4e8bcd35f3bb6e33c40d216169a3876b"
         },
         {
           "fact_id": "fact:3b0199c75a7f4b613beb6bd8",
           "grade": "hard_topical_distractor",
           "cluster_id": "cluster:mirror-id-routing",
-          "rationale": "It uses mirror metadata for API routing, not per-cell search-result deduplication."
+          "rationale": "It uses mirror metadata for API routing, not per-cell search-result deduplication.",
+          "fact_sha256": "e5568c5b4254ac8b28d3e1c68fc78e5d983a13fb64b2253573f295a228b86214"
         },
         {
           "fact_id": "fact:c9cfe5bcac4d18cc84df6128",
           "grade": "irrelevant",
           "cluster_id": "cluster:worktree-shadow-scope",
-          "rationale": "Worktree shadow-branch scoping has no relationship to code-search statistics."
+          "rationale": "Worktree shadow-branch scoping has no relationship to code-search statistics.",
+          "fact_sha256": "3071cd334ecdde4ca6cabae3db4e58f10ca31a832b13fde13836f6e8e9dd9193"
         }
       ]
     }
-  ]
+  ],
+  "snapshot_commitment": {
+    "fact_count": 39,
+    "facts_sha256": "64b52512611a2e82c801169e8ecb6ccd5ca86e6f4b7d605eb7fd4c65207870d1",
+    "session_date_count": 36,
+    "session_dates_sha256": "0c32e70b86f091c974397c14790bea2ce7b1c8ca75f34ef0b6a6f6cd422ec3aa"
+  }
 }

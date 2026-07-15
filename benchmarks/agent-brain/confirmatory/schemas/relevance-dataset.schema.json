@@ -1,20 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entire.io/schemas/agent-brain/relevance-dataset-v1.json",
+  "$id": "https://entire.io/schemas/agent-brain/relevance-dataset-v2.json",
   "type": "object",
   "required": ["schema_version", "dataset_id", "status", "created_at", "label_policy", "development", "sealed_holdout"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "dataset_id": {"type": "string", "minLength": 1},
     "status": {"enum": ["draft_pending_labels_and_holdout_seal", "frozen_unopened", "opened_once"]},
     "created_at": {"type": "string", "format": "date-time"},
     "label_policy": {
       "type": "object",
-      "required": ["query_sources", "required_judgments", "null_queries_required", "temporal_eligibility_required", "near_duplicate_cluster_ids_required", "positive_definition", "fact_hash_definition"],
+      "required": ["query_sources", "required_judgments", "null_query_closure_required", "null_query_requirement_for_threshold", "null_query_coverage_status", "temporal_eligibility_required", "near_duplicate_cluster_ids_required", "positive_definition", "fact_hash_definition"],
       "properties": {
         "query_sources": {"type": "array", "items": {"enum": ["user_prompt_derived", "oracle_upper_bound"]}, "uniqueItems": true},
         "required_judgments": {"type": "array", "items": {"enum": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"]}, "uniqueItems": true},
-        "null_queries_required": {"const": true},
+        "null_query_closure_required": {"const": true},
+        "null_query_requirement_for_threshold": {"const": true},
+        "null_query_coverage_status": {"enum": ["pending_no_corpus_closed_queries", "present_corpus_closed"]},
         "temporal_eligibility_required": {"const": true},
         "near_duplicate_cluster_ids_required": {"const": true},
         "positive_definition": {"type": "array", "items": {"enum": ["solving", "relevant_alternative"]}, "uniqueItems": true},
@@ -24,10 +26,11 @@
     },
     "development": {
       "type": "object",
-      "required": ["item_count", "unique_task_count", "judgment_count", "grade_counts", "evidence_counts", "source_facts_sha256", "source_session_dates_sha256", "labels_sha256", "fact_snapshot_sha256", "items"],
+      "required": ["item_count", "unique_task_count", "null_query_count", "judgment_count", "grade_counts", "evidence_counts", "source_facts_sha256", "source_session_dates_sha256", "source_active_fact_count", "source_active_fact_catalog_sha256", "snapshot_facts_sha256", "snapshot_session_dates_sha256", "labels_sha256", "fact_snapshot_sha256", "items"],
       "properties": {
         "item_count": {"type": "integer", "minimum": 0},
         "unique_task_count": {"type": "integer", "minimum": 0},
+        "null_query_count": {"type": "integer", "minimum": 0},
         "judgment_count": {"type": "integer", "minimum": 0},
         "grade_counts": {"$ref": "#/$defs/gradeCounts"},
         "evidence_counts": {
@@ -41,9 +44,13 @@
         },
         "source_facts_sha256": {"$ref": "#/$defs/sha256"},
         "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "source_active_fact_count": {"type": "integer", "minimum": 1},
+        "source_active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_facts_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_session_dates_sha256": {"$ref": "#/$defs/sha256"},
         "labels_sha256": {"$ref": "#/$defs/sha256"},
         "fact_snapshot_sha256": {"$ref": "#/$defs/sha256"},
-        "items": {"type": "array", "items": {"$ref": "#/$defs/query"}}
+        "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/query"}}
       },
       "additionalProperties": false
     },
@@ -57,7 +64,8 @@
         "sealed_at": {"type": ["string", "null"], "format": "date-time"},
         "opened_at": {"type": ["string", "null"], "format": "date-time"},
         "items": {"type": "array", "items": {"$ref": "#/$defs/query"}}
-      }
+      },
+      "additionalProperties": false
     }
   },
   "$defs": {
@@ -84,6 +92,26 @@
       },
       "additionalProperties": false
     },
+    "nullClosure": {
+      "type": "object",
+      "required": ["method", "query_sha256", "temporal_policy_sha256", "source_facts_sha256", "source_session_dates_sha256", "active_fact_count", "active_fact_catalog_sha256", "eligible_fact_count", "eligible_fact_catalog_sha256", "reviewed_fact_count", "reviewed_fact_catalog_sha256", "positive_fact_count", "reviewer_assertion"],
+      "properties": {
+        "method": {"const": "exhaustive_active_corpus_review_v1"},
+        "query_sha256": {"$ref": "#/$defs/sha256"},
+        "temporal_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "source_facts_sha256": {"$ref": "#/$defs/sha256"},
+        "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "active_fact_count": {"type": "integer", "minimum": 1},
+        "active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "eligible_fact_count": {"type": "integer", "minimum": 0},
+        "eligible_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "reviewed_fact_count": {"type": "integer", "minimum": 0},
+        "reviewed_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "positive_fact_count": {"const": 0},
+        "reviewer_assertion": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
     "query": {
       "type": "object",
       "required": ["query_id", "task_id", "query_source", "query_text", "query_sha256", "task_prompt_sha256", "temporal_cutoff", "null_query", "task_inventory_state", "label_evidence", "judgments"],
@@ -97,10 +125,12 @@
         "hidden_validation_sha256": {"$ref": "#/$defs/sha256"},
         "temporal_cutoff": {"type": "string", "format": "date-time"},
         "null_query": {"type": "boolean"},
+        "null_closure": {"$ref": "#/$defs/nullClosure"},
         "task_inventory_state": {"enum": ["prompt_inspected", "retrieval_probed", "agent_run", "optimization_used"]},
         "label_evidence": {"$ref": "#/$defs/labelEvidence"},
         "judgments": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "object",
             "required": ["fact_id", "fact_sha256", "grade", "eligible", "kind", "cluster_id", "rationale"],

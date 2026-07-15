@@ -1,18 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entire.io/schemas/agent-brain/relevance-label-source-v1.json",
+  "$id": "https://entire.io/schemas/agent-brain/relevance-label-source-v2.json",
   "type": "object",
-  "required": ["schema_version", "dataset_id", "label_set_id", "created_at", "source_corpus", "allowed_inventory_states", "items"],
+  "required": ["schema_version", "dataset_id", "label_set_id", "created_at", "source_corpus", "snapshot_commitment", "allowed_inventory_states", "items"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "dataset_id": {"type": "string", "minLength": 1},
     "label_set_id": {"type": "string", "minLength": 1},
     "created_at": {"type": "string", "format": "date-time"},
     "source_corpus": {
       "type": "object",
-      "required": ["facts_sha256", "session_dates_sha256"],
+      "required": ["facts_sha256", "session_dates_sha256", "active_fact_count", "active_fact_catalog_sha256"],
       "properties": {
         "facts_sha256": {"$ref": "#/$defs/sha256"},
+        "session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "active_fact_count": {"type": "integer", "minimum": 1},
+        "active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "snapshot_commitment": {
+      "type": "object",
+      "required": ["fact_count", "facts_sha256", "session_date_count", "session_dates_sha256"],
+      "properties": {
+        "fact_count": {"type": "integer", "minimum": 1},
+        "facts_sha256": {"$ref": "#/$defs/sha256"},
+        "session_date_count": {"type": "integer", "minimum": 1},
         "session_dates_sha256": {"$ref": "#/$defs/sha256"}
       },
       "additionalProperties": false
@@ -22,6 +35,7 @@
     },
     "items": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["query_id", "task_id", "query_source", "null_query", "label_evidence", "judgments"],
@@ -31,15 +45,17 @@
           "query_source": {"enum": ["user_prompt_derived", "oracle_upper_bound"]},
           "query_text": {"type": "string", "minLength": 1},
           "null_query": {"type": "boolean"},
+          "null_closure": {"$ref": "#/$defs/nullClosure"},
           "label_evidence": {"$ref": "#/$defs/labelEvidence"},
           "judgments": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": ["fact_id", "grade", "cluster_id", "rationale"],
+              "required": ["fact_id", "fact_sha256", "grade", "cluster_id", "rationale"],
               "properties": {
                 "fact_id": {"type": "string", "minLength": 1},
+                "fact_sha256": {"$ref": "#/$defs/sha256"},
                 "grade": {"enum": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"]},
                 "cluster_id": {"type": "string", "minLength": 1},
                 "rationale": {"type": "string", "minLength": 1}
@@ -62,6 +78,26 @@
         "source_id": {"type": "string", "minLength": 1},
         "source_sha256": {"$ref": "#/$defs/sha256"},
         "rationale": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "nullClosure": {
+      "type": "object",
+      "required": ["method", "query_sha256", "temporal_policy_sha256", "source_facts_sha256", "source_session_dates_sha256", "active_fact_count", "active_fact_catalog_sha256", "eligible_fact_count", "eligible_fact_catalog_sha256", "reviewed_fact_count", "reviewed_fact_catalog_sha256", "positive_fact_count", "reviewer_assertion"],
+      "properties": {
+        "method": {"const": "exhaustive_active_corpus_review_v1"},
+        "query_sha256": {"$ref": "#/$defs/sha256"},
+        "temporal_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "source_facts_sha256": {"$ref": "#/$defs/sha256"},
+        "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "active_fact_count": {"type": "integer", "minimum": 1},
+        "active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "eligible_fact_count": {"type": "integer", "minimum": 0},
+        "eligible_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "reviewed_fact_count": {"type": "integer", "minimum": 0},
+        "reviewed_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "positive_fact_count": {"const": 0},
+        "reviewer_assertion": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
     }

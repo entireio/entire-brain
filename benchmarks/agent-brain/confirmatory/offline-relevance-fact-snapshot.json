@@ -1,8 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
   "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
-  "fact_count": 38,
+  "source_active_fact_count": 2531,
+  "source_active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
+  "fact_count": 39,
+  "facts_sha256": "64b52512611a2e82c801169e8ecb6ccd5ca86e6f4b7d605eb7fd4c65207870d1",
   "facts": [
     {
       "id": "fact:0539f87b0bf63eaf40ae9eec",
@@ -755,6 +758,33 @@
       "updated_at": "2026-07-14T10:32:08.351592Z"
     },
     {
+      "id": "fact:c5cb42b0c94c08b5b5b5e1a8",
+      "paths": [
+        "architecture.boundaries.rationale"
+      ],
+      "kind": "decision",
+      "locus": [
+        "<branch>",
+        "entire",
+        "resume"
+      ],
+      "text": "The resume picker is intentionally session-oriented and local-machine-only; remote resume remains branch-oriented via `entire resume <branch>`, while any remote picker should be opt-in and filter checkpoint branches by relevance.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "d7eb2c7b-65ce-4dbe-b20a-285326019897",
+          "checkpoint_id": "dc7a0655039b",
+          "transcript": "sessions/main/20260617T183244Z_claude-code_d7eb2c7b-65ce-4dbe-b20a-285326019897_dc7a0655039b.jsonl",
+          "line": 804
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
       "id": "fact:c9b44a5e5e1678e0a21270d3",
       "paths": [
         "constraints.invariants.general"
@@ -1020,6 +1050,8 @@
       "updated_at": "2026-07-14T10:32:08.351592Z"
     }
   ],
+  "session_date_count": 36,
+  "session_dates_sha256": "0c32e70b86f091c974397c14790bea2ce7b1c8ca75f34ef0b6a6f6cd422ec3aa",
   "session_dates": {
     "019d6e6b-85e7-75a0-81d0-82e45fb1af91": "2026-04-09T11:10:51.268374Z",
     "019d7050-c22a-7f33-96fa-ccb004f5a6aa": "2026-04-09T05:53:33.236656Z",
@@ -1054,6 +1086,7 @@
     "b761d051-f68b-4769-96b5-4497f9f6d6bf": "2026-06-22T20:12:54.738861Z",
     "c3eb3dfd-f856-4fb0-901f-7bae4034e1d7": "2026-04-30T18:49:54.1266Z",
     "d79106a5-a980-46f7-b56d-1c2701ed4a9d": "2026-03-12T11:09:45.806963Z",
+    "d7eb2c7b-65ce-4dbe-b20a-285326019897": "2026-06-17T18:32:44.76513Z",
     "fc308621-5323-4811-94ba-800423e26501": "2026-04-03T21:31:08.097368Z",
     "fd38e13a-eeaa-496f-acc7-03d27ce1b1e7": "2026-02-17T18:29:38.596708Z"
   }

@@ -17,6 +17,25 @@ REPO = HERE.parents[2]
 
 
 class RelevanceDatasetTests(unittest.TestCase):
+    @staticmethod
+    def _refresh_snapshot_commitment(labels_path, snapshot_path, *, refresh_judgment_hashes=False):
+        labels = json.loads(labels_path.read_text())
+        snapshot = json.loads(snapshot_path.read_text())
+        snapshot["fact_count"] = len(snapshot["facts"])
+        snapshot["facts_sha256"] = relevance.sha256_bytes(relevance.canonical_json(snapshot["facts"]))
+        snapshot["session_date_count"] = len(snapshot["session_dates"])
+        snapshot["session_dates_sha256"] = relevance.sha256_bytes(
+            relevance.canonical_json(snapshot["session_dates"])
+        )
+        labels["snapshot_commitment"] = relevance._snapshot_commitment(snapshot)
+        if refresh_judgment_hashes:
+            fact_index = {fact["id"]: fact for fact in snapshot["facts"]}
+            for item in labels["items"]:
+                for judgment in item["judgments"]:
+                    judgment["fact_sha256"] = relevance.fact_sha256(fact_index[judgment["fact_id"]])
+        labels_path.write_text(json.dumps(labels))
+        snapshot_path.write_text(json.dumps(snapshot))
+
     def _fixture(self):
         temporary = tempfile.TemporaryDirectory()
         repo = pathlib.Path(temporary.name)
@@ -51,13 +70,20 @@ class RelevanceDatasetTests(unittest.TestCase):
             {"id": "fact:irrelevant", "kind": "decision", "status": "active", "text": "Use another API.",
              "provenance": [{"session_id": "old"}]},
         ]
+        session_dates = {"old": "2026-01-01T00:00:00Z"}
+        active_catalog_hash = relevance.fact_catalog_sha256(facts)
         snapshot = {
-            "schema_version": 1,
+            "schema_version": relevance.SCHEMA_VERSION,
             "source_facts_sha256": "a" * 64,
             "source_session_dates_sha256": "b" * 64,
+            "source_active_fact_count": len(facts),
+            "source_active_fact_catalog_sha256": active_catalog_hash,
             "fact_count": len(facts),
+            "facts_sha256": relevance.sha256_bytes(relevance.canonical_json(facts)),
             "facts": facts,
-            "session_dates": {"old": "2026-01-01T00:00:00Z"},
+            "session_date_count": len(session_dates),
+            "session_dates_sha256": relevance.sha256_bytes(relevance.canonical_json(session_dates)),
+            "session_dates": session_dates,
         }
         snapshot_path = repo / "snapshot.json"
         snapshot_path.write_text(json.dumps(snapshot))
@@ -67,10 +93,17 @@ class RelevanceDatasetTests(unittest.TestCase):
             "rationale": "Reviewed the fixture.",
         }
         labels = {
-            "schema_version": 1,
+            "schema_version": relevance.SCHEMA_VERSION,
             "dataset_id": "fixture",
+            "label_set_id": "fixture-v2",
             "created_at": "2026-02-02T00:00:00Z",
-            "source_corpus": {"facts_sha256": "a" * 64, "session_dates_sha256": "b" * 64},
+            "source_corpus": {
+                "facts_sha256": "a" * 64,
+                "session_dates_sha256": "b" * 64,
+                "active_fact_count": len(facts),
+                "active_fact_catalog_sha256": active_catalog_hash,
+            },
+            "snapshot_commitment": relevance._snapshot_commitment(snapshot),
             "allowed_inventory_states": list(relevance.SAFE_STATES),
             "items": [
                 {
@@ -109,6 +142,29 @@ class RelevanceDatasetTests(unittest.TestCase):
                     ],
                 },
             ],
+        }
+        fact_index = {fact["id"]: fact for fact in facts}
+        for item in labels["items"]:
+            for judgment in item["judgments"]:
+                judgment["fact_sha256"] = relevance.fact_sha256(fact_index[judgment["fact_id"]])
+        null_item = labels["items"][2]
+        null_item["null_closure"] = {
+            "method": relevance.NULL_CLOSURE_METHOD,
+            "query_sha256": relevance.sha256_text(null_item["query_text"]),
+            "temporal_policy_sha256": relevance.temporal_policy_sha256(
+                config["rolling_cutoff_rfc3339"],
+                config["exclude_session_ids"],
+            ),
+            "source_facts_sha256": "a" * 64,
+            "source_session_dates_sha256": "b" * 64,
+            "active_fact_count": len(facts),
+            "active_fact_catalog_sha256": active_catalog_hash,
+            "eligible_fact_count": len(facts),
+            "eligible_fact_catalog_sha256": active_catalog_hash,
+            "reviewed_fact_count": len(facts),
+            "reviewed_fact_catalog_sha256": active_catalog_hash,
+            "positive_fact_count": 0,
+            "reviewer_assertion": "Every eligible active fixture fact was reviewed for this query.",
         }
         labels_path = repo / "labels.json"
         labels_path.write_text(json.dumps(labels))
@@ -170,6 +226,7 @@ class RelevanceDatasetTests(unittest.TestCase):
         payload = json.loads(snapshot.read_text())
         payload["session_dates"]["old"] = "2026-02-01T00:00:00Z"
         snapshot.write_text(json.dumps(payload))
+        self._refresh_snapshot_commitment(labels, snapshot)
         with self.assertRaisesRegex(relevance.DatasetError, "answerable query has no eligible positive"):
             relevance.materialize(repo, labels, inventory, snapshot)
 
@@ -179,7 +236,42 @@ class RelevanceDatasetTests(unittest.TestCase):
         payload = json.loads(snapshot.read_text())
         payload["facts"][0]["status"] = "superseded"
         snapshot.write_text(json.dumps(payload))
+        self._refresh_snapshot_commitment(labels, snapshot, refresh_judgment_hashes=True)
         with self.assertRaisesRegex(relevance.DatasetError, "only active facts may be judged"):
+            relevance.materialize(repo, labels, inventory, snapshot)
+
+    def test_materialize_rejects_snapshot_fact_tampering_after_commitment_refresh(self):
+        temporary, repo, labels, inventory, snapshot = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        payload = json.loads(snapshot.read_text())
+        payload["facts"][0]["text"] = "Tampered reviewed fact text."
+        snapshot.write_text(json.dumps(payload))
+        self._refresh_snapshot_commitment(labels, snapshot)
+        with self.assertRaisesRegex(relevance.DatasetError, "snapshot fact differs from reviewed fact hash"):
+            relevance.materialize(repo, labels, inventory, snapshot)
+
+    def test_full_source_recheck_rejects_mutated_active_catalog(self):
+        temporary, _repo, labels, _inventory, snapshot = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        label_payload = json.loads(labels.read_text())
+        snapshot_payload = json.loads(snapshot.read_text())
+        snapshot_payload["facts"][0]["text"] = "Mutated full-source fact."
+        with self.assertRaisesRegex(relevance.DatasetError, "active full-corpus fact catalog hash"):
+            relevance.build_snapshot(
+                label_payload,
+                snapshot_payload["facts"],
+                snapshot_payload["session_dates"],
+                "a" * 64,
+                "b" * 64,
+            )
+
+    def test_materialize_rejects_snapshot_date_without_reviewed_commitment(self):
+        temporary, repo, labels, inventory, snapshot = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        payload = json.loads(snapshot.read_text())
+        payload["session_dates"]["old"] = "2025-12-01T00:00:00Z"
+        snapshot.write_text(json.dumps(payload))
+        with self.assertRaisesRegex(relevance.DatasetError, "session_dates commitment is stale"):
             relevance.materialize(repo, labels, inventory, snapshot)
 
     def test_materialize_rejects_product_query_override(self):
@@ -200,6 +292,31 @@ class RelevanceDatasetTests(unittest.TestCase):
         with self.assertRaisesRegex(relevance.DatasetError, "null query has eligible positive"):
             relevance.materialize(repo, labels, inventory, snapshot)
 
+    def test_null_query_requires_exhaustive_active_corpus_closure(self):
+        temporary, repo, labels, inventory, snapshot = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        payload = json.loads(labels.read_text())
+        del payload["items"][2]["null_closure"]
+        labels.write_text(json.dumps(payload))
+        with self.assertRaisesRegex(relevance.DatasetError, "requires exhaustive active-corpus closure"):
+            relevance.materialize(repo, labels, inventory, snapshot)
+
+    def test_null_query_rejects_partial_corpus_review(self):
+        temporary, repo, labels, inventory, snapshot = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        payload = json.loads(labels.read_text())
+        payload["items"][2]["null_closure"]["reviewed_fact_count"] -= 1
+        labels.write_text(json.dumps(payload))
+        with self.assertRaisesRegex(relevance.DatasetError, "did not review every eligible active fact"):
+            relevance.materialize(repo, labels, inventory, snapshot)
+
+    def test_d9df_url_fetch_advice_is_not_labeled_solving(self):
+        labels = relevance.load_json(HERE / "offline-relevance-development-labels.json")
+        item = next(row for row in labels["items"] if row["task_id"] == "entire-cli-c0701-d9df8fcca")
+        grades = {judgment["fact_id"]: judgment["grade"] for judgment in item["judgments"]}
+        self.assertEqual(grades["fact:8325ce8c7c9c08ba273c812f"], "hard_topical_distractor")
+        self.assertEqual(grades["fact:11af406c1bcd1c4994261a6c"], "relevant_alternative")
+
     def test_checked_in_dataset_rebuilds_and_keeps_holdout_unopened(self):
         labels = HERE / "offline-relevance-development-labels.json"
         inventory = HERE / "task-inventory.json"
@@ -210,6 +327,15 @@ class RelevanceDatasetTests(unittest.TestCase):
         relevance.validate_dataset(actual, expected)
         self.assertEqual(actual["development"]["item_count"], 13)
         self.assertEqual(actual["development"]["unique_task_count"], 12)
+        self.assertEqual(actual["development"]["null_query_count"], 0)
+        self.assertEqual(actual["development"]["judgment_count"], 41)
+        schema_errors = relevance.validate_relevance_schemas(
+            relevance.load_json(labels),
+            relevance.load_json(snapshot),
+            actual,
+            HERE / "schemas",
+        )
+        self.assertEqual(schema_errors, [])
         self.assertEqual(actual["sealed_holdout"]["items"], [])
 
 

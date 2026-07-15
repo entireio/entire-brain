@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
-  "dataset_id": "agent-brain-relevance-v1-development",
+  "schema_version": 2,
+  "dataset_id": "agent-brain-relevance-v2-development",
   "status": "draft_pending_labels_and_holdout_seal",
-  "created_at": "2026-07-15T13:45:00+02:00",
+  "created_at": "2026-07-15T14:08:00+02:00",
   "label_policy": {
     "query_sources": [
       "user_prompt_derived",
@@ -14,7 +14,9 @@
       "hard_topical_distractor",
       "irrelevant"
     ],
-    "null_queries_required": true,
+    "null_query_closure_required": true,
+    "null_query_requirement_for_threshold": true,
+    "null_query_coverage_status": "pending_no_corpus_closed_queries",
     "temporal_eligibility_required": true,
     "near_duplicate_cluster_ids_required": true,
     "positive_definition": [
@@ -26,10 +28,11 @@
   "development": {
     "item_count": 13,
     "unique_task_count": 12,
-    "judgment_count": 40,
+    "null_query_count": 0,
+    "judgment_count": 41,
     "grade_counts": {
-      "solving": 5,
-      "relevant_alternative": 7,
+      "solving": 4,
+      "relevant_alternative": 9,
       "hard_topical_distractor": 15,
       "irrelevant": 13
     },
@@ -39,8 +42,12 @@
     },
     "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
     "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
-    "labels_sha256": "be8784672f0e91612c7a254eef7396815cf21ca8522090c9148cb3c39c117ee8",
-    "fact_snapshot_sha256": "88e53a05f7006b8338efc769754c4f01b750d8eb65b425f48889a90af63b53f1",
+    "source_active_fact_count": 2531,
+    "source_active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
+    "snapshot_facts_sha256": "64b52512611a2e82c801169e8ecb6ccd5ca86e6f4b7d605eb7fd4c65207870d1",
+    "snapshot_session_dates_sha256": "0c32e70b86f091c974397c14790bea2ce7b1c8ca75f34ef0b6a6f6cd422ec3aa",
+    "labels_sha256": "7f8ad9f1459038dbbbec6f16f5792559c50b031641be20ec2d15413fd89f7297",
+    "fact_snapshot_sha256": "5baa6c3f54a0042180ac43f148e7f109db8ce033b5f8f3ae56a16f7ca265a201",
     "items": [
       {
         "query_id": "dev-product-4dd458656",
@@ -226,22 +233,31 @@
         ]
       },
       {
-        "query_id": "dev-null-8828752a7",
+        "query_id": "dev-product-8828752a7",
         "task_id": "entire-cli-c0701-8828752a7",
         "query_source": "user_prompt_derived",
         "query_text": "Checkpoint resume auto-detection fails to resume work whose branch only exists on origin: when a target matches no checkpoint, local branch, or commit, it gives up instead of offering to fetch the remote branch. Add a remote-branch fallback, tried only after commit resolution so revision syntax like HEAD isn't misrouted.",
         "query_sha256": "1ea745c4ea50aa1c308d27369b92faf9a0ded4b386dbefe18cf0a11831287d96",
         "task_prompt_sha256": "1ea745c4ea50aa1c308d27369b92faf9a0ded4b386dbefe18cf0a11831287d96",
         "temporal_cutoff": "2026-07-09T14:41:12-07:00",
-        "null_query": true,
+        "null_query": false,
         "task_inventory_state": "agent_run",
         "label_evidence": {
           "type": "legacy_agent_packet",
           "source_id": "opus3-s0/full_brain/r1",
           "source_sha256": "79f3ac6234b284184c9bcda9db60b877fd1764bd1b55a041d8f01d91fd8300f0",
-          "rationale": "All twelve retained packet facts were reviewed; none describes resume auto-detection ordering or fetching a remote-only branch, so this is an observed no-answer case for the frozen corpus."
+          "rationale": "The retained packet contains no direct solution, while exposed full-corpus review found a branch-oriented remote-resume contract that is useful context. Without exhaustive active-corpus closure this query is not labeled null."
         },
         "judgments": [
+          {
+            "fact_id": "fact:c5cb42b0c94c08b5b5b5e1a8",
+            "fact_sha256": "7b4eb04b1480f2a335daef23d46dc6b0a3dc8b0292e985a1bbd2ac31adc12140",
+            "grade": "relevant_alternative",
+            "eligible": true,
+            "kind": "decision",
+            "cluster_id": "cluster:branch-oriented-remote-resume",
+            "rationale": "It establishes that remote resume is branch-oriented via `entire resume <branch>`, useful context for a remote-branch fallback, but does not specify target-resolution ordering or fetching."
+          },
           {
             "fact_id": "fact:fd2481fbb3a8ca7ce9f85e63",
             "fact_sha256": "40aaaabb30726c95e522df47f8033485493685c979d1b536611fe774861c6bd0",
@@ -284,17 +300,17 @@
         "label_evidence": {
           "type": "manual_frozen_corpus_review",
           "source_id": "full-quarantine-084f5170",
-          "rationale": "The exposed prompt and eligible corpus facts contain a direct, independently distilled account of Git's persisted promisor sections and the URL-fetch constraint."
+          "rationale": "The exposed prompt and eligible facts contain the exact synthetic-promisor mechanism, while the named-remote rejection is counterevidence rather than a solution to bulk-fetch participation."
         },
         "judgments": [
           {
             "fact_id": "fact:8325ce8c7c9c08ba273c812f",
             "fact_sha256": "3d61a368808930f8d776e3928c78ae890e4a13a15709a8eebbf7e88f75e03a0e",
-            "grade": "solving",
+            "grade": "hard_topical_distractor",
             "eligible": true,
             "kind": "closed-negative",
             "cluster_id": "cluster:filtered-fetch-config-pollution",
-            "rationale": "It directly prescribes URL-based filtered fetches to avoid named-remote config pollution while retaining filtered retrieval."
+            "rationale": "It rejects named-remote filtered fetches and prescribes URL fetches, but URL fetches create the synthetic promisor entries that this task must exclude from `fetch --all` and `remote update`; it does not solve that behavior."
           },
           {
             "fact_id": "fact:11af406c1bcd1c4994261a6c",
@@ -596,29 +612,29 @@
         ]
       },
       {
-        "query_id": "dev-null-b72a6e621",
+        "query_id": "dev-product-b72a6e621",
         "task_id": "entire-cli-c0701-b72a6e621",
         "query_source": "user_prompt_derived",
         "query_text": "Fanning out code search across mirror placements makes a mirrored repo return the same matches from its home and mirror cells; the merged result list is deduped but the stats are summed, so counts are inflated (for example '6 matches' for 3 unique results) and truncation is falsely reported. Dedupe the per-repo stats and subtract the duplicated portion from the totals, keeping per-cell truncation and zero-match repos intact.",
         "query_sha256": "50a71a50f077ee8ca21ff82e82954604dbe955252979ca04e0af385c0a61d788",
         "task_prompt_sha256": "50a71a50f077ee8ca21ff82e82954604dbe955252979ca04e0af385c0a61d788",
         "temporal_cutoff": "2026-07-08T10:57:44+02:00",
-        "null_query": true,
+        "null_query": false,
         "task_inventory_state": "prompt_inspected",
         "label_evidence": {
           "type": "manual_frozen_corpus_review",
           "source_id": "full-quarantine-084f5170",
-          "rationale": "Eligible-corpus review found no fact about deduplicating mirror-placement search statistics; the nearest facts only share mirror, aggregation, or double-count vocabulary."
+          "rationale": "No retained fact directly solves mirror-placement search statistics, but the corpus contains a cross-domain aggregation decision about eliminating double-counted contributors. Without exhaustive active-corpus closure this query is not labeled null."
         },
         "judgments": [
           {
             "fact_id": "fact:9c39a262ba60f7ed28023b46",
             "fact_sha256": "8c6e698e5ea6bb04de40fdcbc0f1d41d4e8bcd35f3bb6e33c40d216169a3876b",
-            "grade": "hard_topical_distractor",
+            "grade": "relevant_alternative",
             "eligible": true,
             "kind": "decision",
             "cluster_id": "cluster:recap-aggregation-drift",
-            "rationale": "It reports double-counted aggregates, but in recap contributor data rather than mirror-placement code search stats."
+            "rationale": "It records replacing a parallel aggregator because it double-counted contributors and drifted totals, a useful cross-domain alternative for deduplicating aggregate statistics, though it does not specify mirror-cell search accounting."
           },
           {
             "fact_id": "fact:3b0199c75a7f4b613beb6bd8",

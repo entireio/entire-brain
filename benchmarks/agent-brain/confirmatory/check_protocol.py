@@ -23,6 +23,7 @@ if str(HERE) not in sys.path:
 
 import power_analysis  # noqa: E402  (local deterministic companion module)
 import pricing_budget  # noqa: E402  (local deterministic companion module)
+import relevance_dataset  # noqa: E402  (local deterministic companion module)
 
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -60,6 +61,11 @@ GO_NO_GO_IDS = [
     "protocol_content_hash_frozen",
 ]
 ANALYZER_LOCK_ALGORITHM = "sha256_ordered_path_nul_sha256_newline_v1"
+RELEVANCE_ARTIFACTS = {
+    "labels": ("offline-relevance-development-labels.json", "schemas/relevance-label-source.schema.json"),
+    "snapshot": ("offline-relevance-fact-snapshot.json", "schemas/relevance-fact-snapshot.schema.json"),
+    "dataset": ("offline-relevance-dataset.json", "schemas/relevance-dataset.schema.json"),
+}
 
 
 def load(path: pathlib.Path) -> Any:
@@ -840,6 +846,141 @@ def validate_pricing_budget(
     return errors
 
 
+def validate_relevance_bundle(
+    protocol: dict[str, Any],
+    *,
+    here: pathlib.Path = HERE,
+    repo: pathlib.Path = REPO,
+) -> list[str]:
+    """Validate committed relevance sources, schemas, generated output, and versioned hashes."""
+    errors: list[str] = []
+    offline = protocol.get("offline_dataset")
+    if not isinstance(offline, dict):
+        return ["offline_dataset protocol section must be an object"]
+    contract = offline.get("development_artifact_contract")
+    if not isinstance(contract, dict):
+        return ["offline relevance development artifact contract is missing"]
+    _error(errors, contract.get("schema_version") == 1, "relevance artifact contract schema_version must be 1")
+    _error(
+        errors,
+        set(contract) == {"schema_version", "source_corpus", "artifacts"},
+        "relevance artifact contract fields changed",
+    )
+    source_contract = contract.get("source_corpus")
+    expected_source_fields = {
+        "facts_sha256",
+        "session_dates_sha256",
+        "active_fact_count",
+        "active_fact_catalog_sha256",
+    }
+    if not isinstance(source_contract, dict):
+        errors.append("relevance artifact source_corpus must be an object")
+        source_contract = {}
+    else:
+        _error(errors, set(source_contract) == expected_source_fields, "relevance artifact source fields changed")
+    _error(errors, _is_sha256(source_contract.get("facts_sha256")), "relevance source facts hash is invalid")
+    _error(errors, _is_sha256(source_contract.get("session_dates_sha256")), "relevance source session-date hash is invalid")
+    _error(errors, _is_nonnegative_int(source_contract.get("active_fact_count")), "relevance active fact count is invalid")
+    _error(
+        errors,
+        _is_sha256(source_contract.get("active_fact_catalog_sha256")),
+        "relevance active fact catalog hash is invalid",
+    )
+
+    specs = contract.get("artifacts")
+    if not isinstance(specs, dict):
+        errors.append("relevance artifact descriptors must be an object")
+        specs = {}
+    _error(errors, set(specs) == set(RELEVANCE_ARTIFACTS), "relevance artifact roles changed")
+    loaded: dict[str, dict[str, Any]] = {}
+    paths: dict[str, pathlib.Path] = {}
+    for role, (expected_path, expected_schema_path) in RELEVANCE_ARTIFACTS.items():
+        spec = specs.get(role)
+        label = f"relevance {role} artifact"
+        if not isinstance(spec, dict):
+            errors.append(f"{label} descriptor is missing")
+            continue
+        _error(
+            errors,
+            set(spec) == {"path", "sha256", "schema_path", "schema_sha256"},
+            f"{label} descriptor fields changed",
+        )
+        _error(errors, spec.get("path") == expected_path, f"{label} path changed")
+        _error(errors, spec.get("schema_path") == expected_schema_path, f"{label} schema path changed")
+        artifact_path = _safe_relative_path(spec.get("path"), here)
+        schema_path = _safe_relative_path(spec.get("schema_path"), here)
+        if artifact_path is None or not artifact_path.is_file():
+            errors.append(f"{label} path is unsafe or missing")
+        else:
+            paths[role] = artifact_path
+            _error(errors, _is_sha256(spec.get("sha256")), f"{label} hash is invalid")
+            if _is_sha256(spec.get("sha256")):
+                _error(errors, digest(artifact_path) == spec["sha256"], f"{label} content hash mismatch")
+            artifact = _load_artifact(artifact_path, errors, label)
+            if isinstance(artifact, dict):
+                loaded[role] = artifact
+            elif artifact is not None:
+                errors.append(f"{label} must be an object")
+        if schema_path is None or not schema_path.is_file():
+            errors.append(f"{label} schema path is unsafe or missing")
+        else:
+            _error(errors, _is_sha256(spec.get("schema_sha256")), f"{label} schema hash is invalid")
+            if _is_sha256(spec.get("schema_sha256")):
+                _error(errors, digest(schema_path) == spec["schema_sha256"], f"{label} schema content hash mismatch")
+
+    _error(
+        errors,
+        offline.get("path") == RELEVANCE_ARTIFACTS["dataset"][0],
+        "offline relevance dataset path differs from artifact contract",
+    )
+    if set(loaded) == set(RELEVANCE_ARTIFACTS):
+        labels = loaded["labels"]
+        snapshot = loaded["snapshot"]
+        dataset = loaded["dataset"]
+        try:
+            errors.extend(
+                relevance_dataset.validate_relevance_schemas(labels, snapshot, dataset, here / "schemas")
+            )
+            expected = relevance_dataset.materialize(
+                repo.resolve(),
+                paths["labels"],
+                here / "task-inventory.json",
+                paths["snapshot"],
+            )
+            relevance_dataset.validate_dataset(dataset, expected)
+        except relevance_dataset.DatasetError as exc:
+            errors.append(f"relevance source validation failed: {exc}")
+
+        label_source = labels.get("source_corpus") if isinstance(labels.get("source_corpus"), dict) else {}
+        snapshot_source = {
+            "facts_sha256": snapshot.get("source_facts_sha256"),
+            "session_dates_sha256": snapshot.get("source_session_dates_sha256"),
+            "active_fact_count": snapshot.get("source_active_fact_count"),
+            "active_fact_catalog_sha256": snapshot.get("source_active_fact_catalog_sha256"),
+        }
+        development = dataset.get("development") if isinstance(dataset.get("development"), dict) else {}
+        dataset_source = {
+            "facts_sha256": development.get("source_facts_sha256"),
+            "session_dates_sha256": development.get("source_session_dates_sha256"),
+            "active_fact_count": development.get("source_active_fact_count"),
+            "active_fact_catalog_sha256": development.get("source_active_fact_catalog_sha256"),
+        }
+        _error(errors, label_source == source_contract, "relevance labels differ from pinned full-source contract")
+        _error(errors, snapshot_source == source_contract, "relevance snapshot differs from pinned full-source contract")
+        _error(errors, dataset_source == source_contract, "relevance dataset differs from pinned full-source contract")
+        _error(
+            errors,
+            development.get("labels_sha256") == digest(paths["labels"]),
+            "relevance dataset labels hash is stale",
+        )
+        _error(
+            errors,
+            development.get("fact_snapshot_sha256") == digest(paths["snapshot"]),
+            "relevance dataset snapshot hash is stale",
+        )
+    return errors
+
+
 def _validate_query_items(items: Any, label: str) -> tuple[list[str], list[dict[str, Any]]]:
     errors: list[str] = []
     if not isinstance(items, list):
@@ -898,10 +1039,13 @@ def validate_dataset(dataset: dict[str, Any], protocol: dict[str, Any], freeze: 
     errors.extend(dev_errors)
     dev_task_ids = [item.get("task_id") for item in dev_items if isinstance(item.get("task_id"), str)]
     dev_task_count = len(set(dev_task_ids))
+    dev_null_count = sum(item.get("null_query") is True for item in dev_items)
     if "item_count" in development:
         _error(errors, development.get("item_count") == len(dev_items), "development item_count is stale")
     if "unique_task_count" in development:
         _error(errors, development.get("unique_task_count") == dev_task_count, "development unique_task_count is stale")
+    if "null_query_count" in development:
+        _error(errors, development.get("null_query_count") == dev_null_count, "development null_query_count is stale")
 
     sealed = dataset.get("sealed_holdout", {})
     if not isinstance(sealed, dict):
@@ -945,6 +1089,11 @@ def validate_dataset(dataset: dict[str, Any], protocol: dict[str, Any], freeze: 
         offline = protocol.get("offline_dataset", {})
         _error(errors, len(dev_items) >= offline.get("minimum_development_queries", 0), "too few development relevance queries")
         _error(errors, dev_task_count >= offline.get("minimum_development_tasks", 0), "too few development relevance tasks")
+        _error(
+            errors,
+            dev_null_count >= offline.get("minimum_development_null_queries", 0),
+            "too few corpus-closed development null queries",
+        )
         _error(errors, sealed.get("item_count", 0) >= offline.get("minimum_sealed_holdout_queries", 0), "too few sealed relevance queries")
         _error(errors, sealed.get("unique_task_count", 0) >= offline.get("minimum_sealed_holdout_tasks", 0), "too few sealed relevance tasks")
         _error(errors, _is_sha256(sealed.get("commitment_sha256")), "relevance holdout commitment is missing")
@@ -1290,6 +1439,7 @@ def validate(freeze: bool = False) -> list[str]:
     _error(errors, dataset.get("sealed_holdout", {}).get("opened_at") is None, "relevance holdout was opened during preparation")
     gate_errors, checks = validate_gate_evidence(gate)
     errors.extend(gate_errors)
+    errors.extend(validate_relevance_bundle(protocol))
     errors.extend(validate_dataset(dataset, protocol, freeze))
     errors.extend(validate_integration_verification(protocol, checks))
     errors.extend(validate_analyzer_lock(protocol, checks.get("analyzer_hash_frozen", {})))

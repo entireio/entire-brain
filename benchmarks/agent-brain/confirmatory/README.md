@@ -7,10 +7,10 @@ Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 t
 WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
 integrated and verified by content-addressed source and test evidence. An exposed-only offline
 development relevance set now meets the 12-query/12-task count floor, but no three-engine metrics
-have been computed and the relevance holdout remains unopened and empty. Final freeze remains
-blocked on fresh-task validity review, real three-engine records and development threshold, relevance
-holdout sealing, a defensible powered design, and model pricing/budget approval. The confirmatory
-analyzer is implemented and path-locked.
+have been computed, no corpus-closed null query exists, and the relevance holdout remains unopened
+and empty. Final freeze remains blocked on fresh-task validity review, real three-engine records and
+development threshold, null-query coverage, relevance holdout sealing, a defensible powered design,
+and model pricing/budget approval. The confirmatory analyzer is implemented and path-locked.
 
 ## Artifacts
 
@@ -22,7 +22,7 @@ analyzer is implemented and path-locked.
 - `OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md`: counts, contamination boundary, evidence tiers,
   reproducible commands, and exact remaining threshold/holdout blockers.
 - `offline-relevance-development-labels.json`: reviewed exposed-task label source.
-- `offline-relevance-fact-snapshot.json`: content-addressed 38-fact/provenance excerpt of the pinned
+- `offline-relevance-fact-snapshot.json`: content-addressed 39-fact/36-date excerpt of the pinned
   full quarantine, sufficient for offline rebuild and validation.
 - `relevance_dataset.py` and `test_relevance_dataset.py`: exposed-only proposal, snapshot,
   materialization, and fail-closed validation workflow.
@@ -46,7 +46,9 @@ analyzer is implemented and path-locked.
 - `integration-verification.json` and `integration-logs/`: exact WS2-WS5 source commits, content
   hashes, unpaid commands, and captured test outputs for the locked integration commit.
 - `analyzer-lock.json`: path-bound hash of the exact confirmatory analyzer sources and schemas.
-- `check_protocol.py`: offline integrity checker. `--freeze` additionally enforces final-freeze gates.
+- `check_protocol.py`: offline integrity checker. It validates the versioned relevance artifact and
+  schema hashes, applies all three relevance schemas, and rematerializes the dataset. `--freeze`
+  additionally enforces final-freeze gates.
 
 Run the non-paid checks with:
 

@@ -10,6 +10,7 @@ the allowed exposed inventory states.
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import hashlib
 import json
@@ -21,11 +22,12 @@ from collections import Counter
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SAFE_STATES = ("prompt_inspected", "retrieval_probed", "agent_run", "optimization_used")
 GRADES = ("solving", "relevant_alternative", "hard_topical_distractor", "irrelevant")
 QUERY_SOURCES = ("user_prompt_derived", "oracle_upper_bound")
 EVIDENCE_TYPES = ("legacy_agent_packet", "manual_frozen_corpus_review")
+NULL_CLOSURE_METHOD = "exhaustive_active_corpus_review_v1"
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "in", "is",
     "it", "of", "on", "or", "that", "the", "their", "this", "to", "was", "when", "with",
@@ -50,6 +52,33 @@ def canonical_json(value: Any) -> bytes:
 
 def fact_sha256(fact: dict[str, Any]) -> str:
     return sha256_bytes(canonical_json(fact))
+
+
+def fact_catalog_sha256(facts: list[dict[str, Any]]) -> str:
+    records = sorted(
+        ({"fact_id": str(fact.get("id") or ""), "fact_sha256": fact_sha256(fact)} for fact in facts),
+        key=lambda record: record["fact_id"],
+    )
+    if any(not record["fact_id"] for record in records):
+        raise DatasetError("fact catalog contains an empty fact id")
+    if len({record["fact_id"] for record in records}) != len(records):
+        raise DatasetError("fact catalog contains duplicate fact ids")
+    return sha256_bytes(canonical_json(records))
+
+
+def temporal_policy_sha256(cutoff: str, excluded_sessions: list[str]) -> str:
+    return sha256_bytes(canonical_json({
+        "temporal_cutoff": cutoff,
+        "exclude_session_ids": excluded_sessions,
+    }))
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def load_json(path: pathlib.Path) -> Any:
@@ -88,8 +117,8 @@ def _parse_time(value: Any, label: str) -> dt.datetime:
         parsed = dt.datetime.fromisoformat(text)
     except ValueError as exc:
         raise DatasetError(f"{label} is not an RFC3339 timestamp: {value!r}") from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise DatasetError(f"{label} must include an RFC3339 UTC offset: {value!r}")
     return parsed
 
 
@@ -156,26 +185,9 @@ def _task_config(repo: pathlib.Path, inventory_row: dict[str, Any]) -> dict[str,
     return config
 
 
-def build_snapshot(labels: dict[str, Any], facts: list[dict[str, Any]], session_dates: dict[str, str],
-                   facts_source_sha256: str, session_dates_source_sha256: str) -> dict[str, Any]:
-    if labels.get("schema_version") != SCHEMA_VERSION:
-        raise DatasetError("label source schema_version must be 1")
-    expected_source = labels.get("source_corpus")
-    if not isinstance(expected_source, dict):
-        raise DatasetError("label source_corpus must be an object")
-    if expected_source.get("facts_sha256") != facts_source_sha256:
-        raise DatasetError("full fact corpus hash does not match label source")
-    if expected_source.get("session_dates_sha256") != session_dates_source_sha256:
-        raise DatasetError("session date map hash does not match label source")
+def _snapshot_payload(facts: list[dict[str, Any]], session_dates: dict[str, str], wanted: set[str],
+                      facts_source_sha256: str, session_dates_source_sha256: str) -> dict[str, Any]:
     fact_index = _unique_index(facts, "id", "fact corpus")
-    wanted: set[str] = set()
-    for item in labels.get("items") or []:
-        if not isinstance(item, dict):
-            raise DatasetError("label item must be an object")
-        for judgment in item.get("judgments") or []:
-            if not isinstance(judgment, dict):
-                raise DatasetError("judgment must be an object")
-            wanted.add(str(judgment.get("fact_id") or ""))
     missing = sorted(wanted - set(fact_index))
     if missing:
         raise DatasetError(f"labeled fact ids absent from frozen corpus: {missing}")
@@ -186,14 +198,177 @@ def build_snapshot(labels: dict[str, Any], facts: list[dict[str, Any]], session_
         for anchor in (fact.get("provenance") or [])
         if isinstance(anchor, dict) and str(anchor.get("session_id") or "")
     })
+    missing_sessions = sorted(set(provenance_ids) - set(session_dates))
+    if missing_sessions:
+        raise DatasetError(f"labeled facts have provenance absent from the full session-date map: {missing_sessions}")
+    selected_dates = {session_id: session_dates[session_id] for session_id in provenance_ids}
+    active = [fact for fact in facts if fact.get("status") == "active"]
     return {
         "schema_version": SCHEMA_VERSION,
         "source_facts_sha256": facts_source_sha256,
         "source_session_dates_sha256": session_dates_source_sha256,
+        "source_active_fact_count": len(active),
+        "source_active_fact_catalog_sha256": fact_catalog_sha256(active),
         "fact_count": len(selected),
+        "facts_sha256": sha256_bytes(canonical_json(selected)),
         "facts": selected,
-        "session_dates": {session_id: session_dates[session_id] for session_id in provenance_ids if session_id in session_dates},
+        "session_date_count": len(selected_dates),
+        "session_dates_sha256": sha256_bytes(canonical_json(selected_dates)),
+        "session_dates": selected_dates,
     }
+
+
+def _wanted_fact_ids(labels: dict[str, Any]) -> set[str]:
+    wanted: set[str] = set()
+    for item in labels.get("items") or []:
+        if not isinstance(item, dict):
+            raise DatasetError("label item must be an object")
+        for judgment in item.get("judgments") or []:
+            if not isinstance(judgment, dict):
+                raise DatasetError("judgment must be an object")
+            wanted.add(str(judgment.get("fact_id") or ""))
+    if "" in wanted:
+        raise DatasetError("judgment fact_id cannot be empty")
+    return wanted
+
+
+def _snapshot_commitment(snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "fact_count": snapshot["fact_count"],
+        "facts_sha256": snapshot["facts_sha256"],
+        "session_date_count": snapshot["session_date_count"],
+        "session_dates_sha256": snapshot["session_dates_sha256"],
+    }
+
+
+def bind_labels(labels: dict[str, Any], facts: list[dict[str, Any]], session_dates: dict[str, str],
+                facts_source_sha256: str, session_dates_source_sha256: str) -> dict[str, Any]:
+    """Add full-source fact hashes and excerpt commitments without changing judgments."""
+    if labels.get("schema_version") != SCHEMA_VERSION:
+        raise DatasetError(f"label source schema_version must be {SCHEMA_VERSION}")
+    bound = copy.deepcopy(labels)
+    source = bound.get("source_corpus")
+    if not isinstance(source, dict):
+        raise DatasetError("label source_corpus must be an object")
+    if source.get("facts_sha256") != facts_source_sha256:
+        raise DatasetError("full fact corpus hash does not match label source")
+    if source.get("session_dates_sha256") != session_dates_source_sha256:
+        raise DatasetError("session date map hash does not match label source")
+    fact_index = _unique_index(facts, "id", "fact corpus")
+    for item in bound.get("items") or []:
+        if not isinstance(item, dict):
+            raise DatasetError("label item must be an object")
+        for judgment in item.get("judgments") or []:
+            if not isinstance(judgment, dict):
+                raise DatasetError("judgment must be an object")
+            fact_id = str(judgment.get("fact_id") or "")
+            fact = fact_index.get(fact_id)
+            if fact is None:
+                raise DatasetError(f"labeled fact id absent from frozen corpus: {fact_id!r}")
+            judgment["fact_sha256"] = fact_sha256(fact)
+    active = [fact for fact in facts if fact.get("status") == "active"]
+    source["active_fact_count"] = len(active)
+    source["active_fact_catalog_sha256"] = fact_catalog_sha256(active)
+    snapshot = _snapshot_payload(
+        facts,
+        session_dates,
+        _wanted_fact_ids(bound),
+        facts_source_sha256,
+        session_dates_source_sha256,
+    )
+    bound["snapshot_commitment"] = _snapshot_commitment(snapshot)
+    return bound
+
+
+def build_snapshot(labels: dict[str, Any], facts: list[dict[str, Any]], session_dates: dict[str, str],
+                   facts_source_sha256: str, session_dates_source_sha256: str) -> dict[str, Any]:
+    if labels.get("schema_version") != SCHEMA_VERSION:
+        raise DatasetError(f"label source schema_version must be {SCHEMA_VERSION}")
+    expected_source = labels.get("source_corpus")
+    if not isinstance(expected_source, dict):
+        raise DatasetError("label source_corpus must be an object")
+    if expected_source.get("facts_sha256") != facts_source_sha256:
+        raise DatasetError("full fact corpus hash does not match label source")
+    if expected_source.get("session_dates_sha256") != session_dates_source_sha256:
+        raise DatasetError("session date map hash does not match label source")
+    snapshot = _snapshot_payload(
+        facts,
+        session_dates,
+        _wanted_fact_ids(labels),
+        facts_source_sha256,
+        session_dates_source_sha256,
+    )
+    if expected_source.get("active_fact_count") != snapshot["source_active_fact_count"]:
+        raise DatasetError("active full-corpus fact count does not match label source")
+    if expected_source.get("active_fact_catalog_sha256") != snapshot["source_active_fact_catalog_sha256"]:
+        raise DatasetError("active full-corpus fact catalog hash does not match label source")
+    fact_index = _unique_index(facts, "id", "fact corpus")
+    for item in labels.get("items") or []:
+        query_id = str(item.get("query_id") or "")
+        for judgment in item.get("judgments") or []:
+            fact_id = str(judgment.get("fact_id") or "")
+            expected_hash = judgment.get("fact_sha256")
+            if not isinstance(expected_hash, str) or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None:
+                raise DatasetError(f"{query_id}/{fact_id}: reviewed fact_sha256 is missing or invalid")
+            if fact_sha256(fact_index[fact_id]) != expected_hash:
+                raise DatasetError(f"{query_id}/{fact_id}: reviewed fact hash differs from full corpus")
+    if labels.get("snapshot_commitment") != _snapshot_commitment(snapshot):
+        raise DatasetError("label snapshot commitment differs from the pinned full-source excerpt")
+    return snapshot
+
+
+def _validate_null_closure(query_id: str, closure: Any, source: dict[str, Any], query_hash: str,
+                           cutoff: str, excluded_sessions: list[str]) -> None:
+    if not isinstance(closure, dict):
+        raise DatasetError(f"{query_id}: null query requires exhaustive active-corpus closure evidence")
+    required = {
+        "method",
+        "query_sha256",
+        "temporal_policy_sha256",
+        "source_facts_sha256",
+        "source_session_dates_sha256",
+        "active_fact_count",
+        "active_fact_catalog_sha256",
+        "eligible_fact_count",
+        "eligible_fact_catalog_sha256",
+        "reviewed_fact_count",
+        "reviewed_fact_catalog_sha256",
+        "positive_fact_count",
+        "reviewer_assertion",
+    }
+    if set(closure) != required:
+        raise DatasetError(f"{query_id}: null closure fields differ from the exhaustive review contract")
+    if closure.get("method") != NULL_CLOSURE_METHOD:
+        raise DatasetError(f"{query_id}: null closure method is invalid")
+    if closure.get("query_sha256") != query_hash:
+        raise DatasetError(f"{query_id}: null closure query hash differs")
+    expected_policy_hash = temporal_policy_sha256(cutoff, excluded_sessions)
+    if closure.get("temporal_policy_sha256") != expected_policy_hash:
+        raise DatasetError(f"{query_id}: null closure temporal policy hash differs")
+    if closure.get("source_facts_sha256") != source.get("facts_sha256"):
+        raise DatasetError(f"{query_id}: null closure full fact source hash differs")
+    if closure.get("source_session_dates_sha256") != source.get("session_dates_sha256"):
+        raise DatasetError(f"{query_id}: null closure session-date source hash differs")
+    if closure.get("active_fact_count") != source.get("active_fact_count"):
+        raise DatasetError(f"{query_id}: null closure active fact count differs")
+    if closure.get("active_fact_catalog_sha256") != source.get("active_fact_catalog_sha256"):
+        raise DatasetError(f"{query_id}: null closure active catalog hash differs")
+    for field in ("active_fact_count", "eligible_fact_count", "reviewed_fact_count", "positive_fact_count"):
+        if not _is_nonnegative_int(closure.get(field)):
+            raise DatasetError(f"{query_id}: null closure {field} is invalid")
+    for field in ("active_fact_catalog_sha256", "eligible_fact_catalog_sha256", "reviewed_fact_catalog_sha256"):
+        if not _is_sha256(closure.get(field)):
+            raise DatasetError(f"{query_id}: null closure {field} is invalid")
+    if closure["eligible_fact_count"] > closure["active_fact_count"]:
+        raise DatasetError(f"{query_id}: null closure eligible count exceeds active corpus")
+    if closure["reviewed_fact_count"] != closure["eligible_fact_count"]:
+        raise DatasetError(f"{query_id}: null closure did not review every eligible active fact")
+    if closure["reviewed_fact_catalog_sha256"] != closure["eligible_fact_catalog_sha256"]:
+        raise DatasetError(f"{query_id}: null closure reviewed catalog is not the eligible catalog")
+    if closure["positive_fact_count"] != 0:
+        raise DatasetError(f"{query_id}: null closure records positive facts")
+    if not isinstance(closure.get("reviewer_assertion"), str) or not closure["reviewer_assertion"].strip():
+        raise DatasetError(f"{query_id}: null closure reviewer assertion is missing")
 
 
 def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: pathlib.Path,
@@ -201,9 +376,11 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
     labels = load_json(labels_path)
     snapshot = load_json(snapshot_path)
     if not isinstance(labels, dict) or labels.get("schema_version") != SCHEMA_VERSION:
-        raise DatasetError("label source schema_version must be 1")
+        raise DatasetError(f"label source schema_version must be {SCHEMA_VERSION}")
     if not isinstance(snapshot, dict) or snapshot.get("schema_version") != SCHEMA_VERSION:
-        raise DatasetError("fact snapshot schema_version must be 1")
+        raise DatasetError(f"fact snapshot schema_version must be {SCHEMA_VERSION}")
+    if not isinstance(labels.get("label_set_id"), str) or not labels["label_set_id"].strip():
+        raise DatasetError("label_set_id must be a non-empty string")
     source = labels.get("source_corpus")
     if not isinstance(source, dict):
         raise DatasetError("label source_corpus must be an object")
@@ -211,12 +388,24 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
         raise DatasetError("fact snapshot source hash differs from labels")
     if snapshot.get("source_session_dates_sha256") != source.get("session_dates_sha256"):
         raise DatasetError("session-date snapshot source hash differs from labels")
+    if snapshot.get("source_active_fact_count") != source.get("active_fact_count"):
+        raise DatasetError("active full-corpus fact count differs between snapshot and labels")
+    if snapshot.get("source_active_fact_catalog_sha256") != source.get("active_fact_catalog_sha256"):
+        raise DatasetError("active full-corpus fact catalog hash differs between snapshot and labels")
     facts = snapshot.get("facts")
     session_dates = snapshot.get("session_dates")
     if not isinstance(facts, list) or not isinstance(session_dates, dict):
         raise DatasetError("fact snapshot facts/session_dates are malformed")
     if snapshot.get("fact_count") != len(facts):
         raise DatasetError("fact snapshot fact_count is stale")
+    if snapshot.get("session_date_count") != len(session_dates):
+        raise DatasetError("fact snapshot session_date_count is stale")
+    if snapshot.get("facts_sha256") != sha256_bytes(canonical_json(facts)):
+        raise DatasetError("fact snapshot facts commitment is stale")
+    if snapshot.get("session_dates_sha256") != sha256_bytes(canonical_json(session_dates)):
+        raise DatasetError("fact snapshot session_dates commitment is stale")
+    if labels.get("snapshot_commitment") != _snapshot_commitment(snapshot):
+        raise DatasetError("fact snapshot content differs from the reviewed label commitment")
     fact_index = _unique_index(facts, "id", "fact snapshot")
     inventory = _load_inventory(inventory_path)
     allowed_states = labels.get("allowed_inventory_states")
@@ -297,6 +486,11 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
                 raise DatasetError(f"{query_id}: fact absent from content-addressed snapshot: {fact_id}")
             if fact.get("status") != "active":
                 raise DatasetError(f"{query_id}/{fact_id}: only active facts may be judged")
+            reviewed_fact_hash = source_judgment.get("fact_sha256")
+            if not _is_sha256(reviewed_fact_hash):
+                raise DatasetError(f"{query_id}/{fact_id}: reviewed fact_sha256 is missing or invalid")
+            if reviewed_fact_hash != fact_sha256(fact):
+                raise DatasetError(f"{query_id}/{fact_id}: snapshot fact differs from reviewed fact hash")
             grade = source_judgment.get("grade")
             if grade not in GRADES:
                 raise DatasetError(f"{query_id}/{fact_id}: invalid grade")
@@ -309,7 +503,7 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
                 raise DatasetError(f"{query_id}/{fact_id}: fact kind is missing")
             judgments.append({
                 "fact_id": fact_id,
-                "fact_sha256": fact_sha256(fact),
+                "fact_sha256": reviewed_fact_hash,
                 "grade": grade,
                 "eligible": _eligible(fact, {str(k): str(v) for k, v in session_dates.items()}, cutoff, set(excluded)),
                 "kind": kind,
@@ -322,6 +516,10 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
         null_query = source_item.get("null_query")
         if not isinstance(null_query, bool):
             raise DatasetError(f"{query_id}: null_query must be boolean")
+        if null_query:
+            _validate_null_closure(query_id, source_item.get("null_closure"), source, query_hash, cutoff, excluded)
+        elif "null_closure" in source_item:
+            raise DatasetError(f"{query_id}: non-null query cannot carry null closure evidence")
         eligible_positive = [row for row in judgments if row["eligible"] and row["grade"] in {"solving", "relevant_alternative"}]
         if null_query and eligible_positive:
             raise DatasetError(f"{query_id}: null query has eligible positive judgments")
@@ -329,7 +527,7 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
             raise DatasetError(f"{query_id}: answerable query has no eligible positive judgment")
         if not any(row["grade"] == "hard_topical_distractor" for row in judgments):
             raise DatasetError(f"{query_id}: a hard topical distractor judgment is required")
-        items.append({
+        materialized_item = {
             "query_id": query_id,
             "task_id": task_id,
             "query_source": query_source,
@@ -341,12 +539,13 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
             "task_inventory_state": state,
             "label_evidence": evidence,
             "judgments": judgments,
-        })
+        }
+        if null_query:
+            materialized_item["null_closure"] = source_item["null_closure"]
+        items.append(materialized_item)
 
     if not items:
         raise DatasetError("development labels cannot be empty")
-    if not any(item["null_query"] for item in items):
-        raise DatasetError("development labels require at least one null query")
     observed_query_sources = {item["query_source"] for item in items}
     if observed_query_sources != set(QUERY_SOURCES):
         raise DatasetError(f"development labels must cover both query sources: {list(QUERY_SOURCES)!r}")
@@ -359,6 +558,7 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
     created_at = labels.get("created_at")
     _parse_time(created_at, "label created_at")
     task_count = len({item["task_id"] for item in items})
+    null_query_count = sum(item["null_query"] for item in items)
     return {
         "schema_version": SCHEMA_VERSION,
         "dataset_id": dataset_id,
@@ -367,7 +567,11 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
         "label_policy": {
             "query_sources": list(QUERY_SOURCES),
             "required_judgments": list(GRADES),
-            "null_queries_required": True,
+            "null_query_closure_required": True,
+            "null_query_requirement_for_threshold": True,
+            "null_query_coverage_status": (
+                "present_corpus_closed" if null_query_count else "pending_no_corpus_closed_queries"
+            ),
             "temporal_eligibility_required": True,
             "near_duplicate_cluster_ids_required": True,
             "positive_definition": ["solving", "relevant_alternative"],
@@ -376,11 +580,16 @@ def materialize(repo: pathlib.Path, labels_path: pathlib.Path, inventory_path: p
         "development": {
             "item_count": len(items),
             "unique_task_count": task_count,
+            "null_query_count": null_query_count,
             "judgment_count": sum(grade_counts.values()),
             "grade_counts": {grade: grade_counts[grade] for grade in GRADES},
             "evidence_counts": {evidence: evidence_counts[evidence] for evidence in EVIDENCE_TYPES},
             "source_facts_sha256": snapshot["source_facts_sha256"],
             "source_session_dates_sha256": snapshot["source_session_dates_sha256"],
+            "source_active_fact_count": snapshot["source_active_fact_count"],
+            "source_active_fact_catalog_sha256": snapshot["source_active_fact_catalog_sha256"],
+            "snapshot_facts_sha256": snapshot["facts_sha256"],
+            "snapshot_session_dates_sha256": snapshot["session_dates_sha256"],
             "labels_sha256": sha256_bytes(labels_path.read_bytes()),
             "fact_snapshot_sha256": sha256_bytes(snapshot_path.read_bytes()),
             "items": items,
@@ -405,8 +614,6 @@ def validate_dataset(dataset: dict[str, Any], expected: dict[str, Any]) -> None:
     items = development.get("items")
     if not isinstance(items, list):
         raise DatasetError("development items are missing")
-    if not any(item.get("null_query") is True for item in items if isinstance(item, dict)):
-        raise DatasetError("development dataset has no null query")
     sealed = dataset.get("sealed_holdout")
     if sealed != {
         "item_count": 0,
@@ -417,6 +624,125 @@ def validate_dataset(dataset: dict[str, Any], expected: dict[str, Any]) -> None:
         "items": [],
     }:
         raise DatasetError("sealed holdout must remain unopened and empty during development labeling")
+
+
+def _schema_type_matches(value: Any, expected_type: str) -> bool:
+    return {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "boolean": isinstance(value, bool),
+        "null": value is None,
+    }.get(expected_type, False)
+
+
+def validate_schema_instance(value: Any, schema: dict[str, Any], label: str) -> list[str]:
+    """Validate the JSON-Schema subset used by the relevance artifacts."""
+    errors: list[str] = []
+
+    def resolve(reference: str) -> dict[str, Any] | None:
+        if not reference.startswith("#/"):
+            return None
+        current: Any = schema
+        for part in reference[2:].split("/"):
+            if not isinstance(current, dict) or part not in current:
+                return None
+            current = current[part]
+        return current if isinstance(current, dict) else None
+
+    def walk(instance: Any, rule: dict[str, Any], path: str) -> None:
+        reference = rule.get("$ref")
+        if reference is not None:
+            target = resolve(reference) if isinstance(reference, str) else None
+            if target is None:
+                errors.append(f"{label}{path}: unresolved schema reference {reference!r}")
+                return
+            walk(instance, target, path)
+            return
+        if "const" in rule and instance != rule["const"]:
+            errors.append(f"{label}{path}: value differs from schema const")
+        if "enum" in rule and instance not in rule["enum"]:
+            errors.append(f"{label}{path}: value is outside schema enum")
+        expected = rule.get("type")
+        if expected is not None:
+            expected_types = expected if isinstance(expected, list) else [expected]
+            if not all(isinstance(item, str) for item in expected_types) or not any(
+                _schema_type_matches(instance, item) for item in expected_types
+            ):
+                errors.append(f"{label}{path}: value has wrong schema type")
+                return
+        if isinstance(instance, dict):
+            required = rule.get("required", [])
+            if isinstance(required, list):
+                for field in required:
+                    if field not in instance:
+                        errors.append(f"{label}{path}: missing schema-required field {field}")
+            properties = rule.get("properties", {})
+            if not isinstance(properties, dict):
+                properties = {}
+            for field, child in properties.items():
+                if field in instance and isinstance(child, dict):
+                    walk(instance[field], child, f"{path}.{field}")
+            extras = set(instance) - set(properties)
+            additional = rule.get("additionalProperties", True)
+            if additional is False:
+                for field in sorted(extras):
+                    errors.append(f"{label}{path}: schema prohibits field {field}")
+            elif isinstance(additional, dict):
+                for field in sorted(extras):
+                    walk(instance[field], additional, f"{path}.{field}")
+        if isinstance(instance, list):
+            minimum_items = rule.get("minItems")
+            if isinstance(minimum_items, int) and len(instance) < minimum_items:
+                errors.append(f"{label}{path}: array is shorter than schema minItems")
+            if rule.get("uniqueItems") is True:
+                encoded = [canonical_json(item) for item in instance]
+                if len(encoded) != len(set(encoded)):
+                    errors.append(f"{label}{path}: array violates schema uniqueItems")
+            item_rule = rule.get("items")
+            if isinstance(item_rule, dict):
+                for index, item in enumerate(instance):
+                    walk(item, item_rule, f"{path}[{index}]")
+        if isinstance(instance, str):
+            minimum_length = rule.get("minLength")
+            if isinstance(minimum_length, int) and len(instance) < minimum_length:
+                errors.append(f"{label}{path}: string is shorter than schema minLength")
+            pattern = rule.get("pattern")
+            if isinstance(pattern, str) and re.search(pattern, instance) is None:
+                errors.append(f"{label}{path}: string does not match schema pattern")
+            if rule.get("format") == "date-time":
+                try:
+                    _parse_time(instance, f"{label}{path}")
+                except DatasetError as exc:
+                    errors.append(str(exc))
+        minimum = rule.get("minimum")
+        if isinstance(minimum, (int, float)) and isinstance(instance, (int, float)) and not isinstance(instance, bool):
+            if instance < minimum:
+                errors.append(f"{label}{path}: number is below schema minimum")
+
+    walk(value, schema, "$")
+    return errors
+
+
+def validate_relevance_schemas(labels: dict[str, Any], snapshot: dict[str, Any], dataset: dict[str, Any],
+                               schema_dir: pathlib.Path) -> list[str]:
+    errors: list[str] = []
+    artifacts = (
+        (labels, "relevance-label-source.schema.json", "labels"),
+        (snapshot, "relevance-fact-snapshot.schema.json", "snapshot"),
+        (dataset, "relevance-dataset.schema.json", "dataset"),
+    )
+    for artifact, filename, label in artifacts:
+        schema = load_json(schema_dir / filename)
+        if not isinstance(schema, dict):
+            errors.append(f"{filename}: schema must be an object")
+            continue
+        if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+            errors.append(f"{filename}: wrong JSON Schema dialect")
+        errors.extend(validate_schema_instance(artifact, schema, label))
+    return errors
 
 
 def _tokens(text: str) -> set[str]:
@@ -495,6 +821,13 @@ def main() -> int:
     propose_parser.add_argument("--session-dates", type=pathlib.Path, required=True)
     propose_parser.add_argument("--limit", type=int, default=10)
 
+    bind_parser = subparsers.add_parser("bind", help="bind reviewed labels to the full pinned corpus")
+    bind_parser.add_argument("--labels", type=pathlib.Path, required=True)
+    bind_parser.add_argument("--facts", type=pathlib.Path, required=True)
+    bind_parser.add_argument("--session-dates", type=pathlib.Path, required=True)
+    bind_parser.add_argument("--output", type=pathlib.Path, required=True)
+    bind_parser.add_argument("--check", action="store_true")
+
     snapshot_parser = subparsers.add_parser("snapshot", help="extract the labeled fact subset from a pinned full corpus")
     snapshot_parser.add_argument("--labels", type=pathlib.Path, required=True)
     snapshot_parser.add_argument("--facts", type=pathlib.Path, required=True)
@@ -516,11 +849,29 @@ def main() -> int:
     validate_parser.add_argument("--inventory", type=pathlib.Path, required=True)
     validate_parser.add_argument("--snapshot", type=pathlib.Path, required=True)
     validate_parser.add_argument("--dataset", type=pathlib.Path, required=True)
+    validate_parser.add_argument(
+        "--schemas",
+        type=pathlib.Path,
+        default=pathlib.Path(__file__).resolve().with_name("schemas"),
+    )
 
     args = parser.parse_args()
     try:
         if args.command == "propose":
             print(_render(propose(args.repo.resolve(), args.inventory, args.facts, args.session_dates, args.limit)), end="")
+        elif args.command == "bind":
+            labels = load_json(args.labels)
+            sessions = load_json(args.session_dates)
+            if not isinstance(labels, dict) or not isinstance(sessions, dict):
+                raise DatasetError("labels/session dates must be JSON objects")
+            value = bind_labels(
+                labels,
+                load_facts(args.facts),
+                {str(k): str(v) for k, v in sessions.items()},
+                sha256_bytes(args.facts.read_bytes()),
+                sha256_bytes(args.session_dates.read_bytes()),
+            )
+            _write_or_check(args.output, value, args.check)
         elif args.command == "snapshot":
             labels = load_json(args.labels)
             sessions = load_json(args.session_dates)
@@ -543,6 +894,13 @@ def main() -> int:
             if not isinstance(dataset, dict):
                 raise DatasetError("dataset must be an object")
             validate_dataset(dataset, value)
+            labels = load_json(args.labels)
+            snapshot = load_json(args.snapshot)
+            if not isinstance(labels, dict) or not isinstance(snapshot, dict):
+                raise DatasetError("labels/snapshot must be objects")
+            schema_errors = validate_relevance_schemas(labels, snapshot, dataset, args.schemas)
+            if schema_errors:
+                raise DatasetError("schema validation failed: " + "; ".join(schema_errors))
             print(
                 f"relevance development dataset valid: {value['development']['item_count']} queries, "
                 f"{value['development']['unique_task_count']} tasks, "

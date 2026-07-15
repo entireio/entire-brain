@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import shutil
 import tempfile
 import unittest
 
@@ -461,6 +462,71 @@ class ProtocolCheckTest(unittest.TestCase):
         errors = CHECK.validate_dataset(dataset, {"offline_dataset": {}}, freeze=False)
         self.assertIn("development query hashes are not unique strings", errors)
         self.assertIn("plaintext sealed holdout labels are prohibited while unopened", errors)
+
+    def test_relevance_contract_rejects_coordinated_snapshot_and_dataset_mutation(self) -> None:
+        protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temp_raw:
+            temp = pathlib.Path(temp_raw)
+            for name in (
+                "offline-relevance-development-labels.json",
+                "offline-relevance-fact-snapshot.json",
+                "offline-relevance-dataset.json",
+                "task-inventory.json",
+            ):
+                shutil.copy2(HERE / name, temp / name)
+            shutil.copytree(HERE / "schemas", temp / "schemas")
+
+            labels_path = temp / "offline-relevance-development-labels.json"
+            snapshot_path = temp / "offline-relevance-fact-snapshot.json"
+            dataset_path = temp / "offline-relevance-dataset.json"
+            labels = json.loads(labels_path.read_text(encoding="utf-8"))
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            changed_fact = snapshot["facts"][0]
+            changed_fact["text"] += " Coordinated tamper."
+            changed_hash = CHECK.relevance_dataset.fact_sha256(changed_fact)
+            for item in labels["items"]:
+                for judgment in item["judgments"]:
+                    if judgment["fact_id"] == changed_fact["id"]:
+                        judgment["fact_sha256"] = changed_hash
+            snapshot["facts_sha256"] = CHECK.relevance_dataset.sha256_bytes(
+                CHECK.relevance_dataset.canonical_json(snapshot["facts"])
+            )
+            labels["snapshot_commitment"]["facts_sha256"] = snapshot["facts_sha256"]
+            self._write_json(labels_path, labels)
+            self._write_json(snapshot_path, snapshot)
+            regenerated = CHECK.relevance_dataset.materialize(
+                CHECK.REPO,
+                labels_path,
+                temp / "task-inventory.json",
+                snapshot_path,
+            )
+            self._write_json(dataset_path, regenerated)
+
+            errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
+            self.assertIn("relevance labels artifact content hash mismatch", errors)
+            self.assertIn("relevance snapshot artifact content hash mismatch", errors)
+            self.assertIn("relevance dataset artifact content hash mismatch", errors)
+
+    def test_relevance_contract_hashes_and_applies_schemas(self) -> None:
+        protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temp_raw:
+            temp = pathlib.Path(temp_raw)
+            for name in (
+                "offline-relevance-development-labels.json",
+                "offline-relevance-fact-snapshot.json",
+                "offline-relevance-dataset.json",
+                "task-inventory.json",
+            ):
+                shutil.copy2(HERE / name, temp / name)
+            shutil.copytree(HERE / "schemas", temp / "schemas")
+            schema_path = temp / "schemas" / "relevance-label-source.schema.json"
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+            schema["properties"]["schema_version"]["const"] = 999
+            self._write_json(schema_path, schema)
+
+            errors = CHECK.validate_relevance_bundle(protocol, here=temp, repo=CHECK.REPO)
+            self.assertIn("relevance labels artifact schema content hash mismatch", errors)
+            self.assertTrue(any("labels$.schema_version: value differs from schema const" in error for error in errors))
 
     def test_engine_gate_verifies_exact_arms_runtime_state_and_artifact_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
