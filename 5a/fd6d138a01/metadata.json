@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "5afd6d138a01",
+  "strategy": "manual-commit",
+  "branch": "codex/ws6-preregistered-engine-matrix",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/ENGINE-VERIFICATION-RUNBOOK.md",
+    "benchmarks/agent-brain/confirmatory/PREREGISTRATION.md",
+    "benchmarks/agent-brain/confirmatory/README.md",
+    "benchmarks/agent-brain/confirmatory/check_protocol.py",
+    "benchmarks/agent-brain/confirmatory/engine-matrix.json",
+    "benchmarks/agent-brain/confirmatory/go-no-go.json",
+    "benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json",
+    "benchmarks/agent-brain/confirmatory/preregistration.json",
+    "benchmarks/agent-brain/confirmatory/schemas/engine-verification.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/relevance-dataset.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/task-inventory.schema.json",
+    "benchmarks/agent-brain/confirmatory/task-inventory.json",
+    "benchmarks/agent-brain/confirmatory/test_check_protocol.py",
+    "benchmarks/agent-brain/mined-c0701/MANIFEST.md",
+    "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-4dd458656.json",
+    "benchmarks/agent-brain/mined-c0701/selection-ledger.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5a/fd6d138a01/0/metadata.json",
+      "transcript": "/5a/fd6d138a01/0/full.jsonl",
+      "compact_transcript": "/5a/fd6d138a01/0/transcript.jsonl",
+      "content_hash": "/5a/fd6d138a01/0/content_hash.txt",
+      "prompt": "/5a/fd6d138a01/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 187494,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3318016,
+    "output_tokens": 24267,
+    "api_call_count": 36
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "5afd6d138a01",
+  "session_id": "019f64ec-e09e-77b0-a826-f9e972c0a58c",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-15T09:17:13.252274Z",
+  "branch": "codex/ws6-preregistered-engine-matrix",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/ENGINE-VERIFICATION-RUNBOOK.md",
+    "benchmarks/agent-brain/confirmatory/PREREGISTRATION.md",
+    "benchmarks/agent-brain/confirmatory/README.md",
+    "benchmarks/agent-brain/confirmatory/check_protocol.py",
+    "benchmarks/agent-brain/confirmatory/engine-matrix.json",
+    "benchmarks/agent-brain/confirmatory/go-no-go.json",
+    "benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json",
+    "benchmarks/agent-brain/confirmatory/preregistration.json",
+    "benchmarks/agent-brain/confirmatory/schemas/engine-verification.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/relevance-dataset.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/task-inventory.schema.json",
+    "benchmarks/agent-brain/confirmatory/task-inventory.json",
+    "benchmarks/agent-brain/confirmatory/test_check_protocol.py",
+    "benchmarks/agent-brain/mined-c0701/MANIFEST.md",
+    "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-4dd458656.json",
+    "benchmarks/agent-brain/mined-c0701/selection-ledger.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "02ce0cc8c3c4",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 187494,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3318016,
+    "output_tokens": 24267,
+    "api_call_count": 36
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-15T09:17:13.139808Z",
+    "agent_lines": 2262,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 10,
+    "total_committed": 2262,
+    "total_lines_changed": 2272,
+    "agent_percentage": 99.55985915492957,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1900,
+      "agent_lines_removed": 61
+    }
+  ]
+}
