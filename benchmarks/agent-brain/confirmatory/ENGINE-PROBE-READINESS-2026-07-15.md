@@ -69,10 +69,11 @@ environment or accepting caller-defined expected values:
   the protocol checker, and atomically renames it only after all three canonical records pass.
   Failed validation leaves no manifest.
 
-Twenty-eight hermetic wrapper tests pass, including a full synthetic three-arm publication, exact
+Twenty-nine hermetic wrapper tests pass, including a full synthetic three-arm publication, exact
 manifest-shape rejection, production rejection of test-fixture evidence, binary/stdout/vector
 substitution, recursive extra-field rejection, one-vector coverage shrink, inactive/ineligible fact
-delivery, delivered-count drift, NaN/infinity/truncation/trailing vectors, retained-source and
+delivery, delivered-count drift, results above the pin-derived K limit,
+NaN/infinity/truncation/trailing vectors, retained-source and
 derived-facts rehashing, atomic publication failure, live-process health monitoring, recall-overlap
 and timestamp-ordering failures, server PID/phase discontinuity, fallback, input-pin,
 development-query, and endpoint-ownership cases.
