@@ -1,0 +1,178 @@
+{
+  "analysis_kind": "deterministic_data_free_sensitivity",
+  "artifact_id": "agent-brain-confirmatory-power-v1",
+  "conservative_repetition_limit": {
+    "correctness_marginal_power_ceiling": 0.432069,
+    "correctness_task_level_sd_floor": 0.273861,
+    "interpretation": "limit as repetitions per treatment increase; task count remains 24",
+    "repetitions_only_can_meet_both_marginal_targets": false,
+    "token_marginal_power_ceiling": 0.603961,
+    "token_task_level_sd_floor": 0.25
+  },
+  "decision": {
+    "conclusion": "The proposed 24-task x 4-repetition design does not substantiate the declared power target under the conservative planning scenario. Do not mark power_target_met pass.",
+    "passed": false,
+    "rule": "pass only if token and correctness marginal power are each at least 0.80",
+    "scenario": "conservative_planning"
+  },
+  "design_tolerance_at_24_tasks": {
+    "interpretation": "The design can meet the marginal targets only if actual task-level variability is no larger than these thresholds under the planning approximation.",
+    "maximum_task_level_log_ratio_sd_for_80_percent_token_power": 0.203129,
+    "maximum_task_level_pass_rate_difference_sd_for_80_percent_noninferiority_power_at_true_parity": 0.174865
+  },
+  "empirical_variance_used": false,
+  "method": {
+    "correctness": "One-sided normal non-inferiority power for the paired task-level pass-rate difference; repeated Bernoulli variance is inflated by a stated ICC.",
+    "joint_power_caveat": "Endpoint dependence is unspecified. Frechet bounds and an independence sensitivity are reported, but the pass rule uses the two marginal targets.",
+    "multiplicity": "Holm first-step alpha=0.05/2 is used for both retained-vs-control comparisons.",
+    "small_sample_caveat": "The normal approximation does not model discrete correctness outcomes or the exact small-sample bootstrap tails at 24 task clusters; required task counts are sensitivity estimates, not a final design recommendation.",
+    "token": "Two-sided normal power for the paired task-level mean log token ratio; task SD is sqrt(between-task treatment-effect variance + averaged within-attempt variance)."
+  },
+  "paid_runs_performed": false,
+  "protocol_inputs": {
+    "correctness_noninferiority_margin_absolute": -0.1,
+    "endpoint_family_alpha": 0.05,
+    "endpoint_family_comparisons": 2,
+    "holm_worst_case_planning_alpha": 0.025,
+    "power_target": 0.8,
+    "primary_treatments": 3,
+    "repetitions_per_treatment": 4,
+    "requested_cells": 288,
+    "tasks": 24,
+    "token_ratio_alternative": 0.88,
+    "token_reduction_target": 0.12
+  },
+  "scenarios": [
+    {
+      "assumption_basis": "hypothetical planning values; no benchmark outcomes or empirical variance used",
+      "correctness": {
+        "cross_treatment_task_mean_correlation": 0.8,
+        "no_memory_pass_probability": 0.8,
+        "retrieved_memory_pass_probability": 0.8,
+        "within_arm_attempt_icc": 0.05
+      },
+      "description": "Low heterogeneity and strong task pairing; deliberately favorable.",
+      "id": "favorable_high_pairing",
+      "results": {
+        "both_endpoints": {
+          "both_marginal_targets_met": true,
+          "joint_power_frechet_lower_bound": 0.947878,
+          "joint_power_frechet_upper_bound": 0.950693,
+          "joint_power_if_independent_sensitivity_only": 0.948017,
+          "maximum_calls_with_10_percent_reserve": 199,
+          "minimum_tasks_for_both_marginal_targets_at_4_repetitions": 15,
+          "requested_cells_at_that_task_count": 180
+        },
+        "correctness_noninferiority": {
+          "marginal_power": 0.950693,
+          "minimum_tasks_at_4_repetitions": 15,
+          "standard_error": 0.027689,
+          "target_met": true,
+          "task_level_pass_rate_difference_sd": 0.135647,
+          "true_difference": 0.0
+        },
+        "token": {
+          "marginal_power": 0.997185,
+          "minimum_tasks_at_4_repetitions": 10,
+          "standard_error": 0.025516,
+          "target_met": true,
+          "task_level_log_ratio_sd": 0.125
+        }
+      },
+      "role": "sensitivity_only",
+      "token": {
+        "between_task_log_ratio_sd": 0.1,
+        "cross_treatment_residual_correlation": 0.5,
+        "within_attempt_log_token_sd": 0.15
+      }
+    },
+    {
+      "assumption_basis": "hypothetical planning values; no benchmark outcomes or empirical variance used",
+      "correctness": {
+        "cross_treatment_task_mean_correlation": 0.0,
+        "no_memory_pass_probability": 0.75,
+        "retrieved_memory_pass_probability": 0.75,
+        "within_arm_attempt_icc": 0.2
+      },
+      "description": "Material task heterogeneity, moderate repeated-attempt clustering, and no assumed cross-treatment pairing benefit.",
+      "id": "conservative_planning",
+      "results": {
+        "both_endpoints": {
+          "both_marginal_targets_met": false,
+          "joint_power_frechet_lower_bound": 0.0,
+          "joint_power_frechet_upper_bound": 0.243511,
+          "joint_power_if_independent_sensitivity_only": 0.09015,
+          "maximum_calls_with_10_percent_reserve": 1558,
+          "minimum_tasks_for_both_marginal_targets_at_4_repetitions": 118,
+          "requested_cells_at_that_task_count": 1416
+        },
+        "correctness_noninferiority": {
+          "marginal_power": 0.243511,
+          "minimum_tasks_at_4_repetitions": 118,
+          "standard_error": 0.079057,
+          "target_met": false,
+          "task_level_pass_rate_difference_sd": 0.387298,
+          "true_difference": 0.0
+        },
+        "token": {
+          "marginal_power": 0.370207,
+          "minimum_tasks_at_4_repetitions": 63,
+          "standard_error": 0.066927,
+          "target_met": false,
+          "task_level_log_ratio_sd": 0.327872
+        }
+      },
+      "role": "decision_scenario",
+      "token": {
+        "between_task_log_ratio_sd": 0.25,
+        "cross_treatment_residual_correlation": 0.0,
+        "within_attempt_log_token_sd": 0.3
+      }
+    },
+    {
+      "assumption_basis": "hypothetical planning values; no benchmark outcomes or empirical variance used",
+      "correctness": {
+        "cross_treatment_task_mean_correlation": 0.0,
+        "no_memory_pass_probability": 0.6,
+        "retrieved_memory_pass_probability": 0.57,
+        "within_arm_attempt_icc": 0.3
+      },
+      "description": "Higher heterogeneity and a true correctness difference of -0.03, still inside the -0.10 margin.",
+      "id": "stress_lower_correctness",
+      "results": {
+        "both_endpoints": {
+          "both_marginal_targets_met": false,
+          "joint_power_frechet_lower_bound": 0.0,
+          "joint_power_frechet_upper_bound": 0.106462,
+          "joint_power_if_independent_sensitivity_only": 0.021067,
+          "maximum_calls_with_10_percent_reserve": 4884,
+          "minimum_tasks_for_both_marginal_targets_at_4_repetitions": 370,
+          "requested_cells_at_that_task_count": 4440
+        },
+        "correctness_noninferiority": {
+          "marginal_power": 0.106462,
+          "minimum_tasks_at_4_repetitions": 370,
+          "standard_error": 0.097984,
+          "target_met": false,
+          "task_level_pass_rate_difference_sd": 0.480023,
+          "true_difference": -0.03
+        },
+        "token": {
+          "marginal_power": 0.197878,
+          "minimum_tasks_at_4_repetitions": 118,
+          "standard_error": 0.091856,
+          "target_met": false,
+          "task_level_log_ratio_sd": 0.45
+        }
+      },
+      "role": "sensitivity_only",
+      "token": {
+        "between_task_log_ratio_sd": 0.35,
+        "cross_treatment_residual_correlation": 0.0,
+        "within_attempt_log_token_sd": 0.4
+      }
+    }
+  ],
+  "schema_version": 1,
+  "status": "fail"
+}
