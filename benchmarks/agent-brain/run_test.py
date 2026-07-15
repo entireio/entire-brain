@@ -120,6 +120,8 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
             suite = results / "resume-suite"
             suite.mkdir()
             (suite / "schedule.json").write_text(run.canonical_json_text(schedule))
+            harness_evidence = {"commit": "a" * 40, "dirty": False, "confirmatory_eligible": True}
+            (suite / "harness-evidence.json").write_text(run.canonical_json_text(harness_evidence))
             interrupted = schedule["cells"][0]
             run.append_actual_order(suite, {
                 "event": "started", "run_id": interrupted["run_id"],
@@ -140,10 +142,16 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
 
             controls = {"cache_policy": "isolated_per_cell", "host_context": {}}
             with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "git_dirty_metadata", return_value={"dirty": False}), \
+                 mock.patch.object(run, "prepare_harness_evidence", return_value=harness_evidence), \
                  mock.patch.object(run, "prepare_runtime_controls", return_value=({}, controls)), \
                  mock.patch.object(run, "build_tools", return_value={}), \
                  mock.patch.object(run, "run_one", side_effect=fake_run_one), \
-                 mock.patch.object(run, "summarize", return_value={"ok": True}):
+                 mock.patch.object(run, "summarize", return_value={"ok": True}), \
+                 mock.patch.object(run, "runner_cli_versions", return_value={}), \
+                 mock.patch.object(run, "finalize_suite_manifest"), \
+                 mock.patch.object(run, "verify_bundle", return_value={"ok": True, "errors": []}), \
+                 mock.patch.object(run, "render_evidence_markdown", return_value=""):
                 self.assertEqual(run.cmd_run(args), 0)
 
             self.assertNotIn(interrupted["run_id"], executed)
@@ -180,11 +188,49 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                 return run.RunResult(record={"run_id": run_id, "ok": True, "score": {"total": 1}}, run_dir=suite / run_id)
 
             with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "git_dirty_metadata", return_value={"dirty": False}), \
+                 mock.patch.object(
+                     run,
+                     "prepare_harness_evidence",
+                     return_value={"commit": "a" * 40, "dirty": False, "confirmatory_eligible": True},
+                 ), \
                  mock.patch.object(run, "prepare_runtime_controls", side_effect=assert_schedule_before_setup), \
                  mock.patch.object(run, "build_tools", return_value={}), \
                  mock.patch.object(run, "run_one", side_effect=assert_schedule_before_agent), \
-                 mock.patch.object(run, "summarize", return_value={}):
+                 mock.patch.object(run, "summarize", return_value={}), \
+                 mock.patch.object(run, "runner_cli_versions", return_value={}), \
+                 mock.patch.object(run, "finalize_suite_manifest"), \
+                 mock.patch.object(run, "verify_bundle", return_value={"ok": True, "errors": []}), \
+                 mock.patch.object(run, "render_evidence_markdown", return_value=""):
                 self.assertEqual(run.cmd_run(args), 0)
+
+    def test_resume_rejects_changed_harness_identity_before_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            results = root / "results"
+            results.mkdir()
+            task_path = root / "task.json"
+            task_path.write_text(json.dumps(self._task(conditions=["a"])))
+            suite = results / "resume-suite"
+            suite.mkdir()
+            (suite / "harness-evidence.json").write_text(
+                run.canonical_json_text({"commit": "a" * 40, "dirty": False})
+            )
+            args = argparse.Namespace(
+                tasks=[str(task_path)], runners="", agents="codex", conditions="a",
+                repetitions=1, schedule_seed=0, order_policy="counterbalanced",
+                cache_policy="isolated_per_cell", suite_name="resume-suite", resume=True,
+                pricing_file=None, pricing_json=None,
+            )
+            with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "git_dirty_metadata", return_value={"dirty": False}), \
+                 mock.patch.object(
+                     run,
+                     "prepare_harness_evidence",
+                     return_value={"commit": "b" * 40, "dirty": False},
+                 ):
+                with self.assertRaisesRegex(RuntimeError, "harness identity"):
+                    run.cmd_run(args)
 
 AUDIT_PATH = pathlib.Path(__file__).with_name("audit_codex.py")
 AUDIT_SPEC = importlib.util.spec_from_file_location("agent_brain_audit", AUDIT_PATH)
@@ -6142,6 +6188,41 @@ class EvidenceManifestTests(unittest.TestCase):
         infra["analysis_excluded"] = {"reason": "harness_infrastructure_error"}
         self.assertFalse(is_executed_run(infra))
 
+    def test_treatment_packet_and_temporal_audit_flow_into_run_manifest(self):
+        from analysis.evidence import build_run_manifest
+
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = pathlib.Path(tmp)
+            record = self._record(run_id="task__runner__full_brain__r1", validation_ok=True)
+            record["condition"] = "full_brain"
+            record["treatment"] = {"arm": "retrieved_memory", "query_source": "user_query"}
+            record["retrieval_query_source"] = "user_query"
+            packet_text = '{"results":[{"id":"fact-1","kind":"invariant","text":"x"}]}'
+            packet_bytes = packet_text.encode()
+            record["packet_artifact"] = {
+                "path": "packet.txt",
+                "sha256": hashlib.sha256(packet_bytes).hexdigest(),
+                "bytes": len(packet_bytes),
+                "fact_ids": ["fact-1"],
+                "fact_count": 1,
+                "temporal_eligibility": {
+                    "prefilter_corpus_count": 10,
+                    "eligible_count": 7,
+                    "excluded_counts": {"at_or_after_cutoff": 3},
+                    "delivered_count": 1,
+                    "query_count": 1,
+                },
+            }
+            run_dir = suite / record["run_id"]
+            run_dir.mkdir()
+            (run_dir / "packet.txt").write_text(packet_text)
+            manifest = build_run_manifest(record, run_dir, suite)
+            self.assertTrue(manifest["packet"]["recorded_matches_file"])
+            self.assertEqual(manifest["packet"]["query_source_class"], "user_query")
+            self.assertEqual(manifest["temporal_eligibility"]["eligible_count"], 7)
+            self.assertEqual(manifest["retrieval_evidence"]["treatment_arm"], "retrieved_memory")
+            self.assertEqual(manifest["retrieval_evidence"]["packet_sha256"], hashlib.sha256(packet_bytes).hexdigest())
+
     def test_portable_bundle_verifies_recomputes_and_detects_prompt_tampering(self):
         from analysis.evidence import finalize_suite_manifest, verify_bundle, write_run_manifest
 
@@ -6158,6 +6239,12 @@ class EvidenceManifestTests(unittest.TestCase):
             (run_dir / "agent.stdout").write_text("output")
             (run_dir / "agent.stderr").write_text("")
             (suite / "records.ndjson").write_text(json.dumps(record, sort_keys=True) + "\n")
+            (suite / "schedule.json").write_text('{"schedule_sha256":"schedule"}\n')
+            (suite / "actual-order.ndjson").write_text('{"event":"finished"}\n')
+            (suite / "schedule-state.json").write_text('{"recorded_cell_count":1}\n')
+            (suite / "runtime-controls.json").write_text('{"cache_policy":"isolated_per_cell"}\n')
+            (suite / "prompt-snapshots.json").write_text('{"schema_version":1,"tasks":{}}\n')
+            (suite / "harness-evidence.json").write_text('{"commit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}\n')
             task_path = root / "task.json"
             task_path.write_text(json.dumps({"id": "task", "validation_files": []}))
             task = {"id": "task", "_path": str(task_path), "validation_files": []}
@@ -6186,6 +6273,7 @@ class EvidenceManifestTests(unittest.TestCase):
             task_artifact = next(item for item in manifest["inputs"] if item["role"] == "task_config")
             binary_artifact = next(item for item in manifest["inputs"] if item["role"] == "binary:brain")
             analyzer_artifact = manifest["analyzer"]["artifacts"][0]
+            schedule_artifact = next(item for item in manifest["suite_artifacts"] if item["role"] == "planned_schedule")
             targets = [
                 moved / record["run_id"] / "prompt.txt",
                 moved / record["run_id"] / "packet.txt",
@@ -6193,6 +6281,7 @@ class EvidenceManifestTests(unittest.TestCase):
                 moved / task_artifact["path"],
                 moved / binary_artifact["path"],
                 moved / analyzer_artifact["path"],
+                moved / schedule_artifact["path"],
             ]
             for target in targets:
                 original = target.read_bytes()

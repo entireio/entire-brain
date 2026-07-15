@@ -22,6 +22,11 @@ def _number(record: dict[str, Any], *path: str) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def _primary_duration(record: dict[str, Any]) -> float | None:
+    measured = _number(record, "timing", "harness_agent_interval_wall_seconds")
+    return measured if measured is not None else _number(record, "agent_info", "seconds")
+
+
 def headline_table(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate all executed attempts by task/runner/delivery/condition."""
     groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -42,7 +47,7 @@ def headline_table(records: list[dict[str, Any]]) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     for (task_id, runner_id, delivery_mode, condition), arm in sorted(groups.items()):
         tokens = [value for record in arm if (value := _number(record, "agent_info", "usage", "total_tokens")) is not None]
-        seconds = [value for record in arm if (value := _number(record, "agent_info", "seconds")) is not None]
+        seconds = [value for record in arm if (value := _primary_duration(record)) is not None]
         passed = sum(bool((record.get("validation") or {}).get("ok")) for record in arm)
         rows.append(
             {
@@ -56,6 +61,7 @@ def headline_table(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "token_denominator": len(tokens),
                 "mean_total_tokens_all_executed_with_measurement": statistics.fmean(tokens) if tokens else None,
                 "duration_denominator": len(seconds),
+                "duration_metric": "harness_agent_interval_wall_seconds_with_legacy_agent_info_fallback",
                 "mean_agent_seconds_all_executed_with_measurement": statistics.fmean(seconds) if seconds else None,
             }
         )

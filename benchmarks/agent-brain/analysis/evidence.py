@@ -83,6 +83,9 @@ def validate_run_manifest(value: dict[str, Any]) -> list[str]:
             errors.append(f"run manifest missing {key}")
     if not isinstance(value.get("artifacts"), list):
         errors.append("run manifest artifacts must be a list")
+    packet = value.get("packet")
+    if isinstance(packet, dict) and packet.get("present") and packet.get("recorded_matches_file") is False:
+        errors.append("run manifest packet does not match recorded packet provenance")
     return errors
 
 
@@ -105,26 +108,62 @@ def packet_details(packet_path: pathlib.Path | None, record: dict[str, Any]) -> 
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
     delivery = record.get("memory_delivery") if isinstance(record.get("memory_delivery"), dict) else {}
+    recorded = record.get("packet_artifact") if isinstance(record.get("packet_artifact"), dict) else {}
+    treatment = record.get("treatment") if isinstance(record.get("treatment"), dict) else {}
+    digest = sha256_bytes(data)
+    recorded_ids = recorded.get("fact_ids") if isinstance(recorded.get("fact_ids"), list) else None
+    recorded_matches = (
+        recorded.get("sha256") in (None, digest)
+        and recorded.get("bytes") in (None, len(data))
+        and (recorded_ids is None or [str(item) for item in recorded_ids] == fact_ids)
+    )
     return {
         "present": True,
         "bytes": len(data),
-        "sha256": sha256_bytes(data),
+        "sha256": digest,
         "fact_ids": fact_ids,
         "kinds": kinds,
-        "query_source_class": delivery.get("query_source_class") or "legacy_brain_queries",
+        "query_source_class": (
+            record.get("retrieval_query_source")
+            or delivery.get("query_source_class")
+            or "legacy_brain_queries"
+        ),
+        "treatment_arm": treatment.get("arm"),
+        "recorded_matches_file": recorded_matches,
     }
 
 
+def temporal_eligibility_evidence(record: dict[str, Any]) -> dict[str, Any] | None:
+    delivery = record.get("memory_delivery") if isinstance(record.get("memory_delivery"), dict) else {}
+    packet = record.get("packet_artifact") if isinstance(record.get("packet_artifact"), dict) else {}
+    prep = record.get("brain_prep") if isinstance(record.get("brain_prep"), dict) else {}
+    for candidate in (
+        packet.get("temporal_eligibility"),
+        delivery.get("temporal_eligibility"),
+        prep.get("temporal_eligibility"),
+    ):
+        if isinstance(candidate, dict):
+            return candidate
+    return None
+
+
 def retrieval_arm_evidence(record: dict[str, Any]) -> dict[str, Any] | None:
-    delivery = record.get("memory_delivery")
-    if not isinstance(delivery, dict):
+    delivery = record.get("memory_delivery") if isinstance(record.get("memory_delivery"), dict) else {}
+    packet = record.get("packet_artifact") if isinstance(record.get("packet_artifact"), dict) else {}
+    treatment = record.get("treatment") if isinstance(record.get("treatment"), dict) else {}
+    if not delivery and not packet and not treatment:
         return None
     sources = delivery.get("sources") if isinstance(delivery.get("sources"), dict) else {}
     retrieval = delivery.get("retrieval") if isinstance(delivery.get("retrieval"), dict) else {}
     engine = retrieval.get("engine") if isinstance(retrieval.get("engine"), dict) else {}
-    eligibility = delivery.get("temporal_eligibility") if isinstance(delivery.get("temporal_eligibility"), dict) else {}
-    return {
+    eligibility = temporal_eligibility_evidence(record) or {}
+    evidence = {
         "condition": record.get("condition"),
+        "treatment_arm": treatment.get("arm"),
+        "query_source_class": record.get("retrieval_query_source") or delivery.get("query_source_class"),
+        "packet_sha256": packet.get("sha256") or (retrieval.get("packet") or {}).get("sha256"),
+        "packet_fact_ids": packet.get("fact_ids") or [],
+        "packet_fact_count": packet.get("fact_count"),
         "frozen_root_logical_id": sources.get("source_cache_key") or sources.get("prep_cache_key"),
         "facts_file_sha256": sources.get("facts_file_sha256"),
         "fact_artifact_sha256": sources.get("fact_artifact_sha256") or [],
@@ -139,8 +178,17 @@ def retrieval_arm_evidence(record: dict[str, Any]) -> dict[str, Any] | None:
         "eligible_count": eligibility.get("eligible_count"),
         "excluded_counts": eligibility.get("excluded_counts"),
         "delivered_count": eligibility.get("delivered_count") or (retrieval.get("packet") or {}).get("delivered_result_count"),
-        "raw_delivery_sha256": sha256_bytes(json.dumps(delivery, sort_keys=True, separators=(",", ":")).encode()),
     }
+    raw = {
+        "delivery": delivery,
+        "packet_artifact": packet,
+        "retrieval_query_source": record.get("retrieval_query_source"),
+        "treatment": treatment,
+    }
+    evidence["raw_delivery_sha256"] = sha256_bytes(
+        json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()
+    )
+    return evidence
 
 
 def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir: pathlib.Path) -> dict[str, Any]:
@@ -157,12 +205,23 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         if path.exists():
             artifacts.append(artifact(path, suite_dir, role=role))
     prompt = run_dir / "prompt.txt"
-    packet = run_dir / "packet.txt"
+    packet_artifact = record.get("packet_artifact") if isinstance(record.get("packet_artifact"), dict) else {}
+    packet_name = packet_artifact.get("path") or "packet.txt"
+    packet = run_dir / str(packet_name)
+    try:
+        packet.resolve().relative_to(run_dir.resolve())
+    except ValueError as exc:
+        raise ValueError(f"packet artifact escapes run directory: {packet_name}") from exc
     agent_info = record.get("agent_info") if isinstance(record.get("agent_info"), dict) else {}
     usage = agent_info.get("usage") if isinstance(agent_info.get("usage"), dict) else {}
     validation = record.get("validation") if isinstance(record.get("validation"), dict) else {}
     provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
     tools = provenance.get("tools") if isinstance(provenance.get("tools"), dict) else {}
+    timing = record.get("timing") if isinstance(record.get("timing"), dict) else {}
+    primary_duration = timing.get("harness_agent_interval_wall_seconds")
+    if not isinstance(primary_duration, (int, float)):
+        primary_duration = agent_info.get("seconds")
+    retrieval_evidence = retrieval_arm_evidence(record)
     return {
         "schema": RUN_SCHEMA,
         "run_id": record.get("run_id"),
@@ -176,12 +235,13 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         "executed": is_executed_run(record),
         "prompt_sha256": sha256_file(prompt) if prompt.exists() else None,
         "packet": packet_details(packet if packet.exists() else None, record),
-        "temporal_eligibility": (record.get("memory_delivery") or {}).get("temporal_eligibility"),
-        "retrieval_evidence": record.get("memory_delivery"),
+        "temporal_eligibility": temporal_eligibility_evidence(record),
+        "retrieval_evidence": retrieval_evidence,
         "binary_hashes": {name: item.get("sha256") for name, item in sorted(tools.items()) if isinstance(item, dict)},
         "execution_gate": {
             "agent_ran": record.get("agent_ran"),
-            "duration_seconds": agent_info.get("seconds"),
+            "duration_seconds": primary_duration,
+            "agent_reported_seconds": agent_info.get("seconds"),
             "total_tokens": usage.get("total_tokens"),
             "error": record.get("error"),
             "return_code": agent_info.get("returncode"),
@@ -190,7 +250,12 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         },
         "patch_sha256": (record.get("patch_artifact") or {}).get("sha256"),
         "result_sha256": hashlib.sha256(json.dumps(record, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
-        "raw_metrics": {"score": record.get("score"), "usage": usage, "duration_seconds": agent_info.get("seconds")},
+        "raw_metrics": {
+            "score": record.get("score"),
+            "usage": usage,
+            "duration_seconds": primary_duration,
+            "timing": timing,
+        },
         "artifacts": artifacts,
     }
 
@@ -349,6 +414,19 @@ def finalize_suite_manifest(
         relative = pathlib.Path(str(record["run_id"])) / "evidence-manifest.json"
         runs.append({"run_id": record["run_id"], "manifest": relative.as_posix()})
     analyzers = analyzer_artifacts(analysis_dir, suite_dir)
+    suite_artifacts = []
+    for name, role in (
+        ("schedule.json", "planned_schedule"),
+        ("actual-order.ndjson", "actual_execution_order"),
+        ("schedule-state.json", "schedule_state"),
+        ("runtime-controls.json", "runtime_controls"),
+        ("prompt-snapshots.json", "treatment_prompt_snapshots"),
+        ("harness-evidence.json", "harness_identity"),
+        ("harness.patch", "harness_patch"),
+    ):
+        path = suite_dir / name
+        if path.is_file():
+            suite_artifacts.append(artifact(path, suite_dir, role=role))
     runtime = []
     retrieval = []
     sources = []
@@ -359,6 +437,8 @@ def finalize_suite_manifest(
                 "runner": record.get("runner"),
                 "resolved_model": agent_info.get("resolved_model"),
                 "isolation": agent_info.get("isolation"),
+                "timing": record.get("timing"),
+                "runtime_controls": record.get("runtime_controls"),
             }
         )
         arm_evidence = retrieval_arm_evidence(record)
@@ -387,6 +467,7 @@ def finalize_suite_manifest(
         "source_repositories": unique(sources),
         "runtime": unique(runtime),
         "retrieval_arms": unique(retrieval),
+        "suite_artifacts": suite_artifacts,
         "inputs": inputs,
         "analyzer": {
             "predicate_version": EXECUTED_RUN_PREDICATE_VERSION,

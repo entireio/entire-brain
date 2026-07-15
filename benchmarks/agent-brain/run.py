@@ -1039,7 +1039,9 @@ def capture_git_patch(repo: pathlib.Path) -> str:
     return "".join(parts)
 
 
-def prepare_harness_evidence(suite_dir: pathlib.Path, allow_dirty: bool) -> dict[str, Any]:
+def prepare_harness_evidence(
+    suite_dir: pathlib.Path, allow_dirty: bool, *, write_patch: bool = True
+) -> dict[str, Any]:
     dirty = git_dirty_metadata(ROOT)
     if not dirty.get("available"):
         raise RuntimeError("cannot determine harness dirty status")
@@ -1059,7 +1061,8 @@ def prepare_harness_evidence(suite_dir: pathlib.Path, allow_dirty: bool) -> dict
             )
         patch = capture_git_patch(ROOT)
         patch_path = suite_dir / "harness.patch"
-        patch_path.write_text(patch)
+        if write_patch:
+            patch_path.write_text(patch)
         result.update(
             {
                 "confirmatory_eligible": False,
@@ -4939,9 +4942,8 @@ def run_one(
             memory_packet, packet_artifact = treatment_memory_packet(task, condition, worktree, tools)
             record["packet_artifact"] = {"path": None, **packet_artifact}
             if memory_packet is not None:
-                (run_dir / "memory-packet.json").write_text(memory_packet)
                 (run_dir / "packet.txt").write_text(memory_packet)
-                record["packet_artifact"]["path"] = "memory-packet.json"
+                record["packet_artifact"]["path"] = "packet.txt"
         # frozen_brief arms have no worktree brain (see prepare_brain short-circuit); their
         # readiness is verified via the delivered frozen packet, not a worktree manifest.
         needs_worktree_brain = condition != "no_brain" and not uses_frozen_brain_delivery(task)
@@ -4990,6 +4992,10 @@ def run_one(
             pricing,
             agent_retries=getattr(args, "agent_retries", 0),
         )
+        # Preserve raw execution metrics before any post-agent integrity check can fail.
+        # Executed failures remain in the primary denominators, so their usage and timing
+        # must survive even if a later audit raises.
+        record["agent_info"] = agent_info
         agent_interval_wall_seconds = time.monotonic() - agent_interval_started
         # The agent ran and produced output. A failure past this point (an integrity
         # abort, or a validation/scoring error) is a REAL condition outcome scored 0,
@@ -5435,6 +5441,18 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             passed = sum(1 for rec in recs if isinstance(rec.get("validation"), dict) and rec["validation"].get("ok"))
             return passed / len(recs)
 
+        def primary_duration_values(recs: list[dict[str, Any]]) -> list[float]:
+            values: list[float] = []
+            for rec in recs:
+                timing = rec.get("timing") if isinstance(rec.get("timing"), dict) else {}
+                measured = timing.get("harness_agent_interval_wall_seconds")
+                if not isinstance(measured, (int, float)):
+                    info = rec.get("agent_info") if isinstance(rec.get("agent_info"), dict) else {}
+                    measured = info.get("seconds")
+                if isinstance(measured, (int, float)):
+                    values.append(float(measured))
+            return values
+
         def comparison_env_flags(recs: list[dict[str, Any]]) -> dict[str, str]:
             flags: dict[str, str] = {}
             for rec in recs:
@@ -5459,6 +5477,8 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
 
         score_core_condition = score_core_values(condition_records)
         score_core_baseline = score_core_values(base_records)
+        duration_condition = primary_duration_values(condition_records)
+        duration_baseline = primary_duration_values(base_records)
         env_flags = comparison_env_flags(condition_records)
 
         comparison = {
@@ -5507,20 +5527,14 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "mean_runtime_efficiency_baseline": mean_field(base_records, ["score", "runtime_efficiency"]),
             "mean_brain_use_condition": mean_field(condition_records, ["score", "brain_use"]),
             "mean_brain_use_baseline": mean_field(base_records, ["score", "brain_use"]),
-            "mean_agent_seconds_condition": mean_field(condition_records, ["agent_info", "seconds"]),
-            "mean_agent_seconds_baseline": mean_field(base_records, ["agent_info", "seconds"]),
-            "p_value_agent_seconds": welch_p_value(
-                    [
-                        float(rec["agent_info"]["seconds"])
-                        for rec in condition_records
-                        if isinstance(rec.get("agent_info", {}).get("seconds"), (int, float))
-                    ],
-                    [
-                        float(rec["agent_info"]["seconds"])
-                        for rec in base_records
-                        if isinstance(rec.get("agent_info", {}).get("seconds"), (int, float))
-                    ],
+            "duration_metric": "harness_agent_interval_wall_seconds_with_legacy_agent_info_fallback",
+            "mean_agent_seconds_condition": (
+                sum(duration_condition) / len(duration_condition) if duration_condition else None
             ),
+            "mean_agent_seconds_baseline": (
+                sum(duration_baseline) / len(duration_baseline) if duration_baseline else None
+            ),
+            "p_value_agent_seconds": welch_p_value(duration_condition, duration_baseline),
             "mean_total_tokens_condition": mean_field(condition_records, ["agent_info", "usage", "total_tokens"]),
             "mean_total_tokens_baseline": mean_field(base_records, ["agent_info", "usage", "total_tokens"]),
             "p_value_total_tokens": welch_p_value(
@@ -5625,6 +5639,8 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
             "n_pvalues_in_family": len(family),
             "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+            "duration_metric": "harness_agent_interval_wall_seconds; legacy records fall back to agent_info.seconds",
+            "delivery_mode_separation": "comparisons are keyed by delivery_mode so harness-delivered and agent-tool rows never share a baseline",
             "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a "
             "token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, "
             "that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy "
@@ -6042,7 +6058,19 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
     resume = bool(getattr(args, "resume", False))
     suite_dir.mkdir(parents=True, exist_ok=resume)
-    harness_evidence = prepare_harness_evidence(suite_dir, allow_dirty_harness)
+    harness_evidence_path = suite_dir / "harness-evidence.json"
+    current_harness_evidence = prepare_harness_evidence(
+        suite_dir, allow_dirty_harness, write_patch=not resume
+    )
+    if resume:
+        if not harness_evidence_path.exists():
+            raise RuntimeError(f"cannot resume suite without harness-evidence.json: {suite_dir}")
+        harness_evidence = read_json_file(harness_evidence_path)
+        if canonical_json_text(harness_evidence) != canonical_json_text(current_harness_evidence):
+            raise RuntimeError("resume harness identity does not match the original suite")
+    else:
+        harness_evidence = current_harness_evidence
+        atomic_write_json(harness_evidence_path, harness_evidence)
     schedule_path = suite_dir / "schedule.json"
     if resume:
         if not schedule_path.exists():
@@ -6239,6 +6267,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         "runners": [runner_payload(runner) for runner in runners],
         "conditions": conditions,
         "repetitions": args.repetitions,
+        "schedule": {
+            "schema": schedule.get("schema"),
+            "schedule_seed": schedule.get("schedule_seed"),
+            "order_policy": schedule.get("order_policy"),
+            "schedule_sha256": schedule.get("schedule_sha256"),
+            "cell_count": len(schedule.get("cells", [])),
+        },
+        "cache_policy": args.cache_policy,
         "count": sum(
             args.repetitions
             for task in tasks

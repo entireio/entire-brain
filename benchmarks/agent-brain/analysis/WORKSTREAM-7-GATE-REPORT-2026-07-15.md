@@ -17,7 +17,7 @@ not used for tuning and no model/agent cell was run.
   `origin/wip/memory-lifecycle-plan-handoff-20260712` baseline at `bbe1bdf5` via merge commit
   `c507c5b9` on `codex/workstream7-ranking-gate`.
 - `git merge-base --is-ancestor bbe1bdf5 HEAD` exits 0.
-- `entire-sem` was not read or modified as part of this workstream.
+- `entire-graph` was not read or modified as part of this workstream.
 - The diagnostic analyzer is offline and non-mutating. Its output records
   `production_behavior_changed: false`.
 
@@ -26,9 +26,9 @@ not used for tuning and no model/agent cell was run.
 | Required evidence | Status | Audit result |
 |---|---:|---|
 | Identical-cell full-versus-tight corpus comparison changes the delivered packet | **Absent** | No artifact supplies paired prompt, engine, task config, temporal eligibility, and delivered packet hashes for both corpus sizes. |
-| Solving-fact rank or packet precision degrades reproducibly | **Absent** | No WS6 qrels/relevance set and no counterbalanced repeated packet evidence were found. |
+| Solving-fact rank or packet precision degrades reproducibly | **Absent** | WS6 now supplies a zero-label draft relevance scaffold, but no committed labels, thresholds, or counterbalanced repeated packet evidence exist. |
 | Engine, prompt, temporal, cache, and contamination confounds excluded | **Absent** | Existing evidence does not jointly verify those controls; the required repaired-workstream artifacts are not integrated here. |
-| WS6 development relevance set and untouched holdout designated | **Absent** | Repository and `entire-plan` searches found no WS6 ranking dataset/holdout designation. |
+| WS6 development relevance set and untouched holdout designated | **Absent** | WS6 now supplies draft schemas with null commitments; neither a labeled development set nor a sealed untouched ranking holdout has been designated. |
 
 Because all four requirements must be true, no candidate ranking implementation is authorized.
 
@@ -36,8 +36,8 @@ Because all four requirements must be true, no candidate ranking implementation 
 
 ### Retrieval engines
 
-The code and user documentation identify four distinguishable baselines, but no common WS6 relevance
-dataset exists on which to measure them:
+The code and user documentation identify four distinguishable baselines, but the common WS6 relevance
+dataset remains a zero-label draft and cannot yet measure them:
 
 - hand-rolled lexical score: `factQueryScore` plus `60` per shared locus token and the closed-negative
   kind boost;
