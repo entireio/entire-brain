@@ -1,14 +1,4 @@
 <codex_delegation>
   <source_thread_id>019f64dd-263f-7e71-b679-a326a94ac0d4</source_thread_id>
-  <input>You own Workstream 6: preregistered engine matrix and fresh confirmatory holdout.
-Read the complete execution plan at /Users/thomi/Projects/entire-plan/ENTIRE-BRAIN-BENCHMARK-REPAIR-EXECUTION-PLAN-2026-07-15.md, especially sections 1–4 and the workstream named below. This is an execution task, not merely a request to restate the plan.
-
-Global constraints:
-- For entire-brain code, verify the required harness baseline exists on origin/wip/memory-lifecycle-plan-handoff-20260712 at or after bbe1bdf5. Your Codex worktree may start from the default branch; if so, bring the required WIP baseline into your codex/ branch non-destructively before editing. Do not silently implement against an older main.
-- Never modify entire-sem.
-- Do not run paid benchmark agent/model cells. Local deterministic probes and unit tests are allowed.
-- Preserve unrelated changes. Do not push or open a PR.
-- Implement only this workstream, run focused tests plus the full harness test suite when implementation changes the harness, and report exact artifacts, tests, remaining risks, and integration notes.
-
-Execute the preparatory, non-paid parts of section 10. Reconcile unique task inventory and contamination status, define machine-readable split/task-state metadata, draft and check in the preregistration plus engine verification runbook, specify the lexical-only/Model2Vec/EmbeddingGemma matrix, and build the offline relevance-dataset schema and paid-run go/no-go checklist. Do not open or run a fresh confirmatory holdout before methodology is frozen; do not run paid cells. Where upstream WS2–WS5 interfaces are not yet present, define explicit contracts and mark final freeze as pending rather than inventing implementations.</input>
+  <input>Integration preparation: commit the complete verified WS6 implementation currently in your worktree. First confirm only WS6-owned changes are present, run git diff --check, stage exactly those files, and create one descriptive commit after the existing baseline merge commit. Do not modify behavior, rebase, push, open a PR, mine/open a fresh holdout, run paid cells, or touch entire-graph. Report commit SHA and clean git status.</input>
 </codex_delegation>
