@@ -16,6 +16,7 @@ import json
 import math
 import os
 import pathlib
+import random
 import re
 import shlex
 import shutil
@@ -271,6 +272,27 @@ class RunnerSpec:
     agent: str
     model: str | None = None
     effort: str | None = None
+
+
+ORDER_POLICIES = ("counterbalanced", "latin_square")
+CACHE_POLICIES = ("isolated_per_cell", "prewarmed_shared")
+SCHEDULE_SCHEMA = 1
+TIMING_DEFINITIONS = {
+    "primary": "harness_agent_interval_wall_seconds",
+    "harness_agent_interval_wall_seconds": (
+        "Harness monotonic wall time immediately around the agent CLI invocation, including "
+        "declared transient retries and their backoff. Setup, cache prewarm, and validation are excluded."
+    ),
+    "agent_reported_api_seconds": (
+        "Provider/agent-CLI reported API duration when present in structured output; null otherwise."
+    ),
+    "cell_setup_wall_seconds": (
+        "Harness monotonic wall time from cell start until the agent interval begins."
+    ),
+    "cell_total_wall_seconds": (
+        "Harness monotonic wall time for setup, agent execution, validation, and record assembly."
+    ),
+}
 
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
@@ -579,14 +601,15 @@ def resolve_repo_path(raw: str) -> pathlib.Path:
     return path
 
 
-def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
+def build_tools(run_root: pathlib.Path, env: dict[str, str] | None = None) -> dict[str, pathlib.Path]:
     bin_dir = run_root / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     brain_bin = bin_dir / "entire-brain"
     sem_bin = bin_dir / "entire-sem"
     entire_wrapper = bin_dir / "entire"
 
-    run_cmd(["go", "build", "-o", str(brain_bin), "./cmd/entire-brain"], cwd=ROOT, check=True)
+    build_env = {**os.environ, **(env or {})}
+    run_cmd(["go", "build", "-o", str(brain_bin), "./cmd/entire-brain"], cwd=ROOT, env=build_env, check=True)
     # entire-sem was migrated to entire-graph (repo dir entire-sem -> entire-graph;
     # cmd/entire-sem -> cmd/entire-graph). Try each existing repo dir x cmd combo, and
     # tolerate absence entirely: history/facts-only conditions (prepare_semantic=false)
@@ -598,7 +621,7 @@ def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
         for sem_cmd in ("./cmd/entire-graph", "./cmd/entire-sem"):
             if not (repo_dir / sem_cmd).is_dir():
                 continue
-            proc = run_cmd(["go", "build", "-o", str(sem_bin), sem_cmd], cwd=repo_dir)
+            proc = run_cmd(["go", "build", "-o", str(sem_bin), sem_cmd], cwd=repo_dir, env=build_env)
             if proc.returncode == 0:
                 sem_built = True
                 break
@@ -648,6 +671,286 @@ def text_sha256(text: str) -> str:
 def stable_json_sha256(value: Any) -> str:
     data = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
     return text_sha256(data)
+
+
+def canonical_json_text(value: Any) -> str:
+    return json.dumps(value, indent=2, sort_keys=True) + "\n"
+
+
+def atomic_write_json(path: pathlib.Path, value: Any) -> None:
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    temporary.write_text(canonical_json_text(value))
+    os.replace(temporary, path)
+
+
+def cell_run_id(cell: dict[str, Any]) -> str:
+    return (
+        f"{cell['task_id']}__{cell['runner']['id']}__"
+        f"{cell['condition']}__r{cell['repetition']}"
+    )
+
+
+def _latin_rows(conditions: list[str], repetitions: int, seed: int) -> list[list[str]]:
+    """Return seeded cyclic Latin-square rows.
+
+    Complete groups of ``len(conditions)`` repetitions put every arm exactly once in
+    every ordinal position. Partial groups differ by at most one occurrence. For two
+    arms this is the required AB/BA alternation.
+    """
+    arms = list(conditions)
+    rng = random.Random(seed)
+    rng.shuffle(arms)
+    if not arms:
+        return []
+    row_offset = rng.randrange(len(arms))
+    return [
+        [arms[(position + row_offset + repetition) % len(arms)] for position in range(len(arms))]
+        for repetition in range(repetitions)
+    ]
+
+
+def build_schedule(
+    tasks: list[dict[str, Any]],
+    runners: list[RunnerSpec],
+    requested_conditions: list[str],
+    repetitions: int,
+    *,
+    seed: int,
+    order_policy: str,
+    cache_policy: str,
+) -> dict[str, Any]:
+    if order_policy not in ORDER_POLICIES:
+        raise ValueError(f"invalid order policy {order_policy!r}; choose from {ORDER_POLICIES}")
+    if cache_policy not in CACHE_POLICIES:
+        raise ValueError(f"invalid cache policy {cache_policy!r}; choose from {CACHE_POLICIES}")
+    if repetitions < 1:
+        raise ValueError("repetitions must be at least 1")
+    if not requested_conditions:
+        raise ValueError("at least one condition is required")
+
+    blocks: list[dict[str, Any]] = []
+    for task in tasks:
+        conditions = [condition for condition in requested_conditions if condition in task.get("conditions", [])]
+        for runner in runners:
+            block_id = f"{task['id']}__{runner.id}"
+            block_seed = int(stable_json_sha256({"seed": seed, "block": block_id})[:16], 16)
+            rows = _latin_rows(conditions, repetitions, block_seed)
+            blocks.append(
+                {
+                    "block_id": block_id,
+                    "task_id": task["id"],
+                    "task_config_sha256": task_config_sha256(task),
+                    "runner": runner_payload(runner),
+                    "conditions": conditions,
+                    "position_balance_tolerance": 0 if conditions and repetitions % len(conditions) == 0 else 1,
+                    "rows": rows,
+                }
+            )
+
+    if order_policy == "counterbalanced":
+        random.Random(seed).shuffle(blocks)
+
+    cells: list[dict[str, Any]] = []
+    for block_index, block in enumerate(blocks, 1):
+        for repetition_index, row in enumerate(block["rows"], 1):
+            for position, condition in enumerate(row, 1):
+                cell = {
+                    "ordinal": len(cells) + 1,
+                    "block_ordinal": block_index,
+                    "block_id": block["block_id"],
+                    "position": position,
+                    "task_id": block["task_id"],
+                    "task_config_sha256": block["task_config_sha256"],
+                    "runner": block["runner"],
+                    "condition": condition,
+                    "repetition": repetition_index,
+                }
+                cell["run_id"] = cell_run_id(cell)
+                cells.append(cell)
+
+    schedule: dict[str, Any] = {
+        "schema": SCHEDULE_SCHEMA,
+        "schedule_seed": seed,
+        "order_policy": order_policy,
+        "cache_policy": cache_policy,
+        "scheduling_design": (
+            "seeded cyclic Latin square within each task/runner block; complete squares have "
+            "zero position imbalance and partial squares differ by at most one"
+        ),
+        "timing_definitions": TIMING_DEFINITIONS,
+        "requested_conditions": requested_conditions,
+        "repetitions": repetitions,
+        "blocks": blocks,
+        "cells": cells,
+    }
+    if not cells:
+        raise ValueError("schedule has no executable cells")
+    run_ids = [str(cell["run_id"]) for cell in cells]
+    if len(run_ids) != len(set(run_ids)):
+        raise ValueError("schedule contains duplicate run IDs; task and runner IDs must be unique")
+    schedule["schedule_sha256"] = stable_json_sha256(schedule)
+    return schedule
+
+
+def schedule_position_counts(schedule: dict[str, Any]) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for cell in schedule.get("cells", []):
+        block = counts.setdefault(str(cell["block_id"]), {})
+        key = f"{cell['condition']}@{cell['position']}"
+        block[key] = block.get(key, 0) + 1
+    return counts
+
+
+def append_actual_order(suite_dir: pathlib.Path, event: dict[str, Any]) -> None:
+    payload = {"recorded_at": dt.datetime.now(dt.UTC).isoformat(), **event}
+    with (suite_dir / "actual-order.ndjson").open("a") as stream:
+        stream.write(json.dumps(payload, sort_keys=True) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def load_ndjson(path: pathlib.Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    with path.open() as stream:
+        for line_number, line in enumerate(stream, 1):
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"invalid NDJSON at {path}:{line_number}: {exc}") from exc
+            if not isinstance(value, dict):
+                raise RuntimeError(f"invalid NDJSON object at {path}:{line_number}")
+            records.append(value)
+    return records
+
+
+def runtime_cache_paths(suite_dir: pathlib.Path, run_dir: pathlib.Path | None, policy: str) -> dict[str, pathlib.Path]:
+    if policy == "prewarmed_shared":
+        root = suite_dir / "runtime-cache" / "shared"
+    elif policy == "isolated_per_cell" and run_dir is not None:
+        root = run_dir / "runtime-cache"
+    else:
+        root = suite_dir / "runtime-cache" / "setup"
+    return {
+        "root": root,
+        "GOCACHE": root / "go-build",
+        "GOMODCACHE": root / "go-mod",
+        "retrieval_vector_cache": root / "retrieval-vectors",
+    }
+
+
+def ensure_runtime_cache(paths: dict[str, pathlib.Path]) -> dict[str, str]:
+    for path in paths.values():
+        path.mkdir(parents=True, exist_ok=True)
+    return {
+        "GOCACHE": str(paths["GOCACHE"]),
+        "GOMODCACHE": str(paths["GOMODCACHE"]),
+        # Entire Brain's disk-backed fact/doc vector stores live beneath the
+        # product cache root, so this is the effective retrieval-cache control.
+        "ENTIRE_PLUGIN_CACHE_DIR": str(paths["retrieval_vector_cache"]),
+    }
+
+
+def cache_path_provenance(suite_dir: pathlib.Path, paths: dict[str, pathlib.Path]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for name, path in sorted(paths.items()):
+        logical = str(path.relative_to(suite_dir))
+        result[name] = {
+            "path": logical,
+            "path_sha256": stable_json_sha256({"role": name, "logical_path": logical}),
+        }
+    return result
+
+
+def capture_host_context() -> dict[str, Any]:
+    load = None
+    try:
+        load = list(os.getloadavg())
+    except (AttributeError, OSError):
+        pass
+    process_probe = run_cmd(["ps", "-axo", "pid=,command="])
+    shard_count = None
+    if process_probe.returncode == 0:
+        shard_count = sum(
+            1
+            for line in process_probe.stdout.splitlines()
+            if "benchmarks/agent-brain/run.py" in line and str(os.getpid()) not in line
+        )
+    power_mode: dict[str, Any] = {"available": False}
+    pmset = shutil.which("pmset")
+    if pmset:
+        probe = run_cmd([pmset, "-g", "batt"])
+        power_mode = {
+            "available": probe.returncode == 0,
+            "source": "pmset",
+            "summary": " ".join(probe.stdout.split())[:500] if probe.returncode == 0 else None,
+        }
+    return {
+        "captured_at": dt.datetime.now(dt.UTC).isoformat(),
+        "scheduler_concurrency": 1,
+        "logical_cpu_count": os.cpu_count(),
+        "load_average_1_5_15": load,
+        "power_mode": power_mode,
+        "other_benchmark_shards_active": None if shard_count is None else shard_count > 0,
+        "other_benchmark_shard_count": shard_count,
+    }
+
+
+def prepare_runtime_controls(suite_dir: pathlib.Path, cache_policy: str) -> tuple[dict[str, str], dict[str, Any]]:
+    started = time.monotonic()
+    paths = runtime_cache_paths(suite_dir, None, cache_policy)
+    env_update = ensure_runtime_cache(paths)
+    commands: list[dict[str, Any]] = []
+    if cache_policy == "prewarmed_shared":
+        command = ["go", "mod", "download"]
+        command_started = time.monotonic()
+        proc = run_cmd(command, cwd=ROOT, env={**os.environ, **env_update}, timeout=900)
+        commands.append(
+            {
+                "command": command,
+                "returncode": proc.returncode,
+                "wall_seconds": time.monotonic() - command_started,
+                "stderr_tail": proc.stderr[-2000:],
+            }
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"runtime cache prewarm failed: {proc.stderr[-2000:]}")
+    accounting = {
+        "schema": 1,
+        "cache_policy": cache_policy,
+        "prewarm_performed": cache_policy == "prewarmed_shared",
+        "prewarm_timed_as_agent": False,
+        "commands": commands,
+        "cache_paths": cache_path_provenance(suite_dir, paths),
+        "setup_wall_seconds": time.monotonic() - started,
+        "host_context": capture_host_context(),
+    }
+    return env_update, accounting
+
+
+def agent_reported_api_seconds(stdout: str) -> float | None:
+    values: list[float] = []
+    candidates = [stdout]
+    candidates.extend(line for line in stdout.splitlines() if line.lstrip().startswith("{"))
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        for key in ("duration_api_ms", "durationApiMs", "api_duration_ms", "apiDurationMs"):
+            value = payload.get(key)
+            if isinstance(value, (int, float)) and value >= 0:
+                values.append(float(value) / 1000.0)
+        for key in ("duration_api_seconds", "durationApiSeconds", "api_duration_seconds"):
+            value = payload.get(key)
+            if isinstance(value, (int, float)) and value >= 0:
+                values.append(float(value))
+    return max(values) if values else None
 
 
 def git_commit_metadata(repo: pathlib.Path, ref: str) -> dict[str, Any]:
@@ -778,6 +1081,14 @@ def run_config_provenance(
         "brain_cache": {
             "enabled": not bool(getattr(args, "no_brain_cache", False)),
             "refresh": bool(getattr(args, "refresh_brain_cache", False)),
+        },
+        "runtime_controls": {
+            "schedule_seed": getattr(args, "schedule_seed", 0),
+            "order_policy": getattr(args, "order_policy", "counterbalanced"),
+            "cache_policy": getattr(args, "cache_policy", "isolated_per_cell"),
+            "schedule_sha256": getattr(args, "schedule_sha256", None),
+            "planned_ordinal": getattr(args, "planned_ordinal", None),
+            "timing_primary": TIMING_DEFINITIONS["primary"],
         },
         "requested": {
             "tasks": getattr(args, "tasks", None),
@@ -1713,7 +2024,9 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
     return env
 
 
-def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
+def apply_task_env(
+    env: dict[str, str], task: dict[str, Any], frozen_bin: pathlib.Path | None = None
+) -> dict[str, str]:
     # Expand ~ and $VARS so path_prefix is portable; "auto" / unset resolves the
     # directory of the host `node` so tsx-based validations work without a hard-coded path.
     def expand_prefix(raw: str) -> str:
@@ -1728,9 +2041,19 @@ def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
     if task.get("memory_bundle"):
         path_prefixes.insert(0, str(temporal_distill_binary(task).parent))
     path_prefixes = [p for p in path_prefixes if p]
-    if path_prefixes:
-        env = env.copy()
-        env["PATH"] = ":".join([*path_prefixes, env.get("PATH", "")])
+    if not path_prefixes and frozen_bin is None:
+        return env
+    env = env.copy()
+    entries = [entry for entry in env.get("PATH", "").split(":") if entry]
+    if frozen_bin is not None:
+        # Runtime/cache controls must not let a host task prefix shadow the frozen
+        # benchmark wrappers that plugin_env put first on PATH.
+        frozen = str(frozen_bin)
+        entries = [entry for entry in entries if entry != frozen]
+        path_prefixes = [prefix for prefix in path_prefixes if prefix != frozen]
+        env["PATH"] = ":".join([frozen, *path_prefixes, *entries])
+    else:
+        env["PATH"] = ":".join([*path_prefixes, *entries])
     return env
 
 
@@ -2184,8 +2507,11 @@ def prepare_brain(
     checkpoint_limit: int,
     use_cache: bool = True,
     refresh_cache: bool = False,
+    runtime_env: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], dict[str, Any]]:
-    env = apply_task_env(plugin_env(run_dir, worktree, tools), task)
+    env = apply_task_env(plugin_env(run_dir, worktree, tools), task, frozen_bin=tools["bin"])
+    if runtime_env:
+        env.update(runtime_env)
     prep: dict[str, Any] = {"condition": condition, "commands": []}
     if condition == "no_brain":
         return env, prep
@@ -3728,6 +4054,7 @@ def run_agent(
         "cmd": cmd[:1] + ["..."],
         "returncode": proc.returncode,
         "seconds": time.time() - start,
+        "agent_reported_api_seconds": agent_reported_api_seconds(proc.stdout),
         "attempts": attempts,
         "transient_retries": max(0, len(attempts) - 1),
         "usage": usage,
@@ -4462,10 +4789,16 @@ def run_one(
     args: argparse.Namespace,
     pricing: dict[str, Any],
 ) -> RunResult:
+    cell_started = time.monotonic()
+    agent_interval_started: float | None = None
+    agent_interval_wall_seconds: float | None = None
     task, source, base_provenance = bind_task_base_commit(task)
     run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
     run_dir = suite_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
+    cache_policy = getattr(args, "cache_policy", "isolated_per_cell")
+    cell_cache_paths = runtime_cache_paths(suite_dir, run_dir, cache_policy)
+    runtime_env = ensure_runtime_cache(cell_cache_paths)
     worktree: pathlib.Path | None = None
     record: dict[str, Any] = {
         "run_id": run_id,
@@ -4481,6 +4814,13 @@ def run_one(
         "condition": condition,
         "repetition": repetition,
         "started_at": dt.datetime.now(dt.UTC).isoformat(),
+        "planned_ordinal": getattr(args, "planned_ordinal", None),
+        "runtime_controls": {
+            "cache_policy": cache_policy,
+            "cache_paths": cache_path_provenance(suite_dir, cell_cache_paths),
+            "ambient_go_cache_inherited": False,
+            "timing_definitions": TIMING_DEFINITIONS,
+        },
         "provenance": build_record_provenance(
             task,
             runner,
@@ -4516,6 +4856,7 @@ def run_one(
             args.checkpoint_limit,
             use_cache=not args.no_brain_cache,
             refresh_cache=args.refresh_brain_cache,
+            runtime_env=runtime_env,
         )
         memory_packet: str | None = None
         if task.get("treatments"):
@@ -4558,6 +4899,7 @@ def run_one(
             "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "bytes": len(prompt.encode("utf-8")),
         }
+        agent_interval_started = time.monotonic()
         agent_info = run_agent(
             runner,
             prompt,
@@ -4571,6 +4913,12 @@ def run_one(
             pricing,
             agent_retries=getattr(args, "agent_retries", 0),
         )
+        agent_interval_wall_seconds = time.monotonic() - agent_interval_started
+        # The agent ran and produced output. A failure past this point (an integrity
+        # abort, or a validation/scoring error) is a REAL condition outcome scored 0,
+        # not an infrastructure non-outcome, so it must stay in the arm means. Only a
+        # pre-agent failure (the agent never ran) is excluded; see the handlers below.
+        record["agent_ran"] = True
         leak_audit = agent_output_leak_audit(
             task,
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
@@ -4616,6 +4964,23 @@ def run_one(
     except Exception as exc:
         record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
     finally:
+        cell_finished = time.monotonic()
+        if agent_interval_started is not None and agent_interval_wall_seconds is None:
+            agent_interval_wall_seconds = cell_finished - agent_interval_started
+        record["timing"] = {
+            "primary": TIMING_DEFINITIONS["primary"],
+            "harness_agent_interval_wall_seconds": agent_interval_wall_seconds,
+            "agent_reported_api_seconds": (
+                record.get("agent_info", {}).get("agent_reported_api_seconds")
+                if isinstance(record.get("agent_info"), dict)
+                else None
+            ),
+            "cell_setup_wall_seconds": (
+                agent_interval_started - cell_started if agent_interval_started is not None else cell_finished - cell_started
+            ),
+            "cell_total_wall_seconds": cell_finished - cell_started,
+            "setup_included_in_primary": False,
+        }
         record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
         (run_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True))
         if worktree and not args.keep_worktrees:
@@ -5545,9 +5910,30 @@ def cmd_run(args: argparse.Namespace) -> int:
         runners = [parse_runner_spec(x.strip()) for x in args.agents.split(",") if x.strip()]
     conditions = [x.strip() for x in args.conditions.split(",") if x.strip()]
     pricing = load_pricing(args)
+    schedule = build_schedule(
+        tasks,
+        runners,
+        conditions,
+        args.repetitions,
+        seed=args.schedule_seed,
+        order_policy=args.order_policy,
+        cache_policy=args.cache_policy,
+    )
     suite = args.suite_name or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     suite_dir = RESULT_DIR / suite
-    suite_dir.mkdir(parents=True, exist_ok=False)
+    resume = bool(getattr(args, "resume", False))
+    suite_dir.mkdir(parents=True, exist_ok=resume)
+    schedule_path = suite_dir / "schedule.json"
+    if resume:
+        if not schedule_path.exists():
+            raise RuntimeError(f"cannot resume suite without schedule.json: {suite_dir}")
+        existing_schedule = read_json_file(schedule_path)
+        if canonical_json_text(existing_schedule) != canonical_json_text(schedule):
+            raise RuntimeError("resume configuration does not match the persisted schedule")
+    else:
+        # The complete plan is durable before cache setup, tool builds, or the first agent call.
+        schedule_path.write_text(canonical_json_text(schedule))
+
     prompt_snapshots: dict[str, Any] = {"schema_version": 1, "tasks": {}}
     for task in tasks:
         task_conditions = set(conditions) & set(task.get("conditions", []))
@@ -5557,42 +5943,176 @@ def cmd_run(args: argparse.Namespace) -> int:
         prompt_snapshots["tasks"][task["id"]] = snapshots
         if not snapshots["ok"]:
             raise RuntimeError(f"task {task['id']} treatment prompts differ outside packet payload")
-    (suite_dir / "prompt-snapshots.json").write_text(
-        json.dumps(prompt_snapshots, indent=2, sort_keys=True) + "\n"
-    )
-    tools = build_tools(suite_dir)
+    prompt_snapshots_path = suite_dir / "prompt-snapshots.json"
+    if resume:
+        if prompt_snapshots["tasks"] and not prompt_snapshots_path.exists():
+            raise RuntimeError(f"cannot resume suite without prompt-snapshots.json: {suite_dir}")
+        if prompt_snapshots_path.exists():
+            existing_snapshots = read_json_file(prompt_snapshots_path)
+            if canonical_json_text(existing_snapshots) != canonical_json_text(prompt_snapshots):
+                raise RuntimeError("resume treatment prompts do not match persisted snapshots")
+    else:
+        prompt_snapshots_path.write_text(canonical_json_text(prompt_snapshots))
 
-    records = []
-    for task in tasks:
-        for runner in runners:
-            skip_remaining_conditions = False
-            for condition in conditions:
-                if skip_remaining_conditions:
-                    break
-                if condition not in task.get("conditions", []):
-                    continue
-                for repetition in range(1, args.repetitions + 1):
-                    result = run_one(task, runner, condition, repetition, suite_dir, tools, args, pricing)
-                    records.append(result.record)
-                    with (suite_dir / "records.ndjson").open("a") as f:
-                        f.write(json.dumps(result.record, sort_keys=True) + "\n")
-                    print(
-                        f"{result.record['run_id']}: score={result.record.get('score', {}).get('total', 0)} ok={result.record.get('ok')}",
-                        flush=True,
-                    )
-                    if (
-                        condition == "no_brain"
-                        and repetition == 1
-                        and args.stop_after_no_brain_score is not None
-                        and float(result.record.get("score", {}).get("total", 0)) > args.stop_after_no_brain_score
-                    ):
-                        skip_remaining_conditions = True
-                        print(
-                            f"{task['id']}__{runner.id}: stopping after high no_brain pilot score "
-                            f"{result.record.get('score', {}).get('total', 0)} > {args.stop_after_no_brain_score}",
-                            flush=True,
-                        )
-                        break
+    args.schedule_sha256 = schedule["schedule_sha256"]
+    runtime_env, invocation_controls = prepare_runtime_controls(suite_dir, args.cache_policy)
+    controls_path = suite_dir / "runtime-controls.json"
+    if controls_path.exists():
+        controls = read_json_file(controls_path)
+    else:
+        controls = {
+            "schema": 1,
+            "schedule_sha256": schedule["schedule_sha256"],
+            "cache_policy": args.cache_policy,
+            "timing_definitions": TIMING_DEFINITIONS,
+            "invocations": [],
+        }
+    invocation_controls["resume"] = resume
+    controls["invocations"].append(invocation_controls)
+    atomic_write_json(controls_path, controls)
+    tool_build_started = time.monotonic()
+    tools = build_tools(suite_dir, env=runtime_env)
+    invocation_controls["tool_build_wall_seconds"] = time.monotonic() - tool_build_started
+    invocation_controls["suite_setup_wall_seconds"] = (
+        float(invocation_controls.get("setup_wall_seconds") or 0)
+        + invocation_controls["tool_build_wall_seconds"]
+    )
+    invocation_controls["suite_setup_timed_as_agent"] = False
+    atomic_write_json(controls_path, controls)
+
+    records = load_ndjson(suite_dir / "records.ndjson")
+    completed_run_ids = {str(record.get("run_id")) for record in records if record.get("run_id")}
+    actual_events = load_ndjson(suite_dir / "actual-order.ndjson")
+    started_run_ids = {
+        str(event.get("run_id")) for event in actual_events if event.get("event") == "started"
+    }
+    finished_run_ids = {
+        str(event.get("run_id")) for event in actual_events if event.get("event") == "finished"
+    }
+    deviated_run_ids = {
+        str(event.get("run_id"))
+        for event in actual_events
+        if event.get("event") == "deviation" and event.get("run_id")
+    }
+    incomplete_run_ids = started_run_ids - finished_run_ids - completed_run_ids
+    tasks_by_id = {str(task["id"]): task for task in tasks}
+    runners_by_id = {runner.id: runner for runner in runners}
+    skipped_blocks: set[str] = set()
+
+    def persist_schedule_state() -> None:
+        events = load_ndjson(suite_dir / "actual-order.ndjson")
+        atomic_write_json(
+            suite_dir / "schedule-state.json",
+            {
+                "schema": 1,
+                "schedule_sha256": schedule["schedule_sha256"],
+                "planned_cell_count": len(schedule["cells"]),
+                "recorded_cell_count": len({str(record.get("run_id")) for record in records}),
+                "actual_started_order": [
+                    event["run_id"] for event in events if event.get("event") == "started"
+                ],
+                "actual_finished_order": [
+                    event["run_id"] for event in events if event.get("event") == "finished"
+                ],
+                "deviations": [event for event in events if event.get("event") == "deviation"],
+            },
+        )
+
+    for cell in schedule["cells"]:
+        run_id = str(cell["run_id"])
+        block_id = str(cell["block_id"])
+        if run_id in completed_run_ids:
+            if run_id not in finished_run_ids and run_id not in deviated_run_ids:
+                append_actual_order(
+                    suite_dir,
+                    {
+                        "event": "deviation",
+                        "run_id": run_id,
+                        "planned_ordinal": cell["ordinal"],
+                        "reason": "record_present_without_finish_event",
+                    },
+                )
+                deviated_run_ids.add(run_id)
+            continue
+        if run_id in incomplete_run_ids:
+            if run_id not in deviated_run_ids:
+                append_actual_order(
+                    suite_dir,
+                    {
+                        "event": "deviation",
+                        "run_id": run_id,
+                        "planned_ordinal": cell["ordinal"],
+                        "reason": "interrupted_incomplete_not_retried",
+                    },
+                )
+                deviated_run_ids.add(run_id)
+            continue
+        if block_id in skipped_blocks:
+            append_actual_order(
+                suite_dir,
+                {
+                    "event": "deviation",
+                    "run_id": run_id,
+                    "planned_ordinal": cell["ordinal"],
+                    "reason": "pilot_stop_rule",
+                },
+            )
+            continue
+
+        append_actual_order(
+            suite_dir,
+            {
+                "event": "started",
+                "run_id": run_id,
+                "planned_ordinal": cell["ordinal"],
+                "block_id": block_id,
+                "position": cell["position"],
+            },
+        )
+        args.planned_ordinal = cell["ordinal"]
+        result = run_one(
+            tasks_by_id[str(cell["task_id"])],
+            runners_by_id[str(cell["runner"]["id"])],
+            str(cell["condition"]),
+            int(cell["repetition"]),
+            suite_dir,
+            tools,
+            args,
+            pricing,
+        )
+        records.append(result.record)
+        with (suite_dir / "records.ndjson").open("a") as stream:
+            stream.write(json.dumps(result.record, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        completed_run_ids.add(run_id)
+        append_actual_order(
+            suite_dir,
+            {
+                "event": "finished",
+                "run_id": run_id,
+                "planned_ordinal": cell["ordinal"],
+                "ok": result.record.get("ok"),
+            },
+        )
+        persist_schedule_state()
+        print(
+            f"{result.record['run_id']}: score={result.record.get('score', {}).get('total', 0)} ok={result.record.get('ok')}",
+            flush=True,
+        )
+        if (
+            cell["condition"] == "no_brain"
+            and cell["repetition"] == 1
+            and args.stop_after_no_brain_score is not None
+            and float(result.record.get("score", {}).get("total", 0)) > args.stop_after_no_brain_score
+        ):
+            skipped_blocks.add(block_id)
+            print(
+                f"{block_id}: stopping after high no_brain pilot score "
+                f"{result.record.get('score', {}).get('total', 0)} > {args.stop_after_no_brain_score}",
+                flush=True,
+            )
+    persist_schedule_state()
     summary = summarize(records, suite_dir)
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0
@@ -5766,6 +6286,9 @@ def cmd_panel(args: argparse.Namespace) -> int:
     args.agents = ""
     args.conditions = ",".join(panel["conditions"])
     args.repetitions = int(panel["repetitions"])
+    args.schedule_seed = int(panel.get("schedule_seed", args.schedule_seed))
+    args.order_policy = str(panel.get("order_policy", args.order_policy))
+    args.cache_policy = str(panel.get("cache_policy", args.cache_policy))
     args.panel_name = str(panel.get("name") or args.name)
     args.panel_path = display_path(panel_path)
     args.panel_config_sha256 = file_sha256(panel_path)
@@ -5988,6 +6511,10 @@ def main() -> int:
     run_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
     run_p.add_argument("--checkpoint-limit", type=int, default=200)
     run_p.add_argument("--suite-name")
+    run_p.add_argument("--resume", action="store_true", help="Resume an interrupted named suite without rerunning started cells")
+    run_p.add_argument("--schedule-seed", type=int, default=0)
+    run_p.add_argument("--order-policy", choices=ORDER_POLICIES, default="counterbalanced")
+    run_p.add_argument("--cache-policy", choices=CACHE_POLICIES, default="isolated_per_cell")
     run_p.add_argument("--keep-worktrees", action="store_true")
     run_p.add_argument("--no-brain-cache", action="store_true", help="Rebuild brain prep artifacts in every run")
     run_p.add_argument("--refresh-brain-cache", action="store_true", help="Overwrite cached brain prep artifacts")
@@ -5996,6 +6523,10 @@ def main() -> int:
     panel_p = sub.add_parser("panel", help="Run a committed, reproducible benchmark panel + print a stability verdict")
     panel_p.add_argument("name", help="Panel manifest under panels/ (name without .json, or a path to a .json)")
     panel_p.add_argument("--suite-name")
+    panel_p.add_argument("--resume", action="store_true", help="Resume an interrupted named suite without rerunning started cells")
+    panel_p.add_argument("--schedule-seed", type=int, default=0)
+    panel_p.add_argument("--order-policy", choices=ORDER_POLICIES, default="counterbalanced")
+    panel_p.add_argument("--cache-policy", choices=CACHE_POLICIES, default="isolated_per_cell")
     panel_p.add_argument("--timeout", type=int, default=1800)
     panel_p.add_argument("--agent-retries", type=int, default=2, help="Retry explicit transient agent-capacity/service failures")
     panel_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")

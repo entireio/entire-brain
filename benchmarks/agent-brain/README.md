@@ -93,6 +93,39 @@ or `--no-brain-cache` to force per-run rebuilds. The cache avoids repeated prep
 after a brain has been built successfully; it does not fix slow or incomplete
 initial semantic indexing.
 
+## Order, cache, resume, and timing controls
+
+`run` and `panel` build every requested cell before execution. The default
+`--order-policy counterbalanced` uses seeded cyclic Latin-square rows inside each
+task/runner block (`AB`/`BA` for two arms); `--schedule-seed` selects the
+deterministic schedule. `--order-policy latin_square` explicitly selects the same
+Latin-square construction for preregistrations that name it that way. Unsupported
+order policies fail before suite setup.
+
+The immutable plan is written to `schedule.json` before cache setup, tool builds,
+or agent calls. `actual-order.ndjson` records actual starts, finishes, and explicit
+deviations, while `schedule-state.json` gives the current planned-versus-actual
+view. Resume a named interrupted suite with the identical arguments plus
+`--resume`. A cell with a start event but no durable record is considered
+ambiguous and is not rerun; the resulting imbalance is recorded as
+`interrupted_incomplete_not_retried`.
+
+The conservative default `--cache-policy isolated_per_cell` assigns separate
+`GOCACHE`, `GOMODCACHE`, and retrieval-vector cache paths to every cell and never
+inherits those host paths. `--cache-policy prewarmed_shared` performs an untimed
+deterministic `go mod download` prewarm and shares the suite cache paths. Cache
+path identities, prewarm commands/durations, host load/concurrency/power context,
+and resume invocations are retained in `runtime-controls.json`. This runtime
+policy is separate from the historical Brain-prep cache flags
+`--no-brain-cache`/`--refresh-brain-cache`.
+
+The primary time field is `timing.harness_agent_interval_wall_seconds`: monotonic
+harness wall time immediately around the agent CLI, including declared transient
+retries/backoff but excluding setup and validation. The harness also records
+`timing.agent_reported_api_seconds` when the provider CLI exposes it,
+`timing.cell_setup_wall_seconds`, and `timing.cell_total_wall_seconds`; missing
+provider timing remains null and is never replaced silently.
+
 Use `prep` to verify and cache brain artifacts without launching an agent:
 
 ```sh
@@ -112,7 +145,8 @@ Each `record.json` includes:
   tool binary hashes. If a task omits `base_commit`, the recorded source base
   must match the recorded source HEAD. If a task pins `base_commit`, the base
   commit is recorded separately from source HEAD.
-- `agent_info.seconds` for wall-clock agent duration.
+- `agent_info.seconds` for legacy harness wall-clock agent duration, plus the
+  explicit `timing` fields defined above.
 - `brain_prep.commands[].seconds` for seed/export/index setup cost.
 - `validation.results[].seconds` for validation command duration.
 - `agent_info.usage` for turns, tokens, cache tokens, and cost when the agent

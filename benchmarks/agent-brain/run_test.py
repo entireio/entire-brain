@@ -20,6 +20,171 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = run
 SPEC.loader.exec_module(run)
 
+
+class CounterbalancedRuntimeControlTests(unittest.TestCase):
+    def _task(self, task_id="task-a", conditions=None):
+        return {
+            "id": task_id,
+            "repo": "repo",
+            "conditions": conditions or ["a", "b"],
+            "prompt": "Fix the symptom.",
+        }
+
+    def test_schedule_is_byte_deterministic_and_two_arm_balanced(self):
+        runner = run.RunnerSpec(id="runner", agent="codex")
+        first = run.build_schedule(
+            [self._task()], [runner], ["a", "b"], 4,
+            seed=17, order_policy="counterbalanced", cache_policy="isolated_per_cell",
+        )
+        second = run.build_schedule(
+            [self._task()], [runner], ["a", "b"], 4,
+            seed=17, order_policy="counterbalanced", cache_policy="isolated_per_cell",
+        )
+        self.assertEqual(run.canonical_json_text(first), run.canonical_json_text(second))
+        rows = first["blocks"][0]["rows"]
+        self.assertEqual(rows[0], rows[2])
+        self.assertEqual(rows[1], rows[3])
+        self.assertEqual(rows[0], list(reversed(rows[1])))
+        counts = run.schedule_position_counts(first)["task-a__runner"]
+        self.assertEqual(set(counts.values()), {2})
+
+    def test_three_arm_latin_square_balances_every_position(self):
+        schedule = run.build_schedule(
+            [self._task(conditions=["a", "b", "c"])],
+            [run.RunnerSpec(id="runner", agent="codex")],
+            ["a", "b", "c"],
+            6,
+            seed=91,
+            order_policy="latin_square",
+            cache_policy="prewarmed_shared",
+        )
+        counts = run.schedule_position_counts(schedule)["task-a__runner"]
+        self.assertEqual(len(counts), 9)
+        self.assertEqual(set(counts.values()), {2})
+
+    def test_invalid_policies_and_repetitions_fail_closed(self):
+        runner = run.RunnerSpec(id="runner", agent="codex")
+        with self.assertRaisesRegex(ValueError, "invalid order policy"):
+            run.build_schedule([self._task()], [runner], ["a"], 1, seed=0, order_policy="random", cache_policy="isolated_per_cell")
+        with self.assertRaisesRegex(ValueError, "invalid cache policy"):
+            run.build_schedule([self._task()], [runner], ["a"], 1, seed=0, order_policy="counterbalanced", cache_policy="ambient")
+        with self.assertRaisesRegex(ValueError, "at least 1"):
+            run.build_schedule([self._task()], [runner], ["a"], 0, seed=0, order_policy="counterbalanced", cache_policy="isolated_per_cell")
+
+    def test_cache_paths_are_isolated_or_explicitly_shared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = pathlib.Path(tmp) / "suite"
+            a = run.runtime_cache_paths(suite, suite / "cell-a", "isolated_per_cell")
+            b = run.runtime_cache_paths(suite, suite / "cell-b", "isolated_per_cell")
+            self.assertNotEqual(a["GOCACHE"], b["GOCACHE"])
+            shared_a = run.runtime_cache_paths(suite, suite / "cell-a", "prewarmed_shared")
+            shared_b = run.runtime_cache_paths(suite, suite / "cell-b", "prewarmed_shared")
+            self.assertEqual(shared_a, shared_b)
+
+    def test_prewarm_is_explicit_and_accounted_outside_agent_timing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = pathlib.Path(tmp) / "suite"
+            suite.mkdir()
+            completed = run.subprocess.CompletedProcess(["go"], 0, "", "")
+            with mock.patch.object(run, "run_cmd", return_value=completed) as command, \
+                 mock.patch.object(run, "capture_host_context", return_value={"scheduler_concurrency": 1}):
+                env, accounting = run.prepare_runtime_controls(suite, "prewarmed_shared")
+            self.assertEqual(command.call_args.args[0], ["go", "mod", "download"])
+            self.assertTrue(accounting["prewarm_performed"])
+            self.assertFalse(accounting["prewarm_timed_as_agent"])
+            self.assertIn("GOCACHE", env)
+            self.assertIn("GOMODCACHE", env)
+            self.assertIn("ENTIRE_PLUGIN_CACHE_DIR", env)
+            self.assertGreaterEqual(accounting["setup_wall_seconds"], 0)
+
+    def test_agent_reported_api_time_is_never_synthesized(self):
+        self.assertEqual(run.agent_reported_api_seconds('{"duration_api_ms":1250}'), 1.25)
+        self.assertIsNone(run.agent_reported_api_seconds('{"duration_ms":1250}'))
+        self.assertEqual(run.TIMING_DEFINITIONS["primary"], "harness_agent_interval_wall_seconds")
+
+    def test_resume_skips_ambiguously_started_cell_and_records_deviation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            results = root / "results"
+            results.mkdir()
+            task_path = root / "task.json"
+            task = self._task(conditions=["a", "b"])
+            task_path.write_text(json.dumps(task))
+            loaded_task = {**task, "_path": str(task_path)}
+            runner = run.RunnerSpec(id="codex", agent="codex")
+            schedule = run.build_schedule(
+                [loaded_task], [runner], ["a", "b"], 1,
+                seed=3, order_policy="counterbalanced", cache_policy="isolated_per_cell",
+            )
+            suite = results / "resume-suite"
+            suite.mkdir()
+            (suite / "schedule.json").write_text(run.canonical_json_text(schedule))
+            interrupted = schedule["cells"][0]
+            run.append_actual_order(suite, {
+                "event": "started", "run_id": interrupted["run_id"],
+                "planned_ordinal": interrupted["ordinal"],
+            })
+            args = argparse.Namespace(
+                tasks=[str(task_path)], runners="", agents="codex", conditions="a,b",
+                repetitions=1, schedule_seed=3, order_policy="counterbalanced",
+                cache_policy="isolated_per_cell", suite_name="resume-suite", resume=True,
+                pricing_file=None, pricing_json=None, stop_after_no_brain_score=None,
+            )
+
+            executed = []
+            def fake_run_one(task, runner, condition, repetition, suite_dir, tools, args, pricing):
+                run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
+                executed.append(run_id)
+                return run.RunResult(record={"run_id": run_id, "ok": True, "score": {"total": 1}}, run_dir=suite_dir / run_id)
+
+            controls = {"cache_policy": "isolated_per_cell", "host_context": {}}
+            with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "prepare_runtime_controls", return_value=({}, controls)), \
+                 mock.patch.object(run, "build_tools", return_value={}), \
+                 mock.patch.object(run, "run_one", side_effect=fake_run_one), \
+                 mock.patch.object(run, "summarize", return_value={"ok": True}):
+                self.assertEqual(run.cmd_run(args), 0)
+
+            self.assertNotIn(interrupted["run_id"], executed)
+            self.assertEqual(len(executed), 1)
+            events = run.load_ndjson(suite / "actual-order.ndjson")
+            deviations = [event for event in events if event.get("event") == "deviation"]
+            self.assertEqual(deviations[0]["reason"], "interrupted_incomplete_not_retried")
+            state = json.loads((suite / "schedule-state.json").read_text())
+            self.assertEqual(state["planned_cell_count"], 2)
+            self.assertEqual(state["recorded_cell_count"], 1)
+
+    def test_schedule_is_persisted_before_setup_or_agent_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            results = root / "results"
+            results.mkdir()
+            task_path = root / "task.json"
+            task_path.write_text(json.dumps(self._task(conditions=["a"])))
+            suite = results / "new-suite"
+            args = argparse.Namespace(
+                tasks=[str(task_path)], runners="", agents="codex", conditions="a",
+                repetitions=1, schedule_seed=0, order_policy="counterbalanced",
+                cache_policy="isolated_per_cell", suite_name="new-suite", resume=False,
+                pricing_file=None, pricing_json=None, stop_after_no_brain_score=None,
+            )
+
+            def assert_schedule_before_setup(*unused):
+                self.assertTrue((suite / "schedule.json").exists())
+                return {}, {"cache_policy": "isolated_per_cell", "host_context": {}}
+
+            def assert_schedule_before_agent(task, runner, condition, repetition, suite_dir, tools, args, pricing):
+                self.assertTrue((suite / "schedule.json").exists())
+                run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
+                return run.RunResult(record={"run_id": run_id, "ok": True, "score": {"total": 1}}, run_dir=suite / run_id)
+
+            with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "prepare_runtime_controls", side_effect=assert_schedule_before_setup), \
+                 mock.patch.object(run, "build_tools", return_value={}), \
+                 mock.patch.object(run, "run_one", side_effect=assert_schedule_before_agent), \
+                 mock.patch.object(run, "summarize", return_value={}):
+                self.assertEqual(run.cmd_run(args), 0)
+
 AUDIT_PATH = pathlib.Path(__file__).with_name("audit_codex.py")
 AUDIT_SPEC = importlib.util.spec_from_file_location("agent_brain_audit", AUDIT_PATH)
 audit_codex = importlib.util.module_from_spec(AUDIT_SPEC)
