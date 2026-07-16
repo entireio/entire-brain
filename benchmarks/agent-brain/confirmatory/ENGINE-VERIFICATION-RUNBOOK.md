@@ -161,7 +161,8 @@ The EBV1 parser decodes every float32 and rejects truncation, trailing bytes, Na
 delivered stdout/record fact ID must be active+eligible, in retained facts, in identical order, and
 the delivered count must equal the ID count and remain at or below pinned K. The checker also
 requires every arm command to invoke the same retained canonical binary. Final freeze remains
-blocked until one real record for each arm passes those checks.
+blocked until one byte-complete, durably retained manifest containing a checker-valid real record
+for each arm passes those checks from its repository artifact location.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between

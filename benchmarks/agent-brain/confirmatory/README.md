@@ -7,11 +7,13 @@ Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 t
 WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
 integrated and verified by content-addressed source and test evidence. The exposed-only offline
 development relevance set now contains 14 queries over 13 tasks, meets the 12-answerable-product-task
-floor, and includes one corpus-closed product null. No three-engine metrics have been computed, and
-the relevance holdout remains unopened and empty. Final freeze remains blocked on fresh-task validity
-review, real three-engine records and development-threshold selection, relevance holdout sealing, a
-defensible powered design, and model pricing/budget approval. The confirmatory analyzer is implemented
-and path-locked.
+floor, and includes one corpus-closed product null. A controlled three-engine diagnostic run has
+produced a checker-valid manifest, but its 602 MB byte-complete bundle is not yet retained through an
+approved repository artifact strategy; no development-threshold metrics have been selected. The
+relevance holdout remains unopened and empty. Final freeze remains blocked on fresh-task validity
+review, durable retention of the three-engine evidence and development-threshold selection,
+relevance holdout sealing, a defensible powered design, and model pricing/budget approval. The
+confirmatory analyzer is implemented and path-locked.
 
 ## Artifacts
 
