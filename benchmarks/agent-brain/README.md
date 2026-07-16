@@ -8,6 +8,13 @@ model, use `profile_brief.py` with the 114-task checked-in development corpus.
 See `BRIEF-PROFILE-BASELINE.md`. That profile is explicitly not confirmatory and
 does not measure code quality.
 
+For an unpaid, same-query comparison of the MCP `brain_brief` `legacy_json` and
+opt-in `compact_v1` packet formats, use `packet_format_ab.py`. See
+`PACKET-FORMAT-AB.md`. It checks parseability, compact-packet integrity,
+independently projected semantic parity, exact bytes, and a frozen offline token
+proxy. It does not call an agent/provider, measure code quality, authorize a
+paid trial, or change either MCP or CLI defaults.
+
 ## Treatment-isolated tasks
 
 Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or
