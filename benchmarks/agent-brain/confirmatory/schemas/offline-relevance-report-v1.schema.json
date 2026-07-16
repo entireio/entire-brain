@@ -9,6 +9,7 @@
     "report_id",
     "generated_at",
     "input_bindings",
+    "producer_identity",
     "metric_contract",
     "selection_contract",
     "evaluated_runs",
@@ -21,6 +22,7 @@
     "report_id": {"$ref": "#/$defs/safeId"},
     "generated_at": {"type": "string", "format": "date-time"},
     "input_bindings": {"$ref": "#/$defs/inputBindings"},
+    "producer_identity": {"$ref": "#/$defs/producerIdentity"},
     "metric_contract": {"$ref": "#/$defs/metricContract"},
     "selection_contract": {"$ref": "#/$defs/selectionContract"},
     "evaluated_runs": {
@@ -37,6 +39,10 @@
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "externalSha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
     "safeId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,255}$"
@@ -73,20 +79,56 @@
         "dataset_id",
         "source_membership_sha256",
         "eligibility_membership_root_sha256",
+        "producer_identity_file_sha256",
+        "producer_identity_sha256",
         "k_candidates"
       ],
       "properties": {
-        "engine_matrix_sha256": {"$ref": "#/$defs/sha256"},
+        "engine_matrix_sha256": {"$ref": "#/$defs/externalSha256"},
         "matrix_id": {"$ref": "#/$defs/safeId"},
-        "engine_pins_sha256": {"$ref": "#/$defs/sha256"},
+        "engine_pins_sha256": {"$ref": "#/$defs/externalSha256"},
         "pin_set_id": {"$ref": "#/$defs/safeId"},
         "fixture_sha256": {"$ref": "#/$defs/sha256"},
         "fixture_id": {"$ref": "#/$defs/safeId"},
-        "dataset_sha256": {"$ref": "#/$defs/sha256"},
+        "dataset_sha256": {"$ref": "#/$defs/externalSha256"},
         "dataset_id": {"$ref": "#/$defs/safeId"},
-        "source_membership_sha256": {"$ref": "#/$defs/sha256"},
-        "eligibility_membership_root_sha256": {"$ref": "#/$defs/sha256"},
+        "source_membership_sha256": {"$ref": "#/$defs/externalSha256"},
+        "eligibility_membership_root_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_identity_file_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_identity_sha256": {"$ref": "#/$defs/sha256"},
         "k_candidates": {"$ref": "#/$defs/kCandidates"}
+      },
+      "additionalProperties": false
+    },
+    "producerIdentity": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "schema",
+        "producer_id",
+        "runner_sha256",
+        "producer_code_sha256",
+        "ranking_result_metadata_policy_id",
+        "ranking_result_metadata_policy_sha256",
+        "token_estimation_policy_id",
+        "token_estimation_policy_sha256",
+        "serialization_policy_id",
+        "serialization_policy_sha256",
+        "producer_identity_sha256"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "schema": {"const": "agent-brain-offline-relevance-producer-identity/v1"},
+        "producer_id": {"$ref": "#/$defs/safeId"},
+        "runner_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_code_sha256": {"$ref": "#/$defs/externalSha256"},
+        "ranking_result_metadata_policy_id": {"$ref": "#/$defs/safeId"},
+        "ranking_result_metadata_policy_sha256": {"$ref": "#/$defs/externalSha256"},
+        "token_estimation_policy_id": {"$ref": "#/$defs/safeId"},
+        "token_estimation_policy_sha256": {"$ref": "#/$defs/externalSha256"},
+        "serialization_policy_id": {"$ref": "#/$defs/safeId"},
+        "serialization_policy_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_identity_sha256": {"$ref": "#/$defs/sha256"}
       },
       "additionalProperties": false
     },
@@ -108,11 +150,11 @@
         "arm_id": {"$ref": "#/$defs/safeId"},
         "effective_engine": {"$ref": "#/$defs/safeId"},
         "semantic": {"type": "boolean"},
-        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "binary_sha256": {"$ref": "#/$defs/externalSha256"},
         "binary_size_bytes": {"type": "integer", "minimum": 1},
         "vector_namespace": {"$ref": "#/$defs/safeId"},
         "vector_artifact_sha256": {
-          "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+          "oneOf": [{"$ref": "#/$defs/externalSha256"}, {"type": "null"}]
         },
         "vector_artifact_size_bytes": {"type": ["integer", "null"], "minimum": 1},
         "embedding_dimension": {"type": ["integer", "null"], "minimum": 1},
@@ -123,7 +165,7 @@
           "if": {"properties": {"semantic": {"const": true}}, "required": ["semantic"]},
           "then": {
             "properties": {
-              "vector_artifact_sha256": {"$ref": "#/$defs/sha256"},
+              "vector_artifact_sha256": {"$ref": "#/$defs/externalSha256"},
               "vector_artifact_size_bytes": {"type": "integer", "minimum": 1},
               "embedding_dimension": {"type": "integer", "minimum": 1}
             }
@@ -154,6 +196,9 @@
         "null_false_positive_numerator",
         "null_false_positive_denominator",
         "temporal_leakage",
+        "ranking_result_metadata_policy_scope",
+        "token_estimation_policy_scope",
+        "serialization_policy_scope",
         "strata"
       ],
       "properties": {
@@ -193,6 +238,9 @@
         "null_false_positive_numerator": {"const": "product_null_queries_with_any_result_in_top_k"},
         "null_false_positive_denominator": {"const": "product_null_query_count"},
         "temporal_leakage": {"const": "any_ranked_fact_not_derived_active_and_eligible_fails_closed"},
+        "ranking_result_metadata_policy_scope": {"const": "fact_hash_kind_cluster_eligibility_and_query_telemetry_fields"},
+        "token_estimation_policy_scope": {"const": "positive_estimated_tokens_per_delivered_fact"},
+        "serialization_policy_scope": {"const": "canonical_text_free_ranked_run_and_report_json"},
         "strata": {
           "type": "array",
           "prefixItems": [
@@ -366,6 +414,7 @@
         "run_id",
         "run_sha256",
         "run_file_sha256",
+        "producer_identity_sha256",
         "engine_identity",
         "aggregation_rule",
         "candidates"
@@ -374,6 +423,7 @@
         "run_id": {"$ref": "#/$defs/safeId"},
         "run_sha256": {"$ref": "#/$defs/sha256"},
         "run_file_sha256": {"$ref": "#/$defs/sha256"},
+        "producer_identity_sha256": {"$ref": "#/$defs/sha256"},
         "engine_identity": {"$ref": "#/$defs/engineIdentity"},
         "aggregation_rule": {"$ref": "#/$defs/aggregationRule"},
         "candidates": {

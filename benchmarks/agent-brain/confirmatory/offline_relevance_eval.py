@@ -2,10 +2,10 @@
 """Evaluate authenticated, text-free offline relevance ranked runs.
 
 The evaluator consumes a separately verified development-query fixture plus
-public dataset, source-membership, engine-matrix, and engine-pin bytes.  Its
-ranked-run and report artifacts retain identifiers, categorical provenance,
-and numeric telemetry only; query and fact text are never copied into either
-artifact.
+public dataset, source-membership, engine-matrix, engine-pin, and self-hashed
+ranked-run producer-identity bytes.  Its ranked-run and report artifacts retain
+identifiers, categorical provenance, and numeric telemetry only; query and fact
+text are never copied into either artifact.
 
 No retrieval engine or model is invoked here.  This module is a deterministic
 scoring and selection lane for already-produced ranked IDs.
@@ -32,6 +32,7 @@ RANKED_RUN_SCHEMA = "agent-brain-offline-relevance-ranked-run/v1"
 REPORT_SCHEMA = "agent-brain-offline-relevance-report/v1"
 METRIC_SCHEMA = "agent-brain-offline-relevance-metrics/v1"
 SELECTION_SCHEMA = "agent-brain-offline-relevance-selection/v1"
+PRODUCER_IDENTITY_SCHEMA = "agent-brain-offline-relevance-producer-identity/v1"
 
 K_CANDIDATES = (5, 8, 10, 12)
 MRR_CUTOFF = 12
@@ -70,6 +71,7 @@ TIE_BREAK_ORDER = (
 )
 
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+ZERO_SHA256 = "0" * 64
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,255}")
 RFC3339_RE = re.compile(
     r"(?P<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
@@ -83,6 +85,7 @@ RUN_FIELDS = {
     "run_id",
     "created_at",
     "input_bindings",
+    "producer_identity",
     "engine_identity",
     "aggregation_rule",
     "k_candidates",
@@ -100,7 +103,32 @@ INPUT_BINDING_FIELDS = {
     "dataset_id",
     "source_membership_sha256",
     "eligibility_membership_root_sha256",
+    "producer_identity_file_sha256",
+    "producer_identity_sha256",
     "k_candidates",
+}
+INPUT_BINDING_SHA_FIELDS = {
+    "engine_matrix_sha256",
+    "engine_pins_sha256",
+    "dataset_sha256",
+    "source_membership_sha256",
+    "eligibility_membership_root_sha256",
+    "producer_identity_file_sha256",
+}
+INPUT_BINDING_SELF_HASH_FIELDS = {"fixture_sha256", "producer_identity_sha256"}
+PRODUCER_IDENTITY_FIELDS = {
+    "schema_version",
+    "schema",
+    "producer_id",
+    "runner_sha256",
+    "producer_code_sha256",
+    "ranking_result_metadata_policy_id",
+    "ranking_result_metadata_policy_sha256",
+    "token_estimation_policy_id",
+    "token_estimation_policy_sha256",
+    "serialization_policy_id",
+    "serialization_policy_sha256",
+    "producer_identity_sha256",
 }
 ENGINE_IDENTITY_FIELDS = {
     "arm_id",
@@ -129,7 +157,14 @@ TELEMETRY_FIELDS = {
     "delivered_count",
     "ranking_latency_ms",
 }
-RESULT_FIELDS = {"fact_id", "kind", "cluster_id", "eligible", "estimated_tokens"}
+RESULT_FIELDS = {
+    "fact_id",
+    "fact_sha256",
+    "kind",
+    "cluster_id",
+    "eligible",
+    "estimated_tokens",
+}
 
 
 class EvaluationError(ValueError):
@@ -155,6 +190,14 @@ def _self_hash(value: dict[str, Any], field: str) -> str:
 def finalize_ranked_run(value: dict[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(value)
     result["run_sha256"] = _self_hash(result, "run_sha256")
+    return result
+
+
+def finalize_producer_identity(value: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(value)
+    result["producer_identity_sha256"] = _self_hash(
+        result, "producer_identity_sha256"
+    )
     return result
 
 
@@ -238,6 +281,15 @@ def _sha256(value: Any, label: str) -> str:
     if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
         raise EvaluationError(f"{label} must be a lowercase SHA-256")
     return value
+
+
+def _external_sha256(value: Any, label: str) -> str:
+    result = _sha256(value, label)
+    if result == ZERO_SHA256:
+        raise EvaluationError(
+            f"{label} must not use the all-zero placeholder SHA-256"
+        )
+    return result
 
 
 def _nonnegative_int(value: Any, label: str) -> int:
@@ -339,7 +391,7 @@ def _validate_membership(value: Any) -> dict[str, Any]:
         facts.append(
             {
                 "fact_id": fact_id,
-                "fact_sha256": _sha256(
+                "fact_sha256": _external_sha256(
                     record.get("fact_sha256"), f"source membership fact[{index}].fact_sha256"
                 ),
                 "status": _safe_id(
@@ -364,7 +416,7 @@ def _validate_membership(value: Any) -> dict[str, Any]:
     active_count = sum(record["status"] == "active" for record in facts)
     if expected_active_count != active_count:
         raise EvaluationError("source membership active_fact_count differs from records")
-    expected_root = _sha256(
+    expected_root = _external_sha256(
         membership.get("eligibility_membership_root_sha256"),
         "source membership eligibility root",
     )
@@ -474,6 +526,10 @@ def _validate_dataset(value: Any, fixture_index: dict[str, Any], fixture_order: 
                 raise EvaluationError("dataset contains an unknown relevance grade")
             normalized = {
                 "fact_id": fact_id,
+                "fact_sha256": _external_sha256(
+                    judgment.get("fact_sha256"),
+                    f"dataset item[{index}].judgment[{judgment_index}].fact_sha256",
+                ),
                 "grade": grade,
                 "kind": _safe_id(
                     judgment.get("kind"),
@@ -540,9 +596,14 @@ def _validate_judgment_eligibility(
     for query_id in dataset["order"]:
         fixture_item = fixture_index[query_id]
         for fact_id in dataset["items"][query_id]["judgments"]:
+            judgment = dataset["items"][query_id]["judgments"][fact_id]
             fact = membership["fact_index"].get(fact_id)
             if fact is None:
                 raise EvaluationError("dataset judgment is absent from source membership")
+            if judgment["fact_sha256"] != fact["fact_sha256"]:
+                raise EvaluationError(
+                    "dataset judgment fact SHA-256 differs from source membership"
+                )
             if not _eligible(fact, fixture_item, membership["session_dates"]):
                 raise EvaluationError(
                     "dataset judgment is outside authenticated temporal eligibility"
@@ -554,6 +615,8 @@ def _build_input_bindings(
     engine_matrix: dict[str, Any],
     engine_pins_raw: bytes,
     engine_pins: dict[str, Any],
+    producer_identity_raw: bytes,
+    producer_identity: dict[str, Any],
     fixture: dict[str, Any],
     dataset_raw: bytes,
     dataset: dict[str, Any],
@@ -574,8 +637,52 @@ def _build_input_bindings(
             membership.get("eligibility_membership_root_sha256"),
             "eligibility membership root",
         ),
+        "producer_identity_file_sha256": sha256_bytes(producer_identity_raw),
+        "producer_identity_sha256": producer_identity["producer_identity_sha256"],
         "k_candidates": list(K_CANDIDATES),
     }
+
+
+def _validate_input_bindings(value: Any) -> dict[str, Any]:
+    bindings = _object(value, "ranked run input bindings")
+    _exact_fields(bindings, INPUT_BINDING_FIELDS, "ranked run input bindings")
+    for field in INPUT_BINDING_SHA_FIELDS:
+        _external_sha256(bindings.get(field), f"ranked run input binding {field}")
+    for field in INPUT_BINDING_SELF_HASH_FIELDS:
+        _sha256(bindings.get(field), f"ranked run input binding {field}")
+    for field in ("matrix_id", "pin_set_id", "fixture_id", "dataset_id"):
+        _safe_id(bindings.get(field), f"ranked run input binding {field}")
+    if bindings.get("k_candidates") != list(K_CANDIDATES):
+        raise EvaluationError("ranked run input binding K candidates differ")
+    return copy.deepcopy(bindings)
+
+
+def _validate_producer_identity(value: Any) -> dict[str, Any]:
+    identity = _object(value, "producer identity")
+    _exact_fields(identity, PRODUCER_IDENTITY_FIELDS, "producer identity")
+    if (
+        identity.get("schema_version") != SCHEMA_VERSION
+        or identity.get("schema") != PRODUCER_IDENTITY_SCHEMA
+    ):
+        raise EvaluationError("producer identity schema is invalid")
+    _safe_id(identity.get("producer_id"), "producer identity producer_id")
+    for field in ("runner_sha256", "producer_code_sha256"):
+        _external_sha256(identity.get(field), f"producer identity {field}")
+    for policy in ("ranking_result_metadata", "token_estimation", "serialization"):
+        _safe_id(
+            identity.get(f"{policy}_policy_id"),
+            f"producer identity {policy}_policy_id",
+        )
+        _external_sha256(
+            identity.get(f"{policy}_policy_sha256"),
+            f"producer identity {policy}_policy_sha256",
+        )
+    supplied_hash = _sha256(
+        identity.get("producer_identity_sha256"), "producer identity self-hash"
+    )
+    if _self_hash(identity, "producer_identity_sha256") != supplied_hash:
+        raise EvaluationError("producer identity self-hash mismatch")
+    return copy.deepcopy(identity)
 
 
 def _engine_arms(engine_matrix: dict[str, Any]) -> tuple[list[str], dict[str, dict[str, Any]]]:
@@ -624,7 +731,12 @@ def _validate_engine_identity(
     if identity.get("fallback_used") is not False:
         raise EvaluationError("engine fallback invalidates the ranked run")
     binary = _object(engine_pins.get("binary"), "engine pins binary")
-    if identity.get("binary_sha256") != _sha256(binary.get("binary_sha256"), "pinned binary"):
+    identity_binary_sha256 = _external_sha256(
+        identity.get("binary_sha256"), "engine identity binary_sha256"
+    )
+    if identity_binary_sha256 != _external_sha256(
+        binary.get("binary_sha256"), "pinned binary"
+    ):
         raise EvaluationError("binary identity differs from engine pins")
     if identity.get("binary_size_bytes") != _positive_int(
         binary.get("binary_size_bytes"), "pinned binary size"
@@ -634,7 +746,9 @@ def _validate_engine_identity(
     pinned_engine = _object(engines.get(arm_id), "pinned engine identity")
     dimension = pinned_engine.get("dimension")
     if contract["semantic"]:
-        _sha256(identity.get("vector_artifact_sha256"), "vector artifact SHA-256")
+        _external_sha256(
+            identity.get("vector_artifact_sha256"), "vector artifact SHA-256"
+        )
         _positive_int(identity.get("vector_artifact_size_bytes"), "vector artifact size")
         if identity.get("embedding_dimension") != _positive_int(
             dimension, "pinned embedding dimension"
@@ -690,6 +804,7 @@ def _validate_run(
     value: Any,
     *,
     expected_bindings: dict[str, Any],
+    expected_producer_identity: dict[str, Any],
     engine_matrix: dict[str, Any],
     engine_pins: dict[str, Any],
     fixture_index: dict[str, Any],
@@ -706,8 +821,7 @@ def _validate_run(
     supplied_hash = _sha256(run.get("run_sha256"), "run_sha256")
     if _self_hash(run, "run_sha256") != supplied_hash:
         raise EvaluationError("ranked run self-hash mismatch")
-    bindings = _object(run.get("input_bindings"), "ranked run input bindings")
-    _exact_fields(bindings, INPUT_BINDING_FIELDS, "ranked run input bindings")
+    bindings = _validate_input_bindings(run.get("input_bindings"))
     if bindings != expected_bindings:
         raise EvaluationError("ranked run input bindings differ from authenticated inputs")
     if run.get("k_candidates") != list(K_CANDIDATES):
@@ -715,6 +829,11 @@ def _validate_run(
     aggregation = run.get("aggregation_rule")
     if aggregation not in AGGREGATION_CANDIDATES:
         raise EvaluationError("ranked run aggregation rule is unsupported")
+    producer_identity = _validate_producer_identity(run.get("producer_identity"))
+    if producer_identity != expected_producer_identity:
+        raise EvaluationError(
+            "ranked run producer identity differs from bound producer contract"
+        )
     _, arm_contracts = _engine_arms(engine_matrix)
     identity = _validate_engine_identity(run.get("engine_identity"), arm_contracts, engine_pins)
     query_values = _array(run.get("queries"), "ranked run queries")
@@ -760,6 +879,14 @@ def _validate_run(
             fact = membership_index.get(fact_id)
             if fact is None:
                 raise EvaluationError("ranked run result is absent from source membership")
+            fact_sha256 = _external_sha256(
+                result.get("fact_sha256"),
+                f"ordered result[{result_index}].fact_sha256",
+            )
+            if fact_sha256 != fact["fact_sha256"]:
+                raise EvaluationError(
+                    "ranked result fact SHA-256 differs from source membership"
+                )
             derived_eligible = fact_id in eligible_ids
             if result.get("eligible") is not derived_eligible:
                 raise EvaluationError("ranked result eligibility differs from authenticated policy")
@@ -777,10 +904,11 @@ def _validate_run(
             results.append(
                 {
                     "fact_id": fact_id,
+                    "fact_sha256": fact_sha256,
                     "kind": kind,
                     "cluster_id": cluster_id,
                     "eligible": True,
-                    "estimated_tokens": _nonnegative_int(
+                    "estimated_tokens": _positive_int(
                         result.get("estimated_tokens"),
                         f"ordered result[{result_index}].estimated_tokens",
                     ),
@@ -808,6 +936,7 @@ def _validate_run(
         "run_id": run_id,
         "created_at": run["created_at"],
         "input_bindings": copy.deepcopy(bindings),
+        "producer_identity": producer_identity,
         "engine_identity": identity,
         "aggregation_rule": aggregation,
         "k_candidates": list(K_CANDIDATES),
@@ -994,6 +1123,11 @@ def metric_contract() -> dict[str, Any]:
         "null_false_positive_numerator": "product_null_queries_with_any_result_in_top_k",
         "null_false_positive_denominator": "product_null_query_count",
         "temporal_leakage": "any_ranked_fact_not_derived_active_and_eligible_fails_closed",
+        "ranking_result_metadata_policy_scope": (
+            "fact_hash_kind_cluster_eligibility_and_query_telemetry_fields"
+        ),
+        "token_estimation_policy_scope": "positive_estimated_tokens_per_delivered_fact",
+        "serialization_policy_scope": "canonical_text_free_ranked_run_and_report_json",
         "strata": ["user_prompt_derived", "oracle_upper_bound"],
     }
 
@@ -1032,6 +1166,7 @@ def evaluate(
     *,
     engine_matrix_raw: bytes,
     engine_pins_raw: bytes,
+    producer_identity_raw: bytes,
     fixture: dict[str, Any],
     dataset_raw: bytes,
     source_membership_raw: bytes,
@@ -1040,6 +1175,9 @@ def evaluate(
     """Validate inputs, derive metrics, and return a self-hashed text-free report."""
     engine_matrix = _object(decode_json(engine_matrix_raw, "engine matrix"), "engine matrix")
     engine_pins = _object(decode_json(engine_pins_raw, "engine pins"), "engine pins")
+    producer_identity = _validate_producer_identity(
+        decode_json(producer_identity_raw, "producer identity")
+    )
     dataset = _object(decode_json(dataset_raw, "dataset"), "dataset")
     source_membership_value = _object(
         decode_json(source_membership_raw, "source membership"), "source membership"
@@ -1053,6 +1191,8 @@ def evaluate(
         engine_matrix,
         engine_pins_raw,
         engine_pins,
+        producer_identity_raw,
+        producer_identity,
         fixture,
         dataset_raw,
         dataset,
@@ -1069,6 +1209,7 @@ def evaluate(
         run = _validate_run(
             decoded,
             expected_bindings=input_bindings,
+            expected_producer_identity=producer_identity,
             engine_matrix=engine_matrix,
             engine_pins=engine_pins,
             fixture_index=fixture_index,
@@ -1115,6 +1256,9 @@ def evaluate(
                 "run_id": run["run_id"],
                 "run_sha256": run["run_sha256"],
                 "run_file_sha256": sha256_bytes(raw),
+                "producer_identity_sha256": run["producer_identity"][
+                    "producer_identity_sha256"
+                ],
                 "engine_identity": copy.deepcopy(run["engine_identity"]),
                 "aggregation_rule": run["aggregation_rule"],
                 "candidates": candidates,
@@ -1173,6 +1317,7 @@ def evaluate(
         "report_id": "entire-brain-offline-relevance-development-v1",
         "generated_at": generated_at,
         "input_bindings": input_bindings,
+        "producer_identity": producer_identity,
         "metric_contract": metric_contract(),
         "selection_contract": selection_contract(),
         "evaluated_runs": evaluated,
@@ -1192,6 +1337,7 @@ def _load_public(path: pathlib.Path, label: str) -> bytes:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=pathlib.Path, default=pathlib.Path.cwd())
+    parser.add_argument("--producer-identity", type=pathlib.Path, required=True)
     parser.add_argument("--ranked-run", action="append", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path)
     args = parser.parse_args(argv)
@@ -1210,6 +1356,9 @@ def main(argv: list[str] | None = None) -> int:
             engine_matrix_raw=_load_public(confirmatory / "engine-matrix.json", "engine matrix"),
             engine_pins_raw=_load_public(
                 confirmatory / "engine-verification-pins.json", "engine pins"
+            ),
+            producer_identity_raw=_load_public(
+                args.producer_identity, "producer identity"
             ),
             fixture=fixture,
             dataset_raw=_load_public(
