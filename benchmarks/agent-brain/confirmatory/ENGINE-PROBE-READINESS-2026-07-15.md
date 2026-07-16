@@ -1,6 +1,6 @@
 # Retrieval-engine probe readiness — 2026-07-15
 
-Status: **runtime smoke passed; fail-closed wrapper ready; freeze evidence incomplete; no paid calls**.
+Status: **controlled three-arm verification passed; durable repository retention pending; no paid calls**.
 
 Read-only probes used the already-exposed development task `6699ec40a` against the full rolling
 quarantine. All three runtime paths reported `identity_verified=true`, BM25 disabled, no fallback,
@@ -18,21 +18,21 @@ The source facts SHA-256 is
 EmbeddingGemma GGUF is 333,590,944 bytes with SHA-256
 `b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63`.
 
-These observations are diagnostic, not the three retained records required by
-`all_engines_machine_verified`. `ENTIRE_PLUGIN_CACHE_DIR` does not isolate fact vectors: semantic
-vectors live under `ENTIRE_PLUGIN_DATA_DIR` in `facts/<branch>/embeddings/vectors.bin`. The frozen
-vector artifact is EmbeddingGemma; the read-only Model2Vec probe therefore rebuilt vectors in memory
-and produced no attributable Model2Vec artifact.
+On 2026-07-16 the controlled wrapper completed all three arms and atomically published a valid
+three-record manifest at the local diagnostic artifact root
+`/Users/thomi/.entire-brain-eval/retained-engine-evidence-20260716/run-bb68c0ac-v3/`.
+The manifest SHA-256 is
+`b7c9baae2c3f0ed9b0773226ececf5bf129bd4dd487c02ffab9945cf0fc9c17d`.
+Independent production-pin validation returned zero errors. All arms used the same 2,621-fact
+corpus and 2,529-fact temporal eligibility set, delivered five results, disabled BM25, and reported
+no fallback. The two semantic arms retained isolated 2,442-vector EBV1 artifacts:
 
-Before the gate can pass:
+- Model2Vec: `5f50be06ef43e4383aeb332afd322ed1290017d6dda1d0c4538822a35218085f`;
+- EmbeddingGemma: `eeac9dccb083972d948a27e7e7236fd0b2824dc70fe72a7e96f30faeae72add9`.
 
-1. Create separate derived data roots for Model2Vec and EmbeddingGemma without changing the frozen
-   source facts.
-2. Persist and hash one vector artifact per semantic arm.
-3. Retain the exact binary, stdout, stderr, vector artifacts, and GGUF through a durable evidence
-   location that the protocol checker can byte-verify.
-4. Emit exactly one schema record per arm and confirm identical corpus/eligibility identities,
-   isolated namespaces, `fallback_used=false`, and the requested effective engine.
+The 602 MB local bundle is diagnostic evidence, not yet repository-retained evidence. The
+`all_engines_machine_verified` gate remains pending until an approved durable artifact strategy
+retains those exact bytes at a checker-resolvable repository-relative location.
 
 No fresh relevance or agent holdout was opened by these probes.
 
@@ -78,14 +78,14 @@ derived-facts rehashing, atomic publication failure, live-process health monitor
 and timestamp-ordering failures, server PID/phase discontinuity, fallback, input-pin,
 development-query, and endpoint-ownership cases.
 
-The real retained run was preflighted against development task `6699ec40a`. It correctly refused
-before creating an evidence directory because a pre-existing, unowned Node process (PID 70028 at the
-time of the check) already held the matrix-pinned `127.0.0.1:11500` endpoint. That process was neither
-reused nor stopped. The source facts, session-date map, and GGUF hashes remained unchanged.
+The inherited Node server at PID 70028 was confirmed to be the benchmark's own EmbeddingGemma
+service, stopped with owner authorization, and not reused as evidence. The wrapper then launched,
+health-attested, and stopped its own server on `127.0.0.1:11500`. During the first complete run the
+protocol checker exposed an ordering inconsistency in the dependency inventory: the runner hashed
+component-sorted `Path` rows while the checker hashed serialized relative-path rows. Commit
+`f125b5c2` canonicalizes the runner to serialized relative-path order, refreshes the production pin,
+and adds the adversarial `a-b` versus `a/b` regression fixture. The regenerated v3 evidence passed.
 
-The gate remains **pending** for two exact reasons:
-
-1. The pinned endpoint must be made available by its owner so the wrapper can perform a clean,
-   controlled three-arm run.
-2. The resulting repo-relative bytes—especially the 333,590,944-byte GGUF—need an approved durable
-   repository artifact strategy. A successful temporary or untracked run is not pass evidence.
+The gate remains **pending** for one exact reason: the resulting bytes—especially the
+333,590,944-byte GGUF—need an approved durable repository artifact strategy. A successful external
+artifact-root run is not pass evidence even when its manifest validates cleanly.

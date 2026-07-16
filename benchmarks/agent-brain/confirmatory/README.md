@@ -51,8 +51,9 @@ and path-locked.
 - `verify_engines.py`: fail-closed retained runner with isolated arms, owned-server continuity
   attestation overlapping live recall, byte-complete artifacts, and
   checker-before-atomic-publication semantics.
-- `ENGINE-PROBE-READINESS-2026-07-15.md`: unpaid three-path runtime smoke and the remaining vector
-  isolation/evidence blocker; it is not final engine verification.
+- `ENGINE-PROBE-READINESS-2026-07-15.md`: unpaid controlled three-engine verification result and
+  the remaining durable repository-retention blocker; the external local bundle is not freeze
+  evidence until its exact bytes are retained through the approved artifact strategy.
 - `power_analysis.py`, `power-analysis.json`, and `POWER-DESIGN-OPTIONS-2026-07-15.md`: deterministic
   unpaid sensitivity and task/repetition tradeoffs. The current 24-task x 4-repetition design fails;
   no alternative row is approved without a human choice of calibration basis.
