@@ -133,13 +133,15 @@ does not generally expose hidden reasoning separately, so absent `reasoningToken
 the frozen provider contract explicitly establishes absence as zero; the parser never assumes this.
 
 The provisional target design is 24 fresh tasks x 3 primary treatments x 4 repetitions = 288
-requested cells, counterbalanced by WS4. Confirmatory retries and replacement calls are frozen at
-zero, so 288 is also the maximum provider-call envelope. This design is mirrored
+requested cells, counterbalanced by WS4. Agent retries, replacement-cell attempts, and reserve-cell
+attempts are frozen at zero, so 288 is also the maximum agent-CLI invocation/cell-attempt envelope.
+This design is mirrored
 in `pricing-budget.json` for drift detection but is explicitly not approved for budgeting while the
 power gate is unresolved. Dollar cost remains null until the final powered design, exact
-provider/runner/model/effort, byte-hashed current quote, category aliases, and per-call token envelope
-are pinned. The machine calculation separately prices uncached input, cache-read input, cache-write
-input, visible output, and reasoning output for every requested call. A named budget
+provider, runner ID/version, agent CLI ID/version, requested and resolved model, effort, schedule,
+byte-hashed current quote, category aliases, and per-invocation token envelope are pinned. The
+machine calculation separately prices uncached input, cache-read input, cache-write input, visible
+output, and reasoning output for every requested agent invocation. A named budget
 owner must approve a non-expired USD cap at least as large as that
 computed maximum. See `PRICING-BUDGET-READINESS-2026-07-15.md`; no run may start with an unbounded,
 stale, or blank dollar cap.
@@ -147,8 +149,10 @@ stale, or blank dollar cap.
 The checked-in v3 power artifact deliberately does **not** substantiate this target design. No
 retained source supplies exchangeable paired task-level variability for all three endpoints under
 the final runner, v2 treatment, timeout, price, and quality contracts. Therefore elapsed-time,
-normalized-cost, and quality marginal power are all null/pending rather than invented from legacy
-token/pass-rate data. The power gate remains failed and `power.completed` remains false.
+normalized-cost, and quality marginal power—and joint intersection-union power—are all null/pending
+rather than invented from legacy token/pass-rate data. The three claim floors remain separate from
+the owner-frozen, strictly better true planning alternatives, which are also currently null. The
+power gate remains failed and `power.completed` remains false.
 
 The 12 independent task clusters required by the calibration contract are a minimum variance-
 calibration floor, not a powered development design. Until compatible variance and endpoint-

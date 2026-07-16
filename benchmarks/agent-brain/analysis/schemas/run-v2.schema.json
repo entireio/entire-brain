@@ -20,7 +20,7 @@
     "artifacts": {"type": "array"},
     "execution_gate": {
       "type": "object",
-      "required": ["treatment_started", "agent_ran", "provider_invocation"],
+      "required": ["treatment_started", "agent_ran", "provider_invocation", "execution_identity"],
       "properties": {
         "treatment_started": {"type": "boolean"},
         "agent_ran": {"type": "boolean"},
@@ -64,6 +64,51 @@
                 "invocation_count": {"const": 0},
                 "attestation": {"const": "harness_control_flow_treatment_not_started"},
                 "reason": {"const": "pre_treatment_infrastructure_failure"}
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "execution_identity": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": [
+                "schema",
+                "provider",
+                "runner_id",
+                "runner_version",
+                "agent_id",
+                "agent_cli",
+                "agent_cli_version",
+                "requested_model_id",
+                "resolved_model_id",
+                "resolved_model_attestation",
+                "effort",
+                "schedule_sha256",
+                "price_quote_sha256",
+                "frozen_runner_identity_sha256",
+                "identity_sha256"
+              ],
+              "properties": {
+                "schema": {"const": "agent-brain-cell-execution-identity/v1"},
+                "provider": {"type": "string", "minLength": 1},
+                "runner_id": {"type": "string", "minLength": 1},
+                "runner_version": {"type": "string", "minLength": 1},
+                "agent_id": {"type": "string", "minLength": 1},
+                "agent_cli": {"type": "string", "minLength": 1},
+                "agent_cli_version": {"type": "string", "minLength": 1},
+                "requested_model_id": {"type": "string", "minLength": 1},
+                "resolved_model_id": {"type": "string", "minLength": 1},
+                "resolved_model_attestation": {
+                  "enum": ["agent_cli_reported", "frozen_expected_no_agent_invocation"]
+                },
+                "effort": {"type": "string", "minLength": 1},
+                "schedule_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "price_quote_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "frozen_runner_identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
               },
               "additionalProperties": false
             }
@@ -340,7 +385,8 @@
           "execution_gate": {
             "properties": {
               "agent_ran": {"const": false},
-              "return_code": {"const": null}
+              "return_code": {"const": null},
+              "execution_identity": {"type": "object"}
             }
           },
           "raw_metrics": {
@@ -365,7 +411,8 @@
             "execution_gate": {
               "properties": {
                 "agent_ran": {"const": true},
-                "return_code": {"type": "integer"}
+                "return_code": {"type": "integer"},
+                "execution_identity": {"type": "object"}
               }
             },
             "raw_metrics": {
@@ -378,8 +425,9 @@
             "execution_gate": {
               "properties": {
                 "treatment_started": {"const": false},
-                "agent_ran": {"const": false},
-                "return_code": {"const": null}
+                  "agent_ran": {"const": false},
+                  "return_code": {"const": null},
+                  "execution_identity": {"const": null}
               }
             },
             "raw_metrics": {

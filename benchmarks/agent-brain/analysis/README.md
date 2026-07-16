@@ -71,6 +71,12 @@ Claude terminal results/model rows under a single-model quote refuses analysis.
 Codex cumulative snapshots must keep optional-counter presence stable, so a
 later omission cannot erase usage already observed in the invocation.
 
+Every observed provider invocation and every authenticated pre-provider
+structural-zero cell carries a self-hashed execution identity. The analyzer
+matches it exactly to the frozen provider, runner ID/version, agent CLI
+ID/version, requested and resolved model, effort, schedule hash, and quote hash;
+a mismatch in any field refuses analysis.
+
 Timed-out attempts retain the measured monotonic end-to-end interval. The
 frozen agent-component timeout and the component limit that fired are preserved
 as metadata, but neither replaces the end-to-end observation. The final response
@@ -86,6 +92,7 @@ supplied hash):
 python3 benchmarks/agent-brain/analysis/confirmatory.py /path/to/verified-suite \
   --success-contract /path/to/frozen-success-contract.json \
   --price-quote /path/to/frozen-price-quote.json \
+  --runner-identity /path/to/frozen-runner-identity.json \
   --output confirmatory-analysis.json
 ```
 

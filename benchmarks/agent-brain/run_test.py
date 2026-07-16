@@ -22,6 +22,8 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = run
 SPEC.loader.exec_module(run)
 
+TEST_SCHEDULE_SHA256 = "b" * 64
+
 
 class CounterbalancedRuntimeControlTests(unittest.TestCase):
     def _task(self, task_id="task-a", conditions=None):
@@ -134,7 +136,9 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
         )
 
     def test_impossible_provider_counters_fail_billing_without_dropping_attempt(self):
-        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        runner = run.RunnerSpec(
+            id="runner", agent="codex", model="model", effort="low"
+        )
         usage = {
             "input_tokens": 10,
             "cache_read_tokens": 20,
@@ -142,22 +146,19 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
             "output_tokens": 5,
             "reasoning_tokens": 0,
         }
-        pricing = {
-            "runner": {"runner_id": "runner", "model_id": "model"},
-            "pricing_quote": {
-                "quote_sha256": "a" * 64,
-                "usage_semantics": {
-                    "input_tokens_includes": ["cache_read_input"],
-                    "output_tokens_includes": ["reasoning_output"],
-                    "counter_absence_means_zero": {
-                        "cache_read_input": False,
-                        "cache_write_input": False,
-                        "reasoning_output": False,
-                    },
-                },
-            },
-        }
-        self.assertIsNone(run.confirmatory_billing_usage(runner, usage, pricing))
+        pricing = self._confirmatory_pricing()
+        pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "cache_write_input"
+        ] = False
+        self.assertIsNone(
+            run.confirmatory_billing_usage(
+                runner,
+                usage,
+                pricing,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
+        )
 
     def test_user_visible_timer_excludes_setup_preflight_and_hidden_validation(self):
         source = inspect.getsource(run.run_one)
@@ -248,7 +249,20 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
             )
 
     def test_pricing_budget_quote_binds_billing_semantics_and_cache_write(self):
-        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        runner = run.RunnerSpec(
+            id="runner", agent="codex", model="model", effort="low"
+        )
+        pricing = self._confirmatory_pricing()
+        pricing["pricing_quote"]["usage_semantics"].update(
+            {
+                "input_tokens_includes": ["cache_read_input", "cache_write_input"],
+                "counter_absence_means_zero": {
+                    "cache_read_input": False,
+                    "cache_write_input": False,
+                    "reasoning_output": False,
+                },
+            }
+        )
         value = run.confirmatory_billing_usage(
             runner,
             {
@@ -258,21 +272,9 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                 "output_tokens": 30,
                 "reasoning_tokens": 10,
             },
-            {
-                "runner": {"runner_id": "runner", "model_id": "model"},
-                "pricing_quote": {
-                    "quote_sha256": "a" * 64,
-                    "usage_semantics": {
-                        "input_tokens_includes": ["cache_read_input", "cache_write_input"],
-                        "output_tokens_includes": ["reasoning_output"],
-                        "counter_absence_means_zero": {
-                            "cache_read_input": False,
-                            "cache_write_input": False,
-                            "reasoning_output": False,
-                        },
-                    },
-                },
-            },
+            pricing,
+            resolved_model="model",
+            schedule_sha256=TEST_SCHEDULE_SHA256,
         )
         self.assertIsNotNone(value)
         self.assertEqual(value["price_quote_sha256"], "a" * 64)
@@ -280,9 +282,25 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
         self.assertEqual(value["exclusive"]["uncached_input"], 50)
 
     @staticmethod
-    def _confirmatory_pricing() -> dict:
+    def _confirmatory_pricing(
+        *, agent: str = "codex", model: str = "model", effort: str = "low"
+    ) -> dict:
+        identity = {
+            "schema": run.FROZEN_RUNNER_IDENTITY_SCHEMA,
+            "provider": "openai" if agent == "codex" else "anthropic",
+            "runner_id": "runner",
+            "runner_version": "run.py-test-v1",
+            "agent_id": agent,
+            "agent_cli": agent,
+            "agent_cli_version": f"{agent}-test-v1",
+            "requested_model_id": model,
+            "resolved_model_id": model,
+            "effort": effort,
+            "schedule_sha256": TEST_SCHEDULE_SHA256,
+        }
+        identity["identity_sha256"] = run.stable_json_sha256(identity)
         return {
-            "runner": {"runner_id": "runner", "model_id": "model"},
+            "runner": identity,
             "pricing_quote": {
                 "quote_sha256": "a" * 64,
                 "usage_semantics": {
@@ -298,11 +316,14 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
         }
 
     def test_structural_zero_is_quote_bound_only_before_provider_entry(self):
-        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        runner = run.RunnerSpec(
+            id="runner", agent="codex", model="model", effort="low"
+        )
         info = run.structural_zero_agent_info(
             runner,
             self._confirmatory_pricing(),
             reason="treatment_retrieval_or_delivery_failure",
+            schedule_sha256=TEST_SCHEDULE_SHA256,
         )
         self.assertIsNone(info["returncode"])
         self.assertEqual(info["attempts"], [])
@@ -317,6 +338,7 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
             runner,
             {},
             reason="treatment_retrieval_or_delivery_failure",
+            schedule_sha256=TEST_SCHEDULE_SHA256,
         )
         self.assertFalse(unbound["billing_integrity"]["required"])
         self.assertFalse(unbound["billing_integrity"]["aggregate_present"])
@@ -352,6 +374,7 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
         return json.dumps(
             {
                 "type": "turn.completed",
+                "model": "model",
                 "usage": {
                     "input_tokens": input_tokens,
                     "cached_input_tokens": cached,
@@ -424,23 +447,39 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
         self.assertEqual(usage["usage_report"]["ignored_duplicate_source"], "usage")
 
     def test_claude_reasoning_absence_and_multiple_model_rows_fail_closed(self):
-        runner = run.RunnerSpec(id="runner", agent="claude", model="model")
+        runner = run.RunnerSpec(
+            id="runner", agent="claude", model="model", effort="low"
+        )
         missing_reasoning = run.extract_usage(
             "claude", self._claude_result(10, 5, 2, 3, None, 0.1), ""
         )
         self.assertIsNone(missing_reasoning["reasoning_tokens"])
-        pricing = self._confirmatory_pricing()
+        pricing = self._confirmatory_pricing(agent="claude")
         pricing["pricing_quote"]["usage_semantics"]["input_tokens_includes"] = []
         pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
             "cache_write_input"
         ] = False
-        self.assertIsNone(run.confirmatory_billing_usage(runner, missing_reasoning, pricing))
+        self.assertIsNone(
+            run.confirmatory_billing_usage(
+                runner,
+                missing_reasoning,
+                pricing,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
+        )
         authorized = copy.deepcopy(pricing)
         authorized["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
             "reasoning_output"
         ] = True
         self.assertIsNotNone(
-            run.confirmatory_billing_usage(runner, missing_reasoning, authorized)
+            run.confirmatory_billing_usage(
+                runner,
+                missing_reasoning,
+                authorized,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
         )
 
         multi_model = run.extract_usage(
@@ -452,7 +491,15 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
         )
         self.assertFalse(multi_model["usage_report"]["complete"])
         self.assertIn("multiple model rows", multi_model["usage_report"]["error"])
-        self.assertIsNone(run.confirmatory_billing_usage(runner, multi_model, pricing))
+        self.assertIsNone(
+            run.confirmatory_billing_usage(
+                runner,
+                multi_model,
+                pricing,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
+        )
 
     def test_codex_nonmonotone_or_conflicting_usage_snapshots_are_rejected(self):
         nonmonotone = "\n".join(
@@ -529,7 +576,9 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                 run.time, "sleep"
             ):
                 info = run.run_agent(
-                    run.RunnerSpec(id="runner", agent="codex", model="model"),
+                    run.RunnerSpec(
+                        id="runner", agent="codex", model="model", effort="low"
+                    ),
                     "fix it",
                     worktree,
                     {},
@@ -540,6 +589,7 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                     0.0,
                     self._confirmatory_pricing(),
                     agent_retries=1,
+                    schedule_sha256=TEST_SCHEDULE_SHA256,
                 )
         self.assertEqual(len(info["attempts"]), 2)
         self.assertEqual(info["attempts"][0]["returncode"], 1)
@@ -571,7 +621,9 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                 run.time, "sleep"
             ):
                 info = run.run_agent(
-                    run.RunnerSpec(id="runner", agent="codex", model="model"),
+                    run.RunnerSpec(
+                        id="runner", agent="codex", model="model", effort="low"
+                    ),
                     "fix it",
                     worktree,
                     {},
@@ -582,6 +634,7 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                     0.0,
                     self._confirmatory_pricing(),
                     agent_retries=1,
+                    schedule_sha256=TEST_SCHEDULE_SHA256,
                 )
         self.assertFalse(info["billing_integrity"]["passed"])
         self.assertEqual(info["billing_integrity"]["incomplete_attempts"], [1])
@@ -600,7 +653,7 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
             self._claude_result(20, 7, 4, 6, 2, 0.2),
             "",
         )
-        pricing = self._confirmatory_pricing()
+        pricing = self._confirmatory_pricing(agent="claude")
         pricing["pricing_quote"]["usage_semantics"]["input_tokens_includes"] = []
         pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
             "cache_write_input"
@@ -615,7 +668,9 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                 run.time, "sleep"
             ):
                 info = run.run_agent(
-                    run.RunnerSpec(id="runner", agent="claude", model="model"),
+                    run.RunnerSpec(
+                        id="runner", agent="claude", model="model", effort="low"
+                    ),
                     "fix it",
                     worktree,
                     {},
@@ -626,6 +681,7 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                     0.0,
                     pricing,
                     agent_retries=1,
+                    schedule_sha256=TEST_SCHEDULE_SHA256,
                 )
         self.assertTrue(info["billing_integrity"]["passed"])
         self.assertEqual(info["usage"]["billing_v2"]["raw"]["input_tokens"], 30)
@@ -658,7 +714,9 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
             ):
                 with self.assertRaises(run.AgentRunTimeout) as caught:
                     run.run_agent(
-                        run.RunnerSpec(id="runner", agent="codex", model="model"),
+                        run.RunnerSpec(
+                            id="runner", agent="codex", model="model", effort="low"
+                        ),
                         "fix it",
                         worktree,
                         {},
@@ -669,6 +727,7 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
                         0.0,
                         self._confirmatory_pricing(),
                         agent_retries=1,
+                        schedule_sha256=TEST_SCHEDULE_SHA256,
                     )
             info = caught.exception.agent_info
             self.assertEqual(len(info["attempts"]), 2)

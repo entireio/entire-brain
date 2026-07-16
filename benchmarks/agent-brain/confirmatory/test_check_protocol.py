@@ -9,6 +9,7 @@ import pathlib
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -37,12 +38,19 @@ class ProtocolCheckTest(unittest.TestCase):
         quote_source.parent.mkdir(parents=True, exist_ok=True)
         quote_source.write_text("synthetic test quote; not a provider price\n", encoding="utf-8")
         runner = {
+            "schema": "agent-brain-frozen-runner-identity/v1",
             "provider": "synthetic-provider",
             "runner_id": "synthetic-runner",
             "runner_version": "test-v1",
-            "model_id": "synthetic-model",
+            "agent_id": "synthetic-cli",
+            "agent_cli": "synthetic-cli",
+            "agent_cli_version": "synthetic-cli-v1",
+            "requested_model_id": "synthetic-model",
+            "resolved_model_id": "synthetic-model",
             "effort": "synthetic-effort",
+            "schedule_sha256": "b" * 64,
         }
+        runner["identity_sha256"] = CHECK.canonical_json_sha256(runner)
         protocol: dict[str, object] = {
             "protocol_id": "synthetic-protocol",
             "agent_design": {
@@ -50,7 +58,7 @@ class ProtocolCheckTest(unittest.TestCase):
                 "tasks": 2,
                 "repetitions_per_treatment": 1,
                 "requested_cells": 6,
-                "maximum_calls_with_reserve": 6,
+                "maximum_agent_invocations": 6,
                 "power": {"status": "pass", "design_decision_required": False},
             },
             "paid_budget": {
@@ -62,7 +70,7 @@ class ProtocolCheckTest(unittest.TestCase):
             },
         }
         contract: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "runner": runner,
             "pricing_quote": {
                 "schema": "agent-brain-price-quote/v2",
@@ -108,9 +116,11 @@ class ProtocolCheckTest(unittest.TestCase):
                 "tasks": 2,
                 "treatments": ["a", "b", "c"],
                 "repetitions_per_treatment": 1,
-                "requested_calls": 6,
-                "reserve_calls": 0,
-                "maximum_calls_with_reserve": 6,
+                "requested_cells": 6,
+                "retry_agent_invocations": 0,
+                "replacement_cell_attempts": 0,
+                "reserve_cell_attempts": 0,
+                "maximum_agent_invocations": 6,
             },
             "token_assumptions": {
                 "mode": "explicit_per_call_caps",
@@ -267,8 +277,8 @@ class ProtocolCheckTest(unittest.TestCase):
                         "repetitions_per_treatment"
                     ],
                     "requested_cells": artifact["protocol_inputs"]["requested_cells"],
-                    "maximum_calls_with_reserve": artifact["protocol_inputs"][
-                        "maximum_provider_calls"
+                    "maximum_agent_invocations": artifact["protocol_inputs"][
+                        "maximum_agent_invocations"
                     ],
                     "power": {
                         "target": artifact["protocol_inputs"]["power_target"],
@@ -277,11 +287,17 @@ class ProtocolCheckTest(unittest.TestCase):
                         "status": "pending_uncalibrated",
                         "evidence": "power-analysis.json",
                         "analysis_kind": artifact["analysis_kind"],
-                        "co_primary_planning_floors": {
+                        "co_primary_claim_floors": {
                             "elapsed_time_ratio_max": 0.9,
                             "normalized_cost_ratio_max": 0.88,
                             "code_quality_difference_min": 0.05,
                             "status": "provisional",
+                        },
+                        "planning_alternatives": {
+                            "elapsed_time_ratio_true": None,
+                            "normalized_cost_ratio_true": None,
+                            "code_quality_difference_true": None,
+                            "status": "pending_owner_approval",
                         },
                         "exploratory_calibration": {
                             "manifest": "power-calibration-exploratory-v1.json",
@@ -326,6 +342,83 @@ class ProtocolCheckTest(unittest.TestCase):
                 errors,
             )
 
+            pending_with_count = CHECK.power_analysis.build_report()
+            pending_with_count["design_readiness"][
+                "power_sized_confirmatory_task_count"
+            ] = 24
+            self._write_json(here / "power-analysis.json", pending_with_count)
+            with mock.patch.object(
+                CHECK.power_analysis, "build_report", return_value=pending_with_count
+            ):
+                errors = CHECK.validate_power_analysis(
+                    protocol, check, here=here, repo=here
+                )
+            self.assertIn(
+                "power artifact: pending power design must retain null power-sized task counts",
+                errors,
+            )
+
+            underpowered = CHECK.power_analysis.build_report()
+            alternatives = {
+                "elapsed_time": ("ratio_true", 0.85, 0.81),
+                "normalized_cost": ("ratio_true", 0.80, 0.79),
+                "code_quality": ("difference_true", 0.10, 0.81),
+            }
+            for name, (key, alternative, marginal_power) in alternatives.items():
+                endpoint = underpowered["co_primary_endpoints"][name]
+                endpoint["planning_alternative"] = {
+                    key: alternative,
+                    "status": "frozen_approved",
+                }
+                endpoint["paired_task_sd"] = 0.20
+                endpoint["marginal_power"] = marginal_power
+                endpoint["status"] = "evaluated"
+            underpowered["joint_iut_power"].update(
+                {
+                    "intersection_union_success_probability": 0.01,
+                    "status": "evaluated",
+                }
+            )
+            underpowered["design_readiness"].update(
+                {
+                    "power_sized_development_task_count": 24,
+                    "power_sized_confirmatory_task_count": 24,
+                }
+            )
+            # Deliberately lie in the retained decision/status. The checker must
+            # derive failure from 0.79 marginal and 0.01 joint power instead.
+            underpowered["decision"]["passed"] = True
+            underpowered["status"] = "pass"
+            underpowered_protocol = copy.deepcopy(protocol)
+            underpowered_protocol["agent_design"]["power"].update(
+                {
+                    "planning_alternatives": {
+                        "elapsed_time_ratio_true": 0.85,
+                        "normalized_cost_ratio_true": 0.80,
+                        "code_quality_difference_true": 0.10,
+                        "status": "frozen_approved",
+                    },
+                    "status": "fail_underpowered",
+                    "power_sized_development_task_count": 24,
+                    "power_sized_confirmatory_task_count": 24,
+                }
+            )
+            self._write_json(here / "power-analysis.json", underpowered)
+            with mock.patch.object(
+                CHECK.power_analysis, "build_report", return_value=underpowered
+            ):
+                errors = CHECK.validate_power_analysis(
+                    underpowered_protocol, check, here=here, repo=here
+                )
+            self.assertIn(
+                "power artifact: power decision.passed does not match recomputed marginal/joint gate",
+                errors,
+            )
+            self.assertIn(
+                "power artifact status does not match recomputed decision",
+                errors,
+            )
+
     def test_pricing_budget_draft_is_valid_and_both_gates_remain_pending(self) -> None:
         protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
         gate = json.loads((HERE / "go-no-go.json").read_text(encoding="utf-8"))
@@ -361,20 +454,20 @@ class ProtocolCheckTest(unittest.TestCase):
                 [],
             )
 
-            protocol["agent_design"]["maximum_calls_with_reserve"] = 7  # type: ignore[index]
-            contract["design"]["reserve_calls"] = 1  # type: ignore[index]
-            contract["design"]["maximum_calls_with_reserve"] = 7  # type: ignore[index]
+            protocol["agent_design"]["maximum_agent_invocations"] = 7  # type: ignore[index]
+            contract["design"]["reserve_cell_attempts"] = 1  # type: ignore[index]
+            contract["design"]["maximum_agent_invocations"] = 7  # type: ignore[index]
             self._write_json(here / "pricing-budget.json", contract)
             errors = CHECK.validate_pricing_budget(
                 protocol, checks, here=here, repo=repo, now=now
             )
             self.assertIn(
-                "confirmatory reserve_calls must remain zero and maximum calls must equal requested calls",
+                "confirmatory retries, replacements, and reserves must remain zero and maximum agent invocations must equal requested cells",
                 errors,
             )
-            protocol["agent_design"]["maximum_calls_with_reserve"] = 6  # type: ignore[index]
-            contract["design"]["reserve_calls"] = 0  # type: ignore[index]
-            contract["design"]["maximum_calls_with_reserve"] = 6  # type: ignore[index]
+            protocol["agent_design"]["maximum_agent_invocations"] = 6  # type: ignore[index]
+            contract["design"]["reserve_cell_attempts"] = 0  # type: ignore[index]
+            contract["design"]["maximum_agent_invocations"] = 6  # type: ignore[index]
 
             contract["calculation"]["maximum_usd"] = "999"  # type: ignore[index]
             self._write_json(here / "pricing-budget.json", contract)
@@ -392,6 +485,29 @@ class ProtocolCheckTest(unittest.TestCase):
             errors = CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=stale_now)
             self.assertIn("pricing quote has expired", errors)
             self.assertIn("pricing quote exceeds its maximum age", errors)
+
+    def test_pricing_calculator_rejects_any_retry_replacement_or_reserve(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = pathlib.Path(temp)
+            here = repo / "benchmarks" / "agent-brain" / "confirmatory"
+            _, _, contract = self._complete_pricing_budget(repo, here)
+            for field in (
+                "retry_agent_invocations",
+                "replacement_cell_attempts",
+                "reserve_cell_attempts",
+            ):
+                invalid = copy.deepcopy(contract)
+                invalid["design"][field] = 1
+                with self.subTest(field=field), self.assertRaisesRegex(
+                    ValueError, f"design\\.{field} must be exactly zero"
+                ):
+                    CHECK.pricing_budget.calculate(invalid)
+            invalid = copy.deepcopy(contract)
+            invalid["design"]["maximum_agent_invocations"] = 7
+            with self.assertRaisesRegex(
+                ValueError, "maximum_agent_invocations must equal requested_cells"
+            ):
+                CHECK.pricing_budget.calculate(invalid)
 
     def test_empirical_token_bound_is_hashed_and_bound_to_the_pinned_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -436,7 +552,7 @@ class ProtocolCheckTest(unittest.TestCase):
                 [],
             )
 
-            contract["token_assumptions"]["empirical_bound"]["runner"]["model_id"] = "different-model"  # type: ignore[index]
+            contract["token_assumptions"]["empirical_bound"]["runner"]["requested_model_id"] = "different-model"  # type: ignore[index]
             self._write_json(here / "pricing-budget.json", contract)
             errors = CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now)
             self.assertIn("empirical token evidence runner does not match the pinned runner", errors)

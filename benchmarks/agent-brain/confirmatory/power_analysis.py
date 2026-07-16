@@ -32,9 +32,9 @@ TASKS = 24
 REPETITIONS = 4
 PRIMARY_TREATMENTS = 3
 REQUESTED_CELLS = TASKS * REPETITIONS * PRIMARY_TREATMENTS
-PROVIDER_RETRY_LIMIT = 0
-REPLACEMENT_CALL_LIMIT = 0
-MAXIMUM_PROVIDER_CALLS = REQUESTED_CELLS
+AGENT_RETRY_LIMIT = 0
+REPLACEMENT_CELL_LIMIT = 0
+MAXIMUM_AGENT_INVOCATIONS = REQUESTED_CELLS
 TARGET_POWER = 0.80
 TIME_REDUCTION_TARGET = 0.10
 COST_REDUCTION_TARGET = 0.12
@@ -524,7 +524,7 @@ def _design_power(scenario: dict[str, Any], tasks: int, repetitions: int) -> dic
         "tasks": tasks,
         "repetitions_per_treatment": repetitions,
         "requested_cells": tasks * repetitions * PRIMARY_TREATMENTS,
-        "maximum_provider_calls_no_retries_or_replacements": (
+        "maximum_agent_invocations_no_retries_or_replacements": (
             tasks * repetitions * PRIMARY_TREATMENTS
         ),
         "token_task_level_log_ratio_sd": token_sd,
@@ -586,7 +586,7 @@ def _design_tradeoffs(scenario: dict[str, Any]) -> dict[str, Any]:
                 if tasks_for_both is not None
                 else None
             ),
-            "maximum_provider_calls_no_retries_or_replacements": (
+            "maximum_agent_invocations_no_retries_or_replacements": (
                 tasks_for_both * repetitions * PRIMARY_TREATMENTS
                 if tasks_for_both is not None
                 else None
@@ -629,7 +629,7 @@ def _design_tradeoffs(scenario: dict[str, Any]) -> dict[str, Any]:
                     if repetitions_for_both is not None
                     else None
                 ),
-                "maximum_provider_calls_no_retries_or_replacements": (
+                "maximum_agent_invocations_no_retries_or_replacements": (
                     tasks * repetitions_for_both * PRIMARY_TREATMENTS
                     if repetitions_for_both is not None
                     else None
@@ -742,7 +742,7 @@ def _scenario_result(scenario: dict[str, Any]) -> dict[str, Any]:
                 "requested_cells_at_that_task_count": (
                     min_both * REPETITIONS * PRIMARY_TREATMENTS if min_both is not None else None
                 ),
-                "maximum_provider_calls_no_retries_or_replacements": (
+                "maximum_agent_invocations_no_retries_or_replacements": (
                     min_both * REPETITIONS * PRIMARY_TREATMENTS
                     if min_both is not None
                     else None
@@ -906,128 +906,256 @@ def _build_deprecated_v2_report_not_for_decision() -> dict[str, Any]:
     return _round_floats(report)
 
 
-def build_report() -> dict[str, Any]:
-    """Return the v3 three-endpoint power contract.
+def _probability(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be numeric")
+    number = float(value)
+    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+        raise ValueError(f"{label} must be in [0,1]")
+    return number
 
-    No retained source contains exchangeable paired task-level measurements for
-    all three v2 endpoints under the final runner, treatment, price, timeout,
-    and quality contracts.  Reporting a numeric power value would therefore be
-    fabricated precision.  The checked-in result deliberately remains pending
-    and cannot pass the freeze gate until an unpaid calibration or an explicitly
-    approved assumption set supplies all three variance inputs.
-    """
+
+def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
+    """Derive the gate from calibrated powers; never trust ``decision.passed``."""
+    inputs = report.get("protocol_inputs")
+    if not isinstance(inputs, dict):
+        raise ValueError("power protocol_inputs must be an object")
+    target = _probability(inputs.get("power_target"), "power target")
+    endpoints = report.get("co_primary_endpoints")
+    if not isinstance(endpoints, dict) or set(endpoints) != {
+        "elapsed_time",
+        "normalized_cost",
+        "code_quality",
+    }:
+        raise ValueError("power report must contain exactly three co-primary endpoints")
+    readiness = report.get("design_readiness")
+    joint = report.get("joint_iut_power")
+    if not isinstance(readiness, dict) or not isinstance(joint, dict):
+        raise ValueError("power readiness and joint IUT power records are required")
+
+    alternatives_pending = True
+    marginal_powers: list[float] = []
+    for name, endpoint in endpoints.items():
+        if not isinstance(endpoint, dict):
+            raise ValueError(f"{name} endpoint must be an object")
+        floor = endpoint.get("claim_floor")
+        alternative = endpoint.get("planning_alternative")
+        if not isinstance(floor, dict) or not isinstance(alternative, dict):
+            raise ValueError(f"{name} must separate claim floor and planning alternative")
+        floor_key = "difference_min" if name == "code_quality" else "ratio_max"
+        floor_value = floor.get(floor_key)
+        if (
+            isinstance(floor_value, bool)
+            or not isinstance(floor_value, (int, float))
+            or not math.isfinite(float(floor_value))
+            or not 0.0 < float(floor_value) < 1.0
+        ):
+            raise ValueError(f"{name} claim floor is invalid")
+        if floor.get("status") not in {"provisional", "frozen_approved"}:
+            raise ValueError(f"{name} claim floor status is invalid")
+        alt_status = alternative.get("status")
+        alt_key = "difference_true" if name == "code_quality" else "ratio_true"
+        alt_value = alternative.get(alt_key)
+        if alt_status == "pending_owner_approval":
+            if alt_value is not None:
+                raise ValueError(f"{name} pending planning alternative must be null")
+            if endpoint.get("paired_task_sd") is not None or endpoint.get("marginal_power") is not None:
+                raise ValueError(f"{name} pending calibration must retain null SD and power")
+            if endpoint.get("status") != "pending_final_contract_calibration_and_alternative":
+                raise ValueError(f"{name} pending endpoint status is inconsistent")
+            continue
+        alternatives_pending = False
+        if alt_status != "frozen_approved":
+            raise ValueError(f"{name} planning alternative status is invalid")
+        if isinstance(alt_value, bool) or not isinstance(alt_value, (int, float)):
+            raise ValueError(f"{name} frozen planning alternative must be numeric")
+        if name == "code_quality":
+            if not float(alt_value) > float(floor_value):
+                raise ValueError("quality planning alternative must be strictly above its claim floor")
+        else:
+            if not 0.0 < float(alt_value) < float(floor_value):
+                raise ValueError(f"{name} planning alternative must be strictly below its claim floor")
+        sd = endpoint.get("paired_task_sd")
+        if isinstance(sd, bool) or not isinstance(sd, (int, float)) or not math.isfinite(float(sd)) or float(sd) < 0:
+            raise ValueError(f"{name} calibrated paired-task SD is invalid")
+        marginal_powers.append(_probability(endpoint.get("marginal_power"), f"{name} marginal power"))
+        if endpoint.get("status") != "evaluated":
+            raise ValueError(f"{name} calibrated endpoint status must be evaluated")
+
+    count_fields = (
+        "power_sized_development_task_count",
+        "power_sized_confirmatory_task_count",
+    )
+    if alternatives_pending:
+        if readiness.get("provisional_design_power_defensible") is not False:
+            raise ValueError("pending power design cannot be marked power-defensible")
+        if any(readiness.get(field) is not None for field in count_fields):
+            raise ValueError("pending power design must retain null power-sized task counts")
+        if joint.get("intersection_union_success_probability") is not None:
+            raise ValueError("pending power design must retain null joint IUT power")
+        if joint.get("status") != "pending_final_contract_calibration_and_alternative":
+            raise ValueError("pending joint IUT power status is inconsistent")
+        return {
+            "passed": False,
+            "status": "pending_uncalibrated",
+            "reason": "planning alternatives, final-contract variance inputs, and endpoint dependence are pending",
+        }
+    if len(marginal_powers) != 3:
+        raise ValueError("planning alternatives must be pending for all endpoints or frozen for all")
+    for field in count_fields:
+        count = readiness.get(field)
+        if isinstance(count, bool) or not isinstance(count, int) or count < 2:
+            raise ValueError(f"{field} must be an integer of at least two after sizing")
+    joint_power = _probability(
+        joint.get("intersection_union_success_probability"), "joint IUT power"
+    )
+    if joint.get("status") != "evaluated":
+        raise ValueError("calibrated joint IUT power status must be evaluated")
+    passed = all(value >= target for value in marginal_powers) and joint_power >= target
+    if readiness.get("provisional_design_power_defensible") is not passed:
+        raise ValueError(
+            "power-defensible readiness flag must equal the recomputed marginal/joint gate"
+        )
+    return {
+        "passed": passed,
+        "status": "pass" if passed else "fail_underpowered",
+        "reason": (
+            "every marginal and joint IUT power meets target"
+            if passed
+            else "one or more marginal or joint IUT powers is below target"
+        ),
+    }
+
+
+def validate_power_report(report: dict[str, Any]) -> list[str]:
+    """Return decision-consistency errors for a generated or retained report."""
+    try:
+        derived = recompute_power_decision(report)
+    except (TypeError, ValueError) as exc:
+        return [str(exc)]
+    errors: list[str] = []
+    decision = report.get("decision")
+    if not isinstance(decision, dict) or decision.get("passed") is not derived["passed"]:
+        errors.append("power decision.passed does not match recomputed marginal/joint gate")
+    if report.get("status") != derived["status"]:
+        errors.append("power status does not match recomputed marginal/joint gate")
+    return errors
+
+
+def build_report() -> dict[str, Any]:
+    """Return the pending v3 three-endpoint power contract without invented alternatives."""
     calibration = build_calibration_diagnostics()
     endpoints = {
         "elapsed_time": {
             "estimand_scale": "paired_task_log_ratio",
-            "planning_effect": math.log(1.0 - TIME_REDUCTION_TARGET),
-            "practical_floor": {"ratio_max": 1.0 - TIME_REDUCTION_TARGET, "status": "provisional"},
+            "claim_floor": {"ratio_max": 1.0 - TIME_REDUCTION_TARGET, "status": "provisional"},
+            "planning_alternative": {"ratio_true": None, "status": "pending_owner_approval"},
             "paired_task_sd": None,
             "marginal_power": None,
-            "status": "pending_final_contract_calibration",
+            "status": "pending_final_contract_calibration_and_alternative",
         },
         "normalized_cost": {
             "estimand_scale": "ratio_of_equal_task_weighted_task_arm_mean_costs",
-            "planning_effect": 1.0 - COST_REDUCTION_TARGET,
-            "practical_floor": {"ratio_max": 1.0 - COST_REDUCTION_TARGET, "status": "provisional"},
+            "claim_floor": {"ratio_max": 1.0 - COST_REDUCTION_TARGET, "status": "provisional"},
+            "planning_alternative": {"ratio_true": None, "status": "pending_owner_approval"},
             "paired_task_sd": None,
             "marginal_power": None,
-            "status": "pending_final_contract_calibration",
+            "status": "pending_final_contract_calibration_and_alternative",
         },
         "code_quality": {
             "estimand_scale": "paired_task_difference",
-            "planning_effect": QUALITY_DIFFERENCE_TARGET,
-            "practical_floor": {"difference_min": QUALITY_DIFFERENCE_TARGET, "status": "provisional"},
+            "claim_floor": {"difference_min": QUALITY_DIFFERENCE_TARGET, "status": "provisional"},
+            "planning_alternative": {"difference_true": None, "status": "pending_owner_approval"},
             "paired_task_sd": None,
             "marginal_power": None,
-            "status": "pending_final_contract_calibration",
+            "status": "pending_final_contract_calibration_and_alternative",
         },
     }
-    return _round_floats(
-        {
-            "schema_version": 3,
-            "artifact_id": "agent-brain-confirmatory-power-v3",
-            "status": "pending_uncalibrated",
-            "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
-            "paid_runs_performed": False,
-            "protocol_inputs": {
-                "tasks": TASKS,
-                "repetitions_per_treatment": REPETITIONS,
-                "primary_treatments": PRIMARY_TREATMENTS,
-                "requested_cells": REQUESTED_CELLS,
-                "provider_retry_limit": PROVIDER_RETRY_LIMIT,
-                "replacement_call_limit": REPLACEMENT_CALL_LIMIT,
-                "maximum_provider_calls": MAXIMUM_PROVIDER_CALLS,
-                "power_target": TARGET_POWER,
-                "intersection_union_alpha": FAMILY_ALPHA,
-                "primary_contrast": "retrieved_memory_vs_no_memory",
-                "cluster_unit": "task",
-                "attempt_policy": "all_executed_attempts",
+    report: dict[str, Any] = {
+        "schema_version": 3,
+        "artifact_id": "agent-brain-confirmatory-power-v3",
+        "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
+        "paid_runs_performed": False,
+        "protocol_inputs": {
+            "tasks": TASKS,
+            "repetitions_per_treatment": REPETITIONS,
+            "primary_treatments": PRIMARY_TREATMENTS,
+            "requested_cells": REQUESTED_CELLS,
+            "agent_retry_limit": AGENT_RETRY_LIMIT,
+            "replacement_cell_limit": REPLACEMENT_CELL_LIMIT,
+            "maximum_agent_invocations": MAXIMUM_AGENT_INVOCATIONS,
+            "power_target": TARGET_POWER,
+            "intersection_union_alpha": FAMILY_ALPHA,
+            "primary_contrast": "retrieved_memory_vs_no_memory",
+            "cluster_unit": "task",
+            "attempt_policy": "all_executed_attempts",
+        },
+        "co_primary_endpoints": endpoints,
+        "joint_iut_power": {
+            "intersection_union_success_probability": None,
+            "status": "pending_final_contract_calibration_and_alternative",
+            "method": "frozen_endpoint_dependence_simulation_or_conservative_bound",
+        },
+        "method": {
+            "component_tests": "one-sided task-clustered superiority at each frozen claim floor",
+            "joint_rule": (
+                "intersection-union: all three component nulls must be rejected; no "
+                "across-endpoint multiplicity adjustment is required"
+            ),
+            "planning_rule": (
+                "owner-frozen true alternatives must be strictly better than claim floors; each "
+                "marginal power and overall intersection-union joint success probability must "
+                "each meet 0.80"
+            ),
+        },
+        "calibration_requirements": {
+            "status": "open",
+            "must_match": [
+                "full frozen provider, runner, agent CLI, requested/resolved model, effort, schedule, and quote identity",
+                "v2 no_memory and retrieved_memory treatment contracts",
+                "end-to-end timing boundary and timeout policy",
+                "five-category frozen price quote, inclusion/absence semantics, authenticated structural zeros, and zero agent retries",
+                "task-normalized quality rubric and critical-failure policy",
+            ],
+            "required_statistics": {
+                "elapsed_time": "SD of paired task-level mean log ratios",
+                "normalized_cost": "paired task-arm mean-cost rows for a task-clustered equal-weight ratio-of-means bootstrap",
+                "code_quality": "SD of paired task-level mean differences",
+                "dependence": "joint covariance or retained task-level calibration rows",
             },
-            "co_primary_endpoints": endpoints,
-            "method": {
-                "component_tests": (
-                    "one-sided task-clustered superiority at each frozen practical floor"
-                ),
-                "joint_rule": (
-                    "intersection-union: all three component nulls must be rejected; no "
-                    "across-endpoint multiplicity adjustment is required"
-                ),
-                "planning_rule": (
-                    "each marginal power and the overall intersection-union joint success "
-                    "probability must each meet 0.80 under a frozen endpoint-dependence model "
-                    "or conservative simulation"
-                ),
-            },
-            "calibration_requirements": {
-                "status": "open",
-                "must_match": [
-                    "final runner/model/effort and runner version",
-                    "v2 no_memory and retrieved_memory treatment contracts",
-                    "end-to-end timing boundary and timeout policy",
-                    "five-category frozen price quote, inclusion/absence semantics, authenticated structural zeros, and zero provider retries",
-                    "task-normalized quality rubric and critical-failure policy",
-                ],
-                "required_statistics": {
-                    "elapsed_time": "SD of paired task-level mean log ratios",
-                    "normalized_cost": "paired task-arm mean-cost rows for a task-clustered equal-weight ratio-of-means bootstrap",
-                    "code_quality": "SD of paired task-level mean differences",
-                    "dependence": "joint covariance or retained task-level calibration rows",
-                },
-                "minimum_independent_task_clusters": 12,
-                "minimum_is_calibration_floor_not_power_sized_design": True,
-                "selection_use": "development calibration only; cannot enter confirmatory outcomes",
-            },
-            "design_readiness": {
-                "provisional_tasks": TASKS,
-                "provisional_repetitions_per_treatment": REPETITIONS,
-                "provisional_requested_cells": REQUESTED_CELLS,
-                "maximum_provider_calls": MAXIMUM_PROVIDER_CALLS,
-                "provider_retry_limit": PROVIDER_RETRY_LIMIT,
-                "replacement_call_limit": REPLACEMENT_CALL_LIMIT,
-                "provisional_design_power_defensible": False,
-                "power_sized_development_task_count": None,
-                "power_sized_confirmatory_task_count": None,
-                "reason": (
-                    "no final-contract variance or endpoint-dependence calibration supports a "
-                    "numeric task count"
-                ),
-            },
-            "exploratory_calibration": calibration,
-            "empirical_variance_used_in_confirmatory_decision": False,
-            "decision": {
-                "passed": False,
-                "reason": "all three final-contract variance inputs and endpoint dependence are uncalibrated",
-                "prohibited_until_resolved": [
-                    "mark power_target_met pass",
-                    "freeze practical floors",
-                    "seal or open the fresh holdout",
-                    "authorize paid confirmatory calls",
-                    "promote legacy two-endpoint sensitivity task counts into the v3 design",
-                ],
-            },
-        }
-    )
+            "minimum_independent_task_clusters": 12,
+            "minimum_is_calibration_floor_not_power_sized_design": True,
+            "selection_use": "development calibration only; cannot enter confirmatory outcomes",
+        },
+        "design_readiness": {
+            "provisional_tasks": TASKS,
+            "provisional_repetitions_per_treatment": REPETITIONS,
+            "provisional_requested_cells": REQUESTED_CELLS,
+            "maximum_agent_invocations": MAXIMUM_AGENT_INVOCATIONS,
+            "agent_retry_limit": AGENT_RETRY_LIMIT,
+            "replacement_cell_limit": REPLACEMENT_CELL_LIMIT,
+            "provisional_design_power_defensible": False,
+            "power_sized_development_task_count": None,
+            "power_sized_confirmatory_task_count": None,
+            "reason": "no owner-frozen alternatives or final-contract calibration support a numeric task count",
+        },
+        "exploratory_calibration": calibration,
+        "empirical_variance_used_in_confirmatory_decision": False,
+    }
+    derived = recompute_power_decision(report)
+    report["status"] = derived["status"]
+    report["decision"] = {
+        "passed": derived["passed"],
+        "reason": derived["reason"],
+        "prohibited_until_resolved": [
+            "mark power_target_met pass",
+            "freeze practical floors or planning alternatives without owner approval",
+            "seal or open the fresh holdout",
+            "authorize paid confirmatory agent invocations",
+            "promote legacy two-endpoint sensitivity task counts into the v3 design",
+        ],
+    }
+    return _round_floats(report)
 
 
 def main() -> int:

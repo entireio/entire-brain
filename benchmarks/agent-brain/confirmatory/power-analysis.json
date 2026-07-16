@@ -5,10 +5,10 @@
     "minimum_independent_task_clusters": 12,
     "minimum_is_calibration_floor_not_power_sized_design": true,
     "must_match": [
-      "final runner/model/effort and runner version",
+      "full frozen provider, runner, agent CLI, requested/resolved model, effort, schedule, and quote identity",
       "v2 no_memory and retrieved_memory treatment contracts",
       "end-to-end timing boundary and timeout policy",
-      "five-category frozen price quote, inclusion/absence semantics, authenticated structural zeros, and zero provider retries",
+      "five-category frozen price quote, inclusion/absence semantics, authenticated structural zeros, and zero agent retries",
       "task-normalized quality rubric and critical-failure policy"
     ],
     "required_statistics": {
@@ -22,61 +22,70 @@
   },
   "co_primary_endpoints": {
     "code_quality": {
-      "estimand_scale": "paired_task_difference",
-      "marginal_power": null,
-      "paired_task_sd": null,
-      "planning_effect": 0.05,
-      "practical_floor": {
+      "claim_floor": {
         "difference_min": 0.05,
         "status": "provisional"
       },
-      "status": "pending_final_contract_calibration"
-    },
-    "elapsed_time": {
-      "estimand_scale": "paired_task_log_ratio",
+      "estimand_scale": "paired_task_difference",
       "marginal_power": null,
       "paired_task_sd": null,
-      "planning_effect": -0.105361,
-      "practical_floor": {
+      "planning_alternative": {
+        "difference_true": null,
+        "status": "pending_owner_approval"
+      },
+      "status": "pending_final_contract_calibration_and_alternative"
+    },
+    "elapsed_time": {
+      "claim_floor": {
         "ratio_max": 0.9,
         "status": "provisional"
       },
-      "status": "pending_final_contract_calibration"
-    },
-    "normalized_cost": {
-      "estimand_scale": "ratio_of_equal_task_weighted_task_arm_mean_costs",
+      "estimand_scale": "paired_task_log_ratio",
       "marginal_power": null,
       "paired_task_sd": null,
-      "planning_effect": 0.88,
-      "practical_floor": {
+      "planning_alternative": {
+        "ratio_true": null,
+        "status": "pending_owner_approval"
+      },
+      "status": "pending_final_contract_calibration_and_alternative"
+    },
+    "normalized_cost": {
+      "claim_floor": {
         "ratio_max": 0.88,
         "status": "provisional"
       },
-      "status": "pending_final_contract_calibration"
+      "estimand_scale": "ratio_of_equal_task_weighted_task_arm_mean_costs",
+      "marginal_power": null,
+      "paired_task_sd": null,
+      "planning_alternative": {
+        "ratio_true": null,
+        "status": "pending_owner_approval"
+      },
+      "status": "pending_final_contract_calibration_and_alternative"
     }
   },
   "decision": {
     "passed": false,
     "prohibited_until_resolved": [
       "mark power_target_met pass",
-      "freeze practical floors",
+      "freeze practical floors or planning alternatives without owner approval",
       "seal or open the fresh holdout",
-      "authorize paid confirmatory calls",
+      "authorize paid confirmatory agent invocations",
       "promote legacy two-endpoint sensitivity task counts into the v3 design"
     ],
-    "reason": "all three final-contract variance inputs and endpoint dependence are uncalibrated"
+    "reason": "planning alternatives, final-contract variance inputs, and endpoint dependence are pending"
   },
   "design_readiness": {
-    "maximum_provider_calls": 288,
+    "agent_retry_limit": 0,
+    "maximum_agent_invocations": 288,
     "power_sized_confirmatory_task_count": null,
     "power_sized_development_task_count": null,
-    "provider_retry_limit": 0,
     "provisional_design_power_defensible": false,
     "provisional_repetitions_per_treatment": 4,
     "provisional_requested_cells": 288,
     "provisional_tasks": 24,
-    "reason": "no final-contract variance or endpoint-dependence calibration supports a numeric task count",
-    "replacement_call_limit": 0
+    "reason": "no owner-frozen alternatives or final-contract calibration support a numeric task count",
+    "replacement_cell_limit": 0
   },
   "empirical_variance_used_in_confirmatory_decision": false,
   "exploratory_calibration": {
@@ -316,23 +325,28 @@
     ],
     "unique_task_ids_across_sources": 12
   },
+  "joint_iut_power": {
+    "intersection_union_success_probability": null,
+    "method": "frozen_endpoint_dependence_simulation_or_conservative_bound",
+    "status": "pending_final_contract_calibration_and_alternative"
+  },
   "method": {
-    "component_tests": "one-sided task-clustered superiority at each frozen practical floor",
+    "component_tests": "one-sided task-clustered superiority at each frozen claim floor",
     "joint_rule": "intersection-union: all three component nulls must be rejected; no across-endpoint multiplicity adjustment is required",
-    "planning_rule": "each marginal power and the overall intersection-union joint success probability must each meet 0.80 under a frozen endpoint-dependence model or conservative simulation"
+    "planning_rule": "owner-frozen true alternatives must be strictly better than claim floors; each marginal power and overall intersection-union joint success probability must each meet 0.80"
   },
   "paid_runs_performed": false,
   "protocol_inputs": {
+    "agent_retry_limit": 0,
     "attempt_policy": "all_executed_attempts",
     "cluster_unit": "task",
     "intersection_union_alpha": 0.05,
-    "maximum_provider_calls": 288,
+    "maximum_agent_invocations": 288,
     "power_target": 0.8,
     "primary_contrast": "retrieved_memory_vs_no_memory",
     "primary_treatments": 3,
-    "provider_retry_limit": 0,
     "repetitions_per_treatment": 4,
-    "replacement_call_limit": 0,
+    "replacement_cell_limit": 0,
     "requested_cells": 288,
     "tasks": 24
   },

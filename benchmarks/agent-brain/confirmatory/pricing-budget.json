@@ -1,11 +1,18 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "runner": {
+    "schema": "agent-brain-frozen-runner-identity/v1",
     "provider": null,
     "runner_id": null,
     "runner_version": null,
-    "model_id": null,
-    "effort": null
+    "agent_id": null,
+    "agent_cli": null,
+    "agent_cli_version": null,
+    "requested_model_id": null,
+    "resolved_model_id": null,
+    "effort": null,
+    "schedule_sha256": null,
+    "identity_sha256": null
   },
   "pricing_quote": {
     "schema": "agent-brain-price-quote/v2",
@@ -55,9 +62,11 @@
       "retrieved_memory"
     ],
     "repetitions_per_treatment": 4,
-    "requested_calls": 288,
-    "reserve_calls": 0,
-    "maximum_calls_with_reserve": 288
+    "requested_cells": 288,
+    "retry_agent_invocations": 0,
+    "replacement_cell_attempts": 0,
+    "reserve_cell_attempts": 0,
+    "maximum_agent_invocations": 288
   },
   "token_assumptions": {
     "mode": null,

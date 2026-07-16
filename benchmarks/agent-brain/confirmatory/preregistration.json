@@ -79,7 +79,7 @@
     "tasks": 24,
     "repetitions_per_treatment": 4,
     "requested_cells": 288,
-    "maximum_calls_with_reserve": 288,
+    "maximum_agent_invocations": 288,
     "success_contract": {
       "schema": "agent-brain-joint-superiority-contract/v2",
       "status": "provisional",
@@ -126,11 +126,17 @@
     "power": {
       "target": 0.8,
       "target_scope": "each_marginal_and_overall_intersection_union_joint_success",
+      "planning_alternatives": {
+        "elapsed_time_ratio_true": null,
+        "normalized_cost_ratio_true": null,
+        "code_quality_difference_true": null,
+        "status": "pending_owner_approval"
+      },
       "completed": false,
       "status": "pending_uncalibrated",
       "evidence": "power-analysis.json",
       "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
-      "co_primary_planning_floors": {
+      "co_primary_claim_floors": {
         "elapsed_time_ratio_max": 0.9,
         "normalized_cost_ratio_max": 0.88,
         "code_quality_difference_min": 0.05,
@@ -166,9 +172,9 @@
     "contract": "pricing-budget.json",
     "status": "pending",
     "currency": "USD",
-    "formula_id": "worst_case_token_envelope_v2",
+    "formula_id": "worst_case_agent_invocation_token_envelope_v3",
     "maximum_usd": null,
-    "formula": "maximum_calls_with_reserve * sum(five mutually exclusive billed token categories * frozen category price or explicit alias)"
+    "formula": "maximum_agent_invocations * sum(five mutually exclusive billed token categories * frozen category price or explicit alias)"
   },
   "dependencies": {
     "ws2_treatment_and_task_validity": "pass",
@@ -176,6 +182,6 @@
     "ws4_schedule_and_cache": "pass",
     "ws5_evidence_verification": "pass"
   },
-  "analyzer_sha256": "6e793b1d1a48838ae4b9ec15ded2c485bd8086e544b50bdf35e5fec2e480b35a",
+  "analyzer_sha256": "7c4e37fac7f9431a28c8fafc2f226e13e54b0be574776ddeb73c3c0083887032",
   "freeze": {"frozen_at": null, "protocol_sha256": null}
 }

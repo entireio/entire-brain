@@ -17,10 +17,11 @@ corresponding gate pending.
    `design.approved_for_budgeting=true`. The v3 artifact currently supports no numeric power-sized
    task count. Legacy `118 x 4` and `295 x 1` rows cover an obsolete two-endpoint sensitivity model,
    not the current time/cost/quality joint endpoint, and must not be copied into the budget contract.
-2. **Pin the exact execution identity.** Record provider, runner ID, immutable runner version, exact
-   model ID or snapshot, and effort setting. If the runner calls an omitted effort setting
-   "default", record the literal resolved value or an explicit `default` identifier; do not leave it
-   null.
+2. **Pin the exact execution identity.** Record provider, runner ID and immutable runner version,
+   agent/CLI ID and version, requested and resolved model IDs or snapshots, effort setting, and the
+   frozen schedule hash. If the runner calls an omitted effort setting "default", record the literal
+   resolved value or an explicit `default` identifier; do not leave it null. Self-hash this identity;
+   every observed invocation and authenticated structural-zero cell must match it and the quote.
 3. **Attach a pricing quote.** Save a byte-stable quote snapshot in a repo-relative evidence path and
    record its SHA-256, authoritative source URI or contract reference, quote as-of time, retrieval
    time, expiry time, and a maximum-age policy. Normalize all prices to USD per 1,000,000 tokens and
@@ -34,9 +35,9 @@ corresponding gate pending.
    priceable actual model row; multi-result or multi-model Claude invocations are ineligible until a
    separate frozen accounting treatment exists.
 4. **Choose the token-envelope policy.** Either:
-   - enter explicit per-call caps for all five billed categories with a written
+   - enter explicit per-invocation caps for all five billed categories with a written
      rationale; or
-   - attach byte-hashed empirical evidence collected under the exact pinned runner/model/effort,
+   - attach byte-hashed empirical evidence collected under the exact pinned execution identity,
      name the statistic and quantile, and choose an explicit safety multiplier of at least 1.
 
    The empirical path deterministically rounds each observed category upward after applying the
@@ -49,10 +50,10 @@ corresponding gate pending.
      benchmarks/agent-brain/confirmatory/pricing-budget.json
    ```
 
-   The calculation prices every requested call at the frozen per-call envelope; confirmatory
-   retries and replacement calls are frozen at zero:
+   The calculation prices every requested agent invocation at the frozen per-invocation envelope;
+   retries, replacement-cell attempts, and reserve-cell attempts are frozen at zero:
 
-   `maximum_calls_with_reserve * sum(each mutually exclusive billed category * its frozen direct or aliased price) / 1,000,000`
+   `maximum_agent_invocations * sum(each mutually exclusive billed category * its frozen direct or aliased price) / 1,000,000`
 
 6. **Approve the cap.** A budget owner must record an approved USD cap at least as large as the
    computed maximum, stable approver identity, approver role, approval timestamp, and approval

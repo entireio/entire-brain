@@ -16,6 +16,43 @@ SPEC.loader.exec_module(POWER)
 
 
 class PowerAnalysisV3Test(unittest.TestCase):
+    @staticmethod
+    def frozen_report() -> dict:
+        report = POWER.build_report()
+        alternatives = {
+            "elapsed_time": ("ratio_true", 0.85),
+            "normalized_cost": ("ratio_true", 0.80),
+            "code_quality": ("difference_true", 0.10),
+        }
+        for name, (key, value) in alternatives.items():
+            endpoint = report["co_primary_endpoints"][name]
+            endpoint["planning_alternative"] = {
+                key: value,
+                "status": "frozen_approved",
+            }
+            endpoint["paired_task_sd"] = 0.20
+            endpoint["marginal_power"] = 0.81
+            endpoint["status"] = "evaluated"
+        report["joint_iut_power"].update(
+            {
+                "intersection_union_success_probability": 0.81,
+                "status": "evaluated",
+            }
+        )
+        report["design_readiness"].update(
+            {
+                "power_sized_development_task_count": 24,
+                "power_sized_confirmatory_task_count": 24,
+                "provisional_design_power_defensible": True,
+            }
+        )
+        derived = POWER.recompute_power_decision(report)
+        report["status"] = derived["status"]
+        report["decision"].update(
+            {"passed": derived["passed"], "reason": derived["reason"]}
+        )
+        return report
+
     def test_design_inputs_match_candidate_preregistration(self) -> None:
         protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
         design = protocol["agent_design"]
@@ -23,12 +60,14 @@ class PowerAnalysisV3Test(unittest.TestCase):
         self.assertEqual(POWER.REPETITIONS, design["repetitions_per_treatment"])
         self.assertEqual(POWER.PRIMARY_TREATMENTS, len(design["primary_treatments"]))
         self.assertEqual(POWER.REQUESTED_CELLS, design["requested_cells"])
-        self.assertEqual(POWER.MAXIMUM_PROVIDER_CALLS, design["maximum_calls_with_reserve"])
+        self.assertEqual(
+            POWER.MAXIMUM_AGENT_INVOCATIONS, design["maximum_agent_invocations"]
+        )
         self.assertEqual(POWER.TARGET_POWER, design["power"]["target"])
         inputs = POWER.build_report()["protocol_inputs"]
-        self.assertEqual(inputs["maximum_provider_calls"], inputs["requested_cells"])
-        self.assertEqual(inputs["provider_retry_limit"], 0)
-        self.assertEqual(inputs["replacement_call_limit"], 0)
+        self.assertEqual(inputs["maximum_agent_invocations"], inputs["requested_cells"])
+        self.assertEqual(inputs["agent_retry_limit"], 0)
+        self.assertEqual(inputs["replacement_cell_limit"], 0)
 
     def test_report_supports_all_three_co_primary_endpoints(self) -> None:
         report = POWER.build_report()
@@ -37,9 +76,19 @@ class PowerAnalysisV3Test(unittest.TestCase):
             set(report["co_primary_endpoints"]),
             {"elapsed_time", "normalized_cost", "code_quality"},
         )
-        self.assertEqual(report["co_primary_endpoints"]["elapsed_time"]["practical_floor"]["ratio_max"], 0.9)
-        self.assertEqual(report["co_primary_endpoints"]["normalized_cost"]["practical_floor"]["ratio_max"], 0.88)
-        self.assertEqual(report["co_primary_endpoints"]["code_quality"]["practical_floor"]["difference_min"], 0.05)
+        self.assertEqual(report["co_primary_endpoints"]["elapsed_time"]["claim_floor"]["ratio_max"], 0.9)
+        self.assertEqual(report["co_primary_endpoints"]["normalized_cost"]["claim_floor"]["ratio_max"], 0.88)
+        self.assertEqual(report["co_primary_endpoints"]["code_quality"]["claim_floor"]["difference_min"], 0.05)
+        self.assertTrue(
+            all(
+                endpoint["planning_alternative"]
+                == {
+                    ("difference_true" if name == "code_quality" else "ratio_true"): None,
+                    "status": "pending_owner_approval",
+                }
+                for name, endpoint in report["co_primary_endpoints"].items()
+            )
+        )
 
     def test_uncalibrated_design_fails_closed_without_inventing_power(self) -> None:
         report = POWER.build_report()
@@ -48,7 +97,10 @@ class PowerAnalysisV3Test(unittest.TestCase):
         for endpoint in report["co_primary_endpoints"].values():
             self.assertIsNone(endpoint["paired_task_sd"])
             self.assertIsNone(endpoint["marginal_power"])
-            self.assertEqual(endpoint["practical_floor"]["status"], "provisional")
+            self.assertEqual(endpoint["claim_floor"]["status"], "provisional")
+        self.assertIsNone(
+            report["joint_iut_power"]["intersection_union_success_probability"]
+        )
         self.assertFalse(report["empirical_variance_used_in_confirmatory_decision"])
 
     def test_joint_method_is_intersection_union_not_three_separate_claims(self) -> None:
@@ -75,10 +127,42 @@ class PowerAnalysisV3Test(unittest.TestCase):
         legacy = POWER._design_power(POWER.SCENARIOS[1], POWER.TASKS, POWER.REPETITIONS)
         self.assertEqual(legacy["requested_cells"], 288)
         self.assertEqual(
-            legacy["maximum_provider_calls_no_retries_or_replacements"],
+            legacy["maximum_agent_invocations_no_retries_or_replacements"],
             legacy["requested_cells"],
         )
         self.assertNotIn("maximum_calls_with_10_percent_reserve", legacy)
+
+    def test_pending_design_rejects_nonnull_power_sized_count(self) -> None:
+        report = POWER.build_report()
+        report["design_readiness"]["power_sized_confirmatory_task_count"] = 24
+        with self.assertRaisesRegex(ValueError, "pending power design.*null"):
+            POWER.recompute_power_decision(report)
+
+    def test_recomputed_gate_rejects_point_79_and_point_01_despite_tampered_pass(self) -> None:
+        report = self.frozen_report()
+        report["co_primary_endpoints"]["normalized_cost"]["marginal_power"] = 0.79
+        report["joint_iut_power"]["intersection_union_success_probability"] = 0.01
+        report["design_readiness"]["provisional_design_power_defensible"] = False
+        report["decision"]["passed"] = True
+        report["status"] = "pass"
+        derived = POWER.recompute_power_decision(report)
+        self.assertFalse(derived["passed"])
+        self.assertEqual(derived["status"], "fail_underpowered")
+        self.assertEqual(
+            POWER.validate_power_report(report),
+            [
+                "power decision.passed does not match recomputed marginal/joint gate",
+                "power status does not match recomputed marginal/joint gate",
+            ],
+        )
+
+    def test_planning_alternative_must_be_strictly_better_than_claim_floor(self) -> None:
+        report = self.frozen_report()
+        report["co_primary_endpoints"]["elapsed_time"]["planning_alternative"][
+            "ratio_true"
+        ] = 0.90
+        with self.assertRaisesRegex(ValueError, "strictly below"):
+            POWER.recompute_power_decision(report)
 
     def test_legacy_exploratory_calibration_remains_hashed_and_quarantined(self) -> None:
         report = POWER.build_report()

@@ -83,7 +83,9 @@ confirmatory analyzer is implemented and path-locked.
   uncalibrated under the final runner/treatment contract, so numeric power and both development and
   confirmatory power-sized task counts are intentionally null. Twelve tasks is only the minimum
   calibration floor; the current 24-task x 4-repetition design is not approved. Its placeholder
-  ceiling is 288 provider calls because retries and replacements are frozen at zero.
+  ceiling is 288 agent-CLI invocations/cell attempts because retries, replacements, and reserves
+  are frozen at zero. Claim floors and strictly better owner-frozen planning alternatives are
+  separate; the alternatives and all numeric powers remain null while approval/calibration is open.
 - `power-calibration-exploratory-v1.json`: content-addressed manifest for sparse retained legacy
   outcomes. The derived diagnostics are quarantined from confirmatory assumptions and cannot pass
   the power gate.

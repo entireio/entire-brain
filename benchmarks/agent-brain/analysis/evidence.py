@@ -22,6 +22,7 @@ PROVIDER_INVOCATION_SCHEMA = "agent-brain-provider-invocation-state/v1"
 PROVIDER_INVOCATIONS_OBSERVED = "provider_invocations_observed"
 STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION = "structural_zero_no_provider_invocation"
 PRE_TREATMENT_PROVIDER_PATH_NOT_ENTERED = "pre_treatment_provider_path_not_entered"
+EXECUTION_IDENTITY_SCHEMA = "agent-brain-cell-execution-identity/v1"
 ANALYZER_RUNTIME_SOURCE_PATHS = (
     "benchmarks/agent-brain/analysis/__init__.py",
     "benchmarks/agent-brain/analysis/common.py",
@@ -229,6 +230,20 @@ def validate_run_manifest(value: dict[str, Any]) -> list[str]:
                         errors.append("v2 run manifest pre-treatment provider state is inconsistent")
                 else:
                     errors.append("v2 run manifest provider invocation state is ambiguous")
+            execution_identity = execution_gate.get("execution_identity")
+            if provider_state in {
+                STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+                PROVIDER_INVOCATIONS_OBSERVED,
+            }:
+                if (
+                    not isinstance(execution_identity, dict)
+                    or execution_identity.get("schema") != EXECUTION_IDENTITY_SCHEMA
+                    or execution_identity.get("identity_sha256")
+                    != manifest_identity(execution_identity)
+                ):
+                    errors.append("v2 run manifest cell execution identity is invalid")
+            elif execution_identity is not None:
+                errors.append("pre-treatment run manifest cannot claim a cell execution identity")
         raw_metrics = value.get("raw_metrics")
         if not isinstance(raw_metrics, dict):
             errors.append("v2 run manifest raw_metrics must be an object")
@@ -645,6 +660,7 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
             "treatment_started": record.get("treatment_started"),
             "agent_ran": record.get("agent_ran"),
             "provider_invocation": provider_invocation,
+            "execution_identity": agent_info.get("execution_identity"),
             "billing_integrity": agent_info.get("billing_integrity"),
             "duration_seconds": primary_duration,
             "agent_reported_seconds": agent_info.get("seconds"),

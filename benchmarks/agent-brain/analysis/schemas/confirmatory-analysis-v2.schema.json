@@ -45,6 +45,7 @@
         "critical_quality_zeroes",
         "timed_out_attempts",
         "structural_zero_no_provider_attempts",
+        "frozen_runner_identity_sha256",
         "condition_to_treatment_arm"
       ],
       "properties": {
@@ -55,6 +56,7 @@
         "critical_quality_zeroes": {"type": "integer", "minimum": 0},
         "timed_out_attempts": {"type": "integer", "minimum": 0},
         "structural_zero_no_provider_attempts": {"type": "integer", "minimum": 0},
+        "frozen_runner_identity_sha256": {"$ref": "#/$defs/sha256"},
         "condition_to_treatment_arm": {
           "type": "object",
           "minProperties": 3,
@@ -115,6 +117,7 @@
         "success_contract_sha256",
         "success_contract_status",
         "price_quote_sha256",
+        "frozen_runner_identity_sha256",
         "price_quote_currency",
         "cost_categories",
         "usage_semantics",
@@ -128,6 +131,7 @@
         "success_contract_sha256": {"$ref": "#/$defs/sha256"},
         "success_contract_status": {"enum": ["provisional", "frozen_approved"]},
         "price_quote_sha256": {"$ref": "#/$defs/sha256"},
+        "frozen_runner_identity_sha256": {"$ref": "#/$defs/sha256"},
         "price_quote_currency": {"const": "USD"},
         "cost_categories": {"$ref": "#/$defs/cost_categories"},
         "usage_semantics": {"type": "object"},

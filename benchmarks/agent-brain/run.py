@@ -323,6 +323,22 @@ PROVIDER_INVOCATION_SCHEMA = "agent-brain-provider-invocation-state/v1"
 PROVIDER_INVOCATIONS_OBSERVED = "provider_invocations_observed"
 STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION = "structural_zero_no_provider_invocation"
 PROVIDER_PATH_ENTERED_USAGE_UNKNOWN = "provider_path_entered_usage_unknown"
+FROZEN_RUNNER_IDENTITY_SCHEMA = "agent-brain-frozen-runner-identity/v1"
+EXECUTION_IDENTITY_SCHEMA = "agent-brain-cell-execution-identity/v1"
+FROZEN_RUNNER_IDENTITY_FIELDS = (
+    "schema",
+    "provider",
+    "runner_id",
+    "runner_version",
+    "agent_id",
+    "agent_cli",
+    "agent_cli_version",
+    "requested_model_id",
+    "resolved_model_id",
+    "effort",
+    "schedule_sha256",
+    "identity_sha256",
+)
 CONFIRMATORY_COST_CATEGORIES = (
     "uncached_input",
     "cache_read_input",
@@ -640,17 +656,99 @@ def normalize_billed_token_categories(
     }
 
 
+def frozen_runner_identity(pricing: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a self-hashed, fully populated final runner identity or ``None``."""
+    bound = pricing.get("runner") if isinstance(pricing, dict) else None
+    if not isinstance(bound, dict) or set(bound) != set(FROZEN_RUNNER_IDENTITY_FIELDS):
+        return None
+    if bound.get("schema") != FROZEN_RUNNER_IDENTITY_SCHEMA:
+        return None
+    if any(
+        not isinstance(bound.get(field), str) or not bound.get(field)
+        for field in FROZEN_RUNNER_IDENTITY_FIELDS
+        if field != "schema"
+    ):
+        return None
+    if bound.get("agent_id") != bound.get("agent_cli"):
+        return None
+    if not re.fullmatch(r"[0-9a-f]{64}", str(bound.get("schedule_sha256"))):
+        return None
+    identity_without_hash = dict(bound)
+    identity_without_hash.pop("identity_sha256", None)
+    if bound.get("identity_sha256") != stable_json_sha256(identity_without_hash):
+        return None
+    return bound
+
+
+def confirmatory_execution_identity(
+    runner: RunnerSpec,
+    pricing: dict[str, Any],
+    *,
+    resolved_model: str | None,
+    schedule_sha256: str | None,
+    provider_invoked: bool,
+) -> dict[str, Any] | None:
+    """Bind one cell, including structural zeros, to the frozen execution identity."""
+    bound = frozen_runner_identity(pricing)
+    quote = pricing.get("pricing_quote") if isinstance(pricing, dict) else None
+    if not isinstance(bound, dict) or not isinstance(quote, dict):
+        return None
+    quote_sha256 = quote.get("quote_sha256")
+    if not isinstance(quote_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", quote_sha256):
+        return None
+    if (
+        bound.get("runner_id") != runner.id
+        or bound.get("agent_id") != runner.agent
+        or bound.get("agent_cli") != runner.agent
+        or bound.get("requested_model_id") != runner.model
+        or bound.get("effort") != runner.effort
+        or bound.get("schedule_sha256") != schedule_sha256
+    ):
+        return None
+    expected_resolved = bound.get("resolved_model_id")
+    if provider_invoked and resolved_model != expected_resolved:
+        return None
+    payload = {
+        "schema": EXECUTION_IDENTITY_SCHEMA,
+        "provider": bound["provider"],
+        "runner_id": runner.id,
+        "runner_version": bound["runner_version"],
+        "agent_id": runner.agent,
+        "agent_cli": bound["agent_cli"],
+        "agent_cli_version": bound["agent_cli_version"],
+        "requested_model_id": runner.model,
+        "resolved_model_id": expected_resolved,
+        "resolved_model_attestation": (
+            "agent_cli_reported" if provider_invoked else "frozen_expected_no_agent_invocation"
+        ),
+        "effort": runner.effort,
+        "schedule_sha256": schedule_sha256,
+        "price_quote_sha256": quote_sha256,
+        "frozen_runner_identity_sha256": bound["identity_sha256"],
+    }
+    payload["identity_sha256"] = stable_json_sha256(payload)
+    return payload
+
+
 def confirmatory_billing_usage(
-    runner: RunnerSpec, usage: dict[str, Any], pricing: dict[str, Any]
+    runner: RunnerSpec,
+    usage: dict[str, Any],
+    pricing: dict[str, Any],
+    *,
+    resolved_model: str | None = None,
+    schedule_sha256: str | None = None,
 ) -> dict[str, Any] | None:
     """Build the v2 billing record only from an explicitly bound quote contract."""
     entry: Any = None
     if isinstance(pricing.get("pricing_quote"), dict):
-        bound_runner = pricing.get("runner") if isinstance(pricing.get("runner"), dict) else {}
-        if bound_runner.get("runner_id") == runner.id and bound_runner.get("model_id") in {
-            None,
-            runner.model,
-        }:
+        identity = confirmatory_execution_identity(
+            runner,
+            pricing,
+            resolved_model=resolved_model,
+            schedule_sha256=schedule_sha256,
+            provider_invoked=True,
+        )
+        if identity is not None:
             quote = pricing["pricing_quote"]
             entry = {
                 "quote_sha256": quote.get("quote_sha256"),
@@ -727,7 +825,10 @@ def assert_confirmatory_retry_policy(pricing: dict[str, Any], agent_retries: int
 
 
 def confirmatory_structural_zero_billing(
-    runner: RunnerSpec, pricing: dict[str, Any]
+    runner: RunnerSpec,
+    pricing: dict[str, Any],
+    *,
+    schedule_sha256: str | None = None,
 ) -> dict[str, Any] | None:
     """Bind an observed no-provider-invocation outcome to the frozen quote.
 
@@ -736,13 +837,14 @@ def confirmatory_structural_zero_billing(
     launch is entered or ambiguous, provider-reported usage remains mandatory.
     """
     quote = pricing.get("pricing_quote") if isinstance(pricing, dict) else None
-    bound_runner = pricing.get("runner") if isinstance(pricing, dict) else None
-    if not isinstance(quote, dict) or not isinstance(bound_runner, dict):
-        return None
-    if bound_runner.get("runner_id") != runner.id or bound_runner.get("model_id") not in {
-        None,
-        runner.model,
-    }:
+    identity = confirmatory_execution_identity(
+        runner,
+        pricing,
+        resolved_model=None,
+        schedule_sha256=schedule_sha256,
+        provider_invoked=False,
+    )
+    if not isinstance(quote, dict) or identity is None:
         return None
     quote_sha256 = quote.get("quote_sha256")
     semantics = quote.get("usage_semantics")
@@ -4413,6 +4515,7 @@ def run_agent(
     claude_budget: float,
     pricing: dict[str, Any],
     agent_retries: int = 0,
+    schedule_sha256: str | None = None,
 ) -> dict[str, Any]:
     start = time.monotonic()
     mcp_enabled = is_mcp_condition(condition)
@@ -4488,8 +4591,13 @@ def run_agent(
             reason = "component_timeout"
         final_response_finished_monotonic = attempt_response_finished_monotonic
         attempt_usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
+        attempt_resolved_model = extract_resolved_model(proc.stdout)
         attempt_usage["billing_v2"] = confirmatory_billing_usage(
-            runner, attempt_usage, pricing
+            runner,
+            attempt_usage,
+            pricing,
+            resolved_model=attempt_resolved_model,
+            schedule_sha256=schedule_sha256,
         )
         attempt_api_seconds = agent_reported_api_seconds(proc.stdout)
         stdout_name = f"agent.attempt{attempt}.stdout"
@@ -4503,7 +4611,7 @@ def run_agent(
                 "seconds": attempt_response_finished_monotonic - attempt_start,
                 "transient_failure_reason": reason,
                 "timed_out": timed_out_exception is not None,
-                "resolved_model": extract_resolved_model(proc.stdout),
+                "resolved_model": attempt_resolved_model,
                 "agent_reported_api_seconds": attempt_api_seconds,
                 "usage": attempt_usage,
                 "stdout_artifact": {
@@ -4535,6 +4643,14 @@ def run_agent(
         for attempt in attempts
         if not isinstance((attempt.get("usage") or {}).get("billing_v2"), dict)
     ]
+    resolved_model = extract_resolved_model(proc.stdout)
+    execution_identity = confirmatory_execution_identity(
+        runner,
+        pricing,
+        resolved_model=resolved_model,
+        schedule_sha256=schedule_sha256,
+        provider_invoked=True,
+    )
     billing_integrity = {
         "schema": "agent-brain-attempt-billing-integrity/v1",
         "required": billing_required,
@@ -4544,7 +4660,11 @@ def run_agent(
         "aggregate_present": isinstance(usage.get("billing_v2"), dict),
         "passed": bool(
             not billing_required
-            or (not incomplete_attempts and isinstance(usage.get("billing_v2"), dict))
+            or (
+                not incomplete_attempts
+                and isinstance(usage.get("billing_v2"), dict)
+                and isinstance(execution_identity, dict)
+            )
         ),
         "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
     }
@@ -4578,7 +4698,8 @@ def run_agent(
         # The model the agent CLI actually reported running, parsed from its own
         # JSON stream — makes model attribution self-evident per record (vs only
         # the requested --model), addressing the "how do you know it was X" concern.
-        "resolved_model": extract_resolved_model(proc.stdout),
+        "resolved_model": resolved_model,
+        "execution_identity": execution_identity,
         "isolation": {**ISOLATION.get(runner.agent, {}), "mcp": "entire-brain local stdio only" if mcp_enabled else ISOLATION.get(runner.agent, {}).get("mcp", "disabled")},
         "mcp": {
             "enabled": mcp_enabled,
@@ -4641,9 +4762,19 @@ def structural_zero_agent_info(
     pricing: dict[str, Any],
     *,
     reason: str,
+    schedule_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Return authenticated zero model cost before the provider path is entered."""
-    billing = confirmatory_structural_zero_billing(runner, pricing)
+    execution_identity = confirmatory_execution_identity(
+        runner,
+        pricing,
+        resolved_model=None,
+        schedule_sha256=schedule_sha256,
+        provider_invoked=False,
+    )
+    billing = confirmatory_structural_zero_billing(
+        runner, pricing, schedule_sha256=schedule_sha256
+    )
     billing_required = confirmatory_pricing_required(pricing)
     usage = empty_agent_usage()
     usage.update(
@@ -4676,6 +4807,7 @@ def structural_zero_agent_info(
         "seconds": None,
         "agent_reported_api_seconds": None,
         "attempts": [],
+        "execution_identity": execution_identity,
         "provider_invocation": {
             "schema": PROVIDER_INVOCATION_SCHEMA,
             "state": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
@@ -5858,6 +5990,7 @@ def run_one(
             args.claude_budget,
             pricing,
             agent_retries=getattr(args, "agent_retries", 0),
+            schedule_sha256=getattr(args, "schedule_sha256", None),
         )
         agent_response_finished_monotonic = agent_info.pop(
             "_response_finished_monotonic", None
@@ -5986,6 +6119,7 @@ def run_one(
                     runner,
                     pricing,
                     reason="treatment_retrieval_or_delivery_timeout",
+                    schedule_sha256=getattr(args, "schedule_sha256", None),
                 )
             elif run_agent_entered:
                 partial_agent_info = ambiguous_provider_agent_info()
@@ -6060,6 +6194,7 @@ def run_one(
                 runner,
                 pricing,
                 reason="treatment_retrieval_or_delivery_failure",
+                schedule_sha256=getattr(args, "schedule_sha256", None),
             )
         elif run_agent_entered and not isinstance(record.get("agent_info"), dict):
             record["agent_info"] = ambiguous_provider_agent_info()

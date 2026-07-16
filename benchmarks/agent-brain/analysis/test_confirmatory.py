@@ -117,6 +117,58 @@ def price_quote() -> dict:
     )
 
 
+def frozen_runner_identity(
+    *, schedule_sha256: str = "b" * 64, effort: str = "low"
+) -> dict:
+    return with_self_hash(
+        {
+            "schema": confirmatory.FROZEN_RUNNER_IDENTITY_SCHEMA,
+            "provider": "synthetic-provider",
+            "runner_id": "runner",
+            "runner_version": "runner-v1",
+            "agent_id": "codex",
+            "agent_cli": "codex",
+            "agent_cli_version": "codex-test-v1",
+            "requested_model_id": "model",
+            "resolved_model_id": "model",
+            "effort": effort,
+            "schedule_sha256": schedule_sha256,
+        },
+        "identity_sha256",
+    )
+
+
+def cell_execution_identity(
+    runner: dict,
+    quote: dict,
+    *,
+    structural_zero: bool = False,
+) -> dict:
+    return with_self_hash(
+        {
+            "schema": confirmatory.EXECUTION_IDENTITY_SCHEMA,
+            "provider": runner["provider"],
+            "runner_id": runner["runner_id"],
+            "runner_version": runner["runner_version"],
+            "agent_id": runner["agent_id"],
+            "agent_cli": runner["agent_cli"],
+            "agent_cli_version": runner["agent_cli_version"],
+            "requested_model_id": runner["requested_model_id"],
+            "resolved_model_id": runner["resolved_model_id"],
+            "resolved_model_attestation": (
+                "frozen_expected_no_agent_invocation"
+                if structural_zero
+                else "agent_cli_reported"
+            ),
+            "effort": runner["effort"],
+            "schedule_sha256": runner["schedule_sha256"],
+            "price_quote_sha256": quote["quote_sha256"],
+            "frozen_runner_identity_sha256": runner["identity_sha256"],
+        },
+        "identity_sha256",
+    )
+
+
 def billing(quote: dict, multiplier: float) -> dict:
     uncached = int(10_000 * multiplier)
     cached = int(4_000 * multiplier)
@@ -177,8 +229,10 @@ def make_records(
     time_ratio: float = 0.80,
     cost_ratio: float = 0.80,
     quality_lift: float = 0.10,
+    runner_identity: dict | None = None,
 ) -> list[dict]:
     quote = price_quote()
+    frozen_runner = runner_identity or frozen_runner_identity()
     records: list[dict] = []
     for task_index, task_id in enumerate(tasks, 1):
         baseline_time = 10.0 * task_index
@@ -202,7 +256,12 @@ def make_records(
                     {
                         "run_id": f"{task_id}__runner__{condition}__r{repetition}",
                         "task_id": task_id,
-                        "runner": {"id": "runner"},
+                        "runner": {
+                            "id": "runner",
+                            "agent": frozen_runner["agent_id"],
+                            "model": frozen_runner["requested_model_id"],
+                            "effort": frozen_runner["effort"],
+                        },
                         "condition": condition,
                         "repetition": repetition,
                         "treatment_started": True,
@@ -216,6 +275,10 @@ def make_records(
                         "validation": {"ok": True},
                         "agent_info": {
                             "returncode": 0,
+                            "resolved_model": frozen_runner["resolved_model_id"],
+                            "execution_identity": cell_execution_identity(
+                                frozen_runner, quote
+                            ),
                             "provider_invocation": {
                                 "schema": confirmatory.PROVIDER_INVOCATION_SCHEMA,
                                 "state": confirmatory.PROVIDER_INVOCATIONS_OBSERVED,
@@ -227,6 +290,7 @@ def make_records(
                                 {
                                     "attempt": 1,
                                     "returncode": 0,
+                                    "resolved_model": frozen_runner["resolved_model_id"],
                                     "usage": per_attempt_usage,
                                 }
                             ],
@@ -266,14 +330,25 @@ def make_records(
     return records
 
 
-def make_structural_zero(record: dict, *, reason: str = "treatment_retrieval_or_delivery_failure") -> None:
+def make_structural_zero(
+    record: dict,
+    *,
+    reason: str = "treatment_retrieval_or_delivery_failure",
+    runner_identity: dict | None = None,
+) -> None:
     quote = price_quote()
+    frozen_runner = runner_identity or frozen_runner_identity(
+        effort=record["runner"]["effort"]
+    )
     zero_billing = billing(quote, 0.0)
     record["agent_ran"] = False
     record["error"] = reason
     record["validation"] = {"ok": False}
     record["agent_info"] = {
         "returncode": None,
+        "execution_identity": cell_execution_identity(
+            frozen_runner, quote, structural_zero=True
+        ),
         "provider_invocation": {
             "schema": confirmatory.PROVIDER_INVOCATION_SCHEMA,
             "state": confirmatory.STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
@@ -337,6 +412,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
         repetitions: int = 2,
         contract: dict | None = None,
         quote: dict | None = None,
+        runner_identity: dict | None = None,
     ) -> dict:
         tasks = sorted({record["task_id"] for record in records})
         return confirmatory.analyze_records(
@@ -345,6 +421,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
             expected_runner_id="runner",
             success_contract=contract or success_contract(),
             price_quote=quote or price_quote(),
+            runner_identity=runner_identity or frozen_runner_identity(),
             repetitions=repetitions,
             resamples=199,
             seed=1234,
@@ -612,8 +689,24 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
             self.analyze(make_records(), quote=tampered)
 
         tampered["quote_sha256"] = confirmatory._self_hash(tampered, "quote_sha256")
-        with self.assertRaisesRegex(confirmatory.AnalysisInputError, "price quote hash mismatch"):
+        with self.assertRaisesRegex(
+            confirmatory.AnalysisInputError,
+            "(?:price quote hash mismatch|price_quote_sha256)",
+        ):
             self.analyze(make_records(), quote=tampered)
+
+    def test_cell_identity_rejects_low_vs_high_effort_mismatch(self) -> None:
+        runner_identity = frozen_runner_identity(effort="low")
+        records = make_records(runner_identity=runner_identity)
+        identity = records[0]["agent_info"]["execution_identity"]
+        identity["effort"] = "high"
+        identity["identity_sha256"] = confirmatory._self_hash(
+            identity, "identity_sha256"
+        )
+        with self.assertRaisesRegex(
+            confirmatory.AnalysisInputError, "cell execution identity mismatch: effort"
+        ):
+            self.analyze(records, runner_identity=runner_identity)
 
     def test_reasoning_price_alias_resolves_and_invalid_alias_fails(self) -> None:
         quote = price_quote()
@@ -641,6 +734,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
                 expected_runner_id="runner",
                 success_contract=success_contract(),
                 price_quote=price_quote(),
+                runner_identity=frozen_runner_identity(),
                 repetitions=2,
                 resamples=19,
                 seed=1,
@@ -677,6 +771,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
                 expected_runner_id="runner",
                 success_contract=success_contract(),
                 price_quote=price_quote(),
+                runner_identity=frozen_runner_identity(),
                 repetitions=2,
                 resamples=19,
                 seed=1,
@@ -699,6 +794,9 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
             "execution_gate": {
                 "treatment_started": True,
                 "agent_ran": True,
+                "execution_identity": cell_execution_identity(
+                    frozen_runner_identity(), price_quote()
+                ),
                 "provider_invocation": {
                     "schema": evidence.PROVIDER_INVOCATION_SCHEMA,
                     "state": evidence.PROVIDER_INVOCATIONS_OBSERVED,
@@ -827,6 +925,13 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
         cells = schedule_cells(records)
         schedule = {"schema": 1, "repetitions": 2, "cells": cells}
         schedule["schedule_sha256"] = confirmatory._stable_json_sha256(schedule)
+        runner_identity = frozen_runner_identity(
+            schedule_sha256=schedule["schedule_sha256"]
+        )
+        records = make_records(
+            tasks=("task-a", "task-b"), runner_identity=runner_identity
+        )
+        cells = schedule_cells(records)
         state = {
             "schedule_sha256": schedule["schedule_sha256"],
             "planned_cell_count": len(cells),
@@ -862,6 +967,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
                     expected_analyzer_sha256=aggregate,
                     success_contract=success_contract(),
                     price_quote=price_quote(),
+                    runner_identity=runner_identity,
                     expected_task_count=2,
                     repetitions=2,
                     resamples=199,

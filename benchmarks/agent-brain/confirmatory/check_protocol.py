@@ -908,7 +908,14 @@ def validate_power_analysis(
         errors.append(f"cannot derive power-analysis.json: {exc}")
         return errors
     _error(errors, artifact == expected, "power-analysis.json is stale or does not match power_analysis.build_report()")
-    decision_passed = artifact.get("decision", {}).get("passed") is True
+    decision_errors = power_analysis.validate_power_report(artifact)
+    errors.extend(f"power artifact: {error}" for error in decision_errors)
+    try:
+        derived_decision = power_analysis.recompute_power_decision(artifact)
+    except (TypeError, ValueError) as exc:
+        errors.append(f"cannot recompute power decision: {exc}")
+        derived_decision = {"passed": False, "status": "invalid"}
+    decision_passed = derived_decision["passed"] is True
     _error(errors, artifact.get("schema_version") == 3, "power artifact schema_version must be 3")
     agent_design = protocol.get("agent_design", {})
     inputs = artifact.get("protocol_inputs")
@@ -947,16 +954,16 @@ def validate_power_analysis(
     )
     _error(
         errors,
-        inputs.get("provider_retry_limit") == 0
-        and inputs.get("replacement_call_limit") == 0
-        and inputs.get("maximum_provider_calls") == expected_requested
-        and agent_design.get("maximum_calls_with_reserve") == expected_requested,
-        "confirmatory provider-call ceiling must equal requested cells with zero retries and replacements",
+        inputs.get("agent_retry_limit") == 0
+        and inputs.get("replacement_cell_limit") == 0
+        and inputs.get("maximum_agent_invocations") == expected_requested
+        and agent_design.get("maximum_agent_invocations") == expected_requested,
+        "confirmatory agent-invocation ceiling must equal requested cells with zero retries and replacements",
     )
     _error(
         errors,
-        (artifact.get("status") == "pass") is decision_passed,
-        "power artifact status and decision disagree",
+        artifact.get("status") == derived_decision["status"],
+        "power artifact status does not match recomputed decision",
     )
     _error(
         errors,
@@ -968,15 +975,26 @@ def validate_power_analysis(
     _error(errors, power.get("analysis_kind") == artifact.get("analysis_kind"), "protocol power analysis_kind does not match artifact")
     artifact_floors = artifact.get("co_primary_endpoints", {})
     expected_floors = {
-        "elapsed_time_ratio_max": artifact_floors.get("elapsed_time", {}).get("practical_floor", {}).get("ratio_max"),
-        "normalized_cost_ratio_max": artifact_floors.get("normalized_cost", {}).get("practical_floor", {}).get("ratio_max"),
-        "code_quality_difference_min": artifact_floors.get("code_quality", {}).get("practical_floor", {}).get("difference_min"),
+        "elapsed_time_ratio_max": artifact_floors.get("elapsed_time", {}).get("claim_floor", {}).get("ratio_max"),
+        "normalized_cost_ratio_max": artifact_floors.get("normalized_cost", {}).get("claim_floor", {}).get("ratio_max"),
+        "code_quality_difference_min": artifact_floors.get("code_quality", {}).get("claim_floor", {}).get("difference_min"),
         "status": "provisional" if not decision_passed else "frozen_approved",
     }
     _error(
         errors,
-        power.get("co_primary_planning_floors") == expected_floors,
-        "protocol co-primary planning floors do not match power artifact",
+        power.get("co_primary_claim_floors") == expected_floors,
+        "protocol co-primary claim floors do not match power artifact",
+    )
+    expected_alternatives = {
+        "elapsed_time_ratio_true": artifact_floors.get("elapsed_time", {}).get("planning_alternative", {}).get("ratio_true"),
+        "normalized_cost_ratio_true": artifact_floors.get("normalized_cost", {}).get("planning_alternative", {}).get("ratio_true"),
+        "code_quality_difference_true": artifact_floors.get("code_quality", {}).get("planning_alternative", {}).get("difference_true"),
+        "status": artifact_floors.get("elapsed_time", {}).get("planning_alternative", {}).get("status"),
+    }
+    _error(
+        errors,
+        power.get("planning_alternatives") == expected_alternatives,
+        "protocol planning alternatives do not match power artifact",
     )
     calibration_requirements = artifact.get("calibration_requirements", {})
     readiness = artifact.get("design_readiness", {})
@@ -1023,7 +1041,7 @@ def validate_power_analysis(
     protocol_status = power.get("status")
     _error(
         errors,
-        protocol_status == ("pass" if decision_passed else "pending_uncalibrated"),
+        protocol_status == derived_decision["status"],
         "protocol power status does not match deterministic decision",
     )
     _error(
@@ -1229,15 +1247,33 @@ def validate_pricing_budget(
     if not _required_object_fields(errors, artifact, required, "pricing-budget.json"):
         return errors
     _require_exact_fields(errors, artifact, required, "pricing-budget.json")
-    _error(errors, artifact.get("schema_version") == 1, "pricing budget schema_version must be 1")
+    _error(errors, artifact.get("schema_version") == 2, "pricing budget schema_version must be 2")
 
     runner = artifact.get("runner")
     if not isinstance(runner, dict):
         errors.append("pricing runner must be an object")
         runner = {}
-    runner_fields = ("provider", "runner_id", "runner_version", "model_id", "effort")
+    runner_fields = (
+        "schema",
+        "provider",
+        "runner_id",
+        "runner_version",
+        "agent_id",
+        "agent_cli",
+        "agent_cli_version",
+        "requested_model_id",
+        "resolved_model_id",
+        "effort",
+        "schedule_sha256",
+        "identity_sha256",
+    )
     _require_exact_fields(errors, runner, runner_fields, "pricing runner")
-    for field in runner_fields:
+    _error(
+        errors,
+        runner.get("schema") == "agent-brain-frozen-runner-identity/v1",
+        "pricing runner identity schema changed",
+    )
+    for field in runner_fields[1:]:
         value = runner.get(field)
         _error(errors, value is None or (isinstance(value, str) and bool(value)), f"pricing runner.{field} must be null or a non-empty string")
 
@@ -1337,9 +1373,11 @@ def validate_pricing_budget(
         "tasks",
         "treatments",
         "repetitions_per_treatment",
-        "requested_calls",
-        "reserve_calls",
-        "maximum_calls_with_reserve",
+        "requested_cells",
+        "retry_agent_invocations",
+        "replacement_cell_attempts",
+        "reserve_cell_attempts",
+        "maximum_agent_invocations",
     )
     _require_exact_fields(errors, design, design_fields, "pricing design")
     treatments = agent_design.get("primary_treatments", [])
@@ -1354,31 +1392,29 @@ def validate_pricing_budget(
         and not isinstance(repetitions, bool)
         else None
     )
-    expected_maximum = agent_design.get("maximum_calls_with_reserve")
-    expected_reserve = (
-        expected_maximum - expected_requested
-        if isinstance(expected_maximum, int)
-        and not isinstance(expected_maximum, bool)
-        and isinstance(expected_requested, int)
-        else None
-    )
+    expected_maximum = agent_design.get("maximum_agent_invocations")
     expected_design = {
         "protocol_id": protocol.get("protocol_id"),
         "power_status_at_binding": power.get("status"),
         "tasks": tasks,
         "treatments": treatments,
         "repetitions_per_treatment": repetitions,
-        "requested_calls": agent_design.get("requested_cells"),
-        "reserve_calls": expected_reserve,
-        "maximum_calls_with_reserve": expected_maximum,
+        "requested_cells": agent_design.get("requested_cells"),
+        "retry_agent_invocations": 0,
+        "replacement_cell_attempts": 0,
+        "reserve_cell_attempts": 0,
+        "maximum_agent_invocations": expected_maximum,
     }
     for field, expected in expected_design.items():
         _error(errors, design.get(field) == expected, f"pricing design does not match preregistration: {field}")
-    _error(errors, design.get("requested_calls") == expected_requested, "pricing design requested_calls arithmetic is inconsistent")
+    _error(errors, design.get("requested_cells") == expected_requested, "pricing design requested_cells arithmetic is inconsistent")
     _error(
         errors,
-        expected_reserve == 0 and expected_maximum == expected_requested,
-        "confirmatory reserve_calls must remain zero and maximum calls must equal requested calls",
+        design.get("retry_agent_invocations") == 0
+        and design.get("replacement_cell_attempts") == 0
+        and design.get("reserve_cell_attempts") == 0
+        and expected_maximum == expected_requested,
+        "confirmatory retries, replacements, and reserves must remain zero and maximum agent invocations must equal requested cells",
     )
     _error(errors, isinstance(design.get("approved_for_budgeting"), bool), "pricing design approved_for_budgeting must be boolean")
 
@@ -1388,6 +1424,20 @@ def validate_pricing_budget(
     quote_times: dict[str, datetime | None] = {"as_of": None, "retrieved_at": None, "expires_at": None}
     if quote_pinned:
         _require_nonempty_strings(errors, runner, runner_fields, "pricing runner")
+        _error(errors, _is_sha256(runner.get("schedule_sha256")), "pricing runner schedule_sha256 is invalid")
+        _error(errors, _is_sha256(runner.get("identity_sha256")), "pricing runner identity_sha256 is invalid")
+        runner_without_hash = dict(runner)
+        runner_without_hash.pop("identity_sha256", None)
+        _error(
+            errors,
+            runner.get("identity_sha256") == canonical_json_sha256(runner_without_hash),
+            "pricing runner identity self-hash mismatch",
+        )
+        _error(
+            errors,
+            runner.get("agent_id") == runner.get("agent_cli"),
+            "pricing runner agent_id and agent_cli must identify the same frozen adapter",
+        )
         _require_nonempty_strings(errors, quote, ("source_uri",), "pricing_quote")
         source_record = {
             "path": quote.get("source_artifact_path"),

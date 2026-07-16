@@ -12,11 +12,11 @@
     },
     {
       "path": "benchmarks/agent-brain/analysis/confirmatory.py",
-      "sha256": "e27c9c35feabce71415f68e1376f773a8946fe42ad53426649a9d96b7ee8de9e"
+      "sha256": "ed58561d025cc9ea5106a8ff0ea1b93c3dc0255dae0e06bcc8d280414862e78f"
     },
     {
       "path": "benchmarks/agent-brain/analysis/evidence.py",
-      "sha256": "4953e68f5cffb8baa0e8be69a45c71f9888c4f9a1b07fc1d82b10947258a7194"
+      "sha256": "6ba3f722e06dc5976e4b900c7256829d96f94f89b6788f80b58acfc903c38d44"
     },
     {
       "path": "benchmarks/agent-brain/analysis/metrics.py",
@@ -24,16 +24,16 @@
     },
     {
       "path": "benchmarks/agent-brain/analysis/schemas/confirmatory-analysis-v2.schema.json",
-      "sha256": "1b92658083b7229cd73b922e61df34c8dfecbe17682c6c6d1476caa5f032b2a4"
+      "sha256": "15e037d9cc9e54406fd857576da6f26704ef2f9df237f158d0a5c4bacdf9f1fc"
     },
     {
       "path": "benchmarks/agent-brain/analysis/schemas/run-v2.schema.json",
-      "sha256": "4819f2bc6e81553c238ce6b0e3639dc2d81d8e63f00cd0bd0be8eae29c09dd15"
+      "sha256": "b89ced26af13bdd6eb082feed24b6f1fd0ed677d58f6209d128da3e4156ea27f"
     },
     {
       "path": "benchmarks/agent-brain/analysis/schemas/suite-v1.schema.json",
       "sha256": "cbde71ee10db2e4f14ed668a4341f4b5c5a68808453646d89a59ea0eee105cfe"
     }
   ],
-  "aggregate_sha256": "6e793b1d1a48838ae4b9ec15ded2c485bd8086e544b50bdf35e5fec2e480b35a"
+  "aggregate_sha256": "7c4e37fac7f9431a28c8fafc2f226e13e54b0be574776ddeb73c3c0083887032"
 }

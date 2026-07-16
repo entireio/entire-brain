@@ -14,7 +14,7 @@
     "approval"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "runner": {"$ref": "#/$defs/nullableRunner"},
     "pricing_quote": {
       "type": "object",
@@ -115,9 +115,11 @@
         "tasks",
         "treatments",
         "repetitions_per_treatment",
-        "requested_calls",
-        "reserve_calls",
-        "maximum_calls_with_reserve"
+        "requested_cells",
+        "retry_agent_invocations",
+        "replacement_cell_attempts",
+        "reserve_cell_attempts",
+        "maximum_agent_invocations"
       ],
       "properties": {
         "protocol_id": {"type": "string", "minLength": 1},
@@ -131,9 +133,11 @@
           "items": {"type": "string", "minLength": 1}
         },
         "repetitions_per_treatment": {"type": "integer", "minimum": 1},
-        "requested_calls": {"type": "integer", "minimum": 1},
-        "reserve_calls": {"type": "integer", "minimum": 0},
-        "maximum_calls_with_reserve": {"type": "integer", "minimum": 1}
+        "requested_cells": {"type": "integer", "minimum": 1},
+        "retry_agent_invocations": {"const": 0},
+        "replacement_cell_attempts": {"const": 0},
+        "reserve_cell_attempts": {"const": 0},
+        "maximum_agent_invocations": {"type": "integer", "minimum": 1}
       }
     },
     "token_assumptions": {
@@ -203,16 +207,16 @@
             "effective_tokens_per_call",
             "per_call_usd_by_category",
             "per_call_maximum_usd",
-            "maximum_calls",
+            "maximum_agent_invocations",
             "maximum_usd"
           ],
           "properties": {
-            "formula_id": {"const": "worst_case_token_envelope_v2"},
+            "formula_id": {"const": "worst_case_agent_invocation_token_envelope_v3"},
             "tokens_per_price_unit": {"const": 1000000},
             "effective_tokens_per_call": {"$ref": "#/$defs/tokenCounts"},
             "per_call_usd_by_category": {"$ref": "#/$defs/prices"},
             "per_call_maximum_usd": {"$ref": "#/$defs/decimal"},
-            "maximum_calls": {"type": "integer", "minimum": 1},
+            "maximum_agent_invocations": {"type": "integer", "minimum": 1},
             "maximum_usd": {"$ref": "#/$defs/decimal"}
           }
         }
@@ -299,13 +303,39 @@
     "nullableRunner": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["provider", "runner_id", "runner_version", "model_id", "effort"],
+      "required": [
+        "schema",
+        "provider",
+        "runner_id",
+        "runner_version",
+        "agent_id",
+        "agent_cli",
+        "agent_cli_version",
+        "requested_model_id",
+        "resolved_model_id",
+        "effort",
+        "schedule_sha256",
+        "identity_sha256"
+      ],
       "properties": {
+        "schema": {"const": "agent-brain-frozen-runner-identity/v1"},
         "provider": {"type": ["string", "null"], "minLength": 1},
         "runner_id": {"type": ["string", "null"], "minLength": 1},
         "runner_version": {"type": ["string", "null"], "minLength": 1},
-        "model_id": {"type": ["string", "null"], "minLength": 1},
-        "effort": {"type": ["string", "null"], "minLength": 1}
+        "agent_id": {"type": ["string", "null"], "minLength": 1},
+        "agent_cli": {"type": ["string", "null"], "minLength": 1},
+        "agent_cli_version": {"type": ["string", "null"], "minLength": 1},
+        "requested_model_id": {"type": ["string", "null"], "minLength": 1},
+        "resolved_model_id": {"type": ["string", "null"], "minLength": 1},
+        "effort": {"type": ["string", "null"], "minLength": 1},
+        "schedule_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "identity_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     }
   }

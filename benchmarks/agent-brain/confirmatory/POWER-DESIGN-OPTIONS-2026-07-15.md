@@ -10,17 +10,19 @@ timeout, and quality contracts. Consequently, neither a power-sized development 
 power-sized confirmatory task count is currently defensible. The 24-task x 4-repetition design is a
 provisional arithmetic placeholder, not a powered design.
 
-The provisional practical floors are a 10% elapsed-time reduction (ratio at most `0.90`), a 12%
+The provisional claim/null floors are a 10% elapsed-time reduction (ratio at most `0.90`), a 12%
 normalized-cost reduction (ratio at most `0.88`), and a `+0.05` quality-score difference. They are
-planning inputs, not approved claim thresholds. `check_protocol.py --freeze` rejects them until a
-methodology owner explicitly freezes all three together.
+not power-planning alternatives. All three true planning alternatives remain `null` and
+`pending_owner_approval`; the methodology owner must freeze values strictly better than the claim
+floors before numeric marginal or joint power can be computed.
 
 ## Required calibration
 
 Before choosing task count or repetitions, collect an unpaid development-only calibration that
 matches:
 
-- the final runner, model, effort, and runner version;
+- the full frozen provider, runner ID/version, agent CLI ID/version, requested and resolved model,
+  effort, schedule, and quote identity;
 - `no_memory` and `retrieved_memory` v2 treatment contracts;
 - the user-visible timing boundary and timeout rule;
 - the five mutually exclusive billing categories, frozen quote aliases,
@@ -41,7 +43,7 @@ component and the overall intersection-union joint success probability to each r
 under a frozen dependence model or conservative simulation. Repetitions are averaged within each
 task/arm before the paired contrast; they do not become independent clusters.
 
-## Defensible counts and call ceiling
+## Defensible counts and agent-invocation ceiling
 
 Without final-contract calibration or an explicitly owner-approved assumption set, the defensible
 power-sized task counts are `null` for both development and confirmation. The only numeric
@@ -50,10 +52,10 @@ variance and dependence estimates must determine whether more calibration tasks 
 any design can be sized.
 
 The current placeholder arithmetic is 24 tasks x 3 treatments x 4 repetitions = 288 requested
-cells. Provider retries and post-treatment replacement calls are frozen at zero, so the maximum
-provider-call envelope is 288. Authenticated pre-provider structural-zero cells can only reduce the
-number of provider calls. The former 10% reserve and its 317-call ceiling are invalid under the
-current contract.
+cells. Agent retries, replacement-cell attempts, and reserve-cell attempts are frozen at zero, so
+the maximum agent-CLI invocation/cell-attempt envelope is 288. Authenticated pre-provider
+structural-zero cells consume a requested cell but do not enter the provider path. The former 10%
+reserve and its 317-attempt ceiling are invalid under the current contract.
 
 ## Why legacy outcomes cannot fill the gap
 
@@ -70,7 +72,8 @@ confirmation.
 Until calibration and explicit floor approval are complete:
 
 - `power.completed = false` and `power_target_met = fail`;
-- all practical-floor and timeout statuses remain `provisional`;
+- all claim-floor and timeout statuses remain `provisional`, and all planning alternatives remain
+  null and unapproved;
 - the fresh holdout remains unopened and unsealed;
 - no paid confirmatory calls or budget authorization may begin.
 

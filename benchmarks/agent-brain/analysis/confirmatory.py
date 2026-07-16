@@ -52,6 +52,39 @@ PROVIDER_INVOCATION_SCHEMA = "agent-brain-provider-invocation-state/v1"
 PROVIDER_INVOCATIONS_OBSERVED = "provider_invocations_observed"
 STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION = "structural_zero_no_provider_invocation"
 PROVIDER_PATH_ENTERED_USAGE_UNKNOWN = "provider_path_entered_usage_unknown"
+FROZEN_RUNNER_IDENTITY_SCHEMA = "agent-brain-frozen-runner-identity/v1"
+EXECUTION_IDENTITY_SCHEMA = "agent-brain-cell-execution-identity/v1"
+FROZEN_RUNNER_IDENTITY_FIELDS = (
+    "schema",
+    "provider",
+    "runner_id",
+    "runner_version",
+    "agent_id",
+    "agent_cli",
+    "agent_cli_version",
+    "requested_model_id",
+    "resolved_model_id",
+    "effort",
+    "schedule_sha256",
+    "identity_sha256",
+)
+EXECUTION_IDENTITY_FIELDS = (
+    "schema",
+    "provider",
+    "runner_id",
+    "runner_version",
+    "agent_id",
+    "agent_cli",
+    "agent_cli_version",
+    "requested_model_id",
+    "resolved_model_id",
+    "resolved_model_attestation",
+    "effort",
+    "schedule_sha256",
+    "price_quote_sha256",
+    "frozen_runner_identity_sha256",
+    "identity_sha256",
+)
 PRIMARY_ARMS = ("no_memory", "placebo_packet", "retrieved_memory")
 BASELINE_ARM = "no_memory"
 OPTIMIZED_ARM = "retrieved_memory"
@@ -363,6 +396,86 @@ def _resolved_prices(quote: dict[str, Any]) -> dict[str, Decimal]:
     }
 
 
+def _validate_frozen_runner_identity(identity: Any) -> dict[str, Any]:
+    if not isinstance(identity, dict) or set(identity) != set(FROZEN_RUNNER_IDENTITY_FIELDS):
+        raise AnalysisInputError("frozen runner identity fields are incomplete")
+    if identity.get("schema") != FROZEN_RUNNER_IDENTITY_SCHEMA:
+        raise AnalysisInputError("frozen runner identity schema changed")
+    for field in FROZEN_RUNNER_IDENTITY_FIELDS:
+        if field == "schema":
+            continue
+        value = identity.get(field)
+        if not isinstance(value, str) or not value:
+            raise AnalysisInputError(f"frozen runner identity {field} is required")
+    if identity.get("agent_id") != identity.get("agent_cli"):
+        raise AnalysisInputError("frozen agent and CLI identities differ")
+    if not SHA256_RE.fullmatch(identity["schedule_sha256"]):
+        raise AnalysisInputError("frozen runner schedule identity is invalid")
+    if identity.get("identity_sha256") != _self_hash(identity, "identity_sha256"):
+        raise AnalysisInputError("frozen runner identity self-hash mismatch")
+    return identity
+
+
+def _validate_cell_execution_identity(
+    record: dict[str, Any],
+    frozen: dict[str, Any],
+    quote: dict[str, Any],
+    *,
+    provider_state: str,
+) -> None:
+    run_id = str(record.get("run_id") or "unknown")
+    agent_info = record.get("agent_info")
+    identity = agent_info.get("execution_identity") if isinstance(agent_info, dict) else None
+    if not isinstance(identity, dict) or set(identity) != set(EXECUTION_IDENTITY_FIELDS):
+        raise AnalysisInputError(f"{run_id}: full cell execution identity is required")
+    if identity.get("schema") != EXECUTION_IDENTITY_SCHEMA:
+        raise AnalysisInputError(f"{run_id}: cell execution identity schema changed")
+    if identity.get("identity_sha256") != _self_hash(identity, "identity_sha256"):
+        raise AnalysisInputError(f"{run_id}: cell execution identity self-hash mismatch")
+    expected = {
+        "provider": frozen["provider"],
+        "runner_id": frozen["runner_id"],
+        "runner_version": frozen["runner_version"],
+        "agent_id": frozen["agent_id"],
+        "agent_cli": frozen["agent_cli"],
+        "agent_cli_version": frozen["agent_cli_version"],
+        "requested_model_id": frozen["requested_model_id"],
+        "resolved_model_id": frozen["resolved_model_id"],
+        "effort": frozen["effort"],
+        "schedule_sha256": frozen["schedule_sha256"],
+        "price_quote_sha256": quote["quote_sha256"],
+        "frozen_runner_identity_sha256": frozen["identity_sha256"],
+    }
+    for field, value in expected.items():
+        if identity.get(field) != value:
+            raise AnalysisInputError(f"{run_id}: cell execution identity mismatch: {field}")
+    expected_attestation = (
+        "frozen_expected_no_agent_invocation"
+        if provider_state == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION
+        else "agent_cli_reported"
+    )
+    if identity.get("resolved_model_attestation") != expected_attestation:
+        raise AnalysisInputError(f"{run_id}: resolved model attestation is inconsistent")
+    runner = record.get("runner")
+    if runner != {
+        "id": frozen["runner_id"],
+        "agent": frozen["agent_id"],
+        "model": frozen["requested_model_id"],
+        "effort": frozen["effort"],
+    }:
+        raise AnalysisInputError(f"{run_id}: record runner/model/effort differs from frozen identity")
+    if provider_state == PROVIDER_INVOCATIONS_OBSERVED:
+        if agent_info.get("resolved_model") != frozen["resolved_model_id"]:
+            raise AnalysisInputError(f"{run_id}: observed resolved model differs from frozen identity")
+        attempts = agent_info.get("attempts")
+        if not isinstance(attempts, list) or any(
+            not isinstance(attempt, dict)
+            or attempt.get("resolved_model") != frozen["resolved_model_id"]
+            for attempt in attempts
+        ):
+            raise AnalysisInputError(f"{run_id}: attempt resolved model differs from frozen identity")
+
+
 def _validate_success_contract(contract: Any) -> dict[str, Any]:
     if not isinstance(contract, dict) or contract.get("schema") != SUCCESS_CONTRACT_SCHEMA:
         raise AnalysisInputError(f"success contract schema must be {SUCCESS_CONTRACT_SCHEMA}")
@@ -668,6 +781,7 @@ def _prepare_cells(
     expected_schedule_cells: Sequence[dict[str, Any]] | None,
     success_contract: dict[str, Any],
     price_quote: dict[str, Any],
+    runner_identity: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     task_ids = list(expected_task_ids)
     if not task_ids or any(not isinstance(item, str) or not item for item in task_ids):
@@ -768,6 +882,12 @@ def _prepare_cells(
             raise AnalysisInputError(f"{run_id}: provider path entry or usage is ambiguous")
         elif isinstance(return_code, bool) or not isinstance(return_code, int):
             raise AnalysisInputError(f"{run_id}: launched agent returncode must be an integer")
+        _validate_cell_execution_identity(
+            record,
+            runner_identity,
+            price_quote,
+            provider_state=provider_state,
+        )
 
         timing = record.get("timing")
         if not isinstance(timing, dict):
@@ -915,6 +1035,7 @@ def _prepare_cells(
         "critical_quality_zeroes": critical_quality_zeroes,
         "timed_out_attempts": timed_out_attempts,
         "structural_zero_no_provider_attempts": structural_zero_attempts,
+        "frozen_runner_identity_sha256": runner_identity["identity_sha256"],
         "condition_to_treatment_arm": dict(sorted(condition_to_arm.items())),
     }
 
@@ -1153,6 +1274,7 @@ def analyze_records(
     expected_runner_id: str,
     success_contract: dict[str, Any],
     price_quote: dict[str, Any],
+    runner_identity: dict[str, Any],
     repetitions: int = DEFAULT_REPETITIONS,
     resamples: int = DEFAULT_RESAMPLES,
     seed: int = DEFAULT_SEED,
@@ -1162,6 +1284,9 @@ def analyze_records(
     """Analyze a complete balanced v2 record set without success-only filtering."""
     contract = _validate_success_contract(success_contract)
     quote = _validate_price_quote(price_quote)
+    frozen_runner = _validate_frozen_runner_identity(runner_identity)
+    if frozen_runner["runner_id"] != expected_runner_id:
+        raise AnalysisInputError("expected runner ID differs from frozen runner identity")
     task_ids = sorted(expected_task_ids)
     cells, cell_integrity = _prepare_cells(
         records,
@@ -1171,6 +1296,7 @@ def analyze_records(
         expected_schedule_cells=expected_schedule_cells,
         success_contract=contract,
         price_quote=quote,
+        runner_identity=frozen_runner,
     )
     samples = _bootstrap_indices(len(task_ids), resamples, seed)
     floors = contract["endpoints"]
@@ -1276,6 +1402,7 @@ def analyze_records(
             "success_contract_sha256": contract["contract_sha256"],
             "success_contract_status": contract["status"],
             "price_quote_sha256": quote["quote_sha256"],
+            "frozen_runner_identity_sha256": frozen_runner["identity_sha256"],
             "price_quote_currency": quote["currency"],
             "cost_categories": list(PRICE_CATEGORIES),
             "usage_semantics": quote["usage_semantics"],
@@ -1354,6 +1481,7 @@ def analyze_verified_suite(
     expected_analyzer_sha256: str,
     success_contract: dict[str, Any],
     price_quote: dict[str, Any],
+    runner_identity: dict[str, Any],
     expected_task_count: int = DEFAULT_TASKS,
     repetitions: int = DEFAULT_REPETITIONS,
     resamples: int = DEFAULT_RESAMPLES,
@@ -1387,6 +1515,9 @@ def analyze_verified_suite(
     if schedule.get("schedule_sha256") != expected_schedule_hash:
         raise AnalysisInputError("schedule self-hash is invalid")
     _assert_execution_order(schedule, state)
+    frozen_runner = _validate_frozen_runner_identity(runner_identity)
+    if frozen_runner["schedule_sha256"] != schedule.get("schedule_sha256"):
+        raise AnalysisInputError("frozen runner schedule identity does not match schedule.json")
     cells = schedule["cells"]
     scheduled_tasks = sorted(
         {cell.get("task_id") for cell in cells if isinstance(cell, dict) and isinstance(cell.get("task_id"), str)}
@@ -1425,6 +1556,7 @@ def analyze_verified_suite(
         expected_runner_id=runners[0],
         success_contract=success_contract,
         price_quote=price_quote,
+        runner_identity=frozen_runner,
         repetitions=repetitions,
         resamples=resamples,
         seed=seed,
@@ -1488,6 +1620,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("suite", type=pathlib.Path)
     parser.add_argument("--success-contract", type=pathlib.Path, required=True)
     parser.add_argument("--price-quote", type=pathlib.Path, required=True)
+    parser.add_argument("--runner-identity", type=pathlib.Path, required=True)
     parser.add_argument("--output", type=pathlib.Path)
     parser.add_argument("--expected-tasks", type=int, default=DEFAULT_TASKS)
     parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
@@ -1505,6 +1638,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             expected_analyzer_sha256=expected_sha,
             success_contract=_load_json(args.success_contract),
             price_quote=_load_json(args.price_quote),
+            runner_identity=_load_json(args.runner_identity),
             expected_task_count=args.expected_tasks,
             repetitions=args.repetitions,
             resamples=args.resamples,
