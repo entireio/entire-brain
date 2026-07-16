@@ -274,9 +274,15 @@ func mcpToolDefinitions() []map[string]any {
 				"packet_format": map[string]any{
 					"type":        "string",
 					"title":       "packet_format",
-					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response. compact_v1 and compact_v2 are experimental versioned agent packets; compact_v2's hashed in-band legend defines ~=absent and ^=the previous record of the same opcode and column (interleaved other opcodes do not reset it). Each repeated family uses positional rows only when their canonical bytes including the declaration are strictly smaller; ties stay keyed.",
-					"enum":        []string{"legacy_json", "compact_v1", "compact_v2"},
+					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response. compact_v1 and compact_v2 are experimental representation-only packets. agent_v1 is an opt-in 32 KiB coding-agent projection with exact fact identity/order/text, structured trust state, stripped provenance, and a hashed config identity.",
+					"enum":        []string{"legacy_json", "compact_v1", "compact_v2", "agent_v1"},
 					"default":     "legacy_json",
+				},
+				"delivery_policy": map[string]any{
+					"type":        "string",
+					"title":       "delivery_policy",
+					"description": "Delivery decision policy for agent_v1. Omit for always. Only always is implemented; adaptive delivery is intentionally unavailable.",
+					"enum":        []string{"always"},
 				},
 			}),
 		},
@@ -521,16 +527,20 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			break
 		}
 		packetFormat, formatErr := mcpBrainBriefPacketFormat(params.Arguments)
+		deliveryPolicy, policyErr := mcpBrainBriefDeliveryPolicy(params.Arguments, packetFormat)
 		if formatErr != nil {
 			err = formatErr
+		} else if policyErr != nil {
+			err = policyErr
 		} else if strings.TrimSpace(task) == "" {
 			err = errors.New("task is required")
 		} else {
 			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{
-				limit:        limit,
-				json:         true,
-				surface:      "mcp:brain_brief",
-				packetFormat: packetFormat,
+				limit:          limit,
+				json:           true,
+				surface:        "mcp:brain_brief",
+				packetFormat:   packetFormat,
+				deliveryPolicy: deliveryPolicy,
 			}, task)
 		}
 	case "brain_query":
@@ -996,9 +1006,29 @@ func mcpBrainBriefPacketFormat(args map[string]any) (brainBriefPacketFormat, err
 		return brainBriefPacketCompactV1, nil
 	case "compact_v2":
 		return brainBriefPacketCompactV2, nil
+	case "agent_v1":
+		return brainBriefPacketAgentV1, nil
 	default:
-		return "", fmt.Errorf("packet_format must be legacy_json, compact_v1, or compact_v2: %q", format)
+		return "", fmt.Errorf("packet_format must be legacy_json, compact_v1, compact_v2, or agent_v1: %q", format)
 	}
+}
+
+func mcpBrainBriefDeliveryPolicy(args map[string]any, format brainBriefPacketFormat) (brainBriefDeliveryPolicy, error) {
+	value, ok := args["delivery_policy"]
+	if !ok {
+		return brainBriefDeliveryAlways, nil
+	}
+	if format != brainBriefPacketAgentV1 {
+		return "", errors.New("delivery_policy is only valid with packet_format agent_v1")
+	}
+	policy, ok := value.(string)
+	if !ok {
+		return "", errors.New("delivery_policy must be string")
+	}
+	if policy != string(brainBriefDeliveryAlways) {
+		return "", fmt.Errorf("delivery_policy must be always: %q", policy)
+	}
+	return brainBriefDeliveryAlways, nil
 }
 
 func mcpBool(args map[string]any, key string) (bool, error) {

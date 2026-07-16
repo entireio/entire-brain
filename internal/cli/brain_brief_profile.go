@@ -188,7 +188,12 @@ func (p *brainBriefProfile) finishTotal() {
 	p.TotalBrief.DurationNS = p.elapsed(p.started)
 }
 
-func brainBriefProfilePacketCounts(report brainBriefReport, packetFormat brainBriefPacketFormat) brainBriefProfileCounts {
+func brainBriefProfilePacketCounts(report brainBriefReport, packetFormat brainBriefPacketFormat, requestedLimit int) brainBriefProfileCounts {
+	if packetFormat == brainBriefPacketAgentV1 {
+		if projection, err := buildBrainBriefAgentV1(report, brainBriefDeliveryAlways, requestedLimit); err == nil {
+			return projection.counts.profileCounts()
+		}
+	}
 	counts := brainBriefProfileCounts{
 		SemanticSymbols:     len(report.Semantic.Context.Symbols),
 		SemanticRelations:   len(report.Semantic.Context.Relations),

@@ -48,7 +48,8 @@ type brainBriefOptions struct {
 	surface string
 	// packetFormat is set only by the MCP adapter. The CLI continues to select
 	// between its existing text and JSON renderers with json above.
-	packetFormat brainBriefPacketFormat
+	packetFormat   brainBriefPacketFormat
+	deliveryPolicy brainBriefDeliveryPolicy
 }
 
 type brainShowOptions struct {
@@ -1385,7 +1386,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			status.Live.Head, task, receiptFactIDs)
 	}
 	if profile == nil {
-		err := emitBrainBriefPacket(cmd, report, packetFormat)
+		err := emitBrainBriefPacketWithPolicy(cmd, report, packetFormat, briefOpts.resolvedDeliveryPolicy(), briefOpts.limit)
 		if err == nil && len(receiptFactIDs) > 0 {
 			recordReceipt()
 		}
@@ -1395,7 +1396,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	var packet bytes.Buffer
 	packetCmd := &cobra.Command{}
 	packetCmd.SetOut(&packet)
-	serializationErr := emitBrainBriefPacket(packetCmd, report, packetFormat)
+	serializationErr := emitBrainBriefPacketWithPolicy(packetCmd, report, packetFormat, briefOpts.resolvedDeliveryPolicy(), briefOpts.limit)
 	serializationErrors := 0
 	if serializationErr != nil {
 		serializationErrors = 1
@@ -1410,7 +1411,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	profile.Packet.Format = string(packetFormat)
 	profile.Packet.ByteCount = packet.Len()
-	profile.Packet.Counts = brainBriefProfilePacketCounts(report, packetFormat)
+	profile.Packet.Counts = brainBriefProfilePacketCounts(report, packetFormat, briefOpts.limit)
 	profile.finishTotal()
 	if err := writeBrainBriefProfile(briefOpts.profileJSON, *profile); err != nil {
 		return err

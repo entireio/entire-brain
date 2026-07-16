@@ -262,17 +262,38 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 	schema := brief["inputSchema"].(map[string]any)
 	properties := schema["properties"].(map[string]any)
 	format := properties["packet_format"].(map[string]any)
-	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2"}; !reflect.DeepEqual(got, want) {
+	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2", "agent_v1"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("packet_format enum = %#v, want %#v", got, want)
 	}
 	if format["default"] != "legacy_json" {
 		t.Fatalf("packet_format default = %#v", format["default"])
+	}
+	policy := properties["delivery_policy"].(map[string]any)
+	if got, want := policy["enum"], []string{"always"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("delivery_policy enum = %#v, want %#v", got, want)
+	}
+	if _, hasDefault := policy["default"]; hasDefault {
+		t.Fatalf("delivery_policy must not advertise a cross-format default: %#v", policy["default"])
 	}
 
 	for _, value := range []any{nil, "", "compact_v3", true} {
 		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{"task": "x", "packet_format": value}))
 		if err == nil || !strings.Contains(err.Error(), "packet_format") {
 			t.Errorf("packet_format %#v error = %v", value, err)
+		}
+	}
+	for _, value := range []any{nil, "", "adaptive", true} {
+		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{"task": "x", "packet_format": "agent_v1", "delivery_policy": value}))
+		if err == nil || !strings.Contains(err.Error(), "delivery_policy") {
+			t.Errorf("delivery_policy %#v error = %v", value, err)
+		}
+	}
+	for _, formatName := range []string{"legacy_json", "compact_v1", "compact_v2"} {
+		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{
+			"task": "x", "packet_format": formatName, "delivery_policy": "always",
+		}))
+		if err == nil || !strings.Contains(err.Error(), "only valid with packet_format agent_v1") {
+			t.Errorf("cross-format delivery policy for %s error = %v", formatName, err)
 		}
 	}
 }
@@ -301,6 +322,16 @@ func TestMCPBrainBriefDefaultLegacyAndVersionedCompactPackets(t *testing.T) {
 		t.Fatalf("compact_v2 response marker missing:\n%s", compactV2Text)
 	}
 	parseCompactV2Records(t, compactV2Text)
+
+	agentText := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "agent_v1"})
+	if !strings.HasPrefix(agentText, brainBriefAgentV1Marker+"\n") {
+		t.Fatalf("agent_v1 response marker missing:\n%s", agentText)
+	}
+	parseAgentV1Records(t, agentText)
+	explicitAlways := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "agent_v1", "delivery_policy": "always"})
+	if explicitAlways != agentText {
+		t.Fatal("explicit always policy changed agent_v1 bytes")
+	}
 }
 
 func comprehensiveCompactV1Report() brainBriefReport {

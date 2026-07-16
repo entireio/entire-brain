@@ -26,11 +26,12 @@ Tool responses wrap the existing CLI `--json` output as text content by default.
 Treat the CLI JSON contracts as the source of truth for fields and freshness
 policy.
 
-`brain_brief` also has opt-in `packet_format: "compact_v1"` and
-`packet_format: "compact_v2"` representations for coding agents. Omitting
-`packet_format`, or setting it to `legacy_json`, preserves the existing
-pretty-JSON text response. Both compact formats run the same retrieval and
-ranking and change only serialization. `compact_v1` is a deterministic keyed
+`brain_brief` also has opt-in `packet_format: "compact_v1"`,
+`packet_format: "compact_v2"`, and `packet_format: "agent_v1"` responses for
+coding agents. Omitting `packet_format`, or setting it to `legacy_json`,
+preserves the existing pretty-JSON text response. The compact formats run the
+same retrieval and ranking and change only serialization. `compact_v1` is a
+deterministic keyed
 line packet. `compact_v2` adds a hashed in-band legend immediately after its
 version marker: `~` means an absent field, while `^` reuses the value from the
 previous record of the same opcode and column, even when records with other
@@ -38,10 +39,35 @@ opcodes occur between them. For each repeated record family, v2 compares the
 exact canonical bytes of keyed rows against its schema declaration plus
 positional rows; positional is used only when strictly smaller, and ties remain
 keyed. Both packets retain safely encoded data, task-relevant status/trust
-signals, semantic relations and neighbors, history, facts, actions, patterns,
+signals including stale-locus annotations, semantic relations and neighbors,
+history, facts, actions, patterns,
 guidance, and an end-to-end body checksum. They are experimental and are not
 selected automatically; a future incompatible representation will use a new
 version name.
+
+`agent_v1` is a separately versioned bounded coding projection rather than a
+compact encoding of every brief field or a claim to be the smallest possible
+packet. Its frozen `delivery_policy` is `always`; no
+adaptive serve/silence decision exists in this version. It has a 32 KiB UTF-8
+byte budget and carries a SHA-256 identity for the canonical field-selection,
+priority, overflow, privacy, and budget configuration. Exact ranked fact IDs,
+order, and text are mandatory, together with stale-locus and pending-review
+trust state. A fact's `locus_drift` marker is retained even when every unsafe
+structured locus value must be omitted. Lower-priority edit/test files, actions,
+symbols, test suggestions, and history excerpts are admitted as deterministic
+section prefixes in exactly that frozen priority order. When a section's next
+complete record cannot fit, shorter records from later sections may use the
+residual bytes. If mandatory
+evidence cannot fit, emission fails before writing
+any partial packet. The projection omits generated timestamps, host roots,
+history transcript paths/timestamps, session and checkpoint identifiers,
+transcript anchors, and raw provenance. `delivery_policy: "always"` may be
+specified explicitly only with `packet_format: "agent_v1"`; any other policy
+or cross-format policy setting is rejected. Structured path fields are filtered
+to repository-relative or symbol-like values. Natural-language task, fact,
+review-message, action/evidence, signature/reason, and history text is preserved
+verbatim and is not a redaction boundary; do not put secrets into task or
+memory prose.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a
