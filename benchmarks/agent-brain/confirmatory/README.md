@@ -93,6 +93,14 @@ confirmatory analyzer is implemented and path-locked.
   ceiling is 288 agent-CLI invocations/cell attempts because retries, replacements, and reserves
   are frozen at zero. Claim floors and strictly better owner-frozen planning alternatives are
   separate; the alternatives and all numeric powers remain null while approval/calibration is open.
+- `power_analysis_v4.py`, `schemas/final-calibration-v1.schema.json`,
+  `schemas/power-analysis-v4.schema.json`, and `FINAL-CALIBRATION-POWER-V4.md`: standalone four-arm
+  development-calibration and power-sizing lane. It binds product-cycle v1 and task-population v2
+  bytes, requires at least 12 reviewed calibration-only task clusters after candidate lock, shares
+  deterministic task resamples across all endpoints and both contrasts, and requires every marginal
+  plus direct same-draw joint power to reach 0.80. Pending, candidate, and synthetic evidence cannot
+  pass; only owner-approved frozen development measurement is eligible. This lane does not modify
+  the locked v3 artifact, authorize budget, call a provider/model, or open holdout plaintext.
 - `power-calibration-exploratory-v1.json`: content-addressed manifest for sparse retained legacy
   outcomes. The derived diagnostics are quarantined from confirmatory assumptions and cannot pass
   the power gate.

@@ -1,0 +1,611 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-power-analysis-v4.json",
+  "title": "Agent-brain four-arm development power analysis v4",
+  "type": "object",
+  "required": [
+    "schema",
+    "state",
+    "evidence_class",
+    "status",
+    "final_calibration_sha256",
+    "owner_approval_sha256",
+    "planning_sha256",
+    "planning_alternatives",
+    "method",
+    "design",
+    "calibration_estimates",
+    "calibration_shared_resampling_sha256",
+    "power_candidates",
+    "benchmark_power_decision",
+    "product_improvement_gate",
+    "integrity",
+    "report_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-power-analysis/v4"},
+    "state": {"enum": ["pending", "candidate", "frozen"]},
+    "evidence_class": {
+      "enum": ["synthetic_fixture", "development_measurement"]
+    },
+    "status": {"enum": ["pending", "evaluated"]},
+    "final_calibration_sha256": {"$ref": "#/$defs/sha256"},
+    "owner_approval_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "planning_sha256": {"$ref": "#/$defs/sha256"},
+    "planning_alternatives": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/planningAlternatives"}
+      ]
+    },
+    "method": {"$ref": "#/$defs/method"},
+    "design": {"$ref": "#/$defs/design"},
+    "calibration_estimates": {
+      "type": "object",
+      "required": ["primary", "product_diagnostic"],
+      "properties": {
+        "primary": {
+          "allOf": [
+            {"$ref": "#/$defs/calibrationEstimate"},
+            {
+              "properties": {
+                "comparison": {"const": "retrieved_memory_vs_no_memory"}
+              }
+            }
+          ]
+        },
+        "product_diagnostic": {
+          "allOf": [
+            {"$ref": "#/$defs/calibrationEstimate"},
+            {
+              "properties": {
+                "comparison": {
+                  "const": "retrieved_memory_vs_preoptimization_memory"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "calibration_shared_resampling_sha256": {"$ref": "#/$defs/sha256"},
+    "power_candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/powerCandidate"}
+    },
+    "benchmark_power_decision": {"$ref": "#/$defs/benchmarkDecision"},
+    "product_improvement_gate": {"$ref": "#/$defs/productDecision"},
+    "integrity": {"$ref": "#/$defs/integrity"},
+    "report_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"const": "pending"}}},
+      "then": {
+        "properties": {
+          "status": {"const": "pending"},
+          "owner_approval_sha256": {"const": null},
+          "planning_alternatives": {"const": null},
+          "power_candidates": {
+            "items": {
+              "properties": {
+                "primary": {"const": null},
+                "product_diagnostic": {"const": null}
+              }
+            }
+          },
+          "benchmark_power_decision": {
+            "properties": {
+              "selected_task_clusters": {"const": null},
+              "statistical_gate_met": {"const": false},
+              "eligible_evidence": {"const": false},
+              "passed": {"const": false}
+            }
+          },
+          "product_improvement_gate": {
+            "properties": {
+              "selected_task_clusters": {"const": null},
+              "statistical_gate_met": {"const": false},
+              "eligible_evidence": {"const": false},
+              "passed": {"const": false}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "status": {"const": "evaluated"},
+          "planning_alternatives": {"$ref": "#/$defs/planningAlternatives"},
+          "power_candidates": {
+            "items": {
+              "properties": {
+                "primary": {"$ref": "#/$defs/primaryPower"},
+                "product_diagnostic": {"$ref": "#/$defs/diagnosticPower"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "candidate"}}},
+      "then": {
+        "properties": {
+          "owner_approval_sha256": {"const": null},
+          "benchmark_power_decision": {
+            "properties": {
+              "eligible_evidence": {"const": false},
+              "passed": {"const": false},
+              "reason": {"enum": ["synthetic_fixture_not_decision_eligible", "candidate_not_owner_approved"]}
+            }
+          },
+          "product_improvement_gate": {
+            "properties": {
+              "eligible_evidence": {"const": false},
+              "passed": {"const": false},
+              "reason": {"enum": ["synthetic_fixture_not_decision_eligible", "candidate_not_owner_approved"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "frozen"}}},
+      "then": {
+        "properties": {
+          "evidence_class": {"const": "development_measurement"},
+          "owner_approval_sha256": {"$ref": "#/$defs/sha256"},
+          "benchmark_power_decision": {
+            "properties": {"eligible_evidence": {"const": true}}
+          },
+          "product_improvement_gate": {
+            "properties": {"eligible_evidence": {"const": true}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "ratioAlternative": {
+      "type": "object",
+      "required": ["required_ratio_max", "planning_alternative_ratio"],
+      "properties": {
+        "required_ratio_max": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "planning_alternative_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "qualityAlternative": {
+      "type": "object",
+      "required": ["required_difference_min", "planning_alternative_difference"],
+      "properties": {
+        "required_difference_min": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "planning_alternative_difference": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "contrastAlternatives": {
+      "type": "object",
+      "required": [
+        "comparison",
+        "role",
+        "elapsed_time",
+        "normalized_cost",
+        "code_quality"
+      ],
+      "properties": {
+        "comparison": {"type": "string", "minLength": 1},
+        "role": {
+          "enum": [
+            "primary_development_contrast",
+            "diagnostic_product_progress_only"
+          ]
+        },
+        "elapsed_time": {"$ref": "#/$defs/ratioAlternative"},
+        "normalized_cost": {"$ref": "#/$defs/ratioAlternative"},
+        "code_quality": {"$ref": "#/$defs/qualityAlternative"}
+      },
+      "additionalProperties": false
+    },
+    "planningAlternatives": {
+      "type": "object",
+      "required": ["primary", "product_diagnostic"],
+      "properties": {
+        "primary": {
+          "allOf": [
+            {"$ref": "#/$defs/contrastAlternatives"},
+            {
+              "properties": {
+                "comparison": {"const": "retrieved_memory_vs_no_memory"},
+                "role": {"const": "primary_development_contrast"}
+              }
+            }
+          ]
+        },
+        "product_diagnostic": {
+          "allOf": [
+            {"$ref": "#/$defs/contrastAlternatives"},
+            {
+              "properties": {
+                "comparison": {
+                  "const": "retrieved_memory_vs_preoptimization_memory"
+                },
+                "role": {"const": "diagnostic_product_progress_only"}
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "method": {
+      "type": "object",
+      "required": [
+        "resampling",
+        "seed",
+        "resamples",
+        "cluster_unit",
+        "shared_draws_across_endpoints_and_contrasts",
+        "cross_endpoint_dependence_preserved",
+        "joint_probability_method",
+        "parametric_independence_shortcut_used",
+        "confidence",
+        "target_power"
+      ],
+      "properties": {
+        "resampling": {"const": "paired_cluster_residual_bootstrap_shared_draws_v1"},
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "resamples": {"type": "integer", "minimum": 100, "maximum": 10000},
+        "cluster_unit": {"const": "independent_task"},
+        "shared_draws_across_endpoints_and_contrasts": {"const": true},
+        "cross_endpoint_dependence_preserved": {"const": true},
+        "joint_probability_method": {"const": "same_draw_all_endpoint_pass_frequency"},
+        "parametric_independence_shortcut_used": {"const": false},
+        "confidence": {"const": 0.95},
+        "target_power": {"const": 0.8}
+      },
+      "additionalProperties": false
+    },
+    "design": {
+      "type": "object",
+      "required": [
+        "arms",
+        "calibration_task_clusters",
+        "calibration_repetitions_per_arm",
+        "calibration_requested_cells",
+        "calibration_maximum_agent_invocations",
+        "candidate_task_clusters"
+      ],
+      "properties": {
+        "arms": {
+          "const": [
+            "no_memory",
+            "placebo_packet",
+            "preoptimization_memory",
+            "retrieved_memory"
+          ]
+        },
+        "calibration_task_clusters": {"type": "integer", "minimum": 12},
+        "calibration_repetitions_per_arm": {"type": "integer", "minimum": 1},
+        "calibration_requested_cells": {"type": "integer", "minimum": 48},
+        "calibration_maximum_agent_invocations": {"type": "integer", "minimum": 48},
+        "candidate_task_clusters": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 12, "maximum": 512}
+        }
+      },
+      "additionalProperties": false
+    },
+    "calibrationEstimate": {
+      "type": "object",
+      "required": [
+        "comparison",
+        "n_task_clusters",
+        "repetition_aggregation",
+        "paired_task_vectors_sha256",
+        "elapsed_time",
+        "normalized_cost",
+        "code_quality",
+        "finite_estimates_and_ci_inputs"
+      ],
+      "properties": {
+        "comparison": {"type": "string", "minLength": 1},
+        "n_task_clusters": {"type": "integer", "minimum": 12},
+        "repetition_aggregation": {
+          "const": "arithmetic_mean_within_task_arm_before_contrast"
+        },
+        "paired_task_vectors_sha256": {"$ref": "#/$defs/sha256"},
+        "elapsed_time": {
+          "type": "object",
+          "required": [
+            "estimand",
+            "paired_task_geometric_mean_ratio",
+            "one_sided_upper_bound"
+          ],
+          "properties": {
+            "estimand": {"const": "paired_task_geometric_mean_ratio"},
+            "paired_task_geometric_mean_ratio": {"type": "number", "exclusiveMinimum": 0},
+            "one_sided_upper_bound": {"type": "number", "exclusiveMinimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "normalized_cost": {
+          "type": "object",
+          "required": [
+            "estimand",
+            "equal_task_weighted_mean_ratio",
+            "one_sided_upper_bound",
+            "geometric_mean_task_ratios_used",
+            "structural_zero_treatment_cost_supported"
+          ],
+          "properties": {
+            "estimand": {"const": "ratio_of_equal_task_weighted_task_arm_mean_costs"},
+            "equal_task_weighted_mean_ratio": {"type": "number", "minimum": 0},
+            "one_sided_upper_bound": {"type": "number", "minimum": 0},
+            "geometric_mean_task_ratios_used": {"const": false},
+            "structural_zero_treatment_cost_supported": {"const": true}
+          },
+          "additionalProperties": false
+        },
+        "code_quality": {
+          "type": "object",
+          "required": [
+            "estimand",
+            "paired_task_mean_difference",
+            "one_sided_lower_bound"
+          ],
+          "properties": {
+            "estimand": {"const": "paired_task_mean_difference"},
+            "paired_task_mean_difference": {"type": "number"},
+            "one_sided_lower_bound": {"type": "number"}
+          },
+          "additionalProperties": false
+        },
+        "finite_estimates_and_ci_inputs": {"const": true}
+      },
+      "additionalProperties": false
+    },
+    "marginalPower": {
+      "type": "object",
+      "required": ["elapsed_time", "normalized_cost", "code_quality"],
+      "properties": {
+        "elapsed_time": {"type": "number", "minimum": 0, "maximum": 1},
+        "normalized_cost": {"type": "number", "minimum": 0, "maximum": 1},
+        "code_quality": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "powerResult": {
+      "type": "object",
+      "required": [
+        "comparison",
+        "role",
+        "task_clusters",
+        "resamples",
+        "target_power",
+        "marginal_power",
+        "joint_all_endpoint_power",
+        "all_marginal_at_least_target",
+        "joint_at_least_target",
+        "finite_estimates_and_ci_inputs",
+        "shared_resampling_sha256",
+        "independence_shortcut_used",
+        "statistical_gate_met"
+      ],
+      "properties": {
+        "comparison": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "task_clusters": {"type": "integer", "minimum": 12, "maximum": 512},
+        "resamples": {"type": "integer", "minimum": 100, "maximum": 10000},
+        "target_power": {"const": 0.8},
+        "marginal_power": {"$ref": "#/$defs/marginalPower"},
+        "joint_all_endpoint_power": {"type": "number", "minimum": 0, "maximum": 1},
+        "all_marginal_at_least_target": {"type": "boolean"},
+        "joint_at_least_target": {"type": "boolean"},
+        "finite_estimates_and_ci_inputs": {"const": true},
+        "shared_resampling_sha256": {"$ref": "#/$defs/sha256"},
+        "independence_shortcut_used": {"const": false},
+        "statistical_gate_met": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "primaryPower": {
+      "allOf": [
+        {"$ref": "#/$defs/powerResult"},
+        {
+          "properties": {
+            "comparison": {"const": "retrieved_memory_vs_no_memory"},
+            "role": {"const": "primary_development_contrast"}
+          }
+        }
+      ]
+    },
+    "diagnosticPower": {
+      "allOf": [
+        {"$ref": "#/$defs/powerResult"},
+        {
+          "properties": {
+            "comparison": {"const": "retrieved_memory_vs_preoptimization_memory"},
+            "role": {"const": "diagnostic_product_progress_only"}
+          }
+        }
+      ]
+    },
+    "powerCandidate": {
+      "type": "object",
+      "required": [
+        "task_clusters",
+        "repetitions_per_arm",
+        "arms",
+        "requested_cells",
+        "maximum_agent_invocations",
+        "agent_retry_limit",
+        "replacement_cell_limit",
+        "reserve_cell_limit",
+        "shared_resampling_sha256",
+        "primary",
+        "product_diagnostic"
+      ],
+      "properties": {
+        "task_clusters": {"type": "integer", "minimum": 12, "maximum": 512},
+        "repetitions_per_arm": {"type": "integer", "minimum": 1},
+        "arms": {"const": 4},
+        "requested_cells": {"type": "integer", "minimum": 48},
+        "maximum_agent_invocations": {"type": "integer", "minimum": 48},
+        "agent_retry_limit": {"const": 0},
+        "replacement_cell_limit": {"const": 0},
+        "reserve_cell_limit": {"const": 0},
+        "shared_resampling_sha256": {"$ref": "#/$defs/sha256"},
+        "primary": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/primaryPower"}]
+        },
+        "product_diagnostic": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/diagnosticPower"}]
+        }
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": [
+        "comparison",
+        "role",
+        "selected_task_clusters",
+        "statistical_gate_met",
+        "every_marginal_and_joint_power_at_least_0_80",
+        "eligible_evidence",
+        "passed",
+        "reason"
+      ],
+      "properties": {
+        "comparison": {"type": "string", "minLength": 1},
+        "role": {"type": "string", "minLength": 1},
+        "selected_task_clusters": {
+          "type": ["integer", "null"],
+          "minimum": 12,
+          "maximum": 512
+        },
+        "statistical_gate_met": {"type": "boolean"},
+        "every_marginal_and_joint_power_at_least_0_80": {"type": "boolean"},
+        "eligible_evidence": {"type": "boolean"},
+        "passed": {"type": "boolean"},
+        "alters_benchmark_primary_verdict": {"type": "boolean"},
+        "reason": {
+          "enum": [
+            "passed",
+            "synthetic_fixture_not_decision_eligible",
+            "pending_calibration",
+            "candidate_not_owner_approved",
+            "no_candidate_task_count_clears_every_power_gate"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "benchmarkDecision": {
+      "allOf": [
+        {"$ref": "#/$defs/decision"},
+        {
+          "not": {"required": ["alters_benchmark_primary_verdict"]},
+          "properties": {
+            "comparison": {"const": "retrieved_memory_vs_no_memory"},
+            "role": {"const": "benchmark_primary_power_gate"}
+          }
+        }
+      ]
+    },
+    "productDecision": {
+      "allOf": [
+        {"$ref": "#/$defs/decision"},
+        {
+          "required": ["alters_benchmark_primary_verdict"],
+          "properties": {
+            "comparison": {
+              "const": "retrieved_memory_vs_preoptimization_memory"
+            },
+            "role": {"const": "separate_product_improvement_gate"},
+            "alters_benchmark_primary_verdict": {"const": false}
+          }
+        }
+      ]
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "repetitions_averaged_inside_task_arm",
+        "independent_task_clusters",
+        "all_calibration_members_development_calibration",
+        "optimization_members_used",
+        "holdout_members_used",
+        "exact_four_arm_cells_and_invocations",
+        "product_cycle_contract_sha256",
+        "product_cycle_schema_file_sha256",
+        "product_cycle_evidence_canonical_bytes_sha256",
+        "task_population_sha256",
+        "task_population_schema_file_sha256",
+        "task_population_contract_file_sha256",
+        "candidate_lock_sha256",
+        "source_byte_bindings_sha256",
+        "locked_identities_sha256",
+        "budget_authorized",
+        "provider_or_model_calls_performed"
+      ],
+      "properties": {
+        "repetitions_averaged_inside_task_arm": {"const": true},
+        "independent_task_clusters": {"type": "integer", "minimum": 12},
+        "all_calibration_members_development_calibration": {"const": true},
+        "optimization_members_used": {"const": 0},
+        "holdout_members_used": {"const": 0},
+        "exact_four_arm_cells_and_invocations": {"const": true},
+        "product_cycle_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_schema_file_sha256": {
+          "const": "3e029222e76091740bb1e218a7b1e23fe464f98aa2c83797d3fe71ad0b97c288"
+        },
+        "product_cycle_evidence_canonical_bytes_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_schema_file_sha256": {
+          "const": "2846906e0caa450e6c4dbc206648346ababbb91fed4675c0c7eca03cf506a8b9"
+        },
+        "task_population_contract_file_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "source_byte_bindings_sha256": {"$ref": "#/$defs/sha256"},
+        "locked_identities_sha256": {"$ref": "#/$defs/sha256"},
+        "budget_authorized": {"const": false},
+        "provider_or_model_calls_performed": {"const": false}
+      },
+      "additionalProperties": false
+    }
+  }
+}
