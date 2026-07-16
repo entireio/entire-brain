@@ -14,7 +14,7 @@
     "approval"
   ],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "runner": {"$ref": "#/$defs/nullableRunner"},
     "pricing_quote": {
       "type": "object",
@@ -143,10 +143,10 @@
     "token_assumptions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "explicit_per_call_caps", "empirical_bound"],
+      "required": ["mode", "explicit_per_agent_invocation_caps", "empirical_bound"],
       "properties": {
-        "mode": {"enum": [null, "explicit_per_call_caps", "empirical_bound"]},
-        "explicit_per_call_caps": {
+        "mode": {"enum": [null, "explicit_per_agent_invocation_caps", "empirical_bound"]},
+        "explicit_per_agent_invocation_caps": {
           "type": "object",
           "additionalProperties": false,
           "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output", "rationale"],
@@ -169,7 +169,7 @@
             "statistic",
             "quantile",
             "safety_multiplier",
-            "observed_tokens_per_call"
+            "observed_tokens_per_agent_invocation"
           ],
           "properties": {
             "runner": {
@@ -190,7 +190,7 @@
               "maximum": 1
             },
             "safety_multiplier": {"$ref": "#/$defs/nullableDecimal"},
-            "observed_tokens_per_call": {"$ref": "#/$defs/nullableTokenCounts"}
+            "observed_tokens_per_agent_invocation": {"$ref": "#/$defs/nullableTokenCounts"}
           }
         }
       }
@@ -204,18 +204,18 @@
           "required": [
             "formula_id",
             "tokens_per_price_unit",
-            "effective_tokens_per_call",
-            "per_call_usd_by_category",
-            "per_call_maximum_usd",
+            "effective_tokens_per_agent_invocation",
+            "per_agent_invocation_usd_by_category",
+            "per_agent_invocation_maximum_usd",
             "maximum_agent_invocations",
             "maximum_usd"
           ],
           "properties": {
-            "formula_id": {"const": "worst_case_agent_invocation_token_envelope_v3"},
+            "formula_id": {"const": "worst_case_agent_invocation_token_envelope_v4"},
             "tokens_per_price_unit": {"const": 1000000},
-            "effective_tokens_per_call": {"$ref": "#/$defs/tokenCounts"},
-            "per_call_usd_by_category": {"$ref": "#/$defs/prices"},
-            "per_call_maximum_usd": {"$ref": "#/$defs/decimal"},
+            "effective_tokens_per_agent_invocation": {"$ref": "#/$defs/tokenCounts"},
+            "per_agent_invocation_usd_by_category": {"$ref": "#/$defs/prices"},
+            "per_agent_invocation_maximum_usd": {"$ref": "#/$defs/decimal"},
             "maximum_agent_invocations": {"type": "integer", "minimum": 1},
             "maximum_usd": {"$ref": "#/$defs/decimal"}
           }

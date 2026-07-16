@@ -124,7 +124,7 @@ entry records known-zero billed model usage rather than missing usage. Missing b
 provider-path entry, an ambiguous launch state, or missing quality fields invalidates the suite;
 there is no inferred zero-cost or usage-imputation rule.
 
-The frozen runner must expose one priceable actual model row per invocation. The current strict v2
+The frozen runner must expose one priceable actual model row per agent-CLI invocation. The current strict v2
 adapter supports Codex's cumulative `turn.completed.usage` counters only when optional-counter
 presence is stable across snapshots. A Claude invocation is eligible only when it contains exactly
 one terminal `result`, whose `modelUsage` contains exactly one actual model matching the pinned model;
@@ -139,9 +139,9 @@ This design is mirrored
 in `pricing-budget.json` for drift detection but is explicitly not approved for budgeting while the
 power gate is unresolved. Dollar cost remains null until the final powered design, exact
 provider, runner ID/version, agent CLI ID/version, requested and resolved model, effort, schedule,
-byte-hashed current quote, category aliases, and per-invocation token envelope are pinned. The
+byte-hashed current quote, category aliases, and per-agent-invocation token envelope are pinned. The
 machine calculation separately prices uncached input, cache-read input, cache-write input, visible
-output, and reasoning output for every requested agent invocation. A named budget
+output, and reasoning output for every requested agent-CLI invocation. A named budget
 owner must approve a non-expired USD cap at least as large as that
 computed maximum. See `PRICING-BUDGET-READINESS-2026-07-15.md`; no run may start with an unbounded,
 stale, or blank dollar cap.
@@ -166,9 +166,9 @@ The v2 artifact also analyzes byte-verified retained exploratory outcomes under
 non-exchangeable runners/harnesses, and only 12 unique paired task IDs across four heterogeneous
 sources. They may reveal variability risk but are programmatically quarantined: they cannot select
 confirmatory assumptions, reduce the design, be pooled, or pass the gate. Before any holdout is
-sealed, a methodology owner must either explicitly accept an assumption-only design and its call
-envelope or preregister and budget a separate development-only calibration under the final runner
-and treatment contracts. See `POWER-DESIGN-OPTIONS-2026-07-15.md`.
+sealed, a methodology owner must either explicitly accept an assumption-only design and its
+agent-invocation envelope or preregister and budget a separate development-only calibration under
+the final runner and treatment contracts. See `POWER-DESIGN-OPTIONS-2026-07-15.md`.
 
 Use 10,000 task-clustered bootstrap resamples with a checked-in seed. The intersection-union rule
 controls the joint claim at one-sided alpha 0.05 by requiring every component null to be rejected;

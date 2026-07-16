@@ -75,7 +75,7 @@ Until calibration and explicit floor approval are complete:
 - all claim-floor and timeout statuses remain `provisional`, and all planning alternatives remain
   null and unapproved;
 - the fresh holdout remains unopened and unsealed;
-- no paid confirmatory calls or budget authorization may begin.
+- no paid confirmatory agent-CLI invocations or budget authorization may begin.
 
 Reproduce the machine artifact with:
 

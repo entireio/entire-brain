@@ -26,6 +26,7 @@ class PowerAnalysisV3Test(unittest.TestCase):
         }
         for name, (key, value) in alternatives.items():
             endpoint = report["co_primary_endpoints"][name]
+            endpoint["claim_floor"]["status"] = "frozen_approved"
             endpoint["planning_alternative"] = {
                 key: value,
                 "status": "frozen_approved",
@@ -162,6 +163,59 @@ class PowerAnalysisV3Test(unittest.TestCase):
             "ratio_true"
         ] = 0.90
         with self.assertRaisesRegex(ValueError, "strictly below"):
+            POWER.recompute_power_decision(report)
+
+    def test_power_target_cannot_be_lowered_to_make_point_75_pass(self) -> None:
+        report = self.frozen_report()
+        report["protocol_inputs"]["power_target"] = 0.70
+        for endpoint in report["co_primary_endpoints"].values():
+            endpoint["marginal_power"] = 0.75
+        report["joint_iut_power"]["intersection_union_success_probability"] = 0.75
+        with self.assertRaisesRegex(ValueError, "must remain frozen at 0.80"):
+            POWER.recompute_power_decision(report)
+
+    def test_power_sized_confirmatory_count_must_equal_protocol_tasks(self) -> None:
+        report = self.frozen_report()
+        report["design_readiness"]["power_sized_confirmatory_task_count"] = 2
+        with self.assertRaisesRegex(ValueError, "must equal the protocol task count"):
+            POWER.recompute_power_decision(report)
+
+    def test_power_sized_development_count_must_meet_calibration_minimum(self) -> None:
+        report = self.frozen_report()
+        report["design_readiness"]["power_sized_development_task_count"] = 11
+        with self.assertRaisesRegex(ValueError, "below the calibration minimum"):
+            POWER.recompute_power_decision(report)
+
+    def test_powered_design_requires_frozen_claim_floors(self) -> None:
+        report = self.frozen_report()
+        report["co_primary_endpoints"]["elapsed_time"]["claim_floor"][
+            "status"
+        ] = "provisional"
+        with self.assertRaisesRegex(
+            ValueError, "claim floor must be owner-approved and frozen"
+        ):
+            POWER.recompute_power_decision(report)
+
+    def test_quality_alternative_must_be_finite_and_within_score_domain(self) -> None:
+        for value, message in (
+            (math.inf, "must be finite"),
+            (2.0, r"must be within \[-1,1\]"),
+            (0.05, "must be strictly above its claim floor"),
+        ):
+            with self.subTest(value=value):
+                report = self.frozen_report()
+                report["co_primary_endpoints"]["code_quality"][
+                    "planning_alternative"
+                ]["difference_true"] = value
+                with self.assertRaisesRegex(ValueError, message):
+                    POWER.recompute_power_decision(report)
+
+    def test_power_readiness_arithmetic_must_match_protocol_inputs(self) -> None:
+        report = self.frozen_report()
+        report["design_readiness"]["provisional_requested_cells"] = 1
+        with self.assertRaisesRegex(
+            ValueError, "power readiness arithmetic mismatch: provisional_requested_cells"
+        ):
             POWER.recompute_power_decision(report)
 
     def test_legacy_exploratory_calibration_remains_hashed_and_quarantined(self) -> None:

@@ -35,7 +35,7 @@ corresponding gate pending.
    priceable actual model row; multi-result or multi-model Claude invocations are ineligible until a
    separate frozen accounting treatment exists.
 4. **Choose the token-envelope policy.** Either:
-   - enter explicit per-invocation caps for all five billed categories with a written
+   - enter explicit per-agent-invocation caps for all five billed categories with a written
      rationale; or
    - attach byte-hashed empirical evidence collected under the exact pinned execution identity,
      name the statistic and quantile, and choose an explicit safety multiplier of at least 1.
@@ -50,7 +50,8 @@ corresponding gate pending.
      benchmarks/agent-brain/confirmatory/pricing-budget.json
    ```
 
-   The calculation prices every requested agent invocation at the frozen per-invocation envelope;
+   The calculation prices every requested agent-CLI invocation at the frozen
+   per-agent-invocation envelope;
    retries, replacement-cell attempts, and reserve-cell attempts are frozen at zero:
 
    `maximum_agent_invocations * sum(each mutually exclusive billed category * its frozen direct or aliased price) / 1,000,000`
@@ -78,5 +79,5 @@ provider path with missing usage invalidates the suite; it is never treated as f
 treatment failure is zero cost only when content-addressed harness evidence attests that `run_agent`
 was never entered and binds explicit all-zero categories to the frozen quote.
 
-No pricing lookup, model selection, purchase, fresh-holdout access, or paid agent call was performed
-to create this contract.
+No pricing lookup, model selection, purchase, fresh-holdout access, or paid agent-CLI invocation was
+performed to create this contract.

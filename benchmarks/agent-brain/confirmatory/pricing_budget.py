@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 
-FORMULA_ID = "worst_case_agent_invocation_token_envelope_v3"
+FORMULA_ID = "worst_case_agent_invocation_token_envelope_v4"
 TOKEN_KEYS = (
     "uncached_input",
     "cache_read_input",
@@ -49,19 +49,21 @@ def _token_count(value: Any, label: str) -> int:
     return value
 
 
-def effective_tokens_per_call(contract: dict[str, Any]) -> dict[str, int]:
-    """Resolve the frozen per-call token envelope from either supported assumption policy."""
+def effective_tokens_per_agent_invocation(contract: dict[str, Any]) -> dict[str, int]:
+    """Resolve the frozen per-agent-invocation token envelope."""
     assumptions = contract.get("token_assumptions", {})
     mode = assumptions.get("mode")
-    if mode == "explicit_per_call_caps":
-        caps = assumptions.get("explicit_per_call_caps", {})
+    if mode == "explicit_per_agent_invocation_caps":
+        caps = assumptions.get("explicit_per_agent_invocation_caps", {})
         return {
-            key: _token_count(caps.get(key), f"explicit_per_call_caps.{key}")
+            key: _token_count(
+                caps.get(key), f"explicit_per_agent_invocation_caps.{key}"
+            )
             for key in TOKEN_KEYS
         }
     if mode == "empirical_bound":
         empirical = assumptions.get("empirical_bound", {})
-        observed = empirical.get("observed_tokens_per_call", {})
+        observed = empirical.get("observed_tokens_per_agent_invocation", {})
         multiplier = parse_decimal(
             empirical.get("safety_multiplier"),
             "empirical_bound.safety_multiplier",
@@ -70,7 +72,7 @@ def effective_tokens_per_call(contract: dict[str, Any]) -> dict[str, int]:
         result: dict[str, int] = {}
         for key in TOKEN_KEYS:
             observed_count = _token_count(
-                observed.get(key), f"observed_tokens_per_call.{key}"
+                observed.get(key), f"observed_tokens_per_agent_invocation.{key}"
             )
             result[key] = int(
                 (Decimal(observed_count) * multiplier).to_integral_value(
@@ -78,7 +80,9 @@ def effective_tokens_per_call(contract: dict[str, Any]) -> dict[str, int]:
                 )
             )
         return result
-    raise ValueError("token_assumptions.mode must select an explicit or empirical envelope")
+    raise ValueError(
+        "token_assumptions.mode must select an explicit per-agent-invocation or empirical envelope"
+    )
 
 
 def maximum_agent_invocations(contract: dict[str, Any]) -> int:
@@ -124,7 +128,7 @@ def calculate(contract: dict[str, Any]) -> dict[str, Any]:
         parsed_prices[key] = parse_decimal(
             prices[source], f"prices_usd_per_unit.{source}"
         )
-    tokens = effective_tokens_per_call(contract)
+    tokens = effective_tokens_per_agent_invocation(contract)
     maximum_invocations = maximum_agent_invocations(contract)
 
     required_precision = max(
@@ -141,16 +145,16 @@ def calculate(contract: dict[str, Any]) -> dict[str, Any]:
             key: Decimal(tokens[key]) * parsed_prices[key] / denominator
             for key in TOKEN_KEYS
         }
-        per_call = sum(line_items.values(), Decimal("0"))
-        maximum = per_call * Decimal(maximum_invocations)
+        per_agent_invocation = sum(line_items.values(), Decimal("0"))
+        maximum = per_agent_invocation * Decimal(maximum_invocations)
     return {
         "formula_id": FORMULA_ID,
         "tokens_per_price_unit": unit,
-        "effective_tokens_per_call": tokens,
-        "per_call_usd_by_category": {
+        "effective_tokens_per_agent_invocation": tokens,
+        "per_agent_invocation_usd_by_category": {
             key: decimal_string(line_items[key]) for key in TOKEN_KEYS
         },
-        "per_call_maximum_usd": decimal_string(per_call),
+        "per_agent_invocation_maximum_usd": decimal_string(per_agent_invocation),
         "maximum_agent_invocations": maximum_invocations,
         "maximum_usd": decimal_string(maximum),
     }

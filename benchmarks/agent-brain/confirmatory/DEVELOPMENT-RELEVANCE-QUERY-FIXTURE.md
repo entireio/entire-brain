@@ -6,7 +6,7 @@ export supplies the 14 reviewed query texts. The repository intentionally does *
 ignored by Git; do not commit, publish, or paste either artifact into logs.
 
 The fixture is not confirmatory evidence, does not open a fresh holdout, and does not authorize a
-provider or paid call.
+provider API request or paid agent-CLI invocation.
 
 ## Fixed contract
 

@@ -906,13 +906,29 @@ def _build_deprecated_v2_report_not_for_decision() -> dict[str, Any]:
     return _round_floats(report)
 
 
-def _probability(value: Any, label: str) -> float:
+def _finite_numeric(value: Any, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be numeric")
-    number = float(value)
-    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{label} must be finite") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be finite")
+    return number
+
+
+def _probability(value: Any, label: str) -> float:
+    number = _finite_numeric(value, label)
+    if not 0.0 <= number <= 1.0:
         raise ValueError(f"{label} must be in [0,1]")
     return number
+
+
+def _positive_integer(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{label} must be a positive integer")
+    return value
 
 
 def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
@@ -921,6 +937,30 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(inputs, dict):
         raise ValueError("power protocol_inputs must be an object")
     target = _probability(inputs.get("power_target"), "power target")
+    if target != TARGET_POWER:
+        raise ValueError(f"power target must remain frozen at {TARGET_POWER:.2f}")
+    tasks = _positive_integer(inputs.get("tasks"), "protocol task count")
+    repetitions = _positive_integer(
+        inputs.get("repetitions_per_treatment"), "protocol repetitions per treatment"
+    )
+    treatments = _positive_integer(
+        inputs.get("primary_treatments"), "protocol primary treatment count"
+    )
+    expected_cells = tasks * repetitions * treatments
+    requested_cells = inputs.get("requested_cells")
+    if isinstance(requested_cells, bool) or requested_cells != expected_cells:
+        raise ValueError("protocol requested-cell arithmetic is inconsistent")
+    if (
+        inputs.get("agent_retry_limit") != 0
+        or isinstance(inputs.get("agent_retry_limit"), bool)
+        or inputs.get("replacement_cell_limit") != 0
+        or isinstance(inputs.get("replacement_cell_limit"), bool)
+        or isinstance(inputs.get("maximum_agent_invocations"), bool)
+        or inputs.get("maximum_agent_invocations") != expected_cells
+    ):
+        raise ValueError(
+            "protocol invocation ceiling must equal requested cells with zero retries and replacements"
+        )
     endpoints = report.get("co_primary_endpoints")
     if not isinstance(endpoints, dict) or set(endpoints) != {
         "elapsed_time",
@@ -932,6 +972,17 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
     joint = report.get("joint_iut_power")
     if not isinstance(readiness, dict) or not isinstance(joint, dict):
         raise ValueError("power readiness and joint IUT power records are required")
+    readiness_arithmetic = {
+        "provisional_tasks": tasks,
+        "provisional_repetitions_per_treatment": repetitions,
+        "provisional_requested_cells": expected_cells,
+        "maximum_agent_invocations": expected_cells,
+        "agent_retry_limit": 0,
+        "replacement_cell_limit": 0,
+    }
+    for field, expected in readiness_arithmetic.items():
+        if readiness.get(field) != expected or isinstance(readiness.get(field), bool):
+            raise ValueError(f"power readiness arithmetic mismatch: {field}")
 
     alternatives_pending = True
     marginal_powers: list[float] = []
@@ -944,12 +995,11 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{name} must separate claim floor and planning alternative")
         floor_key = "difference_min" if name == "code_quality" else "ratio_max"
         floor_value = floor.get(floor_key)
-        if (
-            isinstance(floor_value, bool)
-            or not isinstance(floor_value, (int, float))
-            or not math.isfinite(float(floor_value))
-            or not 0.0 < float(floor_value) < 1.0
-        ):
+        try:
+            numeric_floor = _finite_numeric(floor_value, f"{name} claim floor")
+        except ValueError as exc:
+            raise ValueError(f"{name} claim floor is invalid") from exc
+        if not 0.0 < numeric_floor < 1.0:
             raise ValueError(f"{name} claim floor is invalid")
         if floor.get("status") not in {"provisional", "frozen_approved"}:
             raise ValueError(f"{name} claim floor status is invalid")
@@ -967,16 +1017,30 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
         alternatives_pending = False
         if alt_status != "frozen_approved":
             raise ValueError(f"{name} planning alternative status is invalid")
-        if isinstance(alt_value, bool) or not isinstance(alt_value, (int, float)):
-            raise ValueError(f"{name} frozen planning alternative must be numeric")
+        try:
+            numeric_alternative = _finite_numeric(
+                alt_value, f"{name} frozen planning alternative"
+            )
+        except ValueError:
+            raise ValueError(f"{name} frozen planning alternative must be finite")
+        if floor.get("status") != "frozen_approved":
+            raise ValueError(
+                f"{name} claim floor must be owner-approved and frozen before evaluation"
+            )
         if name == "code_quality":
-            if not float(alt_value) > float(floor_value):
+            if not -1.0 <= numeric_alternative <= 1.0:
+                raise ValueError("quality planning alternative must be within [-1,1]")
+            if not numeric_alternative > numeric_floor:
                 raise ValueError("quality planning alternative must be strictly above its claim floor")
         else:
-            if not 0.0 < float(alt_value) < float(floor_value):
+            if not 0.0 < numeric_alternative < numeric_floor:
                 raise ValueError(f"{name} planning alternative must be strictly below its claim floor")
         sd = endpoint.get("paired_task_sd")
-        if isinstance(sd, bool) or not isinstance(sd, (int, float)) or not math.isfinite(float(sd)) or float(sd) < 0:
+        try:
+            numeric_sd = _finite_numeric(sd, f"{name} calibrated paired-task SD")
+        except ValueError as exc:
+            raise ValueError(f"{name} calibrated paired-task SD is invalid") from exc
+        if numeric_sd < 0:
             raise ValueError(f"{name} calibrated paired-task SD is invalid")
         marginal_powers.append(_probability(endpoint.get("marginal_power"), f"{name} marginal power"))
         if endpoint.get("status") != "evaluated":
@@ -1002,10 +1066,29 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
         }
     if len(marginal_powers) != 3:
         raise ValueError("planning alternatives must be pending for all endpoints or frozen for all")
-    for field in count_fields:
-        count = readiness.get(field)
-        if isinstance(count, bool) or not isinstance(count, int) or count < 2:
-            raise ValueError(f"{field} must be an integer of at least two after sizing")
+    calibration = report.get("calibration_requirements")
+    if not isinstance(calibration, dict):
+        raise ValueError("power calibration requirements must be an object")
+    minimum_calibration_tasks = _positive_integer(
+        calibration.get("minimum_independent_task_clusters"),
+        "minimum calibration task clusters",
+    )
+    development_tasks = _positive_integer(
+        readiness.get("power_sized_development_task_count"),
+        "power_sized_development_task_count",
+    )
+    confirmatory_tasks = _positive_integer(
+        readiness.get("power_sized_confirmatory_task_count"),
+        "power_sized_confirmatory_task_count",
+    )
+    if development_tasks < minimum_calibration_tasks:
+        raise ValueError(
+            "power-sized development task count is below the calibration minimum"
+        )
+    if confirmatory_tasks != tasks:
+        raise ValueError(
+            "power-sized confirmatory task count must equal the protocol task count"
+        )
     joint_power = _probability(
         joint.get("intersection_union_success_probability"), "joint IUT power"
     )

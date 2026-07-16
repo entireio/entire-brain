@@ -172,7 +172,7 @@
     "contract": "pricing-budget.json",
     "status": "pending",
     "currency": "USD",
-    "formula_id": "worst_case_agent_invocation_token_envelope_v3",
+    "formula_id": "worst_case_agent_invocation_token_envelope_v4",
     "maximum_usd": null,
     "formula": "maximum_agent_invocations * sum(five mutually exclusive billed token categories * frozen category price or explicit alias)"
   },

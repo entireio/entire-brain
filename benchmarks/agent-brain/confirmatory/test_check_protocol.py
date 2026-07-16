@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
+import math
 import pathlib
 import shutil
 import tempfile
@@ -70,7 +71,7 @@ class ProtocolCheckTest(unittest.TestCase):
             },
         }
         contract: dict[str, object] = {
-            "schema_version": 2,
+            "schema_version": 3,
             "runner": runner,
             "pricing_quote": {
                 "schema": "agent-brain-price-quote/v2",
@@ -123,8 +124,8 @@ class ProtocolCheckTest(unittest.TestCase):
                 "maximum_agent_invocations": 6,
             },
             "token_assumptions": {
-                "mode": "explicit_per_call_caps",
-                "explicit_per_call_caps": {
+                "mode": "explicit_per_agent_invocation_caps",
+                "explicit_per_agent_invocation_caps": {
                     "uncached_input": 1000,
                     "cache_read_input": 500,
                     "cache_write_input": 200,
@@ -139,7 +140,7 @@ class ProtocolCheckTest(unittest.TestCase):
                     "statistic": None,
                     "quantile": None,
                     "safety_multiplier": None,
-                    "observed_tokens_per_call": {
+                    "observed_tokens_per_agent_invocation": {
                         "uncached_input": None,
                         "cache_read_input": None,
                         "cache_write_input": None,
@@ -163,7 +164,9 @@ class ProtocolCheckTest(unittest.TestCase):
         quote_for_hash.pop("quote_sha256")
         contract["pricing_quote"]["quote_sha256"] = CHECK.canonical_json_sha256(quote_for_hash)  # type: ignore[index]
         calculation = CHECK.pricing_budget.calculate(contract)
-        self.assertEqual(calculation["per_call_maximum_usd"], "0.00385")
+        self.assertEqual(
+            calculation["per_agent_invocation_maximum_usd"], "0.00385"
+        )
         self.assertEqual(calculation["maximum_usd"], "0.0231")
         contract["calculation"] = calculation
         contract["approval"] = {
@@ -366,6 +369,7 @@ class ProtocolCheckTest(unittest.TestCase):
             }
             for name, (key, alternative, marginal_power) in alternatives.items():
                 endpoint = underpowered["co_primary_endpoints"][name]
+                endpoint["claim_floor"]["status"] = "frozen_approved"
                 endpoint["planning_alternative"] = {
                     key: alternative,
                     "status": "frozen_approved",
@@ -418,6 +422,152 @@ class ProtocolCheckTest(unittest.TestCase):
                 "power artifact status does not match recomputed decision",
                 errors,
             )
+
+            synchronized_tamper = CHECK.power_analysis.build_report()
+            synchronized_tamper["protocol_inputs"]["power_target"] = 0.70
+            for name, (key, alternative) in {
+                "elapsed_time": ("ratio_true", 0.85),
+                "normalized_cost": ("ratio_true", 0.80),
+                "code_quality": ("difference_true", 0.10),
+            }.items():
+                endpoint = synchronized_tamper["co_primary_endpoints"][name]
+                endpoint["claim_floor"]["status"] = "frozen_approved"
+                endpoint["planning_alternative"] = {
+                    key: alternative,
+                    "status": "frozen_approved",
+                }
+                endpoint["paired_task_sd"] = 0.20
+                endpoint["marginal_power"] = 0.75
+                endpoint["status"] = "evaluated"
+            synchronized_tamper["joint_iut_power"].update(
+                {
+                    "intersection_union_success_probability": 0.75,
+                    "status": "evaluated",
+                }
+            )
+            synchronized_tamper["design_readiness"].update(
+                {
+                    "power_sized_development_task_count": 12,
+                    "power_sized_confirmatory_task_count": 2,
+                    "provisional_design_power_defensible": True,
+                }
+            )
+            synchronized_tamper["decision"]["passed"] = True
+            synchronized_tamper["status"] = "pass"
+            synchronized_protocol = copy.deepcopy(protocol)
+            synchronized_protocol["agent_design"]["power"].update(
+                {
+                    "target": 0.70,
+                    "completed": True,
+                    "status": "pass",
+                    "co_primary_claim_floors": {
+                        "elapsed_time_ratio_max": 0.9,
+                        "normalized_cost_ratio_max": 0.88,
+                        "code_quality_difference_min": 0.05,
+                        "status": "frozen_approved",
+                    },
+                    "planning_alternatives": {
+                        "elapsed_time_ratio_true": 0.85,
+                        "normalized_cost_ratio_true": 0.80,
+                        "code_quality_difference_true": 0.10,
+                        "status": "frozen_approved",
+                    },
+                    "power_sized_development_task_count": 12,
+                    "power_sized_confirmatory_task_count": 2,
+                    "design_decision_required": False,
+                }
+            )
+            synchronized_check = {
+                "status": "pass",
+                "evidence": "power-analysis.json",
+            }
+            self._write_json(here / "power-analysis.json", synchronized_tamper)
+            with mock.patch.object(
+                CHECK.power_analysis,
+                "build_report",
+                return_value=synchronized_tamper,
+            ):
+                errors = CHECK.validate_power_analysis(
+                    synchronized_protocol,
+                    synchronized_check,
+                    here=here,
+                    repo=here,
+                )
+            self.assertIn(
+                "power target must remain frozen at 0.80 in artifact and preregistration",
+                errors,
+            )
+            self.assertIn(
+                "power-sized confirmatory task count must equal the protocol task count",
+                errors,
+            )
+            self.assertIn(
+                "cannot recompute power decision: power target must remain frozen at 0.80",
+                errors,
+            )
+
+            valid_powered = copy.deepcopy(synchronized_tamper)
+            valid_powered["protocol_inputs"]["power_target"] = 0.80
+            for endpoint in valid_powered["co_primary_endpoints"].values():
+                endpoint["marginal_power"] = 0.81
+            valid_powered["joint_iut_power"][
+                "intersection_union_success_probability"
+            ] = 0.81
+            valid_powered["design_readiness"].update(
+                {
+                    "power_sized_development_task_count": 24,
+                    "power_sized_confirmatory_task_count": 24,
+                }
+            )
+            powered_protocol = copy.deepcopy(synchronized_protocol)
+            powered_protocol["agent_design"]["power"].update(
+                {
+                    "target": 0.80,
+                    "power_sized_development_task_count": 24,
+                    "power_sized_confirmatory_task_count": 24,
+                }
+            )
+            adversarial = (
+                (
+                    "provisional_floor",
+                    lambda value: value["co_primary_endpoints"]["elapsed_time"][
+                        "claim_floor"
+                    ].update(status="provisional"),
+                    "claim floor must be owner-approved and frozen",
+                ),
+                (
+                    "infinite_quality_alternative",
+                    lambda value: value["co_primary_endpoints"]["code_quality"][
+                        "planning_alternative"
+                    ].update(difference_true=math.inf),
+                    "frozen planning alternative must be finite",
+                ),
+                (
+                    "out_of_domain_quality_alternative",
+                    lambda value: value["co_primary_endpoints"]["code_quality"][
+                        "planning_alternative"
+                    ].update(difference_true=2.0),
+                    "quality planning alternative must be within [-1,1]",
+                ),
+            )
+            for label, mutate, message in adversarial:
+                with self.subTest(label=label):
+                    invalid = copy.deepcopy(valid_powered)
+                    mutate(invalid)
+                    self._write_json(here / "power-analysis.json", invalid)
+                    with mock.patch.object(
+                        CHECK.power_analysis, "build_report", return_value=invalid
+                    ):
+                        errors = CHECK.validate_power_analysis(
+                            powered_protocol,
+                            synchronized_check,
+                            here=here,
+                            repo=here,
+                        )
+                    self.assertTrue(
+                        any(message in error for error in errors),
+                        errors,
+                    )
 
     def test_pricing_budget_draft_is_valid_and_both_gates_remain_pending(self) -> None:
         protocol = json.loads((HERE / "preregistration.json").read_text(encoding="utf-8"))
@@ -509,6 +659,88 @@ class ProtocolCheckTest(unittest.TestCase):
             ):
                 CHECK.pricing_budget.calculate(invalid)
 
+    def test_pricing_v3_rejects_every_retired_per_call_field(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = pathlib.Path(temp)
+            here = repo / "benchmarks" / "agent-brain" / "confirmatory"
+            protocol, checks, contract = self._complete_pricing_budget(repo, here)
+            now = datetime(2026, 7, 15, 12, tzinfo=timezone.utc)
+
+            def rename(container: dict, current: str, retired: str) -> None:
+                container[retired] = container.pop(current)
+
+            mutations = (
+                (
+                    "schema_v2",
+                    lambda value: value.update(schema_version=2),
+                    "pricing budget schema_version must be 3",
+                ),
+                (
+                    "old_mode",
+                    lambda value: value["token_assumptions"].update(
+                        mode="explicit_per_call_caps"
+                    ),
+                    "token assumption mode is invalid",
+                ),
+                (
+                    "old_explicit_caps_key",
+                    lambda value: rename(
+                        value["token_assumptions"],
+                        "explicit_per_agent_invocation_caps",
+                        "explicit_per_call_caps",
+                    ),
+                    "token_assumptions fields changed",
+                ),
+                (
+                    "old_observed_tokens_key",
+                    lambda value: rename(
+                        value["token_assumptions"]["empirical_bound"],
+                        "observed_tokens_per_agent_invocation",
+                        "observed_tokens_per_call",
+                    ),
+                    "empirical_bound fields changed",
+                ),
+                (
+                    "old_effective_tokens_calculation_key",
+                    lambda value: rename(
+                        value["calculation"],
+                        "effective_tokens_per_agent_invocation",
+                        "effective_tokens_per_call",
+                    ),
+                    "pricing budget calculation is stale or incorrect",
+                ),
+                (
+                    "old_category_cost_calculation_key",
+                    lambda value: rename(
+                        value["calculation"],
+                        "per_agent_invocation_usd_by_category",
+                        "per_call_usd_by_category",
+                    ),
+                    "pricing budget calculation is stale or incorrect",
+                ),
+                (
+                    "old_maximum_cost_calculation_key",
+                    lambda value: rename(
+                        value["calculation"],
+                        "per_agent_invocation_maximum_usd",
+                        "per_call_maximum_usd",
+                    ),
+                    "pricing budget calculation is stale or incorrect",
+                ),
+            )
+            for label, mutate, expected in mutations:
+                with self.subTest(label=label):
+                    invalid = copy.deepcopy(contract)
+                    mutate(invalid)
+                    self._write_json(here / "pricing-budget.json", invalid)
+                    errors = CHECK.validate_pricing_budget(
+                        protocol, checks, here=here, repo=repo, now=now
+                    )
+                    self.assertTrue(
+                        any(expected in error for error in errors),
+                        errors,
+                    )
+
     def test_empirical_token_bound_is_hashed_and_bound_to_the_pinned_runner(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = pathlib.Path(temp)
@@ -518,7 +750,7 @@ class ProtocolCheckTest(unittest.TestCase):
             evidence.write_text('{"synthetic": true}\n', encoding="utf-8")
             contract["token_assumptions"] = {
                 "mode": "empirical_bound",
-                "explicit_per_call_caps": {
+                "explicit_per_agent_invocation_caps": {
                     "uncached_input": None,
                     "cache_read_input": None,
                     "cache_write_input": None,
@@ -533,7 +765,7 @@ class ProtocolCheckTest(unittest.TestCase):
                     "statistic": "synthetic upper quantile",
                     "quantile": 0.95,
                     "safety_multiplier": "1.25",
-                    "observed_tokens_per_call": {
+                    "observed_tokens_per_agent_invocation": {
                         "uncached_input": 800,
                         "cache_read_input": 400,
                         "cache_write_input": 100,

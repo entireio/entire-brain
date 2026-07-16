@@ -1,7 +1,7 @@
 # Retrieval-engine probe readiness — 2026-07-15
 
 Status: **controlled three-arm verification passed; v3 is privacy-failed diagnostic evidence;
-public v4 projection passes locally; restricted replay/storage pending; no paid calls**.
+public v4 projection passes locally; restricted replay/storage pending; no paid agent-CLI invocations**.
 
 Read-only probes used the already-exposed development task `6699ec40a` against the full rolling
 quarantine. All three runtime paths reported `identity_verified=true`, BM25 disabled, no fallback,

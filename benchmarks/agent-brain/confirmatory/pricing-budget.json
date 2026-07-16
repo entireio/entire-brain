@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "runner": {
     "schema": "agent-brain-frozen-runner-identity/v1",
     "provider": null,
@@ -70,7 +70,7 @@
   },
   "token_assumptions": {
     "mode": null,
-    "explicit_per_call_caps": {
+    "explicit_per_agent_invocation_caps": {
       "uncached_input": null,
       "cache_read_input": null,
       "cache_write_input": null,
@@ -85,7 +85,7 @@
       "statistic": null,
       "quantile": null,
       "safety_multiplier": null,
-      "observed_tokens_per_call": {
+      "observed_tokens_per_agent_invocation": {
         "uncached_input": null,
         "cache_read_input": null,
         "cache_write_input": null,

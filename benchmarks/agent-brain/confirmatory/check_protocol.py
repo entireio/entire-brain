@@ -35,6 +35,7 @@ import relevance_dataset  # noqa: E402  (local deterministic companion module)
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+FROZEN_POWER_TARGET = 0.80
 STATES = ["unseen", "prompt_inspected", "retrieval_probed", "agent_run", "optimization_used"]
 ARMS = ["lexical_handrolled", "model2vec_rrf", "embeddinggemma_rrf"]
 BASE_COMMIT = "bbe1bdf5be2e4fac2f81dc9156a3118a2733c360"
@@ -938,6 +939,12 @@ def validate_power_analysis(
     _error(errors, inputs.get("tasks") == tasks, "power artifact task count does not match preregistration")
     _error(
         errors,
+        inputs.get("power_target") == FROZEN_POWER_TARGET
+        and power.get("target") == FROZEN_POWER_TARGET,
+        "power target must remain frozen at 0.80 in artifact and preregistration",
+    )
+    _error(
+        errors,
         inputs.get("repetitions_per_treatment") == repetitions,
         "power artifact repetition count does not match preregistration",
     )
@@ -948,15 +955,21 @@ def validate_power_analysis(
     )
     _error(
         errors,
-        agent_design.get("requested_cells") == expected_requested
+        not isinstance(agent_design.get("requested_cells"), bool)
+        and agent_design.get("requested_cells") == expected_requested
+        and not isinstance(inputs.get("requested_cells"), bool)
         and inputs.get("requested_cells") == expected_requested,
         "power artifact requested-cell arithmetic does not match preregistration",
     )
     _error(
         errors,
-        inputs.get("agent_retry_limit") == 0
+        not isinstance(inputs.get("agent_retry_limit"), bool)
+        and inputs.get("agent_retry_limit") == 0
+        and not isinstance(inputs.get("replacement_cell_limit"), bool)
         and inputs.get("replacement_cell_limit") == 0
+        and not isinstance(inputs.get("maximum_agent_invocations"), bool)
         and inputs.get("maximum_agent_invocations") == expected_requested
+        and not isinstance(agent_design.get("maximum_agent_invocations"), bool)
         and agent_design.get("maximum_agent_invocations") == expected_requested,
         "confirmatory agent-invocation ceiling must equal requested cells with zero retries and replacements",
     )
@@ -974,11 +987,22 @@ def validate_power_analysis(
     _error(errors, protocol_evidence == artifact_path.resolve(), "protocol power evidence must reference power-analysis.json")
     _error(errors, power.get("analysis_kind") == artifact.get("analysis_kind"), "protocol power analysis_kind does not match artifact")
     artifact_floors = artifact.get("co_primary_endpoints", {})
+    floor_statuses = {
+        endpoint.get("claim_floor", {}).get("status")
+        for endpoint in artifact_floors.values()
+        if isinstance(endpoint, dict)
+    }
+    _error(
+        errors,
+        floor_statuses in ({"provisional"}, {"frozen_approved"}),
+        "all co-primary claim-floor statuses must move together",
+    )
+    common_floor_status = next(iter(floor_statuses)) if len(floor_statuses) == 1 else None
     expected_floors = {
         "elapsed_time_ratio_max": artifact_floors.get("elapsed_time", {}).get("claim_floor", {}).get("ratio_max"),
         "normalized_cost_ratio_max": artifact_floors.get("normalized_cost", {}).get("claim_floor", {}).get("ratio_max"),
         "code_quality_difference_min": artifact_floors.get("code_quality", {}).get("claim_floor", {}).get("difference_min"),
-        "status": "provisional" if not decision_passed else "frozen_approved",
+        "status": common_floor_status,
     }
     _error(
         errors,
@@ -999,6 +1023,24 @@ def validate_power_analysis(
     calibration_requirements = artifact.get("calibration_requirements", {})
     readiness = artifact.get("design_readiness", {})
     _error(errors, power.get("target") == inputs.get("power_target"), "protocol power target does not match power artifact")
+    _error(
+        errors,
+        not isinstance(readiness.get("provisional_tasks"), bool)
+        and readiness.get("provisional_tasks") == tasks
+        and not isinstance(
+            readiness.get("provisional_repetitions_per_treatment"), bool
+        )
+        and readiness.get("provisional_repetitions_per_treatment") == repetitions
+        and not isinstance(readiness.get("provisional_requested_cells"), bool)
+        and readiness.get("provisional_requested_cells") == expected_requested
+        and not isinstance(readiness.get("maximum_agent_invocations"), bool)
+        and readiness.get("maximum_agent_invocations") == expected_requested
+        and not isinstance(readiness.get("agent_retry_limit"), bool)
+        and readiness.get("agent_retry_limit") == 0
+        and not isinstance(readiness.get("replacement_cell_limit"), bool)
+        and readiness.get("replacement_cell_limit") == 0,
+        "power readiness count/cell arithmetic does not match the protocol design",
+    )
     _error(
         errors,
         power.get("target_scope")
@@ -1024,6 +1066,26 @@ def validate_power_analysis(
         == readiness.get("power_sized_confirmatory_task_count"),
         "protocol power-sized task counts do not match power readiness artifact",
     )
+    sized_development = readiness.get("power_sized_development_task_count")
+    sized_confirmatory = readiness.get("power_sized_confirmatory_task_count")
+    minimum_calibration = calibration_requirements.get("minimum_independent_task_clusters")
+    if sized_development is not None or sized_confirmatory is not None:
+        _error(
+            errors,
+            isinstance(sized_development, int)
+            and not isinstance(sized_development, bool)
+            and isinstance(minimum_calibration, int)
+            and not isinstance(minimum_calibration, bool)
+            and sized_development >= minimum_calibration,
+            "power-sized development task count is below the calibration minimum",
+        )
+        _error(
+            errors,
+            isinstance(sized_confirmatory, int)
+            and not isinstance(sized_confirmatory, bool)
+            and sized_confirmatory == tasks,
+            "power-sized confirmatory task count must equal the protocol task count",
+        )
     artifact_calibration = artifact.get("exploratory_calibration", {})
     expected_calibration = {
         "manifest": pathlib.Path(str(artifact_calibration.get("manifest_path") or "")).name,
@@ -1247,7 +1309,7 @@ def validate_pricing_budget(
     if not _required_object_fields(errors, artifact, required, "pricing-budget.json"):
         return errors
     _require_exact_fields(errors, artifact, required, "pricing-budget.json")
-    _error(errors, artifact.get("schema_version") == 2, "pricing budget schema_version must be 2")
+    _error(errors, artifact.get("schema_version") == 3, "pricing budget schema_version must be 3")
 
     runner = artifact.get("runner")
     if not isinstance(runner, dict):
@@ -1510,18 +1572,18 @@ def validate_pricing_budget(
     _require_exact_fields(
         errors,
         assumptions,
-        ("mode", "explicit_per_call_caps", "empirical_bound"),
+        ("mode", "explicit_per_agent_invocation_caps", "empirical_bound"),
         "token_assumptions",
     )
-    caps = assumptions.get("explicit_per_call_caps")
+    caps = assumptions.get("explicit_per_agent_invocation_caps")
     if not isinstance(caps, dict):
-        errors.append("explicit_per_call_caps must be an object")
+        errors.append("explicit_per_agent_invocation_caps must be an object")
         caps = {}
     _require_exact_fields(
         errors,
         caps,
         (*pricing_budget.TOKEN_KEYS, "rationale"),
-        "explicit_per_call_caps",
+        "explicit_per_agent_invocation_caps",
     )
     empirical = assumptions.get("empirical_bound")
     if not isinstance(empirical, dict):
@@ -1537,29 +1599,39 @@ def validate_pricing_budget(
             "statistic",
             "quantile",
             "safety_multiplier",
-            "observed_tokens_per_call",
+            "observed_tokens_per_agent_invocation",
         ),
         "empirical_bound",
     )
-    observed = empirical.get("observed_tokens_per_call")
+    observed = empirical.get("observed_tokens_per_agent_invocation")
     if not isinstance(observed, dict):
-        errors.append("empirical observed_tokens_per_call must be an object")
+        errors.append(
+            "empirical observed_tokens_per_agent_invocation must be an object"
+        )
         observed = {}
     _require_exact_fields(
         errors,
         observed,
         pricing_budget.TOKEN_KEYS,
-        "empirical observed_tokens_per_call",
+        "empirical observed_tokens_per_agent_invocation",
     )
     empirical_runner = empirical.get("runner")
     if empirical_runner is not None:
         _require_exact_fields(errors, empirical_runner, runner_fields, "empirical runner")
     mode = assumptions.get("mode")
-    _error(errors, mode in {None, "explicit_per_call_caps", "empirical_bound"}, "token assumption mode is invalid")
-    if mode == "explicit_per_call_caps":
-        _error(errors, isinstance(caps.get("rationale"), str) and bool(caps["rationale"]), "explicit per-call caps require a rationale")
+    _error(
+        errors,
+        mode in {None, "explicit_per_agent_invocation_caps", "empirical_bound"},
+        "token assumption mode is invalid",
+    )
+    if mode == "explicit_per_agent_invocation_caps":
+        _error(
+            errors,
+            isinstance(caps.get("rationale"), str) and bool(caps["rationale"]),
+            "explicit per-agent-invocation caps require a rationale",
+        )
         try:
-            pricing_budget.effective_tokens_per_call(artifact)
+            pricing_budget.effective_tokens_per_agent_invocation(artifact)
         except ValueError as exc:
             errors.append(str(exc))
     elif mode == "empirical_bound":
@@ -1578,12 +1650,15 @@ def validate_pricing_budget(
             "empirical token quantile must be in (0, 1]",
         )
         try:
-            pricing_budget.effective_tokens_per_call(artifact)
+            pricing_budget.effective_tokens_per_agent_invocation(artifact)
         except ValueError as exc:
             errors.append(str(exc))
 
     expected_calculation: dict[str, Any] | None = None
-    if quote_pinned and mode in {"explicit_per_call_caps", "empirical_bound"}:
+    if quote_pinned and mode in {
+        "explicit_per_agent_invocation_caps",
+        "empirical_bound",
+    }:
         try:
             expected_calculation = pricing_budget.calculate(artifact)
         except ValueError as exc:
