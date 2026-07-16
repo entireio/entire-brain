@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Evaluate authenticated, text-free offline relevance ranked runs.
+"""Evaluate text-free offline relevance ranked runs for diagnostics only.
 
 The evaluator consumes a separately verified development-query fixture plus
 public dataset, source-membership, engine-matrix, engine-pin, and self-hashed
-ranked-run producer-identity bytes.  Its ranked-run and report artifacts retain
-identifiers, categorical provenance, and numeric telemetry only; query and fact
-text are never copied into either artifact.
+ranked-run producer-identity declarations.  The current v1 evaluator does not
+retain or independently verify the producer, policy, fact-metadata catalog,
+engine-evidence, or source-contract bytes needed for an authoritative decision.
+It therefore reports threshold arithmetic as diagnostic conditions while making
+an authoritative threshold pass or selected winner impossible.
+
+Ranked-run and report artifacts retain identifiers, categorical provenance, and
+numeric telemetry only; query and fact text are never copied into either artifact.
 
 No retrieval engine or model is invoked here.  This module is a deterministic
-scoring and selection lane for already-produced ranked IDs.
+diagnostic scoring and candidate-ranking lane for already-produced ranked IDs.
 """
 
 from __future__ import annotations
@@ -56,7 +61,7 @@ THRESHOLDS = {
     "selected_packet_cluster_occupancy_max": 1,
 }
 TIE_BREAK_ORDER = (
-    "threshold_pass_desc",
+    "threshold_conditions_met_desc",
     "answerable_product_recall_at_5_desc",
     "null_query_false_positive_rate_asc",
     "temporal_leakage_count_asc",
@@ -68,6 +73,18 @@ TIE_BREAK_ORDER = (
     "k_asc",
     "aggregation_contract_order",
     "run_id_lexicographic",
+)
+
+DECISION_AUTHORITY_STATUS = "diagnostic_unattested"
+DECISION_AUTHORITY_BLOCKERS = (
+    "retained_producer_runner_bytes_not_verified",
+    "retained_producer_code_bytes_not_verified",
+    "retained_ranking_result_metadata_policy_bytes_not_verified",
+    "retained_token_estimation_policy_bytes_not_verified",
+    "retained_serialization_policy_bytes_not_verified",
+    "authenticated_fact_metadata_catalog_not_verified",
+    "authoritative_engine_evidence_not_verified",
+    "reviewed_source_contract_not_verified",
 )
 
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
@@ -1068,7 +1085,11 @@ def _aggregate_metrics(metrics: list[dict[str, Any]], *, product: bool, k: int) 
 
 
 def _candidate_metrics(
-    run: dict[str, Any], dataset_index: dict[str, Any], k: int
+    run: dict[str, Any],
+    dataset_index: dict[str, Any],
+    k: int,
+    *,
+    authoritative_thresholds_enabled: bool,
 ) -> dict[str, Any]:
     product_metrics: list[dict[str, Any]] = []
     oracle_metrics: list[dict[str, Any]] = []
@@ -1091,7 +1112,7 @@ def _candidate_metrics(
             product["maximum_cluster_occupancy"], oracle["maximum_cluster_occupancy"]
         ),
     }
-    passed = bool(
+    conditions_met = bool(
         threshold_values["answerable_product_recall_at_5"]
         >= THRESHOLDS["answerable_product_recall_at_5_min"]
         and threshold_values["null_query_false_positive_rate"]
@@ -1100,11 +1121,13 @@ def _candidate_metrics(
         and threshold_values["maximum_cluster_occupancy"]
         <= THRESHOLDS["selected_packet_cluster_occupancy_max"]
     )
+    passed = bool(conditions_met and authoritative_thresholds_enabled)
     return {
         "k": k,
         "product": product,
         "oracle": oracle,
         "threshold_values": threshold_values,
+        "threshold_conditions_met": conditions_met,
         "thresholds_passed": passed,
     }
 
@@ -1139,7 +1162,30 @@ def selection_contract() -> dict[str, Any]:
         "aggregation_candidates": list(AGGREGATION_CANDIDATES),
         "thresholds": copy.deepcopy(THRESHOLDS),
         "tie_break_order": list(TIE_BREAK_ORDER),
-        "selection_scope": "within_each_verified_engine_no_cross_engine_winner",
+        "decision_authority_requirement": (
+            "authoritative_status_required_for_threshold_pass_and_selection"
+        ),
+        "diagnostic_candidate_scope": (
+            "within_each_declared_engine_no_cross_engine_winner"
+        ),
+        "selection_scope": "authoritative_selection_disabled_in_v1",
+    }
+
+
+def decision_authority() -> dict[str, Any]:
+    """Return the immutable fail-closed authority state for evaluator v1."""
+    return {
+        "status": DECISION_AUTHORITY_STATUS,
+        "authoritative_thresholds_enabled": False,
+        "producer_runner_bytes_verified": False,
+        "producer_code_bytes_verified": False,
+        "ranking_result_metadata_policy_bytes_verified": False,
+        "token_estimation_policy_bytes_verified": False,
+        "serialization_policy_bytes_verified": False,
+        "fact_metadata_catalog_verified": False,
+        "engine_evidence_verified": False,
+        "source_contract_verified": False,
+        "blocking_reasons": list(DECISION_AUTHORITY_BLOCKERS),
     }
 
 
@@ -1147,7 +1193,7 @@ def _selection_key(candidate: dict[str, Any]) -> tuple[Any, ...]:
     product = candidate["metrics"]["product"]
     values = candidate["metrics"]["threshold_values"]
     return (
-        -int(candidate["metrics"]["thresholds_passed"]),
+        -int(candidate["metrics"]["threshold_conditions_met"]),
         -float(values["answerable_product_recall_at_5"]),
         float(values["null_query_false_positive_rate"]),
         int(values["temporal_leakage_count"]),
@@ -1173,6 +1219,7 @@ def evaluate(
     ranked_run_raws: list[bytes],
 ) -> dict[str, Any]:
     """Validate inputs, derive metrics, and return a self-hashed text-free report."""
+    authority = decision_authority()
     engine_matrix = _object(decode_json(engine_matrix_raw, "engine matrix"), "engine matrix")
     engine_pins = _object(decode_json(engine_pins_raw, "engine pins"), "engine pins")
     producer_identity = _validate_producer_identity(
@@ -1249,7 +1296,15 @@ def evaluate(
     selectable: dict[str, list[dict[str, Any]]] = {arm_id: [] for arm_id in arm_order}
     for raw, run in decoded_runs:
         candidates = [
-            _candidate_metrics(run, dataset_contract["items"], k) for k in K_CANDIDATES
+            _candidate_metrics(
+                run,
+                dataset_contract["items"],
+                k,
+                authoritative_thresholds_enabled=authority[
+                    "authoritative_thresholds_enabled"
+                ],
+            )
+            for k in K_CANDIDATES
         ]
         evaluated.append(
             {
@@ -1274,37 +1329,39 @@ def evaluate(
                     "metrics": metrics,
                 }
             )
+    diagnostic_best_candidates: list[dict[str, Any]] = []
     selections: list[dict[str, Any]] = []
     for arm_id in arm_order:
         ordered = sorted(selectable[arm_id], key=_selection_key)
-        passing = [candidate for candidate in ordered if candidate["metrics"]["thresholds_passed"]]
-        if not passing:
-            selections.append(
-                {
-                    "arm_id": arm_id,
-                    "status": "no_passing_candidate",
-                    "run_id": None,
-                    "run_sha256": None,
-                    "aggregation_rule": None,
-                    "k": None,
-                    "selection_sha256": None,
-                }
-            )
-            continue
-        selected = passing[0]
-        projection = {
+        diagnostic = ordered[0]
+        diagnostic_projection = {
             "arm_id": arm_id,
-            "run_id": selected["run_id"],
-            "run_sha256": selected["run_sha256"],
-            "aggregation_rule": selected["aggregation_rule"],
-            "k": selected["k"],
+            "run_id": diagnostic["run_id"],
+            "run_sha256": diagnostic["run_sha256"],
+            "aggregation_rule": diagnostic["aggregation_rule"],
+            "k": diagnostic["k"],
+            "threshold_conditions_met": diagnostic["metrics"][
+                "threshold_conditions_met"
+            ],
         }
+        diagnostic_best_candidates.append(
+            {
+                "status": "diagnostic_best_candidate",
+                **diagnostic_projection,
+                "diagnostic_selection_sha256": sha256_bytes(
+                    canonical_json(diagnostic_projection)
+                ),
+            }
+        )
         selections.append(
             {
                 "arm_id": arm_id,
-                "status": "selected",
-                **projection,
-                "selection_sha256": sha256_bytes(canonical_json(projection)),
+                "status": "non_authoritative",
+                "run_id": None,
+                "run_sha256": None,
+                "aggregation_rule": None,
+                "k": None,
+                "selection_sha256": None,
             }
         )
     generated_at = max(
@@ -1314,13 +1371,15 @@ def evaluate(
     report = {
         "schema_version": SCHEMA_VERSION,
         "schema": REPORT_SCHEMA,
-        "report_id": "entire-brain-offline-relevance-development-v1",
+        "report_id": "entire-brain-offline-relevance-development-diagnostic-v1",
         "generated_at": generated_at,
         "input_bindings": input_bindings,
         "producer_identity": producer_identity,
+        "decision_authority": authority,
         "metric_contract": metric_contract(),
         "selection_contract": selection_contract(),
         "evaluated_runs": evaluated,
+        "diagnostic_best_candidates": diagnostic_best_candidates,
         "selections": selections,
         "report_sha256": "",
     }
