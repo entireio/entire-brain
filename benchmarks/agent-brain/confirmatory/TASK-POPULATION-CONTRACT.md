@@ -14,6 +14,34 @@ until a separate receipt verifies both task selection and deterministic split as
 committed owner-held keys. This prevents retrieval quality or product results from deciding which
 tasks enter development, calibration, or holdout.
 
+The companion `task_eligibility.py` scanner can inventory first-parent integration units that touch
+both production Go and test files. Its output contains commit identities, structural counts, and
+content commitments but no subjects, paths, prompts, or patches. It is only a static pre-screen:
+reverse-patch negative controls and independent symptom-only review remain pending. Any scan whose
+identities were inspected by a product optimizer is permanently labeled development-only and cannot
+be reassigned to calibration or confirmatory holdout.
+
+The checked-in development scan covers `github.com/entireio/cli` from
+`3ebc57dbb923c0aa6eb53f17384109d189953c6c` through
+`df765ab952185595d65f561f8ccb8036598980a8`. It records 31 first-parent integration units and 23
+source-plus-test candidates: 7 low, 3 medium, and 13 high static-scope bands. All 23 negative-control
+statuses are `pending`; this is an inventory milestone, not an eligible task population. Its
+canonical self-hash is
+`177a5f71bd9ac82d8b38e61251a07d0b073852ce5a527da0b05e64eabc8f4585`.
+
+Reproduce it against an exact local Git object graph with:
+
+```bash
+python3 benchmarks/agent-brain/confirmatory/task_eligibility.py \
+  --repo /path/to/entire-cli \
+  --base 3ebc57dbb923c0aa6eb53f17384109d189953c6c \
+  --head df765ab952185595d65f561f8ccb8036598980a8 \
+  --repository-id github.com/entireio/cli \
+  --output /tmp/development-task-eligibility-scan-v1.json
+cmp /tmp/development-task-eligibility-scan-v1.json \
+  benchmarks/agent-brain/confirmatory/development-task-eligibility-scan-v1.json
+```
+
 ## Three disjoint populations
 
 - `development_optimization` may be used for product and ranking iteration.
@@ -54,6 +82,7 @@ remain hidden behind a commitment until opening is authorized.
 The schemas are:
 
 - `confirmatory/schemas/task-population-v2.schema.json`
+- `confirmatory/schemas/development-task-eligibility-scan-v1.schema.json`
 - `schemas/task-review-ledger-v2.schema.json`
 
 Validate a populated pair with:
