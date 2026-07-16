@@ -1,0 +1,554 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-development-product-cycle-v1.json",
+  "title": "Agent-brain development product-cycle manifest v1",
+  "description": "Development-only same-schedule four-arm evidence. Semantic hash, parity, grid, and arithmetic checks are performed by product_cycle.py.",
+  "type": "object",
+  "required": [
+    "schema",
+    "purpose",
+    "evidence_class",
+    "claim_scope",
+    "product_identities",
+    "tasks",
+    "task_inventory_sha256",
+    "shared_execution",
+    "design",
+    "cells",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-development-product-cycle/v1"},
+    "purpose": {"const": "development_product_cycle_only"},
+    "evidence_class": {
+      "enum": ["synthetic_fixture", "development_measurement"]
+    },
+    "claim_scope": {
+      "const": "descriptive_not_confirmatory_no_budget_authorization"
+    },
+    "product_identities": {
+      "type": "object",
+      "required": ["baseline", "candidate", "binding_sha256"],
+      "properties": {
+        "baseline": {
+          "allOf": [
+            {"$ref": "#/$defs/productIdentity"},
+            {"properties": {"role": {"const": "preoptimization_memory"}}}
+          ]
+        },
+        "candidate": {
+          "allOf": [
+            {"$ref": "#/$defs/productIdentity"},
+            {"properties": {"role": {"const": "retrieved_memory_optimized_current"}}}
+          ]
+        },
+        "binding_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/task"}
+    },
+    "task_inventory_sha256": {"$ref": "#/$defs/sha256"},
+    "shared_execution": {"$ref": "#/$defs/sharedExecution"},
+    "design": {"$ref": "#/$defs/design"},
+    "cells": {
+      "type": "array",
+      "minItems": 4,
+      "items": {"$ref": "#/$defs/cell"}
+    },
+    "manifest_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitOid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "nonemptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stringSet": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/nonemptyString"},
+      "uniqueItems": true
+    },
+    "arm": {
+      "enum": [
+        "no_memory",
+        "placebo_packet",
+        "preoptimization_memory",
+        "retrieved_memory"
+      ]
+    },
+    "productIdentity": {
+      "type": "object",
+      "required": [
+        "role",
+        "commit_oid",
+        "tree_oid",
+        "binary_sha256",
+        "config_sha256",
+        "packet_format",
+        "identity_sha256"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "preoptimization_memory",
+            "retrieved_memory_optimized_current"
+          ]
+        },
+        "commit_oid": {"$ref": "#/$defs/gitOid"},
+        "tree_oid": {"$ref": "#/$defs/gitOid"},
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "packet_format": {
+          "type": "object",
+          "required": ["id", "sha256"],
+          "properties": {
+            "id": {"$ref": "#/$defs/nonemptyString"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": false
+        },
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "required": ["task_id", "task_sha256", "prompt_parity_sha256"],
+      "properties": {
+        "task_id": {"$ref": "#/$defs/nonemptyString"},
+        "task_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_parity_sha256": {
+          "description": "SHA-256 of the task prompt after frozen packet-payload normalization.",
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sharedExecution": {
+      "type": "object",
+      "required": [
+        "task_inventory_sha256",
+        "corpus_sha256",
+        "engine_sha256",
+        "prompt_template_sha256",
+        "prompt_parity_algorithm",
+        "cache_policy_sha256",
+        "runner_sha256",
+        "model_id",
+        "effort",
+        "schedule_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "task_inventory_sha256": {"$ref": "#/$defs/sha256"},
+        "corpus_sha256": {"$ref": "#/$defs/sha256"},
+        "engine_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_template_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_parity_algorithm": {
+          "const": "frozen_memory_packet_payload_placeholder_v1"
+        },
+        "cache_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "model_id": {"$ref": "#/$defs/nonemptyString"},
+        "effort": {"$ref": "#/$defs/nonemptyString"},
+        "schedule_sha256": {"$ref": "#/$defs/sha256"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "contrast": {
+      "type": "object",
+      "required": ["id", "numerator", "denominator", "role"],
+      "properties": {
+        "id": {"$ref": "#/$defs/nonemptyString"},
+        "numerator": {"$ref": "#/$defs/arm"},
+        "denominator": {"$ref": "#/$defs/arm"},
+        "role": {
+          "enum": [
+            "primary_development_contrast",
+            "diagnostic_product_progress_only"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "scheduleCell": {
+      "type": "object",
+      "required": ["position", "task_id", "repetition", "arm"],
+      "properties": {
+        "position": {"type": "integer", "minimum": 1},
+        "task_id": {"$ref": "#/$defs/nonemptyString"},
+        "repetition": {"type": "integer", "minimum": 1},
+        "arm": {"$ref": "#/$defs/arm"}
+      },
+      "additionalProperties": false
+    },
+    "schedule": {
+      "type": "object",
+      "required": ["schema", "order_policy", "cells", "identity_sha256"],
+      "properties": {
+        "schema": {
+          "const": "agent-brain-development-product-cycle-schedule/v1"
+        },
+        "order_policy": {"const": "explicit_same_schedule_four_arm_v1"},
+        "cells": {
+          "type": "array",
+          "minItems": 4,
+          "items": {"$ref": "#/$defs/scheduleCell"}
+        },
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "design": {
+      "type": "object",
+      "required": [
+        "arms",
+        "arm_product_roles",
+        "primary_contrast",
+        "diagnostic_contrast",
+        "task_clusters",
+        "repetitions_per_arm",
+        "requested_cells",
+        "agent_retry_limit",
+        "replacement_cell_limit",
+        "reserve_cell_limit",
+        "maximum_agent_invocations",
+        "budget",
+        "schedule"
+      ],
+      "properties": {
+        "arms": {
+          "const": [
+            "no_memory",
+            "placebo_packet",
+            "preoptimization_memory",
+            "retrieved_memory"
+          ]
+        },
+        "arm_product_roles": {
+          "const": {
+            "no_memory": "candidate",
+            "placebo_packet": "candidate",
+            "preoptimization_memory": "baseline",
+            "retrieved_memory": "candidate"
+          }
+        },
+        "primary_contrast": {
+          "allOf": [
+            {"$ref": "#/$defs/contrast"},
+            {
+              "const": {
+                "id": "retrieved_memory_vs_no_memory",
+                "numerator": "retrieved_memory",
+                "denominator": "no_memory",
+                "role": "primary_development_contrast"
+              }
+            }
+          ]
+        },
+        "diagnostic_contrast": {
+          "allOf": [
+            {"$ref": "#/$defs/contrast"},
+            {
+              "const": {
+                "id": "retrieved_memory_vs_preoptimization_memory",
+                "numerator": "retrieved_memory",
+                "denominator": "preoptimization_memory",
+                "role": "diagnostic_product_progress_only"
+              }
+            }
+          ]
+        },
+        "task_clusters": {"type": "integer", "minimum": 1},
+        "repetitions_per_arm": {"type": "integer", "minimum": 1},
+        "requested_cells": {"type": "integer", "minimum": 4},
+        "agent_retry_limit": {"const": 0},
+        "replacement_cell_limit": {"const": 0},
+        "reserve_cell_limit": {"const": 0},
+        "maximum_agent_invocations": {"type": "integer", "minimum": 4},
+        "budget": {
+          "const": {"status": "not_frozen", "authorized_usd": null}
+        },
+        "schedule": {"$ref": "#/$defs/schedule"}
+      },
+      "additionalProperties": false
+    },
+    "executionIdentity": {
+      "type": "object",
+      "required": [
+        "task_sha256",
+        "prompt_parity_sha256",
+        "task_inventory_sha256",
+        "corpus_sha256",
+        "engine_sha256",
+        "prompt_template_sha256",
+        "prompt_parity_algorithm",
+        "cache_policy_sha256",
+        "runner_sha256",
+        "model_id",
+        "effort",
+        "schedule_sha256",
+        "product_identity_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "task_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_parity_sha256": {"$ref": "#/$defs/sha256"},
+        "task_inventory_sha256": {"$ref": "#/$defs/sha256"},
+        "corpus_sha256": {"$ref": "#/$defs/sha256"},
+        "engine_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_template_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_parity_algorithm": {
+          "const": "frozen_memory_packet_payload_placeholder_v1"
+        },
+        "cache_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "model_id": {"$ref": "#/$defs/nonemptyString"},
+        "effort": {"$ref": "#/$defs/nonemptyString"},
+        "schedule_sha256": {"$ref": "#/$defs/sha256"},
+        "product_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "timing": {
+      "type": "object",
+      "required": [
+        "primary",
+        "end_to_end_user_visible_wall_seconds",
+        "timeout_occurred",
+        "timeout_stage",
+        "agent_timeout_limit_seconds",
+        "timeout_component_limit_seconds",
+        "pre_treatment_setup_included_in_primary",
+        "treatment_retrieval_included_in_primary",
+        "hidden_validation_included_in_primary"
+      ],
+      "properties": {
+        "primary": {"const": "end_to_end_user_visible_wall_seconds"},
+        "end_to_end_user_visible_wall_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "timeout_occurred": {"type": "boolean"},
+        "timeout_stage": {
+          "enum": [null, "treatment_retrieval_or_delivery", "agent_execution"]
+        },
+        "agent_timeout_limit_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "timeout_component_limit_seconds": {
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "pre_treatment_setup_included_in_primary": {"const": false},
+        "treatment_retrieval_included_in_primary": {"const": true},
+        "hidden_validation_included_in_primary": {"const": false}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"timeout_occurred": {"const": true}}},
+          "then": {
+            "properties": {
+              "timeout_stage": {
+                "enum": ["treatment_retrieval_or_delivery", "agent_execution"]
+              },
+              "timeout_component_limit_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "timeout_stage": {"const": null},
+              "timeout_component_limit_seconds": {"const": null}
+            }
+          }
+        }
+      ]
+    },
+    "costCategories": {
+      "type": "object",
+      "required": [
+        "uncached_input",
+        "cache_read_input",
+        "cache_write_input",
+        "visible_output",
+        "reasoning_output"
+      ],
+      "properties": {
+        "uncached_input": {"$ref": "#/$defs/decimal"},
+        "cache_read_input": {"$ref": "#/$defs/decimal"},
+        "cache_write_input": {"$ref": "#/$defs/decimal"},
+        "visible_output": {"$ref": "#/$defs/decimal"},
+        "reasoning_output": {"$ref": "#/$defs/decimal"}
+      },
+      "additionalProperties": false
+    },
+    "normalizedCost": {
+      "type": "object",
+      "required": ["schema", "currency", "complete", "categories", "total_usd"],
+      "properties": {
+        "schema": {"const": "agent-brain-normalized-cost/v1"},
+        "currency": {"const": "USD"},
+        "complete": {"const": true},
+        "categories": {"$ref": "#/$defs/costCategories"},
+        "total_usd": {"$ref": "#/$defs/decimal"}
+      },
+      "additionalProperties": false
+    },
+    "codeQuality": {
+      "type": "object",
+      "required": [
+        "schema",
+        "rubric",
+        "task_normalized_score",
+        "critical_failure",
+        "critical_failure_reasons",
+        "excluded_components"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-code-quality/v2"},
+        "rubric": {"const": "task_relative_output_outcome_patch_focus_v2"},
+        "task_normalized_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "critical_failure": {"type": "boolean"},
+        "critical_failure_reasons": {"$ref": "#/$defs/stringSet"},
+        "excluded_components": {
+          "const": ["validation_discipline", "runtime_efficiency", "brain_use"]
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"critical_failure": {"const": true}}},
+          "then": {
+            "properties": {
+              "task_normalized_score": {"const": 0},
+              "critical_failure_reasons": {"minItems": 1}
+            }
+          },
+          "else": {
+            "properties": {"critical_failure_reasons": {"maxItems": 0}}
+          }
+        }
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "required": ["occurred", "kind", "return_code", "reason_codes"],
+      "properties": {
+        "occurred": {"type": "boolean"},
+        "kind": {"type": ["string", "null"]},
+        "return_code": {"type": ["integer", "null"]},
+        "reason_codes": {"$ref": "#/$defs/stringSet"}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"occurred": {"const": true}}},
+          "then": {
+            "properties": {
+              "kind": {"type": "string", "minLength": 1},
+              "reason_codes": {"minItems": 1}
+            }
+          },
+          "else": {
+            "properties": {
+              "kind": {"const": null},
+              "return_code": {"const": 0},
+              "reason_codes": {"maxItems": 0}
+            }
+          }
+        }
+      ]
+    },
+    "validation": {
+      "type": "object",
+      "required": ["ok", "reason_codes"],
+      "properties": {
+        "ok": {"type": "boolean"},
+        "reason_codes": {"$ref": "#/$defs/stringSet"}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"properties": {"ok": {"const": true}}},
+          "then": {"properties": {"reason_codes": {"maxItems": 0}}},
+          "else": {"properties": {"reason_codes": {"minItems": 1}}}
+        }
+      ]
+    },
+    "outcome": {
+      "type": "object",
+      "required": [
+        "executed",
+        "timing",
+        "normalized_cost",
+        "code_quality",
+        "failure",
+        "validation",
+        "identity_sha256"
+      ],
+      "properties": {
+        "executed": {"const": true},
+        "timing": {"$ref": "#/$defs/timing"},
+        "normalized_cost": {"$ref": "#/$defs/normalizedCost"},
+        "code_quality": {"$ref": "#/$defs/codeQuality"},
+        "failure": {"$ref": "#/$defs/failure"},
+        "validation": {"$ref": "#/$defs/validation"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "cell": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "schedule_position",
+        "task_id",
+        "repetition",
+        "arm",
+        "product_identity_sha256",
+        "execution_identity",
+        "outcome",
+        "identity_sha256"
+      ],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/nonemptyString"},
+        "schedule_position": {"type": "integer", "minimum": 1},
+        "task_id": {"$ref": "#/$defs/nonemptyString"},
+        "repetition": {"type": "integer", "minimum": 1},
+        "arm": {"$ref": "#/$defs/arm"},
+        "product_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "execution_identity": {"$ref": "#/$defs/executionIdentity"},
+        "outcome": {"$ref": "#/$defs/outcome"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  }
+}
