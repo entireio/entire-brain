@@ -213,13 +213,17 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
 		t.Fatalf("create history dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), []byte(`{"records":[]}`), 0o600); err != nil {
+	indexData := []byte(`{"records":[]}`)
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), indexData, 0o600); err != nil {
 		t.Fatalf("write history index: %v", err)
 	}
 	manifest := &exportManifest{Sources: &brainSources{
 		Sessions: sessionSource,
 		History: &historySourceManifest{
 			IndexPath:           historyIndexPath,
+			IndexBytes:          int64(len(indexData)),
+			IndexSHA256:         historyIndexBytesFingerprint(indexData),
+			RecordsFingerprint:  historyRecordsFingerprint(nil),
 			SessionsFingerprint: sessionSourceFingerprint(sessionSource),
 		},
 	}}

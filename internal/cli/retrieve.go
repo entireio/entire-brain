@@ -106,25 +106,42 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 			return nil, err
 		}
 		if manifest.Sources != nil && manifest.Sources.History != nil {
-			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
-			if err != nil {
-				return nil, fmt.Errorf("load history index: %w", err)
-			}
-			if mode != modeVector {
-				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
-				if !ok {
-					scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
+			source := manifest.Sources.History
+			if mode != modeVector && historySem == nil {
+				// The common BM25-only path hydrates its small result window from
+				// the fresh FTS payload table. Legacy/stale/corrupt caches fall back
+				// through the verified full JSON index and substring scorer.
+				scored, _, _, rankErr := rankHistoryLexicalFromSource(brainDir, source, "history", query, limit*2)
+				if rankErr != nil {
+					return nil, fmt.Errorf("load history index: %w", rankErr)
 				}
 				if len(scored) > 0 {
 					lists = append(lists, historyToUnified(scored))
 				}
-			}
-			if mode != modeLexical && historySem != nil {
-				// A second, independently-ranked history list: the global RRF
-				// merge below fuses it with the lexical list, which is exactly
-				// the capstone's fused-arm shape (RRF of BM25 + cosine ranks).
-				if sem := rankHistorySemantic(index, historySemanticScores(brainDir, historySem, query, limit*2), limit*2); len(sem) > 0 {
-					lists = append(lists, historyToUnified(sem))
+			} else {
+				// Semantic history fusion and vector retrieval intentionally retain
+				// the complete index: semantic scores map arbitrary record IDs back
+				// to their payloads, not just the lexical top-k window.
+				index, loadErr := loadBrainHistoryIndex(brainDir, source)
+				if loadErr != nil {
+					return nil, fmt.Errorf("load history index: %w", loadErr)
+				}
+				if mode != modeVector {
+					scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
+					if !ok {
+						scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
+					}
+					if len(scored) > 0 {
+						lists = append(lists, historyToUnified(scored))
+					}
+				}
+				if mode != modeLexical && historySem != nil {
+					// A second, independently-ranked history list: the global RRF
+					// merge below fuses it with the lexical list, which is exactly
+					// the capstone's fused-arm shape (RRF of BM25 + cosine ranks).
+					if sem := rankHistorySemantic(index, historySemanticScores(brainDir, historySem, query, limit*2), limit*2); len(sem) > 0 {
+						lists = append(lists, historyToUnified(sem))
+					}
 				}
 			}
 		}

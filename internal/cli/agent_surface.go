@@ -1137,36 +1137,99 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh`")
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
-		indexLoadStarted := profile.start()
-		index, historyErr := loadBrainHistoryIndex(status.Brain.Path, status.Manifest.Sources.History)
-		if profile != nil {
-			historyErrors := 0
-			if historyErr != nil {
-				historyErrors = 1
+		source := status.Manifest.Sources.History
+		historyEmbedder := defaultEmbedder()
+		fusionEnabled := historySemanticEmbedder(historyEmbedder) != nil
+		var scoredHistory []scoredHistoryRecord
+		var historyErr error
+
+		if !fusionEnabled {
+			directStarted := profile.start()
+			var used bool
+			derivedCorrupt := false
+			scoredHistory, used, historyErr = rankHistoryViaFreshFTSCutoffDetailed(status.Brain.Path, source, "history", task, briefOpts.limit, historyFTSRelevanceCutoff)
+			if errors.Is(historyErr, errHistoryFTSPayloadCorrupt) {
+				derivedCorrupt = true
+				historyErr = nil
 			}
-			profile.finishStage(&profile.History.IndexLoad, indexLoadStarted, 1, len(index.Records), historyErrors)
+			if used || historyErr != nil {
+				if profile != nil {
+					historyErrors := 0
+					if historyErr != nil {
+						historyErrors = 1
+					}
+					profile.finishStage(&profile.History.IndexedRank, directStarted, source.Records, len(scoredHistory), historyErrors)
+				}
+			} else {
+				// Legacy/stale/corrupt derived caches retain the exact old path:
+				// verify and load index.json, rebuild FTS if possible, then use the
+				// in-memory scorer if SQLite remains unavailable.
+				indexLoadStarted := profile.start()
+				var index historyIndex
+				index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
+				if profile != nil {
+					historyErrors := 0
+					if historyErr != nil {
+						historyErrors = 1
+					}
+					profile.finishStage(&profile.History.IndexLoad, indexLoadStarted, 1, len(index.Records), historyErrors)
+				}
+				if historyErr == nil {
+					rankStarted := profile.start()
+					if derivedCorrupt {
+						if rebuildErr := rebuildHistoryFTSFromTruth(status.Brain.Path, index); rebuildErr == nil {
+							if rebuilt, ok := rankHistoryViaFTS(status.Brain.Path, index, "history", task, briefOpts.limit); ok {
+								scoredHistory = rebuilt
+							} else {
+								scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
+							}
+						} else {
+							scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
+						}
+					} else {
+						var ok bool
+						scoredHistory, ok = rankHistoryViaFTS(status.Brain.Path, index, "history", task, briefOpts.limit)
+						if !ok {
+							scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
+						}
+					}
+					if profile != nil {
+						profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records), len(scoredHistory), 0)
+					}
+				}
+			}
+		} else {
+			// The validated semantic arm can return arbitrary record IDs, so it
+			// deliberately keeps the full index mapping rather than hydrating only
+			// the lexical top-k payload window.
+			indexLoadStarted := profile.start()
+			var index historyIndex
+			index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
+			if profile != nil {
+				historyErrors := 0
+				if historyErr != nil {
+					historyErrors = 1
+				}
+				profile.finishStage(&profile.History.IndexLoad, indexLoadStarted, 1, len(index.Records), historyErrors)
+			}
+			if historyErr == nil {
+				rankStarted := profile.start()
+				if fused, ok := rankHistoryFused(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder); ok {
+					scoredHistory = fused
+				} else {
+					scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
+				}
+				if profile != nil {
+					profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records), len(scoredHistory), 0)
+				}
+			}
 		}
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
-			var indexedMatches []brainTextMatch
-			indexedRankStarted := profile.start()
-			// rankHistoryFused is rankHistoryViaFTS unless the history fusion
-			// gate is open (fusion-eligible embedder + refresh-built vec0
-			// vectors), in which case the brief's history context gets the
-			// capstone-validated fused ranking — the midtask stratum this
-			// surface serves is exactly where fusion measured strongest.
-			if scored, ok := rankHistoryFused(status.Brain.Path, index, "history", task, briefOpts.limit, defaultEmbedder()); ok {
-				for _, s := range scored {
-					indexedMatches = append(indexedMatches, historyRecordTextMatch(s.Record))
-				}
-			} else {
-				for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
-					indexedMatches = append(indexedMatches, historyRecordTextMatch(record))
-				}
-			}
-			if profile != nil {
-				profile.finishStage(&profile.History.IndexedRank, indexedRankStarted, len(index.Records), len(indexedMatches), 0)
+			indexedMatches := make([]brainTextMatch, 0, len(scoredHistory))
+			for _, scored := range scoredHistory {
+				indexedMatches = append(indexedMatches, historyRecordTextMatch(scored.Record))
 			}
 			var rawProfile *brainBriefProfileRawHistory
 			if profile != nil {

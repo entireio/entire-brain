@@ -122,7 +122,7 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	if !profile.Semantic.Context.Invoked || !profile.Semantic.RuntimeTraces.Invoked || !profile.Semantic.Tests.Invoked {
 		t.Fatalf("semantic stages incomplete: %+v", profile.Semantic)
 	}
-	if !profile.History.IndexLoad.Invoked || !profile.History.IndexedRank.Invoked || !profile.History.RawFallback.Invoked {
+	if profile.History.IndexLoad.Invoked || !profile.History.IndexedRank.Invoked || !profile.History.RawFallback.Invoked {
 		t.Fatalf("history stages incomplete: %+v", profile.History)
 	}
 	if !profile.Facts.Load.Invoked || !profile.Facts.Rank.Invoked {

@@ -14,7 +14,8 @@ The profile covers:
 - total brief construction and packet serialization;
 - status/live-build-state construction;
 - semantic context, runtime trace, and test lookup;
-- history index load and indexed rank;
+- history index load (when the verified JSON fallback or semantic arm needs it)
+  and indexed rank;
 - raw-history fallback totals plus one numeric row per executed query (at most
   eight), including files and bytes scanned, matches, truncation, and errors;
 - facts load, vector-cache load, embedding calls, rank, and cache flush;
@@ -28,6 +29,11 @@ exclusive of time spent inside measured embedder calls, which is reported under
 branch vector cache. Raw-history byte counts are bytes actually read through the
 scanner, including scanner read-ahead. Packet section counts follow the selected
 serialization format, so JSON-only sections are zero in a text profile.
+On a fresh BM25-only history query, schema-v2 FTS hydrates its bounded result
+window directly and `history.index_load.invoked` is false; its database work is
+reported by `history.indexed_rank`. Semantic history fusion, legacy manifests,
+and stale/corrupt derived caches retain the full JSON load path and therefore
+report `history.index_load.invoked=true`.
 
 The requested sidecar is encoded before any packet bytes are released, written
 through an atomic same-directory replacement, and committed with mode `0600`.
