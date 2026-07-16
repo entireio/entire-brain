@@ -84,8 +84,9 @@ The v2 analysis hierarchy is fixed:
    every endpoint even if no model request is sent; there is no success-only efficiency analysis.
 2. End-to-end user-visible elapsed time is co-primary. Its timer begins immediately before
    harness-owned packet retrieval/delivery (a no-op at the same logical point for `no_memory`) and
-   stops at the agent final response boundary captured immediately when the final provider process
-   returns, before usage parsing, hashing, or artifact writes. Worktree/cache setup, secret preflight,
+   stops at the agent CLI completion boundary captured immediately when the provider process returns,
+   or at the observed treatment failure / timeout-termination boundary when no final response exists,
+   before usage parsing, hashing, or artifact writes. Worktree/cache setup, secret preflight,
    hidden validation, and full-cell cleanup are separate diagnostics. The paired task geometric-mean ratio must have a
    one-sided 95% upper bound below the provisional 0.90 practical floor.
 3. Normalized billed model cost is co-primary. Each run retains mutually exclusive uncached-input,
@@ -96,10 +97,13 @@ The v2 analysis hierarchy is fixed:
    Every category is bound to a frozen direct price or explicit price alias, and the quote freezes
    whether input/output counters include subcategories plus whether an absent cache-read,
    cache-write, or reasoning counter is contractually zero. No category is inferred from a generic
-   total-token number. Every provider invocation, including failed and retried calls, retains its
-   own usage and output artifacts. The final cumulative snapshot is used once within an isolated
-   invocation; mutually exclusive categories are then summed across invocations. The paired task
-   geometric-mean cost ratio must have a one-sided 95% upper bound below the provisional 0.88 floor.
+   total-token number. Confirmatory provider retries are frozen at zero, so each provider-entered
+   cell has exactly one retained invocation with its own usage and output artifacts. A pre-provider
+   treatment failure is an authenticated structural zero only when harness control flow proves
+   `run_agent` was never entered; all five categories are then explicitly zero and quote-bound.
+   Missing or ambiguous usage after provider-path entry still invalidates the suite. The ratio of
+   equal-task-weighted task-arm mean costs must have a one-sided 95% upper bound below the
+   provisional 0.88 floor.
 4. Task-normalized code quality is co-primary on [0,1]. The rubric normalizes only predeclared
    output criteria: hidden-validation/outcome points and patch-focus points (including task-specific
    validation already declared by the task). Agent process behavior such as running tests or checking
@@ -114,9 +118,10 @@ Placebo and product-baseline contrasts are diagnostic. Raw validation/pass rates
 signals, raw token usage, harness agent-interval timing, and provider API duration remain visible
 diagnostics but cannot gate, replace, or rescue a co-primary endpoint. A timed-out executed attempt
 retains its measured monotonic end-to-end interval; an agent-component timeout limit is never
-substituted for that total. Missing billed usage—including an early retrieval timeout before a model
-request—or missing quality fields invalidates the suite; there is no unregistered zero-cost or usage
-imputation rule.
+substituted for that total. A harness-attested early retrieval/delivery failure before provider-path
+entry records known-zero billed model usage rather than missing usage. Missing billed usage after
+provider-path entry, an ambiguous launch state, or missing quality fields invalidates the suite;
+there is no inferred zero-cost or usage-imputation rule.
 
 The frozen runner must expose one priceable actual model row per invocation. The current strict v2
 adapter supports Codex's cumulative `turn.completed.usage` counters only when optional-counter
@@ -127,13 +132,13 @@ does not generally expose hidden reasoning separately, so absent `reasoningToken
 the frozen provider contract explicitly establishes absence as zero; the parser never assumes this.
 
 The provisional target design is 24 fresh tasks x 3 primary treatments x 4 repetitions = 288
-requested paid cells, counterbalanced by WS4. Its 29-call operational reserve yields 317 maximum
-calls; reserve is only for predeclared infrastructure-invalid replacements. This design is mirrored
+requested cells, counterbalanced by WS4. Confirmatory retries and replacement calls are frozen at
+zero, so 288 is also the maximum provider-call envelope. This design is mirrored
 in `pricing-budget.json` for drift detection but is explicitly not approved for budgeting while the
 power gate is unresolved. Dollar cost remains null until the final powered design, exact
 provider/runner/model/effort, byte-hashed current quote, category aliases, and per-call token envelope
 are pinned. The machine calculation separately prices uncached input, cache-read input, cache-write
-input, visible output, and reasoning output for every requested and reserve call. A named budget
+input, visible output, and reasoning output for every requested call. A named budget
 owner must approve a non-expired USD cap at least as large as that
 computed maximum. See `PRICING-BUDGET-READINESS-2026-07-15.md`; no run may start with an unbounded,
 stale, or blank dollar cap.

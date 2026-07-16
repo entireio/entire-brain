@@ -7,14 +7,14 @@
       "final runner/model/effort and runner version",
       "v2 no_memory and retrieved_memory treatment contracts",
       "end-to-end timing boundary and timeout policy",
-      "five-category frozen price quote, inclusion/absence semantics, and all-attempt retry accounting",
+      "five-category frozen price quote, inclusion/absence semantics, authenticated structural zeros, and zero provider retries",
       "task-normalized quality rubric and critical-failure policy"
     ],
     "required_statistics": {
       "code_quality": "SD of paired task-level mean differences",
       "dependence": "joint covariance or retained task-level calibration rows",
       "elapsed_time": "SD of paired task-level mean log ratios",
-      "normalized_cost": "SD of paired task-level mean log ratios"
+      "normalized_cost": "paired task-arm mean-cost rows for a task-clustered equal-weight ratio-of-means bootstrap"
     },
     "selection_use": "development calibration only; cannot enter confirmatory outcomes",
     "status": "open"
@@ -43,10 +43,10 @@
       "status": "pending_final_contract_calibration"
     },
     "normalized_cost": {
-      "estimand_scale": "paired_task_log_ratio",
+      "estimand_scale": "ratio_of_equal_task_weighted_task_arm_mean_costs",
       "marginal_power": null,
       "paired_task_sd": null,
-      "planning_effect": -0.127833,
+      "planning_effect": 0.88,
       "practical_floor": {
         "ratio_max": 0.88,
         "status": "provisional"

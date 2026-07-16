@@ -288,13 +288,15 @@ TIMING_DEFINITIONS = {
     "primary": "end_to_end_user_visible_wall_seconds",
     "end_to_end_user_visible_wall_seconds": (
         "Harness monotonic wall time immediately before harness-owned treatment retrieval/delivery "
-        "(a no-op at the same logical point for no-memory) through the agent final response. "
-        "The response boundary is captured before usage parsing, hashing, and artifact writes. "
+        "(a no-op at the same logical point for no-memory) through agent CLI completion, or through "
+        "the immediately observed treatment-failure / timeout-termination boundary when no final "
+        "response exists. The boundary is captured before usage parsing, hashing, and artifact writes. "
         "Worktree/cache setup, secret preflight, and hidden validation are excluded."
     ),
     "harness_agent_interval_wall_seconds": (
-        "Harness monotonic wall time immediately around the agent CLI invocation, including "
-        "declared transient retries and their backoff. Setup, cache prewarm, and validation are excluded."
+        "Harness monotonic wall time immediately around the agent CLI invocation. Confirmatory "
+        "provider retries are frozen at zero; exploratory retries and backoff remain included. "
+        "Setup, cache prewarm, and validation are excluded."
     ),
     "agent_reported_api_seconds": (
         "Provider/agent-CLI reported API duration when present in structured output; null otherwise."
@@ -317,6 +319,10 @@ TIMING_DEFINITIONS = {
 
 CONFIRMATORY_BILLING_SCHEMA = "agent-brain-billing-usage/v2"
 CONFIRMATORY_QUALITY_SCHEMA = "agent-brain-code-quality/v2"
+PROVIDER_INVOCATION_SCHEMA = "agent-brain-provider-invocation-state/v1"
+PROVIDER_INVOCATIONS_OBSERVED = "provider_invocations_observed"
+STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION = "structural_zero_no_provider_invocation"
+PROVIDER_PATH_ENTERED_USAGE_UNKNOWN = "provider_path_entered_usage_unknown"
 CONFIRMATORY_COST_CATEGORIES = (
     "uncached_input",
     "cache_read_input",
@@ -710,6 +716,60 @@ def confirmatory_billing_usage(
 def confirmatory_pricing_required(pricing: dict[str, Any]) -> bool:
     """Return whether this invocation is bound to the strict v2 quote contract."""
     return isinstance(pricing, dict) and isinstance(pricing.get("pricing_quote"), dict)
+
+
+def assert_confirmatory_retry_policy(pricing: dict[str, Any], agent_retries: int) -> None:
+    """Reject confirmatory retries before suite setup or any provider invocation."""
+    if confirmatory_pricing_required(pricing) and agent_retries != 0:
+        raise RuntimeError(
+            "confirmatory provider retries are frozen at zero; rerun with --agent-retries 0"
+        )
+
+
+def confirmatory_structural_zero_billing(
+    runner: RunnerSpec, pricing: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Bind an observed no-provider-invocation outcome to the frozen quote.
+
+    This is not a missing-usage fallback. The caller may use it only while the
+    harness still proves that ``run_agent`` was never entered. Once provider
+    launch is entered or ambiguous, provider-reported usage remains mandatory.
+    """
+    quote = pricing.get("pricing_quote") if isinstance(pricing, dict) else None
+    bound_runner = pricing.get("runner") if isinstance(pricing, dict) else None
+    if not isinstance(quote, dict) or not isinstance(bound_runner, dict):
+        return None
+    if bound_runner.get("runner_id") != runner.id or bound_runner.get("model_id") not in {
+        None,
+        runner.model,
+    }:
+        return None
+    quote_sha256 = quote.get("quote_sha256")
+    semantics = quote.get("usage_semantics")
+    if not isinstance(quote_sha256, str) or len(quote_sha256) != 64 or not isinstance(semantics, dict):
+        return None
+    raw = {
+        "input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+    }
+    try:
+        exclusive = normalize_billed_token_categories(raw, semantics)
+    except (TypeError, ValueError):
+        return None
+    return {
+        "schema": CONFIRMATORY_BILLING_SCHEMA,
+        "price_quote_sha256": quote_sha256,
+        "raw": raw,
+        "semantics": {
+            "input_tokens_includes": semantics.get("input_tokens_includes"),
+            "output_tokens_includes": semantics.get("output_tokens_includes"),
+            "counter_absence_means_zero": semantics.get("counter_absence_means_zero"),
+        },
+        "exclusive": exclusive,
+    }
 
 
 def aggregate_confirmatory_billing_attempts(
@@ -4535,6 +4595,13 @@ def run_agent(
         "_response_finished_monotonic": final_response_finished_monotonic,
         "agent_reported_api_seconds": aggregate_api_seconds,
         "attempts": attempts,
+        "provider_invocation": {
+            "schema": PROVIDER_INVOCATION_SCHEMA,
+            "state": PROVIDER_INVOCATIONS_OBSERVED,
+            "invocation_count": len(attempts),
+            "attestation": "retained_attempt_ledger",
+            "reason": None,
+        },
         "billing_integrity": billing_integrity,
         "transient_retries": max(0, len(attempts) - 1),
         "usage": usage,
@@ -4566,6 +4633,97 @@ def empty_agent_usage() -> dict[str, Any]:
             "source_events": 0,
             "error": "no unambiguous provider usage report",
         },
+    }
+
+
+def structural_zero_agent_info(
+    runner: RunnerSpec,
+    pricing: dict[str, Any],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    """Return authenticated zero model cost before the provider path is entered."""
+    billing = confirmatory_structural_zero_billing(runner, pricing)
+    billing_required = confirmatory_pricing_required(pricing)
+    usage = empty_agent_usage()
+    usage.update(
+        {
+            "turns": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+            "reasoning_tokens": 0,
+            "cost_usd": 0.0,
+            "cost_source": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+            "billing_v2": billing,
+            "usage_report": {
+                "complete": True,
+                "parser": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+                "accounting_basis": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+                "source_events": 0,
+                "attempt_count": 0,
+                "complete_attempts": [],
+                "incomplete_attempts": [],
+                "error": None,
+            },
+        }
+    )
+    aggregate_present = isinstance(billing, dict)
+    return {
+        "returncode": None,
+        "seconds": None,
+        "agent_reported_api_seconds": None,
+        "attempts": [],
+        "provider_invocation": {
+            "schema": PROVIDER_INVOCATION_SCHEMA,
+            "state": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+            "invocation_count": 0,
+            "attestation": "harness_control_flow_run_agent_not_entered",
+            "reason": reason,
+        },
+        "billing_integrity": {
+            "schema": "agent-brain-attempt-billing-integrity/v1",
+            "required": billing_required,
+            "attempt_count": 0,
+            "complete_attempts": 0,
+            "incomplete_attempts": [],
+            "aggregate_present": aggregate_present,
+            "passed": bool(not billing_required or aggregate_present),
+            "aggregation": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+        },
+        "usage": usage,
+    }
+
+
+def ambiguous_provider_agent_info() -> dict[str, Any]:
+    """Retain an entered provider path whose launch/billing state is not provable."""
+    usage = empty_agent_usage()
+    usage["billing_v2"] = None
+    return {
+        "returncode": None,
+        "seconds": None,
+        "agent_reported_api_seconds": None,
+        "attempts": [],
+        "provider_invocation": {
+            "schema": PROVIDER_INVOCATION_SCHEMA,
+            "state": PROVIDER_PATH_ENTERED_USAGE_UNKNOWN,
+            "invocation_count": None,
+            "attestation": "run_agent_entry_observed_without_complete_attempt_ledger",
+            "reason": "provider_path_exception",
+        },
+        "billing_integrity": {
+            "schema": "agent-brain-attempt-billing-integrity/v1",
+            "required": True,
+            "attempt_count": 0,
+            "complete_attempts": 0,
+            "incomplete_attempts": ["unknown"],
+            "aggregate_present": False,
+            "passed": False,
+            "aggregation": "unknown_after_provider_path_entry",
+        },
+        "usage": usage,
     }
 
 
@@ -5565,6 +5723,8 @@ def run_one(
     agent_interval_wall_seconds: float | None = None
     user_visible_interval_started: float | None = None
     user_visible_interval_wall_seconds: float | None = None
+    causal_outcome_finished_monotonic: float | None = None
+    run_agent_entered = False
     timeout_occurred = False
     timeout_stage: str | None = None
     timeout_component_limit_seconds: float | None = None
@@ -5685,6 +5845,7 @@ def run_one(
             "bytes": len(prompt.encode("utf-8")),
         }
         agent_interval_started = time.monotonic()
+        run_agent_entered = True
         agent_info = run_agent(
             runner,
             prompt,
@@ -5701,6 +5862,11 @@ def run_one(
         agent_response_finished_monotonic = agent_info.pop(
             "_response_finished_monotonic", None
         )
+        # Retain the provider ledger before validating the timing hand-off. A
+        # missing/corrupt boundary invalidates timing, but must not erase known
+        # attempts or their billed usage.
+        record["agent_info"] = agent_info
+        record["agent_ran"] = True
         if (
             isinstance(agent_response_finished_monotonic, bool)
             or not isinstance(agent_response_finished_monotonic, (int, float))
@@ -5708,10 +5874,10 @@ def run_one(
             or float(agent_response_finished_monotonic) < agent_interval_started
         ):
             raise RuntimeError("agent response boundary timestamp is missing or invalid")
+        causal_outcome_finished_monotonic = float(agent_response_finished_monotonic)
         # Preserve raw execution metrics before any post-agent integrity check can fail.
         # Executed failures remain in the primary denominators, so their usage and timing
         # must survive even if a later audit raises.
-        record["agent_info"] = agent_info
         agent_interval_wall_seconds = (
             float(agent_response_finished_monotonic) - agent_interval_started
         )
@@ -5790,6 +5956,7 @@ def run_one(
             }
         )
     except subprocess.TimeoutExpired as exc:
+        exception_observed_monotonic = time.monotonic()
         # Any timeout after the causal treatment timer starts is an executed
         # product outcome, including harness-owned retrieval before the model
         # invocation. Pre-treatment setup timeouts remain infrastructure
@@ -5814,23 +5981,22 @@ def run_one(
         )
         partial_agent_info = getattr(exc, "agent_info", None)
         if not isinstance(partial_agent_info, dict):
-            partial_agent_info = {
-                "returncode": 124,
-                "seconds": elapsed_agent_interval,
-                "agent_reported_api_seconds": None,
-                "attempts": [],
-                "billing_integrity": {
-                    "schema": "agent-brain-attempt-billing-integrity/v1",
-                    "required": confirmatory_pricing_required(pricing),
-                    "attempt_count": 0,
-                    "complete_attempts": 0,
-                    "incomplete_attempts": [],
-                    "aggregate_present": False,
-                    "passed": False,
-                    "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
-                },
-                "usage": {},
-            }
+            if user_visible_interval_started is not None and not run_agent_entered:
+                partial_agent_info = structural_zero_agent_info(
+                    runner,
+                    pricing,
+                    reason="treatment_retrieval_or_delivery_timeout",
+                )
+            elif run_agent_entered:
+                partial_agent_info = ambiguous_provider_agent_info()
+            else:
+                partial_agent_info = {
+                    "returncode": None,
+                    "seconds": elapsed_agent_interval,
+                    "agent_reported_api_seconds": None,
+                    "attempts": [],
+                    "usage": {},
+                }
         agent_response_finished_monotonic = partial_agent_info.pop(
             "_response_finished_monotonic", None
         )
@@ -5841,6 +6007,7 @@ def run_one(
             and agent_interval_started is not None
             and float(agent_response_finished_monotonic) >= agent_interval_started
         ):
+            causal_outcome_finished_monotonic = float(agent_response_finished_monotonic)
             agent_interval_wall_seconds = (
                 float(agent_response_finished_monotonic) - agent_interval_started
             )
@@ -5849,6 +6016,11 @@ def run_one(
                     float(agent_response_finished_monotonic)
                     - user_visible_interval_started
                 )
+        elif user_visible_interval_started is not None:
+            causal_outcome_finished_monotonic = exception_observed_monotonic
+            user_visible_interval_wall_seconds = (
+                exception_observed_monotonic - user_visible_interval_started
+            )
         record.update(
             {
                 "agent_ran": agent_interval_started is not None,
@@ -5876,6 +6048,21 @@ def run_one(
             }
         )
     except Exception as exc:
+        exception_observed_monotonic = time.monotonic()
+        if user_visible_interval_started is not None and user_visible_interval_wall_seconds is None:
+            causal_outcome_finished_monotonic = exception_observed_monotonic
+            user_visible_interval_wall_seconds = (
+                exception_observed_monotonic - user_visible_interval_started
+            )
+        if user_visible_interval_started is not None and not run_agent_entered:
+            record["agent_ran"] = False
+            record["agent_info"] = structural_zero_agent_info(
+                runner,
+                pricing,
+                reason="treatment_retrieval_or_delivery_failure",
+            )
+        elif run_agent_entered and not isinstance(record.get("agent_info"), dict):
+            record["agent_info"] = ambiguous_provider_agent_info()
         record.update(
             {
                 "ok": False,
@@ -5900,7 +6087,8 @@ def run_one(
         if agent_interval_started is not None and agent_interval_wall_seconds is None:
             agent_interval_wall_seconds = cell_finished - agent_interval_started
         if user_visible_interval_started is not None and user_visible_interval_wall_seconds is None:
-            user_visible_interval_wall_seconds = cell_finished - user_visible_interval_started
+            boundary = causal_outcome_finished_monotonic or cell_finished
+            user_visible_interval_wall_seconds = boundary - user_visible_interval_started
         record["timing"] = {
             "primary": TIMING_DEFINITIONS["primary"],
             "end_to_end_user_visible_wall_seconds": user_visible_interval_wall_seconds,
@@ -6896,6 +7084,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         runners = [parse_runner_spec(x.strip()) for x in args.agents.split(",") if x.strip()]
     conditions = [x.strip() for x in args.conditions.split(",") if x.strip()]
     pricing = load_pricing(args)
+    assert_confirmatory_retry_policy(pricing, getattr(args, "agent_retries", 0))
     schedule = build_schedule(
         tasks,
         runners,
@@ -7590,7 +7779,12 @@ def main() -> int:
         help="After the first no_brain repetition for a task/runner, skip the remaining repetitions and conditions if the score is above this threshold.",
     )
     run_p.add_argument("--timeout", type=int, default=1800)
-    run_p.add_argument("--agent-retries", type=int, default=2, help="Retry explicit transient agent-capacity/service failures")
+    run_p.add_argument(
+        "--agent-retries",
+        type=int,
+        default=0,
+        help="Exploratory-only transient retries; confirmatory pricing requires zero",
+    )
     run_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     run_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     run_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
@@ -7618,7 +7812,12 @@ def main() -> int:
     panel_p.add_argument("--order-policy", choices=ORDER_POLICIES, default="counterbalanced")
     panel_p.add_argument("--cache-policy", choices=CACHE_POLICIES, default="isolated_per_cell")
     panel_p.add_argument("--timeout", type=int, default=1800)
-    panel_p.add_argument("--agent-retries", type=int, default=2, help="Retry explicit transient agent-capacity/service failures")
+    panel_p.add_argument(
+        "--agent-retries",
+        type=int,
+        default=0,
+        help="Exploratory-only transient retries; confirmatory pricing requires zero",
+    )
     panel_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     panel_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     panel_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")

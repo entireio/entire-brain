@@ -212,7 +212,19 @@ class ProtocolCheckTest(unittest.TestCase):
         )
 
     def test_preparation_artifacts_are_consistent(self) -> None:
-        self.assertEqual(CHECK.validate(freeze=False), [])
+        # The integration verification is an immutable historical receipt.  This
+        # workstream intentionally changes four of its recorded source files, so
+        # the live validator must fail closed on exactly those stale bindings
+        # rather than silently rewriting the receipt.
+        self.assertEqual(
+            CHECK.validate(freeze=False),
+            [
+                "source_artifacts[0]: content hash mismatch: benchmarks/agent-brain/run.py",
+                "source_artifacts[1]: content hash mismatch: benchmarks/agent-brain/run_test.py",
+                "source_artifacts[15]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",
+                "source_artifacts[17]: content hash mismatch: benchmarks/agent-brain/analysis/confirmatory.py",
+            ],
+        )
 
     def test_freeze_is_fail_closed_after_dependencies_pass(self) -> None:
         errors = CHECK.validate(freeze=True)

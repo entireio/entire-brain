@@ -48,6 +48,10 @@ REPORT_SCHEMA = "agent-brain-confirmatory-analysis/v2"
 SUCCESS_CONTRACT_SCHEMA = "agent-brain-joint-superiority-contract/v2"
 BILLING_SCHEMA = "agent-brain-billing-usage/v2"
 QUALITY_SCHEMA = "agent-brain-code-quality/v2"
+PROVIDER_INVOCATION_SCHEMA = "agent-brain-provider-invocation-state/v1"
+PROVIDER_INVOCATIONS_OBSERVED = "provider_invocations_observed"
+STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION = "structural_zero_no_provider_invocation"
+PROVIDER_PATH_ENTERED_USAGE_UNKNOWN = "provider_path_entered_usage_unknown"
 PRIMARY_ARMS = ("no_memory", "placebo_packet", "retrieved_memory")
 BASELINE_ARM = "no_memory"
 OPTIMIZED_ARM = "retrieved_memory"
@@ -375,7 +379,11 @@ def _validate_success_contract(contract: Any) -> dict[str, Any]:
         raise AnalysisInputError("success contract must define exactly three co-primary endpoints")
     required = {
         "elapsed_time": ("lower", "paired_task_geometric_mean_ratio", "practical_ratio_max"),
-        "normalized_cost": ("lower", "paired_task_geometric_mean_ratio", "practical_ratio_max"),
+        "normalized_cost": (
+            "lower",
+            "ratio_of_equal_task_weighted_task_arm_mean_costs",
+            "practical_ratio_max",
+        ),
         "code_quality": ("higher", "paired_task_mean_difference", "practical_difference_min"),
     }
     for name, (direction, estimand, floor_key) in required.items():
@@ -413,8 +421,9 @@ def _validate_success_contract(contract: Any) -> dict[str, Any]:
     if (
         timeout.get("elapsed_field") != "timing.end_to_end_user_visible_wall_seconds"
         or timeout.get("substitute_component_timeout_limit") is not False
+        or timeout.get("provider_retry_limit") != 0
     ):
-        raise AnalysisInputError("timeout elapsed-observation contract changed")
+        raise AnalysisInputError("timeout/retry observation contract changed")
     _finite_number(
         timeout.get("agent_timeout_limit_seconds"),
         "agent timeout limit",
@@ -457,8 +466,8 @@ def _normalized_cost(
             (Decimal(recorded[key]) * prices[key] for key in PRICE_CATEGORIES),
             Decimal("0"),
         ) / Decimal(quote["tokens_per_price_unit"])
-    if cost <= 0:
-        raise AnalysisInputError(f"{label} normalized billed cost must be positive")
+    if cost < 0:  # pragma: no cover - prices and token counters are nonnegative
+        raise AnalysisInputError(f"{label} normalized billed cost must be nonnegative")
     rendered = _decimal_string(cost)
     recorded_cost = billing.get("normalized_cost_usd")
     if recorded_cost is not None and recorded_cost != rendered:
@@ -469,16 +478,78 @@ def _normalized_cost(
 def _validated_attempt_aggregate_cost(
     record: dict[str, Any], quote: dict[str, Any], *, run_id: str
 ) -> tuple[float, str, dict[str, int]]:
-    """Require and reconcile every isolated provider invocation's billing."""
+    """Reconcile provider attempts or an authenticated pre-provider structural zero."""
     agent_info = record.get("agent_info")
     if not isinstance(agent_info, dict):
         raise AnalysisInputError(f"{run_id}: agent_info is required")
     attempts = agent_info.get("attempts")
-    if not isinstance(attempts, list) or not attempts:
-        raise AnalysisInputError(f"{run_id}: attempt-level billing evidence is required")
+    if not isinstance(attempts, list):
+        raise AnalysisInputError(f"{run_id}: attempt-level billing evidence must be an array")
+    provider = agent_info.get("provider_invocation")
+    if not isinstance(provider, dict) or provider.get("schema") != PROVIDER_INVOCATION_SCHEMA:
+        raise AnalysisInputError(f"{run_id}: authenticated provider invocation state is required")
     integrity = agent_info.get("billing_integrity")
     if not isinstance(integrity, dict) or integrity.get("schema") != "agent-brain-attempt-billing-integrity/v1":
         raise AnalysisInputError(f"{run_id}: attempt billing integrity record is required")
+
+    if provider.get("state") == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION:
+        if (
+            record.get("agent_ran") is not False
+            or provider.get("invocation_count") != 0
+            or provider.get("attestation") != "harness_control_flow_run_agent_not_entered"
+            or provider.get("reason")
+            not in {
+                "treatment_retrieval_or_delivery_timeout",
+                "treatment_retrieval_or_delivery_failure",
+            }
+            or attempts != []
+            or agent_info.get("returncode") is not None
+        ):
+            raise AnalysisInputError(f"{run_id}: structural-zero provider attestation is inconsistent")
+        if (
+            integrity.get("required") is not True
+            or integrity.get("passed") is not True
+            or integrity.get("attempt_count") != 0
+            or integrity.get("complete_attempts") != 0
+            or integrity.get("incomplete_attempts") != []
+            or integrity.get("aggregate_present") is not True
+            or integrity.get("aggregation") != STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION
+        ):
+            raise AnalysisInputError(f"{run_id}: structural-zero billing integrity did not pass")
+        aggregate_report = _nested(agent_info, "usage", "usage_report")
+        if aggregate_report != {
+            "complete": True,
+            "parser": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+            "accounting_basis": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+            "source_events": 0,
+            "attempt_count": 0,
+            "complete_attempts": [],
+            "incomplete_attempts": [],
+            "error": None,
+        }:
+            raise AnalysisInputError(f"{run_id}: structural-zero usage report is inconsistent")
+        aggregate = _nested(agent_info, "usage", "billing_v2")
+        cost, cost_text, exclusive = _normalized_cost(aggregate, quote, run_id=run_id)
+        assert isinstance(aggregate, dict)
+        if (
+            cost != 0.0
+            or any(value != 0 for value in aggregate.get("raw", {}).values())
+            or any(value != 0 for value in exclusive.values())
+        ):
+            raise AnalysisInputError(f"{run_id}: structural-zero billing must contain only zeros")
+        return cost, cost_text, exclusive
+
+    if provider.get("state") != PROVIDER_INVOCATIONS_OBSERVED:
+        raise AnalysisInputError(f"{run_id}: provider path entry or usage is ambiguous")
+    if (
+        record.get("agent_ran") is not True
+        or provider.get("invocation_count") != len(attempts)
+        or provider.get("attestation") != "retained_attempt_ledger"
+        or provider.get("reason") is not None
+    ):
+        raise AnalysisInputError(f"{run_id}: provider invocation ledger attestation is inconsistent")
+    if len(attempts) != 1:
+        raise AnalysisInputError(f"{run_id}: confirmatory provider retry limit is zero")
     if (
         integrity.get("required") is not True
         or integrity.get("passed") is not True
@@ -623,6 +694,7 @@ def _prepare_cells(
     missing_validation_scored_incorrect = 0
     critical_quality_zeroes = 0
     timed_out_attempts = 0
+    structural_zero_attempts = 0
     cells: list[dict[str, Any]] = []
     timeout_policy = success_contract["timeout_policy"]
     frozen_agent_timeout = float(timeout_policy["agent_timeout_limit_seconds"])
@@ -683,9 +755,19 @@ def _prepare_cells(
                 raise AnalysisInputError(f"{run_id}: validation.ok must be boolean")
             validation_ok = False
             missing_validation_scored_incorrect += 1
-        return_code = _nested(record, "agent_info", "returncode")
-        if isinstance(return_code, bool) or not isinstance(return_code, int):
-            raise AnalysisInputError(f"{run_id}: agent returncode must be an integer")
+        agent_info = record.get("agent_info")
+        provider = agent_info.get("provider_invocation") if isinstance(agent_info, dict) else None
+        return_code = agent_info.get("returncode") if isinstance(agent_info, dict) else None
+        provider_state = provider.get("state") if isinstance(provider, dict) else None
+        if provider_state == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION:
+            if record.get("agent_ran") is not False or return_code is not None:
+                raise AnalysisInputError(
+                    f"{run_id}: no-provider structural zero requires agent_ran=false and null returncode"
+                )
+        elif provider_state == PROVIDER_PATH_ENTERED_USAGE_UNKNOWN:
+            raise AnalysisInputError(f"{run_id}: provider path entry or usage is ambiguous")
+        elif isinstance(return_code, bool) or not isinstance(return_code, int):
+            raise AnalysisInputError(f"{run_id}: launched agent returncode must be an integer")
 
         timing = record.get("timing")
         if not isinstance(timing, dict):
@@ -738,6 +820,8 @@ def _prepare_cells(
         cost, cost_text, exclusive_usage = _validated_attempt_aggregate_cost(
             record, price_quote, run_id=run_id
         )
+        if isinstance(provider, dict) and provider.get("state") == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION:
+            structural_zero_attempts += 1
         raw_total_tokens = _nested(record, "agent_info", "usage", "total_tokens")
         if raw_total_tokens is not None:
             _finite_number(raw_total_tokens, f"{run_id}: raw total_tokens")
@@ -830,6 +914,7 @@ def _prepare_cells(
         "missing_validation_scored_incorrect": missing_validation_scored_incorrect,
         "critical_quality_zeroes": critical_quality_zeroes,
         "timed_out_attempts": timed_out_attempts,
+        "structural_zero_no_provider_attempts": structural_zero_attempts,
         "condition_to_treatment_arm": dict(sorted(condition_to_arm.items())),
     }
 
@@ -900,6 +985,118 @@ def _ratio_endpoint(
             math.exp(upper_log) < practical_ratio_max and p_value <= ALPHA
         ),
         "placebo_diagnostic": _placebo_ratio_diagnostic(means, task_ids, samples),
+    }
+
+
+def _equal_task_weighted_cost_ratio(
+    means: dict[str, dict[str, float]],
+    task_ids: Sequence[str],
+    indices: Sequence[int],
+    numerator_arm: str,
+    *,
+    allow_zero_denominator: bool = False,
+) -> float | None:
+    numerator = sum(means[task_ids[index]][numerator_arm] for index in indices)
+    denominator = sum(means[task_ids[index]][BASELINE_ARM] for index in indices)
+    if denominator <= 0.0:
+        if allow_zero_denominator:
+            return None
+        raise AnalysisInputError(
+            "normalized-cost full-sample no_memory denominator must be positive"
+        )
+    return numerator / denominator
+
+
+def _cost_ratio_endpoint(
+    means: dict[str, dict[str, float]],
+    task_ids: Sequence[str],
+    samples: Sequence[Sequence[int]],
+    *,
+    practical_ratio_max: float,
+) -> dict[str, Any]:
+    """Zero-safe ratio of equally weighted task-arm mean billed costs."""
+    complete = tuple(range(len(task_ids)))
+    point = _equal_task_weighted_cost_ratio(means, task_ids, complete, OPTIMIZED_ARM)
+    assert point is not None
+    raw_bootstrap = [
+        _equal_task_weighted_cost_ratio(
+            means,
+            task_ids,
+            draw,
+            OPTIMIZED_ARM,
+            allow_zero_denominator=True,
+        )
+        for draw in samples
+    ]
+    zero_denominator_draws = sum(value is None for value in raw_bootstrap)
+    bootstrap = sorted(float(value) for value in raw_bootstrap if value is not None)
+    if zero_denominator_draws:
+        finite_upper = _quantile(bootstrap, 1.0 - ALPHA) if bootstrap else point
+        upper = max(1.0, finite_upper)
+        p_value = 1.0
+    else:
+        upper = _quantile(bootstrap, 1.0 - ALPHA)
+        p_value = _one_sided_less_p(bootstrap, point, practical_ratio_max)
+    placebo_point = _equal_task_weighted_cost_ratio(means, task_ids, complete, PLACEBO_ARM)
+    assert placebo_point is not None
+    raw_placebo_bootstrap = [
+        _equal_task_weighted_cost_ratio(
+            means,
+            task_ids,
+            draw,
+            PLACEBO_ARM,
+            allow_zero_denominator=True,
+        )
+        for draw in samples
+    ]
+    placebo_zero_denominator_draws = sum(value is None for value in raw_placebo_bootstrap)
+    placebo_bootstrap = sorted(
+        float(value) for value in raw_placebo_bootstrap if value is not None
+    )
+    placebo_lower = _quantile(placebo_bootstrap, ALPHA / 2) if placebo_bootstrap else placebo_point
+    placebo_upper = (
+        _quantile(placebo_bootstrap, 1 - ALPHA / 2)
+        if placebo_bootstrap
+        else placebo_point
+    )
+    if placebo_zero_denominator_draws:
+        placebo_upper = max(1.0, placebo_upper)
+    return {
+        "status": "evaluated",
+        "comparison": "retrieved_memory_vs_no_memory",
+        "source_field": "derived_from_agent_info.usage.billing_v2_and_frozen_price_quote",
+        "estimand": "ratio_of_equal_task_weighted_task_arm_mean_costs",
+        "all_executed_attempts": True,
+        "repetition_aggregation": "arithmetic_mean_within_task_arm_before_contrast",
+        "task_aggregation": "equal_weight_arithmetic_mean_before_ratio",
+        "cluster_unit": "task",
+        "n_task_clusters": len(task_ids),
+        "equal_task_weighted_mean_ratio": point,
+        "one_sided_confidence": CONFIDENCE,
+        "one_sided_percentile_upper_bound": upper,
+        "bootstrap_zero_denominator_draws": zero_denominator_draws,
+        "bootstrap_zero_denominator_policy": (
+            "force_nonclear_upper_bound_at_least_one_and_p_value_one"
+        ),
+        "practical_ratio_max": practical_ratio_max,
+        "bootstrap_p_value_one_sided_at_practical_floor": p_value,
+        "clears_practical_floor": bool(upper < practical_ratio_max and p_value <= ALPHA),
+        "placebo_diagnostic": {
+            "comparison": "placebo_packet_vs_no_memory",
+            "role": "diagnostic_not_in_joint_verdict",
+            "n_task_clusters": len(task_ids),
+            "equal_task_weighted_mean_ratio": placebo_point,
+            "two_sided_percentile_ci": [
+                placebo_lower,
+                placebo_upper,
+            ],
+            "bootstrap_p_value_two_sided_ratio_one": (
+                1.0
+                if placebo_zero_denominator_draws
+                else _two_sided_p(placebo_bootstrap, placebo_point, 1.0)
+            ),
+            "bootstrap_zero_denominator_draws": placebo_zero_denominator_draws,
+        },
     }
 
 
@@ -988,16 +1185,11 @@ def analyze_records(
             "no_memory_mean_end_to_end_elapsed_all_executed)"
         ),
     )
-    cost = _ratio_endpoint(
+    cost = _cost_ratio_endpoint(
         _task_arm_means(cells, task_ids, "normalized_cost"),
         task_ids,
         samples,
         practical_ratio_max=float(floors["normalized_cost"]["practical_ratio_max"]),
-        source_field="derived_from_agent_info.usage.billing_v2_and_frozen_price_quote",
-        estimand=(
-            "geometric_mean_across_tasks(retrieved_mean_normalized_billed_cost_all_executed / "
-            "no_memory_mean_normalized_billed_cost_all_executed)"
-        ),
     )
     quality = _quality_endpoint(
         _task_arm_means(cells, task_ids, "quality"),
@@ -1087,7 +1279,10 @@ def analyze_records(
             "price_quote_currency": quote["currency"],
             "cost_categories": list(PRICE_CATEGORIES),
             "usage_semantics": quote["usage_semantics"],
-            "attempt_aggregation": "sum_per_isolated_provider_invocation_attempt_total",
+            "attempt_aggregation": (
+                "sum_per_isolated_provider_invocation_attempt_total_or_authenticated_structural_zero"
+            ),
+            "provider_retry_limit": contract["timeout_policy"]["provider_retry_limit"],
             "code_quality_schema": QUALITY_SCHEMA,
             "code_quality_rubric": contract["code_quality_measurement"]["rubric"],
             "timeout_policy": contract["timeout_policy"]["policy"],
@@ -1120,6 +1315,7 @@ def analyze_records(
             "provider_api_time_is_diagnostic_only_and_never_substituted": True,
             "timed_out_elapsed_uses_measured_end_to_end_interval": True,
             "all_provider_retry_attempts_included_in_cost": True,
+            "structural_zero_requires_authenticated_no_provider_invocation": True,
             "generic_total_tokens_used_for_cost_categories": False,
         },
     }

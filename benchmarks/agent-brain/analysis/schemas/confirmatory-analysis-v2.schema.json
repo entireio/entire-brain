@@ -44,6 +44,7 @@
         "missing_validation_scored_incorrect",
         "critical_quality_zeroes",
         "timed_out_attempts",
+        "structural_zero_no_provider_attempts",
         "condition_to_treatment_arm"
       ],
       "properties": {
@@ -53,6 +54,7 @@
         "missing_validation_scored_incorrect": {"type": "integer", "minimum": 0},
         "critical_quality_zeroes": {"type": "integer", "minimum": 0},
         "timed_out_attempts": {"type": "integer", "minimum": 0},
+        "structural_zero_no_provider_attempts": {"type": "integer", "minimum": 0},
         "condition_to_treatment_arm": {
           "type": "object",
           "minProperties": 3,
@@ -117,6 +119,7 @@
         "cost_categories",
         "usage_semantics",
         "attempt_aggregation",
+        "provider_retry_limit",
         "code_quality_schema",
         "code_quality_rubric",
         "timeout_policy"
@@ -128,7 +131,10 @@
         "price_quote_currency": {"const": "USD"},
         "cost_categories": {"$ref": "#/$defs/cost_categories"},
         "usage_semantics": {"type": "object"},
-        "attempt_aggregation": {"const": "sum_per_isolated_provider_invocation_attempt_total"},
+        "attempt_aggregation": {
+          "const": "sum_per_isolated_provider_invocation_attempt_total_or_authenticated_structural_zero"
+        },
+        "provider_retry_limit": {"const": 0},
         "code_quality_schema": {"const": "agent-brain-code-quality/v2"},
         "code_quality_rubric": {"const": "task_relative_output_outcome_patch_focus_v2"},
         "timeout_policy": {"const": "retain_measured_end_to_end_elapsed_no_component_cap_substitution"}
@@ -150,7 +156,7 @@
       "required": ["elapsed_time", "normalized_cost", "code_quality"],
       "properties": {
         "elapsed_time": {"$ref": "#/$defs/ratio_endpoint"},
-        "normalized_cost": {"$ref": "#/$defs/ratio_endpoint"},
+        "normalized_cost": {"$ref": "#/$defs/cost_ratio_endpoint"},
         "code_quality": {"$ref": "#/$defs/quality_endpoint"}
       },
       "additionalProperties": false
@@ -188,6 +194,7 @@
         "provider_api_time_is_diagnostic_only_and_never_substituted",
         "timed_out_elapsed_uses_measured_end_to_end_interval",
         "all_provider_retry_attempts_included_in_cost",
+        "structural_zero_requires_authenticated_no_provider_invocation",
         "generic_total_tokens_used_for_cost_categories"
       ],
       "properties": {
@@ -197,6 +204,7 @@
         "provider_api_time_is_diagnostic_only_and_never_substituted": {"const": true},
         "timed_out_elapsed_uses_measured_end_to_end_interval": {"const": true},
         "all_provider_retry_attempts_included_in_cost": {"const": true},
+        "structural_zero_requires_authenticated_no_provider_invocation": {"const": true},
         "generic_total_tokens_used_for_cost_categories": {"const": false}
       },
       "additionalProperties": false
@@ -238,7 +246,7 @@
         "critical_quality_zeroes": {"type": "integer", "minimum": 0},
         "mean_task_normalized_quality": {"type": "number", "minimum": 0, "maximum": 1},
         "mean_end_to_end_user_visible_wall_seconds": {"type": "number", "exclusiveMinimum": 0},
-        "mean_normalized_cost_usd": {"type": "number", "exclusiveMinimum": 0},
+        "mean_normalized_cost_usd": {"type": "number", "minimum": 0},
         "timed_out_attempts": {"type": "integer", "minimum": 0},
         "exclusive_billed_tokens_total": {"type": "object"},
         "raw_total_token_measurements": {"type": "integer", "minimum": 0},
@@ -275,6 +283,20 @@
             "paired_task_geometric_mean_ratio",
             "one_sided_percentile_upper_bound",
             "practical_ratio_max"
+          ]
+        }
+      ]
+    },
+    "cost_ratio_endpoint": {
+      "allOf": [
+        {"$ref": "#/$defs/endpoint_base"},
+        {
+          "required": [
+            "equal_task_weighted_mean_ratio",
+            "one_sided_percentile_upper_bound",
+            "practical_ratio_max",
+            "task_aggregation",
+            "bootstrap_zero_denominator_draws"
           ]
         }
       ]

@@ -48,7 +48,8 @@ corresponding gate pending.
      benchmarks/agent-brain/confirmatory/pricing-budget.json
    ```
 
-   The calculation prices every requested and reserve call at the frozen per-call envelope:
+   The calculation prices every requested call at the frozen per-call envelope; confirmatory
+   retries and replacement calls are frozen at zero:
 
    `maximum_calls_with_reserve * sum(each mutually exclusive billed category * its frozen direct or aliased price) / 1,000,000`
 
@@ -69,10 +70,11 @@ these bindings is missing, when design arithmetic or preregistration fields drif
 sample names another runner, when quote or approval validity has expired, when the calculation is
 stale, or when approval is below the computed maximum.
 
-At execution time, each retry invocation retains its own provider output and normalized billing
-record. The harness selects the final cumulative snapshot once per isolated invocation and sums the
-five mutually exclusive categories across all attempts, including failed attempts. Any attempt with
-missing or ambiguous usage invalidates the confirmatory cell; it is never treated as free.
+At execution time, a provider-entered cell retains its one invocation's output and normalized
+billing record, selecting the final cumulative snapshot exactly once. Any entered or ambiguous
+provider path with missing usage invalidates the suite; it is never treated as free. A pre-provider
+treatment failure is zero cost only when content-addressed harness evidence attests that `run_agent`
+was never entered and binds explicit all-zero categories to the frozen quote.
 
 No pricing lookup, model selection, purchase, fresh-holdout access, or paid agent call was performed
 to create this contract.

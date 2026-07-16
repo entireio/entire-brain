@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import pathlib
 import sys
 import tempfile
@@ -45,7 +46,7 @@ def success_contract(*, frozen: bool = True) -> dict:
                 },
                 "normalized_cost": {
                     "direction": "lower",
-                    "estimand": "paired_task_geometric_mean_ratio",
+                    "estimand": "ratio_of_equal_task_weighted_task_arm_mean_costs",
                     "practical_ratio_max": 0.88,
                     "floor_status": status,
                 },
@@ -72,6 +73,7 @@ def success_contract(*, frozen: bool = True) -> dict:
                 "policy": "retain_measured_end_to_end_elapsed_no_component_cap_substitution",
                 "elapsed_field": "timing.end_to_end_user_visible_wall_seconds",
                 "agent_timeout_limit_seconds": 100.0,
+                "provider_retry_limit": 0,
                 "substitute_component_timeout_limit": False,
                 "status": status,
             },
@@ -214,6 +216,13 @@ def make_records(
                         "validation": {"ok": True},
                         "agent_info": {
                             "returncode": 0,
+                            "provider_invocation": {
+                                "schema": confirmatory.PROVIDER_INVOCATION_SCHEMA,
+                                "state": confirmatory.PROVIDER_INVOCATIONS_OBSERVED,
+                                "invocation_count": 1,
+                                "attestation": "retained_attempt_ledger",
+                                "reason": None,
+                            },
                             "attempts": [
                                 {
                                     "attempt": 1,
@@ -257,6 +266,56 @@ def make_records(
     return records
 
 
+def make_structural_zero(record: dict, *, reason: str = "treatment_retrieval_or_delivery_failure") -> None:
+    quote = price_quote()
+    zero_billing = billing(quote, 0.0)
+    record["agent_ran"] = False
+    record["error"] = reason
+    record["validation"] = {"ok": False}
+    record["agent_info"] = {
+        "returncode": None,
+        "provider_invocation": {
+            "schema": confirmatory.PROVIDER_INVOCATION_SCHEMA,
+            "state": confirmatory.STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+            "invocation_count": 0,
+            "attestation": "harness_control_flow_run_agent_not_entered",
+            "reason": reason,
+        },
+        "attempts": [],
+        "billing_integrity": {
+            "schema": "agent-brain-attempt-billing-integrity/v1",
+            "required": True,
+            "attempt_count": 0,
+            "complete_attempts": 0,
+            "incomplete_attempts": [],
+            "aggregate_present": True,
+            "passed": True,
+            "aggregation": confirmatory.STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+        },
+        "usage": {
+            "total_tokens": 0,
+            "billing_v2": zero_billing,
+            "usage_report": {
+                "complete": True,
+                "parser": confirmatory.STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+                "accounting_basis": confirmatory.STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+                "source_events": 0,
+                "attempt_count": 0,
+                "complete_attempts": [],
+                "incomplete_attempts": [],
+                "error": None,
+            },
+        },
+    }
+    record["code_quality"].update(
+        {
+            "task_normalized_score": 0.0,
+            "critical_failure": True,
+            "critical_failure_reasons": [reason],
+        }
+    )
+
+
 def schedule_cells(records: list[dict]) -> list[dict]:
     return [
         {
@@ -298,7 +357,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
         self.assertEqual(report["joint_superiority"]["method"], "intersection_union_all_three_component_nulls_must_be_rejected")
         endpoints = report["primary_endpoints"]
         self.assertAlmostEqual(endpoints["elapsed_time"]["paired_task_geometric_mean_ratio"], 0.8)
-        self.assertAlmostEqual(endpoints["normalized_cost"]["paired_task_geometric_mean_ratio"], 0.8)
+        self.assertAlmostEqual(endpoints["normalized_cost"]["equal_task_weighted_mean_ratio"], 0.8)
         self.assertAlmostEqual(endpoints["code_quality"]["paired_task_mean_difference"], 0.1)
         self.assertAlmostEqual(report["arm_summary"]["no_memory"]["mean_normalized_cost_usd"], 0.038)
         self.assertTrue(all(item["clears_practical_floor"] for item in endpoints.values()))
@@ -371,7 +430,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(confirmatory.AnalysisInputError, "must contain exactly"):
             self.analyze(records)
 
-    def test_attempt_billing_sum_is_required_and_reconciled(self) -> None:
+    def test_confirmatory_provider_retries_are_rejected(self) -> None:
         records = make_records()
         target = records[0]
         second = copy.deepcopy(target["agent_info"]["attempts"][0])
@@ -380,6 +439,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
         target["agent_info"]["billing_integrity"].update(
             {"attempt_count": 2, "complete_attempts": 2}
         )
+        target["agent_info"]["provider_invocation"]["invocation_count"] = 2
         target["agent_info"]["usage"]["usage_report"].update(
             {"attempt_count": 2, "complete_attempts": [1, 2]}
         )
@@ -387,13 +447,7 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
         for value in (aggregate["raw"], aggregate["exclusive"]):
             for key in value:
                 value[key] *= 2
-        self.analyze(records)
-
-        aggregate["exclusive"]["visible_output"] -= 1
-        with self.assertRaisesRegex(
-            confirmatory.AnalysisInputError,
-            "exclusive categories do not match|aggregate billing does not equal attempt sum",
-        ):
+        with self.assertRaisesRegex(confirmatory.AnalysisInputError, "retry limit is zero"):
             self.analyze(records)
 
     def test_timeout_retains_measured_end_to_end_time_without_component_substitution(self) -> None:
@@ -430,13 +484,13 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(confirmatory.AnalysisInputError, "agent timeout limit differs"):
             self.analyze(records)
 
-    def test_retrieval_timeout_without_billed_usage_fails_suite_closed(self) -> None:
+    def test_retrieval_timeout_before_provider_is_authenticated_structural_zero(self) -> None:
         records = make_records()
         target = records[0]
-        target["agent_ran"] = False
-        target["error"] = "treatment_retrieval_or_delivery timeout"
-        target["agent_info"] = {"returncode": 124, "usage": {}}
-        target["validation"] = {"ok": False}
+        make_structural_zero(
+            target,
+            reason="treatment_retrieval_or_delivery_timeout",
+        )
         target["timing"].update(
             {
                 "timeout_occurred": True,
@@ -445,14 +499,55 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
                 "end_to_end_user_visible_wall_seconds": 30.4,
             }
         )
-        target["code_quality"].update(
-            {
-                "task_normalized_score": 0.0,
-                "critical_failure": True,
-                "critical_failure_reasons": ["treatment_retrieval_or_delivery_timeout"],
-            }
-        )
-        with self.assertRaisesRegex(confirmatory.AnalysisInputError, "attempt-level billing evidence"):
+        report = self.analyze(records)
+        self.assertEqual(report["integrity"]["structural_zero_no_provider_attempts"], 1)
+        self.assertEqual(target["agent_info"]["usage"]["billing_v2"]["raw"]["input_tokens"], 0)
+
+    def test_all_retrieved_structural_zero_costs_are_retained_without_log_crash(self) -> None:
+        records = make_records()
+        for record in records:
+            if record["treatment"]["arm"] == "retrieved_memory":
+                make_structural_zero(record)
+        report = self.analyze(records)
+        cost = report["primary_endpoints"]["normalized_cost"]
+        self.assertEqual(cost["equal_task_weighted_mean_ratio"], 0.0)
+        self.assertEqual(cost["bootstrap_zero_denominator_draws"], 0)
+        self.assertTrue(cost["clears_practical_floor"])
+        self.assertFalse(report["joint_superiority"]["passed"])
+
+    def test_mixed_zero_baseline_tasks_force_conservative_finite_cost_result(self) -> None:
+        records = make_records()
+        for record in records:
+            if record["task_id"] == "task-a" and record["treatment"]["arm"] == "no_memory":
+                make_structural_zero(record)
+        report = self.analyze(records)
+        cost = report["primary_endpoints"]["normalized_cost"]
+        self.assertGreater(cost["bootstrap_zero_denominator_draws"], 0)
+        self.assertTrue(math.isfinite(cost["one_sided_percentile_upper_bound"]))
+        self.assertFalse(cost["clears_practical_floor"])
+
+    def test_all_zero_no_memory_denominator_fails_closed(self) -> None:
+        records = make_records()
+        for record in records:
+            if record["treatment"]["arm"] == "no_memory":
+                make_structural_zero(record)
+        with self.assertRaisesRegex(
+            confirmatory.AnalysisInputError,
+            "full-sample no_memory denominator must be positive",
+        ):
+            self.analyze(records)
+
+    def test_structural_zero_tampering_and_ambiguous_provider_entry_fail_closed(self) -> None:
+        records = make_records()
+        make_structural_zero(records[0])
+        records[0]["agent_info"]["usage"]["billing_v2"]["raw"]["input_tokens"] = 1
+        with self.assertRaisesRegex(confirmatory.AnalysisInputError, "exclusive categories do not match|only zeros"):
+            self.analyze(records)
+
+        records = make_records()
+        make_structural_zero(records[0])
+        records[0]["agent_info"]["provider_invocation"]["state"] = "provider_path_entered_usage_unknown"
+        with self.assertRaisesRegex(confirmatory.AnalysisInputError, "ambiguous"):
             self.analyze(records)
 
     def test_quality_out_of_range_fails_and_critical_failure_is_forced_to_zero(self) -> None:
@@ -604,6 +699,13 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
             "execution_gate": {
                 "treatment_started": True,
                 "agent_ran": True,
+                "provider_invocation": {
+                    "schema": evidence.PROVIDER_INVOCATION_SCHEMA,
+                    "state": evidence.PROVIDER_INVOCATIONS_OBSERVED,
+                    "invocation_count": 1,
+                    "attestation": "retained_attempt_ledger",
+                    "reason": None,
+                },
                 "billing_integrity": {
                     "required": False,
                     "passed": True,
@@ -670,6 +772,55 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
             "v2 run manifest component timeout limit must be positive",
             evidence.validate_run_manifest(manifest),
         )
+
+    def test_v2_manifest_represents_pre_treatment_non_outcome_truthfully(self) -> None:
+        record = {
+            "treatment_started": False,
+            "agent_ran": False,
+            "run_id": "pre-treatment",
+            "task_id": "task",
+            "runner": {"id": "runner"},
+            "condition": "control",
+            "error": "preflight failed",
+            "score": {"total": 0},
+            "code_quality": {
+                "schema": confirmatory.QUALITY_SCHEMA,
+                "rubric": "task_relative_output_outcome_patch_focus_v2",
+                "task_normalized_score": 0.0,
+                "critical_failure": True,
+                "critical_failure_reasons": ["pre_treatment_failure"],
+                "excluded_components": [
+                    "validation_discipline",
+                    "runtime_efficiency",
+                    "brain_use",
+                ],
+            },
+            "timing": {
+                "primary": "end_to_end_user_visible_wall_seconds",
+                "end_to_end_user_visible_wall_seconds": None,
+                "timeout_occurred": False,
+                "timeout_stage": None,
+                "agent_timeout_limit_seconds": 100.0,
+                "timeout_component_limit_seconds": None,
+                "harness_agent_interval_wall_seconds": None,
+                "agent_reported_api_seconds": None,
+                "cell_setup_wall_seconds": 1.0,
+                "cell_total_wall_seconds": 1.0,
+                "pre_treatment_setup_included_in_primary": False,
+                "treatment_retrieval_included_in_primary": True,
+                "hidden_validation_included_in_primary": False,
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            manifest = evidence.build_run_manifest(record, root, root)
+        manifest["identity_sha256"] = "a" * 64
+        self.assertFalse(manifest["executed"])
+        self.assertEqual(
+            manifest["execution_gate"]["provider_invocation"]["state"],
+            evidence.PRE_TREATMENT_PROVIDER_PATH_NOT_ENTERED,
+        )
+        self.assertEqual(evidence.validate_run_manifest(manifest), [])
 
     def test_verified_suite_interface_uses_schedule_not_holdout_metadata(self) -> None:
         records = make_records(tasks=("task-a", "task-b"))

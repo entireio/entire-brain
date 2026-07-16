@@ -56,8 +56,8 @@
     ],
     "repetitions_per_treatment": 4,
     "requested_calls": 288,
-    "reserve_calls": 29,
-    "maximum_calls_with_reserve": 317
+    "reserve_calls": 0,
+    "maximum_calls_with_reserve": 288
   },
   "token_assumptions": {
     "mode": null,

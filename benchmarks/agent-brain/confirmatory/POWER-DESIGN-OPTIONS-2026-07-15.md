@@ -22,13 +22,14 @@ matches:
 - `no_memory` and `retrieved_memory` v2 treatment contracts;
 - the user-visible timing boundary and timeout rule;
 - the five mutually exclusive billing categories, frozen quote aliases,
-  inclusion/absence semantics, and all-attempt retry accounting under one priceable model row;
+  inclusion/absence semantics, authenticated pre-provider structural zeros, and zero confirmatory
+  retries under one priceable model row;
 - the task-normalized quality rubric and critical-failure-zero policy.
 
 The calibration must retain at least 12 independent task clusters and provide:
 
 - the SD of paired task-level mean log elapsed-time ratios;
-- the SD of paired task-level mean log normalized-cost ratios;
+- paired task-arm mean-cost rows sufficient for the equal-task-weighted ratio-of-means bootstrap;
 - the SD of paired task-level mean quality differences;
 - joint covariance or retained task rows sufficient to simulate the intersection-union rule.
 

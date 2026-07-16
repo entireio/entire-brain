@@ -297,6 +297,56 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
             },
         }
 
+    def test_structural_zero_is_quote_bound_only_before_provider_entry(self):
+        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        info = run.structural_zero_agent_info(
+            runner,
+            self._confirmatory_pricing(),
+            reason="treatment_retrieval_or_delivery_failure",
+        )
+        self.assertIsNone(info["returncode"])
+        self.assertEqual(info["attempts"], [])
+        self.assertTrue(info["billing_integrity"]["passed"])
+        self.assertEqual(
+            info["provider_invocation"]["state"],
+            run.STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+        )
+        self.assertEqual(set(info["usage"]["billing_v2"]["exclusive"].values()), {0})
+
+        unbound = run.structural_zero_agent_info(
+            runner,
+            {},
+            reason="treatment_retrieval_or_delivery_failure",
+        )
+        self.assertFalse(unbound["billing_integrity"]["required"])
+        self.assertFalse(unbound["billing_integrity"]["aggregate_present"])
+
+    def test_confirmatory_retries_are_frozen_zero_before_suite_execution(self):
+        run.assert_confirmatory_retry_policy(self._confirmatory_pricing(), 0)
+        with self.assertRaisesRegex(RuntimeError, "retries are frozen at zero"):
+            run.assert_confirmatory_retry_policy(self._confirmatory_pricing(), 1)
+        run.assert_confirmatory_retry_policy({}, 2)
+
+    def test_failure_boundary_and_provider_ledger_are_captured_before_bookkeeping(self):
+        source = inspect.getsource(run.run_one)
+        timeout_handler = source.index("except subprocess.TimeoutExpired as exc:")
+        timeout_boundary = source.index(
+            "exception_observed_monotonic = time.monotonic()", timeout_handler
+        )
+        timeout_record_update = source.index("record.update(", timeout_boundary)
+        generic_handler = source.index("except Exception as exc:", timeout_record_update)
+        generic_boundary = source.index(
+            "exception_observed_monotonic = time.monotonic()", generic_handler
+        )
+        generic_record_update = source.index("record.update(", generic_boundary)
+        ledger_assignment = source.index('record["agent_info"] = agent_info')
+        boundary_validation = source.index(
+            "agent response boundary timestamp is missing or invalid"
+        )
+        self.assertLess(timeout_boundary, timeout_record_update)
+        self.assertLess(generic_boundary, generic_record_update)
+        self.assertLess(ledger_assignment, boundary_validation)
+
     @staticmethod
     def _codex_result(input_tokens: int, output_tokens: int, cached: int, reasoning: int) -> str:
         return json.dumps(

@@ -20,10 +20,55 @@
     "artifacts": {"type": "array"},
     "execution_gate": {
       "type": "object",
-      "required": ["treatment_started", "agent_ran"],
+      "required": ["treatment_started", "agent_ran", "provider_invocation"],
       "properties": {
         "treatment_started": {"type": "boolean"},
         "agent_ran": {"type": "boolean"},
+        "provider_invocation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["schema", "state", "invocation_count", "attestation", "reason"],
+              "properties": {
+                "schema": {"const": "agent-brain-provider-invocation-state/v1"},
+                "state": {"const": "provider_invocations_observed"},
+                "invocation_count": {"type": "integer", "minimum": 1},
+                "attestation": {"const": "retained_attempt_ledger"},
+                "reason": {"const": null}
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["schema", "state", "invocation_count", "attestation", "reason"],
+              "properties": {
+                "schema": {"const": "agent-brain-provider-invocation-state/v1"},
+                "state": {"const": "structural_zero_no_provider_invocation"},
+                "invocation_count": {"const": 0},
+                "attestation": {"const": "harness_control_flow_run_agent_not_entered"},
+                "reason": {
+                  "enum": [
+                    "treatment_retrieval_or_delivery_timeout",
+                    "treatment_retrieval_or_delivery_failure"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["schema", "state", "invocation_count", "attestation", "reason"],
+              "properties": {
+                "schema": {"const": "agent-brain-provider-invocation-state/v1"},
+                "state": {"const": "pre_treatment_provider_path_not_entered"},
+                "invocation_count": {"const": 0},
+                "attestation": {"const": "harness_control_flow_treatment_not_started"},
+                "reason": {"const": "pre_treatment_infrastructure_failure"}
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
         "billing_integrity": {"type": ["object", "null"]},
         "duration_seconds": {"type": ["number", "null"], "minimum": 0},
         "agent_reported_seconds": {"type": ["number", "null"], "minimum": 0},
@@ -273,6 +318,72 @@
                   }
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_gate": {
+            "properties": {
+              "provider_invocation": {
+                "properties": {"state": {"const": "structural_zero_no_provider_invocation"}}
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "execution_gate": {
+            "properties": {
+              "agent_ran": {"const": false},
+              "return_code": {"const": null}
+            }
+          },
+          "raw_metrics": {
+            "properties": {"attempt_usage": {"maxItems": 0}}
+          }
+        }
+      },
+      "else": {
+        "if": {
+          "properties": {
+            "execution_gate": {
+              "properties": {
+                "provider_invocation": {
+                  "properties": {"state": {"const": "provider_invocations_observed"}}
+                }
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "execution_gate": {
+              "properties": {
+                "agent_ran": {"const": true},
+                "return_code": {"type": "integer"}
+              }
+            },
+            "raw_metrics": {
+              "properties": {"attempt_usage": {"minItems": 1}}
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "execution_gate": {
+              "properties": {
+                "treatment_started": {"const": false},
+                "agent_ran": {"const": false},
+                "return_code": {"const": null}
+              }
+            },
+            "raw_metrics": {
+              "properties": {"attempt_usage": {"maxItems": 0}}
             }
           }
         }

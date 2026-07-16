@@ -993,7 +993,12 @@ def validate_joint_success_contract(protocol: dict[str, Any], *, freeze: bool) -
     _error(errors, set(endpoints) == expected_names, "joint superiority endpoint set changed")
     expected_shapes = {
         "elapsed_time": ("lower", "paired_task_geometric_mean_ratio", "practical_ratio_max", 0.9),
-        "normalized_cost": ("lower", "paired_task_geometric_mean_ratio", "practical_ratio_max", 0.88),
+        "normalized_cost": (
+            "lower",
+            "ratio_of_equal_task_weighted_task_arm_mean_costs",
+            "practical_ratio_max",
+            0.88,
+        ),
         "code_quality": ("higher", "paired_task_mean_difference", "practical_difference_min", 0.05),
     }
     for name, (direction, estimand, floor_key, provisional_floor) in expected_shapes.items():
@@ -1044,8 +1049,9 @@ def validate_joint_success_contract(protocol: dict[str, Any], *, freeze: bool) -
     _error(
         errors,
         timeout.get("elapsed_field") == "timing.end_to_end_user_visible_wall_seconds"
-        and timeout.get("substitute_component_timeout_limit") is False,
-        "joint superiority timeout elapsed-observation contract changed",
+        and timeout.get("substitute_component_timeout_limit") is False
+        and timeout.get("provider_retry_limit") == 0,
+        "joint superiority timeout/retry observation contract changed",
     )
     limit = timeout.get("agent_timeout_limit_seconds")
     _error(

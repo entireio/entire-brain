@@ -79,7 +79,7 @@
     "tasks": 24,
     "repetitions_per_treatment": 4,
     "requested_cells": 288,
-    "maximum_calls_with_reserve": 317,
+    "maximum_calls_with_reserve": 288,
     "success_contract": {
       "schema": "agent-brain-joint-superiority-contract/v2",
       "status": "provisional",
@@ -94,7 +94,7 @@
         },
         "normalized_cost": {
           "direction": "lower",
-          "estimand": "paired_task_geometric_mean_ratio",
+          "estimand": "ratio_of_equal_task_weighted_task_arm_mean_costs",
           "practical_ratio_max": 0.88,
           "floor_status": "provisional"
         },
@@ -117,10 +117,11 @@
         "policy": "retain_measured_end_to_end_elapsed_no_component_cap_substitution",
         "elapsed_field": "timing.end_to_end_user_visible_wall_seconds",
         "agent_timeout_limit_seconds": 1800.0,
+        "provider_retry_limit": 0,
         "substitute_component_timeout_limit": false,
         "status": "provisional"
       },
-      "contract_sha256": "268406299a1bd732d548fb2ed2825822ad0cf995f9b90c4ccc005ff6dd29eede"
+      "contract_sha256": "a555e9df9e6506ac6f0e0d77d1379669ef151e7333890f25a27c8b047a251faf"
     },
     "power": {
       "target": 0.8,
@@ -170,6 +171,6 @@
     "ws4_schedule_and_cache": "pass",
     "ws5_evidence_verification": "pass"
   },
-  "analyzer_sha256": "ff2b4b0b0458c61dc3409d21ddc3f4e792a3fc87e97187639e698e8a9fb4433b",
+  "analyzer_sha256": "6e793b1d1a48838ae4b9ec15ded2c485bd8086e544b50bdf35e5fec2e480b35a",
   "freeze": {"frozen_at": null, "protocol_sha256": null}
 }

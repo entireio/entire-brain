@@ -18,6 +18,10 @@ RUN_SCHEMA = "agent-brain-evidence-run/v2"
 LEGACY_RUN_SCHEMA = "agent-brain-evidence-run/v1"
 REPORT_SCHEMA = "agent-brain-evidence-report/v1"
 ANALYZER_AGGREGATE_ALGORITHM = "sha256_ordered_path_nul_sha256_newline_v1"
+PROVIDER_INVOCATION_SCHEMA = "agent-brain-provider-invocation-state/v1"
+PROVIDER_INVOCATIONS_OBSERVED = "provider_invocations_observed"
+STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION = "structural_zero_no_provider_invocation"
+PRE_TREATMENT_PROVIDER_PATH_NOT_ENTERED = "pre_treatment_provider_path_not_entered"
 ANALYZER_RUNTIME_SOURCE_PATHS = (
     "benchmarks/agent-brain/analysis/__init__.py",
     "benchmarks/agent-brain/analysis/common.py",
@@ -169,6 +173,7 @@ def validate_run_manifest(value: dict[str, Any]) -> list[str]:
     if not isinstance(value.get("artifacts"), list):
         errors.append("run manifest artifacts must be a list")
     if value.get("schema") == RUN_SCHEMA:
+        provider_state: str | None = None
         execution_gate = value.get("execution_gate")
         if not isinstance(execution_gate, dict):
             errors.append("v2 run manifest execution_gate must be an object")
@@ -183,6 +188,47 @@ def validate_run_manifest(value: dict[str, Any]) -> list[str]:
                 errors.append("v2 run manifest executed/treatment_started disagree")
             if agent_ran is True and treatment_started is not True:
                 errors.append("v2 run manifest agent_ran cannot precede treatment_started")
+            provider = execution_gate.get("provider_invocation")
+            if not isinstance(provider, dict) or provider.get("schema") != PROVIDER_INVOCATION_SCHEMA:
+                errors.append("v2 run manifest authenticated provider invocation state is required")
+            else:
+                provider_state = provider.get("state")
+                if provider_state == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION:
+                    if (
+                        treatment_started is not True
+                        or agent_ran is not False
+                        or provider.get("invocation_count") != 0
+                        or provider.get("attestation")
+                        != "harness_control_flow_run_agent_not_entered"
+                        or provider.get("reason")
+                        not in {
+                            "treatment_retrieval_or_delivery_timeout",
+                            "treatment_retrieval_or_delivery_failure",
+                        }
+                    ):
+                        errors.append("v2 run manifest structural-zero provider state is inconsistent")
+                elif provider_state == PROVIDER_INVOCATIONS_OBSERVED:
+                    if (
+                        agent_ran is not True
+                        or isinstance(provider.get("invocation_count"), bool)
+                        or not isinstance(provider.get("invocation_count"), int)
+                        or provider.get("invocation_count") < 1
+                        or provider.get("attestation") != "retained_attempt_ledger"
+                        or provider.get("reason") is not None
+                    ):
+                        errors.append("v2 run manifest provider attempt ledger state is inconsistent")
+                elif provider_state == PRE_TREATMENT_PROVIDER_PATH_NOT_ENTERED:
+                    if (
+                        treatment_started is not False
+                        or agent_ran is not False
+                        or provider.get("invocation_count") != 0
+                        or provider.get("attestation")
+                        != "harness_control_flow_treatment_not_started"
+                        or provider.get("reason") != "pre_treatment_infrastructure_failure"
+                    ):
+                        errors.append("v2 run manifest pre-treatment provider state is inconsistent")
+                else:
+                    errors.append("v2 run manifest provider invocation state is ambiguous")
         raw_metrics = value.get("raw_metrics")
         if not isinstance(raw_metrics, dict):
             errors.append("v2 run manifest raw_metrics must be an object")
@@ -344,12 +390,37 @@ def validate_run_manifest(value: dict[str, Any]) -> list[str]:
                             or any(not isinstance(value, bool) for value in absence.values())
                         ):
                             errors.append("v2 run manifest billing_v2 inclusion semantics are invalid")
+            if provider_state == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION:
+                usage_report = usage.get("usage_report") if isinstance(usage, dict) else None
+                structural_raw = billing.get("raw") if isinstance(billing, dict) else None
+                structural_exclusive = billing.get("exclusive") if isinstance(billing, dict) else None
+                if (
+                    not isinstance(billing, dict)
+                    or not isinstance(structural_raw, dict)
+                    or any(value != 0 for value in structural_raw.values())
+                    or not isinstance(structural_exclusive, dict)
+                    or any(value != 0 for value in structural_exclusive.values())
+                    or usage_report
+                    != {
+                        "complete": True,
+                        "parser": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+                        "accounting_basis": STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+                        "source_events": 0,
+                        "attempt_count": 0,
+                        "complete_attempts": [],
+                        "incomplete_attempts": [],
+                        "error": None,
+                    }
+                ):
+                    errors.append("v2 run manifest structural-zero usage is not authenticated zero")
             attempt_usage = raw_metrics.get("attempt_usage")
             if not isinstance(attempt_usage, list):
                 errors.append("v2 run manifest attempt_usage must be an array")
             else:
-                if value.get("executed") is True and not attempt_usage:
-                    errors.append("v2 executed run manifest requires attempt-level usage")
+                if provider_state == PROVIDER_INVOCATIONS_OBSERVED and not attempt_usage:
+                    errors.append("v2 provider-entered run manifest requires attempt-level usage")
+                if provider_state == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION and attempt_usage:
+                    errors.append("v2 structural-zero run manifest cannot contain provider attempts")
                 for index, attempt in enumerate(attempt_usage, 1):
                     if not isinstance(attempt, dict) or attempt.get("attempt") != index:
                         errors.append("v2 run manifest attempt_usage is missing or out of order")
@@ -364,6 +435,17 @@ def validate_run_manifest(value: dict[str, Any]) -> list[str]:
                         and billing_integrity.get("passed") is not True
                     ):
                         errors.append("v2 run manifest required attempt billing did not pass")
+                    if provider_state == STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION and (
+                        billing_integrity.get("required") is not True
+                        or billing_integrity.get("passed") is not True
+                        or billing_integrity.get("attempt_count") != 0
+                        or billing_integrity.get("complete_attempts") != 0
+                        or billing_integrity.get("incomplete_attempts") != []
+                        or billing_integrity.get("aggregate_present") is not True
+                        or billing_integrity.get("aggregation")
+                        != STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION
+                    ):
+                        errors.append("v2 run manifest structural-zero billing integrity is inconsistent")
     packet = value.get("packet")
     if isinstance(packet, dict) and packet.get("present") and packet.get("recorded_matches_file") is False:
         errors.append("run manifest packet does not match recorded packet provenance")
@@ -518,6 +600,15 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         raise ValueError(f"packet artifact escapes run directory: {packet_name}") from exc
     agent_info = record.get("agent_info") if isinstance(record.get("agent_info"), dict) else {}
     usage = agent_info.get("usage") if isinstance(agent_info.get("usage"), dict) else {}
+    provider_invocation = agent_info.get("provider_invocation")
+    if provider_invocation is None and record.get("treatment_started") is False:
+        provider_invocation = {
+            "schema": PROVIDER_INVOCATION_SCHEMA,
+            "state": PRE_TREATMENT_PROVIDER_PATH_NOT_ENTERED,
+            "invocation_count": 0,
+            "attestation": "harness_control_flow_treatment_not_started",
+            "reason": "pre_treatment_infrastructure_failure",
+        }
     validation = record.get("validation") if isinstance(record.get("validation"), dict) else {}
     provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
     tools = provenance.get("tools") if isinstance(provenance.get("tools"), dict) else {}
@@ -553,6 +644,7 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         "execution_gate": {
             "treatment_started": record.get("treatment_started"),
             "agent_ran": record.get("agent_ran"),
+            "provider_invocation": provider_invocation,
             "billing_integrity": agent_info.get("billing_integrity"),
             "duration_seconds": primary_duration,
             "agent_reported_seconds": agent_info.get("seconds"),
