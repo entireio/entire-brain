@@ -11,6 +11,7 @@ import unittest
 from typing import Any, Callable
 
 import offline_relevance_eval as relevance
+import relevance_dataset as schema_validation
 
 
 def _hash(label: str) -> str:
@@ -361,9 +362,94 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         runs[index] = _raw(relevance.finalize_ranked_run(run))
         return runs
 
+    def runs_with_unjudged_result(
+        self, *, cluster_id: str, estimated_tokens: int = 7
+    ) -> tuple[bytes, list[bytes]]:
+        membership = copy.deepcopy(self.case["membership"])
+        membership["facts"].append(
+            {
+                "fact_id": "unjudged-1",
+                "fact_sha256": _hash("unjudged-1"),
+                "status": "active",
+                "provenance_session_ids": ["session-old"],
+            }
+        )
+        membership["fact_count"] += 1
+        membership["active_fact_count"] += 1
+        membership["eligibility_membership_root_sha256"] = relevance._membership_root(
+            membership["facts"]
+        )
+        membership_raw = _raw(membership)
+        bindings = relevance._build_input_bindings(
+            self.case["engine_matrix_raw"],
+            self.case["engine_matrix"],
+            self.case["engine_pins_raw"],
+            self.case["engine_pins"],
+            self.case["producer_identity_raw"],
+            self.case["producer_identity"],
+            self.case["fixture"],
+            self.case["dataset_raw"],
+            self.case["dataset"],
+            membership_raw,
+            membership,
+        )
+        result = _result(
+            "unjudged-1", "producer-supplied-kind", cluster_id, estimated_tokens
+        )
+        runs: list[bytes] = []
+        for raw in self.case["runs"]:
+            run = json.loads(raw)
+            run["input_bindings"] = copy.deepcopy(bindings)
+            for query in run["queries"]:
+                query["telemetry"]["active_fact_count"] = 6
+                query["telemetry"]["eligible_fact_count"] = 5
+                query["telemetry"]["temporal_exclusion_count"] = 1
+            run["queries"][0]["ordered_results"].append(copy.deepcopy(result))
+            run["queries"][0]["telemetry"]["delivered_count"] = 5
+            runs.append(_raw(relevance.finalize_ranked_run(run)))
+        return membership_raw, runs
+
+    def coordinated_declared_producer(self) -> tuple[bytes, list[bytes]]:
+        producer = copy.deepcopy(self.case["producer_identity"])
+        producer["producer_id"] = "coordinated-declaration-only-producer-v1"
+        for field in (
+            "runner_sha256",
+            "producer_code_sha256",
+            "ranking_result_metadata_policy_sha256",
+            "token_estimation_policy_sha256",
+            "serialization_policy_sha256",
+        ):
+            producer[field] = _hash(f"unretained-{field}")
+        producer = relevance.finalize_producer_identity(producer)
+        producer_raw = _raw(producer)
+        bindings = relevance._build_input_bindings(
+            self.case["engine_matrix_raw"],
+            self.case["engine_matrix"],
+            self.case["engine_pins_raw"],
+            self.case["engine_pins"],
+            producer_raw,
+            producer,
+            self.case["fixture"],
+            self.case["dataset_raw"],
+            self.case["dataset"],
+            self.case["membership_raw"],
+            self.case["membership"],
+        )
+        runs: list[bytes] = []
+        for raw in self.case["runs"]:
+            run = json.loads(raw)
+            run["producer_identity"] = copy.deepcopy(producer)
+            run["input_bindings"] = copy.deepcopy(bindings)
+            runs.append(_raw(relevance.finalize_ranked_run(run)))
+        return producer_raw, runs
+
     def test_metrics_and_per_engine_selection_are_deterministic(self) -> None:
         report = self.evaluate()
         self.assertEqual(report, self.evaluate())
+        self.assertEqual(
+            report["report_id"],
+            "entire-brain-offline-relevance-development-diagnostic-v1",
+        )
         self.assertEqual(report["report_sha256"], relevance._self_hash(report, "report_sha256"))
         self.assertEqual(report["producer_identity"], self.case["producer_identity"])
         self.assertEqual(
@@ -375,6 +461,7 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
             relevance._self_hash(report["producer_identity"], "producer_identity_sha256"),
         )
         self.assertEqual(len(report["evaluated_runs"]), 6)
+        self.assertEqual(len(report["diagnostic_best_candidates"]), 3)
         self.assertEqual(len(report["selections"]), 3)
         first = report["evaluated_runs"][0]["candidates"][0]
         product = first["product"]
@@ -391,17 +478,152 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         self.assertEqual(product["maximum_cluster_occupancy"], 1)
         self.assertEqual(oracle["query_count"], 1)
         self.assertEqual(oracle["null_query_false_positive_rate"], None)
+        self.assertTrue(first["threshold_conditions_met"])
+        self.assertFalse(first["thresholds_passed"])
         for selection in report["selections"]:
-            self.assertEqual(selection["status"], "selected")
-            self.assertEqual(selection["k"], 5)
+            self.assertEqual(selection["status"], "non_authoritative")
+            self.assertIsNone(selection["run_id"])
+            self.assertIsNone(selection["run_sha256"])
+            self.assertIsNone(selection["aggregation_rule"])
+            self.assertIsNone(selection["k"])
+            self.assertIsNone(selection["selection_sha256"])
+        for diagnostic in report["diagnostic_best_candidates"]:
+            self.assertEqual(diagnostic["status"], "diagnostic_best_candidate")
+            self.assertEqual(diagnostic["k"], 5)
+            self.assertTrue(diagnostic["threshold_conditions_met"])
             self.assertEqual(
-                selection["aggregation_rule"], "best_rank_then_hit_count_v1"
+                diagnostic["aggregation_rule"], "best_rank_then_hit_count_v1"
             )
         for evaluated in report["evaluated_runs"]:
             self.assertEqual(
                 evaluated["producer_identity_sha256"],
                 report["producer_identity"]["producer_identity_sha256"],
             )
+
+    def test_decision_authority_is_explicit_and_fail_closed(self) -> None:
+        report = self.evaluate()
+        authority = report["decision_authority"]
+        self.assertEqual(authority["status"], "diagnostic_unattested")
+        self.assertFalse(authority["authoritative_thresholds_enabled"])
+        verification_fields = (
+            "producer_runner_bytes_verified",
+            "producer_code_bytes_verified",
+            "ranking_result_metadata_policy_bytes_verified",
+            "token_estimation_policy_bytes_verified",
+            "serialization_policy_bytes_verified",
+            "fact_metadata_catalog_verified",
+            "engine_evidence_verified",
+            "source_contract_verified",
+        )
+        for field in verification_fields:
+            self.assertFalse(authority[field], field)
+        self.assertEqual(
+            authority["blocking_reasons"], list(relevance.DECISION_AUTHORITY_BLOCKERS)
+        )
+        self.assertTrue(
+            any(
+                candidate["threshold_conditions_met"]
+                for run in report["evaluated_runs"]
+                for candidate in run["candidates"]
+            )
+        )
+        self.assertFalse(
+            any(
+                candidate["thresholds_passed"]
+                for run in report["evaluated_runs"]
+                for candidate in run["candidates"]
+            )
+        )
+
+    def test_unjudged_metadata_can_change_only_diagnostic_conditions(self) -> None:
+        unique_membership, unique_runs = self.runs_with_unjudged_result(
+            cluster_id="producer-unique-cluster"
+        )
+        colliding_membership, colliding_runs = self.runs_with_unjudged_result(
+            cluster_id="cluster-positive-1"
+        )
+        unique = self.evaluate(
+            source_membership_raw=unique_membership, ranked_run_raws=unique_runs
+        )
+        colliding = self.evaluate(
+            source_membership_raw=colliding_membership,
+            ranked_run_raws=colliding_runs,
+        )
+        unique_candidate = unique["evaluated_runs"][0]["candidates"][0]
+        colliding_candidate = colliding["evaluated_runs"][0]["candidates"][0]
+        self.assertTrue(unique_candidate["threshold_conditions_met"])
+        self.assertFalse(colliding_candidate["threshold_conditions_met"])
+        for report in (unique, colliding):
+            self.assertEqual(
+                report["decision_authority"]["status"], "diagnostic_unattested"
+            )
+            self.assertFalse(
+                any(
+                    candidate["thresholds_passed"]
+                    for run in report["evaluated_runs"]
+                    for candidate in run["candidates"]
+                )
+            )
+            self.assertTrue(
+                all(
+                    selection["status"] == "non_authoritative"
+                    for selection in report["selections"]
+                )
+            )
+
+    def test_arbitrary_vector_declaration_cannot_authorize_selection(self) -> None:
+        runs = list(self.case["runs"])
+        for index in (2, 3):
+            run = json.loads(runs[index])
+            run["engine_identity"]["vector_artifact_sha256"] = _hash(
+                "unretained-arbitrary-vector-artifact"
+            )
+            run["engine_identity"]["vector_artifact_size_bytes"] = 999999
+            runs[index] = _raw(relevance.finalize_ranked_run(run))
+        report = self.evaluate(ranked_run_raws=runs)
+        self.assertEqual(
+            report["evaluated_runs"][2]["engine_identity"][
+                "vector_artifact_size_bytes"
+            ],
+            999999,
+        )
+        self.assertEqual(report["selections"][1]["status"], "non_authoritative")
+        self.assertFalse(
+            any(
+                candidate["thresholds_passed"]
+                for run in report["evaluated_runs"]
+                for candidate in run["candidates"]
+            )
+        )
+
+    def test_coordinated_declaration_only_inputs_cannot_authorize_selection(self) -> None:
+        producer_raw, runs = self.coordinated_declared_producer()
+        report = self.evaluate(
+            producer_identity_raw=producer_raw, ranked_run_raws=runs
+        )
+        self.assertEqual(
+            report["producer_identity"]["producer_id"],
+            "coordinated-declaration-only-producer-v1",
+        )
+        self.assertTrue(
+            report["evaluated_runs"][0]["candidates"][0][
+                "threshold_conditions_met"
+            ]
+        )
+        self.assertFalse(
+            any(
+                candidate["thresholds_passed"]
+                for run in report["evaluated_runs"]
+                for candidate in run["candidates"]
+            )
+        )
+        self.assertTrue(
+            all(
+                selection["status"] == "non_authoritative"
+                and selection["selection_sha256"] is None
+                for selection in report["selections"]
+            )
+        )
 
     def test_artifacts_never_copy_query_or_fact_text(self) -> None:
         report = self.evaluate()
@@ -450,6 +672,17 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         self.assertEqual(
             contract["token_estimation_policy_scope"],
             "positive_estimated_tokens_per_delivered_fact",
+        )
+        selection = self.evaluate()["selection_contract"]
+        self.assertEqual(
+            selection["decision_authority_requirement"],
+            "authoritative_status_required_for_threshold_pass_and_selection",
+        )
+        self.assertEqual(
+            selection["selection_scope"], "authoritative_selection_disabled_in_v1"
+        )
+        self.assertEqual(
+            selection["tie_break_order"][0], "threshold_conditions_met_desc"
         )
 
     def test_duplicate_ranked_fact_fails_closed(self) -> None:
@@ -721,6 +954,7 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
                 self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
                 self.assertFalse(schema["additionalProperties"])
                 self.assertEqual(schema["properties"]["schema"]["const"], identity)
+                self.assertIn("Diagnostic-only", schema["title"])
                 self.assertNotIn(b'"query_text"', raw)
                 self.assertNotIn(b'"fact_text"', raw)
 
@@ -739,6 +973,53 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         )
         self.assertIn("producer_code_sha256", producer["required"])
         self.assertIn("producer_identity_sha256", producer["required"])
+
+        report = json.loads(
+            (schema_dir / "offline-relevance-report-v1.schema.json").read_bytes()
+        )
+        self.assertIn("decision_authority", report["required"])
+        self.assertIn("diagnostic_best_candidates", report["required"])
+        authority_schema = report["$defs"]["decisionAuthority"]
+        self.assertEqual(
+            authority_schema["properties"]["status"]["const"],
+            "diagnostic_unattested",
+        )
+        self.assertFalse(
+            authority_schema["properties"]["authoritative_thresholds_enabled"][
+                "const"
+            ]
+        )
+        self.assertFalse(
+            report["$defs"]["candidateMetrics"]["properties"][
+                "thresholds_passed"
+            ]["const"]
+        )
+        self.assertEqual(
+            report["$defs"]["selection"]["properties"]["status"]["const"],
+            "non_authoritative",
+        )
+
+    def test_generated_report_matches_fail_closed_schema(self) -> None:
+        schema = json.loads(
+            pathlib.Path(__file__)
+            .with_name("schemas")
+            .joinpath("offline-relevance-report-v1.schema.json")
+            .read_bytes()
+        )
+        report = self.evaluate()
+        self.assertEqual(
+            schema_validation.validate_schema_instance(report, schema, "report"), []
+        )
+
+        forged = copy.deepcopy(report)
+        forged["decision_authority"]["status"] = "authoritative"
+        forged["decision_authority"]["authoritative_thresholds_enabled"] = True
+        forged["evaluated_runs"][0]["candidates"][0]["thresholds_passed"] = True
+        forged["selections"][0]["status"] = "selected"
+        errors = schema_validation.validate_schema_instance(forged, schema, "forged")
+        # The repository's schema subset validator does not traverse prefixItems;
+        # the direct schema assertion above separately freezes thresholds_passed.
+        self.assertGreaterEqual(sum("schema const" in error for error in errors), 3)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://entire.io/schemas/agent-brain/offline-relevance-ranked-run-v1.json",
-  "title": "Offline relevance ranked run v1",
+  "title": "Diagnostic-only offline relevance ranked run v1",
+  "description": "Producer and engine identity fields are declarations in v1; this artifact cannot independently authorize threshold selection.",
   "type": "object",
   "required": [
     "schema_version",

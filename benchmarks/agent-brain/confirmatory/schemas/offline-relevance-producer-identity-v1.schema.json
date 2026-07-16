@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://entire.io/schemas/agent-brain/offline-relevance-producer-identity-v1.json",
-  "title": "Offline relevance ranked-run producer identity v1",
+  "title": "Diagnostic-only offline relevance ranked-run producer identity v1",
+  "description": "This self-hashed identity declares byte digests but does not prove that the evaluator retained or independently verified those bytes.",
   "type": "object",
   "required": [
     "schema_version",

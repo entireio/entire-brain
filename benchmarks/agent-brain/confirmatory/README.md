@@ -16,7 +16,12 @@ attestation storage, trust-root approval, and clean hydration are still pending.
 storage/attestation profile, deterministic public packager, offline verifier, and atomic hydrator are
 implemented but checked in as `pending_owner_authorization`; production-mode v4 validation
 deliberately fails without authenticated restricted replay. No development-threshold metrics have
-been selected. The relevance holdout remains unopened and empty. Final freeze remains blocked on
+been selected. `offline_relevance_eval.py` can compute deterministic development diagnostics from
+text-free ranked IDs, but evaluator v1 is deliberately `diagnostic_unattested`: its strict report
+schema forces every authoritative threshold pass to `false` and every selection to
+`non_authoritative` until a later contract independently verifies retained producer/policy bytes,
+an authenticated all-top-K fact-metadata catalog, authoritative engine evidence, and the reviewed
+source contract. The relevance holdout remains unopened and empty. Final freeze remains blocked on
 fresh-task validity review, approved retention of public v4 plus restricted attestation and
 development-threshold selection,
 relevance holdout sealing, a defensible powered design, and model pricing/budget approval. The
@@ -49,6 +54,11 @@ confirmatory analyzer is implemented and path-locked.
   materialization, and fail-closed validation workflow.
 - `offline-relevance-dataset.json`: generated 14-query/13-task development set with 46 judgments and
   one corpus-closed null; its sealed holdout intentionally contains no plaintext labels.
+- `offline_relevance_eval.py`, `test_offline_relevance_eval.py`, and the three
+  `schemas/offline-relevance-*-v1.schema.json` files: deterministic, text-free offline scoring with
+  an explicit fail-closed `diagnostic_unattested` authority state. Diagnostic threshold conditions
+  and best candidates remain visible, while v1 cannot emit an authoritative pass or selected
+  winner from declared producer, metadata, or engine identities.
 - `DEVELOPMENT-RELEVANCE-QUERY-FIXTURE.md`, `development_relevance_queries.py`, and
   the two `schemas/development-relevance-*-v1.schema.json` files: fixed-path private query and
   temporal-policy receipt contracts, machine-pinned source trust, symlink-safe fail-closed loader,

@@ -42,6 +42,24 @@ packet cluster occupancy, K, and aggregation selection remain pending.
 The sealed relevance holdout remains exactly empty and unopened. Its current shortfall is 12 queries
 and 12 unique tasks relative to the final-freeze minimum. No holdout commitment exists.
 
+## Diagnostic evaluator authority boundary
+
+`offline_relevance_eval.py` deterministically validates and scores text-free ranked IDs for the
+development set. Evaluator v1 is intentionally not an authority lane. Its producer identity contains
+self-hashed declarations, while retained producer/runner and policy bytes, an authenticated catalog
+for every top-K fact's kind/cluster/token metadata, authoritative engine evidence, and the reviewed
+source contract are not independently verified by this evaluator.
+
+The strict report schema therefore fixes `decision_authority.status` to
+`diagnostic_unattested`, fixes all evidence-verification booleans and
+`authoritative_thresholds_enabled` to `false`, and retains the exact missing-evidence blockers.
+Numeric comparisons are exposed only as `threshold_conditions_met`; `thresholds_passed` is always
+`false`, authoritative selection fields are always null with status `non_authoritative`, and any
+best K/aggregation tuple is separately named `diagnostic_best_candidate`. Inputs with unjudged
+metadata, coordinated producer declarations, or arbitrary unretained vector identities remain
+diagnostic and cannot produce an authoritative pass or selected winner. This containment does not
+implement or pre-approve the later retained-byte/catalog/evidence authority contract.
+
 ## Evidence and derivation
 
 - `offline-relevance-development-labels.json` is the reviewed label source. Product query text is not

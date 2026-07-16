@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://entire.io/schemas/agent-brain/offline-relevance-report-v1.json",
-  "title": "Offline relevance evaluation report v1",
+  "title": "Diagnostic-only offline relevance evaluation report v1",
+  "description": "This v1 report cannot represent an authoritative threshold pass or selected winner until retained producer/policy bytes, authenticated fact metadata, engine evidence, and the reviewed source contract are independently verified.",
   "type": "object",
   "required": [
     "schema_version",
@@ -10,9 +11,11 @@
     "generated_at",
     "input_bindings",
     "producer_identity",
+    "decision_authority",
     "metric_contract",
     "selection_contract",
     "evaluated_runs",
+    "diagnostic_best_candidates",
     "selections",
     "report_sha256"
   ],
@@ -23,12 +26,18 @@
     "generated_at": {"type": "string", "format": "date-time"},
     "input_bindings": {"$ref": "#/$defs/inputBindings"},
     "producer_identity": {"$ref": "#/$defs/producerIdentity"},
+    "decision_authority": {"$ref": "#/$defs/decisionAuthority"},
     "metric_contract": {"$ref": "#/$defs/metricContract"},
     "selection_contract": {"$ref": "#/$defs/selectionContract"},
     "evaluated_runs": {
       "type": "array",
       "minItems": 1,
       "items": {"$ref": "#/$defs/evaluatedRun"}
+    },
+    "diagnostic_best_candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/diagnosticBestCandidate"}
     },
     "selections": {
       "type": "array",
@@ -129,6 +138,51 @@
         "serialization_policy_id": {"$ref": "#/$defs/safeId"},
         "serialization_policy_sha256": {"$ref": "#/$defs/externalSha256"},
         "producer_identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "decisionAuthority": {
+      "type": "object",
+      "required": [
+        "status",
+        "authoritative_thresholds_enabled",
+        "producer_runner_bytes_verified",
+        "producer_code_bytes_verified",
+        "ranking_result_metadata_policy_bytes_verified",
+        "token_estimation_policy_bytes_verified",
+        "serialization_policy_bytes_verified",
+        "fact_metadata_catalog_verified",
+        "engine_evidence_verified",
+        "source_contract_verified",
+        "blocking_reasons"
+      ],
+      "properties": {
+        "status": {"const": "diagnostic_unattested"},
+        "authoritative_thresholds_enabled": {"const": false},
+        "producer_runner_bytes_verified": {"const": false},
+        "producer_code_bytes_verified": {"const": false},
+        "ranking_result_metadata_policy_bytes_verified": {"const": false},
+        "token_estimation_policy_bytes_verified": {"const": false},
+        "serialization_policy_bytes_verified": {"const": false},
+        "fact_metadata_catalog_verified": {"const": false},
+        "engine_evidence_verified": {"const": false},
+        "source_contract_verified": {"const": false},
+        "blocking_reasons": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "retained_producer_runner_bytes_not_verified"},
+            {"const": "retained_producer_code_bytes_not_verified"},
+            {"const": "retained_ranking_result_metadata_policy_bytes_not_verified"},
+            {"const": "retained_token_estimation_policy_bytes_not_verified"},
+            {"const": "retained_serialization_policy_bytes_not_verified"},
+            {"const": "authenticated_fact_metadata_catalog_not_verified"},
+            {"const": "authoritative_engine_evidence_not_verified"},
+            {"const": "reviewed_source_contract_not_verified"}
+          ],
+          "items": false,
+          "minItems": 8,
+          "maxItems": 8
+        }
       },
       "additionalProperties": false
     },
@@ -262,6 +316,8 @@
         "aggregation_candidates",
         "thresholds",
         "tie_break_order",
+        "decision_authority_requirement",
+        "diagnostic_candidate_scope",
         "selection_scope"
       ],
       "properties": {
@@ -296,7 +352,7 @@
         "tie_break_order": {
           "type": "array",
           "prefixItems": [
-            {"const": "threshold_pass_desc"},
+            {"const": "threshold_conditions_met_desc"},
             {"const": "answerable_product_recall_at_5_desc"},
             {"const": "null_query_false_positive_rate_asc"},
             {"const": "temporal_leakage_count_asc"},
@@ -313,7 +369,13 @@
           "minItems": 12,
           "maxItems": 12
         },
-        "selection_scope": {"const": "within_each_verified_engine_no_cross_engine_winner"}
+        "decision_authority_requirement": {
+          "const": "authoritative_status_required_for_threshold_pass_and_selection"
+        },
+        "diagnostic_candidate_scope": {
+          "const": "within_each_declared_engine_no_cross_engine_winner"
+        },
+        "selection_scope": {"const": "authoritative_selection_disabled_in_v1"}
       },
       "additionalProperties": false
     },
@@ -383,7 +445,14 @@
     },
     "candidateMetrics": {
       "type": "object",
-      "required": ["k", "product", "oracle", "threshold_values", "thresholds_passed"],
+      "required": [
+        "k",
+        "product",
+        "oracle",
+        "threshold_values",
+        "threshold_conditions_met",
+        "thresholds_passed"
+      ],
       "properties": {
         "k": {"$ref": "#/$defs/k"},
         "product": {"$ref": "#/$defs/aggregateMetrics"},
@@ -404,7 +473,8 @@
           },
           "additionalProperties": false
         },
-        "thresholds_passed": {"type": "boolean"}
+        "threshold_conditions_met": {"type": "boolean"},
+        "thresholds_passed": {"const": false}
       },
       "additionalProperties": false
     },
@@ -441,6 +511,30 @@
       },
       "additionalProperties": false
     },
+    "diagnosticBestCandidate": {
+      "type": "object",
+      "required": [
+        "status",
+        "arm_id",
+        "run_id",
+        "run_sha256",
+        "aggregation_rule",
+        "k",
+        "threshold_conditions_met",
+        "diagnostic_selection_sha256"
+      ],
+      "properties": {
+        "status": {"const": "diagnostic_best_candidate"},
+        "arm_id": {"$ref": "#/$defs/safeId"},
+        "run_id": {"$ref": "#/$defs/safeId"},
+        "run_sha256": {"$ref": "#/$defs/sha256"},
+        "aggregation_rule": {"$ref": "#/$defs/aggregationRule"},
+        "k": {"$ref": "#/$defs/k"},
+        "threshold_conditions_met": {"type": "boolean"},
+        "diagnostic_selection_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
     "selection": {
       "type": "object",
       "required": [
@@ -454,40 +548,13 @@
       ],
       "properties": {
         "arm_id": {"$ref": "#/$defs/safeId"},
-        "status": {"enum": ["selected", "no_passing_candidate"]},
-        "run_id": {"oneOf": [{"$ref": "#/$defs/safeId"}, {"type": "null"}]},
-        "run_sha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-        "aggregation_rule": {
-          "oneOf": [{"$ref": "#/$defs/aggregationRule"}, {"type": "null"}]
-        },
-        "k": {"oneOf": [{"$ref": "#/$defs/k"}, {"type": "null"}]},
-        "selection_sha256": {
-          "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
-        }
+        "status": {"const": "non_authoritative"},
+        "run_id": {"type": "null"},
+        "run_sha256": {"type": "null"},
+        "aggregation_rule": {"type": "null"},
+        "k": {"type": "null"},
+        "selection_sha256": {"type": "null"}
       },
-      "allOf": [
-        {
-          "if": {"properties": {"status": {"const": "selected"}}, "required": ["status"]},
-          "then": {
-            "properties": {
-              "run_id": {"$ref": "#/$defs/safeId"},
-              "run_sha256": {"$ref": "#/$defs/sha256"},
-              "aggregation_rule": {"$ref": "#/$defs/aggregationRule"},
-              "k": {"$ref": "#/$defs/k"},
-              "selection_sha256": {"$ref": "#/$defs/sha256"}
-            }
-          },
-          "else": {
-            "properties": {
-              "run_id": {"type": "null"},
-              "run_sha256": {"type": "null"},
-              "aggregation_rule": {"type": "null"},
-              "k": {"type": "null"},
-              "selection_sha256": {"type": "null"}
-            }
-          }
-        }
-      ],
       "additionalProperties": false
     }
   },
