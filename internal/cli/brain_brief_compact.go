@@ -13,13 +13,15 @@ import (
 )
 
 // brainBriefPacketFormat is an internal render choice. MCP exposes the stable
-// names legacy_json and compact_v1; the CLI keeps its existing text/json flags.
+// names legacy_json, compact_v1, and compact_v2; the CLI keeps its existing
+// text/json flags.
 type brainBriefPacketFormat string
 
 const (
 	brainBriefPacketText       brainBriefPacketFormat = "text"
 	brainBriefPacketLegacyJSON brainBriefPacketFormat = "json"
 	brainBriefPacketCompactV1  brainBriefPacketFormat = "compact_v1"
+	brainBriefPacketCompactV2  brainBriefPacketFormat = "compact_v2"
 )
 
 const brainBriefCompactV1Marker = "entire.brain_brief compact_v1"
@@ -42,6 +44,8 @@ func emitBrainBriefPacket(cmd *cobra.Command, report brainBriefReport, format br
 		return emitBrainBriefReport(cmd, report, true)
 	case brainBriefPacketCompactV1:
 		return emitBrainBriefCompactV1(cmd, report)
+	case brainBriefPacketCompactV2:
+		return emitBrainBriefCompactV2(cmd, report)
 	default:
 		return fmt.Errorf("unsupported brain brief packet format: %q", format)
 	}
@@ -368,9 +372,13 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 }
 
 func validateBrainBriefCompactV1Numbers(report brainBriefReport) error {
+	return validateBrainBriefCompactNumbers(report, "compact_v1")
+}
+
+func validateBrainBriefCompactNumbers(report brainBriefReport, format string) error {
 	check := func(path string, value float64) error {
 		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return fmt.Errorf("compact_v1 cannot encode non-finite %s", path)
+			return fmt.Errorf("%s cannot encode non-finite %s", format, path)
 		}
 		return nil
 	}

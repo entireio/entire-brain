@@ -274,8 +274,8 @@ func mcpToolDefinitions() []map[string]any {
 				"packet_format": map[string]any{
 					"type":        "string",
 					"title":       "packet_format",
-					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response; compact_v1 is an experimental versioned agent-oriented packet.",
-					"enum":        []string{"legacy_json", "compact_v1"},
+					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response; compact_v1 and compact_v2 are experimental versioned agent-oriented packets.",
+					"enum":        []string{"legacy_json", "compact_v1", "compact_v2"},
 					"default":     "legacy_json",
 				},
 			}),
@@ -989,8 +989,10 @@ func mcpBrainBriefPacketFormat(args map[string]any) (brainBriefPacketFormat, err
 		return brainBriefPacketLegacyJSON, nil
 	case "compact_v1":
 		return brainBriefPacketCompactV1, nil
+	case "compact_v2":
+		return brainBriefPacketCompactV2, nil
 	default:
-		return "", fmt.Errorf("packet_format must be legacy_json or compact_v1: %q", format)
+		return "", fmt.Errorf("packet_format must be legacy_json, compact_v1, or compact_v2: %q", format)
 	}
 }
 

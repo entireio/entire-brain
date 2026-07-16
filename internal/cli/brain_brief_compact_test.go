@@ -262,14 +262,14 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 	schema := brief["inputSchema"].(map[string]any)
 	properties := schema["properties"].(map[string]any)
 	format := properties["packet_format"].(map[string]any)
-	if got, want := format["enum"], []string{"legacy_json", "compact_v1"}; !reflect.DeepEqual(got, want) {
+	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("packet_format enum = %#v, want %#v", got, want)
 	}
 	if format["default"] != "legacy_json" {
 		t.Fatalf("packet_format default = %#v", format["default"])
 	}
 
-	for _, value := range []any{nil, "", "compact_v2", true} {
+	for _, value := range []any{nil, "", "compact_v3", true} {
 		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{"task": "x", "packet_format": value}))
 		if err == nil || !strings.Contains(err.Error(), "packet_format") {
 			t.Errorf("packet_format %#v error = %v", value, err)
@@ -277,7 +277,7 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 	}
 }
 
-func TestMCPBrainBriefDefaultLegacyAndCompactV1(t *testing.T) {
+func TestMCPBrainBriefDefaultLegacyAndVersionedCompactPackets(t *testing.T) {
 	fixture := newBrainBriefProfileFixture(t)
 	task := "ValidateToken PRIVATE_TASK_PAYLOAD"
 	defaultText := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3})
@@ -295,6 +295,12 @@ func TestMCPBrainBriefDefaultLegacyAndCompactV1(t *testing.T) {
 		t.Fatalf("compact response marker missing:\n%s", compactText)
 	}
 	parseCompactV1Records(t, compactText)
+
+	compactV2Text := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "compact_v2"})
+	if !strings.HasPrefix(compactV2Text, brainBriefCompactV2Marker+"\n") {
+		t.Fatalf("compact_v2 response marker missing:\n%s", compactV2Text)
+	}
+	parseCompactV2Records(t, compactV2Text)
 }
 
 func comprehensiveCompactV1Report() brainBriefReport {
