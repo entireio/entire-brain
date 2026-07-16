@@ -1,0 +1,670 @@
+{
+  "base_oid": "3ebc57dbb923c0aa6eb53f17384109d189953c6c",
+  "command_policy": {
+    "go_test_flags": [
+      "-count=1",
+      "-timeout=0"
+    ],
+    "name": "changed_go_test_packages_reverse_production_go_v1",
+    "per_run_timeout_seconds": 180,
+    "reversal": "first_parent_production_go_only_no_renames_v1",
+    "test_scope": "packages_containing_changed_go_test_files"
+  },
+  "environment": {
+    "credential_like_variable_count": 0,
+    "environment_manifest_sha256": "1575a510ff9080160b905046b9d0abbc025ae6a3895be37ea0c5873302595546",
+    "environment_policy": "deny_all_then_explicit_local_allowlist_v1",
+    "execution_overrides": {
+      "GOENV": "off",
+      "GOFLAGS": "",
+      "GOPROXY": "off",
+      "GOSUMDB": "off",
+      "GOTOOLCHAIN": "local",
+      "GOVCS": "*:off",
+      "GOWORK": "off"
+    },
+    "git_version": "git version 2.53.0",
+    "go_binary_sha256": "e61851b2c0cde9b9ac4ae044fcce6ba9d55cb15f98ded3964793acaa8632242f",
+    "go_env_keys": [
+      "GOARCH",
+      "GOOS",
+      "GOVERSION",
+      "GOROOT",
+      "GOTOOLDIR",
+      "GOWORK",
+      "GOFLAGS",
+      "GOTOOLCHAIN",
+      "GOENV",
+      "GOPROXY",
+      "GOSUMDB",
+      "GOVCS",
+      "CGO_ENABLED",
+      "CC",
+      "CXX",
+      "GOEXPERIMENT",
+      "GOCACHE",
+      "GOMODCACHE",
+      "GOPATH"
+    ],
+    "go_env_sha256": "0ff7010f4990e730e751680ba8765d3edb6e969a9b8ef3317d9df35ade7788be",
+    "go_version": "go version go1.26.4 darwin/arm64",
+    "inherited_variable_count": 0,
+    "platform": "darwin-arm64"
+  },
+  "exposure": "development_only_identity_inspected",
+  "generated_at": "2026-07-16T20:15:18.524424Z",
+  "head_oid": "df765ab952185595d65f561f8ccb8036598980a8",
+  "implementation": {
+    "aggregate_sha256": "25f729aa8f1266597d77fd0aef8fb38645cd1fed80b40c467edb1ce803848a89",
+    "files": [
+      {
+        "role": "negative_control_runner",
+        "sha256": "53339ba0de577bf806c1a88f85336c85e318bcb539cd90fc158f876a2da1092c"
+      },
+      {
+        "role": "eligibility_scanner",
+        "sha256": "bd3f2b16593eb8ab3274abed32c9afcf99cad9da0906b557ec10a8a22b2a4272"
+      },
+      {
+        "role": "canonical_population_helpers",
+        "sha256": "d49da6d1e9162ebe7ff55eccb21d46830e9280abdb95cd6d434ef90b3f6191d6"
+      }
+    ],
+    "python_implementation": "CPython",
+    "python_version": "3.14.5"
+  },
+  "input_ledger_file_sha256": "9f0d548edcb00e650490bdb69a815aa2d826670a9a7a0a39d47a33cd01b036a8",
+  "input_ledger_sha256": "177a5f71bd9ac82d8b38e61251a07d0b073852ce5a527da0b05e64eabc8f4585",
+  "profile": "agent_brain_development_task_negative_control_v1",
+  "receipt_sha256": "c71423e9cb8c88d6749cd75ecf76651d1d0b59b72ef24fc9bd8071676a81032c",
+  "repository_id": "github.com/entireio/cli",
+  "results": [
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 57,
+        "output_sha256": "691786078d54c2c53ec78a816df3b2144b4e4c3589f5ae419b1cf8990d709d39",
+        "status": "completed"
+      },
+      "candidate_ref": "2d0dcbd76bd7c6f54df973def20e8d6f7a61ca0ba4115b0e84f7872f682ee5b4",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "aacb4d6c7295bc4eace756c23ee9209bb466b392",
+      "first_parent_position": 1,
+      "parent_oid": "3ebc57dbb923c0aa6eb53f17384109d189953c6c",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 323,
+        "output_sha256": "b3f441309047b8b0325e416bb8c365069569fe9fc7a22f1d1a4ba09dbf3a2e63",
+        "status": "completed"
+      },
+      "source_file_count": 5,
+      "source_paths_sha256": "bab9c1c55fe0e89e8af2fde11d0a965d4de85280f2da72d08d94d2f3d05f8e66",
+      "test_command_sha256": "f0ea143312e07f11084ddba938a7f0f79acd45a139df6a54e24fd7fb1abce6a1",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "1aaf2357852026d52c414a44ab54a7a1c046128c93d65f0c0979b071fd189a55"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 52,
+        "output_sha256": "73c575ee72f619b3aa30927b576f997f01fbbf55894defdf35216af84580b8a3",
+        "status": "completed"
+      },
+      "candidate_ref": "85eef19b4b76f4c500065c69221200b0ecde11e8131d159d53f939408d943013",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "e29aa007894469297c878f31655f809cb48bbdf7",
+      "first_parent_position": 2,
+      "parent_oid": "aacb4d6c7295bc4eace756c23ee9209bb466b392",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 1355,
+        "output_sha256": "a4919d7b19d4a79532afeccc3c8787b0939860052ad3cf5a4e55c9f42c71586b",
+        "status": "completed"
+      },
+      "source_file_count": 1,
+      "source_paths_sha256": "65a1121705cedcf95c002b85f348d4634c1ba363debde113f3b41d85e28482eb",
+      "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "eb441a0e949a3c25817e373c1e1b9f50a36e51ff01c57c132100a498fcca8859"
+    },
+    {
+      "baseline": {
+        "exit_code": 1,
+        "output_byte_count": 425,
+        "output_sha256": "600929811655bd1a20d51d54ee250731c0c1b729432497456495fcc7a73e55b5",
+        "status": "completed"
+      },
+      "candidate_ref": "8d9a3fc794e2a8ab9fc0b3bc90b8afa57e4db7336fdf1a944c4dd9e2967ba637",
+      "classification": "baseline_invalid_failure",
+      "commit_oid": "987bf75c5f67565a315a25d4d3c8772a9bbd8346",
+      "first_parent_position": 3,
+      "parent_oid": "e29aa007894469297c878f31655f809cb48bbdf7",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 5130,
+        "output_sha256": "634724eacfcbc454ca91c38d199da887dd1fa35250bd0d608c15f7b94bbddb07",
+        "status": "completed"
+      },
+      "source_file_count": 2,
+      "source_paths_sha256": "ea358daff53b45a1d9fa09c4ac977706c995828f4b6316884f32859a557d4490",
+      "test_command_sha256": "baf78411930ea81455bfc143e9343984e687bee67f6b1ca1b2b874bc4d63593d",
+      "test_file_count": 2,
+      "test_target_count": 2,
+      "test_targets_sha256": "a97cd2d737f068803fe066ed8bc4121cf155f26804970b8ebfeea41f7d62cfdd"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 52,
+        "output_sha256": "03d1c3de32ad963cd6623533f3418e78ff5a0880f9ff690b9c3af44238eef592",
+        "status": "completed"
+      },
+      "candidate_ref": "2d2bf91e6ec8ea46c4879c01afca621f8caad04161b62287bd919f242bcc8ed6",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "f4a0b3d088450cdb01f1d1650b1f9b552f1b5698",
+      "first_parent_position": 6,
+      "parent_oid": "c523f1f439e38d95f82b0998c9509b7326da253b",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 10380,
+        "output_sha256": "73bfc83ef50d3734bbed47279f2787e9df4e68c0f7f1f8edb2863d095a2dc574",
+        "status": "completed"
+      },
+      "source_file_count": 2,
+      "source_paths_sha256": "5093ed224af044943d580df3cbdcdc839d9be6e0e1d086a15a134b083bad92d7",
+      "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "eb441a0e949a3c25817e373c1e1b9f50a36e51ff01c57c132100a498fcca8859"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 117,
+        "output_sha256": "0d1683757af039a84bb55eb7e0e038bdb0919708e711de4b4d680a409cf02605",
+        "status": "completed"
+      },
+      "candidate_ref": "324a29517ef616b7b67cb8f42feaefc9f910d5ca6e0c6e5d30f2488b24112f98",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "279520ad4bfc5cbb32d3fad44405ce0e3aa5ac8d",
+      "first_parent_position": 8,
+      "parent_oid": "a26e53c3cef34656402e70f8fe2b7e3d26a16ca2",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 1281,
+        "output_sha256": "dc0e7d24cbcb3fa29cc0b9bdeee8689c20fecdfbe511b6dbf1e565e1fe4732e0",
+        "status": "completed"
+      },
+      "source_file_count": 3,
+      "source_paths_sha256": "43a43d86e6df7faac188114b9495a347aed8dc1ec5b459802e16fcee5d6ea90a",
+      "test_command_sha256": "b5844af6e01cb00028385cabc0fd35d0f43f3f005010922b78c385d05552a150",
+      "test_file_count": 6,
+      "test_target_count": 2,
+      "test_targets_sha256": "96f82c368fa2bc5e89a435556d187c4ad640896b760b2049989bf21449eea895"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 59,
+        "output_sha256": "d49f89e2c369309d15fc887637e6ab697d2c747b3c6d2cf861ee7e87d228d693",
+        "status": "completed"
+      },
+      "candidate_ref": "a9f550bc1708d40e565f6b2da880215374c66d65fe9e47fc73761fe0e00fbcba",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "372bc149d15a9d468206a8cf32653b0237db1806",
+      "first_parent_position": 9,
+      "parent_oid": "279520ad4bfc5cbb32d3fad44405ce0e3aa5ac8d",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 720,
+        "output_sha256": "c6d5906adadab14d2172bf0e1670f60cf86a8e49103d027f22d47d7bc51764a7",
+        "status": "completed"
+      },
+      "source_file_count": 1,
+      "source_paths_sha256": "af7cc0e3d56fe3a56a83556cc6127af16831f01cc32e891d521e84826a497195",
+      "test_command_sha256": "935f94f5b288a1261503b36b3e9d783f970e2de9c6ce4bef776f6b749126652d",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "99d04f2f2fd670dd3dee45a8fa01f9f7fcd11619558d957553d5a6aad7c456c8"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 59,
+        "output_sha256": "81b59a165d4fc04d3288d5abc46fb45272225026fda7a51f31324565af9b90aa",
+        "status": "completed"
+      },
+      "candidate_ref": "4e49b13b047ebae3185f84a1795885072453afd2bb709dbc6de27a355605913b",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "cd6155ed7e41484055179ef70550bcc04d7abc63",
+      "first_parent_position": 10,
+      "parent_oid": "372bc149d15a9d468206a8cf32653b0237db1806",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 870,
+        "output_sha256": "0e71c95458ae084814a5a0b66d84c464db5533287f5939c4699ca4ec8226f7f2",
+        "status": "completed"
+      },
+      "source_file_count": 4,
+      "source_paths_sha256": "66c87e8e2619fcf13b9fd8932e57c88565bed33f672516305ac242703d8df8d6",
+      "test_command_sha256": "935f94f5b288a1261503b36b3e9d783f970e2de9c6ce4bef776f6b749126652d",
+      "test_file_count": 2,
+      "test_target_count": 1,
+      "test_targets_sha256": "99d04f2f2fd670dd3dee45a8fa01f9f7fcd11619558d957553d5a6aad7c456c8"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 70,
+        "output_sha256": "d68d5b44870d38d0895ee12c163eac25050c27e6f81fe3248a98ce84d5d93df7",
+        "status": "completed"
+      },
+      "candidate_ref": "01f436c654c8059e60b943ba1f9fe641d34e4a24f79f171b5b3f718e9667ddda",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "85d9ec559176ea1b772abb96c2ff424096087021",
+      "first_parent_position": 11,
+      "parent_oid": "cd6155ed7e41484055179ef70550bcc04d7abc63",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 901,
+        "output_sha256": "8f400baeac73dfce20766697cd4af1bdbde89ffcc29603841c82a562375a3a6a",
+        "status": "completed"
+      },
+      "source_file_count": 2,
+      "source_paths_sha256": "0d55dff8ae410fb529f0f134b956206aacfc74e7df9e1582ed11dd788b73278f",
+      "test_command_sha256": "a86fa1c4fb969710cd9f619a7140c7fdf2cb380793ae6ff1adc00bbe2af5bae1",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "0c1a3d101585c9caef3912c7f7504512d167029c2d0e59cdfc17b059b1d225c0"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 227,
+        "output_sha256": "041828ab5c0849eb3d9503afbc9a4a68112c7947cc5095081a32dc3be9fa020a",
+        "status": "completed"
+      },
+      "candidate_ref": "41ac5359b5bc6a86aa67c65f10c9019a6afcb260cf389b8b382cd39298286729",
+      "classification": "negative_control_survived",
+      "commit_oid": "2c0335208be56f4231f323cc8181953ad1b56d12",
+      "first_parent_position": 12,
+      "parent_oid": "85d9ec559176ea1b772abb96c2ff424096087021",
+      "reversed_source": {
+        "exit_code": 0,
+        "output_byte_count": 227,
+        "output_sha256": "96e64564b1d23fa6aa2e325ce4a616b1bd4d096cecff7e465c405009a7b8fe13",
+        "status": "completed"
+      },
+      "source_file_count": 13,
+      "source_paths_sha256": "d27ee85cb6e7820ab2fdc09a5c0bb5e219d761a254973c8205452890a11208e0",
+      "test_command_sha256": "688a43007818906a27d1de589a343fe56f3bc21fa8e982e1b7c9e5b78c6e7604",
+      "test_file_count": 8,
+      "test_target_count": 4,
+      "test_targets_sha256": "c589c9521aa17d6f56c7a45e4663c3ce92900525cb3d65e72857ad8ff41ce3b8"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 121,
+        "output_sha256": "bdea1a1adc8a114ad7503c14e05cbdd9c31778f24530f2006de033e86929f72e",
+        "status": "completed"
+      },
+      "candidate_ref": "02fbbf919572e7301c8477979f798a07a5ccfac873e07c2a67c637932fc948b1",
+      "classification": "reversed_invalid_timeout",
+      "commit_oid": "1b56290ec24cf2fceb71a08a4e44017b8f4b9717",
+      "first_parent_position": 13,
+      "parent_oid": "2c0335208be56f4231f323cc8181953ad1b56d12",
+      "reversed_source": {
+        "exit_code": null,
+        "output_byte_count": 983,
+        "output_sha256": "b375742d8e49f7372b315adda73f731c22e088e4e9d184ce80adb67da8643784",
+        "status": "timeout"
+      },
+      "source_file_count": 6,
+      "source_paths_sha256": "3639caeda4188dba6e9b9002d1de29316ababb49dde094c06d2e97de8381384f",
+      "test_command_sha256": "f23c8d20118c7eb5d49f95ae86b572ecb2a9dd6017bbe00f8d78f7a78175e4f5",
+      "test_file_count": 3,
+      "test_target_count": 2,
+      "test_targets_sha256": "129cd3ebb3717189fd8788cf5d9da7105117578f3b81b816c8fee93c4f27f2f7"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 53,
+        "output_sha256": "9d4936f86e58956f12e507f5ba39d3d084df2fffb972c672917562d599ef7883",
+        "status": "completed"
+      },
+      "candidate_ref": "3a8d4437be22f6c113ea8ac4c22ddaa1b825453a4ebd27e7300b57c82b760a1c",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "0622f442cef250b6c81207020f9f20c047d95560",
+      "first_parent_position": 14,
+      "parent_oid": "1b56290ec24cf2fceb71a08a4e44017b8f4b9717",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 1114,
+        "output_sha256": "b764119c6ddf875af9b8f7daee153d752476d8ba3061a7ac676ec46a944098a5",
+        "status": "completed"
+      },
+      "source_file_count": 2,
+      "source_paths_sha256": "c1abf6d8880d4f0f4c8102d9fc391b0a66b7b14f5337b40466f512182a38856b",
+      "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+      "test_file_count": 2,
+      "test_target_count": 1,
+      "test_targets_sha256": "eb441a0e949a3c25817e373c1e1b9f50a36e51ff01c57c132100a498fcca8859"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 68,
+        "output_sha256": "0cca04995c3e960c71850975675999eff06baf618bd9da6942401f9a0a449f2c",
+        "status": "completed"
+      },
+      "candidate_ref": "30624183a907ef15c26a99b7c5e79f95167135c32e0d4eb56ae16e900f82cc08",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "0d3d1d764827556111959cf180f14ec4722bb2ff",
+      "first_parent_position": 17,
+      "parent_oid": "888c11d6f4ff2de239b6a9ea19b5de0de5eae3bc",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 445,
+        "output_sha256": "a7f2bb1e1a00c4b6b6338b77825020ba6714b89bf3c26be314043de6500f6176",
+        "status": "completed"
+      },
+      "source_file_count": 1,
+      "source_paths_sha256": "6fe6feaa975e2daa4f1989e107d7b95adf593562696e55896a2a0bae22a90517",
+      "test_command_sha256": "0ee2159efc3c043bbab075b5a778cefa18ec2ee41950550ad8c17f75fc65e952",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "3c1442ccc6db02f8da634d034bad2613e28434c23eb92cb877248a88b409173c"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 52,
+        "output_sha256": "f9c05d1b715ed975dc66dd64a5c1c42f815c369dee372a2c1050314575c2dee6",
+        "status": "completed"
+      },
+      "candidate_ref": "ac9c23ca655491b4ca0df76d55d8aa70e84005784d504ab2f8fefde351440ded",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "62f8779be23c061dc68a3aa5982ca80ed0f1bb3f",
+      "first_parent_position": 18,
+      "parent_oid": "0d3d1d764827556111959cf180f14ec4722bb2ff",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 789,
+        "output_sha256": "50ba9b85ed54b7619a899ecab70e4c42fb6ea26d3934d9a76757781f7b7ec205",
+        "status": "completed"
+      },
+      "source_file_count": 1,
+      "source_paths_sha256": "4447619e4f07518ab4ebd516afe61e54cbae9db524e4648b39f42316bc178795",
+      "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "eb441a0e949a3c25817e373c1e1b9f50a36e51ff01c57c132100a498fcca8859"
+    },
+    {
+      "baseline": {
+        "exit_code": 1,
+        "output_byte_count": 732,
+        "output_sha256": "0263c276342f02ae829d48a18cd8852419e7e73e42c2ecf456980ba0282e66a2",
+        "status": "completed"
+      },
+      "candidate_ref": "a9a1b6da81b06cf598ff1a1e6921e2432d85c8ace774d447b28528aaae0de905",
+      "classification": "baseline_invalid_failure",
+      "commit_oid": "3b6957b4e98c33b3f8eb72f41dddf38927b6a6c3",
+      "first_parent_position": 19,
+      "parent_oid": "62f8779be23c061dc68a3aa5982ca80ed0f1bb3f",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 1442,
+        "output_sha256": "1cab2cf132c3737958f4fcdf032377c8162dea24de043600d426cdfbf18c05d8",
+        "status": "completed"
+      },
+      "source_file_count": 3,
+      "source_paths_sha256": "e3f6b7988887d7ee174482e91ad1a0d1536b85faef10373e3780dae022602256",
+      "test_command_sha256": "ae4c61bbfd4e15381006827eb81056a28b72c19b6e4f52df1660d53322b112e3",
+      "test_file_count": 4,
+      "test_target_count": 3,
+      "test_targets_sha256": "611989cbb860fbf6339d16385c1e628e6fd47c956635a6cdf7a40a89c23ff68a"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 318,
+        "output_sha256": "7661bedbb4de61eeb89d9a92f0eeed548e8eb3fe913a4949b4c61405e1fba082",
+        "status": "completed"
+      },
+      "candidate_ref": "5627dba7a660fb916c5fb7964318f70621fdec79fbfcfe8d7272006a55326ce3",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "0e05d1ded739b6abde2e3c6be2f09a165efb8ddd",
+      "first_parent_position": 20,
+      "parent_oid": "3b6957b4e98c33b3f8eb72f41dddf38927b6a6c3",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 3828,
+        "output_sha256": "4fe3c2b40334484a00c5dc2c0afb47c94b95a6057fe2af0c6529e952eafd0f01",
+        "status": "completed"
+      },
+      "source_file_count": 13,
+      "source_paths_sha256": "47b72301da9ea49dbccda890b01b70e3044e52deed3cb9e70c447fead773faed",
+      "test_command_sha256": "b351ab5e09df28e4efa404b974c2878b72ade78513a3b0ef0afab2b4d12b23ff",
+      "test_file_count": 5,
+      "test_target_count": 5,
+      "test_targets_sha256": "ff5705718218023a81a3a4524bfec7af8bbb6f7c441d821df3c6fa0d8a26543e"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 57,
+        "output_sha256": "95ec2a324ebeed74731eac89e4ea693ff7121999a96db16b653249c12ac9301e",
+        "status": "completed"
+      },
+      "candidate_ref": "36f66b179647b13a56eb569e44c3f70613bf15e1b712593e36fdc423f818dde6",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "aa03f22a63846a97ff34f36ba3af20a1618a056b",
+      "first_parent_position": 21,
+      "parent_oid": "0e05d1ded739b6abde2e3c6be2f09a165efb8ddd",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 1169,
+        "output_sha256": "0adfb83dd64507c02ae64afa6b530c7137e960a79e5f0bd51ec4d0eee1211e38",
+        "status": "completed"
+      },
+      "source_file_count": 1,
+      "source_paths_sha256": "4f65a38815bacc13e0a1fb3a862776c05795e2389b237a167b52319059815d46",
+      "test_command_sha256": "9142a062fb3aafb6e96d61e02ea801436a54925d7f171570d13111d1c635fba1",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "faddb129c9959ded57742d65d2914be455e04c833248924dad5efd3a50db6b88"
+    },
+    {
+      "baseline": {
+        "exit_code": 1,
+        "output_byte_count": 494,
+        "output_sha256": "f595dbc02ea2232b35b9121ef00d11e77c91db35944ad6d1783bb7cf442a8129",
+        "status": "completed"
+      },
+      "candidate_ref": "ed3d1c7281c2f4eb53f3609dad66beb654670a61dcb4e8b9dd68d1468d662bed",
+      "classification": "baseline_invalid_failure",
+      "commit_oid": "95522d2de1ecf31f2e90dac18ca09b6e916b995e",
+      "first_parent_position": 22,
+      "parent_oid": "aa03f22a63846a97ff34f36ba3af20a1618a056b",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 12566,
+        "output_sha256": "6e74699a787f79f74fc8dd498ee896d7a1f382e3e9a0bad4f208a94f2c7145bb",
+        "status": "completed"
+      },
+      "source_file_count": 2,
+      "source_paths_sha256": "e7be29e8dc81459fab2b667e545f47ebdff3ab3bf4a5eb48e2c023fdf5f82851",
+      "test_command_sha256": "e4f0b93f5b9c673fbec47851738be757b4ba9b4337ec1160832ea6026ab9f85b",
+      "test_file_count": 3,
+      "test_target_count": 3,
+      "test_targets_sha256": "df4bac5be20fb9529cf690dd9b437e4e7f73703b682c1a32236b35c3b6bd8044"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 172,
+        "output_sha256": "4c25b48dfd7ec824641660be84a47417c9d44b699a761dc8366d25c871da879a",
+        "status": "completed"
+      },
+      "candidate_ref": "1c8e2950bb26b4ccfe66000960c0ac2af22aa35587766b9b6f2a1d41898c475d",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "324995d33d46edcc0348668991359c57f096adb8",
+      "first_parent_position": 25,
+      "parent_oid": "469a30cf11b9193b7cbab61aaa836d3764266e1c",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 2008,
+        "output_sha256": "f37ee319f4f7a7596861800b03d803543f8621f09bf47887068527cdaa6a40d3",
+        "status": "completed"
+      },
+      "source_file_count": 4,
+      "source_paths_sha256": "828b822a74bd1e1a2bc550ed7f677cee554dbdd0b806e273483bc6f144c5f667",
+      "test_command_sha256": "613a80f63690cc0d16616a46d5ccbe4b7ced3563f3501a6fae5e0cc7c2f118a5",
+      "test_file_count": 3,
+      "test_target_count": 3,
+      "test_targets_sha256": "937b11d04c34fdb11271042846f0e73d098a2d53423861ecafd639f911ca2c28"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 53,
+        "output_sha256": "6ce9980a3e9f7736b38bc7fbbfa6b54680cdc1c216f803cb7663f588fc85112b",
+        "status": "completed"
+      },
+      "candidate_ref": "027ce017971aa610a0d4649f9eb17e6333d73f900f67586faac4f8a8d24e40d7",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "61a00903876fd7158277624fa7d33d58cd86656a",
+      "first_parent_position": 26,
+      "parent_oid": "324995d33d46edcc0348668991359c57f096adb8",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 966,
+        "output_sha256": "210cd1e2cedf723cad1cbcf05df474d1cc38b08eb67e7af771620ab4cc9e1ba7",
+        "status": "completed"
+      },
+      "source_file_count": 8,
+      "source_paths_sha256": "2e7c1434a10b1f0e618f543d0aec9f72d951e8e7d83c0b316e2eb486b3c0f788",
+      "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+      "test_file_count": 3,
+      "test_target_count": 1,
+      "test_targets_sha256": "eb441a0e949a3c25817e373c1e1b9f50a36e51ff01c57c132100a498fcca8859"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 131,
+        "output_sha256": "950fc6c68b2cac4eeabfd6e3f6d7939e1e1988f8bac7416f3bdb1159b406cdac",
+        "status": "completed"
+      },
+      "candidate_ref": "307cc2d1599997eeade879e4902f66298555df62f4c562b77888ec958cf9f8df",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "62e9b19a0e2223e7ddc7382b0da70effdce25684",
+      "first_parent_position": 27,
+      "parent_oid": "61a00903876fd7158277624fa7d33d58cd86656a",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 1706,
+        "output_sha256": "c5784d4b984b6fd99d6ceea16caac796d46ed996efef45682685c8e336cfa9e6",
+        "status": "completed"
+      },
+      "source_file_count": 3,
+      "source_paths_sha256": "e9acd3921d04df2a73876b60ba2fca5ebe798da36ab5f36bf985c6288eb9f181",
+      "test_command_sha256": "bd86518cfecc3bcdd4bc34c4a21acc727e8ee9fb6abe8b7cb0b6ead0742e56de",
+      "test_file_count": 2,
+      "test_target_count": 2,
+      "test_targets_sha256": "1074409ab1b0d5e9e2d972a8c0252e9f695e8af82411b4107fe7d1e65d779c86"
+    },
+    {
+      "baseline": {
+        "exit_code": 1,
+        "output_byte_count": 434,
+        "output_sha256": "e88fa8ca0b997ef3f2cc46e6b9bdb19e737f891b2b2e0c84c1a10cbb6beca20c",
+        "status": "completed"
+      },
+      "candidate_ref": "ab23e8f10b72f0dfd1d1b576a3155df533f199ed369640554b8ff861f8daeb05",
+      "classification": "baseline_invalid_failure",
+      "commit_oid": "1ec80f6962d5ba82879afd4782eb2dd00afeae67",
+      "first_parent_position": 28,
+      "parent_oid": "62e9b19a0e2223e7ddc7382b0da70effdce25684",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 943,
+        "output_sha256": "2be167f5f964fbbdf940f3adf58529c495e89faf113355b4358b1874d237fa16",
+        "status": "completed"
+      },
+      "source_file_count": 6,
+      "source_paths_sha256": "64d4052d4088ee228b0b73b36e36183090fbe9bb01bc351dc560481086e8f66d",
+      "test_command_sha256": "a3aad531d711c3f455fdbde696deaa8e15b84b33cf327c7b363c9d184b8dc980",
+      "test_file_count": 2,
+      "test_target_count": 2,
+      "test_targets_sha256": "2c97569833ccf01ff53bc0185a9f90ddd00ddbcc6afbe8fe884e5befa5b273a8"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 52,
+        "output_sha256": "cfe045a81035d6a1c6f00fc142c2d9c5c8e7078b13f65d9ae34bae32ae4084b4",
+        "status": "completed"
+      },
+      "candidate_ref": "fc94b635fe050e65dcd827b1996585b563536da7caf687d6d2257c0ff9b86d0c",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "002d59df3968090f2476c77f5feb7f01ea670824",
+      "first_parent_position": 29,
+      "parent_oid": "1ec80f6962d5ba82879afd4782eb2dd00afeae67",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 693,
+        "output_sha256": "53050f615d3584706534e8e2b851c1d0a976f1ebb2a0b6d2469b8a8afedcd4b2",
+        "status": "completed"
+      },
+      "source_file_count": 3,
+      "source_paths_sha256": "230cdb74320e3ba4461b4ac2b4b5ceb3640a41853aa1176a1ccf2c5e3b68ec14",
+      "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+      "test_file_count": 1,
+      "test_target_count": 1,
+      "test_targets_sha256": "eb441a0e949a3c25817e373c1e1b9f50a36e51ff01c57c132100a498fcca8859"
+    },
+    {
+      "baseline": {
+        "exit_code": 0,
+        "output_byte_count": 115,
+        "output_sha256": "f0dd7b511e00bfc80fa88ec8f1e1d97af9837a0697bb84da8c8039b45ae9ad1b",
+        "status": "completed"
+      },
+      "candidate_ref": "f92520da0cb7c25c7a482ed60319a0391111358fdc40b10ae8acb1d447da9dce",
+      "classification": "eligible_for_symptom_review",
+      "commit_oid": "df765ab952185595d65f561f8ccb8036598980a8",
+      "first_parent_position": 31,
+      "parent_oid": "f07446b2302e8487e9d04833c0badaa6cd5d9114",
+      "reversed_source": {
+        "exit_code": 1,
+        "output_byte_count": 11025,
+        "output_sha256": "a8b3fea2b9e69198db6b30bd49dee89ea72a6f514c523a1018bf7472e242f7ab",
+        "status": "completed"
+      },
+      "source_file_count": 3,
+      "source_paths_sha256": "8595a890c215da0ef4f8da3973284eb759cdf8f33a762964d43b0e92b75a7b04",
+      "test_command_sha256": "c951934191a0e06a301f4f5cb903511bd7ffe6b76f345bc2811d8a50787fb5b6",
+      "test_file_count": 2,
+      "test_target_count": 2,
+      "test_targets_sha256": "c436284000b437c327cbde77bd8ca5627e5c1ae3594dcd8c11a4d41039a0a50d"
+    }
+  ],
+  "schema_version": 1,
+  "status": "development_filter_only",
+  "summary": {
+    "candidate_count": 23,
+    "classification_counts": {
+      "baseline_invalid_failure": 4,
+      "baseline_invalid_timeout": 0,
+      "eligible_for_symptom_review": 17,
+      "negative_control_survived": 1,
+      "reversed_invalid_timeout": 1
+    }
+  }
+}

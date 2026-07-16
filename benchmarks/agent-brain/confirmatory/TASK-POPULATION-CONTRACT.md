@@ -16,17 +16,17 @@ tasks enter development, calibration, or holdout.
 
 The companion `task_eligibility.py` scanner can inventory first-parent integration units that touch
 both production Go and test files. Its output contains commit identities, structural counts, and
-content commitments but no subjects, paths, prompts, or patches. It is only a static pre-screen:
-reverse-patch negative controls and independent symptom-only review remain pending. Any scan whose
-identities were inspected by a product optimizer is permanently labeled development-only and cannot
-be reassigned to calibration or confirmatory holdout.
+content commitments but no subjects, paths, prompts, or patches. It is only a static pre-screen. The
+checked-in development receipt closes the reverse-patch negative-control filter; independent
+symptom-only review remains pending. Any scan whose identities were inspected by a product optimizer
+is permanently labeled development-only and cannot be reassigned to calibration or confirmatory
+holdout.
 
 The checked-in development scan covers `github.com/entireio/cli` from
 `3ebc57dbb923c0aa6eb53f17384109d189953c6c` through
 `df765ab952185595d65f561f8ccb8036598980a8`. It records 31 first-parent integration units and 23
-source-plus-test candidates: 7 low, 3 medium, and 13 high static-scope bands. All 23 negative-control
-statuses are `pending`; this is an inventory milestone, not an eligible task population. Its
-canonical self-hash is
+source-plus-test candidates: 7 low, 3 medium, and 13 high static-scope bands. This remains an
+inventory milestone, not an eligible task population. Its canonical self-hash is
 `177a5f71bd9ac82d8b38e61251a07d0b073852ce5a527da0b05e64eabc8f4585`.
 
 Reproduce it against an exact local Git object graph with:
@@ -41,6 +41,40 @@ python3 benchmarks/agent-brain/confirmatory/task_eligibility.py \
 cmp /tmp/development-task-eligibility-scan-v1.json \
   benchmarks/agent-brain/confirmatory/development-task-eligibility-scan-v1.json
 ```
+
+`task_negative_control.py` is the next development-only filter. For each statically screened
+candidate, it runs the packages containing changed Go tests from a clean detached candidate worktree,
+then creates a second clean detached worktree, reverses only the production Go patch against the first
+parent, and reruns the identical command. Hooks are disabled, and HEAD, index-tree identity, and clean
+status are checked before either run. A candidate advances only to independent symptom review when the
+baseline passes and the reversed-source run fails. A passing reversal, baseline failure, or a
+harness-owned process-group timeout cannot advance. Receipts retain only hashes, counts, exit
+classifications, and exact runner/dependency/environment/policy identities; raw paths, subjects,
+patches, and test output are not checked in. The Go test timeout is disabled so it cannot masquerade as
+a causal failure; one outer deadline kills the whole test process group. The receipt pins Go 1.26.4,
+and each clean worktree must pass a module preflight under that exact toolchain before either run.
+
+The checked-in development-only receipt classifies all 23 candidates: 17 advance to independent
+symptom review, one is rejected because the negative control survived, four are rejected because the
+baseline failed, and one is rejected because the reversed-source run hit the harness deadline. This
+receipt does not approve prompts or assign a population split. Its canonical self-hash is
+`c71423e9cb8c88d6749cd75ecf76651d1d0b59b72ef24fc9bd8071676a81032c`; the checked-in file SHA-256 is
+`bed85eebcf71f7b256646e2bbbcf6da2b843d7aad7d9869a48f19f262bcd922d`.
+
+Run and validate this local filter with:
+
+```bash
+python3 benchmarks/agent-brain/confirmatory/task_negative_control.py run \
+  --repo /path/to/entire-cli \
+  --ledger benchmarks/agent-brain/confirmatory/development-task-eligibility-scan-v1.json \
+  --output /tmp/development-task-negative-control-v1.json
+python3 benchmarks/agent-brain/confirmatory/task_negative_control.py check \
+  /tmp/development-task-negative-control-v1.json
+```
+
+This filter is deliberately narrower than a full task validation: it does not detect dependent
+packages outside the changed-test package set, judge whether a prompt is symptom-only, or approve a
+population split. Those remain separate fail-closed review gates.
 
 ## Three disjoint populations
 
@@ -83,6 +117,7 @@ The schemas are:
 
 - `confirmatory/schemas/task-population-v2.schema.json`
 - `confirmatory/schemas/development-task-eligibility-scan-v1.schema.json`
+- `confirmatory/schemas/development-task-negative-control-v1.schema.json`
 - `schemas/task-review-ledger-v2.schema.json`
 
 Validate a populated pair with:
