@@ -46,7 +46,9 @@ confirmatory analyzer is implemented and path-locked.
 - `engine-verification-pins.json`: gate-authoritative corpus, query, reproducible binary build,
   GGUF, resolved Node, server script, package/lockfile, health interval, and dependency-inventory
   expectations, including exact eligible and active+eligible semantic-candidate set commitments;
-  the runner does not accept these values from its caller.
+  the runner does not accept these values from its caller. `preregistration.json` binds this exact
+  canonical repo-relative path and its raw SHA-256, so the protocol content hash necessarily freezes
+  the selected production pin bytes rather than whichever pin file happens to be present later.
 - `schemas/engine-verification.schema.json` and
   `schemas/engine-verification-manifest.schema.json`: required per-arm output and the exact
   three-record manifest wrapper.

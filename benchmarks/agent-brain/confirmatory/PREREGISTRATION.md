@@ -57,6 +57,12 @@ must satisfy `schemas/engine-verification.schema.json`, including effective engi
 dimension, namespace, corpus/vector hashes, semantic availability, and fallback status. A fallback or
 missing engine field invalidates the cell.
 
+The machine-readable preregistration binds the production expectations to the canonical
+`benchmarks/agent-brain/confirmatory/engine-verification-pins.json` path and its raw SHA-256. Normal
+preparation checks fail on a missing, redirected, symlinked, or byte-changed pin set. Because that
+binding is inside `preregistration.json`, the final protocol content hash freezes the exact engine-pin
+contract before any holdout is opened or paid run is authorized.
+
 Development metrics are Recall@1/5/10, MRR, nDCG@10, packet precision@K, kind distribution,
 duplicate/cluster occupancy, and temporal exclusions. K and packet aggregation are chosen only on
 development data. The provisional selection threshold is Recall@5 >= 0.80 on answerable product

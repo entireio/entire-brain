@@ -1,5 +1,3 @@
-ERROR: too few development relevance queries
-ERROR: too few development relevance tasks
 ERROR: too few sealed relevance queries
 ERROR: too few sealed relevance tasks
 ERROR: relevance holdout commitment is missing
@@ -9,11 +7,6 @@ ERROR: protocol is not frozen_unopened
 ERROR: offline development threshold has not passed
 ERROR: packet K is not frozen
 ERROR: aggregation rule is not frozen
-ERROR: paid budget field is pending: model_id
-ERROR: paid budget field is pending: input_price_per_token
-ERROR: paid budget field is pending: cached_input_price_per_token
-ERROR: paid budget field is pending: output_price_per_token
-ERROR: paid budget field is pending: maximum_usd
 ERROR: fresh holdout commitment is not frozen
 ERROR: offline relevance dataset is not frozen_unopened
 ERROR: paid-run checklist is not all pass

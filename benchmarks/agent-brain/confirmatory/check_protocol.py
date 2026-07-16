@@ -87,7 +87,8 @@ RELEVANCE_NULL_REVIEW_LEDGER_REPO_PATH = (
 # Reviewed independently of preregistration.json's routinely regenerated artifact hashes.
 RELEVANCE_SOURCE_CONTRACT_SHA256 = "5708b8f6f0ade1cedf4e1f7d0b4ff499d707e2c9cd93034d9e38a0aebb9836e1"
 RELEVANCE_NULL_REVIEW_CONTRACT_SHA256 = "e606192db0f30cb091338db578cb88c7accb61e391a3ec21f06d83f6c40ecf0b"
-ENGINE_PINS = HERE / "engine-verification-pins.json"
+ENGINE_PINS_REPO_PATH = "benchmarks/agent-brain/confirmatory/engine-verification-pins.json"
+ENGINE_PINS = REPO / ENGINE_PINS_REPO_PATH
 DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newline_v1"
 CANDIDATE_IDS_ALGORITHM = "sha256_canonical_sorted_id_array_v1"
 
@@ -447,6 +448,38 @@ def _verify_hashed_file(
     if target.is_file() and _is_sha256(record.get("sha256")):
         _error(errors, digest(target) == record["sha256"], f"{label}: content hash mismatch: {raw_path}")
     return raw_path if isinstance(raw_path, str) else None
+
+
+def validate_engine_pin_binding(
+    protocol: dict[str, Any],
+    *,
+    here: pathlib.Path = HERE,
+    repo: pathlib.Path = REPO,
+) -> list[str]:
+    """Bind the preregistration to the canonical production engine-pin bytes."""
+    errors: list[str] = []
+    binding = protocol.get("engine_verification_pins")
+    label = "preregistration engine_verification_pins"
+    path = _verify_hashed_file(errors, binding, label, repo=repo)
+    if not isinstance(binding, dict):
+        return errors
+    _error(
+        errors,
+        set(binding) == {"path", "sha256"},
+        f"{label}: fields must be exactly path and sha256",
+    )
+    _error(
+        errors,
+        path == ENGINE_PINS_REPO_PATH,
+        f"{label}: path must be {ENGINE_PINS_REPO_PATH}",
+    )
+    if path == ENGINE_PINS_REPO_PATH:
+        _error(
+            errors,
+            not _evidence_path_contains_symlink(path, here, repo),
+            f"{label}: canonical path must not contain symlinks",
+        )
+    return errors
 
 
 def validate_integration_verification(
@@ -2762,7 +2795,10 @@ def validate(freeze: bool = False) -> list[str]:
     dataset = load(HERE / "offline-relevance-dataset.json")
     gate = load(HERE / "go-no-go.json")
     errors.extend(validate_inventory(inventory))
-    _validate_engine_pins(load(ENGINE_PINS), errors, repo=REPO, require_production=True)
+    errors.extend(validate_engine_pin_binding(protocol))
+    pins = _load_artifact(ENGINE_PINS, errors, "engine-verification-pins.json")
+    if pins is not None:
+        _validate_engine_pins(pins, errors, repo=REPO, require_production=True)
 
     for schema_path in sorted((HERE / "schemas").glob("*.json")):
         schema = load(schema_path)

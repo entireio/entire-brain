@@ -104,7 +104,7 @@
       "command": "python3 -m unittest benchmarks/agent-brain/analysis/test_confirmatory.py benchmarks/agent-brain/analysis/test_ranking_diagnostics.py benchmarks/agent-brain/confirmatory/test_check_protocol.py benchmarks/agent-brain/confirmatory/test_power_analysis.py",
       "status": "pass",
       "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/analysis-protocol-tests.txt",
-      "log_sha256": "c606dc0a1339d8de444b298c844515b54b5e916dabddda4b08daec7680743110"
+      "log_sha256": "09b73ecd6fc4fcf775b1e266972a7b264549a20988ca96945ad39bd8ace5214c"
     },
     {
       "id": "task-lint",
@@ -146,7 +146,7 @@
       "command": "zsh -c 'python3 benchmarks/agent-brain/confirmatory/check_protocol.py --freeze > benchmarks/agent-brain/confirmatory/integration-logs/freeze-no-go.txt 2>&1; rc=$?; [[ $rc -eq 1 ]]'",
       "status": "pass",
       "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/freeze-no-go.txt",
-      "log_sha256": "b008bcdcddf6f251ced68fdb04f69bd3c36299ad76277d593e9f74dd14e67667"
+      "log_sha256": "1299007669193a31599967368b991909b249d8bcc3754442dc82bb2632e9923d"
     }
   ],
   "dependency_evidence": {

@@ -458,6 +458,60 @@ class ProtocolCheckTest(unittest.TestCase):
         protocol["schema_version"] = 2
         self.assertNotEqual(CHECK.protocol_content_sha256(protocol), expected)
 
+    def test_preregistration_binds_canonical_engine_pin_path_and_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            repo = pathlib.Path(temp)
+            here = repo / "benchmarks" / "agent-brain" / "confirmatory"
+            canonical = repo / CHECK.ENGINE_PINS_REPO_PATH
+            canonical.parent.mkdir(parents=True)
+            canonical.write_text('{"pin_set_id":"synthetic"}\n', encoding="utf-8")
+            binding = {
+                "path": CHECK.ENGINE_PINS_REPO_PATH,
+                "sha256": self._sha(canonical),
+            }
+            protocol = {"engine_verification_pins": binding}
+
+            self.assertEqual(
+                CHECK.validate_engine_pin_binding(protocol, here=here, repo=repo),
+                [],
+            )
+
+            frozen_hash = CHECK.protocol_content_sha256(
+                {**protocol, "freeze": {"frozen_at": "now", "protocol_sha256": None}}
+            )
+            canonical.write_text('{"pin_set_id":"tampered"}\n', encoding="utf-8")
+            errors = CHECK.validate_engine_pin_binding(protocol, here=here, repo=repo)
+            self.assertTrue(any("content hash mismatch" in error for error in errors))
+
+            alternate = repo / "alternate-pins.json"
+            shutil.copy2(canonical, alternate)
+            redirected = copy.deepcopy(protocol)
+            redirected["engine_verification_pins"] = {
+                "path": "alternate-pins.json",
+                "sha256": self._sha(alternate),
+            }
+            errors = CHECK.validate_engine_pin_binding(redirected, here=here, repo=repo)
+            self.assertTrue(any("path must be" in error for error in errors))
+
+            rebound_hash = CHECK.protocol_content_sha256(
+                {**redirected, "freeze": {"frozen_at": "now", "protocol_sha256": None}}
+            )
+            self.assertNotEqual(rebound_hash, frozen_hash)
+
+            canonical.unlink()
+            canonical.symlink_to(alternate)
+            symlinked = {
+                "engine_verification_pins": {
+                    "path": CHECK.ENGINE_PINS_REPO_PATH,
+                    "sha256": self._sha(canonical),
+                }
+            }
+            errors = CHECK.validate_engine_pin_binding(symlinked, here=here, repo=repo)
+            self.assertTrue(any("must not contain symlinks" in error for error in errors))
+
+            errors = CHECK.validate_engine_pin_binding({}, here=here, repo=repo)
+            self.assertIn("preregistration engine_verification_pins must be an object", errors)
+
     def test_missing_go_no_go_evidence_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             here = pathlib.Path(temp)

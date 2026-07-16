@@ -55,6 +55,10 @@
     }
   },
   "engine_matrix": "engine-matrix.json",
+  "engine_verification_pins": {
+    "path": "benchmarks/agent-brain/confirmatory/engine-verification-pins.json",
+    "sha256": "c4e4989ffe22cefa2e71211ba2baa4027634daf07d19ff5e92a8b1289243db11"
+  },
   "development_selection": {
     "metrics": ["recall_at_1", "recall_at_5", "recall_at_10", "mrr", "ndcg_at_10", "packet_precision_at_k", "kind_distribution", "cluster_occupancy", "temporal_exclusions"],
     "thresholds": {

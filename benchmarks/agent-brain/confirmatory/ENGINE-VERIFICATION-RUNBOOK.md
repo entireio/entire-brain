@@ -6,6 +6,11 @@ does not invoke a coding agent. Production expectations come only from the check
 versions, or runtime identities. Final evidence must be created by `verify_engines.py`; the
 individual commands below remain useful diagnostics but cannot by themselves satisfy the gate.
 
+`preregistration.json` commits to that file by its canonical repo-relative path and raw SHA-256.
+`check_protocol.py` rejects a missing, redirected, symlinked, or byte-changed binding during ordinary
+preparation as well as final freeze; updating engine pins therefore requires an explicit
+preregistration revision before the protocol content hash is frozen.
+
 ## Preflight
 
 ```sh
