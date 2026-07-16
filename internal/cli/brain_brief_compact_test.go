@@ -269,7 +269,7 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 		t.Fatalf("packet_format default = %#v", format["default"])
 	}
 	policy := properties["delivery_policy"].(map[string]any)
-	if got, want := policy["enum"], []string{"always"}; !reflect.DeepEqual(got, want) {
+	if got, want := policy["enum"], []string{"always", "shadow"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("delivery_policy enum = %#v, want %#v", got, want)
 	}
 	if _, hasDefault := policy["default"]; hasDefault {
@@ -282,18 +282,20 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 			t.Errorf("packet_format %#v error = %v", value, err)
 		}
 	}
-	for _, value := range []any{nil, "", "adaptive", true} {
+	for _, value := range []any{nil, "", "adaptive", "serve", "silence", true} {
 		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{"task": "x", "packet_format": "agent_v1", "delivery_policy": value}))
 		if err == nil || !strings.Contains(err.Error(), "delivery_policy") {
 			t.Errorf("delivery_policy %#v error = %v", value, err)
 		}
 	}
 	for _, formatName := range []string{"legacy_json", "compact_v1", "compact_v2"} {
-		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{
-			"task": "x", "packet_format": formatName, "delivery_policy": "always",
-		}))
-		if err == nil || !strings.Contains(err.Error(), "only valid with packet_format agent_v1") {
-			t.Errorf("cross-format delivery policy for %s error = %v", formatName, err)
+		for _, policyName := range []string{"always", "shadow"} {
+			_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{
+				"task": "x", "packet_format": formatName, "delivery_policy": policyName,
+			}))
+			if err == nil || !strings.Contains(err.Error(), "only valid with packet_format agent_v1") {
+				t.Errorf("cross-format delivery policy %s for %s error = %v", policyName, formatName, err)
+			}
 		}
 	}
 }
@@ -331,6 +333,10 @@ func TestMCPBrainBriefDefaultLegacyAndVersionedCompactPackets(t *testing.T) {
 	explicitAlways := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "agent_v1", "delivery_policy": "always"})
 	if explicitAlways != agentText {
 		t.Fatal("explicit always policy changed agent_v1 bytes")
+	}
+	shadow := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "agent_v1", "delivery_policy": "shadow"})
+	if shadow != agentText {
+		t.Fatal("shadow instrumentation changed agent_v1 bytes")
 	}
 }
 

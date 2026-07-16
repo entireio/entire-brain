@@ -47,8 +47,7 @@ version name.
 
 `agent_v1` is a separately versioned bounded coding projection rather than a
 compact encoding of every brief field or a claim to be the smallest possible
-packet. Its frozen `delivery_policy` is `always`; no
-adaptive serve/silence decision exists in this version. It has a 32 KiB UTF-8
+packet. Its packet-level `delivery_policy` is frozen to `always`. It has a 32 KiB UTF-8
 byte budget and carries a SHA-256 identity for the canonical field-selection,
 priority, overflow, privacy, and budget configuration. Exact ranked fact IDs,
 order, and text are mandatory, together with stale-locus and pending-review
@@ -61,9 +60,23 @@ residual bytes. If mandatory
 evidence cannot fit, emission fails before writing
 any partial packet. The projection omits generated timestamps, host roots,
 history transcript paths/timestamps, session and checkpoint identifiers,
-transcript anchors, and raw provenance. `delivery_policy: "always"` may be
-specified explicitly only with `packet_format: "agent_v1"`; any other policy
-or cross-format policy setting is rejected. Structured path fields are filtered
+transcript anchors, and raw provenance. `delivery_policy: "always"` or
+`delivery_policy: "shadow"` may be specified explicitly only with
+`packet_format: "agent_v1"`; cross-format policy settings are rejected.
+`shadow` is control-plane instrumentation only: it builds and delivers the
+exact same always-bound packet bytes, never suppresses delivery, and keeps its
+decision/features/reason codes in a pure internal artifact that is not
+serialized into the agent packet. The current evaluator is
+`diagnostic_unfrozen`: development admission thresholds are not yet authorized,
+its candidate decision is unknown, and `would_silence_authorized` is always
+false. Evaluator errors, unavailable signals, trust warnings, non-finite values,
+unsafe structured input, unclassified warnings, and always-bound packet build
+errors all fail safe to
+unknown/serve. Its deterministic configuration identity binds the exact feature
+schema, rule and threshold state, evaluator version, base product commit,
+always-bound packet configuration, and requested/effective limits; a second
+artifact hash binds the emitted feature values, decision, and ordered reason
+codes. Structured path fields are filtered
 to repository-relative or symbol-like values. Natural-language task, fact,
 review-message, action/evidence, signature/reason, and history text is preserved
 verbatim and is not a redaction boundary; do not put secrets into task or

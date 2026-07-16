@@ -281,8 +281,8 @@ func mcpToolDefinitions() []map[string]any {
 				"delivery_policy": map[string]any{
 					"type":        "string",
 					"title":       "delivery_policy",
-					"description": "Delivery decision policy for agent_v1. Omit for always. Only always is implemented; adaptive delivery is intentionally unavailable.",
-					"enum":        []string{"always"},
+					"description": "Delivery control for agent_v1. Omit for always. shadow runs a diagnostic-only admission evaluator but still delivers bytes identical to always; it cannot suppress delivery and its artifact is never included in the agent packet.",
+					"enum":        []string{"always", "shadow"},
 				},
 			}),
 		},
@@ -1025,10 +1025,10 @@ func mcpBrainBriefDeliveryPolicy(args map[string]any, format brainBriefPacketFor
 	if !ok {
 		return "", errors.New("delivery_policy must be string")
 	}
-	if policy != string(brainBriefDeliveryAlways) {
-		return "", fmt.Errorf("delivery_policy must be always: %q", policy)
+	if policy != string(brainBriefDeliveryAlways) && policy != string(brainBriefDeliveryShadow) {
+		return "", fmt.Errorf("delivery_policy must be always or shadow: %q", policy)
 	}
-	return brainBriefDeliveryAlways, nil
+	return brainBriefDeliveryPolicy(policy), nil
 }
 
 func mcpBool(args map[string]any, key string) (bool, error) {

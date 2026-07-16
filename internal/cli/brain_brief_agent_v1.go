@@ -30,7 +30,10 @@ const (
 
 type brainBriefDeliveryPolicy string
 
-const brainBriefDeliveryAlways brainBriefDeliveryPolicy = "always"
+const (
+	brainBriefDeliveryAlways brainBriefDeliveryPolicy = "always"
+	brainBriefDeliveryShadow brainBriefDeliveryPolicy = "shadow"
+)
 
 func (opts brainBriefOptions) resolvedDeliveryPolicy() brainBriefDeliveryPolicy {
 	if opts.deliveryPolicy != "" {
@@ -188,13 +191,59 @@ type brainBriefAgentV1Projection struct {
 	counts brainBriefAgentV1Counts
 }
 
+type brainBriefAgentV1Emission struct {
+	projection brainBriefAgentV1Projection
+	shadow     *brainBriefAdmissionShadowArtifact
+}
+
 func emitBrainBriefAgentV1(cmd *cobra.Command, report brainBriefReport, policy brainBriefDeliveryPolicy, requestedLimit int) error {
-	projection, err := buildBrainBriefAgentV1(report, policy, requestedLimit)
+	emission, err := prepareBrainBriefAgentV1(report, policy, requestedLimit)
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(cmd.OutOrStdout(), projection.packet)
+	_, err = io.WriteString(cmd.OutOrStdout(), emission.projection.packet)
 	return err
+}
+
+func prepareBrainBriefAgentV1(report brainBriefReport, policy brainBriefDeliveryPolicy, requestedLimit int) (brainBriefAgentV1Emission, error) {
+	return prepareBrainBriefAgentV1WithShadowConfig(report, policy, requestedLimit, defaultBrainBriefAdmissionShadowConfig())
+}
+
+func prepareBrainBriefAgentV1WithShadowConfig(
+	report brainBriefReport,
+	policy brainBriefDeliveryPolicy,
+	requestedLimit int,
+	shadowConfig brainBriefAdmissionShadowConfig,
+) (brainBriefAgentV1Emission, error) {
+	if policy == "" {
+		policy = brainBriefDeliveryAlways
+	}
+	if policy != brainBriefDeliveryAlways && policy != brainBriefDeliveryShadow {
+		return brainBriefAgentV1Emission{}, fmt.Errorf("agent_v1 delivery policy must be always or shadow: %q", policy)
+	}
+	if requestedLimit <= 0 {
+		requestedLimit = brainBriefDefaultLimit
+	}
+	emission := brainBriefAgentV1Emission{}
+	if policy == brainBriefDeliveryShadow {
+		effectiveFactLimit := brainBriefFactsCount(requestedLimit)
+		packetConfig := brainBriefAgentV1ConfigIdentity(brainBriefDeliveryAlways, requestedLimit, effectiveFactLimit)
+		artifact := evaluateBrainBriefAdmissionShadowSafe(
+			report, requestedLimit, effectiveFactLimit, packetConfig, shadowConfig,
+		)
+		emission.shadow = &artifact
+	}
+	// Shadow is a control-plane observer, never a packet policy. Both modes use
+	// the exact always-bound projection so enabling shadow cannot change bytes.
+	projection, err := buildBrainBriefAgentV1(report, brainBriefDeliveryAlways, requestedLimit)
+	if err != nil {
+		if emission.shadow != nil {
+			markBrainBriefAdmissionShadowPacketBuildError(emission.shadow)
+		}
+		return emission, err
+	}
+	emission.projection = projection
+	return emission, nil
 }
 
 func buildBrainBriefAgentV1(report brainBriefReport, policy brainBriefDeliveryPolicy, requestedLimit int) (brainBriefAgentV1Projection, error) {

@@ -178,6 +178,11 @@ type brainBriefReport struct {
 	Themes   []themeView `json:"themes,omitempty"`
 	Guidance []string    `json:"guidance"`
 	Warnings []string    `json:"warnings,omitempty"`
+
+	// admissionSignals records stage success without changing any serialized
+	// brief contract. A successful no-hit retrieval may legitimately return a
+	// nil slice, so shadow admission must not infer availability from nilness.
+	admissionSignals brainBriefAdmissionSourceSignals
 }
 
 type brainBriefSemantic struct {
@@ -1108,6 +1113,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				Relations: nonNil(contextRelations),
 				Neighbors: nonNil(contextNeighbors),
 			}
+			report.admissionSignals.SemanticContextAvailable = true
 		}
 		if profile != nil {
 			contextErrors := 0
@@ -1136,6 +1142,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
 		} else {
 			report.Semantic.Tests = tests
+			report.admissionSignals.SemanticTestsAvailable = true
 		}
 		if profile != nil {
 			testErrors := 0
@@ -1251,6 +1258,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				report.Warnings = append(report.Warnings, "raw history fallback unavailable: "+rawErr.Error())
 			}
 			report.History.Matches = mergeBrainBriefHistoryMatches(briefOpts.limit, rawMatches, indexedMatches)
+			report.admissionSignals.HistoryAvailable = true
 		}
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
 		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
@@ -1272,6 +1280,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			report.admissionSignals.FactsAvailable = true
 			// Semantic rerank on by default; nil reranker (embedder
 			// unavailable or --no-semantic) falls back to lexical ranking. The
 			// disk-backed cache avoids re-embedding the branch each brief.
