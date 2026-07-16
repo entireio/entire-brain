@@ -154,6 +154,8 @@ def fixture_manifest() -> dict:
         "prompt_parity_algorithm": PRODUCT.PROMPT_PARITY_ALGORITHM,
         "cache_policy_sha256": digest("cache-policy"),
         "runner_sha256": digest("runner"),
+        "price_quote_sha256": digest("price-quote"),
+        "pricing_policy_sha256": digest("pricing-policy"),
         "model_id": "synthetic-model",
         "effort": "synthetic-medium",
         "schedule_sha256": schedule["identity_sha256"],
@@ -196,6 +198,8 @@ def fixture_manifest() -> dict:
             "prompt_parity_algorithm": shared["prompt_parity_algorithm"],
             "cache_policy_sha256": shared["cache_policy_sha256"],
             "runner_sha256": shared["runner_sha256"],
+            "price_quote_sha256": shared["price_quote_sha256"],
+            "pricing_policy_sha256": shared["pricing_policy_sha256"],
             "model_id": shared["model_id"],
             "effort": shared["effort"],
             "schedule_sha256": shared["schedule_sha256"],
@@ -309,6 +313,26 @@ class ProductCycleV1Test(unittest.TestCase):
         with self.assertRaisesRegex(PRODUCT.ProductCycleError, "identity hash mismatch"):
             PRODUCT.preflight_manifest(tampered)
 
+    def test_all_zero_hash_and_oid_placeholders_fail_even_when_resealed(self) -> None:
+        for field, placeholder in (
+            ("commit_oid", "0" * 40),
+            ("binary_sha256", "0" * 64),
+        ):
+            with self.subTest(field=field):
+                manifest = fixture_manifest()
+                manifest["product_identities"]["candidate"][field] = placeholder
+                finalize(manifest)
+                with self.assertRaisesRegex(PRODUCT.ProductCycleError, "all-zero placeholder"):
+                    PRODUCT.preflight_manifest(manifest)
+
+        shared = fixture_manifest()
+        shared["shared_execution"]["runner_sha256"] = "0" * 64
+        for cell in shared["cells"]:
+            cell["execution_identity"]["runner_sha256"] = "0" * 64
+        finalize(shared)
+        with self.assertRaisesRegex(PRODUCT.ProductCycleError, "all-zero placeholder"):
+            PRODUCT.preflight_manifest(shared)
+
     def test_cell_product_identity_and_prompt_parity_fail_even_when_rehashed(self) -> None:
         product_attack = fixture_manifest()
         target = product_attack["cells"][0]
@@ -336,6 +360,8 @@ class ProductCycleV1Test(unittest.TestCase):
             ("prompt_parity_algorithm", "other-parity-algorithm"),
             ("cache_policy_sha256", digest("other-cache")),
             ("runner_sha256", digest("other-runner")),
+            ("price_quote_sha256", digest("other-price-quote")),
+            ("pricing_policy_sha256", digest("other-pricing-policy")),
             ("model_id", "other-model"),
             ("effort", "other-effort"),
             ("schedule_sha256", digest("other-schedule")),

@@ -65,11 +65,11 @@
   "$defs": {
     "sha256": {
       "type": "string",
-      "pattern": "^[0-9a-f]{64}$"
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
     },
     "gitOid": {
       "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
+      "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
     },
     "decimal": {
       "type": "string",
@@ -150,6 +150,8 @@
         "prompt_parity_algorithm",
         "cache_policy_sha256",
         "runner_sha256",
+        "price_quote_sha256",
+        "pricing_policy_sha256",
         "model_id",
         "effort",
         "schedule_sha256",
@@ -165,6 +167,8 @@
         },
         "cache_policy_sha256": {"$ref": "#/$defs/sha256"},
         "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "price_quote_sha256": {"$ref": "#/$defs/sha256"},
+        "pricing_policy_sha256": {"$ref": "#/$defs/sha256"},
         "model_id": {"$ref": "#/$defs/nonemptyString"},
         "effort": {"$ref": "#/$defs/nonemptyString"},
         "schedule_sha256": {"$ref": "#/$defs/sha256"},
@@ -302,6 +306,8 @@
         "prompt_parity_algorithm",
         "cache_policy_sha256",
         "runner_sha256",
+        "price_quote_sha256",
+        "pricing_policy_sha256",
         "model_id",
         "effort",
         "schedule_sha256",
@@ -320,6 +326,8 @@
         },
         "cache_policy_sha256": {"$ref": "#/$defs/sha256"},
         "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "price_quote_sha256": {"$ref": "#/$defs/sha256"},
+        "pricing_policy_sha256": {"$ref": "#/$defs/sha256"},
         "model_id": {"$ref": "#/$defs/nonemptyString"},
         "effort": {"$ref": "#/$defs/nonemptyString"},
         "schedule_sha256": {"$ref": "#/$defs/sha256"},

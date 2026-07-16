@@ -127,7 +127,11 @@ def _nonempty_string(value: Any, label: str) -> str:
 
 
 def _sha256(value: Any, label: str) -> str:
-    _require(isinstance(value, str) and SHA256_RE.fullmatch(value) is not None, f"{label} must be a lowercase SHA-256")
+    _require(
+        isinstance(value, str) and SHA256_RE.fullmatch(value) is not None,
+        f"{label} must be a lowercase SHA-256",
+    )
+    _require(value != "0" * 64, f"{label} cannot be an all-zero placeholder")
     return value
 
 
@@ -136,6 +140,7 @@ def _oid(value: Any, label: str) -> str:
         isinstance(value, str) and OID_RE.fullmatch(value) is not None,
         f"{label} must be a lowercase 40-character Git object ID",
     )
+    _require(value != "0" * 40, f"{label} cannot be an all-zero placeholder")
     return value
 
 
@@ -364,6 +369,8 @@ def _validate_shared_execution(value: Any, *, task_hash: str, schedule_hash: str
             "prompt_parity_algorithm",
             "cache_policy_sha256",
             "runner_sha256",
+            "price_quote_sha256",
+            "pricing_policy_sha256",
             "model_id",
             "effort",
             "schedule_sha256",
@@ -378,6 +385,8 @@ def _validate_shared_execution(value: Any, *, task_hash: str, schedule_hash: str
         "prompt_template_sha256",
         "cache_policy_sha256",
         "runner_sha256",
+        "price_quote_sha256",
+        "pricing_policy_sha256",
         "schedule_sha256",
     ):
         _sha256(shared[field], f"shared_execution.{field}")
@@ -414,6 +423,8 @@ def _validate_execution_identity(
             "prompt_parity_algorithm",
             "cache_policy_sha256",
             "runner_sha256",
+            "price_quote_sha256",
+            "pricing_policy_sha256",
             "model_id",
             "effort",
             "schedule_sha256",
@@ -432,6 +443,8 @@ def _validate_execution_identity(
         "prompt_parity_algorithm": shared["prompt_parity_algorithm"],
         "cache_policy_sha256": shared["cache_policy_sha256"],
         "runner_sha256": shared["runner_sha256"],
+        "price_quote_sha256": shared["price_quote_sha256"],
+        "pricing_policy_sha256": shared["pricing_policy_sha256"],
         "model_id": shared["model_id"],
         "effort": shared["effort"],
         "schedule_sha256": shared["schedule_sha256"],
