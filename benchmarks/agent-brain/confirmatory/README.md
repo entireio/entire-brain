@@ -39,6 +39,14 @@ confirmatory analyzer is implemented and path-locked.
   decisions, but explicitly has no owner HMAC receipt, population assignment, calibration
   membership, holdout membership, or run authority. `development_task_symptom_review.py` and its
   schema/test provide the fail-closed build and exact-source verification workflow.
+- `MULTI-REPOSITORY-DEVELOPMENT-INVENTORY-V2.md`, `task_eligibility_v2.py`, the three
+  `development-task-eligibility-*-v2.json` ledgers, and `development-task-overlap-registry-v1.json`:
+  repository/ref/window/module/Git-and-build-toolchain-bound structural inventories for 62 additional permanently
+  development-only candidates plus a global 85-identity exact-overlap registry. Production Go and
+  test evidence are disjoint, single-parent and two-parent units are supported, fixture-only evidence
+  binds its owning test package, and source/test/full stable patch IDs are recorded under one
+  canonical identity profile shared with the 23 CLI v1 registry entries. All 62 are only
+  `structurally_ready_not_executed`; this slice has no negative-control result or run authority.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.

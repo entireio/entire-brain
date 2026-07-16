@@ -1,0 +1,268 @@
+{
+  "$defs": {
+    "fixtureOwner": {
+      "additionalProperties": false,
+      "properties": {
+        "fixture_or_helper_path_sha256": {"$ref": "#/$defs/sha256"},
+        "module_root": {"$ref": "#/$defs/path"},
+        "owner_package_dir_sha256": {"$ref": "#/$defs/sha256"},
+        "owner_test_paths_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["fixture_or_helper_path_sha256", "module_root", "owner_package_dir_sha256", "owner_test_paths_sha256"],
+      "type": "object"
+    },
+    "manifest": {
+      "additionalProperties": false,
+      "properties": {
+        "blob_oid": {"$ref": "#/$defs/oid"},
+        "go_directive": {"type": ["string", "null"]},
+        "kind": {"enum": ["go.mod", "go.work"]},
+        "module_directive_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "path": {"$ref": "#/$defs/path"},
+        "raw_sha256": {"$ref": "#/$defs/sha256"},
+        "root": {"$ref": "#/$defs/path"},
+        "toolchain_directive": {"type": ["string", "null"]}
+      },
+      "required": ["blob_oid", "go_directive", "kind", "module_directive_sha256", "path", "raw_sha256", "root", "toolchain_directive"],
+      "type": "object"
+    },
+    "git": {
+      "additionalProperties": false,
+      "properties": {
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "version_output": {"type": "string", "pattern": "^git version .+$"}
+      },
+      "required": ["binary_sha256", "version_output"],
+      "type": "object"
+    },
+    "native": {
+      "additionalProperties": false,
+      "properties": {
+        "cc_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "cxx_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "target": {"type": "string", "minLength": 1},
+        "version_first_line": {"type": "string", "minLength": 1}
+      },
+      "required": ["cc_binary_sha256", "cxx_binary_sha256", "target", "version_first_line"],
+      "type": "object"
+    },
+    "oid": {"pattern": "^(?!0{40}$)[0-9a-f]{40}$", "type": "string"},
+    "path": {"type": "string", "minLength": 1},
+    "repository": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "remote": {
+          "additionalProperties": false,
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "ref": {"type": "string", "pattern": "^refs/remotes/[^/]+/main$"},
+            "url": {"type": "string", "pattern": "^https://github\\.com/.+\\.git$"}
+          },
+          "required": ["name", "ref", "url"],
+          "type": "object"
+        },
+        "repository_id": {"type": "string", "pattern": "^github\\.com/.+/.+$"},
+        "toolchain": {
+          "additionalProperties": false,
+          "properties": {
+            "git": {"$ref": "#/$defs/git"},
+            "go": {"$ref": "#/$defs/toolchainGo"},
+            "native": {"$ref": "#/$defs/native"}
+          },
+          "required": ["git", "go", "native"],
+          "type": "object"
+        },
+        "window": {
+          "additionalProperties": false,
+          "properties": {
+            "base_oid": {"$ref": "#/$defs/oid"},
+            "first_parent_unit_count": {"const": 31},
+            "head_oid": {"$ref": "#/$defs/oid"}
+          },
+          "required": ["base_oid", "first_parent_unit_count", "head_oid"],
+          "type": "object"
+        }
+      },
+      "required": ["key", "remote", "repository_id", "toolchain", "window"],
+      "type": "object"
+    },
+    "sha256": {"pattern": "^(?!0{64}$)[0-9a-f]{64}$", "type": "string"},
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "bound_evidence_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_sources": {
+          "items": {"enum": ["changed_go_test", "fixture_or_helper_owner"]},
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "module_directive_sha256": {"$ref": "#/$defs/sha256"},
+        "module_root": {"$ref": "#/$defs/path"},
+        "owner_go_test_file_count": {"minimum": 0, "type": "integer"},
+        "owner_go_test_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "package_dir_sha256": {"$ref": "#/$defs/sha256"},
+        "target_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["bound_evidence_paths_sha256", "evidence_sources", "module_directive_sha256", "module_root", "owner_go_test_file_count", "owner_go_test_paths_sha256", "package_dir_sha256", "target_sha256"],
+      "type": "object"
+    },
+    "toolchainGo": {
+      "additionalProperties": false,
+      "properties": {
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "cc": {"type": "string", "minLength": 1},
+        "cgo_enabled": {"type": "string", "minLength": 1},
+        "cxx": {"type": "string", "minLength": 1},
+        "goarch": {"type": "string", "minLength": 1},
+        "goos": {"type": "string", "minLength": 1},
+        "version_output": {"pattern": "^go version go", "type": "string"}
+      },
+      "required": ["binary_sha256", "cc", "cgo_enabled", "cxx", "goarch", "goos", "version_output"],
+      "type": "object"
+    }
+  },
+  "$id": "https://entire.io/schemas/agent-brain-development-task-eligibility-scan-v2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "benchmark_execution": {"const": "forbidden_not_executed"},
+        "calibration_membership": {"const": "forbidden_permanent_development_exposure"},
+        "confirmatory_holdout_membership": {"const": "forbidden_permanent_development_exposure"},
+        "owner_key": {"const": "absent_not_fabricated"},
+        "population_assignment": {"const": "absent_not_authorized"},
+        "source_session_identity": {"const": "unresolved_no_owner_source_session_receipt"},
+        "status": {"const": "non_authoritative_development_inventory_only"}
+      },
+      "required": ["benchmark_execution", "calibration_membership", "confirmatory_holdout_membership", "owner_key", "population_assignment", "source_session_identity", "status"],
+      "type": "object"
+    },
+    "candidates": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_ref": {"$ref": "#/$defs/sha256"},
+          "changed_path_count": {"minimum": 1, "type": "integer"},
+          "changed_paths_sha256": {"$ref": "#/$defs/sha256"},
+          "changed_go_test_file_count": {"minimum": 0, "type": "integer"},
+          "commit_oid": {"$ref": "#/$defs/oid"},
+          "committed_at": {"format": "date-time", "type": "string"},
+          "evidence_kind": {"enum": ["changed_go_test_and_fixture_or_helper", "changed_go_test_only", "fixture_or_helper_only"]},
+          "first_parent_position": {"maximum": 31, "minimum": 1, "type": "integer"},
+          "fixture_owner_bindings": {"items": {"$ref": "#/$defs/fixtureOwner"}, "type": "array"},
+          "full_diff_sha256": {"$ref": "#/$defs/sha256"},
+          "full_stable_patch_id": {"$ref": "#/$defs/oid"},
+          "go_work_bindings": {"items": {"$ref": "#/$defs/manifest"}, "type": "array"},
+          "merge_parent_count": {"enum": [1, 2]},
+          "module_bindings": {"items": {"$ref": "#/$defs/manifest"}, "type": "array"},
+          "negative_control_status": {"const": "not_executed"},
+          "parent_oid": {"$ref": "#/$defs/oid"},
+          "path_partition_status": {"const": "verified_disjoint_production_go_and_test_evidence"},
+          "production_go_paths_sha256": {"$ref": "#/$defs/sha256"},
+          "runner_readiness": {"enum": ["blocked_unresolved_static_binding", "structurally_ready_not_executed"]},
+          "source_diff_sha256": {"$ref": "#/$defs/sha256"},
+          "source_file_count": {"minimum": 1, "type": "integer"},
+          "source_lineage_commit_oids": {"items": {"$ref": "#/$defs/oid"}, "minItems": 1, "type": "array", "uniqueItems": true},
+          "source_lineage_sha256": {"$ref": "#/$defs/sha256"},
+          "source_package_count": {"minimum": 1, "type": "integer"},
+          "source_session_status": {"const": "unresolved_no_owner_source_session_receipt"},
+          "source_stable_patch_id": {"$ref": "#/$defs/oid"},
+          "static_scope_band": {"enum": ["high", "low", "medium"]},
+          "static_scope_score": {"maximum": 12, "minimum": 3, "type": "integer"},
+          "test_diff_sha256": {"$ref": "#/$defs/sha256"},
+          "fixture_or_helper_file_count": {"minimum": 0, "type": "integer"},
+          "test_evidence_paths_sha256": {"$ref": "#/$defs/sha256"},
+          "test_file_count": {"minimum": 1, "type": "integer"},
+          "test_stable_patch_id": {"$ref": "#/$defs/oid"},
+          "test_targets": {"items": {"$ref": "#/$defs/target"}, "type": "array"},
+          "tree_oid": {"$ref": "#/$defs/oid"},
+          "unit_kind": {"enum": ["single_parent_integration_unit", "two_parent_feature_branch"]},
+          "unresolved_source_module_count": {"minimum": 0, "type": "integer"},
+          "unresolved_source_module_paths_sha256": {"$ref": "#/$defs/sha256"},
+          "unresolved_test_binding_count": {"minimum": 0, "type": "integer"},
+          "unresolved_test_binding_paths_sha256": {"$ref": "#/$defs/sha256"}
+        },
+        "required": [
+          "candidate_ref", "changed_path_count", "changed_paths_sha256", "changed_go_test_file_count", "commit_oid", "committed_at", "evidence_kind",
+          "first_parent_position", "fixture_owner_bindings", "full_diff_sha256", "full_stable_patch_id", "go_work_bindings",
+          "merge_parent_count", "module_bindings", "negative_control_status", "parent_oid", "path_partition_status",
+          "production_go_paths_sha256", "runner_readiness", "source_diff_sha256", "source_file_count",
+          "source_lineage_commit_oids", "source_lineage_sha256", "source_package_count", "source_session_status",
+          "source_stable_patch_id", "static_scope_band", "static_scope_score", "test_diff_sha256", "fixture_or_helper_file_count",
+          "test_evidence_paths_sha256", "test_file_count", "test_stable_patch_id", "test_targets", "tree_oid", "unit_kind",
+          "unresolved_source_module_count", "unresolved_source_module_paths_sha256", "unresolved_test_binding_count", "unresolved_test_binding_paths_sha256"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "execution_status": {"const": "not_executed"},
+    "exposure": {"const": "permanent_development_only_identity_inspected"},
+    "generated_at": {"format": "date-time", "type": "string"},
+    "implementation": {
+      "additionalProperties": false,
+      "properties": {
+        "repository_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "scanner_sha256": {"$ref": "#/$defs/sha256"},
+        "schema_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["repository_contract_sha256", "scanner_sha256", "schema_sha256"],
+      "type": "object"
+    },
+    "ledger_sha256": {"$ref": "#/$defs/sha256"},
+    "profile": {"const": "agent_brain_development_task_eligibility_scan_v2"},
+    "repository": {"$ref": "#/$defs/repository"},
+    "schema_version": {"const": 2},
+    "selection_rule": {"const": "pinned_31_first_parent_production_go_plus_test_evidence_v2"},
+    "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_count": {"minimum": 0, "type": "integer"},
+        "evidence_kind_counts": {
+          "additionalProperties": false,
+          "properties": {
+            "changed_go_test_and_fixture_or_helper": {"minimum": 0, "type": "integer"},
+            "changed_go_test_only": {"minimum": 0, "type": "integer"},
+            "fixture_or_helper_only": {"minimum": 0, "type": "integer"}
+          },
+          "required": ["changed_go_test_and_fixture_or_helper", "changed_go_test_only", "fixture_or_helper_only"],
+          "type": "object"
+        },
+        "first_parent_unit_count": {"const": 31},
+        "runner_ready_count": {"minimum": 0, "type": "integer"},
+        "static_scope_band_counts": {
+          "additionalProperties": false,
+          "properties": {"high": {"minimum": 0, "type": "integer"}, "low": {"minimum": 0, "type": "integer"}, "medium": {"minimum": 0, "type": "integer"}},
+          "required": ["high", "low", "medium"],
+          "type": "object"
+        },
+        "unit_kind_counts": {
+          "additionalProperties": false,
+          "properties": {"single_parent_integration_unit": {"minimum": 0, "type": "integer"}, "two_parent_feature_branch": {"minimum": 0, "type": "integer"}},
+          "required": ["single_parent_integration_unit", "two_parent_feature_branch"],
+          "type": "object"
+        }
+      },
+      "required": ["candidate_count", "evidence_kind_counts", "first_parent_unit_count", "runner_ready_count", "static_scope_band_counts", "unit_kind_counts"],
+      "type": "object"
+    },
+    "toolchain_binding": {
+      "additionalProperties": false,
+      "properties": {
+        "git": {"$ref": "#/$defs/git"},
+        "go": {"$ref": "#/$defs/toolchainGo"},
+        "native": {"$ref": "#/$defs/native"},
+        "verification_status": {"const": "matched_local_binaries_without_candidate_execution"}
+      },
+      "required": ["git", "go", "native", "verification_status"],
+      "type": "object"
+    }
+  },
+  "required": ["authority", "candidates", "execution_status", "exposure", "generated_at", "implementation", "ledger_sha256", "profile", "repository", "schema_version", "selection_rule", "summary", "toolchain_binding"],
+  "title": "Agent Brain development-only multi-repository task eligibility scan v2",
+  "type": "object"
+}
