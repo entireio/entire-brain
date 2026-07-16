@@ -120,8 +120,8 @@ def make_profile(packet_bytes):
     }
 
 
-if sys.argv[1:3] == ["status", "--json"]:
-    print(json.dumps({"brain": {"path": str(pathlib.Path.cwd() / ".fake-brain")}}))
+if sys.argv[1:3] == ["path", "."]:
+    print(pathlib.Path.cwd() / ".fake-brain")
     raise SystemExit(0)
 
 if sys.argv[1:2] != ["brief"]:

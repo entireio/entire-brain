@@ -606,18 +606,17 @@ def _brain_manifest_hash(
     brain_bin: pathlib.Path, repo: pathlib.Path, timeout_seconds: float
 ) -> str:
     try:
-        result = _run_private((str(brain_bin), "status", "--json"), repo, timeout_seconds)
+        result = _run_private((str(brain_bin), "path", "."), repo, timeout_seconds)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ProfileRunError("cannot locate a repository brain manifest") from exc
     if result.returncode != 0:
         raise ProfileRunError("cannot locate a repository brain manifest")
     try:
-        status = json.loads(result.stdout)
-        brain_path = status["brain"]["path"]
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
-        raise ProfileRunError("brain status did not return the expected manifest location") from exc
-    if not isinstance(brain_path, str) or not brain_path:
-        raise ProfileRunError("brain status returned an invalid manifest location")
+        brain_path = result.stdout.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise ProfileRunError("brain path was not valid UTF-8") from exc
+    if not brain_path:
+        raise ProfileRunError("brain path was empty")
     manifest = pathlib.Path(brain_path) / "manifest.json"
     try:
         if manifest.is_symlink() or not manifest.is_file():
