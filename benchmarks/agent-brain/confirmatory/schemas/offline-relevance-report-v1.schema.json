@@ -1,0 +1,445 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/offline-relevance-report-v1.json",
+  "title": "Offline relevance evaluation report v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "schema",
+    "report_id",
+    "generated_at",
+    "input_bindings",
+    "metric_contract",
+    "selection_contract",
+    "evaluated_runs",
+    "selections",
+    "report_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema": {"const": "agent-brain-offline-relevance-report/v1"},
+    "report_id": {"$ref": "#/$defs/safeId"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "input_bindings": {"$ref": "#/$defs/inputBindings"},
+    "metric_contract": {"$ref": "#/$defs/metricContract"},
+    "selection_contract": {"$ref": "#/$defs/selectionContract"},
+    "evaluated_runs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/evaluatedRun"}
+    },
+    "selections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/selection"}
+    },
+    "report_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,255}$"
+    },
+    "k": {"enum": [5, 8, 10, 12]},
+    "kCandidates": {
+      "type": "array",
+      "prefixItems": [
+        {"const": 5},
+        {"const": 8},
+        {"const": 10},
+        {"const": 12}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "aggregationRule": {
+      "enum": [
+        "best_rank_then_hit_count_v1",
+        "hit_count_then_best_rank_v1"
+      ]
+    },
+    "inputBindings": {
+      "type": "object",
+      "required": [
+        "engine_matrix_sha256",
+        "matrix_id",
+        "engine_pins_sha256",
+        "pin_set_id",
+        "fixture_sha256",
+        "fixture_id",
+        "dataset_sha256",
+        "dataset_id",
+        "source_membership_sha256",
+        "eligibility_membership_root_sha256",
+        "k_candidates"
+      ],
+      "properties": {
+        "engine_matrix_sha256": {"$ref": "#/$defs/sha256"},
+        "matrix_id": {"$ref": "#/$defs/safeId"},
+        "engine_pins_sha256": {"$ref": "#/$defs/sha256"},
+        "pin_set_id": {"$ref": "#/$defs/safeId"},
+        "fixture_sha256": {"$ref": "#/$defs/sha256"},
+        "fixture_id": {"$ref": "#/$defs/safeId"},
+        "dataset_sha256": {"$ref": "#/$defs/sha256"},
+        "dataset_id": {"$ref": "#/$defs/safeId"},
+        "source_membership_sha256": {"$ref": "#/$defs/sha256"},
+        "eligibility_membership_root_sha256": {"$ref": "#/$defs/sha256"},
+        "k_candidates": {"$ref": "#/$defs/kCandidates"}
+      },
+      "additionalProperties": false
+    },
+    "engineIdentity": {
+      "type": "object",
+      "required": [
+        "arm_id",
+        "effective_engine",
+        "semantic",
+        "binary_sha256",
+        "binary_size_bytes",
+        "vector_namespace",
+        "vector_artifact_sha256",
+        "vector_artifact_size_bytes",
+        "embedding_dimension",
+        "fallback_used"
+      ],
+      "properties": {
+        "arm_id": {"$ref": "#/$defs/safeId"},
+        "effective_engine": {"$ref": "#/$defs/safeId"},
+        "semantic": {"type": "boolean"},
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "binary_size_bytes": {"type": "integer", "minimum": 1},
+        "vector_namespace": {"$ref": "#/$defs/safeId"},
+        "vector_artifact_sha256": {
+          "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        },
+        "vector_artifact_size_bytes": {"type": ["integer", "null"], "minimum": 1},
+        "embedding_dimension": {"type": ["integer", "null"], "minimum": 1},
+        "fallback_used": {"const": false}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"semantic": {"const": true}}, "required": ["semantic"]},
+          "then": {
+            "properties": {
+              "vector_artifact_sha256": {"$ref": "#/$defs/sha256"},
+              "vector_artifact_size_bytes": {"type": "integer", "minimum": 1},
+              "embedding_dimension": {"type": "integer", "minimum": 1}
+            }
+          },
+          "else": {
+            "properties": {
+              "vector_artifact_sha256": {"type": "null"},
+              "vector_artifact_size_bytes": {"type": "null"},
+              "embedding_dimension": {"type": "null"}
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "metricContract": {
+      "type": "object",
+      "required": [
+        "schema",
+        "positive_grades",
+        "grade_weights",
+        "unjudged_policy",
+        "recall_denominator",
+        "precision_denominator",
+        "mrr_cutoff",
+        "ndcg_cutoff",
+        "ndcg_gain",
+        "null_false_positive_numerator",
+        "null_false_positive_denominator",
+        "temporal_leakage",
+        "strata"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-offline-relevance-metrics/v1"},
+        "positive_grades": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "solving"},
+            {"const": "relevant_alternative"}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "grade_weights": {
+          "type": "object",
+          "required": [
+            "solving",
+            "relevant_alternative",
+            "hard_topical_distractor",
+            "irrelevant"
+          ],
+          "properties": {
+            "solving": {"const": 3},
+            "relevant_alternative": {"const": 2},
+            "hard_topical_distractor": {"const": 0},
+            "irrelevant": {"const": 0}
+          },
+          "additionalProperties": false
+        },
+        "unjudged_policy": {"const": "zero_gain_and_nonrelevant_development_lower_bound"},
+        "recall_denominator": {"const": "all_explicit_positive_judgments_per_answerable_query"},
+        "precision_denominator": {"const": "fixed_k_with_missing_slots_nonrelevant"},
+        "mrr_cutoff": {"const": 12},
+        "ndcg_cutoff": {"const": 10},
+        "ndcg_gain": {"const": "two_to_grade_weight_minus_one"},
+        "null_false_positive_numerator": {"const": "product_null_queries_with_any_result_in_top_k"},
+        "null_false_positive_denominator": {"const": "product_null_query_count"},
+        "temporal_leakage": {"const": "any_ranked_fact_not_derived_active_and_eligible_fails_closed"},
+        "strata": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "user_prompt_derived"},
+            {"const": "oracle_upper_bound"}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "additionalProperties": false
+    },
+    "selectionContract": {
+      "type": "object",
+      "required": [
+        "schema",
+        "k_candidates",
+        "aggregation_candidates",
+        "thresholds",
+        "tie_break_order",
+        "selection_scope"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-offline-relevance-selection/v1"},
+        "k_candidates": {"$ref": "#/$defs/kCandidates"},
+        "aggregation_candidates": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "best_rank_then_hit_count_v1"},
+            {"const": "hit_count_then_best_rank_v1"}
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "thresholds": {
+          "type": "object",
+          "required": [
+            "answerable_product_recall_at_5_min",
+            "null_query_false_positive_rate_max",
+            "temporal_leakage_max",
+            "selected_packet_cluster_occupancy_max"
+          ],
+          "properties": {
+            "answerable_product_recall_at_5_min": {"const": 0.8},
+            "null_query_false_positive_rate_max": {"const": 0.1},
+            "temporal_leakage_max": {"const": 0},
+            "selected_packet_cluster_occupancy_max": {"const": 1}
+          },
+          "additionalProperties": false
+        },
+        "tie_break_order": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "threshold_pass_desc"},
+            {"const": "answerable_product_recall_at_5_desc"},
+            {"const": "null_query_false_positive_rate_asc"},
+            {"const": "temporal_leakage_count_asc"},
+            {"const": "maximum_cluster_occupancy_asc"},
+            {"const": "answerable_product_mrr_desc"},
+            {"const": "answerable_product_ndcg_at_10_desc"},
+            {"const": "product_precision_at_k_desc"},
+            {"const": "packet_tokens_total_asc"},
+            {"const": "k_asc"},
+            {"const": "aggregation_contract_order"},
+            {"const": "run_id_lexicographic"}
+          ],
+          "items": false,
+          "minItems": 12,
+          "maxItems": 12
+        },
+        "selection_scope": {"const": "within_each_verified_engine_no_cross_engine_winner"}
+      },
+      "additionalProperties": false
+    },
+    "aggregateMetrics": {
+      "type": "object",
+      "required": [
+        "query_count",
+        "answerable_query_count",
+        "null_query_count",
+        "mean_recall_at_1",
+        "mean_recall_at_5",
+        "mean_recall_at_10",
+        "mean_mrr",
+        "mean_ndcg_at_10",
+        "mean_precision_at_k",
+        "positive_hits",
+        "hard_topical_distractor_hits",
+        "irrelevant_hits",
+        "unjudged_hits",
+        "result_count",
+        "kind_distribution",
+        "maximum_cluster_occupancy",
+        "duplicate_cluster_query_count",
+        "temporal_leakage_count",
+        "null_false_positive_numerator",
+        "null_false_positive_denominator",
+        "null_query_false_positive_rate",
+        "packet_tokens_total",
+        "ranking_latency_ms_total",
+        "k"
+      ],
+      "properties": {
+        "query_count": {"type": "integer", "minimum": 1},
+        "answerable_query_count": {"type": "integer", "minimum": 1},
+        "null_query_count": {"type": "integer", "minimum": 0},
+        "mean_recall_at_1": {"type": "number", "minimum": 0, "maximum": 1},
+        "mean_recall_at_5": {"type": "number", "minimum": 0, "maximum": 1},
+        "mean_recall_at_10": {"type": "number", "minimum": 0, "maximum": 1},
+        "mean_mrr": {"type": "number", "minimum": 0, "maximum": 1},
+        "mean_ndcg_at_10": {"type": "number", "minimum": 0, "maximum": 1},
+        "mean_precision_at_k": {"type": "number", "minimum": 0, "maximum": 1},
+        "positive_hits": {"type": "integer", "minimum": 0},
+        "hard_topical_distractor_hits": {"type": "integer", "minimum": 0},
+        "irrelevant_hits": {"type": "integer", "minimum": 0},
+        "unjudged_hits": {"type": "integer", "minimum": 0},
+        "result_count": {"type": "integer", "minimum": 0},
+        "kind_distribution": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/safeId"},
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "maximum_cluster_occupancy": {"type": "integer", "minimum": 0},
+        "duplicate_cluster_query_count": {"type": "integer", "minimum": 0},
+        "temporal_leakage_count": {"type": "integer", "minimum": 0},
+        "null_false_positive_numerator": {"type": "integer", "minimum": 0},
+        "null_false_positive_denominator": {"type": "integer", "minimum": 0},
+        "null_query_false_positive_rate": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "packet_tokens_total": {"type": "integer", "minimum": 0},
+        "ranking_latency_ms_total": {"type": "number", "minimum": 0},
+        "k": {"$ref": "#/$defs/k"}
+      },
+      "additionalProperties": false
+    },
+    "candidateMetrics": {
+      "type": "object",
+      "required": ["k", "product", "oracle", "threshold_values", "thresholds_passed"],
+      "properties": {
+        "k": {"$ref": "#/$defs/k"},
+        "product": {"$ref": "#/$defs/aggregateMetrics"},
+        "oracle": {"$ref": "#/$defs/aggregateMetrics"},
+        "threshold_values": {
+          "type": "object",
+          "required": [
+            "answerable_product_recall_at_5",
+            "null_query_false_positive_rate",
+            "temporal_leakage_count",
+            "maximum_cluster_occupancy"
+          ],
+          "properties": {
+            "answerable_product_recall_at_5": {"type": "number", "minimum": 0, "maximum": 1},
+            "null_query_false_positive_rate": {"type": "number", "minimum": 0, "maximum": 1},
+            "temporal_leakage_count": {"type": "integer", "minimum": 0},
+            "maximum_cluster_occupancy": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "thresholds_passed": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "evaluatedRun": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "run_sha256",
+        "run_file_sha256",
+        "engine_identity",
+        "aggregation_rule",
+        "candidates"
+      ],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/safeId"},
+        "run_sha256": {"$ref": "#/$defs/sha256"},
+        "run_file_sha256": {"$ref": "#/$defs/sha256"},
+        "engine_identity": {"$ref": "#/$defs/engineIdentity"},
+        "aggregation_rule": {"$ref": "#/$defs/aggregationRule"},
+        "candidates": {
+          "type": "array",
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/candidateMetrics"}, {"properties": {"k": {"const": 5}}}]},
+            {"allOf": [{"$ref": "#/$defs/candidateMetrics"}, {"properties": {"k": {"const": 8}}}]},
+            {"allOf": [{"$ref": "#/$defs/candidateMetrics"}, {"properties": {"k": {"const": 10}}}]},
+            {"allOf": [{"$ref": "#/$defs/candidateMetrics"}, {"properties": {"k": {"const": 12}}}]}
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "required": [
+        "arm_id",
+        "status",
+        "run_id",
+        "run_sha256",
+        "aggregation_rule",
+        "k",
+        "selection_sha256"
+      ],
+      "properties": {
+        "arm_id": {"$ref": "#/$defs/safeId"},
+        "status": {"enum": ["selected", "no_passing_candidate"]},
+        "run_id": {"oneOf": [{"$ref": "#/$defs/safeId"}, {"type": "null"}]},
+        "run_sha256": {"oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "aggregation_rule": {
+          "oneOf": [{"$ref": "#/$defs/aggregationRule"}, {"type": "null"}]
+        },
+        "k": {"oneOf": [{"$ref": "#/$defs/k"}, {"type": "null"}]},
+        "selection_sha256": {
+          "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "selected"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "run_id": {"$ref": "#/$defs/safeId"},
+              "run_sha256": {"$ref": "#/$defs/sha256"},
+              "aggregation_rule": {"$ref": "#/$defs/aggregationRule"},
+              "k": {"$ref": "#/$defs/k"},
+              "selection_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          },
+          "else": {
+            "properties": {
+              "run_id": {"type": "null"},
+              "run_sha256": {"type": "null"},
+              "aggregation_rule": {"type": "null"},
+              "k": {"type": "null"},
+              "selection_sha256": {"type": "null"}
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
