@@ -1,0 +1,433 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-development-task-symptom-review-v1.json",
+  "title": "Agent Brain development-only task symptom-review ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "status",
+    "exposure",
+    "authority",
+    "repository_id",
+    "base_oid",
+    "head_oid",
+    "generated_at",
+    "inputs",
+    "selection",
+    "implementation",
+    "review_policy",
+    "reviewers",
+    "summary",
+    "items",
+    "ledger_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"const": "agent_brain_development_task_symptom_review_v1"},
+    "status": {"const": "development_review_only_non_authoritative"},
+    "exposure": {"const": "development_only_identity_content_and_answer_inspected"},
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_hmac_receipts",
+        "population_membership",
+        "calibration_membership",
+        "holdout_membership",
+        "benchmark_run_authorization"
+      ],
+      "properties": {
+        "owner_hmac_receipts": {"const": "absent_not_fabricated"},
+        "population_membership": {"const": "not_assigned"},
+        "calibration_membership": {"const": "not_assigned"},
+        "holdout_membership": {"const": "not_opened_or_assigned"},
+        "benchmark_run_authorization": {"const": "forbidden"}
+      }
+    },
+    "repository_id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\r\\n]+$"},
+    "base_oid": {"$ref": "#/$defs/oid"},
+    "head_oid": {"$ref": "#/$defs/oid"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility_ledger_path",
+        "eligibility_ledger_sha256",
+        "eligibility_ledger_file_sha256",
+        "negative_control_path",
+        "negative_control_receipt_sha256",
+        "negative_control_file_sha256"
+      ],
+      "properties": {
+        "eligibility_ledger_path": {"const": "development-task-eligibility-scan-v1.json"},
+        "eligibility_ledger_sha256": {"$ref": "#/$defs/sha256"},
+        "eligibility_ledger_file_sha256": {"$ref": "#/$defs/sha256"},
+        "negative_control_path": {"const": "development-task-negative-control-v1.json"},
+        "negative_control_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "negative_control_file_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule", "selected_first_parent_positions", "excluded_first_parent_positions"],
+      "properties": {
+        "rule": {"const": "exact_negative_control_eligible_for_symptom_review_v1"},
+        "selected_first_parent_positions": {
+          "type": "array",
+          "items": {"type": "integer", "minimum": 1},
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "excluded_first_parent_positions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "negative_control_survived",
+            "baseline_invalid_failure",
+            "baseline_invalid_timeout",
+            "reversed_invalid_timeout"
+          ],
+          "properties": {
+            "negative_control_survived": {"$ref": "#/$defs/positions"},
+            "baseline_invalid_failure": {"$ref": "#/$defs/positions"},
+            "baseline_invalid_timeout": {"$ref": "#/$defs/positions"},
+            "reversed_invalid_timeout": {"$ref": "#/$defs/positions"}
+          }
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "aggregate_sha256", "python_implementation", "python_version"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "prefixItems": [
+            {"$ref": "#/$defs/workflow_file"},
+            {"$ref": "#/$defs/schema_file"},
+            {"$ref": "#/$defs/eligibility_file"},
+            {"$ref": "#/$defs/negative_file"},
+            {"$ref": "#/$defs/population_file"}
+          ],
+          "items": false,
+          "minItems": 5,
+          "maxItems": 5
+        },
+        "aggregate_sha256": {"$ref": "#/$defs/sha256"},
+        "python_implementation": {"type": "string", "minLength": 1},
+        "python_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "review_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "prompt_hash",
+        "required_checks",
+        "static_banned_terms_sha256",
+        "independent_read_only_audit_required",
+        "semantic_patch_and_test_comparison_required",
+        "review_reason_static_leakage_scan_required"
+      ],
+      "properties": {
+        "name": {"const": "symptom_only_no_answer_bearing_context_v1"},
+        "prompt_hash": {"const": "sha256_domain_separated_utf8_v1"},
+        "required_checks": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "symptom_only"},
+            {"const": "no_fix_terms"},
+            {"const": "no_file_hints"},
+            {"const": "no_function_hints"},
+            {"const": "no_command_or_workflow_hints"},
+            {"const": "no_hidden_test_details"},
+            {"const": "no_patch_leakage"},
+            {"const": "no_answer_bearing_context"},
+            {"const": "scope_matches_bound_change"}
+          ],
+          "items": false,
+          "minItems": 9,
+          "maxItems": 9
+        },
+        "static_banned_terms_sha256": {"$ref": "#/$defs/sha256"},
+        "independent_read_only_audit_required": {"const": true},
+        "semantic_patch_and_test_comparison_required": {"const": true},
+        "review_reason_static_leakage_scan_required": {"const": true}
+      }
+    },
+    "reviewers": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/reviewer"},
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selected_count",
+        "accepted_count",
+        "rejected_count",
+        "shared_family_item_count",
+        "unresolved_source_session_count",
+        "authoritative_population_member_count"
+      ],
+      "properties": {
+        "selected_count": {"type": "integer", "minimum": 1},
+        "accepted_count": {"type": "integer", "minimum": 0},
+        "rejected_count": {"type": "integer", "minimum": 0},
+        "shared_family_item_count": {"type": "integer", "minimum": 0},
+        "unresolved_source_session_count": {"type": "integer", "minimum": 0},
+        "authoritative_population_member_count": {"const": 0}
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/item"},
+      "minItems": 1
+    },
+    "ledger_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "oid": {"type": "string", "pattern": "^(?!0{40}$)[0-9a-f]{40}$"},
+    "positions": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 1},
+      "uniqueItems": true
+    },
+    "implementation_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "sha256"],
+      "properties": {
+        "role": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "workflow_file": {
+      "allOf": [
+        {"$ref": "#/$defs/implementation_file"},
+        {"properties": {"role": {"const": "symptom_review_workflow"}}}
+      ]
+    },
+    "schema_file": {
+      "allOf": [
+        {"$ref": "#/$defs/implementation_file"},
+        {"properties": {"role": {"const": "symptom_review_schema"}}}
+      ]
+    },
+    "eligibility_file": {
+      "allOf": [
+        {"$ref": "#/$defs/implementation_file"},
+        {"properties": {"role": {"const": "eligibility_scanner"}}}
+      ]
+    },
+    "negative_file": {
+      "allOf": [
+        {"$ref": "#/$defs/implementation_file"},
+        {"properties": {"role": {"const": "negative_control_runner"}}}
+      ]
+    },
+    "population_file": {
+      "allOf": [
+        {"$ref": "#/$defs/implementation_file"},
+        {"properties": {"role": {"const": "population_contract_validator"}}}
+      ]
+    },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_id", "role", "tool_identity", "identity_attestation", "independence"],
+      "properties": {
+        "reviewer_id": {"type": "string", "pattern": "^/?[a-z0-9][a-z0-9_.:/-]{2,127}$"},
+        "role": {"enum": ["draft_author", "independent_read_only_auditor"]},
+        "tool_identity": {"type": "string", "minLength": 1, "maxLength": 256},
+        "identity_attestation": {"const": "self_reported_local_process_not_cryptographically_attested"},
+        "independence": {
+          "enum": ["inspected_source_and_authored_prompts", "did_not_edit_draft_or_source"]
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symptom_only",
+        "no_fix_terms",
+        "no_file_hints",
+        "no_function_hints",
+        "no_command_or_workflow_hints",
+        "no_hidden_test_details",
+        "no_patch_leakage",
+        "no_answer_bearing_context",
+        "scope_matches_bound_change"
+      ],
+      "properties": {
+        "symptom_only": {"type": "boolean"},
+        "no_fix_terms": {"type": "boolean"},
+        "no_file_hints": {"type": "boolean"},
+        "no_function_hints": {"type": "boolean"},
+        "no_command_or_workflow_hints": {"type": "boolean"},
+        "no_hidden_test_details": {"type": "boolean"},
+        "no_patch_leakage": {"type": "boolean"},
+        "no_answer_bearing_context": {"type": "boolean"},
+        "scope_matches_bound_change": {"type": "boolean"}
+      }
+    },
+    "review_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id",
+        "prompt_sha256",
+        "decision",
+        "checks",
+        "reason_code",
+        "reason",
+        "review_record_sha256"
+      ],
+      "properties": {
+        "reviewer_id": {"type": "string", "pattern": "^/?[a-z0-9][a-z0-9_.:/-]{2,127}$"},
+        "prompt_sha256": {"$ref": "#/$defs/sha256"},
+        "decision": {"enum": ["accept", "reject"]},
+        "checks": {"$ref": "#/$defs/checks"},
+        "reason_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+        "reason": {"type": "string", "minLength": 20, "maxLength": 500},
+        "review_record_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "commitments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_paths_sha256",
+        "test_paths_sha256",
+        "source_diff_sha256",
+        "test_diff_sha256",
+        "test_command_sha256",
+        "baseline_output_sha256",
+        "reversed_source_output_sha256"
+      ],
+      "properties": {
+        "source_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "test_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "source_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "test_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "test_command_sha256": {"$ref": "#/$defs/sha256"},
+        "baseline_output_sha256": {"$ref": "#/$defs/sha256"},
+        "reversed_source_output_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "source_history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_commit_count",
+        "source_commit_set_sha256",
+        "checkpoint_trailer_commit_count",
+        "checkpoint_trailer_set_sha256",
+        "checkpoint_trailer_coverage",
+        "source_session_decision",
+        "source_session_reason"
+      ],
+      "properties": {
+        "source_commit_count": {"type": "integer", "minimum": 1},
+        "source_commit_set_sha256": {"$ref": "#/$defs/sha256"},
+        "checkpoint_trailer_commit_count": {"type": "integer", "minimum": 0},
+        "checkpoint_trailer_set_sha256": {"$ref": "#/$defs/sha256"},
+        "checkpoint_trailer_coverage": {"enum": ["complete", "incomplete"]},
+        "source_session_decision": {"const": "unresolved_no_owner_source_session_receipt"},
+        "source_session_reason": {"type": "string", "minLength": 40, "maxLength": 500}
+      }
+    },
+    "relationships": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fix_identity_sha256",
+        "fix_overlap_decision",
+        "fix_overlap_reason",
+        "family_id",
+        "family_commitment_sha256",
+        "family_overlap_decision",
+        "family_overlap_reason",
+        "prompt_overlap_decision",
+        "prompt_overlap_reason",
+        "patch_overlap_decision",
+        "patch_overlap_reason",
+        "source_session_overlap_decision",
+        "source_session_overlap_reason",
+        "authoritative_overlap_decision",
+        "authoritative_overlap_reason"
+      ],
+      "properties": {
+        "fix_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "fix_overlap_decision": {"const": "distinct_source_commit_set_observed"},
+        "fix_overlap_reason": {"type": "string", "minLength": 40, "maxLength": 500},
+        "family_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{2,63}$"},
+        "family_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "family_overlap_decision": {
+          "enum": ["shared_development_family_requires_owner_dedup", "no_shared_development_family_observed"]
+        },
+        "family_overlap_reason": {"type": "string", "minLength": 40, "maxLength": 500},
+        "prompt_overlap_decision": {
+          "enum": ["no_exact_duplicate_observed", "exact_duplicate_rejected"]
+        },
+        "prompt_overlap_reason": {"type": "string", "minLength": 40, "maxLength": 500},
+        "patch_overlap_decision": {
+          "enum": ["no_exact_source_or_test_diff_duplicate_observed", "exact_patch_duplicate_rejected"]
+        },
+        "patch_overlap_reason": {"type": "string", "minLength": 40, "maxLength": 500},
+        "source_session_overlap_decision": {"const": "unresolved_no_owner_source_session_receipt"},
+        "source_session_overlap_reason": {"type": "string", "minLength": 40, "maxLength": 500},
+        "authoritative_overlap_decision": {
+          "const": "unresolved_owner_hmac_and_source_session_receipts_absent"
+        },
+        "authoritative_overlap_reason": {"type": "string", "minLength": 40, "maxLength": 500}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "first_parent_position",
+        "candidate_ref",
+        "commit_oid",
+        "parent_oid",
+        "tree_oid",
+        "commitments",
+        "source_history",
+        "prompt",
+        "prompt_sha256",
+        "draft_review",
+        "independent_review",
+        "disposition",
+        "relationships"
+      ],
+      "properties": {
+        "first_parent_position": {"type": "integer", "minimum": 1},
+        "candidate_ref": {"$ref": "#/$defs/sha256"},
+        "commit_oid": {"$ref": "#/$defs/oid"},
+        "parent_oid": {"$ref": "#/$defs/oid"},
+        "tree_oid": {"$ref": "#/$defs/oid"},
+        "commitments": {"$ref": "#/$defs/commitments"},
+        "source_history": {"$ref": "#/$defs/source_history"},
+        "prompt": {"type": "string", "minLength": 80, "maxLength": 800, "pattern": "^[^\\r\\n`]+$"},
+        "prompt_sha256": {"$ref": "#/$defs/sha256"},
+        "draft_review": {"$ref": "#/$defs/review_record"},
+        "independent_review": {"$ref": "#/$defs/review_record"},
+        "disposition": {
+          "enum": ["accepted_for_development_only", "rejected_from_development_review"]
+        },
+        "relationships": {"$ref": "#/$defs/relationships"}
+      }
+    }
+  }
+}
