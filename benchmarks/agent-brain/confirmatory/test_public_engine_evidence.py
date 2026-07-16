@@ -214,6 +214,7 @@ class PublicEngineEvidenceTest(unittest.TestCase):
                 write_vectors(vector, self.pins["engines"][arm]["embedder_id"], dimension, ["fact:a", "fact:h"])
                 vector_relative = vector.relative_to(self.private).as_posix()
             attestation_relative: str | None = None
+            attestation_sha256: str | None = None
             if arm == "embeddinggemma_rrf":
                 attestation = run / "server-attestation.json"
                 write_json(
@@ -239,17 +240,41 @@ class PublicEngineEvidenceTest(unittest.TestCase):
                     },
                 )
                 attestation_relative = attestation.relative_to(self.private).as_posix()
+                attestation_sha256 = PUBLIC.sha256_file(attestation)
             count = 2 if semantic else 0
+            runtime_environment = {
+                "HOME": "/Users/private",
+                "LANG": "private-locale",
+                "ENTIRE_BRAIN_FACTS_BM25": "0",
+                "ENTIRE_BRAIN_EMBEDDER": "ollama" if arm == "embeddinggemma_rrf" else "",
+                "ENTIRE_BRAIN_EMBED_URL": "http://127.0.0.1:11500" if arm == "embeddinggemma_rrf" else "",
+                "ENTIRE_PLUGIN_CONFIG_DIR": f"/Users/private/{arm}/config",
+                "ENTIRE_PLUGIN_DATA_DIR": f"/Users/private/{arm}/data",
+                "ENTIRE_PLUGIN_STATE_DIR": f"/Users/private/{arm}/state",
+                "ENTIRE_PLUGIN_CACHE_DIR": f"/Users/private/{arm}/cache",
+                "ENTIRE_REPO_ROOT": "/Users/private/repo",
+                "ENGINE_VERIFICATION_PIN_SET_ID": self.pins["pin_set_id"],
+            }
+            requested: dict[str, object] = {
+                "command": ["/Users/private/entire-brain", "recall", "private query text"],
+                "environment": runtime_environment,
+                "namespace": f"private-{arm}",
+            }
+            if arm == "embeddinggemma_rrf":
+                requested["embedding_server_environment"] = {
+                    "HOME": "/Users/private",
+                    "LANG": "private-locale",
+                    "GGUF": "/Users/private/model.gguf",
+                    "HOST": "127.0.0.1",
+                    "PORT": "11500",
+                    "ENGINE_VERIFICATION_TOKEN": "plaintext-secret",
+                }
             records.append(
                 {
                     "schema_version": 2,
                     "pin_set": copy.deepcopy(self.descriptor),
                     "arm": arm,
-                    "requested": {
-                        "command": ["/Users/private/entire-brain", "recall", "private query text"],
-                        "environment": {"HOME": "/Users/private", "ENGINE_VERIFICATION_TOKEN": "plaintext-secret"},
-                        "namespace": f"private-{arm}",
-                    },
+                    "requested": requested,
                     "effective": {
                         "engine": arm,
                         "semantic_available": semantic,
@@ -265,11 +290,17 @@ class PublicEngineEvidenceTest(unittest.TestCase):
                     },
                     "artifacts": {
                         "facts_source_path": self.facts.relative_to(self.private).as_posix(),
+                        "facts_source_sha256": PUBLIC.sha256_file(self.facts),
                         "session_dates_source_path": self.sessions.relative_to(self.private).as_posix(),
+                        "session_dates_source_sha256": PUBLIC.sha256_file(self.sessions),
                         "stdout_path": stdout.relative_to(self.private).as_posix(),
+                        "stdout_sha256": PUBLIC.sha256_file(stdout),
                         "stderr_path": stderr.relative_to(self.private).as_posix(),
+                        "stderr_sha256": PUBLIC.sha256_file(stderr),
                         "vector_artifact_path": vector_relative,
+                        "vector_artifact_sha256": PUBLIC.sha256_file(vector) if semantic else None,
                         "embedding_server_attestation_path": attestation_relative,
+                        "embedding_server_attestation_sha256": attestation_sha256,
                     },
                     "corpus": {},
                     "result": {
@@ -317,7 +348,7 @@ class PublicEngineEvidenceTest(unittest.TestCase):
             by_role = {row["role"]: self.output / row["relative_path"] for row in rows}
             subjects = [
                 (
-                    "inputs_authenticated",
+                    "inputs_committed",
                     PUBLIC.canonical_sha256(
                         {"pin_set": manifest["pin_set"], "components": manifest["component_commitments"]}
                     ),
@@ -389,6 +420,21 @@ class PublicEngineEvidenceTest(unittest.TestCase):
             )
         self.assertTrue(any("authenticated restricted replay attestation" in error for error in errors))
 
+    def test_default_production_v4_requires_restricted_replay_without_storage_mode(self) -> None:
+        with (
+            mock.patch.object(CHECK, "_validate_engine_pins", return_value=self.pins),
+            mock.patch.object(CHECK, "_engine_pin_descriptor", return_value=self.descriptor),
+        ):
+            errors = CHECK.validate_engine_verification(
+                self.matrix,
+                {"status": "pass", "evidence": self.public_manifest.relative_to(self.root).as_posix()},
+                here=self.root,
+                repo=self.root,
+                pins=self.pins,
+                pin_repo=CHECK.REPO,
+            )
+        self.assertTrue(any("authenticated restricted replay attestation" in error for error in errors))
+
     def test_private_payloads_and_identifiers_are_not_copied(self) -> None:
         combined = b"\n".join(path.read_bytes() for path in self.output.rglob("*.json"))
         for forbidden in (
@@ -401,11 +447,32 @@ class PublicEngineEvidenceTest(unittest.TestCase):
             b"private@example.com",
             b"plaintext-secret",
             b"ENGINE_VERIFICATION_TOKEN",
-            b'"HOME"',
             b"fact:a",
+            b"2026-06-01T10:00:00Z",
+            b"2026-06-01T11:00:00Z",
+            b"2026-07-05T10:00:00Z",
+            b"2026-07-16T00:00:00Z",
+            b"2026-07-16T00:00:01Z",
+            b"2026-07-16T00:00:02Z",
+            b"2026-07-16T00:00:03Z",
+            b"2026-07-16T00:00:04Z",
+            b"2026-07-16T00:00:05Z",
         ):
             self.assertNotIn(forbidden, combined)
         self.assertFalse(any(path.suffix in {".bin", ".gguf", ".ndjson"} for path in self.output.rglob("*")))
+
+    def test_environment_projection_names_actual_safe_inheritance_without_values_or_isolation_claim(self) -> None:
+        for arm in PUBLIC.ARMS:
+            _, record = self.payload(f"arm_record_{arm}")
+            policy = record["environment_policy"]
+            self.assertEqual(["HOME", "LANG"], policy["recall_inherited_keys"])
+            self.assertEqual(
+                ["HOME", "LANG"] if arm == "embeddinggemma_rrf" else None,
+                policy["managed_server_inherited_keys"],
+            )
+            self.assertFalse(policy["values_persisted"])
+            self.assertFalse(policy["network_isolation_enforced"])
+            self.assertNotIn("/Users/private", json.dumps(policy))
 
     def test_refs_are_domain_separated_and_key_is_not_persisted(self) -> None:
         temporal_path, temporal = self.payload("temporal_projection")
@@ -415,6 +482,20 @@ class PublicEngineEvidenceTest(unittest.TestCase):
         self.assertTrue(session_refs)
         self.assertTrue(candidate_refs.isdisjoint(session_refs))
         self.assertNotIn(b"fixture-pseudonym-key", temporal_path.read_bytes())
+
+    def test_projector_rejects_bytes_that_differ_from_diagnostic_commitment(self) -> None:
+        diagnostic = json.loads(self.manifest.read_text(encoding="utf-8"))
+        diagnostic["records"][0]["artifacts"]["stdout_sha256"] = "f" * 64
+        write_json(self.manifest, diagnostic)
+        with self.assertRaisesRegex(PUBLIC.PublicEvidenceError, "differs from the diagnostic commitment"):
+            PUBLIC.build_public_bundle(
+                self.manifest,
+                self.private,
+                self.root / "second-public-v4",
+                self.pins,
+                self.matrix,
+                b"fixture-pseudonym-key-32-bytes!!",
+            )
 
     def test_pseudonymizer_fails_closed_on_128_bit_collision(self) -> None:
         class FixedDigest:
@@ -464,11 +545,35 @@ class PublicEngineEvidenceTest(unittest.TestCase):
 
     def test_checker_independently_recomputes_temporal_eligibility(self) -> None:
         path, temporal = self.payload("temporal_projection")
-        known = next(item for item in temporal["sessions"] if item["state"] == "known")
-        known["created_at"] = "2026-07-02T00:00:00Z"
+        known = next(item for item in temporal["sessions"] if item["state"] == "before_cutoff")
+        known["state"] = "at_or_after_cutoff"
         write_json(path, temporal)
         self.reseal()
         self.assertTrue(any("eligibility differs from independent recomputation" in error for error in self.errors()))
+
+    def test_checker_rejects_surplus_session_not_referenced_by_any_candidate(self) -> None:
+        path, temporal = self.payload("temporal_projection")
+        temporal["sessions"].append({"ref": "session:" + "f" * 32, "state": "unknown"})
+        temporal["sessions"].sort(key=lambda item: item["ref"])
+        write_json(path, temporal)
+        self.reseal()
+        self.assertTrue(any("exactly equal the union" in error for error in self.errors()))
+
+    def test_checker_and_scanner_reject_session_timestamp_leak(self) -> None:
+        path, temporal = self.payload("temporal_projection")
+        temporal["sessions"][0]["created_at"] = "2026-06-01T10:00:00Z"
+        write_json(path, temporal)
+        self.reseal()
+        errors = self.errors()
+        self.assertTrue(any("created_at" in error for error in errors))
+
+    def test_checker_and_scanner_reject_lifecycle_timestamp_leak(self) -> None:
+        path, record = self.payload("arm_record_embeddinggemma_rrf")
+        record["managed_server_attestation"]["observations"][0]["observed_at"] = "2026-07-16T00:00:00Z"
+        write_json(path, record)
+        self.reseal()
+        errors = self.errors()
+        self.assertTrue(any("observed_at" in error for error in errors))
 
     def test_checker_rejects_ranked_result_order_mutation(self) -> None:
         path, record = self.payload("arm_record_lexical_handrolled")
@@ -504,6 +609,22 @@ class PublicEngineEvidenceTest(unittest.TestCase):
         write_json(path, record)
         self.reseal()
         self.assertTrue(any("do not exactly cover active+eligible" in error for error in self.errors()))
+
+    def test_checker_rejects_self_consistent_noncanonical_vector_repartition(self) -> None:
+        path, record = self.payload("arm_record_model2vec_rrf")
+        vector = record["vector_index"]
+        refs = vector["chunks"][0]["candidate_refs"]
+        vector["chunks"] = [
+            {"index": index, "candidate_refs": [ref], "sha256": PUBLIC.canonical_sha256([ref])}
+            for index, ref in enumerate(refs)
+        ]
+        vector["root_sha256"] = PUBLIC.canonical_sha256(
+            [chunk["sha256"] for chunk in vector["chunks"]]
+        )
+        write_json(path, record)
+        self.reseal()
+        errors = self.errors()
+        self.assertTrue(any("chunk count is not canonical" in error for error in errors))
 
     def test_checker_rejects_projection_attestation_sequence_mutation(self) -> None:
         path, attestation = self.payload("projection_attestation_sequence")

@@ -12,7 +12,9 @@ produced a checker-valid manifest, but its 602 MB byte-complete v3 bundle contai
 corpus/session/host material and is explicitly non-publishable. A privacy-safe public v4 projector
 and fail-closed checker lane are implemented; the retained real v3 run projects locally to a
 checker-valid six-file, sub-megabyte public bundle. External publication, restricted exact-byte
-attestation storage, and clean hydration are still pending; no development-threshold metrics have
+attestation storage, a v4-capable storage schema/profile, and clean hydration are still pending;
+production-mode v4 validation deliberately fails without authenticated restricted replay regardless
+of storage mode. No development-threshold metrics have
 been selected. The relevance holdout remains unopened and empty. Final freeze remains blocked on
 fresh-task validity review, approved retention of public v4 plus restricted attestation and
 development-threshold selection,
@@ -60,7 +62,10 @@ confirmatory analyzer is implemented and path-locked.
 - `schemas/engine-verification-public-v4.schema.json`, `public_engine_evidence.py`, and
   `test_public_engine_evidence.py`: authoritative public manifest, atomic privacy-safe projector,
   recursive scanner, exact file inventory, independent temporal/result/vector/lifecycle checker,
-  and adversarial mutation coverage. No publication, encryption, or key-management action is
+  and adversarial mutation coverage. The public projection keeps cutoff-relative session states and
+  ordinal lifecycle evidence, not exact session/run times; names actual safe inherited keys but no
+  environment values; and states that network isolation was not enforced. No publication,
+  encryption, storage-v4 profile, restricted replay authentication, or key-management action is
   performed by this lane.
 - `verify_engines.py`: fail-closed retained runner with isolated arms, owned-server continuity
   attestation overlapping live recall, byte-complete artifacts, and

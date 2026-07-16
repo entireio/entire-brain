@@ -37,11 +37,15 @@ PSEUDONYM_ALGORITHM = "hmac_sha256_domain_separated_128bit_v1"
 INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_nul_size_newline_v1"
 VECTOR_INDEX_ALGORITHM = "sha256_chunked_ordered_candidate_refs_v1"
 CHAIN_ALGORITHM = "sha256_canonical_previous_subject_v1"
+SAFE_PARENT_ENV = ("HOME", "LANG", "LC_ALL", "PATH", "TMPDIR")
 REF_RE = re.compile(r"^(candidate|session):[0-9a-f]{32}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 RAW_SESSION_RE = re.compile(
     r"(?:\d{4}-\d{2}-\d{2}-)?[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
     re.IGNORECASE,
+)
+RFC3339_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
 )
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
@@ -56,6 +60,7 @@ SECRET_RES = (
 FORBIDDEN_KEYS = {
     "author",
     "command",
+    "created_at",
     "email",
     "environment",
     "fact_id",
@@ -64,11 +69,14 @@ FORBIDDEN_KEYS = {
     "home",
     "namespace",
     "query_text",
+    "recall_finished_at",
+    "recall_started_at",
     "repo_root",
     "session_id",
     "session_ids",
     "source_path",
     "text",
+    "observed_at",
     "user",
     "username",
 }
@@ -136,6 +144,38 @@ def _safe_private_file(root: pathlib.Path, raw: Any, label: str) -> pathlib.Path
         raise PublicEvidenceError(f"{label} escapes the private artifact root") from exc
     _require(target.is_file() and not target.is_symlink(), f"{label} is not a real regular file")
     return target
+
+
+def _read_restricted_artifact(
+    root: pathlib.Path,
+    artifacts: dict[str, Any],
+    stem: str,
+    label: str,
+    *,
+    expected_size: int | None = None,
+) -> bytes:
+    """Read once, then verify, parse, and commit only this exact buffer."""
+    path = _safe_private_file(root, artifacts.get(f"{stem}_path"), label)
+    expected_sha256 = artifacts.get(f"{stem}_sha256")
+    _require(
+        isinstance(expected_sha256, str) and SHA256_RE.fullmatch(expected_sha256) is not None,
+        f"{label} diagnostic SHA-256 is missing",
+    )
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise PublicEvidenceError(f"{label} is unreadable: {exc}") from exc
+    _require(sha256_bytes(raw) == expected_sha256, f"{label} differs from the diagnostic commitment")
+    recorded_size = artifacts.get(f"{stem}_size_bytes")
+    if recorded_size is not None:
+        _require(
+            isinstance(recorded_size, int) and not isinstance(recorded_size, bool) and recorded_size >= 0,
+            f"{label} diagnostic size is invalid",
+        )
+        _require(len(raw) == recorded_size, f"{label} differs from the diagnostic size")
+    if expected_size is not None:
+        _require(len(raw) == expected_size, f"{label} differs from the pinned size")
+    return raw
 
 
 def _write_json(path: pathlib.Path, value: Any) -> None:
@@ -229,7 +269,6 @@ class _Pseudonymizer:
 def _candidate_reason(
     candidate: dict[str, Any],
     sessions: dict[str, dict[str, Any]],
-    cutoff: dt.datetime,
 ) -> str | None:
     if candidate["invalid_provenance"] or not candidate["session_refs"]:
         return "empty_provenance"
@@ -238,25 +277,25 @@ def _candidate_reason(
         return "excluded_session"
     if "unknown" in states:
         return "unknown_session"
-    if any(_parse_time(sessions[ref]["created_at"]) >= cutoff for ref in candidate["session_refs"]):
+    if "at_or_after_cutoff" in states:
         return "at_or_after_cutoff"
     return None
 
 
 def _build_temporal_projection(
-    facts_path: pathlib.Path,
-    sessions_path: pathlib.Path,
+    facts_raw: bytes,
+    sessions_raw: bytes,
     pins: dict[str, Any],
     pseudonyms: _Pseudonymizer,
 ) -> tuple[dict[str, Any], dict[str, str]]:
     corpus = pins["corpus"]
-    _require(sha256_file(facts_path) == corpus["facts_sha256"], "facts source differs from pin")
-    _require(facts_path.stat().st_size == corpus["facts_size_bytes"], "facts source size differs from pin")
-    _require(sha256_file(sessions_path) == corpus["session_dates_sha256"], "session dates differ from pin")
-    _require(sessions_path.stat().st_size == corpus["session_dates_size_bytes"], "session dates size differs from pin")
+    _require(sha256_bytes(facts_raw) == corpus["facts_sha256"], "facts source differs from pin")
+    _require(len(facts_raw) == corpus["facts_size_bytes"], "facts source size differs from pin")
+    _require(sha256_bytes(sessions_raw) == corpus["session_dates_sha256"], "session dates differ from pin")
+    _require(len(sessions_raw) == corpus["session_dates_size_bytes"], "session dates size differs from pin")
     try:
-        session_dates = json.loads(sessions_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        session_dates = json.loads(sessions_raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PublicEvidenceError(f"session dates are unreadable: {exc}") from exc
     _require(
         isinstance(session_dates, dict)
@@ -272,7 +311,7 @@ def _build_temporal_projection(
     candidates: list[dict[str, Any]] = []
     raw_by_candidate_ref: dict[str, str] = {}
     try:
-        lines = facts_path.read_text(encoding="utf-8").splitlines()
+        lines = facts_raw.decode("utf-8").splitlines()
         for line_number, line in enumerate(lines, 1):
             if not line.strip():
                 continue
@@ -303,16 +342,17 @@ def _build_temporal_projection(
                     if session_ref in sessions:
                         continue
                     if raw_session in excluded_raw:
-                        sessions[session_ref] = {"ref": session_ref, "state": "excluded", "created_at": None}
+                        state = "excluded"
                     elif raw_session not in session_dates:
-                        sessions[session_ref] = {"ref": session_ref, "state": "unknown", "created_at": None}
+                        state = "unknown"
                     else:
                         try:
-                            created_at = _public_time(session_dates[raw_session])
+                            created_at = _parse_time(session_dates[raw_session])
                         except PublicEvidenceError:
-                            sessions[session_ref] = {"ref": session_ref, "state": "unknown", "created_at": None}
+                            state = "unknown"
                         else:
-                            sessions[session_ref] = {"ref": session_ref, "state": "known", "created_at": created_at}
+                            state = "before_cutoff" if created_at < cutoff else "at_or_after_cutoff"
+                    sessions[session_ref] = {"ref": session_ref, "state": state}
             candidates.append(
                 {
                     "ref": candidate_ref,
@@ -323,7 +363,7 @@ def _build_temporal_projection(
                     "exclusion_reason": None,
                 }
             )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PublicEvidenceError(f"facts source is unreadable: {exc}") from exc
 
     candidates.sort(key=lambda item: item["ref"])
@@ -338,7 +378,7 @@ def _build_temporal_projection(
         "at_or_after_cutoff": 0,
     }
     for candidate in candidates:
-        reason = _candidate_reason(candidate, sessions, cutoff)
+        reason = _candidate_reason(candidate, sessions)
         if reason is None:
             candidate["eligibility"] = "eligible"
             eligible_refs.append(candidate["ref"])
@@ -388,8 +428,7 @@ def _build_temporal_projection(
     return projection, raw_to_public
 
 
-def _parse_vector(path: pathlib.Path) -> dict[str, Any]:
-    raw = path.read_bytes()
+def _parse_vector(raw: bytes) -> dict[str, Any]:
     try:
         _require(raw[:4] == b"EBV1", "vector artifact magic is not EBV1")
         offset = 4
@@ -437,11 +476,11 @@ def _parse_vector(path: pathlib.Path) -> dict[str, Any]:
 
 
 def _vector_index(
-    vector_path: pathlib.Path,
+    vector_raw: bytes,
     raw_to_public: dict[str, str],
     expected_active_refs: set[str],
 ) -> dict[str, Any]:
-    parsed = _parse_vector(vector_path)
+    parsed = _parse_vector(vector_raw)
     try:
         ordered_refs = [raw_to_public[raw_id] for raw_id in parsed["candidate_ids"]]
     except KeyError as exc:
@@ -466,8 +505,7 @@ def _vector_index(
     }
 
 
-def _stream_commitment(path: pathlib.Path) -> dict[str, Any]:
-    raw = path.read_bytes()
+def _stream_commitment(raw: bytes) -> dict[str, Any]:
     return {"sha256": sha256_bytes(raw), "size_bytes": len(raw)}
 
 
@@ -491,46 +529,94 @@ def _logical_invocation(record: dict[str, Any], pins: dict[str, Any]) -> dict[st
     }
 
 
-def _environment_policy(arm: str) -> dict[str, Any]:
+def _environment_policy(record: dict[str, Any], matrix: dict[str, Any]) -> dict[str, Any]:
+    arm = record["arm"]
+    requested = record.get("requested")
+    _require(isinstance(requested, dict), f"{arm} diagnostic requested contract is missing")
+    environment = requested.get("environment")
+    _require(isinstance(environment, dict), f"{arm} diagnostic environment is missing")
+    recall_inherited = [key for key in SAFE_PARENT_ENV if key in environment]
+    matrix_arm = next(
+        (item for item in matrix.get("arms", []) if isinstance(item, dict) and item.get("id") == arm),
+        None,
+    )
+    _require(isinstance(matrix_arm, dict), f"{arm} matrix contract is missing")
+    matrix_environment = matrix_arm.get("environment")
+    _require(isinstance(matrix_environment, dict), f"{arm} matrix environment contract is missing")
+    endpoint = matrix_environment.get("ENTIRE_BRAIN_EMBED_URL") if arm == "embeddinggemma_rrf" else None
+    if arm == "embeddinggemma_rrf":
+        _require(
+            endpoint == "http://127.0.0.1:11500" and environment.get("ENTIRE_BRAIN_EMBED_URL") == endpoint,
+            "EmbeddingGemma diagnostic endpoint is not matrix-pinned loopback",
+        )
+        server_environment = requested.get("embedding_server_environment")
+        _require(isinstance(server_environment, dict), "EmbeddingGemma server environment is missing")
+        _require(
+            server_environment.get("HOST") == "127.0.0.1" and server_environment.get("PORT") == "11500",
+            "EmbeddingGemma managed server is not matrix-pinned loopback",
+        )
+        server_inherited: list[str] | None = [key for key in SAFE_PARENT_ENV if key in server_environment]
+    else:
+        server_inherited = None
     return {
-        "profile": "hermetic_deny_parent_v1",
-        "inherited_keys": [],
-        "ephemeral_bindings": ["cache", "config", "data", "state"],
-        "host_context_persisted": False,
-        "network_policy": "pinned_loopback_only" if arm == "embeddinggemma_rrf" else "denied",
+        "profile": "diagnostic_environment_projection_v1",
+        "recall_inherited_keys": recall_inherited,
+        "managed_server_inherited_keys": server_inherited,
+        "values_persisted": False,
+        "embedding_endpoint": endpoint,
+        "network_isolation_enforced": False,
     }
 
 
-def _sanitize_lifecycle(path: pathlib.Path, pins: dict[str, Any]) -> dict[str, Any]:
+def _sanitize_lifecycle(raw_bytes: bytes) -> dict[str, Any]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = json.loads(raw_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PublicEvidenceError(f"embedding server attestation is unreadable: {exc}") from exc
     observations = raw.get("observations")
     _require(isinstance(observations, list), "embedding server observations are missing")
     projected: list[dict[str, Any]] = []
+    observation_times: list[dt.datetime] = []
+    phases: list[Any] = []
     for item in observations:
         _require(isinstance(item, dict), "embedding server observation is not an object")
+        observation_times.append(_parse_time(item.get("observed_at")))
+        phases.append(item.get("phase"))
         projected.append(
             {
                 "sequence": item.get("sequence"),
                 "phase": item.get("phase"),
-                "observed_at": _public_time(item.get("observed_at")),
                 "healthy": item.get("healthy"),
                 "health_request_count": item.get("health_request_count"),
                 "request_nonce_sha256": item.get("request_nonce_sha256"),
             }
         )
     window = raw.get("recall_window", {})
+    started = _parse_time(window.get("started_at"))
+    finished = _parse_time(window.get("finished_at"))
+    _require(
+        len(phases) >= 3
+        and phases[0] == "pre_recall"
+        and phases.count("during_recall") == 1
+        and phases[-1] == "post_recall",
+        "embedding server lifecycle phases do not establish pre/during/post ordering",
+    )
+    during = observation_times[phases.index("during_recall")]
+    _require(
+        observation_times == sorted(observation_times)
+        and len(observation_times) == len(set(observation_times))
+        and observation_times[0] < started < during < finished < observation_times[-1],
+        "embedding server lifecycle does not strictly bound active recall",
+    )
     return {
         "ownership_token_sha256": raw.get("ownership_token_sha256"),
         "model_sha256": raw.get("model_sha256"),
         "embedding_dimension": raw.get("embedding_dimension"),
         "node_version": raw.get("node_version"),
-        "recall_started_at": _public_time(window.get("started_at")),
-        "recall_finished_at": _public_time(window.get("finished_at")),
+        "time_projection": "ordinal_only",
+        "recall_relation": "strictly_bounded_by_pre_during_post",
         "observations": projected,
-        "restricted_attestation_stream": _stream_commitment(path),
+        "restricted_attestation_stream": _stream_commitment(raw_bytes),
     }
 
 
@@ -538,17 +624,19 @@ def _build_arm_record(
     record: dict[str, Any],
     artifact_root: pathlib.Path,
     pins: dict[str, Any],
+    matrix: dict[str, Any],
     raw_to_public: dict[str, str],
     active_refs: set[str],
 ) -> dict[str, Any]:
     arm = record.get("arm")
     _require(arm in ARMS, "diagnostic record has an unknown arm")
     artifacts = record.get("artifacts", {})
-    stdout_path = _safe_private_file(artifact_root, artifacts.get("stdout_path"), f"{arm} stdout")
-    stderr_path = _safe_private_file(artifact_root, artifacts.get("stderr_path"), f"{arm} stderr")
+    _require(isinstance(artifacts, dict), f"{arm} diagnostic artifacts are missing")
+    stdout_raw = _read_restricted_artifact(artifact_root, artifacts, "stdout", f"{arm} stdout")
+    stderr_raw = _read_restricted_artifact(artifact_root, artifacts, "stderr", f"{arm} stderr")
     try:
-        stdout = json.loads(stdout_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        stdout = json.loads(stdout_raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PublicEvidenceError(f"{arm} stdout is not one JSON object: {exc}") from exc
     result = record.get("result", {})
     raw_result_ids = result.get("fact_ids_in_order")
@@ -586,27 +674,33 @@ def _build_arm_record(
     effective = {field: effective_raw.get(field) for field in effective_fields}
     vector_index = None
     if arm != "lexical_handrolled":
-        vector_path = _safe_private_file(artifact_root, artifacts.get("vector_artifact_path"), f"{arm} vector")
-        vector_index = _vector_index(vector_path, raw_to_public, active_refs)
+        vector_raw = _read_restricted_artifact(
+            artifact_root,
+            artifacts,
+            "vector_artifact",
+            f"{arm} vector",
+        )
+        vector_index = _vector_index(vector_raw, raw_to_public, active_refs)
 
     lifecycle = None
     if arm == "embeddinggemma_rrf":
-        lifecycle_path = _safe_private_file(
+        lifecycle_raw = _read_restricted_artifact(
             artifact_root,
-            artifacts.get("embedding_server_attestation_path"),
+            artifacts,
+            "embedding_server_attestation",
             "embedding server attestation",
         )
-        lifecycle = _sanitize_lifecycle(lifecycle_path, pins)
+        lifecycle = _sanitize_lifecycle(lifecycle_raw)
     return {
         "schema_version": 4,
         "profile": PROFILE,
         "arm": arm,
         "invocation": _logical_invocation(record, pins),
-        "environment_policy": _environment_policy(arm),
+        "environment_policy": _environment_policy(record, matrix),
         "effective": effective,
         "streams": {
-            "stdout": _stream_commitment(stdout_path),
-            "stderr": _stream_commitment(stderr_path),
+            "stdout": _stream_commitment(stdout_raw),
+            "stderr": _stream_commitment(stderr_raw),
         },
         "result": {
             "query_ref": result.get("query_id"),
@@ -685,14 +779,14 @@ def _privacy_value_errors(value: Any, label: str = "public evidence") -> list[st
             errors.append(f"{label}: email address is forbidden")
         if RAW_SESSION_RE.search(value):
             errors.append(f"{label}: raw session identifier is forbidden")
+        if RFC3339_RE.fullmatch(value) and not label.endswith(".cutoff"):
+            errors.append(f"{label}: exact wall-clock timestamp is forbidden outside the pinned cutoff")
         if value.startswith("fact:") or value.startswith("session-") or "facts.ndjson" in value:
             errors.append(f"{label}: raw corpus/session identifier is forbidden")
         if any(pattern.search(value) for pattern in SECRET_RES):
             errors.append(f"{label}: secret-like value is forbidden")
         if any(marker in value for marker in ("ENTIRE_PLUGIN_", "ENGINE_VERIFICATION_TOKEN")):
             errors.append(f"{label}: host environment name is forbidden")
-        if value in {"HOME", "PATH", "TMPDIR", "USER", "USERNAME"}:
-            errors.append(f"{label}: host environment value is forbidden")
         if any(character.isspace() for character in value):
             errors.append(f"{label}: free-form text is forbidden")
     return errors
@@ -760,21 +854,39 @@ def build_public_bundle(
     _require(isinstance(pin_descriptor, dict), "diagnostic pin descriptor is missing")
 
     first_artifacts = records[0].get("artifacts", {})
-    facts_path = _safe_private_file(artifact_root, first_artifacts.get("facts_source_path"), "facts source")
-    sessions_path = _safe_private_file(
+    _require(isinstance(first_artifacts, dict), "diagnostic source artifacts are missing")
+    for record in records[1:]:
+        artifacts = record.get("artifacts", {})
+        _require(isinstance(artifacts, dict), "diagnostic source artifacts are missing")
+        for stem in ("facts_source", "session_dates_source"):
+            _require(
+                artifacts.get(f"{stem}_path") == first_artifacts.get(f"{stem}_path")
+                and artifacts.get(f"{stem}_sha256") == first_artifacts.get(f"{stem}_sha256"),
+                f"diagnostic {stem} commitments differ across arms",
+            )
+    facts_raw = _read_restricted_artifact(
         artifact_root,
-        first_artifacts.get("session_dates_source_path"),
+        first_artifacts,
+        "facts_source",
+        "facts source",
+        expected_size=pins["corpus"]["facts_size_bytes"],
+    )
+    sessions_raw = _read_restricted_artifact(
+        artifact_root,
+        first_artifacts,
+        "session_dates_source",
         "session dates source",
+        expected_size=pins["corpus"]["session_dates_size_bytes"],
     )
     pseudonyms = _Pseudonymizer(pseudonym_key)
-    temporal, raw_to_public = _build_temporal_projection(facts_path, sessions_path, pins, pseudonyms)
+    temporal, raw_to_public = _build_temporal_projection(facts_raw, sessions_raw, pins, pseudonyms)
     active_refs = {
         item["ref"]
         for item in temporal["candidates"]
         if item["eligibility"] == "eligible" and item["status"] == "active"
     }
     arm_records = [
-        _build_arm_record(record, artifact_root, pins, raw_to_public, active_refs)
+        _build_arm_record(record, artifact_root, pins, matrix, raw_to_public, active_refs)
         for record in records
     ]
     components = _component_commitments(pins)
@@ -791,7 +903,7 @@ def build_public_bundle(
             _write_json(temporary / relative, record)
 
         subjects = [
-            ("inputs_authenticated", canonical_sha256({"pin_set": pin_descriptor, "components": components})),
+            ("inputs_committed", canonical_sha256({"pin_set": pin_descriptor, "components": components})),
             ("temporal_projection_derived", sha256_file(temporary / "temporal-projection.json")),
         ]
         for record in arm_records:
@@ -915,7 +1027,7 @@ def _validate_temporal(value: Any, pins: dict[str, Any], errors: list[str]) -> s
     sessions: dict[str, dict[str, Any]] = {}
     for index, item in enumerate(raw_sessions):
         label = f"temporal sessions[{index}]"
-        if not _exact_object(item, {"ref", "state", "created_at"}, label, errors):
+        if not _exact_object(item, {"ref", "state"}, label, errors):
             continue
         ref = item["ref"]
         if not isinstance(ref, str) or not re.fullmatch(r"session:[0-9a-f]{32}", ref):
@@ -925,22 +1037,11 @@ def _validate_temporal(value: Any, pins: dict[str, Any], errors: list[str]) -> s
             errors.append(f"{label}: duplicate session ref")
         sessions[ref] = item
         state = item["state"]
-        if state not in {"known", "excluded", "unknown"}:
+        if state not in {"before_cutoff", "at_or_after_cutoff", "excluded", "unknown"}:
             errors.append(f"{label}: invalid session state")
-        if state == "known":
-            try:
-                normalized = _public_time(item["created_at"])
-            except PublicEvidenceError:
-                errors.append(f"{label}: known session timestamp is invalid")
-            else:
-                if normalized != item["created_at"]:
-                    errors.append(f"{label}: known session timestamp is not canonical")
-        elif item["created_at"] is not None:
-            errors.append(f"{label}: non-known session must not expose a timestamp")
     if [item.get("ref") for item in raw_sessions if isinstance(item, dict)] != sorted(sessions):
         errors.append("temporal sessions are not in canonical ref order")
 
-    cutoff = _parse_time(expected_cutoff)
     eligible: set[str] = set()
     active: set[str] = set()
     excluded_counts = {
@@ -948,6 +1049,7 @@ def _validate_temporal(value: Any, pins: dict[str, Any], errors: list[str]) -> s
         for key in ("empty_provenance", "excluded_session", "unknown_session", "at_or_after_cutoff")
     }
     seen: set[str] = set()
+    referenced_sessions: set[str] = set()
     for index, item in enumerate(raw_candidates):
         label = f"temporal candidates[{index}]"
         if not _exact_object(
@@ -977,9 +1079,10 @@ def _validate_temporal(value: Any, pins: dict[str, Any], errors: list[str]) -> s
         if not set(refs).issubset(sessions):
             errors.append(f"{label}: session_refs contain an unknown ref")
             continue
+        referenced_sessions.update(refs)
         try:
-            reason = _candidate_reason(item, sessions, cutoff)
-        except (KeyError, PublicEvidenceError):
+            reason = _candidate_reason(item, sessions)
+        except KeyError:
             errors.append(f"{label}: eligibility cannot be recomputed")
             continue
         expected_eligibility = "eligible" if reason is None else "excluded"
@@ -993,6 +1096,8 @@ def _validate_temporal(value: Any, pins: dict[str, Any], errors: list[str]) -> s
             excluded_counts[reason] += 1
     if [item.get("ref") for item in raw_candidates if isinstance(item, dict)] != sorted(seen):
         errors.append("temporal candidates are not in canonical ref order")
+    if set(sessions) != referenced_sessions:
+        errors.append("temporal session table must exactly equal the union of candidate session_refs")
     expected_summary = {
         "prefilter_count": len(seen),
         "eligible_count": len(eligible),
@@ -1050,6 +1155,14 @@ def _validate_vector(
     if not isinstance(chunks, list):
         errors.append(f"{label}: chunks must be an array")
         return
+    count = value["count"]
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        errors.append(f"{label}: count must be a positive integer")
+        expected_chunk_count = None
+    else:
+        expected_chunk_count = math.ceil(count / 256)
+        if len(chunks) != expected_chunk_count:
+            errors.append(f"{label}: chunk count is not canonical for count/256")
     ordered: list[str] = []
     chunk_hashes: list[str] = []
     for index, chunk in enumerate(chunks):
@@ -1067,6 +1180,10 @@ def _validate_vector(
         ):
             errors.append(f"{chunk_label}: candidate refs are invalid")
             continue
+        if expected_chunk_count is not None:
+            expected_length = 256 if index < expected_chunk_count - 1 else count - 256 * (expected_chunk_count - 1)
+            if index >= expected_chunk_count or len(refs) != expected_length:
+                errors.append(f"{chunk_label}: candidate count is not the canonical 256-sized partition")
         expected_hash = canonical_sha256(refs)
         if chunk["sha256"] != expected_hash:
             errors.append(f"{chunk_label}: commitment differs from candidate refs")
@@ -1088,6 +1205,55 @@ def _validate_vector(
     _validate_stream(value["raw_stream"], f"{label} raw stream", errors)
 
 
+def _validate_environment_policy(
+    value: Any,
+    arm: str,
+    matrix: dict[str, Any],
+    errors: list[str],
+) -> None:
+    label = f"{arm} environment projection"
+    fields = {
+        "profile",
+        "recall_inherited_keys",
+        "managed_server_inherited_keys",
+        "values_persisted",
+        "embedding_endpoint",
+        "network_isolation_enforced",
+    }
+    if not _exact_object(value, fields, label, errors):
+        return
+    if value["profile"] != "diagnostic_environment_projection_v1":
+        errors.append(f"{label}: profile changed")
+    for field in ("recall_inherited_keys", "managed_server_inherited_keys"):
+        inherited = value[field]
+        if field == "managed_server_inherited_keys" and arm != "embeddinggemma_rrf":
+            if inherited is not None:
+                errors.append(f"{label}: non-managed arm has server inherited keys")
+            continue
+        if (
+            not isinstance(inherited, list)
+            or inherited != [key for key in SAFE_PARENT_ENV if key in inherited]
+            or len(inherited) != len(set(inherited))
+            or not set(inherited).issubset(SAFE_PARENT_ENV)
+        ):
+            errors.append(f"{label}: inherited keys are not an ordered subset of the verifier allowlist")
+    matrix_arm = next(
+        (item for item in matrix.get("arms", []) if isinstance(item, dict) and item.get("id") == arm),
+        {},
+    )
+    expected_endpoint = (
+        matrix_arm.get("environment", {}).get("ENTIRE_BRAIN_EMBED_URL")
+        if arm == "embeddinggemma_rrf"
+        else None
+    )
+    if value["embedding_endpoint"] != expected_endpoint:
+        errors.append(f"{label}: embedding endpoint differs from the matrix-pinned loopback endpoint")
+    if value["values_persisted"] is not False:
+        errors.append(f"{label}: diagnostic environment values must be omitted")
+    if value["network_isolation_enforced"] is not False:
+        errors.append(f"{label}: v4 cannot claim network isolation that the diagnostic runner did not enforce")
+
+
 def _validate_lifecycle(value: Any, arm: str, pins: dict[str, Any], errors: list[str]) -> None:
     if arm != "embeddinggemma_rrf":
         if value is not None:
@@ -1095,7 +1261,7 @@ def _validate_lifecycle(value: Any, arm: str, pins: dict[str, Any], errors: list
         return
     fields = {
         "ownership_token_sha256", "model_sha256", "embedding_dimension", "node_version",
-        "recall_started_at", "recall_finished_at", "observations", "restricted_attestation_stream",
+        "time_projection", "recall_relation", "observations", "restricted_attestation_stream",
     }
     label = "embeddinggemma managed server attestation"
     if not _exact_object(value, fields, label, errors):
@@ -1110,18 +1276,15 @@ def _validate_lifecycle(value: Any, arm: str, pins: dict[str, Any], errors: list
         value["ownership_token_sha256"]
     ):
         errors.append(f"{label}: ownership token commitment is invalid")
+    if value["time_projection"] != "ordinal_only":
+        errors.append(f"{label}: public lifecycle must omit wall-clock times")
+    if value["recall_relation"] != "strictly_bounded_by_pre_during_post":
+        errors.append(f"{label}: recall lifecycle relation changed")
     _validate_stream(value["restricted_attestation_stream"], f"{label} restricted stream", errors)
-    try:
-        started = _parse_time(value["recall_started_at"])
-        finished = _parse_time(value["recall_finished_at"])
-    except PublicEvidenceError:
-        errors.append(f"{label}: recall window is invalid")
-        return
     observations = value["observations"]
     if not isinstance(observations, list) or len(observations) < 3:
         errors.append(f"{label}: at least pre/during/post observations are required")
         return
-    times: list[dt.datetime] = []
     nonces: list[str] = []
     phases: list[Any] = []
     request_counts: list[Any] = []
@@ -1129,17 +1292,13 @@ def _validate_lifecycle(value: Any, arm: str, pins: dict[str, Any], errors: list
         item_label = f"{label} observations[{index}]"
         if not _exact_object(
             item,
-            {"sequence", "phase", "observed_at", "healthy", "health_request_count", "request_nonce_sha256"},
+            {"sequence", "phase", "healthy", "health_request_count", "request_nonce_sha256"},
             item_label,
             errors,
         ):
             continue
         if item["sequence"] != index:
             errors.append(f"{item_label}: sequence changed")
-        try:
-            times.append(_parse_time(item["observed_at"]))
-        except PublicEvidenceError:
-            errors.append(f"{item_label}: timestamp is invalid")
         if item["healthy"] is not True:
             errors.append(f"{item_label}: server was not healthy")
         phases.append(item["phase"])
@@ -1158,11 +1317,6 @@ def _validate_lifecycle(value: Any, arm: str, pins: dict[str, Any], errors: list
         or request_counts != sorted(set(request_counts))
     ):
         errors.append(f"{label}: health request counts are not strictly increasing")
-    if len(times) == len(observations):
-        if times != sorted(times) or len(times) != len(set(times)):
-            errors.append(f"{label}: observation times are not strictly increasing")
-        elif not (times[0] < started < times[1] < finished < times[-1]):
-            errors.append(f"{label}: pre/during/post evidence does not strictly bound recall")
 
 
 def _validate_arm(
@@ -1205,8 +1359,7 @@ def _validate_arm(
         }
         if query is None or invocation != expected_invocation:
             errors.append(f"{label}: typed invocation differs from pins")
-    if value["environment_policy"] != _environment_policy(expected_arm):
-        errors.append(f"{label}: hermetic environment policy changed")
+    _validate_environment_policy(value["environment_policy"], expected_arm, matrix, errors)
     engine_pin = pins["engines"][expected_arm]
     effective = value["effective"]
     effective_fields = {
@@ -1281,7 +1434,7 @@ def _validate_attestation(
     if value["schema_version"] != 4 or value["profile"] != PROFILE or value["algorithm"] != CHAIN_ALGORITHM:
         errors.append("projection attestation identity changed")
     expected_subjects = [
-        ("inputs_authenticated", canonical_sha256({"pin_set": pin_set, "components": components})),
+        ("inputs_committed", canonical_sha256({"pin_set": pin_set, "components": components})),
         ("temporal_projection_derived", sha256_file(temporal_path)),
         *[(f"{arm}_result_projected", sha256_file(arm_paths[arm])) for arm in ARMS],
     ]

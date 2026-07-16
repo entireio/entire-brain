@@ -2565,9 +2565,9 @@ def validate_engine_verification(
                 expected_descriptor,
             )
         )
-        if require_storage_contract:
+        if require_production:
             errors.append(
-                "stored public v4 evidence lacks an authenticated restricted replay attestation bound to the v4 manifest, pin set, and checker"
+                "public v4 evidence lacks an authenticated restricted replay attestation bound to the v4 manifest, pin set, and checker"
             )
         return errors
     if require_storage_contract and require_production:

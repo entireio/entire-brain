@@ -32,16 +32,25 @@ no fallback. The two semantic arms retained isolated 2,442-vector EBV1 artifacts
 
 The 602 MB local bundle contains raw facts, session metadata, runtime trees, host paths, and process
 output. It is diagnostic evidence and is not publishable. `public_engine_evidence.py` projects that
-retained run to a six-file, 886,480-byte public v4 bundle with domain-separated pseudonyms and no
+retained run to a six-file, 855,349-byte public v4 bundle with domain-separated pseudonyms and no
 raw corpus, session map, model/runtime payload, vector floats, stdout, stderr, host path, user,
-environment, or plaintext token. Independent production-pin validation and the recursive privacy
-scanner both return zero errors for the local projection.
+environment values, or plaintext token. Standalone public-bundle validation against the production
+pins and the recursive privacy scanner both return zero errors for the local projection; the full
+production gate still fails on the missing restricted replay.
+
+The revised projection exposes no exact source-session or run/health wall-clock timestamps. Session
+metadata is reduced to cutoff-relative states, lifecycle timing is reduced to verified ordinals, the
+session table exactly matches the candidate provenance refs, and vector commitments use one
+canonical 256-item partition. Environment values remain absent; only the verifier allowlist key
+names actually inherited are listed. The embedding endpoint is recorded as pinned loopback, while
+network isolation is truthfully recorded as not enforced.
 
 The `all_engines_machine_verified` gate remains pending: public v4 alone does not prove that a
 restricted clean-checkout replay validated the exact private bytes. The storage-backed production
 checker therefore fails closed until a separately authenticated restricted replay attestation is
 bound to the public v4 manifest, pin set, and checker. Publication, encryption/key management,
-external storage, and clean hydration were not performed by this work.
+external storage, and clean hydration were not performed by this work. The checked-in legacy
+storage contract cannot represent that v4 binding; a new storage schema/profile remains required.
 
 No fresh relevance or agent holdout was opened by these probes.
 
@@ -86,10 +95,12 @@ delivery, delivered-count drift, results above the pin-derived K limit,
 NaN/infinity/truncation/trailing vectors, retained-source and
 derived-facts rehashing, atomic publication failure, live-process health monitoring, recall-overlap
 and timestamp-ordering failures, server PID/phase discontinuity, fallback, input-pin,
-development-query, and endpoint-ownership cases. Seventeen public-v4 tests additionally cover
+development-query, and endpoint-ownership cases. Twenty-four public-v4 tests additionally cover
 secret/path/raw-ID/fact-text rejection, pseudonym collision failure, exact file-set inventory,
-temporal recomputation, result order and eligibility, self-consistent vector-candidate mutation,
-projection/server sequence mutation, component pins, and the absent restricted-replay gate.
+cutoff-relative temporal recomputation, surplus-session and timestamp-leak rejection, result order
+and eligibility, self-consistent vector-candidate and repartition mutations, projection/server
+sequence mutation, single-buffer diagnostic commitments, truthful environment metadata, component
+pins, and the absent restricted-replay gate in both default production and storage modes.
 
 The inherited Node server at PID 70028 was confirmed to be the benchmark's own EmbeddingGemma
 service, stopped with owner authorization, and not reused as evidence. The wrapper then launched,
@@ -99,7 +110,8 @@ component-sorted `Path` rows while the checker hashed serialized relative-path r
 `f125b5c2` canonicalizes the runner to serialized relative-path order, refreshes the production pin,
 and adds the adversarial `a-b` versus `a/b` regression fixture. The regenerated v3 evidence passed.
 
-The gate remains **pending** on three linked retention steps: define the authenticated restricted
-replay-attestation contract, retain that restricted proof under approved access controls, and bind
-an immutable public-v4 archive to it through a clean hydration. The legacy v3 archive must not be
-published, and a locally valid public projection cannot close the gate by itself.
+The gate remains **pending** on four linked retention steps: define the authenticated restricted
+replay-attestation contract, define a v4 storage schema/profile that binds it to the public manifest,
+retain that restricted proof under approved access controls, and bind an immutable public-v4 archive
+to it through a clean hydration. The legacy v3 archive must not be published, and a locally valid
+public projection cannot close the gate by itself.

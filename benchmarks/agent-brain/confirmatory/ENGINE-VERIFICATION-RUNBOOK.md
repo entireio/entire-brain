@@ -183,18 +183,33 @@ python3 benchmarks/agent-brain/confirmatory/public_engine_evidence.py \
 ```
 
 The projector generates a fresh non-persisted 256-bit pseudonym key unless a restricted binary key
-file is named. The public bundle contains only typed logical invocations, pinned component
-commitments, domain-separated 128-bit candidate/session refs, independently recomputable temporal
-eligibility, sanitized ordered result IDs, chunked vector-candidate commitments, raw-stream
-digest/size pairs, and sanitized server lifecycle attestations. Its manifest inventories exactly
-five payload files; the checker rejects missing, extra, symlinked, byte-changed, or unlisted files
-and recursively rejects absolute paths, host/user/environment values, raw IDs, free-form fact/query
-text, emails, and secret/token patterns. It copies no facts, session map, model, Node/runtime tree,
-source namespace, vector floats, raw stdout, or raw stderr.
+file is named. Every restricted payload used by the projection is read into one buffer, checked
+against its diagnostic SHA-256 (and a recorded or pinned size when the v2 contract supplies one),
+then parsed and committed from that same buffer. The projection chain calls this
+`inputs_committed`; it does not call the inputs authenticated. The public bundle contains only typed
+logical invocations, pinned component commitments, domain-separated 128-bit candidate/session refs,
+cutoff-relative session states, sanitized ordered result IDs, canonical 256-candidate vector chunks,
+raw-stream digest/size pairs, and ordinal server lifecycle attestations. Exact source-session and
+run/health wall-clock times are omitted. The session table must exactly equal the union of session
+refs used by candidates.
+
+The environment projection truthfully lists only the inherited allowlist key names actually present
+(`HOME`, `LANG`, `LC_ALL`, `PATH`, and `TMPDIR` as applicable), never their values. It records the
+matrix-pinned loopback embedding endpoint and explicitly records that network isolation was not
+enforced by this diagnostic runner. A production policy that requires network isolation must reject
+the replay rather than reinterpret this metadata. The manifest inventories exactly five payload
+files; the checker rejects missing, extra, symlinked, byte-changed, or unlisted files and recursively
+rejects absolute paths, host/user/environment values, raw IDs, free-form fact/query text, emails,
+and secret/token patterns. It copies no facts, session map, model, Node/runtime tree, source
+namespace, vector floats, raw stdout, or raw stderr.
 
 Final freeze remains blocked until a public v4 bundle and its restricted exact-byte attestation are
 retained under an approved access/publication contract and validate from a clean hydration. The
-current legacy v3 archive remains diagnostic and privacy-failed; it is not publishable evidence.
+existing storage schema/profile describes the legacy v2 archive layout; it does not bind a v4
+public manifest to an authenticated restricted replay, checker digest, and pin set. No v4 storage
+profile has been implemented, so every production-mode v4 validation fails closed even when storage
+mode is not requested. The current legacy v3 archive remains diagnostic and privacy-failed; it is
+not publishable evidence.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between
