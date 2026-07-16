@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -38,9 +39,10 @@ type agentStatusOptions struct {
 }
 
 type brainBriefOptions struct {
-	json       bool
-	limit      int
-	noSemantic bool
+	json        bool
+	limit       int
+	noSemantic  bool
+	profileJSON string
 }
 
 type brainShowOptions struct {
@@ -498,6 +500,9 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if handoff {
+				if briefOpts.profileJSON != "" {
+					return errors.New("--profile-json is only supported for task briefs, not --handoff")
+				}
 				// The handoff packet is session-trajectory-driven, not
 				// query-driven: "what was in flight, what failed, what's
 				// blocked" for an agent resuming cold (Phase 2 item 3).
@@ -512,6 +517,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum semantic records per section")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
+	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
 	cmd.Flags().IntVar(&handoffSessions, "sessions", handoffDefaultSessions, "Sessions to include in the --handoff packet")
 	return cmd
@@ -1044,8 +1050,24 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	if briefOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
+	var profile *brainBriefProfile
+	if briefOpts.profileJSON != "" {
+		profile = newBrainBriefProfiler()
+	}
 	target := agentSurfaceTarget(opts, nil)
+	statusStarted := profile.start()
 	status, err := buildBrainStatusReport(ctx, opts, target)
+	statusErrors := 0
+	if err != nil {
+		statusErrors = 1
+	}
+	if profile != nil {
+		statusOutputs := 1
+		if err != nil {
+			statusOutputs = 0
+		}
+		profile.finishStage(&profile.StatusBuildState, statusStarted, 1, statusOutputs, statusErrors)
+	}
 	if err != nil {
 		return err
 	}
@@ -1061,6 +1083,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		},
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
+		semanticInputCount := status.Manifest.Sources.Semantic.Symbols + status.Manifest.Sources.Semantic.Relations
+		contextStarted := profile.start()
 		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit, 0)
 		if contextErr != nil {
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
@@ -1071,27 +1095,59 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				Neighbors: nonNil(contextNeighbors),
 			}
 		}
+		if profile != nil {
+			contextErrors := 0
+			if contextErr != nil {
+				contextErrors = 1
+			}
+			profile.finishStage(&profile.Semantic.Context, contextStarted, semanticInputCount, len(contextSymbols)+len(contextRelations)+len(contextNeighbors), contextErrors)
+		}
+		runtimeStarted := profile.start()
 		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
 		if runtimeErr != nil {
 			report.Warnings = append(report.Warnings, "runtime trace context unavailable: "+runtimeErr.Error())
 		} else {
 			report.Semantic.RuntimeTraces = runtimeTraces
 		}
+		if profile != nil {
+			runtimeErrors := 0
+			if runtimeErr != nil {
+				runtimeErrors = 1
+			}
+			profile.finishStage(&profile.Semantic.RuntimeTraces, runtimeStarted, semanticInputCount, len(runtimeTraces), runtimeErrors)
+		}
+		testsStarted := profile.start()
 		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
 		if testsErr != nil {
 			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
 		} else {
 			report.Semantic.Tests = tests
 		}
+		if profile != nil {
+			testErrors := 0
+			if testsErr != nil {
+				testErrors = 1
+			}
+			profile.finishStage(&profile.Semantic.Tests, testsStarted, semanticInputCount, len(tests.Roots)+len(tests.Suggestions), testErrors)
+		}
 	} else {
 		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh`")
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
+		indexLoadStarted := profile.start()
 		index, historyErr := loadBrainHistoryIndex(status.Brain.Path, status.Manifest.Sources.History)
+		if profile != nil {
+			historyErrors := 0
+			if historyErr != nil {
+				historyErrors = 1
+			}
+			profile.finishStage(&profile.History.IndexLoad, indexLoadStarted, 1, len(index.Records), historyErrors)
+		}
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
 			var indexedMatches []brainTextMatch
+			indexedRankStarted := profile.start()
 			// rankHistoryFused is rankHistoryViaFTS unless the history fusion
 			// gate is open (fusion-eligible embedder + refresh-built vec0
 			// vectors), in which case the brief's history context gets the
@@ -1106,7 +1162,14 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 					indexedMatches = append(indexedMatches, historyRecordTextMatch(record))
 				}
 			}
-			rawMatches, rawErr := brainBriefRawHistoryMatches(status.Brain.Path, task, nil, briefOpts.limit)
+			if profile != nil {
+				profile.finishStage(&profile.History.IndexedRank, indexedRankStarted, len(index.Records), len(indexedMatches), 0)
+			}
+			var rawProfile *brainBriefProfileRawHistory
+			if profile != nil {
+				rawProfile = &profile.History.RawFallback
+			}
+			rawMatches, rawErr := brainBriefRawHistoryMatchesObserved(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)
 			if rawErr != nil {
 				report.Warnings = append(report.Warnings, "raw history fallback unavailable: "+rawErr.Error())
 			}
@@ -1120,7 +1183,16 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if branch == "" {
 			branch = distillDefaultBranch
 		}
-		if facts, factsErr := loadFacts(status.Brain.Path, branch); factsErr != nil {
+		factsLoadStarted := profile.start()
+		facts, factsErr := loadFacts(status.Brain.Path, branch)
+		if profile != nil {
+			factsLoadErrors := 0
+			if factsErr != nil {
+				factsLoadErrors = 1
+			}
+			profile.finishStage(&profile.Facts.Load, factsLoadStarted, 1, len(facts), factsLoadErrors)
+		}
+		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
 			// Semantic rerank on by default; nil reranker (embedder
@@ -1129,20 +1201,55 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			var rr *semanticReranker
 			if !briefOpts.noSemantic {
 				if e := defaultEmbedder(); e != nil {
+					if profile != nil {
+						e = &brainBriefProfilingEmbedder{Embedder: e, profile: &profile.Facts.Embed}
+					}
+					cacheLoadStarted := profile.start()
 					rr = newSemanticRerankerForBranch(e, status.Brain.Path, branch)
+					if profile != nil {
+						profile.finishStage(&profile.Facts.VectorCacheLoad, cacheLoadStarted, 1, rr.loaded, 0)
+					}
 				}
 			}
+			embedBefore := int64(0)
+			if profile != nil {
+				embedBefore = profile.Facts.Embed.DurationNS
+			}
+			factsRankStarted := profile.start()
 			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
+			if profile != nil {
+				profile.finishStage(&profile.Facts.Rank, factsRankStarted, len(facts), len(report.Facts), 0)
+				embedDuringRank := profile.Facts.Embed.DurationNS - embedBefore
+				if embedDuringRank > 0 {
+					// Rank is exclusive compute time; embed calls are reported in
+					// their own nested stage rather than double-counted here.
+					profile.Facts.Rank.DurationNS = max(0, profile.Facts.Rank.DurationNS-embedDuringRank)
+				}
+			}
 			if rr != nil {
 				rr.retain(facts) // keep every present fact's vector; prune only departed facts
-				_ = rr.flush()   // best-effort cache persist
+				flushStarted := profile.start()
+				flushErr := rr.flush() // best-effort cache persist
+				if profile != nil {
+					flushErrors := 0
+					if flushErr != nil {
+						flushErrors = 1
+					}
+					profile.finishStage(&profile.Facts.CacheFlush, flushStarted, len(facts), len(rr.cache), flushErrors)
+				}
 			}
 		}
 	}
+	likelyFilesStarted := profile.start()
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+	if profile != nil {
+		likelyInputs := len(report.Semantic.Context.Symbols) + len(report.Semantic.Context.Relations) + len(report.Semantic.RuntimeTraces) + len(report.Semantic.Tests.Suggestions) + len(report.History.Matches) + len(report.Facts)
+		profile.finishStage(&profile.Synthesis.LikelyFiles, likelyFilesStarted, likelyInputs, len(report.LikelyEditFiles)+len(report.LikelyTestFiles)+len(report.LikelyFiles), 0)
+	}
+	actionStarted := profile.start()
 	report.ActionChecklist = brainBriefActionChecklist(status.Repo.Root, report, task)
 	if len(report.ActionChecklist) > 0 {
 		report.LikelyEditFiles = brainBriefActionFiles(report.ActionChecklist)
@@ -1150,15 +1257,71 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 		report.Guidance = append(report.Guidance, "Treat action_checklist as the first-pass current-code inventory; edit listed files first, and broaden only when the checklist is missing, ambiguous, or validation fails.")
 	}
-	if views, _, perr := loadPatternViews(status.Brain.Path); perr == nil {
+	if profile != nil {
+		profile.finishStage(&profile.Synthesis.ActionChecklist, actionStarted, len(report.LikelyFiles)+len(report.History.Matches), len(report.ActionChecklist), 0)
+	}
+	patternsStarted := profile.start()
+	views, _, perr := loadPatternViews(status.Brain.Path)
+	if perr == nil {
 		report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	}
+	if profile != nil {
+		patternErrors := 0
+		if perr != nil {
+			patternErrors = 1
+		}
+		profile.finishStage(&profile.Knowledge.Patterns, patternsStarted, len(views), len(report.Patterns), patternErrors)
 	}
 	// Corpus consolidations (v2): task-relevant dossiers, capped, no ambient
 	// noise. Graceful — absent corpus contributes nothing.
+	consolidationsStarted := profile.start()
 	report.Consolidations = loadBriefConsolidations(status.Brain.Path, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	if profile != nil {
+		profile.finishStage(&profile.Knowledge.Consolidations, consolidationsStarted, 0, len(report.Consolidations), 0)
+	}
 	// Verified latent-practice themes relevant to the task (no noise; accepted only).
+	themesStarted := profile.start()
 	report.Themes = rankTaskRelevantThemes(loadThemeViews(status.Brain.Path, true), brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	if profile != nil {
+		profile.finishStage(&profile.Knowledge.Themes, themesStarted, 0, len(report.Themes), 0)
+	}
+	if profile == nil {
+		return emitBrainBriefReport(cmd, report, briefOpts.json)
+	}
+	serializationStarted := profile.start()
+	var packet bytes.Buffer
+	packetCmd := &cobra.Command{}
+	packetCmd.SetOut(&packet)
+	serializationErr := emitBrainBriefReport(packetCmd, report, briefOpts.json)
+	serializationErrors := 0
+	if serializationErr != nil {
+		serializationErrors = 1
+	}
+	serializationOutputs := 1
+	if serializationErr != nil {
+		serializationOutputs = 0
+	}
+	profile.finishStage(&profile.Packet.Serialization, serializationStarted, 1, serializationOutputs, serializationErrors)
+	if serializationErr != nil {
+		return serializationErr
+	}
 	if briefOpts.json {
+		profile.Packet.Format = "json"
+	} else {
+		profile.Packet.Format = "text"
+	}
+	profile.Packet.ByteCount = packet.Len()
+	profile.Packet.Counts = brainBriefProfilePacketCounts(report, briefOpts.json)
+	profile.finishTotal()
+	if err := writeBrainBriefProfile(briefOpts.profileJSON, *profile); err != nil {
+		return err
+	}
+	_, err = io.Copy(cmd.OutOrStdout(), &packet)
+	return err
+}
+
+func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutput bool) error {
+	if jsonOutput {
 		return writeJSON(cmd, report)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "task: %s\n", report.Task)
@@ -2369,7 +2532,26 @@ func findSemanticRecordByIDOrNameSnapshot(path, idOrName string) (semanticRecord
 	return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 }
 
+type brainBriefRawScanObservation struct {
+	scannedBytes int64
+}
+
+type brainBriefCountingReader struct {
+	reader io.Reader
+	bytes  int64
+}
+
+func (r *brainBriefCountingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.bytes += int64(n)
+	return n, err
+}
+
 func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistoryInspectReport, error) {
+	return inspectBrainRawTextObserved(brainDir, kind, query, maxHits, nil)
+}
+
+func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, observation *brainBriefRawScanObservation) (brainHistoryInspectReport, error) {
 	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir}
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
@@ -2410,7 +2592,15 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 			return nil
 		}
 		defer f.Close()
-		scanner := bufio.NewScanner(f)
+		var reader io.Reader = f
+		if observation != nil {
+			counting := &brainBriefCountingReader{reader: f}
+			reader = counting
+			defer func() {
+				observation.scannedBytes += counting.bytes
+			}()
+		}
+		scanner := bufio.NewScanner(reader)
 		scanner.Buffer(make([]byte, 0, 64*1024), brainInspectHistoryMaxLine)
 		lineNo := 0
 		for scanner.Scan() {
@@ -2445,6 +2635,21 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 }
 
 func brainBriefRawHistoryMatches(brainDir, task string, existing []brainTextMatch, limit int) ([]brainTextMatch, error) {
+	return brainBriefRawHistoryMatchesObserved(brainDir, task, existing, limit, nil)
+}
+
+func brainBriefRawHistoryMatchesObserved(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
+	var profileStarted time.Time
+	if profile != nil {
+		profile.Invoked = true
+		profileStarted = time.Now()
+		defer func() {
+			d := time.Since(profileStarted)
+			if d > 0 {
+				profile.DurationNS = d.Nanoseconds()
+			}
+		}()
+	}
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -2454,11 +2659,45 @@ func brainBriefRawHistoryMatches(brainDir, task string, existing []brainTextMatc
 	}
 	var matches []brainTextMatch
 	var firstErr error
-	for _, query := range brainBriefRawHistoryQueries(task) {
+	for ordinal, query := range brainBriefRawHistoryQueries(task) {
 		if len(matches) >= limit {
 			break
 		}
-		report, err := inspectBrainRawText(brainDir, "history", query, limit-len(matches))
+		queryStarted := time.Time{}
+		var observation *brainBriefRawScanObservation
+		if profile != nil {
+			queryStarted = time.Now()
+			observation = &brainBriefRawScanObservation{}
+		}
+		report, err := inspectBrainRawTextObserved(brainDir, "history", query, limit-len(matches), observation)
+		if profile != nil {
+			queryErrors := len(report.ScanErrors)
+			if err != nil {
+				queryErrors++
+			}
+			queryDuration := time.Since(queryStarted)
+			if queryDuration < 0 {
+				queryDuration = 0
+			}
+			queryProfile := brainBriefProfileRawHistoryQuery{
+				Ordinal:          ordinal + 1,
+				DurationNS:       queryDuration.Nanoseconds(),
+				ScannedFileCount: report.Scanned,
+				ScannedByteCount: observation.scannedBytes,
+				MatchCount:       len(report.Matches),
+				Truncated:        report.Truncated,
+				ErrorCount:       queryErrors,
+			}
+			profile.Queries = append(profile.Queries, queryProfile)
+			profile.QueryCount++
+			profile.ScannedFileCount += queryProfile.ScannedFileCount
+			profile.ScannedByteCount += queryProfile.ScannedByteCount
+			profile.MatchCount += queryProfile.MatchCount
+			if queryProfile.Truncated {
+				profile.TruncationCount++
+			}
+			profile.ErrorCount += queryProfile.ErrorCount
+		}
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
