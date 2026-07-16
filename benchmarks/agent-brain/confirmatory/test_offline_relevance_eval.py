@@ -24,6 +24,7 @@ def _raw(value: object) -> bytes:
 def _result(fact_id: str, kind: str, cluster_id: str, tokens: int) -> dict[str, object]:
     return {
         "fact_id": fact_id,
+        "fact_sha256": _hash(fact_id),
         "kind": kind,
         "cluster_id": cluster_id,
         "eligible": True,
@@ -142,24 +143,28 @@ def _synthetic_case() -> dict[str, Any]:
     product_judgments = [
         {
             "fact_id": "positive-1",
+            "fact_sha256": _hash("positive-1"),
             "grade": "solving",
             "kind": "decision",
             "cluster_id": "cluster-positive-1",
         },
         {
             "fact_id": "positive-2",
+            "fact_sha256": _hash("positive-2"),
             "grade": "relevant_alternative",
             "kind": "procedure",
             "cluster_id": "cluster-positive-2",
         },
         {
             "fact_id": "distractor-1",
+            "fact_sha256": _hash("distractor-1"),
             "grade": "hard_topical_distractor",
             "kind": "constraint",
             "cluster_id": "cluster-distractor-1",
         },
         {
             "fact_id": "irrelevant-1",
+            "fact_sha256": _hash("irrelevant-1"),
             "grade": "irrelevant",
             "kind": "observation",
             "cluster_id": "cluster-irrelevant-1",
@@ -194,8 +199,29 @@ def _synthetic_case() -> dict[str, Any]:
             ]
         },
     }
+    producer_identity = relevance.finalize_producer_identity(
+        {
+            "schema_version": 1,
+            "schema": relevance.PRODUCER_IDENTITY_SCHEMA,
+            "producer_id": "synthetic-ranked-run-producer-v1",
+            "runner_sha256": _hash("synthetic-runner-artifact"),
+            "producer_code_sha256": _hash("synthetic-runner-code"),
+            "ranking_result_metadata_policy_id": "synthetic-result-metadata-v1",
+            "ranking_result_metadata_policy_sha256": _hash(
+                "synthetic-result-metadata-policy"
+            ),
+            "token_estimation_policy_id": "synthetic-token-estimation-v1",
+            "token_estimation_policy_sha256": _hash(
+                "synthetic-token-estimation-policy"
+            ),
+            "serialization_policy_id": "synthetic-serialization-v1",
+            "serialization_policy_sha256": _hash("synthetic-serialization-policy"),
+            "producer_identity_sha256": "",
+        }
+    )
     engine_matrix_raw = _raw(engine_matrix)
     engine_pins_raw = _raw(engine_pins)
+    producer_identity_raw = _raw(producer_identity)
     dataset_raw = _raw(dataset)
     membership_raw = _raw(membership)
     bindings = relevance._build_input_bindings(
@@ -203,6 +229,8 @@ def _synthetic_case() -> dict[str, Any]:
         engine_matrix,
         engine_pins_raw,
         engine_pins,
+        producer_identity_raw,
+        producer_identity,
         fixture,
         dataset_raw,
         dataset,
@@ -283,6 +311,7 @@ def _synthetic_case() -> dict[str, Any]:
                 "run_id": f"run-{arm_id}-{aggregation}",
                 "created_at": "2026-04-01T00:00:00Z",
                 "input_bindings": copy.deepcopy(bindings),
+                "producer_identity": copy.deepcopy(producer_identity),
                 "engine_identity": identity,
                 "aggregation_rule": aggregation,
                 "k_candidates": list(relevance.K_CANDIDATES),
@@ -295,6 +324,8 @@ def _synthetic_case() -> dict[str, Any]:
         "engine_matrix_raw": engine_matrix_raw,
         "engine_pins": engine_pins,
         "engine_pins_raw": engine_pins_raw,
+        "producer_identity": producer_identity,
+        "producer_identity_raw": producer_identity_raw,
         "fixture": fixture,
         "dataset": dataset,
         "dataset_raw": dataset_raw,
@@ -312,6 +343,7 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         values: dict[str, Any] = {
             "engine_matrix_raw": self.case["engine_matrix_raw"],
             "engine_pins_raw": self.case["engine_pins_raw"],
+            "producer_identity_raw": self.case["producer_identity_raw"],
             "fixture": self.case["fixture"],
             "dataset_raw": self.case["dataset_raw"],
             "source_membership_raw": self.case["membership_raw"],
@@ -333,6 +365,15 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         report = self.evaluate()
         self.assertEqual(report, self.evaluate())
         self.assertEqual(report["report_sha256"], relevance._self_hash(report, "report_sha256"))
+        self.assertEqual(report["producer_identity"], self.case["producer_identity"])
+        self.assertEqual(
+            report["input_bindings"]["producer_identity_file_sha256"],
+            relevance.sha256_bytes(self.case["producer_identity_raw"]),
+        )
+        self.assertEqual(
+            report["producer_identity"]["producer_identity_sha256"],
+            relevance._self_hash(report["producer_identity"], "producer_identity_sha256"),
+        )
         self.assertEqual(len(report["evaluated_runs"]), 6)
         self.assertEqual(len(report["selections"]), 3)
         first = report["evaluated_runs"][0]["candidates"][0]
@@ -355,6 +396,11 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
             self.assertEqual(selection["k"], 5)
             self.assertEqual(
                 selection["aggregation_rule"], "best_rank_then_hit_count_v1"
+            )
+        for evaluated in report["evaluated_runs"]:
+            self.assertEqual(
+                evaluated["producer_identity_sha256"],
+                report["producer_identity"]["producer_identity_sha256"],
             )
 
     def test_artifacts_never_copy_query_or_fact_text(self) -> None:
@@ -396,6 +442,14 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         )
         self.assertEqual(
             contract["strata"], ["user_prompt_derived", "oracle_upper_bound"]
+        )
+        self.assertEqual(
+            contract["ranking_result_metadata_policy_scope"],
+            "fact_hash_kind_cluster_eligibility_and_query_telemetry_fields",
+        )
+        self.assertEqual(
+            contract["token_estimation_policy_scope"],
+            "positive_estimated_tokens_per_delivered_fact",
         )
 
     def test_duplicate_ranked_fact_fails_closed(self) -> None:
@@ -455,6 +509,7 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
             query["ordered_results"].append(
                 {
                     "fact_id": "future-1",
+                    "fact_sha256": _hash("future-1"),
                     "kind": "observation",
                     "cluster_id": "cluster-future-1",
                     "eligible": False,
@@ -502,12 +557,90 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         with self.assertRaisesRegex(relevance.EvaluationError, "differs across aggregation"):
             self.evaluate(ranked_run_raws=self.mutate_run(3, mutate))
 
+    def test_producer_identity_is_self_hashed_externally_bound_and_matrix_stable(self) -> None:
+        for field in (
+            "producer_code_sha256",
+            "ranking_result_metadata_policy_sha256",
+            "token_estimation_policy_sha256",
+            "serialization_policy_sha256",
+        ):
+            with self.subTest(field=field):
+                def mutate(run: dict[str, Any], changed_field: str = field) -> None:
+                    producer = run["producer_identity"]
+                    producer[changed_field] = _hash(f"different-{changed_field}")
+                    run["producer_identity"] = relevance.finalize_producer_identity(producer)
+
+                with self.assertRaisesRegex(
+                    relevance.EvaluationError, "bound producer contract"
+                ):
+                    self.evaluate(ranked_run_raws=self.mutate_run(0, mutate))
+        with self.assertRaisesRegex(relevance.EvaluationError, "input bindings differ"):
+            self.evaluate(
+                producer_identity_raw=b"\n" + self.case["producer_identity_raw"]
+            )
+
+    def test_external_producer_self_hash_and_placeholder_hashes_fail_closed(self) -> None:
+        producer = copy.deepcopy(self.case["producer_identity"])
+        producer["producer_identity_sha256"] = _hash("tampered-producer-self-hash")
+        with self.assertRaisesRegex(relevance.EvaluationError, "producer identity self-hash"):
+            self.evaluate(producer_identity_raw=_raw(producer))
+
+        producer = copy.deepcopy(self.case["producer_identity"])
+        producer["producer_code_sha256"] = relevance.ZERO_SHA256
+        producer = relevance.finalize_producer_identity(producer)
+        with self.assertRaisesRegex(relevance.EvaluationError, "all-zero placeholder"):
+            self.evaluate(producer_identity_raw=_raw(producer))
+
+    def test_ranked_result_fact_hash_drift_fails_closed(self) -> None:
+        def mutate(run: dict[str, Any]) -> None:
+            run["queries"][0]["ordered_results"][0]["fact_sha256"] = _hash(
+                "wrong-fact-bytes"
+            )
+
+        with self.assertRaisesRegex(
+            relevance.EvaluationError, "fact SHA-256 differs from source membership"
+        ):
+            self.evaluate(ranked_run_raws=self.mutate_run(0, mutate))
+
+    def test_delivered_result_token_estimate_must_be_positive(self) -> None:
+        def mutate(run: dict[str, Any]) -> None:
+            run["queries"][0]["ordered_results"][0]["estimated_tokens"] = 0
+
+        with self.assertRaisesRegex(relevance.EvaluationError, "estimated_tokens must be positive"):
+            self.evaluate(ranked_run_raws=self.mutate_run(0, mutate))
+
+    def test_external_identity_and_binding_hash_placeholders_fail_closed(self) -> None:
+        def zero_binding(run: dict[str, Any]) -> None:
+            run["input_bindings"]["dataset_sha256"] = relevance.ZERO_SHA256
+
+        def zero_producer(run: dict[str, Any]) -> None:
+            producer = run["producer_identity"]
+            producer["runner_sha256"] = relevance.ZERO_SHA256
+            run["producer_identity"] = relevance.finalize_producer_identity(producer)
+
+        def zero_engine(run: dict[str, Any]) -> None:
+            run["engine_identity"]["binary_sha256"] = relevance.ZERO_SHA256
+
+        def zero_fact(run: dict[str, Any]) -> None:
+            run["queries"][0]["ordered_results"][0]["fact_sha256"] = relevance.ZERO_SHA256
+
+        for label, mutate in (
+            ("input binding", zero_binding),
+            ("producer identity", zero_producer),
+            ("engine identity", zero_engine),
+            ("fact identity", zero_fact),
+        ):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(relevance.EvaluationError, "all-zero placeholder"):
+                    self.evaluate(ranked_run_raws=self.mutate_run(0, mutate))
+
     def test_dataset_judgments_must_be_membership_bound_and_temporally_eligible(self) -> None:
         cases = (
             (
                 "absent from source membership",
                 {
                     "fact_id": "missing-1",
+                    "fact_sha256": _hash("missing-1"),
                     "grade": "irrelevant",
                     "kind": "observation",
                     "cluster_id": "cluster-missing-1",
@@ -517,6 +650,7 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
                 "outside authenticated temporal eligibility",
                 {
                     "fact_id": "future-1",
+                    "fact_sha256": _hash("future-1"),
                     "grade": "irrelevant",
                     "kind": "observation",
                     "cluster_id": "cluster-future-1",
@@ -529,6 +663,16 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
                 dataset["development"]["items"][0]["judgments"].append(judgment)
                 with self.assertRaisesRegex(relevance.EvaluationError, message):
                     self.evaluate(dataset_raw=_raw(dataset))
+
+        dataset = copy.deepcopy(self.case["dataset"])
+        dataset["development"]["items"][0]["judgments"][0]["fact_sha256"] = _hash(
+            "wrong-reviewed-fact-bytes"
+        )
+        with self.assertRaisesRegex(
+            relevance.EvaluationError,
+            "dataset judgment fact SHA-256 differs from source membership",
+        ):
+            self.evaluate(dataset_raw=_raw(dataset))
 
     def test_full_engine_aggregation_matrix_is_required(self) -> None:
         with self.assertRaisesRegex(relevance.EvaluationError, "full engine/aggregation matrix"):
@@ -566,6 +710,9 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
         schemas = {
             "offline-relevance-ranked-run-v1.schema.json": relevance.RANKED_RUN_SCHEMA,
             "offline-relevance-report-v1.schema.json": relevance.REPORT_SCHEMA,
+            "offline-relevance-producer-identity-v1.schema.json": (
+                relevance.PRODUCER_IDENTITY_SCHEMA
+            ),
         }
         for name, identity in schemas.items():
             with self.subTest(schema=name):
@@ -576,6 +723,22 @@ class OfflineRelevanceEvalTests(unittest.TestCase):
                 self.assertEqual(schema["properties"]["schema"]["const"], identity)
                 self.assertNotIn(b'"query_text"', raw)
                 self.assertNotIn(b'"fact_text"', raw)
+
+        ranked = json.loads(
+            (schema_dir / "offline-relevance-ranked-run-v1.schema.json").read_bytes()
+        )
+        result_schema = ranked["$defs"]["result"]
+        self.assertIn("fact_sha256", result_schema["required"])
+        self.assertEqual(result_schema["properties"]["estimated_tokens"]["minimum"], 1)
+        self.assertEqual(
+            ranked["$defs"]["externalSha256"]["pattern"],
+            "^(?!0{64}$)[0-9a-f]{64}$",
+        )
+        producer = json.loads(
+            (schema_dir / "offline-relevance-producer-identity-v1.schema.json").read_bytes()
+        )
+        self.assertIn("producer_code_sha256", producer["required"])
+        self.assertIn("producer_identity_sha256", producer["required"])
 
 
 if __name__ == "__main__":
