@@ -50,7 +50,7 @@ class ProtocolCheckTest(unittest.TestCase):
                 "tasks": 2,
                 "repetitions_per_treatment": 1,
                 "requested_cells": 6,
-                "maximum_calls_with_reserve": 7,
+                "maximum_calls_with_reserve": 6,
                 "power": {"status": "pass", "design_decision_required": False},
             },
             "paid_budget": {
@@ -109,8 +109,8 @@ class ProtocolCheckTest(unittest.TestCase):
                 "treatments": ["a", "b", "c"],
                 "repetitions_per_treatment": 1,
                 "requested_calls": 6,
-                "reserve_calls": 1,
-                "maximum_calls_with_reserve": 7,
+                "reserve_calls": 0,
+                "maximum_calls_with_reserve": 6,
             },
             "token_assumptions": {
                 "mode": "explicit_per_call_caps",
@@ -154,7 +154,7 @@ class ProtocolCheckTest(unittest.TestCase):
         contract["pricing_quote"]["quote_sha256"] = CHECK.canonical_json_sha256(quote_for_hash)  # type: ignore[index]
         calculation = CHECK.pricing_budget.calculate(contract)
         self.assertEqual(calculation["per_call_maximum_usd"], "0.00385")
-        self.assertEqual(calculation["maximum_usd"], "0.02695")
+        self.assertEqual(calculation["maximum_usd"], "0.0231")
         contract["calculation"] = calculation
         contract["approval"] = {
             "status": "approved",
@@ -261,7 +261,18 @@ class ProtocolCheckTest(unittest.TestCase):
             self._write_json(here / "power-analysis.json", artifact)
             protocol = {
                 "agent_design": {
+                    "primary_treatments": ["no_memory", "placebo_packet", "retrieved_memory"],
+                    "tasks": artifact["protocol_inputs"]["tasks"],
+                    "repetitions_per_treatment": artifact["protocol_inputs"][
+                        "repetitions_per_treatment"
+                    ],
+                    "requested_cells": artifact["protocol_inputs"]["requested_cells"],
+                    "maximum_calls_with_reserve": artifact["protocol_inputs"][
+                        "maximum_provider_calls"
+                    ],
                     "power": {
+                        "target": artifact["protocol_inputs"]["power_target"],
+                        "target_scope": "each_marginal_and_overall_intersection_union_joint_success",
                         "completed": False,
                         "status": "pending_uncalibrated",
                         "evidence": "power-analysis.json",
@@ -280,6 +291,10 @@ class ProtocolCheckTest(unittest.TestCase):
                             "paired_task_cluster_instances": 14,
                             "pooled_estimate_prohibited": True,
                         },
+                        "minimum_calibration_task_clusters": 12,
+                        "minimum_calibration_is_power_sized_design": False,
+                        "power_sized_development_task_count": None,
+                        "power_sized_confirmatory_task_count": None,
                         "design_decision_required": True,
                     }
                 }
@@ -345,6 +360,21 @@ class ProtocolCheckTest(unittest.TestCase):
                 CHECK.validate_pricing_budget(protocol, checks, here=here, repo=repo, now=now),
                 [],
             )
+
+            protocol["agent_design"]["maximum_calls_with_reserve"] = 7  # type: ignore[index]
+            contract["design"]["reserve_calls"] = 1  # type: ignore[index]
+            contract["design"]["maximum_calls_with_reserve"] = 7  # type: ignore[index]
+            self._write_json(here / "pricing-budget.json", contract)
+            errors = CHECK.validate_pricing_budget(
+                protocol, checks, here=here, repo=repo, now=now
+            )
+            self.assertIn(
+                "confirmatory reserve_calls must remain zero and maximum calls must equal requested calls",
+                errors,
+            )
+            protocol["agent_design"]["maximum_calls_with_reserve"] = 6  # type: ignore[index]
+            contract["design"]["reserve_calls"] = 0  # type: ignore[index]
+            contract["design"]["maximum_calls_with_reserve"] = 6  # type: ignore[index]
 
             contract["calculation"]["maximum_usd"] = "999"  # type: ignore[index]
             self._write_json(here / "pricing-budget.json", contract)

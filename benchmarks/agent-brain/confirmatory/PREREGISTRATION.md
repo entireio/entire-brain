@@ -30,9 +30,10 @@ K/aggregation, or substitute for the still-empty sealed holdout. The development
 answerable-product-task, and corpus-closed-null floors are now met. The final dataset must contain at
 least 12 sealed holdout queries over at least 12 unique untouched tasks. The fresh agent holdout target is 24
 unique tasks. The pre-run design must achieve at least 80% planned power for every co-primary
-endpoint—elapsed time, normalized billed cost, and code quality—under a frozen joint model before
-sealing. Task count or repetitions must increase if that joint design is underpowered; neither may
-change after the holdout is opened.
+endpoint—elapsed time, normalized billed cost, and code quality—and at least 80% power for their
+overall intersection-union joint success event under a frozen dependence model before sealing. Task
+count or repetitions must increase if that joint design is underpowered; neither may change after
+the holdout is opened.
 
 All 14 label decisions are retained as per-query/per-judgment manual review records in
 `offline-relevance-review-ledger.json`; unavailable historical packet bytes are not claimed as label
@@ -148,6 +149,13 @@ retained source supplies exchangeable paired task-level variability for all thre
 the final runner, v2 treatment, timeout, price, and quality contracts. Therefore elapsed-time,
 normalized-cost, and quality marginal power are all null/pending rather than invented from legacy
 token/pass-rate data. The power gate remains failed and `power.completed` remains false.
+
+The 12 independent task clusters required by the calibration contract are a minimum variance-
+calibration floor, not a powered development design. Until compatible variance and endpoint-
+dependence evidence exists—or a methodology owner explicitly freezes a documented assumption
+set—no numeric power-sized development or confirmatory task count is defensible. In particular, the
+provisional 24-task design and legacy two-endpoint 118 x 4 / 295 x 1 sensitivity rows cannot be
+treated as power results.
 
 The v2 artifact also analyzes byte-verified retained exploratory outcomes under
 `power-calibration-exploratory-v1.json`. Those records use selected tasks, legacy treatments,

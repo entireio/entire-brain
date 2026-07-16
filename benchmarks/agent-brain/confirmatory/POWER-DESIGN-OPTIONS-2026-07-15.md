@@ -6,7 +6,9 @@
 co-primary estimands—end-to-end elapsed time, normalized billed cost, and task-normalized code
 quality—but intentionally reports no numeric power. No retained dataset supplies exchangeable
 paired task-level variance for all three endpoints under the final runner, v2 treatment, price,
-timeout, and quality contracts.
+timeout, and quality contracts. Consequently, neither a power-sized development task count nor a
+power-sized confirmatory task count is currently defensible. The 24-task x 4-repetition design is a
+provisional arithmetic placeholder, not a powered design.
 
 The provisional practical floors are a 10% elapsed-time reduction (ratio at most `0.90`), a 12%
 normalized-cost reduction (ratio at most `0.88`), and a `+0.05` quality-score difference. They are
@@ -33,9 +35,25 @@ The calibration must retain at least 12 independent task clusters and provide:
 - the SD of paired task-level mean quality differences;
 - joint covariance or retained task rows sufficient to simulate the intersection-union rule.
 
-Power planning must require each component to reach at least 0.80 and must assess joint success
+Twelve clusters is a minimum calibration floor, not a claim that 12 tasks are powered and not a
+license to reduce the provisional 24-task design. Power planning must require every marginal
+component and the overall intersection-union joint success probability to each reach at least 0.80
 under a frozen dependence model or conservative simulation. Repetitions are averaged within each
 task/arm before the paired contrast; they do not become independent clusters.
+
+## Defensible counts and call ceiling
+
+Without final-contract calibration or an explicitly owner-approved assumption set, the defensible
+power-sized task counts are `null` for both development and confirmation. The only numeric
+development statement is the 12-cluster minimum needed to attempt calibration; the resulting
+variance and dependence estimates must determine whether more calibration tasks are needed before
+any design can be sized.
+
+The current placeholder arithmetic is 24 tasks x 3 treatments x 4 repetitions = 288 requested
+cells. Provider retries and post-treatment replacement calls are frozen at zero, so the maximum
+provider-call envelope is 288. Authenticated pre-provider structural-zero cells can only reduce the
+number of provider calls. The former 10% reserve and its 317-call ceiling are invalid under the
+current contract.
 
 ## Why legacy outcomes cannot fill the gap
 
@@ -43,6 +61,9 @@ task/arm before the paired contrast; they do not become independent clusters.
 legacy tasks, but those records use selected tasks, legacy treatments, non-exchangeable runners,
 dirty harnesses, and do not contain the v2 time/cost/quality contract. They remain useful variability
 diagnostics and are programmatically prohibited from passing the power gate or shrinking the design.
+Legacy two-endpoint sensitivity counts such as 118 tasks x 4 repetitions or 295 tasks x 1 repetition
+do not cover the v3 time/cost/quality joint endpoint and cannot be promoted into either budget or
+confirmation.
 
 ## States that must remain closed
 

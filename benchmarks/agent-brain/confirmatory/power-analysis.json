@@ -3,6 +3,7 @@
   "artifact_id": "agent-brain-confirmatory-power-v3",
   "calibration_requirements": {
     "minimum_independent_task_clusters": 12,
+    "minimum_is_calibration_floor_not_power_sized_design": true,
     "must_match": [
       "final runner/model/effort and runner version",
       "v2 no_memory and retrieved_memory treatment contracts",
@@ -60,9 +61,22 @@
       "mark power_target_met pass",
       "freeze practical floors",
       "seal or open the fresh holdout",
-      "authorize paid confirmatory calls"
+      "authorize paid confirmatory calls",
+      "promote legacy two-endpoint sensitivity task counts into the v3 design"
     ],
     "reason": "all three final-contract variance inputs and endpoint dependence are uncalibrated"
+  },
+  "design_readiness": {
+    "maximum_provider_calls": 288,
+    "power_sized_confirmatory_task_count": null,
+    "power_sized_development_task_count": null,
+    "provider_retry_limit": 0,
+    "provisional_design_power_defensible": false,
+    "provisional_repetitions_per_treatment": 4,
+    "provisional_requested_cells": 288,
+    "provisional_tasks": 24,
+    "reason": "no final-contract variance or endpoint-dependence calibration supports a numeric task count",
+    "replacement_call_limit": 0
   },
   "empirical_variance_used_in_confirmatory_decision": false,
   "exploratory_calibration": {
@@ -305,17 +319,20 @@
   "method": {
     "component_tests": "one-sided task-clustered superiority at each frozen practical floor",
     "joint_rule": "intersection-union: all three component nulls must be rejected; no across-endpoint multiplicity adjustment is required",
-    "planning_rule": "each marginal power must meet 0.80 and joint power must be assessed under a frozen endpoint-dependence model or conservative simulation"
+    "planning_rule": "each marginal power and the overall intersection-union joint success probability must each meet 0.80 under a frozen endpoint-dependence model or conservative simulation"
   },
   "paid_runs_performed": false,
   "protocol_inputs": {
     "attempt_policy": "all_executed_attempts",
     "cluster_unit": "task",
     "intersection_union_alpha": 0.05,
+    "maximum_provider_calls": 288,
     "power_target": 0.8,
     "primary_contrast": "retrieved_memory_vs_no_memory",
     "primary_treatments": 3,
+    "provider_retry_limit": 0,
     "repetitions_per_treatment": 4,
+    "replacement_call_limit": 0,
     "requested_cells": 288,
     "tasks": 24
   },

@@ -23,7 +23,12 @@ class PowerAnalysisV3Test(unittest.TestCase):
         self.assertEqual(POWER.REPETITIONS, design["repetitions_per_treatment"])
         self.assertEqual(POWER.PRIMARY_TREATMENTS, len(design["primary_treatments"]))
         self.assertEqual(POWER.REQUESTED_CELLS, design["requested_cells"])
+        self.assertEqual(POWER.MAXIMUM_PROVIDER_CALLS, design["maximum_calls_with_reserve"])
         self.assertEqual(POWER.TARGET_POWER, design["power"]["target"])
+        inputs = POWER.build_report()["protocol_inputs"]
+        self.assertEqual(inputs["maximum_provider_calls"], inputs["requested_cells"])
+        self.assertEqual(inputs["provider_retry_limit"], 0)
+        self.assertEqual(inputs["replacement_call_limit"], 0)
 
     def test_report_supports_all_three_co_primary_endpoints(self) -> None:
         report = POWER.build_report()
@@ -50,8 +55,30 @@ class PowerAnalysisV3Test(unittest.TestCase):
         report = POWER.build_report()
         self.assertIn("intersection-union", report["method"]["joint_rule"])
         self.assertIn("all three", report["method"]["joint_rule"])
+        self.assertIn("joint success probability must each meet 0.80", report["method"]["planning_rule"])
         self.assertEqual(report["protocol_inputs"]["cluster_unit"], "task")
         self.assertEqual(report["protocol_inputs"]["attempt_policy"], "all_executed_attempts")
+
+    def test_no_numeric_power_sized_task_count_is_claimed_before_calibration(self) -> None:
+        report = POWER.build_report()
+        readiness = report["design_readiness"]
+        self.assertFalse(readiness["provisional_design_power_defensible"])
+        self.assertIsNone(readiness["power_sized_development_task_count"])
+        self.assertIsNone(readiness["power_sized_confirmatory_task_count"])
+        self.assertTrue(
+            report["calibration_requirements"][
+                "minimum_is_calibration_floor_not_power_sized_design"
+            ]
+        )
+
+    def test_legacy_sensitivity_helper_cannot_reintroduce_call_reserve(self) -> None:
+        legacy = POWER._design_power(POWER.SCENARIOS[1], POWER.TASKS, POWER.REPETITIONS)
+        self.assertEqual(legacy["requested_cells"], 288)
+        self.assertEqual(
+            legacy["maximum_provider_calls_no_retries_or_replacements"],
+            legacy["requested_cells"],
+        )
+        self.assertNotIn("maximum_calls_with_10_percent_reserve", legacy)
 
     def test_legacy_exploratory_calibration_remains_hashed_and_quarantined(self) -> None:
         report = POWER.build_report()

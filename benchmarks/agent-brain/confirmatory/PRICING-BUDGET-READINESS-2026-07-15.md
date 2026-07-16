@@ -14,8 +14,9 @@ corresponding gate pending.
 
 1. **Approve a powered design.** A methodology owner must choose the final task count and
    repetitions, update `preregistration.json`, pass the power gate, and set
-   `design.approved_for_budgeting=true`. The sensitivity-only `118 x 4` and `295 x 1` rows are not
-   approved designs and must not be copied into the budget contract without that decision.
+   `design.approved_for_budgeting=true`. The v3 artifact currently supports no numeric power-sized
+   task count. Legacy `118 x 4` and `295 x 1` rows cover an obsolete two-endpoint sensitivity model,
+   not the current time/cost/quality joint endpoint, and must not be copied into the budget contract.
 2. **Pin the exact execution identity.** Record provider, runner ID, immutable runner version, exact
    model ID or snapshot, and effort setting. If the runner calls an omitted effort setting
    "default", record the literal resolved value or an explicit `default` identifier; do not leave it

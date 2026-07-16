@@ -125,6 +125,7 @@
     },
     "power": {
       "target": 0.8,
+      "target_scope": "each_marginal_and_overall_intersection_union_joint_success",
       "completed": false,
       "status": "pending_uncalibrated",
       "evidence": "power-analysis.json",
@@ -143,6 +144,10 @@
         "paired_task_cluster_instances": 14,
         "pooled_estimate_prohibited": true
       },
+      "minimum_calibration_task_clusters": 12,
+      "minimum_calibration_is_power_sized_design": false,
+      "power_sized_development_task_count": null,
+      "power_sized_confirmatory_task_count": null,
       "design_decision_required": true
     },
     "raw_diagnostics": {

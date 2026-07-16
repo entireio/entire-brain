@@ -32,6 +32,9 @@ TASKS = 24
 REPETITIONS = 4
 PRIMARY_TREATMENTS = 3
 REQUESTED_CELLS = TASKS * REPETITIONS * PRIMARY_TREATMENTS
+PROVIDER_RETRY_LIMIT = 0
+REPLACEMENT_CALL_LIMIT = 0
+MAXIMUM_PROVIDER_CALLS = REQUESTED_CELLS
 TARGET_POWER = 0.80
 TIME_REDUCTION_TARGET = 0.10
 COST_REDUCTION_TARGET = 0.12
@@ -521,8 +524,8 @@ def _design_power(scenario: dict[str, Any], tasks: int, repetitions: int) -> dic
         "tasks": tasks,
         "repetitions_per_treatment": repetitions,
         "requested_cells": tasks * repetitions * PRIMARY_TREATMENTS,
-        "maximum_calls_with_10_percent_reserve": math.ceil(
-            tasks * repetitions * PRIMARY_TREATMENTS * 1.10
+        "maximum_provider_calls_no_retries_or_replacements": (
+            tasks * repetitions * PRIMARY_TREATMENTS
         ),
         "token_task_level_log_ratio_sd": token_sd,
         "token_marginal_power": token_power,
@@ -583,8 +586,8 @@ def _design_tradeoffs(scenario: dict[str, Any]) -> dict[str, Any]:
                 if tasks_for_both is not None
                 else None
             ),
-            "maximum_calls_with_10_percent_reserve": (
-                math.ceil(tasks_for_both * repetitions * PRIMARY_TREATMENTS * 1.10)
+            "maximum_provider_calls_no_retries_or_replacements": (
+                tasks_for_both * repetitions * PRIMARY_TREATMENTS
                 if tasks_for_both is not None
                 else None
             ),
@@ -626,8 +629,8 @@ def _design_tradeoffs(scenario: dict[str, Any]) -> dict[str, Any]:
                     if repetitions_for_both is not None
                     else None
                 ),
-                "maximum_calls_with_10_percent_reserve": (
-                    math.ceil(tasks * repetitions_for_both * PRIMARY_TREATMENTS * 1.10)
+                "maximum_provider_calls_no_retries_or_replacements": (
+                    tasks * repetitions_for_both * PRIMARY_TREATMENTS
                     if repetitions_for_both is not None
                     else None
                 ),
@@ -739,8 +742,8 @@ def _scenario_result(scenario: dict[str, Any]) -> dict[str, Any]:
                 "requested_cells_at_that_task_count": (
                     min_both * REPETITIONS * PRIMARY_TREATMENTS if min_both is not None else None
                 ),
-                "maximum_calls_with_10_percent_reserve": (
-                    math.ceil(min_both * REPETITIONS * PRIMARY_TREATMENTS * 1.10)
+                "maximum_provider_calls_no_retries_or_replacements": (
+                    min_both * REPETITIONS * PRIMARY_TREATMENTS
                     if min_both is not None
                     else None
                 ),
@@ -952,6 +955,9 @@ def build_report() -> dict[str, Any]:
                 "repetitions_per_treatment": REPETITIONS,
                 "primary_treatments": PRIMARY_TREATMENTS,
                 "requested_cells": REQUESTED_CELLS,
+                "provider_retry_limit": PROVIDER_RETRY_LIMIT,
+                "replacement_call_limit": REPLACEMENT_CALL_LIMIT,
+                "maximum_provider_calls": MAXIMUM_PROVIDER_CALLS,
                 "power_target": TARGET_POWER,
                 "intersection_union_alpha": FAMILY_ALPHA,
                 "primary_contrast": "retrieved_memory_vs_no_memory",
@@ -968,8 +974,9 @@ def build_report() -> dict[str, Any]:
                     "across-endpoint multiplicity adjustment is required"
                 ),
                 "planning_rule": (
-                    "each marginal power must meet 0.80 and joint power must be assessed under "
-                    "a frozen endpoint-dependence model or conservative simulation"
+                    "each marginal power and the overall intersection-union joint success "
+                    "probability must each meet 0.80 under a frozen endpoint-dependence model "
+                    "or conservative simulation"
                 ),
             },
             "calibration_requirements": {
@@ -988,7 +995,23 @@ def build_report() -> dict[str, Any]:
                     "dependence": "joint covariance or retained task-level calibration rows",
                 },
                 "minimum_independent_task_clusters": 12,
+                "minimum_is_calibration_floor_not_power_sized_design": True,
                 "selection_use": "development calibration only; cannot enter confirmatory outcomes",
+            },
+            "design_readiness": {
+                "provisional_tasks": TASKS,
+                "provisional_repetitions_per_treatment": REPETITIONS,
+                "provisional_requested_cells": REQUESTED_CELLS,
+                "maximum_provider_calls": MAXIMUM_PROVIDER_CALLS,
+                "provider_retry_limit": PROVIDER_RETRY_LIMIT,
+                "replacement_call_limit": REPLACEMENT_CALL_LIMIT,
+                "provisional_design_power_defensible": False,
+                "power_sized_development_task_count": None,
+                "power_sized_confirmatory_task_count": None,
+                "reason": (
+                    "no final-contract variance or endpoint-dependence calibration supports a "
+                    "numeric task count"
+                ),
             },
             "exploratory_calibration": calibration,
             "empirical_variance_used_in_confirmatory_decision": False,
@@ -1000,6 +1023,7 @@ def build_report() -> dict[str, Any]:
                     "freeze practical floors",
                     "seal or open the fresh holdout",
                     "authorize paid confirmatory calls",
+                    "promote legacy two-endpoint sensitivity task counts into the v3 design",
                 ],
             },
         }

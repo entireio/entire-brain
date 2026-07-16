@@ -910,6 +910,49 @@ def validate_power_analysis(
     _error(errors, artifact == expected, "power-analysis.json is stale or does not match power_analysis.build_report()")
     decision_passed = artifact.get("decision", {}).get("passed") is True
     _error(errors, artifact.get("schema_version") == 3, "power artifact schema_version must be 3")
+    agent_design = protocol.get("agent_design", {})
+    inputs = artifact.get("protocol_inputs")
+    if not isinstance(inputs, dict):
+        errors.append("power artifact protocol_inputs must be an object")
+        inputs = {}
+    treatments = agent_design.get("primary_treatments")
+    tasks = agent_design.get("tasks")
+    repetitions = agent_design.get("repetitions_per_treatment")
+    expected_treatment_count = len(treatments) if isinstance(treatments, list) else None
+    expected_requested = (
+        tasks * expected_treatment_count * repetitions
+        if isinstance(tasks, int)
+        and not isinstance(tasks, bool)
+        and isinstance(expected_treatment_count, int)
+        and isinstance(repetitions, int)
+        and not isinstance(repetitions, bool)
+        else None
+    )
+    _error(errors, inputs.get("tasks") == tasks, "power artifact task count does not match preregistration")
+    _error(
+        errors,
+        inputs.get("repetitions_per_treatment") == repetitions,
+        "power artifact repetition count does not match preregistration",
+    )
+    _error(
+        errors,
+        inputs.get("primary_treatments") == expected_treatment_count,
+        "power artifact treatment count does not match preregistration",
+    )
+    _error(
+        errors,
+        agent_design.get("requested_cells") == expected_requested
+        and inputs.get("requested_cells") == expected_requested,
+        "power artifact requested-cell arithmetic does not match preregistration",
+    )
+    _error(
+        errors,
+        inputs.get("provider_retry_limit") == 0
+        and inputs.get("replacement_call_limit") == 0
+        and inputs.get("maximum_provider_calls") == expected_requested
+        and agent_design.get("maximum_calls_with_reserve") == expected_requested,
+        "confirmatory provider-call ceiling must equal requested cells with zero retries and replacements",
+    )
     _error(
         errors,
         (artifact.get("status") == "pass") is decision_passed,
@@ -934,6 +977,34 @@ def validate_power_analysis(
         errors,
         power.get("co_primary_planning_floors") == expected_floors,
         "protocol co-primary planning floors do not match power artifact",
+    )
+    calibration_requirements = artifact.get("calibration_requirements", {})
+    readiness = artifact.get("design_readiness", {})
+    _error(errors, power.get("target") == inputs.get("power_target"), "protocol power target does not match power artifact")
+    _error(
+        errors,
+        power.get("target_scope")
+        == "each_marginal_and_overall_intersection_union_joint_success",
+        "protocol power target scope must cover every marginal and overall joint success",
+    )
+    _error(
+        errors,
+        power.get("minimum_calibration_task_clusters")
+        == calibration_requirements.get("minimum_independent_task_clusters")
+        and power.get("minimum_calibration_is_power_sized_design") is False
+        and calibration_requirements.get(
+            "minimum_is_calibration_floor_not_power_sized_design"
+        )
+        is True,
+        "protocol calibration floor must not be represented as a powered design",
+    )
+    _error(
+        errors,
+        power.get("power_sized_development_task_count")
+        == readiness.get("power_sized_development_task_count")
+        and power.get("power_sized_confirmatory_task_count")
+        == readiness.get("power_sized_confirmatory_task_count"),
+        "protocol power-sized task counts do not match power readiness artifact",
     )
     artifact_calibration = artifact.get("exploratory_calibration", {})
     expected_calibration = {
@@ -1304,6 +1375,11 @@ def validate_pricing_budget(
     for field, expected in expected_design.items():
         _error(errors, design.get(field) == expected, f"pricing design does not match preregistration: {field}")
     _error(errors, design.get("requested_calls") == expected_requested, "pricing design requested_calls arithmetic is inconsistent")
+    _error(
+        errors,
+        expected_reserve == 0 and expected_maximum == expected_requested,
+        "confirmatory reserve_calls must remain zero and maximum calls must equal requested calls",
+    )
     _error(errors, isinstance(design.get("approved_for_budgeting"), bool), "pricing design approved_for_budgeting must be boolean")
 
     price_check = checks.get("model_runner_price_pinned", {})

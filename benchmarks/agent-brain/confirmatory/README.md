@@ -80,8 +80,10 @@ confirmatory analyzer is implemented and path-locked.
   evidence until its exact bytes are retained through the approved artifact strategy.
 - `power_analysis.py`, `power-analysis.json`, and `POWER-DESIGN-OPTIONS-2026-07-15.md`: deterministic
   unpaid v3 power contract for time, normalized cost, and code quality. All three remain
-  uncalibrated under the final runner/treatment contract, so numeric power is intentionally null and
-  the current 24-task x 4-repetition design is not approved.
+  uncalibrated under the final runner/treatment contract, so numeric power and both development and
+  confirmatory power-sized task counts are intentionally null. Twelve tasks is only the minimum
+  calibration floor; the current 24-task x 4-repetition design is not approved. Its placeholder
+  ceiling is 288 provider calls because retries and replacements are frozen at zero.
 - `power-calibration-exploratory-v1.json`: content-addressed manifest for sparse retained legacy
   outcomes. The derived diagnostics are quarantined from confirmatory assumptions and cannot pass
   the power gate.
