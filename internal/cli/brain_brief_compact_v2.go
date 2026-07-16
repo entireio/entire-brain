@@ -11,7 +11,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const brainBriefCompactV2Marker = "entire.brain_brief compact_v2"
+const (
+	brainBriefCompactV2Marker = "entire.brain_brief compact_v2"
+	// The legend is part of the hashed packet body. "Previous" is scoped to
+	// the same opcode, so unrelated physical rows between two records do not
+	// reset a metadata repeat reference.
+	brainBriefCompactV2Legend = "legend ~=absent ^=previous_same_opcode_record_same_column"
+)
 
 type compactV2FieldKind uint8
 
@@ -44,6 +50,12 @@ type compactV1RawRecord struct {
 	tag    string
 	fields []compactV1RawField
 	raw    string
+}
+
+type compactV2FamilyPlan struct {
+	positional  bool
+	declaration string
+	rows        []string
 }
 
 func compactV2Natural(name string, kind compactV2FieldKind) compactV2Field {
@@ -236,53 +248,100 @@ func transcodeBrainBriefCompactV2(v1 string) (string, error) {
 		}
 		schemasByTag[schema.tag] = schema
 	}
-	counts := make(map[string]int, len(schemasByTag))
 	for _, record := range records {
 		if _, ok := schemasByTag[record.tag]; !ok {
 			return "", fmt.Errorf("compact_v2 has no schema for %q", record.tag)
 		}
-		counts[record.tag]++
+	}
+	plans, err := planCompactV2Families(records, schemasByTag)
+	if err != nil {
+		return "", err
 	}
 
 	var out strings.Builder
 	out.Grow(len(v1))
 	out.WriteString(brainBriefCompactV2Marker)
 	out.WriteByte('\n')
-	declared := make(map[string]bool, len(schemasByTag))
-	previous := make(map[string][]string, len(schemasByTag))
+	out.WriteString(brainBriefCompactV2Legend)
+	out.WriteByte('\n')
+	positions := make(map[string]int, len(plans))
 	for _, record := range records {
-		schema := schemasByTag[record.tag]
-		if counts[record.tag] == 1 {
+		plan := plans[record.tag]
+		if !plan.positional {
 			out.WriteString(record.raw)
 			out.WriteByte('\n')
 			continue
 		}
-		if !declared[record.tag] {
-			writeCompactV2Declaration(&out, schema)
-			declared[record.tag] = true
+		position := positions[record.tag]
+		if position == 0 {
+			out.WriteString(plan.declaration)
 		}
-		cells, last, err := compactV2Cells(schema, record)
-		if err != nil {
-			return "", err
-		}
-		out.WriteByte(schema.opcode)
-		prior := previous[record.tag]
-		for i := 0; i <= last; i++ {
-			out.WriteByte('\t')
-			cell := cells[i]
-			if schema.fields[i].reference && cell != "~" && len(prior) == len(cells) && prior[i] == cell && len(cell) > 1 {
-				out.WriteByte('^')
-			} else {
-				out.WriteString(cell)
-			}
-		}
-		out.WriteByte('\n')
-		previous[record.tag] = cells
+		out.WriteString(plan.rows[position])
+		positions[record.tag] = position + 1
 	}
 	body := out.String()
 	digest := sha256.Sum256([]byte(body))
 	fmt.Fprintf(&out, "end\t%d\t%x\n", len(records), digest)
 	return out.String(), nil
+}
+
+// planCompactV2Families compares the exact canonical bytes for each complete
+// record family. A repeated family uses positional rows only when declaration
+// plus row bytes are strictly smaller than its keyed v1 rows. Equal sizes are
+// keyed, which freezes a deterministic tie rule and prevents declarations from
+// ever making a family grow.
+func planCompactV2Families(records []compactV1RawRecord, schemasByTag map[string]compactV2Schema) (map[string]compactV2FamilyPlan, error) {
+	grouped := make(map[string][]compactV1RawRecord, len(schemasByTag))
+	for _, record := range records {
+		grouped[record.tag] = append(grouped[record.tag], record)
+	}
+	plans := make(map[string]compactV2FamilyPlan, len(grouped))
+	for tag, family := range grouped {
+		schema := schemasByTag[tag]
+		var declaration strings.Builder
+		writeCompactV2Declaration(&declaration, schema)
+		plan := compactV2FamilyPlan{declaration: declaration.String(), rows: make([]string, 0, len(family))}
+		keyedBytes := 0
+		positionalBytes := len(plan.declaration)
+		var previous []string
+		for _, record := range family {
+			keyedBytes += len(record.raw) + 1
+			row, cells, err := encodeCompactV2Row(schema, record, previous)
+			if err != nil {
+				return nil, err
+			}
+			plan.rows = append(plan.rows, row)
+			positionalBytes += len(row)
+			previous = cells
+		}
+		plan.positional = compactV2UsePositional(len(family), keyedBytes, positionalBytes)
+		plans[tag] = plan
+	}
+	return plans, nil
+}
+
+func compactV2UsePositional(recordCount, keyedBytes, positionalBytes int) bool {
+	return recordCount > 1 && positionalBytes < keyedBytes
+}
+
+func encodeCompactV2Row(schema compactV2Schema, record compactV1RawRecord, previous []string) (string, []string, error) {
+	cells, last, err := compactV2Cells(schema, record)
+	if err != nil {
+		return "", nil, err
+	}
+	var out strings.Builder
+	out.WriteByte(schema.opcode)
+	for i := 0; i <= last; i++ {
+		out.WriteByte('\t')
+		cell := cells[i]
+		if schema.fields[i].reference && cell != "~" && len(previous) == len(cells) && previous[i] == cell && len(cell) > 1 {
+			out.WriteByte('^')
+		} else {
+			out.WriteString(cell)
+		}
+	}
+	out.WriteByte('\n')
+	return out.String(), cells, nil
 }
 
 func writeCompactV2Declaration(out *strings.Builder, schema compactV2Schema) {

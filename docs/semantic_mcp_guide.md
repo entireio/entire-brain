@@ -26,14 +26,22 @@ Tool responses wrap the existing CLI `--json` output as text content by default.
 Treat the CLI JSON contracts as the source of truth for fields and freshness
 policy.
 
-`brain_brief` also has an opt-in `packet_format: "compact_v1"` representation
-for coding agents. Omitting `packet_format`, or setting it to `legacy_json`,
-preserves the existing pretty-JSON text response. `compact_v1` runs the same
-retrieval and ranking and changes only serialization: it emits a deterministic,
-versioned line packet with safely quoted data, task-relevant status/trust signals,
-semantic relations and neighbors, history, facts, actions, patterns, guidance,
-and an end-to-end body checksum. The format is experimental and is not selected
-automatically; a future incompatible representation will use a new version name.
+`brain_brief` also has opt-in `packet_format: "compact_v1"` and
+`packet_format: "compact_v2"` representations for coding agents. Omitting
+`packet_format`, or setting it to `legacy_json`, preserves the existing
+pretty-JSON text response. Both compact formats run the same retrieval and
+ranking and change only serialization. `compact_v1` is a deterministic keyed
+line packet. `compact_v2` adds a hashed in-band legend immediately after its
+version marker: `~` means an absent field, while `^` reuses the value from the
+previous record of the same opcode and column, even when records with other
+opcodes occur between them. For each repeated record family, v2 compares the
+exact canonical bytes of keyed rows against its schema declaration plus
+positional rows; positional is used only when strictly smaller, and ties remain
+keyed. Both packets retain safely encoded data, task-relevant status/trust
+signals, semantic relations and neighbors, history, facts, actions, patterns,
+guidance, and an end-to-end body checksum. They are experimental and are not
+selected automatically; a future incompatible representation will use a new
+version name.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a

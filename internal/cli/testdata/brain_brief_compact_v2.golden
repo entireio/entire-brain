@@ -1,4 +1,5 @@
 entire.brain_brief compact_v2
+legend ~=absent ^=previous_same_opcode_record_same_column
 task value="repair validation ordering"
 status freshness="degraded" repo_key="repo-key" brain_schema=2 branch="feature" head="abc123" dirty=true changed_files=3
 sources seed=true sessions=true semantic=true history=true facts=true
@@ -46,11 +47,10 @@ R	1	0	^	^	^	^	"direct call"
 @n=neighbor(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes)
 n	sym:helper	function	pkg.Helper	Helper	internal/helper.go	4	8
 n	^	^	^	^	^	4	8
-@x=runtime_trace(index,id,type,from,to,file,start,end,path,scope,resolution,target_kind,confidence,reason,warning_codes)
-x	0	runtime:1	RUNTIME_TRACE	sym:validate	sym:persist	~	~	~	~	~	~	~	~	"observed edge"
+runtime_trace index=0 id="runtime:1" type="RUNTIME_TRACE" from="sym:validate" to="sym:persist" reason="observed edge"
 @X=runtime_trace_evidence(owner_index,index,kind,file,start,end,detail)
 X	0	0	trace	trace.ndjson	2	2	"captured locally"
-x	1	^	^	^	^	~	~	~	~	~	~	~	~	"observed edge"
+runtime_trace index=1 id="runtime:1" type="RUNTIME_TRACE" from="sym:validate" to="sym:persist" reason="observed edge"
 X	1	0	^	^	2	2	"captured locally"
 @o=test_root(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes)
 o	test:root	function	TestValidate	~	internal/a_test.go	10	30
@@ -90,4 +90,4 @@ g	"Inspect dirty files before trusting the snapshot."
 !	^	"live warning"
 !	brief	"brief warning"
 !	^	"brief warning"
-end	65	f96fbce975b0559ff6ad5bcdf39c8fb62cfbe5a6eb3be23dca849d5ffa992083
+end	65	ce335e0e3105cf4b3c21cc8608b5bd9df01a7820800656c604448f5a93d45388

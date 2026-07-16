@@ -161,6 +161,9 @@ func TestBrainBriefCompactV2IntegrityAndCanonicalRejections(t *testing.T) {
 	}
 
 	resigned := map[string]func(string) string{
+		"bad_legend": func(value string) string {
+			return strings.Replace(value, brainBriefCompactV2Legend, "legend ~=missing ^=previous_row", 1)
+		},
 		"unknown_opcode": func(value string) string {
 			return strings.Replace(value, "\nh\t", "\n?\t", 1)
 		},
@@ -248,6 +251,138 @@ func TestBrainBriefCompactV2IntegrityAndCanonicalRejections(t *testing.T) {
 	}
 }
 
+func TestBrainBriefCompactV2KeyedRowsRejectNoncanonicalFields(t *testing.T) {
+	packet := renderBrainBriefCompactV2ForTest(t, comprehensiveCompactV2Report())
+	statusLine := compactV2FirstLineWithPrefix(packet, "status ")
+	liveLine := compactV2FirstLineWithPrefix(packet, "live ")
+	if statusLine == "" || liveLine == "" {
+		t.Fatal("keyed fixture rows missing")
+	}
+	tests := map[string]func(string) string{
+		"reordered": func(line string) string {
+			return strings.Replace(line, `freshness="degraded" repo_key="repo-key"`, `repo_key="repo-key" freshness="degraded"`, 1)
+		},
+		"duplicate": func(line string) string {
+			return strings.Replace(line, "dirty=true changed_files=3", "dirty=true dirty=true changed_files=3", 1)
+		},
+		"unknown": func(line string) string {
+			return line + " bogus=1"
+		},
+		"mistyped_bool": func(line string) string {
+			return strings.Replace(line, "dirty=true", "dirty=1", 1)
+		},
+		"loose_int": func(line string) string {
+			return strings.Replace(line, "brain_schema=2", "brain_schema=02", 1)
+		},
+		"unquoted_string": func(line string) string {
+			return strings.Replace(line, `repo_key="repo-key"`, "repo_key=repo-key", 1)
+		},
+		"noncanonical_escape": func(line string) string {
+			return strings.Replace(line, `repo_key="repo-key"`, `repo_key="\x72epo-key"`, 1)
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			candidate := strings.Replace(packet, statusLine, mutate(statusLine), 1)
+			candidate = compactV2Resign(candidate)
+			if _, err := parseCompactV2Packet(candidate); err == nil {
+				t.Fatal("noncanonical keyed status row was accepted")
+			}
+		})
+	}
+	t.Run("mistyped_array", func(t *testing.T) {
+		mutated := strings.Replace(liveLine, `staged=["internal/a.go"]`, "staged=[internal/a.go]", 1)
+		candidate := compactV2Resign(strings.Replace(packet, liveLine, mutated, 1))
+		if _, err := parseCompactV2Packet(candidate); err == nil {
+			t.Fatal("noncanonical keyed array was accepted")
+		}
+	})
+}
+
+func TestBrainBriefCompactV2SparseTwoRecordFamiliesStayKeyed(t *testing.T) {
+	report := sparseCompactV2Report(2)
+	v1 := renderBrainBriefCompactV1ForTest(t, report)
+	v2 := renderBrainBriefCompactV2ForTest(t, report)
+	assertCompactV2ProjectionParity(t, v1, v2)
+	for _, declaration := range []string{"@x=runtime_trace(", "@O=test_suggestion("} {
+		if strings.Contains(v2, declaration) {
+			t.Errorf("sparse family grew a positional declaration: %s", declaration)
+		}
+	}
+	if len(v2) > len(v1) {
+		t.Fatalf("sparse compact_v2 grew: v2=%d v1=%d", len(v2), len(v1))
+	}
+}
+
+func TestBrainBriefCompactV2NeverGrowsAcrossPublicFixtures(t *testing.T) {
+	reports := []brainBriefReport{
+		{Task: "minimal"},
+		comprehensiveCompactV1Report(),
+		sparseCompactV2Report(1),
+		sparseCompactV2Report(2),
+		sparseCompactV2Report(3),
+	}
+	for count := 2; count <= 8; count++ {
+		reports = append(reports, repeatedCompactV2Report(comprehensiveCompactV1Report(), count))
+	}
+	for i, report := range reports {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			v1 := renderBrainBriefCompactV1ForTest(t, report)
+			v2 := renderBrainBriefCompactV2ForTest(t, report)
+			assertCompactV2ProjectionParity(t, v1, v2)
+			if len(v2) > len(v1) {
+				t.Fatalf("compact_v2 grew on fixture %d: v2=%d v1=%d", i, len(v2), len(v1))
+			}
+		})
+	}
+}
+
+func TestCompactV2FamilyEncodingTieIsKeyed(t *testing.T) {
+	if compactV2UsePositional(2, 100, 100) {
+		t.Fatal("equal family sizes must choose keyed encoding")
+	}
+	if !compactV2UsePositional(2, 100, 99) {
+		t.Fatal("strictly smaller repeated positional family was not selected")
+	}
+	if compactV2UsePositional(1, 100, 1) {
+		t.Fatal("singleton family must remain keyed")
+	}
+}
+
+func TestCompactV2ParserRejectsNoncanonicalFamilyChoice(t *testing.T) {
+	t.Run("larger_positional_instead_of_keyed", func(t *testing.T) {
+		report := sparseCompactV2Report(2)
+		v1 := renderBrainBriefCompactV1ForTest(t, report)
+		packet := renderBrainBriefCompactV2ForTest(t, report)
+		family := compactV2V1FamilyForTest(t, v1, "runtime_trace")
+		schema := compactV2SchemaByTagForTest(t, "runtime_trace")
+		keyed, positional := compactV2FamilyWiresForTest(t, schema, family)
+		if !strings.Contains(packet, keyed) || strings.Contains(packet, positional) {
+			t.Fatal("sparse fixture did not choose keyed runtime traces")
+		}
+		candidate := compactV2Resign(strings.Replace(packet, keyed, positional, 1))
+		if _, err := parseCompactV2Packet(candidate); err == nil {
+			t.Fatal("parser accepted a larger positional family")
+		}
+	})
+
+	t.Run("larger_keyed_instead_of_positional", func(t *testing.T) {
+		report := comprehensiveCompactV2Report()
+		v1 := renderBrainBriefCompactV1ForTest(t, report)
+		packet := renderBrainBriefCompactV2ForTest(t, report)
+		family := compactV2V1FamilyForTest(t, v1, "history")
+		schema := compactV2SchemaByTagForTest(t, "history")
+		keyed, positional := compactV2FamilyWiresForTest(t, schema, family)
+		if !strings.Contains(packet, positional) || strings.Contains(packet, keyed) {
+			t.Fatal("comprehensive fixture did not choose positional history")
+		}
+		candidate := compactV2Resign(strings.Replace(packet, positional, keyed, 1))
+		if _, err := parseCompactV2Packet(candidate); err == nil {
+			t.Fatal("parser accepted a larger keyed family")
+		}
+	})
+}
+
 func TestBrainBriefCompactV2ReferenceAllowlistExcludesNaturalLanguage(t *testing.T) {
 	denied := map[string]bool{
 		"value": true, "diff_stat": true, "effect": true, "detail": true,
@@ -287,6 +422,64 @@ func TestBrainBriefCompactV2HighCardinalityByteMargin(t *testing.T) {
 
 func comprehensiveCompactV2Report() brainBriefReport {
 	return repeatedCompactV2Report(comprehensiveCompactV1Report(), 2)
+}
+
+func sparseCompactV2Report(count int) brainBriefReport {
+	report := brainBriefReport{Task: "sparse family selection"}
+	for i := 0; i < count; i++ {
+		report.Semantic.RuntimeTraces = append(report.Semantic.RuntimeTraces, semanticRecord{Reason: fmt.Sprintf("trace reason %d", i)})
+		report.Semantic.Tests.Suggestions = append(report.Semantic.Tests.Suggestions, semanticTestSuggestion{Reason: fmt.Sprintf("test reason %d", i)})
+		report.Guidance = append(report.Guidance, fmt.Sprintf("guidance %d", i))
+		report.Warnings = append(report.Warnings, fmt.Sprintf("warning %d", i))
+	}
+	return report
+}
+
+func compactV2SchemaByTagForTest(t *testing.T, tag string) compactV2Schema {
+	t.Helper()
+	for _, schema := range compactV2Schemas {
+		if schema.tag == tag {
+			return schema
+		}
+	}
+	t.Fatalf("compact_v2 schema missing for %s", tag)
+	return compactV2Schema{}
+}
+
+func compactV2V1FamilyForTest(t *testing.T, packet, tag string) []compactV1RawRecord {
+	t.Helper()
+	records, err := parseBrainBriefCompactV1Body(packet)
+	if err != nil {
+		t.Fatalf("parse compact_v1 family source: %v", err)
+	}
+	var family []compactV1RawRecord
+	for _, record := range records {
+		if record.tag == tag {
+			family = append(family, record)
+		}
+	}
+	if len(family) == 0 {
+		t.Fatalf("compact_v1 family %s missing", tag)
+	}
+	return family
+}
+
+func compactV2FamilyWiresForTest(t *testing.T, schema compactV2Schema, family []compactV1RawRecord) (string, string) {
+	t.Helper()
+	var keyed, positional strings.Builder
+	writeCompactV2Declaration(&positional, schema)
+	var previous []string
+	for _, record := range family {
+		keyed.WriteString(record.raw)
+		keyed.WriteByte('\n')
+		row, cells, err := encodeCompactV2Row(schema, record, previous)
+		if err != nil {
+			t.Fatalf("encode positional family: %v", err)
+		}
+		positional.WriteString(row)
+		previous = cells
+	}
+	return keyed.String(), positional.String()
 }
 
 func repeatedCompactV2Report(report brainBriefReport, count int) brainBriefReport {
@@ -426,8 +619,11 @@ func parseCompactV2Packet(packet string) ([]compactV2ParsedRecord, error) {
 		return nil, fmt.Errorf("missing final newline")
 	}
 	lines := strings.Split(strings.TrimSuffix(packet, "\n"), "\n")
-	if len(lines) < 3 || lines[0] != brainBriefCompactV2Marker {
+	if len(lines) < 4 || lines[0] != brainBriefCompactV2Marker {
 		return nil, fmt.Errorf("marker mismatch")
+	}
+	if lines[1] != brainBriefCompactV2Legend {
+		return nil, fmt.Errorf("legend mismatch")
 	}
 	footer := strings.Split(lines[len(lines)-1], "\t")
 	if len(footer) != 3 || footer[0] != "end" {
@@ -466,7 +662,7 @@ func parseCompactV2Packet(packet string) ([]compactV2ParsedRecord, error) {
 	used := map[byte]bool{}
 	previous := map[byte][]string{}
 	var records []compactV2ParsedRecord
-	for _, line := range lines[1 : len(lines)-1] {
+	for _, line := range lines[2 : len(lines)-1] {
 		if strings.HasPrefix(line, "@") {
 			if len(line) < 2 {
 				return nil, fmt.Errorf("empty declaration")
@@ -500,22 +696,39 @@ func parseCompactV2Packet(packet string) ([]compactV2ParsedRecord, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, ok := byTag[record.tag]; !ok {
+		schema, ok := byTag[record.tag]
+		if !ok {
 			return nil, fmt.Errorf("unknown keyed tag")
+		}
+		if err := validateCompactV2KeyedRecord(record, schema); err != nil {
+			return nil, err
 		}
 		records = append(records, compactV2ParsedRecord{record: record})
 	}
 	if len(records) != count {
 		return nil, fmt.Errorf("body record count")
 	}
-	counts := map[string]int{}
+	families := map[string][]compactV1RawRecord{}
+	modeSet := map[string]bool{}
+	actualMode := map[string]bool{}
 	for _, record := range records {
-		counts[record.record.tag]++
+		tag := record.record.tag
+		if modeSet[tag] && actualMode[tag] != record.positional {
+			return nil, fmt.Errorf("mixed family encoding for %s", tag)
+		}
+		modeSet[tag] = true
+		actualMode[tag] = record.positional
+		canonical := record.record
+		canonical.raw = renderCompactV1RawRecord(canonical)
+		families[tag] = append(families[tag], canonical)
 	}
-	for _, record := range records {
-		wantPositional := counts[record.record.tag] >= 2
-		if record.positional != wantPositional {
-			return nil, fmt.Errorf("noncanonical family encoding for %s", record.record.tag)
+	for tag, family := range families {
+		wantPositional, err := expectedCompactV2FamilyMode(byTag[tag], family)
+		if err != nil {
+			return nil, err
+		}
+		if actualMode[tag] != wantPositional {
+			return nil, fmt.Errorf("noncanonical family encoding for %s", tag)
 		}
 	}
 	for opcode := range declared {
@@ -524,6 +737,104 @@ func parseCompactV2Packet(packet string) ([]compactV2ParsedRecord, error) {
 		}
 	}
 	return records, nil
+}
+
+func validateCompactV2KeyedRecord(record compactV1RawRecord, schema compactV2Schema) error {
+	positions := make(map[string]int, len(schema.fields))
+	for i, field := range schema.fields {
+		positions[field.name] = i
+	}
+	last := -1
+	for _, field := range record.fields {
+		position, ok := positions[field.key]
+		if !ok {
+			return fmt.Errorf("unknown keyed field %s.%s", record.tag, field.key)
+		}
+		if position <= last {
+			return fmt.Errorf("duplicate or reordered keyed field %s.%s", record.tag, field.key)
+		}
+		canonical, err := canonicalCompactV1FieldValue(schema.fields[position].kind, field.value)
+		if err != nil || canonical != field.value {
+			return fmt.Errorf("noncanonical keyed field %s.%s", record.tag, field.key)
+		}
+		last = position
+	}
+	return nil
+}
+
+func canonicalCompactV1FieldValue(kind compactV2FieldKind, raw string) (string, error) {
+	switch kind {
+	case compactV2String:
+		value, err := strconv.Unquote(raw)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Quote(value), nil
+	case compactV2Strings:
+		values, err := parseCompactV1StringArray(raw)
+		if err != nil {
+			return "", err
+		}
+		var out strings.Builder
+		out.WriteByte('[')
+		for i, value := range values {
+			if i > 0 {
+				out.WriteByte(',')
+			}
+			out.WriteString(strconv.Quote(value))
+		}
+		out.WriteByte(']')
+		return out.String(), nil
+	case compactV2Bool:
+		if raw != "true" && raw != "false" {
+			return "", fmt.Errorf("invalid bool")
+		}
+		return raw, nil
+	case compactV2Int:
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(value), nil
+	case compactV2Float:
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+			return "", fmt.Errorf("invalid float")
+		}
+		return strconv.FormatFloat(value, 'g', -1, 64), nil
+	default:
+		return "", fmt.Errorf("unknown field kind")
+	}
+}
+
+func renderCompactV1RawRecord(record compactV1RawRecord) string {
+	var out strings.Builder
+	out.WriteString(record.tag)
+	for _, field := range record.fields {
+		out.WriteByte(' ')
+		out.WriteString(field.key)
+		out.WriteByte('=')
+		out.WriteString(field.value)
+	}
+	return out.String()
+}
+
+func expectedCompactV2FamilyMode(schema compactV2Schema, family []compactV1RawRecord) (bool, error) {
+	var declaration strings.Builder
+	writeCompactV2Declaration(&declaration, schema)
+	keyedBytes := 0
+	positionalBytes := declaration.Len()
+	var previous []string
+	for _, record := range family {
+		keyedBytes += len(record.raw) + 1
+		row, cells, err := encodeCompactV2Row(schema, record, previous)
+		if err != nil {
+			return false, err
+		}
+		positionalBytes += len(row)
+		previous = cells
+	}
+	return compactV2UsePositional(len(family), keyedBytes, positionalBytes), nil
 }
 
 func parseCompactV2PositionalRecord(schema compactV2Schema, line string, prior []string) (compactV1RawRecord, []string, error) {
