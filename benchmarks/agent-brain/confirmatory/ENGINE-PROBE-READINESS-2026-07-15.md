@@ -1,6 +1,7 @@
 # Retrieval-engine probe readiness — 2026-07-15
 
-Status: **controlled three-arm verification passed; durable repository retention pending; no paid calls**.
+Status: **controlled three-arm verification passed; v3 is privacy-failed diagnostic evidence;
+public v4 projection passes locally; restricted replay/storage pending; no paid calls**.
 
 Read-only probes used the already-exposed development task `6699ec40a` against the full rolling
 quarantine. All three runtime paths reported `identity_verified=true`, BM25 disabled, no fallback,
@@ -18,9 +19,8 @@ The source facts SHA-256 is
 EmbeddingGemma GGUF is 333,590,944 bytes with SHA-256
 `b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63`.
 
-On 2026-07-16 the controlled wrapper completed all three arms and atomically published a valid
-three-record manifest at the local diagnostic artifact root
-`/Users/thomi/.entire-brain-eval/retained-engine-evidence-20260716/run-bb68c0ac-v3/`.
+On 2026-07-16 the controlled wrapper completed all three arms and atomically wrote a valid
+three-record manifest at a restricted local diagnostic artifact root.
 The manifest SHA-256 is
 `b7c9baae2c3f0ed9b0773226ececf5bf129bd4dd487c02ffab9945cf0fc9c17d`.
 Independent production-pin validation returned zero errors. All arms used the same 2,621-fact
@@ -30,9 +30,18 @@ no fallback. The two semantic arms retained isolated 2,442-vector EBV1 artifacts
 - Model2Vec: `5f50be06ef43e4383aeb332afd322ed1290017d6dda1d0c4538822a35218085f`;
 - EmbeddingGemma: `eeac9dccb083972d948a27e7e7236fd0b2824dc70fe72a7e96f30faeae72add9`.
 
-The 602 MB local bundle is diagnostic evidence, not yet repository-retained evidence. The
-`all_engines_machine_verified` gate remains pending until an approved durable artifact strategy
-retains those exact bytes at a checker-resolvable repository-relative location.
+The 602 MB local bundle contains raw facts, session metadata, runtime trees, host paths, and process
+output. It is diagnostic evidence and is not publishable. `public_engine_evidence.py` projects that
+retained run to a six-file, 886,480-byte public v4 bundle with domain-separated pseudonyms and no
+raw corpus, session map, model/runtime payload, vector floats, stdout, stderr, host path, user,
+environment, or plaintext token. Independent production-pin validation and the recursive privacy
+scanner both return zero errors for the local projection.
+
+The `all_engines_machine_verified` gate remains pending: public v4 alone does not prove that a
+restricted clean-checkout replay validated the exact private bytes. The storage-backed production
+checker therefore fails closed until a separately authenticated restricted replay attestation is
+bound to the public v4 manifest, pin set, and checker. Publication, encryption/key management,
+external storage, and clean hydration were not performed by this work.
 
 No fresh relevance or agent holdout was opened by these probes.
 
@@ -69,14 +78,18 @@ environment or accepting caller-defined expected values:
   the protocol checker, and atomically renames it only after all three canonical records pass.
   Failed validation leaves no manifest.
 
-Twenty-nine hermetic wrapper tests pass, including a full synthetic three-arm publication, exact
+Thirty-four hermetic restricted-wrapper tests pass, including a full synthetic three-arm
+publication, exact
 manifest-shape rejection, production rejection of test-fixture evidence, binary/stdout/vector
 substitution, recursive extra-field rejection, one-vector coverage shrink, inactive/ineligible fact
 delivery, delivered-count drift, results above the pin-derived K limit,
 NaN/infinity/truncation/trailing vectors, retained-source and
 derived-facts rehashing, atomic publication failure, live-process health monitoring, recall-overlap
 and timestamp-ordering failures, server PID/phase discontinuity, fallback, input-pin,
-development-query, and endpoint-ownership cases.
+development-query, and endpoint-ownership cases. Seventeen public-v4 tests additionally cover
+secret/path/raw-ID/fact-text rejection, pseudonym collision failure, exact file-set inventory,
+temporal recomputation, result order and eligibility, self-consistent vector-candidate mutation,
+projection/server sequence mutation, component pins, and the absent restricted-replay gate.
 
 The inherited Node server at PID 70028 was confirmed to be the benchmark's own EmbeddingGemma
 service, stopped with owner authorization, and not reused as evidence. The wrapper then launched,
@@ -86,6 +99,7 @@ component-sorted `Path` rows while the checker hashed serialized relative-path r
 `f125b5c2` canonicalizes the runner to serialized relative-path order, refreshes the production pin,
 and adds the adversarial `a-b` versus `a/b` regression fixture. The regenerated v3 evidence passed.
 
-The gate remains **pending** for one exact reason: the resulting bytes—especially the
-333,590,944-byte GGUF—need an approved durable repository artifact strategy. A successful external
-artifact-root run is not pass evidence even when its manifest validates cleanly.
+The gate remains **pending** on three linked retention steps: define the authenticated restricted
+replay-attestation contract, retain that restricted proof under approved access controls, and bind
+an immutable public-v4 archive to it through a clean hydration. The legacy v3 archive must not be
+published, and a locally valid public projection cannot close the gate by itself.

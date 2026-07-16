@@ -29,6 +29,7 @@ if str(HERE) not in sys.path:
 
 import power_analysis  # noqa: E402  (local deterministic companion module)
 import pricing_budget  # noqa: E402  (local deterministic companion module)
+import public_engine_evidence  # noqa: E402  (privacy-safe public engine evidence)
 import relevance_dataset  # noqa: E402  (local deterministic companion module)
 
 
@@ -395,6 +396,26 @@ def _validate_engine_manifest_schema(path: pathlib.Path, errors: list[str]) -> N
         schema,
         errors,
         "engine manifest",
+        root_schema=schema,
+        schema_dir=schema_path.parent,
+    )
+
+
+def _validate_public_engine_manifest_schema(path: pathlib.Path, errors: list[str]) -> None:
+    artifact = _load_artifact(path, errors, "public engine verification schema input")
+    if artifact is None:
+        return
+    schema_path = HERE / "schemas" / "engine-verification-public-v4.schema.json"
+    try:
+        schema = load(schema_path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        errors.append(f"public engine verification manifest schema is unreadable: {exc}")
+        return
+    _validate_schema_node(
+        artifact,
+        schema,
+        errors,
+        "public engine manifest",
         root_schema=schema,
         schema_dir=schema_path.parent,
     )
@@ -2533,6 +2554,26 @@ def validate_engine_verification(
             return errors
         evidence_path = relocation["manifest_path"]
         artifact_repo = relocation["artifact_repo"]
+    manifest_identity = _load_artifact(evidence_path, errors, "engine verification manifest identity")
+    if isinstance(manifest_identity, dict) and manifest_identity.get("schema_version") == 4:
+        _validate_public_engine_manifest_schema(evidence_path, errors)
+        errors.extend(
+            public_engine_evidence.validate_public_bundle(
+                evidence_path,
+                matrix,
+                pin_data,
+                expected_descriptor,
+            )
+        )
+        if require_storage_contract:
+            errors.append(
+                "stored public v4 evidence lacks an authenticated restricted replay attestation bound to the v4 manifest, pin set, and checker"
+            )
+        return errors
+    if require_storage_contract and require_production:
+        errors.append(
+            "legacy engine evidence schema v2 is diagnostic-only; authoritative stored evidence requires public schema v4"
+        )
     _validate_engine_manifest_schema(evidence_path, errors)
     records = _load_engine_records(evidence_path, errors, artifact_repo)
     record_arms = [record.get("arm") if isinstance(record, dict) else None for record in records]
@@ -3155,6 +3196,16 @@ def validate(freeze: bool = False) -> list[str]:
         _error(errors, schema.get("$schema") == "https://json-schema.org/draft/2020-12/schema", f"{schema_path.name}: wrong JSON Schema dialect")
 
     arms = matrix.get("arms", [])
+    _error(
+        errors,
+        matrix.get("verification_schema") == "schemas/engine-verification-public-v4.schema.json",
+        "authoritative engine verification schema must be public v4",
+    )
+    _error(
+        errors,
+        matrix.get("diagnostic_verification_schema") == "schemas/engine-verification.schema.json",
+        "legacy engine diagnostic schema binding changed",
+    )
     _error(errors, [arm.get("id") for arm in arms] == ARMS, "primary engine arms changed or reordered")
     namespaces = [arm.get("namespace") for arm in arms]
     _error(errors, len(set(namespaces)) == len(namespaces), "engine namespaces are not isolated")

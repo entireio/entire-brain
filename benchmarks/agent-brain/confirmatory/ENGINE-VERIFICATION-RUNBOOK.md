@@ -3,8 +3,10 @@
 This runbook is deterministic/offline after the binary and pinned local inputs are available. It
 does not invoke a coding agent. Production expectations come only from the checked-in
 `engine-verification-pins.json`; callers supply source locations, never expected hashes, counts,
-versions, or runtime identities. Final evidence must be created by `verify_engines.py`; the
-individual commands below remain useful diagnostics but cannot by themselves satisfy the gate.
+versions, or runtime identities. `verify_engines.py` creates restricted exact-byte diagnostic
+evidence. That evidence must then be projected by `public_engine_evidence.py` into the authoritative
+privacy-safe schema v4; the individual commands below remain useful diagnostics but cannot by
+themselves satisfy the gate.
 
 `preregistration.json` commits to that file by its canonical repo-relative path and raw SHA-256.
 `check_protocol.py` rejects a missing, redirected, symlinked, or byte-changed binding during ordinary
@@ -48,14 +50,16 @@ that already owns that endpoint: it must launch and stop the supported server it
 GGUF. Free the endpoint through the owner of that process before running; do not kill an unrelated
 or unowned process merely to make this check pass.
 
-Choose `ARTIFACT_ROOT` as the repository root and `OUTPUT` as a new directory below it. The output
+Choose `ARTIFACT_ROOT` as the repository root and `OUTPUT` as a new directory below it. The
+restricted diagnostic output
 includes byte-identical retained copies of the facts and session-date sources, the 333.6 MB GGUF,
 the resolved 126.7 MB Node executable, the approximately 46.6 MB regular-file dependency tree,
 server script, package manifest and lockfile, binary, two independent vector files, recall/server
 logs, three derived runtime roots, a dependency inventory, a server health attestation, and the
 final manifest. Do not mark the gate pass unless those bytes will be durably retained by the
-repository's artifact strategy. A temporary or untracked output is only a diagnostic run even when
-the wrapper succeeds.
+repository's restricted artifact strategy. It contains private corpus/session/host material and
+must not be published. A temporary or untracked output is only a diagnostic run even when the
+wrapper succeeds.
 
 ```sh
 python3 benchmarks/agent-brain/confirmatory/verify_engines.py \
@@ -145,11 +149,11 @@ ENTIRE_REPO_ROOT="$FROZEN_REPO_ROOT" \
 
 ## Required verification record
 
-For every command, retain stdout/stderr and a record conforming to
-`schemas/engine-verification.schema.json`. The only accepted evidence entry point is one regular JSON
-file conforming to `schemas/engine-verification-manifest.schema.json`, with exactly
-`schema_version: 2` and `records`; directories, raw arrays, single records, `record_paths`, and extra
-wrapper keys are rejected. The checker recursively applies the record schema as well, including
+For every restricted diagnostic command, retain stdout/stderr and a record conforming to
+`schemas/engine-verification.schema.json`. Its diagnostic entry point is one regular JSON file
+conforming to `schemas/engine-verification-manifest.schema.json`, with exactly `schema_version: 2`
+and `records`; directories, raw arrays, single records, `record_paths`, and extra wrapper keys are
+rejected. The checker recursively applies the record schema as well, including
 every nested `additionalProperties: false`; a structurally valid wrapper cannot hide extra record or
 requested fields. Effective engine must come from machine-readable runtime
 output, not inferred environment intent. Recall JSON now exposes the observed `effective_engine`,
@@ -165,9 +169,32 @@ zero inherited vectors in their clean namespaces, and EBV1 IDs exactly equal to 
 The EBV1 parser decodes every float32 and rejects truncation, trailing bytes, NaN, or infinity. Every
 delivered stdout/record fact ID must be active+eligible, in retained facts, in identical order, and
 the delivered count must equal the ID count and remain at or below pinned K. The checker also
-requires every arm command to invoke the same retained canonical binary. Final freeze remains
-blocked until one byte-complete, durably retained manifest containing a checker-valid real record
-for each arm passes those checks from its repository artifact location.
+requires every arm command to invoke the same retained canonical binary.
+
+The authoritative public entry point is instead
+`schemas/engine-verification-public-v4.schema.json`. Create it only from an already checker-valid
+restricted v2 manifest:
+
+```sh
+python3 benchmarks/agent-brain/confirmatory/public_engine_evidence.py \
+  --diagnostic-manifest "$RESTRICTED_ROOT/run/engine-verification.json" \
+  --artifact-root "$RESTRICTED_ROOT" \
+  --output-dir "$PUBLIC_V4_OUTPUT"
+```
+
+The projector generates a fresh non-persisted 256-bit pseudonym key unless a restricted binary key
+file is named. The public bundle contains only typed logical invocations, pinned component
+commitments, domain-separated 128-bit candidate/session refs, independently recomputable temporal
+eligibility, sanitized ordered result IDs, chunked vector-candidate commitments, raw-stream
+digest/size pairs, and sanitized server lifecycle attestations. Its manifest inventories exactly
+five payload files; the checker rejects missing, extra, symlinked, byte-changed, or unlisted files
+and recursively rejects absolute paths, host/user/environment values, raw IDs, free-form fact/query
+text, emails, and secret/token patterns. It copies no facts, session map, model, Node/runtime tree,
+source namespace, vector floats, raw stdout, or raw stderr.
+
+Final freeze remains blocked until a public v4 bundle and its restricted exact-byte attestation are
+retained under an approved access/publication contract and validate from a clean hydration. The
+current legacy v3 archive remains diagnostic and privacy-failed; it is not publishable evidence.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between
@@ -176,5 +203,6 @@ arms, or any recorded hash fails verification.
 The wrapper tests are hermetic and do not load the real model:
 
 ```sh
-python3 -m unittest benchmarks/agent-brain/confirmatory/test_verify_engines.py
+python3 -m unittest discover -s benchmarks/agent-brain/confirmatory -p 'test_verify_engines.py'
+python3 -m unittest discover -s benchmarks/agent-brain/confirmatory -p 'test_public_engine_evidence.py'
 ```

@@ -8,10 +8,14 @@ WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence
 integrated and verified by content-addressed source and test evidence. The exposed-only offline
 development relevance set now contains 14 queries over 13 tasks, meets the 12-answerable-product-task
 floor, and includes one corpus-closed product null. A controlled three-engine diagnostic run has
-produced a checker-valid manifest, but its 602 MB byte-complete bundle is not yet retained through an
-approved repository artifact strategy; no development-threshold metrics have been selected. The
-relevance holdout remains unopened and empty. Final freeze remains blocked on fresh-task validity
-review, durable retention of the three-engine evidence and development-threshold selection,
+produced a checker-valid manifest, but its 602 MB byte-complete v3 bundle contains private
+corpus/session/host material and is explicitly non-publishable. A privacy-safe public v4 projector
+and fail-closed checker lane are implemented; the retained real v3 run projects locally to a
+checker-valid six-file, sub-megabyte public bundle. External publication, restricted exact-byte
+attestation storage, and clean hydration are still pending; no development-threshold metrics have
+been selected. The relevance holdout remains unopened and empty. Final freeze remains blocked on
+fresh-task validity review, approved retention of public v4 plus restricted attestation and
+development-threshold selection,
 relevance holdout sealing, a defensible powered design, and model pricing/budget approval. The
 confirmatory analyzer is implemented and path-locked.
 
@@ -42,7 +46,8 @@ confirmatory analyzer is implemented and path-locked.
   materialization, and fail-closed validation workflow.
 - `offline-relevance-dataset.json`: generated 14-query/13-task development set with 46 judgments and
   one corpus-closed null; its sealed holdout intentionally contains no plaintext labels.
-- `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms and verification steps.
+- `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms, public v4 authority,
+  legacy diagnostic schema binding, and verification/projection steps.
 - `engine-verification-pins.json`: gate-authoritative corpus, query, reproducible binary build,
   GGUF, resolved Node, server script, package/lockfile, health interval, and dependency-inventory
   expectations, including exact eligible and active+eligible semantic-candidate set commitments;
@@ -50,8 +55,13 @@ confirmatory analyzer is implemented and path-locked.
   canonical repo-relative path and its raw SHA-256, so the protocol content hash necessarily freezes
   the selected production pin bytes rather than whichever pin file happens to be present later.
 - `schemas/engine-verification.schema.json` and
-  `schemas/engine-verification-manifest.schema.json`: required per-arm output and the exact
-  three-record manifest wrapper.
+  `schemas/engine-verification-manifest.schema.json`: restricted diagnostic per-arm output and exact
+  three-record legacy wrapper.
+- `schemas/engine-verification-public-v4.schema.json`, `public_engine_evidence.py`, and
+  `test_public_engine_evidence.py`: authoritative public manifest, atomic privacy-safe projector,
+  recursive scanner, exact file inventory, independent temporal/result/vector/lifecycle checker,
+  and adversarial mutation coverage. No publication, encryption, or key-management action is
+  performed by this lane.
 - `verify_engines.py`: fail-closed retained runner with isolated arms, owned-server continuity
   attestation overlapping live recall, byte-complete artifacts, and
   checker-before-atomic-publication semantics.

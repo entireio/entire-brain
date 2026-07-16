@@ -31,5 +31,6 @@
   ],
   "optional_factor_pattern": "bm25_plus_<semantic>",
   "isolation_required": ["ENTIRE_PLUGIN_CACHE_DIR", "vector_namespace", "vector_artifact_sha256"],
-  "verification_schema": "schemas/engine-verification.schema.json"
+  "verification_schema": "schemas/engine-verification-public-v4.schema.json",
+  "diagnostic_verification_schema": "schemas/engine-verification.schema.json"
 }
