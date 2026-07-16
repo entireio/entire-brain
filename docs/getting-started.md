@@ -210,6 +210,12 @@ Then the agent should make only targeted follow-up calls:
   `brain_workspace_graph`, `brain_workspace_review`, and `brain_patterns` when
   the task calls for them
 
+`brain_brief` keeps its existing JSON-in-text response by default. Clients
+experimenting with a smaller agent packet can pass
+`packet_format: "compact_v1"`; this is an opt-in serialization change over the
+same ranked report, not a different retrieval treatment. Use `legacy_json` (or
+omit the argument) when a consumer depends on the existing JSON contract.
+
 Some MCP tools write local state. For example, `brain_ingest_traces` persists
 runtime edges as `RUNTIME_TRACE` facts. Pattern MCP tools are read-only; skill
 formation remains a CLI-only write path.

@@ -22,8 +22,18 @@ Available tools:
   `brain_workspace_regressions`, `brain_workspace_review`
 - Pattern corpus: `brain_patterns`, `brain_patterns_status`
 
-The tool responses wrap the existing CLI `--json` output as text content. Treat
-the CLI JSON contracts as the source of truth for fields and freshness policy.
+Tool responses wrap the existing CLI `--json` output as text content by default.
+Treat the CLI JSON contracts as the source of truth for fields and freshness
+policy.
+
+`brain_brief` also has an opt-in `packet_format: "compact_v1"` representation
+for coding agents. Omitting `packet_format`, or setting it to `legacy_json`,
+preserves the existing pretty-JSON text response. `compact_v1` runs the same
+retrieval and ranking and changes only serialization: it emits a deterministic,
+versioned line packet with safely quoted data, task-relevant status/trust signals,
+semantic relations and neighbors, history, facts, actions, patterns, guidance,
+and an end-to-end body checksum. The format is experimental and is not selected
+automatically; a future incompatible representation will use a new version name.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a

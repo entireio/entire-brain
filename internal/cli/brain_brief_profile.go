@@ -188,7 +188,7 @@ func (p *brainBriefProfile) finishTotal() {
 	p.TotalBrief.DurationNS = p.elapsed(p.started)
 }
 
-func brainBriefProfilePacketCounts(report brainBriefReport, jsonOutput bool) brainBriefProfileCounts {
+func brainBriefProfilePacketCounts(report brainBriefReport, packetFormat brainBriefPacketFormat) brainBriefProfileCounts {
 	counts := brainBriefProfileCounts{
 		SemanticSymbols:     len(report.Semantic.Context.Symbols),
 		SemanticRelations:   len(report.Semantic.Context.Relations),
@@ -209,7 +209,7 @@ func brainBriefProfilePacketCounts(report brainBriefReport, jsonOutput bool) bra
 		GuidanceItems:       len(report.Guidance),
 		Warnings:            len(report.Status.Warnings) + len(report.Status.Live.Warnings) + len(report.Warnings),
 	}
-	if !jsonOutput {
+	if packetFormat == brainBriefPacketText {
 		// The text renderer is intentionally narrower than the JSON packet. Keep
 		// counts aligned with records actually serialized in that format.
 		counts.SemanticRelations = 0
