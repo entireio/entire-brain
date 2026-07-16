@@ -17,10 +17,11 @@ tasks enter development, calibration, or holdout.
 The companion `task_eligibility.py` scanner can inventory first-parent integration units that touch
 both production Go and test files. Its output contains commit identities, structural counts, and
 content commitments but no subjects, paths, prompts, or patches. It is only a static pre-screen. The
-checked-in development receipt closes the reverse-patch negative-control filter; independent
-symptom-only review remains pending. Any scan whose identities were inspected by a product optimizer
-is permanently labeled development-only and cannot be reassigned to calibration or confirmatory
-holdout.
+checked-in development receipt closes the reverse-patch negative-control filter. The companion
+development symptom ledger records the subsequent independent wording review, but remains
+non-authoritative because owner-key and complete source-session receipts are absent. Any scan whose
+identities, patches, tests, or prompt text were inspected is permanently labeled development-only
+and cannot be reassigned to calibration or confirmatory holdout.
 
 The checked-in development scan covers `github.com/entireio/cli` from
 `3ebc57dbb923c0aa6eb53f17384109d189953c6c` through
@@ -76,6 +77,54 @@ This filter is deliberately narrower than a full task validation: it does not de
 packages outside the changed-test package set, judge whether a prompt is symptom-only, or approve a
 population split. Those remain separate fail-closed review gates.
 
+### Development-only symptom review
+
+`development_task_symptom_review.py` consumes exactly the 17
+`eligible_for_symptom_review` results in the checked-in negative-control receipt. It fails if the
+four baseline-invalid results, the surviving negative control, or the reversed-source timeout enter
+the review. Each retained row binds the eligibility and negative-control file/self hashes, exact
+commit/parent/tree identities, source and test diff commitments, test-command and negative-control
+output commitments, and the domain-separated SHA-256 of the exact prompt text.
+
+An accepted development prompt requires two distinct review records: the prompt author and a
+separate read-only auditor who compares that prompt with the local patch and changed tests. Both
+must positively record symptom-only scope and the absence of fix terms, file/function hints,
+command or workflow hints, hidden-test details, patch leakage, and other answer-bearing context.
+Static checks reject path, identifier, command, and high-signal implementation syntax, but do not
+replace the semantic audit. Review-record hashes and the ledger self-hash bind the decisions; they
+are integrity commitments, not signatures or owner receipts.
+
+The ledger also records development fix-lineage sets and cleartext semantic family labels so exact
+prompt, patch, fix, and family overlap is visible during development. These are deliberately not
+substitutes for the owner-held HMAC commitments required by task-population v2. Local commit trailers
+do not establish complete source-session identity, so every source-session and authoritative overlap
+decision remains explicitly unresolved. The validator rejects any claim of population membership,
+calibration membership, holdout opening, owner-key verification, or benchmark-run authorization.
+
+Build a reviewed draft and then validate its exact local Git bindings with:
+
+```bash
+python3 benchmarks/agent-brain/confirmatory/development_task_symptom_review.py build \
+  --repo /path/to/entire-cli \
+  --ledger benchmarks/agent-brain/confirmatory/development-task-eligibility-scan-v1.json \
+  --negative-control benchmarks/agent-brain/confirmatory/development-task-negative-control-v1.json \
+  --draft /path/to/independently-audited-development-draft.json \
+  --output benchmarks/agent-brain/confirmatory/development-task-symptom-review-v1.json
+python3 benchmarks/agent-brain/confirmatory/development_task_symptom_review.py check \
+  --repo /path/to/entire-cli \
+  --ledger benchmarks/agent-brain/confirmatory/development-task-eligibility-scan-v1.json \
+  --negative-control benchmarks/agent-brain/confirmatory/development-task-negative-control-v1.json \
+  benchmarks/agent-brain/confirmatory/development-task-symptom-review-v1.json
+```
+
+The build command is not an approval mechanism: it only seals already recorded reviewer decisions.
+It runs no model, task test, paid benchmark, provider call, calibration procedure, or holdout action.
+The checked-in review contains exactly 17 accepted development-only prompts and no rejected rows;
+all 17 source-session decisions remain unresolved and authoritative population membership remains
+zero. Its canonical self-hash is
+`69fb0e5c68fb62cdc4b313c8d709c32f4a68aaba1234584ba1a5978fba89ae15`; the checked-in file SHA-256 is
+`e3d2d07d71bed97926c871441f59e725a358715aab449e0e6806b5a9007c6dcc`.
+
 ## Three disjoint populations
 
 - `development_optimization` may be used for product and ranking iteration.
@@ -118,6 +167,7 @@ The schemas are:
 - `confirmatory/schemas/task-population-v2.schema.json`
 - `confirmatory/schemas/development-task-eligibility-scan-v1.schema.json`
 - `confirmatory/schemas/development-task-negative-control-v1.schema.json`
+- `confirmatory/schemas/development-task-symptom-review-v1.schema.json`
 - `schemas/task-review-ledger-v2.schema.json`
 
 Validate a populated pair with:

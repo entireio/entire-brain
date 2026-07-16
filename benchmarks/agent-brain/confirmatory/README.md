@@ -27,6 +27,13 @@ confirmatory analyzer is implemented and path-locked.
 - `PREREGISTRATION.md` and `preregistration.json`: human- and machine-readable candidate protocol.
 - `task-inventory.json`: content-addressed reconciliation of all 46 unique C0701 tasks.
 - `schemas/task-inventory.schema.json`: task exposure/contamination contract.
+- `development-task-eligibility-scan-v1.json`, `development-task-negative-control-v1.json`, and
+  `development-task-symptom-review-v1.json`: permanently development-only local task inventory,
+  reverse-patch classifications, and 17 exact independently audited symptom prompts. The last
+  artifact binds source/test/negative-control commitments and records fix/family/session-overlap
+  decisions, but explicitly has no owner HMAC receipt, population assignment, calibration
+  membership, holdout membership, or run authority. `development_task_symptom_review.py` and its
+  schema/test provide the fail-closed build and exact-source verification workflow.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.
