@@ -13,11 +13,11 @@
   "source_artifacts": [
     {
       "path": "benchmarks/agent-brain/run.py",
-      "sha256": "68664a26c9ed69919f1e35a20ac13cb2401f39f207b42409768dc179c1cd6fd3"
+      "sha256": "1eeaeaebb6850b9d79fe6d552ce3be6c101871f5288ed083d91828e2d201438f"
     },
     {
       "path": "benchmarks/agent-brain/run_test.py",
-      "sha256": "ce926ebceadbd6327d1d0ced5d92a65976eea9d7b5287d2d62170936753f8be3"
+      "sha256": "5ad9023e1a957bea39e69bb57de8ab2fc13f001be13676fd664a6bf2b0976b3a"
     },
     {
       "path": "benchmarks/agent-brain/treatment.py",
@@ -69,11 +69,11 @@
     },
     {
       "path": "benchmarks/agent-brain/analysis/common.py",
-      "sha256": "afe47b4d4176d2e4c9920d94e14ad4721bf202da88426864b05d3fe8ece41979"
+      "sha256": "bc290c174f1d17cbe14333b3a2e91b6f89e8081e5c578b263e4ce8efd2bb883d"
     },
     {
       "path": "benchmarks/agent-brain/analysis/evidence.py",
-      "sha256": "836943055654b8f1fda6c9bb716d13de4711d47a36205d32fdcd41f803b56486"
+      "sha256": "be0591224715112d4f947668c711d0c57f3441725678fa9b859b296c068ad57e"
     },
     {
       "path": "benchmarks/agent-brain/analysis/metrics.py",
@@ -81,7 +81,7 @@
     },
     {
       "path": "benchmarks/agent-brain/analysis/confirmatory.py",
-      "sha256": "244e79f2b197d939da66e7d99ae92080622a89d5f07c5d233571613936ced47e"
+      "sha256": "49007f480cd85a221ea1d56d55a0e0b3fdaeca84d14737d7db0905f830972a90"
     }
   ],
   "test_runs": [
@@ -90,7 +90,7 @@
       "command": "python3 benchmarks/agent-brain/run_test.py",
       "status": "pass",
       "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/python-harness.txt",
-      "log_sha256": "0c7ae4289ff2ba75d6a77ebcd6f9597cf9a024316b2a42d32c07869def202f30"
+      "log_sha256": "b978773feb4736f47eba9cb32de91578359fb0306e10555538d39c53c0870676"
     },
     {
       "id": "go-test-all",
@@ -104,7 +104,7 @@
       "command": "python3 -m unittest benchmarks/agent-brain/analysis/test_confirmatory.py benchmarks/agent-brain/analysis/test_ranking_diagnostics.py benchmarks/agent-brain/confirmatory/test_check_protocol.py benchmarks/agent-brain/confirmatory/test_power_analysis.py",
       "status": "pass",
       "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/analysis-protocol-tests.txt",
-      "log_sha256": "09b73ecd6fc4fcf775b1e266972a7b264549a20988ca96945ad39bd8ace5214c"
+      "log_sha256": "66412384f12b238869717ba797f5f58fb3cdbf757ed3d2905ecd4f4e897beeb7"
     },
     {
       "id": "task-lint",
@@ -125,7 +125,7 @@
       "command": "python3 benchmarks/agent-brain/run_test.py EvidenceManifestTests",
       "status": "pass",
       "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/evidence-smoke.txt",
-      "log_sha256": "c28598c3c35e1ac97fcbcac5c18e7f57e2ff052e0bce6df625e8982150aebc8a"
+      "log_sha256": "5fe1d83d506e5bc821cc46dee29050a382a8b3cd58e5657f80e360710f524a93"
     },
     {
       "id": "engine-identity-tests",
@@ -146,7 +146,7 @@
       "command": "zsh -c 'python3 benchmarks/agent-brain/confirmatory/check_protocol.py --freeze > benchmarks/agent-brain/confirmatory/integration-logs/freeze-no-go.txt 2>&1; rc=$?; [[ $rc -eq 1 ]]'",
       "status": "pass",
       "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/freeze-no-go.txt",
-      "log_sha256": "1299007669193a31599967368b991909b249d8bcc3754442dc82bb2632e9923d"
+      "log_sha256": "232421aa510643e5f8e332d5279cbba2bdd9891d9b34a7c9f58d83f9dfe05dbf"
     }
   ],
   "dependency_evidence": {

@@ -52,7 +52,7 @@ Audit is not release evidence:
 .
 Audit is not release evidence:
 - suite release-candidate-semantic-no-signal has no proof_ready comparison
-......# Codex Benchmark Audit (independent re-check)
+.................# Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
 - Agent records audited (prep excluded): **8**
@@ -65,7 +65,7 @@ Audit is not release evidence:
 
 - Proof-ready comparisons by scope: `mcp_radar_location_only`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpnjtszbf6/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpv42ljaqn/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -79,7 +79,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpnjtszbf6/codex
 
 - Proof-ready comparisons by scope: `mcp_workspace_radar_location_only`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprw537iyu/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpy7o763ze/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -93,7 +93,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprw537iyu/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprqawjuoc/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9b0wblgx/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -107,7 +107,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprqawjuoc/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprqawjuoc/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9b0wblgx/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -121,7 +121,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprqawjuoc/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmptlofplho/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbe1a7s9r/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -135,7 +135,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmptlofplho/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbq6xwi0c/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -149,7 +149,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbq6xwi0c/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -163,7 +163,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbq6xwi0c/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -177,7 +177,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex
 
 - Proof-ready comparisons by scope: `history`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbq6xwi0c/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -191,7 +191,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbq6xwi0c/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -205,7 +205,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbq6xwi0c/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **0**
@@ -219,7 +219,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbq6xwi0c/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -233,7 +233,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex
 
 - Proof-ready comparisons by scope: `mcp`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp2cgn730x/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpy7ogfasr/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -247,7 +247,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp2cgn730x/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5j3aoyfm/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpf_0s71ea/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -261,7 +261,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5j3aoyfm/codex
 
 - Proof-ready comparisons by scope: `history`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5j3aoyfm/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpf_0s71ea/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -275,7 +275,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5j3aoyfm/codex
 
 ## Release Gate
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9lcfc048/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpdjj7mfka/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -289,7 +289,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9lcfc048/codex
 
 - Proof-ready comparisons by scope: `history`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmppg4uukn_/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpmght9vbl/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **1**
@@ -303,7 +303,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmppg4uukn_/codex
 
 - Proof-ready comparisons by scope: `history`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpfwj7ew26/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp287npqc5/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **2**
@@ -317,7 +317,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpfwj7ew26/codex
 
 - Proof-ready comparisons by scope: `mcp`=1, `mcp_radar_location_only`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5f5_ho4w/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpra6rw9u5/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **2**
@@ -331,7 +331,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5f5_ho4w/codex
 
 - Proof-ready comparisons by scope: `mcp`=1, `mcp_radar_location_only`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5f5_ho4w/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpra6rw9u5/codex-audit-report.json and codex-audit-report.md
 # Codex Benchmark Audit (independent re-check)
 
 - Suites audited: **2**
@@ -345,13 +345,13 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5f5_ho4w/codex
 
 - Proof-ready comparisons by scope: `history`=1
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpay0d7aed/codex-audit-report.json and codex-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpci5v4jdk/codex-audit-report.json and codex-audit-report.md
 task-a__codex__a__r1: score=1 ok=True
-..{
+....{
   "ok": true
 }
 task-a__codex__a__r1: score=1 ok=True
-....
+.......
 Distill performance artifacts are not release evidence:
 - artifact_sha256.serial_run mismatch
 - commands.parallel_run: --agent must match artifact agent
@@ -395,7 +395,7 @@ Facts eval artifacts are not release evidence:
 .Release-candidate Radar proof requires --codex-audit-report.
 ..............................................................................................
 ----------------------------------------------------------------------
-Ran 223 tests in 1.235s
+Ran 239 tests in 1.667s
 
 OK
 {}
@@ -412,7 +412,7 @@ OK
 - Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
 - Local Ollama required tests passed: **9/9**
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpa4oye2c4/distill-perf-audit-report.json and distill-perf-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp7tkh2hi5/distill-perf-audit-report.json and distill-perf-audit-report.md
 # Distill Performance Evidence Audit
 
 - Status: **FAIL**
@@ -426,7 +426,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpa4oye2c4/disti
 - Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
 - Local Ollama required tests passed: **9/9**
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpvzq77_8g/distill-perf-audit-report.json and distill-perf-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpn77irltt/distill-perf-audit-report.json and distill-perf-audit-report.md
 # Distill Performance Evidence Audit
 
 - Status: **FAIL**
@@ -440,7 +440,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpvzq77_8g/disti
 - Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
 - Local Ollama required tests passed: **9/9**
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpzr8yf86z/distill-perf-audit-report.json and distill-perf-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpsl8s3lq9/distill-perf-audit-report.json and distill-perf-audit-report.md
 # Distill Performance Evidence Audit
 
 - Status: **FAIL**
@@ -454,7 +454,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpzr8yf86z/disti
 - Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
 - Local Ollama required tests passed: **9/9**
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpzr8yf86z/distill-perf-audit-report.json and distill-perf-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpsl8s3lq9/distill-perf-audit-report.json and distill-perf-audit-report.md
 # Distill Performance Evidence Audit
 
 - Status: **FAIL**
@@ -468,7 +468,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpzr8yf86z/disti
 - Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
 - Local Ollama required tests passed: **9/9**
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp02xxtm8t/distill-perf-audit-report.json and distill-perf-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmph9us7slq/distill-perf-audit-report.json and distill-perf-audit-report.md
 # Facts Eval Evidence Audit
 
 - Status: **PASS**
@@ -487,7 +487,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp02xxtm8t/disti
 |---|---|---|---|---|---|---|
 | raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proof_labels | True |
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp11w40xpm/facts-eval-audit-report.json and facts-eval-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp_h_0and_/facts-eval-audit-report.json and facts-eval-audit-report.md
 # Facts Eval Evidence Audit
 
 - Status: **PASS**
@@ -500,7 +500,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp11w40xpm/facts
 - Brain manifest hash: `unset`
 - Required retrievers: none
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp24324wjp/facts-eval-audit-report.json and facts-eval-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbuxi0qyz/facts-eval-audit-report.json and facts-eval-audit-report.md
 # Facts Eval Evidence Audit
 
 - Status: **PASS**
@@ -519,7 +519,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp24324wjp/facts
 |---|---|---|---|---|---|---|
 | raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proof_labels | True |
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmph6quw0gj/facts-eval-audit-report.json and facts-eval-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpd4e00u15/facts-eval-audit-report.json and facts-eval-audit-report.md
 # Facts Eval Evidence Audit
 
 - Status: **FAIL**
@@ -538,7 +538,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmph6quw0gj/facts
 |---|---|---|---|---|---|---|
 | raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proxy_or_mixed | True |
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpn2micby4/facts-eval-audit-report.json and facts-eval-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp6v_ckj4z/facts-eval-audit-report.json and facts-eval-audit-report.md
 # Facts Eval Evidence Audit
 
 - Status: **FAIL**
@@ -557,48 +557,48 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpn2micby4/facts
 |---|---|---|---|---|---|---|
 | raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proof_labels | False |
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpn2micby4/facts-eval-audit-report.json and facts-eval-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp6v_ckj4z/facts-eval-audit-report.json and facts-eval-audit-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp2553k5gz/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpeieka06f/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpoeo655e2/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9vw8s1xf/radar-candidate-report.json and radar-candidate-report.md
 Radar evidence is no-claim; no proof-ready comparison required.
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp7f4roola/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbo8ba4kd/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpfij0v5xe/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmptvx5cguf/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpndq76v3u/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpzl9gfsdl/radar-candidate-report.json and radar-candidate-report.md
 Radar evidence is no-claim; no proof-ready comparison required.
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9izuhcp2/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp2ijlipro/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp38aql6co/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpwp0rm95k/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp63a85vgx/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpkzhsygew/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp34ykxmss/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpqoghf8rg/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp34ykxmss/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpqoghf8rg/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpci36g6oz/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp3ejkvbcy/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpaloi_hql/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp60a_d9xv/radar-candidate-report.json and radar-candidate-report.md
 # Regression Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpaloi_hql/radar-candidate-report.json and radar-candidate-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp60a_d9xv/radar-candidate-report.json and radar-candidate-report.md
 # MCP/Radar Tool Evidence Audit
 
 - Status: **PASS**
@@ -611,7 +611,7 @@ Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpaloi_hql/radar
 ## Limitations
 - Tool-contract proof only; this is not agent lift proof.
 
-Wrote /var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpxypk08xc/radar-tool-audit-report.json and radar-tool-audit-report.md
+Wrote /var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp4b43h7o0/radar-tool-audit-report.json and radar-tool-audit-report.md
 # MCP/Radar Tool Evidence Audit
 
 - Status: **FAIL**
@@ -627,16 +627,16 @@ Wrote /var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpxypk08xc/radar-tool-au
 ## Limitations
 - Tool-contract proof only; this is not agent lift proof.
 
-Wrote /var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpua5cr78a/radar-tool-audit-report.json and radar-tool-audit-report.md
+Wrote /var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp1p_859xg/radar-tool-audit-report.json and radar-tool-audit-report.md
 # Release Readiness Matrix
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpipr7fj_n/release-matrix-report.json and release-matrix-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpxado8dnr/release-matrix-report.json and release-matrix-report.md
 # Release Readiness Matrix
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp6f50ax0t/release-matrix-report.json and release-matrix-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmph62xganh/release-matrix-report.json and release-matrix-report.md
 # Workspace Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbyvq_f1m/workspace-radar-audit-report.json and workspace-radar-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp34jgqpdg/workspace-radar-audit-report.json and workspace-radar-audit-report.md
 # Workspace Radar Evidence Audit
 
-Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpysqm3bvu/workspace-radar-audit-report.json and workspace-radar-audit-report.md
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp0lvhuxbm/workspace-radar-audit-report.json and workspace-radar-audit-report.md

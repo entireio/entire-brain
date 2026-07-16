@@ -8,32 +8,32 @@
     },
     {
       "path": "benchmarks/agent-brain/analysis/common.py",
-      "sha256": "afe47b4d4176d2e4c9920d94e14ad4721bf202da88426864b05d3fe8ece41979"
+      "sha256": "bc290c174f1d17cbe14333b3a2e91b6f89e8081e5c578b263e4ce8efd2bb883d"
     },
     {
       "path": "benchmarks/agent-brain/analysis/confirmatory.py",
-      "sha256": "244e79f2b197d939da66e7d99ae92080622a89d5f07c5d233571613936ced47e"
+      "sha256": "49007f480cd85a221ea1d56d55a0e0b3fdaeca84d14737d7db0905f830972a90"
     },
     {
       "path": "benchmarks/agent-brain/analysis/evidence.py",
-      "sha256": "836943055654b8f1fda6c9bb716d13de4711d47a36205d32fdcd41f803b56486"
+      "sha256": "be0591224715112d4f947668c711d0c57f3441725678fa9b859b296c068ad57e"
     },
     {
       "path": "benchmarks/agent-brain/analysis/metrics.py",
       "sha256": "306657b00dd8d16de288b1a5c461f36e77394584a3f6804872e9921dba7980df"
     },
     {
-      "path": "benchmarks/agent-brain/analysis/schemas/confirmatory-analysis-v1.schema.json",
-      "sha256": "371ddefce7ee057018fa8acd016341f82436553f30da990f294e3d314f286dcc"
+      "path": "benchmarks/agent-brain/analysis/schemas/confirmatory-analysis-v2.schema.json",
+      "sha256": "34ef420668ab9f33cb399e41e5685cee5bb5067cfdfe4914ec7deda8137da889"
     },
     {
-      "path": "benchmarks/agent-brain/analysis/schemas/run-v1.schema.json",
-      "sha256": "5dc9a1c9a5cbb609e5c85a36ce125011b11ce7934530dce0be1ec859ae6a22de"
+      "path": "benchmarks/agent-brain/analysis/schemas/run-v2.schema.json",
+      "sha256": "f12ed0e29a69cd4b1b75e1b4138ebb43ecc384e252da2d6ee5c94b3602666364"
     },
     {
       "path": "benchmarks/agent-brain/analysis/schemas/suite-v1.schema.json",
       "sha256": "cbde71ee10db2e4f14ed668a4341f4b5c5a68808453646d89a59ea0eee105cfe"
     }
   ],
-  "aggregate_sha256": "1407ba68fb09a6ad2a3f7f469e2261951537f0edddf26d18a1047b7a0fcfe9e2"
+  "aggregate_sha256": "ff2b4b0b0458c61dc3409d21ddc3f4e792a3fc87e97187639e698e8a9fb4433b"
 }

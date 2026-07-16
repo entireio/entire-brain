@@ -8,7 +8,9 @@
     "effort": null
   },
   "pricing_quote": {
+    "schema": "agent-brain-price-quote/v2",
     "status": "pending",
+    "quote_sha256": null,
     "source_uri": null,
     "source_artifact_path": null,
     "source_artifact_sha256": null,
@@ -20,13 +22,31 @@
     "tokens_per_price_unit": 1000000,
     "prices_usd_per_unit": {
       "uncached_input": null,
-      "cached_input": null,
-      "output": null
+      "cache_read_input": null,
+      "cache_write_input": null,
+      "visible_output": null,
+      "reasoning_output": null
+    },
+    "price_aliases": {
+      "uncached_input": null,
+      "cache_read_input": null,
+      "cache_write_input": null,
+      "visible_output": null,
+      "reasoning_output": null
+    },
+    "usage_semantics": {
+      "input_tokens_includes": [],
+      "output_tokens_includes": [],
+      "counter_absence_means_zero": {
+        "cache_read_input": false,
+        "cache_write_input": false,
+        "reasoning_output": false
+      }
     }
   },
   "design": {
-    "protocol_id": "agent-brain-confirmatory-v1-candidate",
-    "power_status_at_binding": "fail_calibration_insufficient",
+    "protocol_id": "agent-brain-confirmatory-v2-candidate",
+    "power_status_at_binding": "pending_uncalibrated",
     "approved_for_budgeting": false,
     "tasks": 24,
     "treatments": [
@@ -43,8 +63,10 @@
     "mode": null,
     "explicit_per_call_caps": {
       "uncached_input": null,
-      "cached_input": null,
-      "output": null,
+      "cache_read_input": null,
+      "cache_write_input": null,
+      "visible_output": null,
+      "reasoning_output": null,
       "rationale": null
     },
     "empirical_bound": {
@@ -56,8 +78,10 @@
       "safety_multiplier": null,
       "observed_tokens_per_call": {
         "uncached_input": null,
-        "cached_input": null,
-        "output": null
+        "cache_read_input": null,
+        "cache_write_input": null,
+        "visible_output": null,
+        "reasoning_output": null
       }
     }
   },

@@ -1,6 +1,6 @@
 # Candidate preregistration: engine matrix and fresh confirmatory holdout
 
-Status: **integrated methodology draft; power redesign required; not frozen; no paid run
+Status: **joint-superiority methodology draft; floors, quote, and power calibration pending; not frozen; no paid run
 authorized**. Drafted 2026-07-15 before mining or opening a fresh confirmatory holdout.
 
 The confirmatory analyzer implementation and schemas are now frozen by the path-bound aggregate in
@@ -29,9 +29,10 @@ separate hard-pinned contract. These labels do not pass the offline engine thres
 K/aggregation, or substitute for the still-empty sealed holdout. The development query,
 answerable-product-task, and corpus-closed-null floors are now met. The final dataset must contain at
 least 12 sealed holdout queries over at least 12 unique untouched tasks. The fresh agent holdout target is 24
-unique tasks. If the pre-run power
-calculation misses 80% power for a 12% token reduction at the correctness gate, task count or
-repetitions must increase before sealing; they may not change after the holdout is opened.
+unique tasks. The pre-run design must achieve at least 80% planned power for every co-primary
+endpoint—elapsed time, normalized billed cost, and code quality—under a frozen joint model before
+sealing. Task count or repetitions must increase if that joint design is underpowered; neither may
+change after the holdout is opened.
 
 All 14 label decisions are retained as per-query/per-judgment manual review records in
 `offline-relevance-review-ledger.json`; unavailable historical packet bytes are not claimed as label
@@ -76,37 +77,72 @@ Comparable prompts are treatment-neutral. Primary treatments are `no_memory`, `p
 `retrieved_memory` using product (user-prompt-derived) queries. `oracle_retrieval` is an optional upper
 bound, analyzed separately and excluded from the product-effect claim.
 
-The analysis hierarchy is fixed:
+The v2 analysis hierarchy is fixed:
 
-1. Execution and validation integrity: all requested cells accounted for; evidence verification must
-   pass. Infrastructure-invalid attempts are reported and replaced only under the interruption rule.
-2. Correctness: task-level paired validation pass rate over **all valid attempts**. Retrieved memory
-   must clear a -0.10 absolute non-inferiority margin versus no memory (one-sided 95% clustered
-   bootstrap lower bound). Superiority is secondary.
-3. Tokens: only after the correctness gate clears, compare task-level mean total tokens over all valid
-   attempts, reporting the paired geometric-mean ratio and two-sided 95% task-clustered bootstrap CI.
-4. Wall time: separately controlled secondary endpoint using both harness wall time and agent-reported
-   API duration; neither substitutes for the other.
+1. Execution and evidence integrity: every requested cell must be present, balanced, and verified.
+   Once the causal treatment timer starts at the retrieval/no-op boundary, the attempt remains in
+   every endpoint even if no model request is sent; there is no success-only efficiency analysis.
+2. End-to-end user-visible elapsed time is co-primary. Its timer begins immediately before
+   harness-owned packet retrieval/delivery (a no-op at the same logical point for `no_memory`) and
+   stops at the agent final response boundary captured immediately when the final provider process
+   returns, before usage parsing, hashing, or artifact writes. Worktree/cache setup, secret preflight,
+   hidden validation, and full-cell cleanup are separate diagnostics. The paired task geometric-mean ratio must have a
+   one-sided 95% upper bound below the provisional 0.90 practical floor.
+3. Normalized billed model cost is co-primary. Each run retains mutually exclusive uncached-input,
+   cache-read-input, cache-write-input, visible-output, and reasoning-output counts. Inclusive
+   provider totals are subtracted exactly once; no cache-write or reasoning usage may be omitted.
+   Visible output is the provider output total after subtracting reasoning only when the provider
+   declares reasoning included; reasoning output always comes from its own canonical counter.
+   Every category is bound to a frozen direct price or explicit price alias, and the quote freezes
+   whether input/output counters include subcategories plus whether an absent cache-read,
+   cache-write, or reasoning counter is contractually zero. No category is inferred from a generic
+   total-token number. Every provider invocation, including failed and retried calls, retains its
+   own usage and output artifacts. The final cumulative snapshot is used once within an isolated
+   invocation; mutually exclusive categories are then summed across invocations. The paired task
+   geometric-mean cost ratio must have a one-sided 95% upper bound below the provisional 0.88 floor.
+4. Task-normalized code quality is co-primary on [0,1]. The rubric normalizes only predeclared
+   output criteria: hidden-validation/outcome points and patch-focus points (including task-specific
+   validation already declared by the task). Agent process behavior such as running tests or checking
+   a diff, plus time, tokens, and treatment-specific tool-use points, remains diagnostic and is
+   excluded. Hidden-validation, forbidden-file, or integrity-critical failures force the attempt
+   score to zero. The paired task mean difference must have a one-sided 95% lower bound above the
+   provisional +0.05 floor.
+
+The confirmatory verdict is an intersection-union test: all three component bounds must clear their
+frozen practical floors. Retrieved memory versus no memory is the only claim-bearing contrast.
+Placebo and product-baseline contrasts are diagnostic. Raw validation/pass rates, process-behavior
+signals, raw token usage, harness agent-interval timing, and provider API duration remain visible
+diagnostics but cannot gate, replace, or rescue a co-primary endpoint. A timed-out executed attempt
+retains its measured monotonic end-to-end interval; an agent-component timeout limit is never
+substituted for that total. Missing billed usage—including an early retrieval timeout before a model
+request—or missing quality fields invalidates the suite; there is no unregistered zero-cost or usage
+imputation rule.
+
+The frozen runner must expose one priceable actual model row per invocation. The current strict v2
+adapter supports Codex's cumulative `turn.completed.usage` counters only when optional-counter
+presence is stable across snapshots. A Claude invocation is eligible only when it contains exactly
+one terminal `result`, whose `modelUsage` contains exactly one actual model matching the pinned model;
+multiple terminal results or model rows are otherwise ineligible. Claude
+does not generally expose hidden reasoning separately, so absent `reasoningTokens` is unknown unless
+the frozen provider contract explicitly establishes absence as zero; the parser never assumes this.
 
 The provisional target design is 24 fresh tasks x 3 primary treatments x 4 repetitions = 288
 requested paid cells, counterbalanced by WS4. Its 29-call operational reserve yields 317 maximum
 calls; reserve is only for predeclared infrastructure-invalid replacements. This design is mirrored
 in `pricing-budget.json` for drift detection but is explicitly not approved for budgeting while the
-power gate is failed. Dollar cost remains null until the final powered design, exact
-provider/runner/model/effort, byte-hashed current quote, and per-call token envelope are pinned. The
-machine calculation separately prices uncached input, cached input, and output for every requested
-and reserve call. A named budget owner must approve a non-expired USD cap at least as large as that
+power gate is unresolved. Dollar cost remains null until the final powered design, exact
+provider/runner/model/effort, byte-hashed current quote, category aliases, and per-call token envelope
+are pinned. The machine calculation separately prices uncached input, cache-read input, cache-write
+input, visible output, and reasoning output for every requested and reserve call. A named budget
+owner must approve a non-expired USD cap at least as large as that
 computed maximum. See `PRICING-BUDGET-READINESS-2026-07-15.md`; no run may start with an unbounded,
 stale, or blank dollar cap.
 
-The checked-in confirmatory decision calculation does **not** substantiate this target design. Under
-its explicitly hypothetical conservative scenario, marginal power is 0.370207 for the 12% token
-effect and 0.243511 for correctness non-inferiority; repetitions alone cannot overcome the assumed
-task-level heterogeneity. The calculation is complete, but the power gate is failed. At four
-repetitions, 118 tasks and 1,416 cells meet both marginal targets only conditionally on those
-hypothetical assumptions. Across the listed tradeoff grid, the arithmetic cell minimum is 295 tasks
-x 1 repetition = 885 cells; it is not an approved design or evidence that one repetition is
-operationally sufficient.
+The checked-in v3 power artifact deliberately does **not** substantiate this target design. No
+retained source supplies exchangeable paired task-level variability for all three endpoints under
+the final runner, v2 treatment, timeout, price, and quality contracts. Therefore elapsed-time,
+normalized-cost, and quality marginal power are all null/pending rather than invented from legacy
+token/pass-rate data. The power gate remains failed and `power.completed` remains false.
 
 The v2 artifact also analyzes byte-verified retained exploratory outcomes under
 `power-calibration-exploratory-v1.json`. Those records use selected tasks, legacy treatments,
@@ -117,14 +153,17 @@ sealed, a methodology owner must either explicitly accept an assumption-only des
 envelope or preregister and budget a separate development-only calibration under the final runner
 and treatment contracts. See `POWER-DESIGN-OPTIONS-2026-07-15.md`.
 
-Use 10,000 task-clustered bootstrap resamples with a checked-in seed. Holm correction applies within
-each endpoint family for retrieved-vs-no-memory and placebo-vs-no-memory comparisons. All valid
-attempts and all numerical observations remain in the primary analysis; there is no performance
-outlier deletion. A cell interrupted before any model request may be rerun without counting as an
-attempt. Once a request is sent, the attempt is retained and classified by the common executed-run
-predicate. There is no efficacy peeking or optional stopping. Stop only at the fixed cell count, paid
-budget cap, or an integrity stop condition; integrity stops pause the entire suite and require a new
-versioned preregistration if methodology changes.
+Use 10,000 task-clustered bootstrap resamples with a checked-in seed. The intersection-union rule
+controls the joint claim at one-sided alpha 0.05 by requiring every component null to be rejected;
+no across-endpoint multiplicity adjustment is required. Placebo contrasts are diagnostics only. All
+executed attempts and all numerical observations remain in the primary analysis; there is no
+performance outlier deletion. Failures during replaceable setup before the causal treatment timer
+starts may be rerun without counting as an attempt. Once the timer starts at the harness-owned
+retrieval/no-op boundary, the attempt is retained even if retrieval fails before any model request.
+If such an attempt lacks billed usage, the suite stops as invalid rather than silently replacing the
+cell. There is no efficacy peeking or optional stopping. Stop only at the fixed cell count, paid budget
+cap, or an integrity stop condition; integrity stops pause the entire suite and require a new versioned
+preregistration if methodology changes.
 
 ## Dependencies and freeze rule
 

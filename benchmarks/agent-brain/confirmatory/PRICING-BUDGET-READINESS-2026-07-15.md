@@ -23,10 +23,17 @@ corresponding gate pending.
 3. **Attach a pricing quote.** Save a byte-stable quote snapshot in a repo-relative evidence path and
    record its SHA-256, authoritative source URI or contract reference, quote as-of time, retrieval
    time, expiry time, and a maximum-age policy. Normalize all prices to USD per 1,000,000 tokens and
-   separately record uncached-input, cached-input, and output prices as exact decimal strings. JSON
-   floating-point numbers and unverified web-page recollections are rejected.
+   separately record uncached-input, cache-read-input, cache-write-input, visible-output, and
+   reasoning-output prices (or explicit aliases) as exact decimal strings. JSON
+   floating-point numbers and unverified web-page recollections are rejected. Freeze the provider
+   counter contract at the same time: which cache counters are included in input, whether reasoning
+   is included in output, and—for cache-read, cache-write, and reasoning separately—whether an
+   absent counter is authoritatively zero. `false` means the counter must be present. A generic total
+   cannot supply a category. The pinned runner must emit exactly one terminal result and one
+   priceable actual model row; multi-result or multi-model Claude invocations are ineligible until a
+   separate frozen accounting treatment exists.
 4. **Choose the token-envelope policy.** Either:
-   - enter explicit per-call caps for uncached input, cached input, and output with a written
+   - enter explicit per-call caps for all five billed categories with a written
      rationale; or
    - attach byte-hashed empirical evidence collected under the exact pinned runner/model/effort,
      name the statistic and quantile, and choose an explicit safety multiplier of at least 1.
@@ -43,7 +50,7 @@ corresponding gate pending.
 
    The calculation prices every requested and reserve call at the frozen per-call envelope:
 
-   `maximum_calls_with_reserve * (uncached_input*input_price + cached_input*cached_price + output*output_price) / 1,000,000`
+   `maximum_calls_with_reserve * sum(each mutually exclusive billed category * its frozen direct or aliased price) / 1,000,000`
 
 6. **Approve the cap.** A budget owner must record an approved USD cap at least as large as the
    computed maximum, stable approver identity, approver role, approval timestamp, and approval
@@ -61,6 +68,11 @@ freeze additionally remains blocked by the go/no-go checklist. It rejects a pass
 these bindings is missing, when design arithmetic or preregistration fields drift, when an empirical
 sample names another runner, when quote or approval validity has expired, when the calculation is
 stale, or when approval is below the computed maximum.
+
+At execution time, each retry invocation retains its own provider output and normalized billing
+record. The harness selects the final cumulative snapshot once per isolated invocation and sums the
+five mutually exclusive categories across all attempts, including failed attempts. Any attempt with
+missing or ambiguous usage invalidates the confirmatory cell; it is never treated as free.
 
 No pricing lookup, model selection, purchase, fresh-holdout access, or paid agent call was performed
 to create this contract.

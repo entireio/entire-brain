@@ -74,13 +74,15 @@ confirmatory analyzer is implemented and path-locked.
   the remaining durable repository-retention blocker; the external local bundle is not freeze
   evidence until its exact bytes are retained through the approved artifact strategy.
 - `power_analysis.py`, `power-analysis.json`, and `POWER-DESIGN-OPTIONS-2026-07-15.md`: deterministic
-  unpaid sensitivity and task/repetition tradeoffs. The current 24-task x 4-repetition design fails;
-  no alternative row is approved without a human choice of calibration basis.
+  unpaid v3 power contract for time, normalized cost, and code quality. All three remain
+  uncalibrated under the final runner/treatment contract, so numeric power is intentionally null and
+  the current 24-task x 4-repetition design is not approved.
 - `power-calibration-exploratory-v1.json`: content-addressed manifest for sparse retained legacy
   outcomes. The derived diagnostics are quarantined from confirmatory assumptions and cannot pass
   the power gate.
 - `pricing-budget.json`, `pricing_budget.py`, and `schemas/pricing-budget.schema.json`: provider-neutral
-  pricing quote, token-envelope arithmetic, staleness, and explicit budget-approval contract. All
+  pricing quote, five-category token-envelope arithmetic (including cache-write and reasoning),
+  staleness, and explicit budget-approval contract. All
   human/model/price fields remain pending. `PRICING-BUDGET-READINESS-2026-07-15.md` lists the exact
   decisions and evidence needed to close the two budget gates.
 - `go-no-go.json`: paid-run gate. Every item must be `pass`; `pending` is a hard no-go.

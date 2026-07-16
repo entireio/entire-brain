@@ -5,20 +5,24 @@ from __future__ import annotations
 from typing import Any
 
 
-EXECUTED_RUN_PREDICATE_VERSION = 1
+EXECUTED_RUN_PREDICATE_VERSION = 2
 
 
 def is_executed_run(record: dict[str, Any]) -> bool:
-    """Return whether an agent actually executed and produced an outcome.
+    """Return whether the causal treatment interval actually started.
 
-    New records explicitly set ``agent_ran``.  The conservative legacy fallback
-    accepts records with measured agent output so retained pre-schema suites can
-    still be migrated.  Infrastructure-only synthetic records are never
-    executed.  Validation failures, non-zero return codes, errors after agent
-    start, and protocol/adherence failures remain executed outcomes.
+    V2 records explicitly set ``treatment_started`` at the harness-owned
+    retrieval/no-op boundary.  A retrieval or delivery failure after that
+    boundary is therefore an executed product outcome even if no model request
+    was sent.  ``agent_ran`` remains the conservative legacy fallback so
+    retained pre-v2 suites can still be migrated.  Validation failures,
+    non-zero return codes, and integrity failures after treatment start remain
+    executed outcomes; pre-treatment setup failures do not.
     """
     if record.get("analysis_excluded"):
         return False
+    if isinstance(record.get("treatment_started"), bool):
+        return bool(record["treatment_started"])
     if isinstance(record.get("agent_ran"), bool):
         return bool(record["agent_ran"])
     agent_info = record.get("agent_info")

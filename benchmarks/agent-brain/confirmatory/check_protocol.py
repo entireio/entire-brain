@@ -891,7 +891,8 @@ def validate_power_analysis(
 ) -> list[str]:
     errors: list[str] = []
     artifact_path = here / "power-analysis.json"
-    completed = protocol.get("agent_design", {}).get("power", {}).get("completed") is True
+    power = protocol.get("agent_design", {}).get("power", {})
+    completed = power.get("completed") is True
     decided = check.get("status") in {"pass", "fail"}
     if not artifact_path.exists() and not completed and not decided:
         return errors
@@ -908,43 +909,50 @@ def validate_power_analysis(
         return errors
     _error(errors, artifact == expected, "power-analysis.json is stale or does not match power_analysis.build_report()")
     decision_passed = artifact.get("decision", {}).get("passed") is True
-    status_passed = artifact.get("status") == "pass"
-    _error(errors, decision_passed == status_passed, "power artifact status and decision disagree")
-    power = protocol.get("agent_design", {}).get("power", {})
-    _error(errors, completed, "checked-in power analysis requires protocol power.completed=true")
+    _error(errors, artifact.get("schema_version") == 3, "power artifact schema_version must be 3")
+    _error(
+        errors,
+        (artifact.get("status") == "pass") is decision_passed,
+        "power artifact status and decision disagree",
+    )
+    _error(
+        errors,
+        completed is decision_passed,
+        "protocol power.completed must remain false until all three endpoints are calibrated and powered",
+    )
     protocol_evidence = _evidence_path(power.get("evidence"), here, repo)
     _error(errors, protocol_evidence == artifact_path.resolve(), "protocol power evidence must reference power-analysis.json")
     _error(errors, power.get("analysis_kind") == artifact.get("analysis_kind"), "protocol power analysis_kind does not match artifact")
-    if artifact.get("schema_version") == 2:
-        _error(
-            errors,
-            power.get("design_options_evidence") == "power-analysis.json#design_options",
-            "protocol design_options_evidence must reference power-analysis.json#design_options",
-        )
-        artifact_calibration = artifact.get("exploratory_calibration", {})
-        protocol_calibration = power.get("exploratory_calibration", {})
-        expected_calibration = {
-            "manifest": pathlib.Path(str(artifact_calibration.get("manifest_path") or "")).name,
-            "eligibility": "exploratory_only",
-            "confirmatory_assumption_source": False,
-            "unique_task_ids": artifact_calibration.get("unique_task_ids_across_sources"),
-            "paired_task_cluster_instances": artifact_calibration.get(
-                "paired_task_cluster_instances"
-            ),
-            "pooled_estimate_prohibited": artifact_calibration.get(
-                "pooled_estimate_prohibited"
-            ),
-        }
-        _error(
-            errors,
-            protocol_calibration == expected_calibration,
-            "protocol exploratory calibration summary does not match power artifact",
-        )
+    artifact_floors = artifact.get("co_primary_endpoints", {})
+    expected_floors = {
+        "elapsed_time_ratio_max": artifact_floors.get("elapsed_time", {}).get("practical_floor", {}).get("ratio_max"),
+        "normalized_cost_ratio_max": artifact_floors.get("normalized_cost", {}).get("practical_floor", {}).get("ratio_max"),
+        "code_quality_difference_min": artifact_floors.get("code_quality", {}).get("practical_floor", {}).get("difference_min"),
+        "status": "provisional" if not decision_passed else "frozen_approved",
+    }
+    _error(
+        errors,
+        power.get("co_primary_planning_floors") == expected_floors,
+        "protocol co-primary planning floors do not match power artifact",
+    )
+    artifact_calibration = artifact.get("exploratory_calibration", {})
+    expected_calibration = {
+        "manifest": pathlib.Path(str(artifact_calibration.get("manifest_path") or "")).name,
+        "eligibility": "exploratory_only",
+        "confirmatory_assumption_source": False,
+        "unique_task_ids": artifact_calibration.get("unique_task_ids_across_sources"),
+        "paired_task_cluster_instances": artifact_calibration.get("paired_task_cluster_instances"),
+        "pooled_estimate_prohibited": artifact_calibration.get("pooled_estimate_prohibited"),
+    }
+    _error(
+        errors,
+        power.get("exploratory_calibration") == expected_calibration,
+        "protocol exploratory calibration summary does not match power artifact",
+    )
     protocol_status = power.get("status")
     _error(
         errors,
-        isinstance(protocol_status, str)
-        and (protocol_status == "pass" if decision_passed else protocol_status.startswith("fail")),
+        protocol_status == ("pass" if decision_passed else "pending_uncalibrated"),
         "protocol power status does not match deterministic decision",
     )
     _error(
@@ -957,6 +965,121 @@ def validate_power_analysis(
     if check.get("status") in {"pass", "fail"}:
         target = _evidence_path(check.get("evidence"), here, repo)
         _error(errors, target == artifact_path.resolve(), "power decision evidence must reference power-analysis.json")
+    return errors
+
+
+def validate_joint_success_contract(protocol: dict[str, Any], *, freeze: bool) -> list[str]:
+    """Validate the self-hashed v2 intersection-union success contract."""
+    errors: list[str] = []
+    contract = protocol.get("agent_design", {}).get("success_contract")
+    if not isinstance(contract, dict):
+        return ["joint superiority success contract is missing"]
+    _error(
+        errors,
+        contract.get("schema") == "agent-brain-joint-superiority-contract/v2",
+        "joint superiority success contract schema changed",
+    )
+    _error(
+        errors,
+        contract.get("primary_contrast") == "retrieved_memory_vs_no_memory",
+        "joint superiority primary contrast changed",
+    )
+    _error(errors, contract.get("intersection_union_alpha") == 0.05, "joint superiority alpha changed")
+    endpoints = contract.get("endpoints")
+    expected_names = {"elapsed_time", "normalized_cost", "code_quality"}
+    if not isinstance(endpoints, dict):
+        errors.append("joint superiority endpoints must be an object")
+        endpoints = {}
+    _error(errors, set(endpoints) == expected_names, "joint superiority endpoint set changed")
+    expected_shapes = {
+        "elapsed_time": ("lower", "paired_task_geometric_mean_ratio", "practical_ratio_max", 0.9),
+        "normalized_cost": ("lower", "paired_task_geometric_mean_ratio", "practical_ratio_max", 0.88),
+        "code_quality": ("higher", "paired_task_mean_difference", "practical_difference_min", 0.05),
+    }
+    for name, (direction, estimand, floor_key, provisional_floor) in expected_shapes.items():
+        endpoint = endpoints.get(name)
+        if not isinstance(endpoint, dict):
+            errors.append(f"joint superiority {name} endpoint is missing")
+            continue
+        _error(errors, endpoint.get("direction") == direction, f"joint superiority {name} direction changed")
+        _error(errors, endpoint.get("estimand") == estimand, f"joint superiority {name} estimand changed")
+        floor = endpoint.get(floor_key)
+        _error(
+            errors,
+            isinstance(floor, (int, float)) and not isinstance(floor, bool) and floor == provisional_floor,
+            f"joint superiority {name} practical floor changed without methodology update",
+        )
+        _error(
+            errors,
+            endpoint.get("floor_status") in {"provisional", "frozen_approved"},
+            f"joint superiority {name} floor status is invalid",
+        )
+    _error(
+        errors,
+        contract.get("code_quality_measurement")
+        == {
+            "schema": "agent-brain-code-quality/v2",
+            "rubric": "task_relative_output_outcome_patch_focus_v2",
+            "included_components": ["outcome", "patch_focus"],
+            "normalization_denominator_points": 75,
+            "excluded_components": [
+                "validation_discipline",
+                "runtime_efficiency",
+                "brain_use",
+            ],
+            "critical_failure_forces_zero": True,
+        },
+        "joint superiority code-quality measurement changed",
+    )
+    timeout = contract.get("timeout_policy")
+    if not isinstance(timeout, dict):
+        errors.append("joint superiority timeout policy is missing")
+        timeout = {}
+    _error(
+        errors,
+        timeout.get("policy")
+        == "retain_measured_end_to_end_elapsed_no_component_cap_substitution",
+        "joint superiority timeout policy changed",
+    )
+    _error(
+        errors,
+        timeout.get("elapsed_field") == "timing.end_to_end_user_visible_wall_seconds"
+        and timeout.get("substitute_component_timeout_limit") is False,
+        "joint superiority timeout elapsed-observation contract changed",
+    )
+    limit = timeout.get("agent_timeout_limit_seconds")
+    _error(
+        errors,
+        isinstance(limit, (int, float)) and not isinstance(limit, bool) and math.isfinite(float(limit)) and limit > 0,
+        "joint superiority agent timeout limit must be positive",
+    )
+    _error(
+        errors,
+        timeout.get("status") in {"provisional", "frozen_approved"},
+        "joint superiority timeout status is invalid",
+    )
+    canonical = copy.deepcopy(contract)
+    recorded_hash = canonical.pop("contract_sha256", None)
+    _error(errors, _is_sha256(recorded_hash), "joint superiority contract hash is invalid")
+    _error(
+        errors,
+        recorded_hash == canonical_json_sha256(canonical),
+        "joint superiority contract self-hash mismatch",
+    )
+    if freeze:
+        _error(errors, contract.get("status") == "frozen_approved", "joint superiority contract is not frozen and approved")
+        _error(
+            errors,
+            all(item.get("floor_status") == "frozen_approved" for item in endpoints.values() if isinstance(item, dict)),
+            "all three practical floors are not frozen and approved",
+        )
+        _error(errors, timeout.get("status") == "frozen_approved", "timeout policy is not frozen and approved")
+    else:
+        _error(
+            errors,
+            contract.get("status") in {"provisional", "frozen_approved"},
+            "joint superiority contract status is invalid",
+        )
     return errors
 
 
@@ -1046,7 +1169,9 @@ def validate_pricing_budget(
         errors.append("pricing_quote must be an object")
         quote = {}
     quote_fields = (
+        "schema",
         "status",
+        "quote_sha256",
         "source_uri",
         "source_artifact_path",
         "source_artifact_sha256",
@@ -1057,9 +1182,12 @@ def validate_pricing_budget(
         "currency",
         "tokens_per_price_unit",
         "prices_usd_per_unit",
+        "price_aliases",
+        "usage_semantics",
     )
     _require_exact_fields(errors, quote, quote_fields, "pricing_quote")
     _error(errors, quote.get("status") in {"pending", "pinned"}, "pricing quote status is invalid")
+    _error(errors, quote.get("schema") == "agent-brain-price-quote/v2", "pricing quote schema changed")
     _error(errors, quote.get("currency") == "USD", "pricing quote currency must be USD")
     _error(errors, quote.get("tokens_per_price_unit") == 1_000_000, "pricing quote unit must be USD per 1,000,000 tokens")
     prices = quote.get("prices_usd_per_unit")
@@ -1074,6 +1202,50 @@ def validate_pricing_budget(
                 pricing_budget.parse_decimal(value, f"prices_usd_per_unit.{key}")
             except ValueError as exc:
                 errors.append(str(exc))
+    aliases = quote.get("price_aliases")
+    if not isinstance(aliases, dict):
+        errors.append("pricing quote price_aliases must be an object")
+        aliases = {}
+    _error(errors, set(aliases) == set(pricing_budget.TOKEN_KEYS), "pricing quote alias categories changed")
+    semantics = quote.get("usage_semantics")
+    if not isinstance(semantics, dict):
+        errors.append("pricing quote usage_semantics must be an object")
+        semantics = {}
+    _error(
+        errors,
+        set(semantics)
+        == {
+            "input_tokens_includes",
+            "output_tokens_includes",
+            "counter_absence_means_zero",
+        },
+        "pricing quote usage semantics fields changed",
+    )
+    input_includes = semantics.get("input_tokens_includes")
+    output_includes = semantics.get("output_tokens_includes")
+    absence = semantics.get("counter_absence_means_zero")
+    _error(
+        errors,
+        isinstance(input_includes, list)
+        and _unique_strings(input_includes)
+        and set(input_includes).issubset({"cache_read_input", "cache_write_input"}),
+        "pricing quote input inclusion semantics are invalid",
+    )
+    _error(
+        errors,
+        isinstance(output_includes, list)
+        and _unique_strings(output_includes)
+        and set(output_includes).issubset({"reasoning_output"}),
+        "pricing quote output inclusion semantics are invalid",
+    )
+    _error(
+        errors,
+        isinstance(absence, dict)
+        and set(absence)
+        == {"cache_read_input", "cache_write_input", "reasoning_output"}
+        and all(isinstance(value, bool) for value in absence.values()),
+        "pricing quote counter-absence semantics are invalid",
+    )
 
     agent_design = protocol.get("agent_design", {})
     power = agent_design.get("power", {})
@@ -1141,10 +1313,34 @@ def validate_pricing_budget(
         }
         _verify_hashed_file(errors, source_record, "pricing quote source artifact", repo=repo)
         for key in pricing_budget.TOKEN_KEYS:
-            try:
-                pricing_budget.parse_decimal(prices.get(key), f"prices_usd_per_unit.{key}")
-            except ValueError as exc:
-                errors.append(str(exc))
+            direct = prices.get(key)
+            alias = aliases.get(key)
+            _error(
+                errors,
+                (direct is None) != (alias is None),
+                f"pricing quote {key} must set exactly one direct price or alias",
+            )
+            if direct is not None:
+                try:
+                    pricing_budget.parse_decimal(direct, f"prices_usd_per_unit.{key}")
+                except ValueError as exc:
+                    errors.append(str(exc))
+            if alias is not None:
+                _error(
+                    errors,
+                    alias in pricing_budget.TOKEN_KEYS
+                    and alias != key
+                    and prices.get(alias) is not None,
+                    f"pricing quote {key} alias must target a direct category price",
+                )
+        canonical_quote = copy.deepcopy(quote)
+        recorded_quote_hash = canonical_quote.pop("quote_sha256", None)
+        _error(errors, _is_sha256(recorded_quote_hash), "pricing quote self-hash is invalid")
+        _error(
+            errors,
+            recorded_quote_hash == canonical_json_sha256(canonical_quote),
+            "pricing quote self-hash mismatch",
+        )
         for field in quote_times:
             quote_times[field] = _parse_timestamp(errors, quote.get(field), f"pricing_quote.{field}")
         maximum_age_days = quote.get("maximum_age_days")
@@ -1167,6 +1363,8 @@ def validate_pricing_budget(
             _error(errors, current <= expires_at, "pricing quote has expired")
         if as_of is not None and isinstance(maximum_age_days, int) and not isinstance(maximum_age_days, bool) and maximum_age_days > 0:
             _error(errors, current <= as_of + timedelta(days=maximum_age_days), "pricing quote exceeds its maximum age")
+    else:
+        _error(errors, quote.get("quote_sha256") is None, "pending pricing quote hash must remain null")
 
     if price_check.get("status") == "pass":
         _error(errors, quote_pinned, "model/runner/price gate cannot pass until the quote is pinned")
@@ -1190,7 +1388,7 @@ def validate_pricing_budget(
     _require_exact_fields(
         errors,
         caps,
-        ("uncached_input", "cached_input", "output", "rationale"),
+        (*pricing_budget.TOKEN_KEYS, "rationale"),
         "explicit_per_call_caps",
     )
     empirical = assumptions.get("empirical_bound")
@@ -3186,6 +3384,8 @@ def validate(freeze: bool = False) -> list[str]:
     dataset = load(HERE / "offline-relevance-dataset.json")
     gate = load(HERE / "go-no-go.json")
     errors.extend(validate_inventory(inventory))
+    _error(errors, protocol.get("schema_version") == 2, "preregistration schema_version must be 2")
+    errors.extend(validate_joint_success_contract(protocol, freeze=freeze))
     errors.extend(validate_engine_pin_binding(protocol))
     pins = _load_artifact(ENGINE_PINS, errors, "engine-verification-pins.json")
     if pins is not None:

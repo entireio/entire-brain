@@ -301,6 +301,12 @@ therefore score above a higher-effort runner when both solve the task but the
 lower-effort run is faster or cheaper. Do not compare v1 and v2 score means
 directly; rerun retained tasks after a scoring change.
 
+The confirmatory v2 code-quality endpoint is deliberately narrower than this
+exploratory utility score: it normalizes only output `outcome` and `patch_focus`
+points. `validation_discipline` (whether the agent ran tests or checked its
+diff), runtime efficiency, token use, and brain-use behavior remain diagnostics
+and cannot improve confirmatory quality.
+
 Phase 2 scenario discovery is generated with `discover`:
 
 ```sh

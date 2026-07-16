@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
-  "protocol_id": "agent-brain-confirmatory-v1-candidate",
-  "status": "integrated_methodology_draft_power_redesign_required",
+  "schema_version": 2,
+  "protocol_id": "agent-brain-confirmatory-v2-candidate",
+  "status": "joint_superiority_draft_floors_and_power_pending",
   "drafted_at": "2026-07-15T12:00:00+02:00",
   "holdout_opened": false,
   "legacy_inventory": "task-inventory.json",
@@ -80,18 +80,60 @@
     "repetitions_per_treatment": 4,
     "requested_cells": 288,
     "maximum_calls_with_reserve": 317,
+    "success_contract": {
+      "schema": "agent-brain-joint-superiority-contract/v2",
+      "status": "provisional",
+      "primary_contrast": "retrieved_memory_vs_no_memory",
+      "intersection_union_alpha": 0.05,
+      "endpoints": {
+        "elapsed_time": {
+          "direction": "lower",
+          "estimand": "paired_task_geometric_mean_ratio",
+          "practical_ratio_max": 0.9,
+          "floor_status": "provisional"
+        },
+        "normalized_cost": {
+          "direction": "lower",
+          "estimand": "paired_task_geometric_mean_ratio",
+          "practical_ratio_max": 0.88,
+          "floor_status": "provisional"
+        },
+        "code_quality": {
+          "direction": "higher",
+          "estimand": "paired_task_mean_difference",
+          "practical_difference_min": 0.05,
+          "floor_status": "provisional"
+        }
+      },
+      "code_quality_measurement": {
+        "schema": "agent-brain-code-quality/v2",
+        "rubric": "task_relative_output_outcome_patch_focus_v2",
+        "included_components": ["outcome", "patch_focus"],
+        "normalization_denominator_points": 75,
+        "excluded_components": ["validation_discipline", "runtime_efficiency", "brain_use"],
+        "critical_failure_forces_zero": true
+      },
+      "timeout_policy": {
+        "policy": "retain_measured_end_to_end_elapsed_no_component_cap_substitution",
+        "elapsed_field": "timing.end_to_end_user_visible_wall_seconds",
+        "agent_timeout_limit_seconds": 1800.0,
+        "substitute_component_timeout_limit": false,
+        "status": "provisional"
+      },
+      "contract_sha256": "268406299a1bd732d548fb2ed2825822ad0cf995f9b90c4ccc005ff6dd29eede"
+    },
     "power": {
       "target": 0.8,
-      "token_reduction_target": 0.12,
-      "completed": true,
-      "status": "fail_calibration_insufficient",
+      "completed": false,
+      "status": "pending_uncalibrated",
       "evidence": "power-analysis.json",
-      "analysis_kind": "deterministic_assumption_sensitivity_with_quarantined_exploratory_calibration",
-      "conservative_marginal_power": {
-        "tokens": 0.370207,
-        "correctness_noninferiority": 0.243511
+      "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
+      "co_primary_planning_floors": {
+        "elapsed_time_ratio_max": 0.9,
+        "normalized_cost_ratio_max": 0.88,
+        "code_quality_difference_min": 0.05,
+        "status": "provisional"
       },
-      "design_options_evidence": "power-analysis.json#design_options",
       "exploratory_calibration": {
         "manifest": "power-calibration-exploratory-v1.json",
         "eligibility": "exploratory_only",
@@ -102,22 +144,25 @@
       },
       "design_decision_required": true
     },
-    "correctness": {"margin_absolute": -0.1, "confidence": 0.95, "method": "one_sided_task_clustered_bootstrap"},
-    "tokens": {"estimand": "paired_task_geometric_mean_ratio_all_valid_attempts", "confidence": 0.95},
-    "wall_time": {"role": "secondary", "fields": ["harness_wall_seconds", "agent_api_seconds"]},
+    "raw_diagnostics": {
+      "validation_pass_rate": true,
+      "raw_usage_categories": true,
+      "harness_agent_interval_wall_seconds": true,
+      "agent_reported_api_seconds": true
+    },
     "bootstrap_resamples": 10000,
     "bootstrap_seed": 607152026,
-    "multiplicity": "holm_within_endpoint_family",
-    "outlier_policy": "retain_all_valid_attempts",
+    "multiplicity": "intersection_union_no_across_endpoint_adjustment_each_component_one_sided_alpha_0.05",
+    "attempt_policy": "all_executed_attempts_no_success_only_endpoints",
     "stopping_rule": "fixed_cells_or_budget_or_integrity_pause_no_efficacy_peeking"
   },
   "paid_budget": {
     "contract": "pricing-budget.json",
     "status": "pending",
     "currency": "USD",
-    "formula_id": "worst_case_token_envelope_v1",
+    "formula_id": "worst_case_token_envelope_v2",
     "maximum_usd": null,
-    "formula": "maximum_calls_with_reserve * (uncached_input_tokens_per_call*uncached_input_price + cached_input_tokens_per_call*cached_input_price + output_tokens_per_call*output_price)"
+    "formula": "maximum_calls_with_reserve * sum(five mutually exclusive billed token categories * frozen category price or explicit alias)"
   },
   "dependencies": {
     "ws2_treatment_and_task_validity": "pass",
@@ -125,6 +170,6 @@
     "ws4_schedule_and_cache": "pass",
     "ws5_evidence_verification": "pass"
   },
-  "analyzer_sha256": "1407ba68fb09a6ad2a3f7f469e2261951537f0edddf26d18a1047b7a0fcfe9e2",
+  "analyzer_sha256": "ff2b4b0b0458c61dc3409d21ddc3f4e792a3fc87e97187639e698e8a9fb4433b",
   "freeze": {"frozen_at": null, "protocol_sha256": null}
 }

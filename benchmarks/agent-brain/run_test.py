@@ -2,6 +2,7 @@ import argparse
 import copy
 import hashlib
 import importlib.util
+import inspect
 import json
 import os
 import pathlib
@@ -101,7 +102,561 @@ class CounterbalancedRuntimeControlTests(unittest.TestCase):
     def test_agent_reported_api_time_is_never_synthesized(self):
         self.assertEqual(run.agent_reported_api_seconds('{"duration_api_ms":1250}'), 1.25)
         self.assertIsNone(run.agent_reported_api_seconds('{"duration_ms":1250}'))
-        self.assertEqual(run.TIMING_DEFINITIONS["primary"], "harness_agent_interval_wall_seconds")
+        self.assertEqual(run.TIMING_DEFINITIONS["primary"], "end_to_end_user_visible_wall_seconds")
+
+    def test_confirmatory_billing_normalization_prevents_inclusive_double_count(self):
+        self.assertEqual(
+            run.normalize_billed_token_categories(
+                {
+                    "input_tokens": 100,
+                    "cache_read_input_tokens": 40,
+                    "cache_write_input_tokens": 10,
+                    "output_tokens": 30,
+                    "reasoning_tokens": 10,
+                },
+                {
+                    "input_tokens_includes": ["cache_read_input", "cache_write_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": False,
+                        "reasoning_output": False,
+                    },
+                },
+            ),
+            {
+                "uncached_input": 50,
+                "cache_read_input": 40,
+                "cache_write_input": 10,
+                "visible_output": 20,
+                "reasoning_output": 10,
+            },
+        )
+
+    def test_impossible_provider_counters_fail_billing_without_dropping_attempt(self):
+        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        usage = {
+            "input_tokens": 10,
+            "cache_read_tokens": 20,
+            "cache_creation_tokens": 0,
+            "output_tokens": 5,
+            "reasoning_tokens": 0,
+        }
+        pricing = {
+            "runner": {"runner_id": "runner", "model_id": "model"},
+            "pricing_quote": {
+                "quote_sha256": "a" * 64,
+                "usage_semantics": {
+                    "input_tokens_includes": ["cache_read_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": False,
+                        "reasoning_output": False,
+                    },
+                },
+            },
+        }
+        self.assertIsNone(run.confirmatory_billing_usage(runner, usage, pricing))
+
+    def test_user_visible_timer_excludes_setup_preflight_and_hidden_validation(self):
+        source = inspect.getsource(run.run_one)
+        agent_source = inspect.getsource(run.run_agent)
+        preflight = source.index("secret_preflight = agent_secret_preflight")
+        timer_start = source.index("user_visible_interval_started = time.monotonic()")
+        retrieval = source.index("treatment_memory_packet(task, condition")
+        agent = source.index("agent_info = run_agent")
+        boundary = source.index('agent_info.pop(\n            "_response_finished_monotonic"')
+        timer_stop = source.index("float(agent_response_finished_monotonic) - user_visible_interval_started")
+        hidden_validation = source.index("validation = validate(task, worktree, env)")
+        self.assertLess(preflight, timer_start)
+        self.assertLess(timer_start, retrieval)
+        self.assertLess(retrieval, agent)
+        self.assertLess(agent, boundary)
+        self.assertLess(boundary, timer_stop)
+        self.assertLess(timer_stop, hidden_validation)
+        provider_return = agent_source.index("proc = run_cmd")
+        response_boundary = agent_source.index(
+            "attempt_response_finished_monotonic = time.monotonic()"
+        )
+        post_response_usage_parse = agent_source.index(
+            "attempt_usage = extract_usage"
+        )
+        self.assertLess(provider_return, response_boundary)
+        self.assertLess(response_boundary, post_response_usage_parse)
+
+    def test_run_agent_captures_response_boundary_before_usage_processing(self):
+        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        completed = run.subprocess.CompletedProcess(["codex"], 0, "", "")
+        clock = mock.Mock(side_effect=[10.0, 11.0, 20.0])
+
+        def parsed_after_boundary(*_args):
+            self.assertEqual(clock.call_count, 3)
+            return run.empty_agent_usage()
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(run.time, "monotonic", clock), \
+             mock.patch.object(run, "run_cmd", return_value=completed), \
+             mock.patch.object(run, "extract_usage", side_effect=parsed_after_boundary):
+            root = pathlib.Path(tmp)
+            info = run.run_agent(
+                runner,
+                "prompt",
+                root,
+                {},
+                root,
+                "no_brain",
+                {},
+                60,
+                0.0,
+                {},
+            )
+        self.assertEqual(info["_response_finished_monotonic"], 20.0)
+        self.assertEqual(info["seconds"], 10.0)
+        self.assertEqual(info["attempts"][0]["seconds"], 9.0)
+
+    def test_timeout_after_treatment_start_before_agent_is_executed_retrieval_outcome(self):
+        self.assertIsNone(run.treatment_timeout_stage(None, None))
+        self.assertEqual(
+            run.treatment_timeout_stage(10.0, None),
+            "treatment_retrieval_or_delivery",
+        )
+        self.assertEqual(run.treatment_timeout_stage(10.0, 12.0), "agent_execution")
+        source = inspect.getsource(run.run_one)
+        self.assertIn("timeout_occurred = timeout_stage is not None", source)
+        self.assertIn('record["treatment_started"] = True', source)
+        self.assertIn('"agent_ran": agent_interval_started is not None', source)
+
+    def test_cache_write_tokens_are_never_silently_dropped(self):
+        with self.assertRaisesRegex(ValueError, "exactly five token categories"):
+            run.normalize_billed_token_categories(
+                {
+                    "input_tokens": 100,
+                    "cache_read_input_tokens": 40,
+                    "output_tokens": 30,
+                    "reasoning_tokens": 10,
+                },
+                {
+                    "input_tokens_includes": ["cache_read_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": False,
+                        "reasoning_output": False,
+                    },
+                },
+            )
+
+    def test_pricing_budget_quote_binds_billing_semantics_and_cache_write(self):
+        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        value = run.confirmatory_billing_usage(
+            runner,
+            {
+                "input_tokens": 100,
+                "cache_read_tokens": 40,
+                "cache_creation_tokens": 10,
+                "output_tokens": 30,
+                "reasoning_tokens": 10,
+            },
+            {
+                "runner": {"runner_id": "runner", "model_id": "model"},
+                "pricing_quote": {
+                    "quote_sha256": "a" * 64,
+                    "usage_semantics": {
+                        "input_tokens_includes": ["cache_read_input", "cache_write_input"],
+                        "output_tokens_includes": ["reasoning_output"],
+                        "counter_absence_means_zero": {
+                            "cache_read_input": False,
+                            "cache_write_input": False,
+                            "reasoning_output": False,
+                        },
+                    },
+                },
+            },
+        )
+        self.assertIsNotNone(value)
+        self.assertEqual(value["price_quote_sha256"], "a" * 64)
+        self.assertEqual(value["exclusive"]["cache_write_input"], 10)
+        self.assertEqual(value["exclusive"]["uncached_input"], 50)
+
+    @staticmethod
+    def _confirmatory_pricing() -> dict:
+        return {
+            "runner": {"runner_id": "runner", "model_id": "model"},
+            "pricing_quote": {
+                "quote_sha256": "a" * 64,
+                "usage_semantics": {
+                    "input_tokens_includes": ["cache_read_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": True,
+                        "reasoning_output": False,
+                    },
+                },
+            },
+        }
+
+    @staticmethod
+    def _codex_result(input_tokens: int, output_tokens: int, cached: int, reasoning: int) -> str:
+        return json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "cached_input_tokens": cached,
+                    "output_tokens": output_tokens,
+                    "reasoning_output_tokens": reasoning,
+                },
+            }
+        )
+
+    @staticmethod
+    def _claude_result(
+        input_tokens: int,
+        output_tokens: int,
+        cache_read: int,
+        cache_write: int,
+        reasoning: int | None,
+        cost: float,
+        *,
+        models: tuple[str, ...] = ("model",),
+    ) -> str:
+        rows = {}
+        for model in models:
+            row = {
+                "inputTokens": input_tokens,
+                "outputTokens": output_tokens,
+                "cacheReadInputTokens": cache_read,
+                "cacheCreationInputTokens": cache_write,
+                "costUSD": cost,
+            }
+            if reasoning is not None:
+                row["reasoningTokens"] = reasoning
+            rows[model] = row
+        return json.dumps(
+            {
+                "type": "result",
+                "num_turns": 1,
+                "total_cost_usd": cost * len(models),
+                "modelUsage": rows,
+            }
+        )
+
+    def test_provider_parsers_choose_authoritative_cumulative_snapshot_once(self):
+        fixture_dir = RUN_PATH.parent / "analysis" / "fixtures"
+        codex = (fixture_dir / "provider-usage-codex-cumulative.ndjson").read_text()
+        usage = run.extract_usage("codex", codex, "")
+        self.assertEqual(usage["input_tokens"], 150)
+        self.assertEqual(usage["output_tokens"], 30)
+        self.assertEqual(usage["cache_read_tokens"], 60)
+        self.assertEqual(
+            usage["usage_report"]["accounting_basis"],
+            "last_cumulative_snapshot_per_isolated_invocation",
+        )
+
+        # Claude's terminal result can contain both modelUsage and a top-level
+        # usage object representing the same invocation. modelUsage is selected
+        # once; the duplicate and earlier assistant-event usage are not mined.
+        claude = (fixture_dir / "provider-usage-claude-terminal-result.ndjson").read_text()
+        usage = run.extract_usage("claude", claude, "")
+        self.assertEqual(
+            (
+                usage["input_tokens"],
+                usage["output_tokens"],
+                usage["cache_read_tokens"],
+                usage["cache_creation_tokens"],
+                usage["reasoning_tokens"],
+            ),
+            (10, 4, 20, 30, 2),
+        )
+        self.assertEqual(usage["usage_report"]["selected_source"], "modelUsage")
+        self.assertEqual(usage["usage_report"]["ignored_duplicate_source"], "usage")
+
+    def test_claude_reasoning_absence_and_multiple_model_rows_fail_closed(self):
+        runner = run.RunnerSpec(id="runner", agent="claude", model="model")
+        missing_reasoning = run.extract_usage(
+            "claude", self._claude_result(10, 5, 2, 3, None, 0.1), ""
+        )
+        self.assertIsNone(missing_reasoning["reasoning_tokens"])
+        pricing = self._confirmatory_pricing()
+        pricing["pricing_quote"]["usage_semantics"]["input_tokens_includes"] = []
+        pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "cache_write_input"
+        ] = False
+        self.assertIsNone(run.confirmatory_billing_usage(runner, missing_reasoning, pricing))
+        authorized = copy.deepcopy(pricing)
+        authorized["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "reasoning_output"
+        ] = True
+        self.assertIsNotNone(
+            run.confirmatory_billing_usage(runner, missing_reasoning, authorized)
+        )
+
+        multi_model = run.extract_usage(
+            "claude",
+            self._claude_result(
+                10, 5, 2, 3, 1, 0.1, models=("model", "helper-model")
+            ),
+            "",
+        )
+        self.assertFalse(multi_model["usage_report"]["complete"])
+        self.assertIn("multiple model rows", multi_model["usage_report"]["error"])
+        self.assertIsNone(run.confirmatory_billing_usage(runner, multi_model, pricing))
+
+    def test_codex_nonmonotone_or_conflicting_usage_snapshots_are_rejected(self):
+        nonmonotone = "\n".join(
+            [
+                self._codex_result(100, 20, 40, 5),
+                self._codex_result(90, 25, 40, 5),
+            ]
+        )
+        usage = run.extract_usage("codex", nonmonotone, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertIn("non-monotone", usage["usage_report"]["error"])
+        disappearing_optional_counter = "\n".join(
+            [
+                self._codex_result(100, 20, 40, 5),
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {"input_tokens": 150, "output_tokens": 30},
+                    }
+                ),
+            ]
+        )
+        usage = run.extract_usage("codex", disappearing_optional_counter, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertIn("counter presence is inconsistent", usage["usage_report"]["error"])
+        conflicting = json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "inputTokens": 101,
+                    "cached_input_tokens": 40,
+                    "output_tokens": 20,
+                    "reasoning_output_tokens": 5,
+                },
+            }
+        )
+        usage = run.extract_usage("codex", conflicting, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertIn("missing or ambiguous", usage["usage_report"]["error"])
+
+    def test_claude_multiple_terminal_results_are_rejected(self):
+        stream = "\n".join(
+            [
+                self._claude_result(10, 5, 2, 3, 1, 0.1),
+                self._claude_result(20, 8, 4, 6, 2, 0.2),
+            ]
+        )
+        usage = run.extract_usage("claude", stream, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertEqual(usage["usage_report"]["source_events"], 2)
+        self.assertIn("exactly one terminal result", usage["usage_report"]["error"])
+
+    def test_failed_first_retry_and_successful_second_sum_all_attempt_billing(self):
+        first = subprocess.CompletedProcess(
+            ["codex"],
+            1,
+            self._codex_result(100, 20, 40, 5),
+            "selected model is at capacity",
+        )
+        second = subprocess.CompletedProcess(
+            ["codex"],
+            0,
+            self._codex_result(200, 30, 80, 10),
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, second]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                info = run.run_agent(
+                    run.RunnerSpec(id="runner", agent="codex", model="model"),
+                    "fix it",
+                    worktree,
+                    {},
+                    run_dir,
+                    "no_brain",
+                    {},
+                    100,
+                    0.0,
+                    self._confirmatory_pricing(),
+                    agent_retries=1,
+                )
+        self.assertEqual(len(info["attempts"]), 2)
+        self.assertEqual(info["attempts"][0]["returncode"], 1)
+        self.assertTrue(info["billing_integrity"]["passed"])
+        self.assertEqual(info["usage"]["input_tokens"], 300)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["input_tokens"], 300)
+        self.assertEqual(info["usage"]["billing_v2"]["exclusive"]["uncached_input"], 180)
+        self.assertEqual(info["usage"]["billing_v2"]["exclusive"]["visible_output"], 35)
+        self.assertEqual(info["usage"]["billing_v2"]["exclusive"]["reasoning_output"], 15)
+        self.assertEqual(
+            info["usage"]["usage_report"]["accounting_basis"],
+            "sum_per_isolated_provider_invocation_attempt_total",
+        )
+
+    def test_retry_with_missing_attempt_usage_marks_confirmatory_billing_invalid(self):
+        first = subprocess.CompletedProcess(
+            ["codex"], 1, "", "selected model is at capacity"
+        )
+        second = subprocess.CompletedProcess(
+            ["codex"], 0, self._codex_result(200, 30, 80, 10), ""
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, second]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                info = run.run_agent(
+                    run.RunnerSpec(id="runner", agent="codex", model="model"),
+                    "fix it",
+                    worktree,
+                    {},
+                    run_dir,
+                    "no_brain",
+                    {},
+                    100,
+                    0.0,
+                    self._confirmatory_pricing(),
+                    agent_retries=1,
+                )
+        self.assertFalse(info["billing_integrity"]["passed"])
+        self.assertEqual(info["billing_integrity"]["incomplete_attempts"], [1])
+        self.assertIsNone(info["usage"]["billing_v2"])
+
+    def test_claude_failed_first_retry_and_successful_second_sum_each_terminal_result(self):
+        first = subprocess.CompletedProcess(
+            ["claude"],
+            1,
+            self._claude_result(10, 5, 2, 3, 1, 0.1),
+            "service unavailable",
+        )
+        second = subprocess.CompletedProcess(
+            ["claude"],
+            0,
+            self._claude_result(20, 7, 4, 6, 2, 0.2),
+            "",
+        )
+        pricing = self._confirmatory_pricing()
+        pricing["pricing_quote"]["usage_semantics"]["input_tokens_includes"] = []
+        pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "cache_write_input"
+        ] = False
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, second]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                info = run.run_agent(
+                    run.RunnerSpec(id="runner", agent="claude", model="model"),
+                    "fix it",
+                    worktree,
+                    {},
+                    run_dir,
+                    "no_brain",
+                    {},
+                    100,
+                    0.0,
+                    pricing,
+                    agent_retries=1,
+                )
+        self.assertTrue(info["billing_integrity"]["passed"])
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["input_tokens"], 30)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["cache_read_input_tokens"], 6)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["cache_write_input_tokens"], 9)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["reasoning_tokens"], 3)
+        self.assertAlmostEqual(info["usage"]["cost_usd"], 0.3)
+
+    def test_timeout_preserves_prior_and_partial_attempt_billing_evidence(self):
+        first = subprocess.CompletedProcess(
+            ["codex"],
+            1,
+            self._codex_result(100, 20, 40, 5),
+            "selected model is at capacity",
+        )
+        timeout = subprocess.TimeoutExpired(
+            ["codex"],
+            100,
+            output='{"type":"turn.started"}\n',
+            stderr="timed out",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, timeout]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                with self.assertRaises(run.AgentRunTimeout) as caught:
+                    run.run_agent(
+                        run.RunnerSpec(id="runner", agent="codex", model="model"),
+                        "fix it",
+                        worktree,
+                        {},
+                        run_dir,
+                        "no_brain",
+                        {},
+                        100,
+                        0.0,
+                        self._confirmatory_pricing(),
+                        agent_retries=1,
+                    )
+            info = caught.exception.agent_info
+            self.assertEqual(len(info["attempts"]), 2)
+            self.assertTrue(info["attempts"][1]["timed_out"])
+            self.assertEqual(info["billing_integrity"]["incomplete_attempts"], [2])
+            self.assertFalse(info["billing_integrity"]["passed"])
+            self.assertTrue((run_dir / "agent.attempt1.stdout").is_file())
+            self.assertTrue((run_dir / "agent.attempt2.stdout").is_file())
+
+    def test_confirmatory_quality_excludes_runtime_and_forces_critical_zero(self):
+        scoring = {
+            "outcome": 45,
+            "patch_focus": 25,
+            "validation_discipline": 10,
+            "runtime_efficiency": 0,
+            "brain_use": 5,
+            "details": {"forbidden_files_touched": []},
+        }
+        quality = run.confirmatory_code_quality(
+            scoring,
+            validation_ok=True,
+            returncode=0,
+            integrity_audits={"leak_audit": True},
+        )
+        self.assertAlmostEqual(quality["task_normalized_score"], 70 / 75)
+        self.assertEqual(
+            quality["excluded_components"],
+            ["validation_discipline", "runtime_efficiency", "brain_use"],
+        )
+        self.assertEqual(quality["rubric"], "task_relative_output_outcome_patch_focus_v2")
+        failed = run.confirmatory_code_quality(
+            scoring,
+            validation_ok=False,
+            returncode=0,
+            integrity_audits={"leak_audit": True},
+        )
+        self.assertTrue(failed["critical_failure"])
+        self.assertEqual(failed["task_normalized_score"], 0.0)
 
     def test_resume_skips_ambiguously_started_cell_and_records_deviation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6166,6 +6721,7 @@ class EvidenceManifestTests(unittest.TestCase):
             "runner": {"id": "runner", "agent": "codex", "model": "model", "effort": "high"},
             "condition": "no_brain",
             "delivery_mode": "harness",
+            "treatment_started": True,
             "agent_ran": True,
             "ok": validation_ok,
             "error": "post-agent validation failed" if not validation_ok else None,
@@ -6183,7 +6739,11 @@ class EvidenceManifestTests(unittest.TestCase):
         adherence = self._record()
         adherence["temporal_memory_condition_audit"] = {"ok": False}
         self.assertTrue(is_executed_run(adherence))
+        retrieval_timeout = self._record()
+        retrieval_timeout["agent_ran"] = False
+        self.assertTrue(is_executed_run(retrieval_timeout))
         infra = self._record()
+        infra["treatment_started"] = False
         infra["agent_ran"] = False
         infra["analysis_excluded"] = {"reason": "harness_infrastructure_error"}
         self.assertFalse(is_executed_run(infra))
@@ -6217,6 +6777,8 @@ class EvidenceManifestTests(unittest.TestCase):
             run_dir.mkdir()
             (run_dir / "packet.txt").write_text(packet_text)
             manifest = build_run_manifest(record, run_dir, suite)
+            self.assertTrue(manifest["execution_gate"]["treatment_started"])
+            self.assertTrue(manifest["execution_gate"]["agent_ran"])
             self.assertTrue(manifest["packet"]["recorded_matches_file"])
             self.assertEqual(manifest["packet"]["query_source_class"], "user_query")
             self.assertEqual(manifest["temporal_eligibility"]["eligible_count"], 7)

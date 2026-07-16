@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Deterministic power sensitivity and design-options analysis for WS6.
+"""Deterministic v3 power-readiness contract for the three co-primary endpoints.
 
-The confirmatory decision intentionally uses no benchmark outcomes.  Every
-variance and correlation input to that decision is a labeled planning
-assumption.  Retained legacy outcomes are analyzed in a separate, explicitly
-quarantined calibration section: they can expose variability risk, but code and
-metadata prohibit them from selecting assumptions, shrinking the design, or
-passing the power gate.
-
-The normal approximation is a screening calculation rather than a substitute
-for the preregistered task-clustered bootstrap, so it cannot justify a paid
-design that fails the decision scenario.
+The authoritative report stays uncalibrated until final-contract paired task
+rows exist for elapsed time, normalized billed cost, and code quality. Legacy
+token/pass-rate calculations remain below only as quarantined exploratory
+compatibility helpers; they cannot enter ``build_report`` or pass a gate.
 """
 
 from __future__ import annotations
@@ -39,6 +33,9 @@ REPETITIONS = 4
 PRIMARY_TREATMENTS = 3
 REQUESTED_CELLS = TASKS * REPETITIONS * PRIMARY_TREATMENTS
 TARGET_POWER = 0.80
+TIME_REDUCTION_TARGET = 0.10
+COST_REDUCTION_TARGET = 0.12
+QUALITY_DIFFERENCE_TARGET = 0.05
 TOKEN_REDUCTION_TARGET = 0.12
 TOKEN_RATIO_TARGET = 1.0 - TOKEN_REDUCTION_TARGET
 CORRECTNESS_MARGIN = -0.10
@@ -798,7 +795,7 @@ def _round_floats(value: Any) -> Any:
     return value
 
 
-def build_report() -> dict[str, Any]:
+def _build_deprecated_v2_report_not_for_decision() -> dict[str, Any]:
     token_effect = abs(math.log(TOKEN_RATIO_TARGET))
     max_token_sd = _maximum_sd(
         lambda sd: normal_two_sided_power(token_effect, sd / math.sqrt(TASKS), PLANNING_ALPHA),
@@ -906,12 +903,120 @@ def build_report() -> dict[str, Any]:
     return _round_floats(report)
 
 
+def build_report() -> dict[str, Any]:
+    """Return the v3 three-endpoint power contract.
+
+    No retained source contains exchangeable paired task-level measurements for
+    all three v2 endpoints under the final runner, treatment, price, timeout,
+    and quality contracts.  Reporting a numeric power value would therefore be
+    fabricated precision.  The checked-in result deliberately remains pending
+    and cannot pass the freeze gate until an unpaid calibration or an explicitly
+    approved assumption set supplies all three variance inputs.
+    """
+    calibration = build_calibration_diagnostics()
+    endpoints = {
+        "elapsed_time": {
+            "estimand_scale": "paired_task_log_ratio",
+            "planning_effect": math.log(1.0 - TIME_REDUCTION_TARGET),
+            "practical_floor": {"ratio_max": 1.0 - TIME_REDUCTION_TARGET, "status": "provisional"},
+            "paired_task_sd": None,
+            "marginal_power": None,
+            "status": "pending_final_contract_calibration",
+        },
+        "normalized_cost": {
+            "estimand_scale": "paired_task_log_ratio",
+            "planning_effect": math.log(1.0 - COST_REDUCTION_TARGET),
+            "practical_floor": {"ratio_max": 1.0 - COST_REDUCTION_TARGET, "status": "provisional"},
+            "paired_task_sd": None,
+            "marginal_power": None,
+            "status": "pending_final_contract_calibration",
+        },
+        "code_quality": {
+            "estimand_scale": "paired_task_difference",
+            "planning_effect": QUALITY_DIFFERENCE_TARGET,
+            "practical_floor": {"difference_min": QUALITY_DIFFERENCE_TARGET, "status": "provisional"},
+            "paired_task_sd": None,
+            "marginal_power": None,
+            "status": "pending_final_contract_calibration",
+        },
+    }
+    return _round_floats(
+        {
+            "schema_version": 3,
+            "artifact_id": "agent-brain-confirmatory-power-v3",
+            "status": "pending_uncalibrated",
+            "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
+            "paid_runs_performed": False,
+            "protocol_inputs": {
+                "tasks": TASKS,
+                "repetitions_per_treatment": REPETITIONS,
+                "primary_treatments": PRIMARY_TREATMENTS,
+                "requested_cells": REQUESTED_CELLS,
+                "power_target": TARGET_POWER,
+                "intersection_union_alpha": FAMILY_ALPHA,
+                "primary_contrast": "retrieved_memory_vs_no_memory",
+                "cluster_unit": "task",
+                "attempt_policy": "all_executed_attempts",
+            },
+            "co_primary_endpoints": endpoints,
+            "method": {
+                "component_tests": (
+                    "one-sided task-clustered superiority at each frozen practical floor"
+                ),
+                "joint_rule": (
+                    "intersection-union: all three component nulls must be rejected; no "
+                    "across-endpoint multiplicity adjustment is required"
+                ),
+                "planning_rule": (
+                    "each marginal power must meet 0.80 and joint power must be assessed under "
+                    "a frozen endpoint-dependence model or conservative simulation"
+                ),
+            },
+            "calibration_requirements": {
+                "status": "open",
+                "must_match": [
+                    "final runner/model/effort and runner version",
+                    "v2 no_memory and retrieved_memory treatment contracts",
+                    "end-to-end timing boundary and timeout policy",
+                    "five-category frozen price quote, inclusion/absence semantics, and all-attempt retry accounting",
+                    "task-normalized quality rubric and critical-failure policy",
+                ],
+                "required_statistics": {
+                    "elapsed_time": "SD of paired task-level mean log ratios",
+                    "normalized_cost": "SD of paired task-level mean log ratios",
+                    "code_quality": "SD of paired task-level mean differences",
+                    "dependence": "joint covariance or retained task-level calibration rows",
+                },
+                "minimum_independent_task_clusters": 12,
+                "selection_use": "development calibration only; cannot enter confirmatory outcomes",
+            },
+            "exploratory_calibration": calibration,
+            "empirical_variance_used_in_confirmatory_decision": False,
+            "decision": {
+                "passed": False,
+                "reason": "all three final-contract variance inputs and endpoint dependence are uncalibrated",
+                "prohibited_until_resolved": [
+                    "mark power_target_met pass",
+                    "freeze practical floors",
+                    "seal or open the fresh holdout",
+                    "authorize paid confirmatory calls",
+                ],
+            },
+        }
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--check",
         type=pathlib.Path,
         help="fail if this JSON artifact differs semantically from the deterministic report",
+    )
+    parser.add_argument(
+        "--output",
+        type=pathlib.Path,
+        help="write the deterministic JSON report to this path",
     )
     args = parser.parse_args()
     try:
@@ -925,6 +1030,11 @@ def main() -> int:
             print(f"ERROR: stale power artifact: {args.check}", file=sys.stderr)
             return 1
         print(f"power artifact is current: {args.check}")
+        return 0
+    if args.output is not None:
+        args.output.write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         return 0
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0

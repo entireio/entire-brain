@@ -11,8 +11,14 @@ import re
 from typing import Any
 
 
-FORMULA_ID = "worst_case_token_envelope_v1"
-TOKEN_KEYS = ("uncached_input", "cached_input", "output")
+FORMULA_ID = "worst_case_token_envelope_v2"
+TOKEN_KEYS = (
+    "uncached_input",
+    "cache_read_input",
+    "cache_write_input",
+    "visible_output",
+    "reasoning_output",
+)
 DECIMAL_RE = re.compile(r"^(0|[1-9][0-9]*)(\.[0-9]+)?$")
 
 
@@ -82,10 +88,19 @@ def calculate(contract: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(unit, int) or isinstance(unit, bool) or unit <= 0:
         raise ValueError("pricing_quote.tokens_per_price_unit must be a positive integer")
     prices = quote.get("prices_usd_per_unit", {})
-    parsed_prices = {
-        key: parse_decimal(prices.get(key), f"prices_usd_per_unit.{key}")
-        for key in TOKEN_KEYS
-    }
+    aliases = quote.get("price_aliases", {})
+    parsed_prices: dict[str, Decimal] = {}
+    for key in TOKEN_KEYS:
+        direct = prices.get(key)
+        alias = aliases.get(key) if isinstance(aliases, dict) else None
+        if (direct is None) == (alias is None):
+            raise ValueError(f"{key} must set exactly one direct price or alias")
+        source = key if direct is not None else alias
+        if source not in TOKEN_KEYS or prices.get(source) is None:
+            raise ValueError(f"{key} alias must target a direct category price")
+        parsed_prices[key] = parse_decimal(
+            prices[source], f"prices_usd_per_unit.{source}"
+        )
     tokens = effective_tokens_per_call(contract)
     maximum_calls = contract.get("design", {}).get("maximum_calls_with_reserve")
     if not isinstance(maximum_calls, int) or isinstance(maximum_calls, bool) or maximum_calls <= 0:

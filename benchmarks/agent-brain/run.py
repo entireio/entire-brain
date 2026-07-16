@@ -285,7 +285,13 @@ ORDER_POLICIES = ("counterbalanced", "latin_square")
 CACHE_POLICIES = ("isolated_per_cell", "prewarmed_shared")
 SCHEDULE_SCHEMA = 1
 TIMING_DEFINITIONS = {
-    "primary": "harness_agent_interval_wall_seconds",
+    "primary": "end_to_end_user_visible_wall_seconds",
+    "end_to_end_user_visible_wall_seconds": (
+        "Harness monotonic wall time immediately before harness-owned treatment retrieval/delivery "
+        "(a no-op at the same logical point for no-memory) through the agent final response. "
+        "The response boundary is captured before usage parsing, hashing, and artifact writes. "
+        "Worktree/cache setup, secret preflight, and hidden validation are excluded."
+    ),
     "harness_agent_interval_wall_seconds": (
         "Harness monotonic wall time immediately around the agent CLI invocation, including "
         "declared transient retries and their backoff. Setup, cache prewarm, and validation are excluded."
@@ -299,7 +305,25 @@ TIMING_DEFINITIONS = {
     "cell_total_wall_seconds": (
         "Harness monotonic wall time for setup, agent execution, validation, and record assembly."
     ),
+    "agent_timeout_limit_seconds": (
+        "Frozen limit passed to the agent component; metadata only and never substituted for the "
+        "measured end-to-end elapsed-time observation."
+    ),
+    "timeout_component_limit_seconds": (
+        "Exact limit of the retrieval/delivery or agent component that raised TimeoutExpired; null "
+        "when no component timed out and never substituted for measured end-to-end elapsed time."
+    ),
 }
+
+CONFIRMATORY_BILLING_SCHEMA = "agent-brain-billing-usage/v2"
+CONFIRMATORY_QUALITY_SCHEMA = "agent-brain-code-quality/v2"
+CONFIRMATORY_COST_CATEGORIES = (
+    "uncached_input",
+    "cache_read_input",
+    "cache_write_input",
+    "visible_output",
+    "reasoning_output",
+)
 
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
@@ -518,6 +542,11 @@ def load_pricing(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def estimate_cost_usd(runner: RunnerSpec, usage: dict[str, Any], pricing: dict[str, Any]) -> float | None:
+    report = usage.get("usage_report")
+    if isinstance(report, dict) and not isinstance(usage.get("billing_v2"), dict):
+        # New provider adapters never estimate from partially classified totals;
+        # legacy estimates remain available only for retained pre-v2 records.
+        return None
     key = runner.id
     model_key = runner.model or runner.id
     entry = pricing.get(key) or pricing.get(model_key)
@@ -535,6 +564,217 @@ def estimate_cost_usd(runner: RunnerSpec, usage: dict[str, Any], pricing: dict[s
     cost += float(usage.get("cache_read_tokens") or 0) * float(cache_read_per_m) / 1_000_000
     cost += float(usage.get("cache_creation_tokens") or 0) * float(cache_creation_per_m) / 1_000_000
     return cost
+
+
+def normalize_billed_token_categories(
+    raw: dict[str, Any], semantics: dict[str, Any]
+) -> dict[str, int]:
+    """Convert provider totals into five mutually exclusive billing categories.
+
+    Provider APIs commonly report cache-read/cache-write input inside
+    ``input_tokens`` and reasoning inside ``output_tokens``. Subtracting each
+    declared inclusive subcategory yields five mutually exclusive categories
+    and prevents both omission and double billing.
+    """
+    expected = {
+        "input_tokens",
+        "cache_read_input_tokens",
+        "cache_write_input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+    }
+    if not isinstance(raw, dict) or set(raw) != expected:
+        raise ValueError("raw billing usage must contain exactly five token categories")
+    counts: dict[str, int] = {}
+    for key in expected:
+        value = raw.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"raw billing usage {key} must be a nonnegative integer")
+        counts[key] = value
+    if not isinstance(semantics, dict) or set(semantics) != {
+        "input_tokens_includes",
+        "output_tokens_includes",
+        "counter_absence_means_zero",
+    }:
+        raise ValueError("billing inclusion semantics must explicitly name included subcategories")
+    input_includes = semantics.get("input_tokens_includes")
+    output_includes = semantics.get("output_tokens_includes")
+    allowed_input = {"cache_read_input", "cache_write_input"}
+    if not isinstance(input_includes, list) or set(input_includes) - allowed_input:
+        raise ValueError("input_tokens_includes contains an unsupported category")
+    if len(input_includes) != len(set(input_includes)):
+        raise ValueError("input_tokens_includes contains duplicates")
+    included_input = sum(
+        counts[f"{category}_tokens"] for category in input_includes
+    )
+    if included_input > counts["input_tokens"]:
+        raise ValueError("included cache input exceeds input total")
+    uncached = counts["input_tokens"] - included_input
+    if output_includes == ["reasoning_output"]:
+        if counts["reasoning_tokens"] > counts["output_tokens"]:
+            raise ValueError("reasoning tokens exceed inclusive output total")
+        output = counts["output_tokens"] - counts["reasoning_tokens"]
+    elif output_includes == []:
+        output = counts["output_tokens"]
+    else:
+        raise ValueError("output_tokens_includes must be [] or ['reasoning_output']")
+    absence = semantics.get("counter_absence_means_zero")
+    if not isinstance(absence, dict) or set(absence) != {
+        "cache_read_input",
+        "cache_write_input",
+        "reasoning_output",
+    } or any(not isinstance(value, bool) for value in absence.values()):
+        raise ValueError("billing counter-absence semantics must bind every optional counter")
+    return {
+        "uncached_input": uncached,
+        "cache_read_input": counts["cache_read_input_tokens"],
+        "cache_write_input": counts["cache_write_input_tokens"],
+        "visible_output": output,
+        "reasoning_output": counts["reasoning_tokens"],
+    }
+
+
+def confirmatory_billing_usage(
+    runner: RunnerSpec, usage: dict[str, Any], pricing: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Build the v2 billing record only from an explicitly bound quote contract."""
+    entry: Any = None
+    if isinstance(pricing.get("pricing_quote"), dict):
+        bound_runner = pricing.get("runner") if isinstance(pricing.get("runner"), dict) else {}
+        if bound_runner.get("runner_id") == runner.id and bound_runner.get("model_id") in {
+            None,
+            runner.model,
+        }:
+            quote = pricing["pricing_quote"]
+            entry = {
+                "quote_sha256": quote.get("quote_sha256"),
+                "usage_semantics": quote.get("usage_semantics"),
+            }
+    else:
+        entry = pricing.get(runner.id) or pricing.get(runner.model or runner.id)
+    if not isinstance(entry, dict):
+        return None
+    quote_sha256 = entry.get("quote_sha256")
+    semantics = entry.get("usage_semantics")
+    if (
+        not isinstance(quote_sha256, str)
+        or len(quote_sha256) != 64
+        or not isinstance(semantics, dict)
+    ):
+        return None
+    report = usage.get("usage_report") if isinstance(usage.get("usage_report"), dict) else {}
+    actual_models = report.get("actual_models")
+    if runner.agent == "claude" and actual_models != [runner.model]:
+        return None
+    absence = semantics.get("counter_absence_means_zero")
+    if not isinstance(absence, dict):
+        return None
+
+    def counter(field: str, category: str | None = None) -> Any:
+        value = usage.get(field)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        if value is None and category is not None and absence.get(category) is True:
+            return 0
+        return None
+
+    source = {
+        "input_tokens": counter("input_tokens"),
+        "cache_read_input_tokens": counter("cache_read_tokens", "cache_read_input"),
+        "cache_write_input_tokens": counter("cache_creation_tokens", "cache_write_input"),
+        "output_tokens": counter("output_tokens"),
+        "reasoning_tokens": counter("reasoning_tokens", "reasoning_output"),
+    }
+    if any(not isinstance(value, int) or isinstance(value, bool) for value in source.values()):
+        return None
+    try:
+        exclusive = normalize_billed_token_categories(source, semantics)
+    except (TypeError, ValueError):
+        # Provider counters that cannot satisfy the frozen inclusion contract
+        # are incomplete billing evidence, not a reason to discard the attempt
+        # ledger before the analyzer can fail the cell closed.
+        return None
+    return {
+        "schema": CONFIRMATORY_BILLING_SCHEMA,
+        "price_quote_sha256": quote_sha256,
+        "raw": source,
+        "semantics": {
+            "input_tokens_includes": semantics.get("input_tokens_includes"),
+            "output_tokens_includes": semantics.get("output_tokens_includes"),
+            "counter_absence_means_zero": semantics.get("counter_absence_means_zero"),
+        },
+        "exclusive": exclusive,
+    }
+
+
+def confirmatory_pricing_required(pricing: dict[str, Any]) -> bool:
+    """Return whether this invocation is bound to the strict v2 quote contract."""
+    return isinstance(pricing, dict) and isinstance(pricing.get("pricing_quote"), dict)
+
+
+def aggregate_confirmatory_billing_attempts(
+    attempts: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Sum complete per-invocation billing records without re-parsing provider output."""
+    billings = [
+        (attempt.get("usage") or {}).get("billing_v2")
+        if isinstance(attempt.get("usage"), dict)
+        else None
+        for attempt in attempts
+    ]
+    if not billings or any(not isinstance(item, dict) for item in billings):
+        return None
+    first = billings[0]
+    assert isinstance(first, dict)
+    quote_hash = first.get("price_quote_sha256")
+    semantics = first.get("semantics")
+    if any(
+        item.get("schema") != CONFIRMATORY_BILLING_SCHEMA
+        or item.get("price_quote_sha256") != quote_hash
+        or item.get("semantics") != semantics
+        for item in billings
+        if isinstance(item, dict)
+    ):
+        return None
+    raw_keys = {
+        "input_tokens",
+        "cache_read_input_tokens",
+        "cache_write_input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+    }
+    exclusive_keys = set(CONFIRMATORY_COST_CATEGORIES)
+    if any(
+        set(item.get("raw") or {}) != raw_keys
+        or set(item.get("exclusive") or {}) != exclusive_keys
+        for item in billings
+        if isinstance(item, dict)
+    ):
+        return None
+    raw = {
+        key: sum(int(item["raw"][key]) for item in billings if isinstance(item, dict))
+        for key in sorted(raw_keys)
+    }
+    exclusive = {
+        key: sum(int(item["exclusive"][key]) for item in billings if isinstance(item, dict))
+        for key in CONFIRMATORY_COST_CATEGORIES
+    }
+    # Recompute from the summed provider counters as an internal no-double-count
+    # check; linear category normalization must equal the sum of per-attempt
+    # exclusive counts.
+    try:
+        normalized = normalize_billed_token_categories(raw, semantics)
+    except (TypeError, ValueError):
+        return None
+    if normalized != exclusive:
+        return None
+    return {
+        "schema": CONFIRMATORY_BILLING_SCHEMA,
+        "price_quote_sha256": quote_hash,
+        "raw": raw,
+        "semantics": semantics,
+        "exclusive": exclusive,
+    }
 
 
 def run_cmd(
@@ -3104,7 +3344,7 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
         + "\n"
     )
     # `.benchmark/` is in info/exclude (ignore_benchmark_plugin), so force-add the delivered
-    # packet to fold it into the pre-agent baseline (else `git add` refuses the ignored path).
+    # packet to fold it into the pre-treatment baseline (else `git add` refuses the ignored path).
     run_cmd(["git", "add", "-f", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
     run_cmd(
         [
@@ -3489,7 +3729,7 @@ def write_frozen_brain_packet(
     out_dir.mkdir(exist_ok=True)
     (out_dir / "brain-history-excerpt.md").write_text(render_frozen_brain_packet(facts))
     # `.benchmark/` is in info/exclude (ignore_benchmark_plugin), so force-add the delivered
-    # packet to fold it into the pre-agent baseline (else `git add` refuses the ignored path).
+    # packet to fold it into the pre-treatment baseline (else `git add` refuses the ignored path).
     run_cmd(["git", "add", "-f", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
     run_cmd(
         [
@@ -4017,6 +4257,90 @@ def transient_agent_failure_reason(returncode: int, stdout: str, stderr: str) ->
     return None
 
 
+class AgentRunTimeout(subprocess.TimeoutExpired):
+    """Timeout carrying every completed/partial provider-attempt ledger entry."""
+
+    def __init__(
+        self,
+        original: subprocess.TimeoutExpired,
+        agent_info: dict[str, Any],
+    ) -> None:
+        super().__init__(
+            original.cmd,
+            original.timeout,
+            output=original.output,
+            stderr=original.stderr,
+        )
+        self.agent_info = agent_info
+
+
+def timeout_stream_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def aggregate_agent_attempt_usage(
+    attempts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Sum canonical usage from isolated provider invocations exactly once."""
+    usages = [attempt.get("usage") for attempt in attempts]
+    complete_attempts = [
+        index
+        for index, usage in enumerate(usages, 1)
+        if isinstance(usage, dict)
+        and isinstance(usage.get("usage_report"), dict)
+        and usage["usage_report"].get("complete") is True
+    ]
+    result = empty_agent_usage()
+    for field in (
+        "turns",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cache_read_tokens",
+        "cache_creation_tokens",
+        "reasoning_tokens",
+    ):
+        values = [usage.get(field) if isinstance(usage, dict) else None for usage in usages]
+        if values and all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+            result[field] = sum(int(value) for value in values)
+    costs = [usage.get("cost_usd") if isinstance(usage, dict) else None for usage in usages]
+    if costs and all(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and float(value) >= 0
+        for value in costs
+    ):
+        result["cost_usd"] = sum(float(value) for value in costs)
+    result["usage_report"] = {
+        "complete": len(complete_attempts) == len(attempts) and bool(attempts),
+        "parser": "provider_attempt_sum_v1",
+        "accounting_basis": "sum_per_isolated_provider_invocation_attempt_total",
+        "source_events": len(attempts),
+        "attempt_count": len(attempts),
+        "complete_attempts": complete_attempts,
+        "incomplete_attempts": [
+            index for index in range(1, len(attempts) + 1) if index not in complete_attempts
+        ],
+        "attempt_parsers": [
+            (usage.get("usage_report") or {}).get("parser")
+            if isinstance(usage, dict)
+            else None
+            for usage in usages
+        ],
+        "error": (
+            None
+            if len(complete_attempts) == len(attempts) and attempts
+            else "one or more provider invocations lacks unambiguous usage"
+        ),
+    }
+    return result
+
+
 def run_agent(
     runner: RunnerSpec,
     prompt: str,
@@ -4030,7 +4354,7 @@ def run_agent(
     pricing: dict[str, Any],
     agent_retries: int = 0,
 ) -> dict[str, Any]:
-    start = time.time()
+    start = time.monotonic()
     mcp_enabled = is_mcp_condition(condition)
     if mcp_enabled:
         env = {**env, "ENTIRE_BRAIN_MCP_DEBUG_LOG": str(run_dir / "mcp-server.log")}
@@ -4083,35 +4407,107 @@ def run_agent(
 
     attempts: list[dict[str, Any]] = []
     proc: subprocess.CompletedProcess[str] | None = None
+    timed_out_exception: subprocess.TimeoutExpired | None = None
+    final_response_finished_monotonic: float | None = None
     max_attempts = max(1, int(agent_retries) + 1)
     for attempt in range(1, max_attempts + 1):
-        attempt_start = time.time()
-        proc = run_cmd(cmd, cwd=worktree, env=env, input_text="", timeout=timeout)
-        reason = transient_agent_failure_reason(proc.returncode, proc.stdout, proc.stderr)
+        attempt_start = time.monotonic()
+        try:
+            proc = run_cmd(cmd, cwd=worktree, env=env, input_text="", timeout=timeout)
+            attempt_response_finished_monotonic = time.monotonic()
+            reason = transient_agent_failure_reason(proc.returncode, proc.stdout, proc.stderr)
+        except subprocess.TimeoutExpired as exc:
+            attempt_response_finished_monotonic = time.monotonic()
+            timed_out_exception = exc
+            proc = subprocess.CompletedProcess(
+                cmd,
+                124,
+                timeout_stream_text(exc.stdout or exc.output),
+                timeout_stream_text(exc.stderr),
+            )
+            reason = "component_timeout"
+        final_response_finished_monotonic = attempt_response_finished_monotonic
+        attempt_usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
+        attempt_usage["billing_v2"] = confirmatory_billing_usage(
+            runner, attempt_usage, pricing
+        )
+        attempt_api_seconds = agent_reported_api_seconds(proc.stdout)
+        stdout_name = f"agent.attempt{attempt}.stdout"
+        stderr_name = f"agent.attempt{attempt}.stderr"
+        (run_dir / stdout_name).write_text(proc.stdout)
+        (run_dir / stderr_name).write_text(proc.stderr)
         attempts.append(
             {
                 "attempt": attempt,
                 "returncode": proc.returncode,
-                "seconds": time.time() - attempt_start,
+                "seconds": attempt_response_finished_monotonic - attempt_start,
                 "transient_failure_reason": reason,
+                "timed_out": timed_out_exception is not None,
+                "resolved_model": extract_resolved_model(proc.stdout),
+                "agent_reported_api_seconds": attempt_api_seconds,
+                "usage": attempt_usage,
+                "stdout_artifact": {
+                    "path": stdout_name,
+                    "bytes": len(proc.stdout.encode()),
+                    "sha256": hashlib.sha256(proc.stdout.encode()).hexdigest(),
+                },
+                "stderr_artifact": {
+                    "path": stderr_name,
+                    "bytes": len(proc.stderr.encode()),
+                    "sha256": hashlib.sha256(proc.stderr.encode()).hexdigest(),
+                },
             }
         )
-        (run_dir / f"agent.attempt{attempt}.stdout").write_text(proc.stdout)
-        (run_dir / f"agent.attempt{attempt}.stderr").write_text(proc.stderr)
+        if timed_out_exception is not None:
+            break
         if reason is None or attempt == max_attempts:
             break
         time.sleep(min(2 * attempt, 10))
     assert proc is not None
+    assert final_response_finished_monotonic is not None
     (run_dir / "agent.stdout").write_text(proc.stdout)
     (run_dir / "agent.stderr").write_text(proc.stderr)
-    usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
+    usage = aggregate_agent_attempt_usage(attempts)
+    usage["billing_v2"] = aggregate_confirmatory_billing_attempts(attempts)
+    billing_required = confirmatory_pricing_required(pricing)
+    incomplete_attempts = [
+        attempt["attempt"]
+        for attempt in attempts
+        if not isinstance((attempt.get("usage") or {}).get("billing_v2"), dict)
+    ]
+    billing_integrity = {
+        "schema": "agent-brain-attempt-billing-integrity/v1",
+        "required": billing_required,
+        "attempt_count": len(attempts),
+        "complete_attempts": len(attempts) - len(incomplete_attempts),
+        "incomplete_attempts": incomplete_attempts,
+        "aggregate_present": isinstance(usage.get("billing_v2"), dict),
+        "passed": bool(
+            not billing_required
+            or (not incomplete_attempts and isinstance(usage.get("billing_v2"), dict))
+        ),
+        "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
+    }
     activity = extract_agent_activity(proc.stdout, proc.stderr)
     if usage.get("cost_usd") is None:
         usage["cost_usd"] = estimate_cost_usd(runner, usage, pricing)
         usage["cost_source"] = "estimated" if usage["cost_usd"] is not None else None
     else:
         usage["cost_source"] = "reported"
-    return {
+    api_values = [attempt.get("agent_reported_api_seconds") for attempt in attempts]
+    aggregate_api_seconds = (
+        sum(float(value) for value in api_values)
+        if api_values
+        and all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            and float(value) >= 0
+            for value in api_values
+        )
+        else None
+    )
+    result = {
         "agent": runner.agent,
         "runner": {
             "id": runner.id,
@@ -4131,9 +4527,15 @@ def run_agent(
         },
         "cmd": cmd[:1] + ["..."],
         "returncode": proc.returncode,
-        "seconds": time.time() - start,
-        "agent_reported_api_seconds": agent_reported_api_seconds(proc.stdout),
+        "seconds": final_response_finished_monotonic - start,
+        # Internal hand-off only. run_one consumes this monotonic timestamp
+        # before persisting agent_info so output parsing, hashing, and artifact
+        # writes after the final provider response cannot enter the elapsed
+        # co-primary endpoint.
+        "_response_finished_monotonic": final_response_finished_monotonic,
+        "agent_reported_api_seconds": aggregate_api_seconds,
         "attempts": attempts,
+        "billing_integrity": billing_integrity,
         "transient_retries": max(0, len(attempts) - 1),
         "usage": usage,
         "activity": activity,
@@ -4142,62 +4544,44 @@ def run_agent(
         "stdout_tail": proc.stdout[-4000:],
         "stderr_tail": proc.stderr[-4000:],
     }
+    if timed_out_exception is not None:
+        raise AgentRunTimeout(timed_out_exception, result)
+    return result
 
 
-def walk_numbers(value: Any, keys: set[str]) -> int:
-    total = 0
-    if isinstance(value, dict):
-        for k, v in value.items():
-            if k in keys and isinstance(v, (int, float)):
-                total += int(v)
-            total += walk_numbers(v, keys)
-    elif isinstance(value, list):
-        for item in value:
-            total += walk_numbers(item, keys)
-    return total
-
-
-def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
-    usage: dict[str, Any] = {
+def empty_agent_usage() -> dict[str, Any]:
+    return {
         "turns": None,
         "input_tokens": None,
         "output_tokens": None,
         "total_tokens": None,
         "cache_read_tokens": None,
         "cache_creation_tokens": None,
+        "reasoning_tokens": None,
         "cost_usd": None,
+        "usage_report": {
+            "complete": False,
+            "parser": None,
+            "accounting_basis": None,
+            "source_events": 0,
+            "error": "no unambiguous provider usage report",
+        },
     }
 
-    if agent == "claude":
-        try:
-            payload = json.loads(stdout)
-        except json.JSONDecodeError:
-            payload = None
-        if isinstance(payload, dict):
-            usage["turns"] = payload.get("num_turns")
-            usage["cost_usd"] = payload.get("total_cost_usd")
-            model_usage = payload.get("modelUsage")
-            if isinstance(model_usage, dict):
-                input_tokens = output_tokens = cache_read = cache_create = 0
-                for item in model_usage.values():
-                    if isinstance(item, dict):
-                        input_tokens += int(item.get("inputTokens") or 0)
-                        output_tokens += int(item.get("outputTokens") or 0)
-                        cache_read += int(item.get("cacheReadInputTokens") or 0)
-                        cache_create += int(item.get("cacheCreationInputTokens") or 0)
-                usage["input_tokens"] = input_tokens
-                usage["output_tokens"] = output_tokens
-                usage["cache_read_tokens"] = cache_read
-                usage["cache_creation_tokens"] = cache_create
-                usage["total_tokens"] = input_tokens + output_tokens + cache_read + cache_create
-            return usage
 
-    token_match = re.search(r"tokens used\s*\n\s*([0-9,]+)", stdout + "\n" + stderr, re.IGNORECASE)
-    if token_match:
-        usage["total_tokens"] = int(token_match.group(1).replace(",", ""))
-
-    turns = 0
-    for line in stdout.splitlines():
+def json_output_payloads(stdout: str) -> list[dict[str, Any]]:
+    """Parse a JSON object or NDJSON stream without recursively mining numbers."""
+    stripped = (stdout or "").strip()
+    if not stripped:
+        return []
+    try:
+        value = json.loads(stripped)
+    except json.JSONDecodeError:
+        value = None
+    if isinstance(value, dict):
+        return [value]
+    payloads: list[dict[str, Any]] = []
+    for line in stripped.splitlines():
         line = line.strip()
         if not line.startswith("{"):
             continue
@@ -4205,21 +4589,271 @@ def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
             payload = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if payload.get("type") in {"agent_message", "assistant_message", "turn_end"}:
-            turns += 1
-        usage["input_tokens"] = (usage["input_tokens"] or 0) + walk_numbers(payload, {"input_tokens", "inputTokens"})
-        usage["output_tokens"] = (usage["output_tokens"] or 0) + walk_numbers(payload, {"output_tokens", "outputTokens"})
-        usage["cache_read_tokens"] = (usage["cache_read_tokens"] or 0) + walk_numbers(payload, {"cache_read_tokens", "cacheReadInputTokens"})
-        usage["cache_creation_tokens"] = (usage["cache_creation_tokens"] or 0) + walk_numbers(payload, {"cache_creation_tokens", "cacheCreationInputTokens"})
-        reported_cost = payload.get("total_cost_usd") or payload.get("totalCostUsd") or payload.get("cost_usd")
-        if isinstance(reported_cost, (int, float)):
-            usage["cost_usd"] = float(reported_cost)
-    if turns:
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
+
+
+def unambiguous_nonnegative_int(
+    value: dict[str, Any], aliases: tuple[str, ...], *, default: int | None = None
+) -> int | None:
+    """Read provider aliases only when every present representation agrees."""
+    found = [value[key] for key in aliases if key in value]
+    if not found:
+        return default
+    if any(isinstance(item, bool) or not isinstance(item, int) or item < 0 for item in found):
+        return None
+    if len(set(found)) != 1:
+        return None
+    return int(found[0])
+
+
+def _usage_from_codex(stdout: str) -> dict[str, Any]:
+    usage = empty_agent_usage()
+    payloads = json_output_payloads(stdout)
+    snapshots = [
+        payload.get("usage")
+        for payload in payloads
+        if payload.get("type") == "turn.completed" and isinstance(payload.get("usage"), dict)
+    ]
+    if not snapshots:
+        usage["usage_report"].update(
+            {"parser": "codex_turn_completed_v1", "source_events": 0}
+        )
+        return usage
+    parsed: list[dict[str, int | None]] = []
+    for snapshot in snapshots:
+        assert isinstance(snapshot, dict)
+        input_tokens = unambiguous_nonnegative_int(snapshot, ("input_tokens", "inputTokens"))
+        output_tokens = unambiguous_nonnegative_int(snapshot, ("output_tokens", "outputTokens"))
+        cache_read = unambiguous_nonnegative_int(
+            snapshot,
+            ("cached_input_tokens", "cache_read_input_tokens", "cache_read_tokens"),
+            default=None,
+        )
+        reasoning = unambiguous_nonnegative_int(
+            snapshot,
+            ("reasoning_output_tokens", "reasoning_tokens"),
+            default=None,
+        )
+        if None in (input_tokens, output_tokens):
+            usage["usage_report"].update(
+                {
+                    "parser": "codex_turn_completed_v1",
+                    "source_events": len(snapshots),
+                    "error": "Codex turn.completed usage is missing or ambiguous",
+                }
+            )
+            return usage
+        parsed.append(
+            {
+                "input_tokens": int(input_tokens),
+                "output_tokens": int(output_tokens),
+                "cache_read_tokens": int(cache_read) if cache_read is not None else None,
+                # Codex currently exposes no cache-write counter. Whether absence
+                # means zero is a frozen provider-quote decision, never a parser
+                # inference.
+                "cache_creation_tokens": None,
+                "reasoning_tokens": int(reasoning) if reasoning is not None else None,
+            }
+        )
+    # turn.completed is a cumulative snapshot for this isolated `codex exec`
+    # invocation. Multiple snapshots are never summed. They must be monotone;
+    # the final snapshot is the attempt total.
+    optional_counters = ("cache_read_tokens", "reasoning_tokens")
+    for previous, current in zip(parsed, parsed[1:]):
+        if any(
+            (previous[key] is None) != (current[key] is None)
+            for key in optional_counters
+        ):
+            usage["usage_report"].update(
+                {
+                    "parser": "codex_turn_completed_v1",
+                    "source_events": len(snapshots),
+                    "error": "Codex cumulative usage counter presence is inconsistent",
+                }
+            )
+            return usage
+        if any(
+            current[key] is not None
+            and previous[key] is not None
+            and current[key] < previous[key]
+            for key in previous
+        ):
+            usage["usage_report"].update(
+                {
+                    "parser": "codex_turn_completed_v1",
+                    "source_events": len(snapshots),
+                    "error": "Codex cumulative usage snapshots are non-monotone",
+                }
+            )
+            return usage
+    final = parsed[-1]
+    usage.update(final)
+    usage["total_tokens"] = final["input_tokens"] + final["output_tokens"]
+    usage["turns"] = len(snapshots)
+    usage["usage_report"] = {
+        "complete": True,
+        "parser": "codex_turn_completed_v1",
+        "accounting_basis": "last_cumulative_snapshot_per_isolated_invocation",
+        "source_events": len(snapshots),
+        "error": None,
+        "counter_presence": {
+            "cache_read_input": final["cache_read_tokens"] is not None,
+            "cache_write_input": False,
+            "reasoning_output": final["reasoning_tokens"] is not None,
+        },
+    }
+    return usage
+
+
+def _usage_from_claude(stdout: str) -> dict[str, Any]:
+    usage = empty_agent_usage()
+    payloads = json_output_payloads(stdout)
+    results = [payload for payload in payloads if payload.get("type") == "result"]
+    if not results:
+        usage["usage_report"].update(
+            {"parser": "claude_result_model_usage_v1", "source_events": 0}
+        )
+        return usage
+    if len(results) != 1:
+        usage["usage_report"].update(
+            {
+                "parser": "claude_result_model_usage_v1",
+                "source_events": len(results),
+                "error": "Claude invocation must contain exactly one terminal result",
+            }
+        )
+        return usage
+    result = results[0]
+    model_usage = result.get("modelUsage")
+    source_rows: list[dict[str, Any]] = []
+    selected_source = "modelUsage"
+    if isinstance(model_usage, dict) and model_usage:
+        if len(model_usage) != 1:
+            usage["usage_report"].update(
+                {
+                    "parser": "claude_result_model_usage_v1",
+                    "source_events": len(results),
+                    "actual_models": sorted(str(model) for model in model_usage),
+                    "error": "Claude result contains multiple model rows requiring separate frozen prices",
+                }
+            )
+            return usage
+        source_rows = [item for item in model_usage.values() if isinstance(item, dict)]
+        if len(source_rows) != len(model_usage):
+            source_rows = []
+    else:
+        top_usage = result.get("usage")
+        if isinstance(top_usage, dict):
+            source_rows = [top_usage]
+            selected_source = "usage"
+    if not source_rows:
+        usage["usage_report"].update(
+            {
+                "parser": "claude_result_model_usage_v1",
+                "source_events": len(results),
+                "error": "Claude result has no unambiguous modelUsage or usage object",
+            }
+        )
+        return usage
+    totals: dict[str, int | None] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0,
+        "reasoning_tokens": 0,
+    }
+    aliases = {
+        "input_tokens": ("inputTokens", "input_tokens"),
+        "output_tokens": ("outputTokens", "output_tokens"),
+        "cache_read_tokens": ("cacheReadInputTokens", "cache_read_input_tokens"),
+        "cache_creation_tokens": (
+            "cacheCreationInputTokens",
+            "cache_creation_input_tokens",
+        ),
+        "reasoning_tokens": ("reasoningTokens", "reasoning_tokens"),
+    }
+    for row in source_rows:
+        for field, field_aliases in aliases.items():
+            default = None
+            value = unambiguous_nonnegative_int(row, field_aliases, default=default)
+            if value is None and field in {"input_tokens", "output_tokens"}:
+                usage["usage_report"].update(
+                    {
+                        "parser": "claude_result_model_usage_v1",
+                        "source_events": len(results),
+                        "error": f"Claude {selected_source} {field} is missing or ambiguous",
+                    }
+                )
+                return usage
+            if value is None:
+                totals[field] = None
+            elif totals[field] is not None:
+                totals[field] += value
+    usage.update(totals)
+    # Anthropic reports cache read/create separately from input tokens; output
+    # includes thinking/reasoning unless the frozen quote says otherwise.
+    total_fields = (
+        totals["input_tokens"],
+        totals["cache_read_tokens"],
+        totals["cache_creation_tokens"],
+        totals["output_tokens"],
+    )
+    if all(isinstance(value, int) for value in total_fields):
+        usage["total_tokens"] = sum(int(value) for value in total_fields)
+    turns = result.get("num_turns")
+    if isinstance(turns, int) and not isinstance(turns, bool) and turns >= 0:
         usage["turns"] = turns
-    if usage["total_tokens"] is None:
-        pieces = [usage["input_tokens"], usage["output_tokens"], usage["cache_read_tokens"], usage["cache_creation_tokens"]]
-        if any(v is not None for v in pieces):
-            usage["total_tokens"] = sum(int(v or 0) for v in pieces)
+    reported_cost = result.get("total_cost_usd")
+    if isinstance(reported_cost, (int, float)) and not isinstance(reported_cost, bool):
+        usage["cost_usd"] = float(reported_cost)
+    elif selected_source == "modelUsage":
+        costs = [row.get("costUSD") for row in source_rows]
+        if all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in costs):
+            usage["cost_usd"] = sum(float(item) for item in costs)
+    usage["usage_report"] = {
+        "complete": True,
+        "parser": "claude_result_model_usage_v1",
+        "accounting_basis": "final_result_attempt_total",
+        "selected_source": selected_source,
+        "ignored_duplicate_source": (
+            "usage" if selected_source == "modelUsage" and isinstance(result.get("usage"), dict) else None
+        ),
+        "source_events": len(results),
+        "error": None,
+        "actual_models": sorted(str(model) for model in model_usage) if selected_source == "modelUsage" else [],
+        "counter_presence": {
+            "cache_read_input": totals["cache_read_tokens"] is not None,
+            "cache_write_input": totals["cache_creation_tokens"] is not None,
+            "reasoning_output": totals["reasoning_tokens"] is not None,
+        },
+    }
+    return usage
+
+
+def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
+    """Extract one isolated provider invocation with no recursive token mining."""
+    if agent == "codex":
+        usage = _usage_from_codex(stdout)
+    elif agent == "claude":
+        usage = _usage_from_claude(stdout)
+    else:
+        usage = empty_agent_usage()
+        usage["usage_report"]["error"] = f"unsupported agent usage parser: {agent}"
+    if usage["usage_report"].get("complete"):
+        return usage
+
+    # Keep a human-facing legacy total as a diagnostic only. It cannot populate
+    # any confirmatory category or rescue an incomplete provider report.
+    token_match = re.search(
+        r"tokens used\s*\n\s*([0-9,]+)",
+        (stdout or "") + "\n" + (stderr or ""),
+        re.IGNORECASE,
+    )
+    if token_match:
+        usage["total_tokens"] = int(token_match.group(1).replace(",", ""))
+        usage["usage_report"]["diagnostic_legacy_total_only"] = True
     return usage
 
 
@@ -4857,6 +5491,65 @@ def score(
     }
 
 
+def confirmatory_code_quality(
+    scoring: dict[str, Any],
+    *,
+    validation_ok: bool,
+    returncode: int,
+    integrity_audits: dict[str, bool],
+) -> dict[str, Any]:
+    """Derive quality only from predeclared output criteria.
+
+    Agent process behavior (running tests or checking a diff), runtime, token
+    use, and treatment-specific tool use remain diagnostics and cannot improve
+    the co-primary quality endpoint.
+    """
+    reasons: list[str] = []
+    if not validation_ok:
+        reasons.append("validation_failed")
+    if returncode != 0:
+        reasons.append("agent_returncode_nonzero")
+    forbidden = (scoring.get("details") or {}).get("forbidden_files_touched")
+    if isinstance(forbidden, list) and forbidden:
+        reasons.append("forbidden_file_modified")
+    reasons.extend(
+        f"{name}_failed" for name, passed in sorted(integrity_audits.items()) if passed is not True
+    )
+    # Only outcome (45) and patch focus (30) measure the produced patch. The
+    # process-behavior validation_discipline component is treatment-responsive
+    # and therefore deliberately excluded with runtime and tool-use points.
+    raw_core = sum(
+        float(scoring.get(key) or 0)
+        for key in ("outcome", "patch_focus")
+    )
+    normalized = max(0.0, min(1.0, raw_core / 75.0))
+    critical = bool(reasons)
+    return {
+        "schema": CONFIRMATORY_QUALITY_SCHEMA,
+        "rubric": "task_relative_output_outcome_patch_focus_v2",
+        "task_normalized_score": 0.0 if critical else round(normalized, 12),
+        "critical_failure": critical,
+        "critical_failure_reasons": reasons,
+        "excluded_components": [
+            "validation_discipline",
+            "runtime_efficiency",
+            "brain_use",
+        ],
+    }
+
+
+def treatment_timeout_stage(
+    user_visible_interval_started: float | None,
+    agent_interval_started: float | None,
+) -> str | None:
+    """Classify a subprocess timeout relative to the causal treatment boundary."""
+    if user_visible_interval_started is None:
+        return None
+    if agent_interval_started is None:
+        return "treatment_retrieval_or_delivery"
+    return "agent_execution"
+
+
 def run_one(
     task: dict[str, Any],
     runner: RunnerSpec,
@@ -4870,6 +5563,11 @@ def run_one(
     cell_started = time.monotonic()
     agent_interval_started: float | None = None
     agent_interval_wall_seconds: float | None = None
+    user_visible_interval_started: float | None = None
+    user_visible_interval_wall_seconds: float | None = None
+    timeout_occurred = False
+    timeout_stage: str | None = None
+    timeout_component_limit_seconds: float | None = None
     task, source, base_provenance = bind_task_base_commit(task)
     run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
     run_dir = suite_dir / run_id
@@ -4891,6 +5589,8 @@ def run_one(
         },
         "condition": condition,
         "repetition": repetition,
+        "treatment_started": False,
+        "agent_ran": False,
         "started_at": dt.datetime.now(dt.UTC).isoformat(),
         "planned_ordinal": getattr(args, "planned_ordinal", None),
         "runtime_controls": {
@@ -4938,12 +5638,6 @@ def run_one(
             runtime_env=runtime_env,
         )
         memory_packet: str | None = None
-        if task.get("treatments"):
-            memory_packet, packet_artifact = treatment_memory_packet(task, condition, worktree, tools)
-            record["packet_artifact"] = {"path": None, **packet_artifact}
-            if memory_packet is not None:
-                (run_dir / "packet.txt").write_text(memory_packet)
-                record["packet_artifact"]["path"] = "packet.txt"
         # frozen_brief arms have no worktree brain (see prepare_brain short-circuit); their
         # readiness is verified via the delivered frozen packet, not a worktree manifest.
         needs_worktree_brain = condition != "no_brain" and not uses_frozen_brain_delivery(task)
@@ -4971,6 +5665,18 @@ def run_one(
         # defer it) and agent-history reset — so the packet's live-state overlay matches.
         if condition != "no_brain" and os.environ.get("ENTIRE_BENCH_CAPTURE_BRIEF") == "1":
             capture_brief_packet(task, condition, runner, worktree, env, tools, run_dir)
+        # The co-primary user-visible timer begins at the causal treatment
+        # boundary. All setup and secret checks above are excluded; retrieved
+        # and placebo arms now include their actual harness-owned retrieval and
+        # packet delivery cost, while no-memory executes the same logical no-op.
+        user_visible_interval_started = time.monotonic()
+        record["treatment_started"] = True
+        if task.get("treatments"):
+            memory_packet, packet_artifact = treatment_memory_packet(task, condition, worktree, tools)
+            record["packet_artifact"] = {"path": None, **packet_artifact}
+            if memory_packet is not None:
+                (run_dir / "packet.txt").write_text(memory_packet)
+                record["packet_artifact"]["path"] = "packet.txt"
         prompt = prompt_for(task, condition, runner, memory_packet=memory_packet)
         (run_dir / "prompt.txt").write_text(prompt)
         record["prompt_artifact"] = {
@@ -4992,16 +5698,42 @@ def run_one(
             pricing,
             agent_retries=getattr(args, "agent_retries", 0),
         )
+        agent_response_finished_monotonic = agent_info.pop(
+            "_response_finished_monotonic", None
+        )
+        if (
+            isinstance(agent_response_finished_monotonic, bool)
+            or not isinstance(agent_response_finished_monotonic, (int, float))
+            or not math.isfinite(float(agent_response_finished_monotonic))
+            or float(agent_response_finished_monotonic) < agent_interval_started
+        ):
+            raise RuntimeError("agent response boundary timestamp is missing or invalid")
         # Preserve raw execution metrics before any post-agent integrity check can fail.
         # Executed failures remain in the primary denominators, so their usage and timing
         # must survive even if a later audit raises.
         record["agent_info"] = agent_info
-        agent_interval_wall_seconds = time.monotonic() - agent_interval_started
+        agent_interval_wall_seconds = (
+            float(agent_response_finished_monotonic) - agent_interval_started
+        )
+        user_visible_interval_wall_seconds = (
+            float(agent_response_finished_monotonic) - user_visible_interval_started
+        )
         # The agent ran and produced output. A failure past this point (an integrity
         # abort, or a validation/scoring error) is a REAL condition outcome scored 0,
-        # not an infrastructure non-outcome, so it must stay in the arm means. Only a
-        # pre-agent failure (the agent never ran) is excluded; see the handlers below.
+        # not an infrastructure non-outcome, so it must stay in the arm means. The
+        # broader retention boundary already began at treatment_started, so retrieval
+        # and delivery failures before this point are retained too.
         record["agent_ran"] = True
+        billing_integrity = agent_info.get("billing_integrity")
+        if (
+            isinstance(billing_integrity, dict)
+            and billing_integrity.get("required") is True
+            and billing_integrity.get("passed") is not True
+        ):
+            raise RuntimeError(
+                "confirmatory attempt-level billing usage is incomplete: "
+                f"attempts={billing_integrity.get('incomplete_attempts')}"
+            )
         leak_audit = agent_output_leak_audit(
             task,
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
@@ -5025,6 +5757,18 @@ def run_one(
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
         scoring = score(task, condition, agent_info, validation, files, diff)
+        quality = confirmatory_code_quality(
+            scoring,
+            validation_ok=validation["ok"],
+            returncode=agent_info["returncode"],
+            integrity_audits={
+                "agent_output_leak_audit": leak_audit["ok"],
+                "mcp_condition_audit": mcp_audit["ok"],
+                "temporal_memory_condition_audit": temporal_audit["ok"],
+                "agent_secret_postflight": secret_postflight["ok"],
+                "agent_patch_secret_audit": not patch_secret_hits,
+            },
+        )
         record.update(
             {
                 "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"] and temporal_audit["ok"],
@@ -5042,16 +5786,128 @@ def run_one(
                 "diff_stat": diff,
                 "validation": validation,
                 "score": scoring,
+                "code_quality": quality,
+            }
+        )
+    except subprocess.TimeoutExpired as exc:
+        # Any timeout after the causal treatment timer starts is an executed
+        # product outcome, including harness-owned retrieval before the model
+        # invocation. Pre-treatment setup timeouts remain infrastructure
+        # non-outcomes. The exact stage is retained rather than mislabeled.
+        timeout_stage = treatment_timeout_stage(
+            user_visible_interval_started, agent_interval_started
+        )
+        timeout_occurred = timeout_stage is not None
+        component_limit = getattr(exc, "timeout", None)
+        if (
+            timeout_occurred
+            and isinstance(component_limit, (int, float))
+            and not isinstance(component_limit, bool)
+            and math.isfinite(float(component_limit))
+            and float(component_limit) > 0
+        ):
+            timeout_component_limit_seconds = float(component_limit)
+        elapsed_agent_interval = (
+            time.monotonic() - agent_interval_started
+            if agent_interval_started is not None
+            else 0.0
+        )
+        partial_agent_info = getattr(exc, "agent_info", None)
+        if not isinstance(partial_agent_info, dict):
+            partial_agent_info = {
+                "returncode": 124,
+                "seconds": elapsed_agent_interval,
+                "agent_reported_api_seconds": None,
+                "attempts": [],
+                "billing_integrity": {
+                    "schema": "agent-brain-attempt-billing-integrity/v1",
+                    "required": confirmatory_pricing_required(pricing),
+                    "attempt_count": 0,
+                    "complete_attempts": 0,
+                    "incomplete_attempts": [],
+                    "aggregate_present": False,
+                    "passed": False,
+                    "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
+                },
+                "usage": {},
+            }
+        agent_response_finished_monotonic = partial_agent_info.pop(
+            "_response_finished_monotonic", None
+        )
+        if (
+            isinstance(agent_response_finished_monotonic, (int, float))
+            and not isinstance(agent_response_finished_monotonic, bool)
+            and math.isfinite(float(agent_response_finished_monotonic))
+            and agent_interval_started is not None
+            and float(agent_response_finished_monotonic) >= agent_interval_started
+        ):
+            agent_interval_wall_seconds = (
+                float(agent_response_finished_monotonic) - agent_interval_started
+            )
+            if user_visible_interval_started is not None:
+                user_visible_interval_wall_seconds = (
+                    float(agent_response_finished_monotonic)
+                    - user_visible_interval_started
+                )
+        record.update(
+            {
+                "agent_ran": agent_interval_started is not None,
+                "ok": False,
+                "error": (
+                    f"{timeout_stage or 'pre_treatment_setup'} timeout: {exc}"
+                ),
+                "agent_info": partial_agent_info,
+                "validation": {"ok": False, "results": [], "error": "agent timed out"},
+                "score": {"total": 0},
+                "code_quality": {
+                    "schema": CONFIRMATORY_QUALITY_SCHEMA,
+                    "rubric": "task_relative_output_outcome_patch_focus_v2",
+                    "task_normalized_score": 0.0,
+                    "critical_failure": True,
+                    "critical_failure_reasons": [
+                        f"{timeout_stage or 'pre_treatment_setup'}_timeout"
+                    ],
+                    "excluded_components": [
+                        "validation_discipline",
+                        "runtime_efficiency",
+                        "brain_use",
+                    ],
+                },
             }
         )
     except Exception as exc:
-        record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
+        record.update(
+            {
+                "ok": False,
+                "error": str(exc),
+                "score": {"total": 0},
+                "code_quality": {
+                    "schema": CONFIRMATORY_QUALITY_SCHEMA,
+                    "rubric": "task_relative_output_outcome_patch_focus_v2",
+                    "task_normalized_score": 0.0,
+                    "critical_failure": True,
+                    "critical_failure_reasons": ["harness_or_integrity_failure"],
+                    "excluded_components": [
+                        "validation_discipline",
+                        "runtime_efficiency",
+                        "brain_use",
+                    ],
+                },
+            }
+        )
     finally:
         cell_finished = time.monotonic()
         if agent_interval_started is not None and agent_interval_wall_seconds is None:
             agent_interval_wall_seconds = cell_finished - agent_interval_started
+        if user_visible_interval_started is not None and user_visible_interval_wall_seconds is None:
+            user_visible_interval_wall_seconds = cell_finished - user_visible_interval_started
         record["timing"] = {
             "primary": TIMING_DEFINITIONS["primary"],
+            "end_to_end_user_visible_wall_seconds": user_visible_interval_wall_seconds,
+            "timeout_occurred": timeout_occurred,
+            "timeout_stage": timeout_stage,
+            "agent_timeout_limit_seconds": float(args.timeout),
+            "timeout_component_limit_seconds": timeout_component_limit_seconds,
             "harness_agent_interval_wall_seconds": agent_interval_wall_seconds,
             "agent_reported_api_seconds": (
                 record.get("agent_info", {}).get("agent_reported_api_seconds")
@@ -5062,7 +5918,9 @@ def run_one(
                 agent_interval_started - cell_started if agent_interval_started is not None else cell_finished - cell_started
             ),
             "cell_total_wall_seconds": cell_finished - cell_started,
-            "setup_included_in_primary": False,
+            "pre_treatment_setup_included_in_primary": False,
+            "treatment_retrieval_included_in_primary": True,
+            "hidden_validation_included_in_primary": False,
         }
         record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
         (run_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True))

@@ -1,194 +1,69 @@
 {
-  "analysis_kind": "deterministic_assumption_sensitivity_with_quarantined_exploratory_calibration",
-  "artifact_id": "agent-brain-confirmatory-power-v2",
-  "conservative_repetition_limit": {
-    "correctness_marginal_power_ceiling": 0.432069,
-    "correctness_task_level_sd_floor": 0.273861,
-    "interpretation": "limit as repetitions per treatment increase; task count remains 24",
-    "repetitions_only_can_meet_both_marginal_targets": false,
-    "token_marginal_power_ceiling": 0.603961,
-    "token_task_level_sd_floor": 0.25
+  "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
+  "artifact_id": "agent-brain-confirmatory-power-v3",
+  "calibration_requirements": {
+    "minimum_independent_task_clusters": 12,
+    "must_match": [
+      "final runner/model/effort and runner version",
+      "v2 no_memory and retrieved_memory treatment contracts",
+      "end-to-end timing boundary and timeout policy",
+      "five-category frozen price quote, inclusion/absence semantics, and all-attempt retry accounting",
+      "task-normalized quality rubric and critical-failure policy"
+    ],
+    "required_statistics": {
+      "code_quality": "SD of paired task-level mean differences",
+      "dependence": "joint covariance or retained task-level calibration rows",
+      "elapsed_time": "SD of paired task-level mean log ratios",
+      "normalized_cost": "SD of paired task-level mean log ratios"
+    },
+    "selection_use": "development calibration only; cannot enter confirmatory outcomes",
+    "status": "open"
+  },
+  "co_primary_endpoints": {
+    "code_quality": {
+      "estimand_scale": "paired_task_difference",
+      "marginal_power": null,
+      "paired_task_sd": null,
+      "planning_effect": 0.05,
+      "practical_floor": {
+        "difference_min": 0.05,
+        "status": "provisional"
+      },
+      "status": "pending_final_contract_calibration"
+    },
+    "elapsed_time": {
+      "estimand_scale": "paired_task_log_ratio",
+      "marginal_power": null,
+      "paired_task_sd": null,
+      "planning_effect": -0.105361,
+      "practical_floor": {
+        "ratio_max": 0.9,
+        "status": "provisional"
+      },
+      "status": "pending_final_contract_calibration"
+    },
+    "normalized_cost": {
+      "estimand_scale": "paired_task_log_ratio",
+      "marginal_power": null,
+      "paired_task_sd": null,
+      "planning_effect": -0.127833,
+      "practical_floor": {
+        "ratio_max": 0.88,
+        "status": "provisional"
+      },
+      "status": "pending_final_contract_calibration"
+    }
   },
   "decision": {
-    "conclusion": "The proposed 24-task x 4-repetition design does not substantiate the declared power target under the conservative planning scenario. Quarantined legacy outcomes cannot repair that failure. Do not mark power_target_met pass.",
     "passed": false,
-    "rule": "pass only if token and correctness marginal power are each at least 0.80",
-    "scenario": "conservative_planning"
-  },
-  "design_options": {
-    "arithmetic_extremes_in_listed_repetition_options": {
-      "fewest_requested_cells": {
-        "maximum_calls_with_10_percent_reserve": 974,
-        "minimum_tasks_for_both_marginal_targets": 295,
-        "minimum_tasks_for_correctness_noninferiority_target": 295,
-        "minimum_tasks_for_token_target": 142,
-        "repetitions_per_treatment": 1,
-        "requested_cells_at_minimum_tasks": 885
-      },
-      "fewest_task_clusters": {
-        "maximum_calls_with_10_percent_reserve": 3129,
-        "minimum_tasks_for_both_marginal_targets": 79,
-        "minimum_tasks_for_correctness_noninferiority_target": 79,
-        "minimum_tasks_for_token_target": 46,
-        "repetitions_per_treatment": 12,
-        "requested_cells_at_minimum_tasks": 2844
-      }
-    },
-    "current_design": {
-      "both_marginal_targets_met": false,
-      "correctness_noninferiority_marginal_power": 0.243511,
-      "correctness_task_level_pass_rate_difference_sd": 0.387298,
-      "maximum_calls_with_10_percent_reserve": 317,
-      "repetitions_per_treatment": 4,
-      "requested_cells": 288,
-      "tasks": 24,
-      "token_marginal_power": 0.370207,
-      "token_task_level_log_ratio_sd": 0.327872
-    },
-    "interpretation": "More independent task clusters are substantially more cell-efficient than additional repetitions under the stated positive ICC and irreducible task heterogeneity. These rows are conditional on hypothetical assumptions and are not recommendations or budget approvals.",
-    "minimum_repetitions_by_tasks": [
-      {
-        "maximum_calls_with_10_percent_reserve": null,
-        "minimum_repetitions_for_both_marginal_targets": null,
-        "minimum_repetitions_for_correctness_noninferiority_target": null,
-        "minimum_repetitions_for_token_target": null,
-        "requested_cells_at_minimum_repetitions": null,
-        "tasks": 24
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": null,
-        "minimum_repetitions_for_both_marginal_targets": null,
-        "minimum_repetitions_for_correctness_noninferiority_target": null,
-        "minimum_repetitions_for_token_target": 9,
-        "requested_cells_at_minimum_repetitions": null,
-        "tasks": 48
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 9716,
-        "minimum_repetitions_for_both_marginal_targets": 46,
-        "minimum_repetitions_for_correctness_noninferiority_target": 46,
-        "minimum_repetitions_for_token_target": 4,
-        "requested_cells_at_minimum_repetitions": 8832,
-        "tasks": 64
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 3169,
-        "minimum_repetitions_for_both_marginal_targets": 12,
-        "minimum_repetitions_for_correctness_noninferiority_target": 12,
-        "minimum_repetitions_for_token_target": 3,
-        "requested_cells_at_minimum_repetitions": 2880,
-        "tasks": 80
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 2218,
-        "minimum_repetitions_for_both_marginal_targets": 7,
-        "minimum_repetitions_for_correctness_noninferiority_target": 7,
-        "minimum_repetitions_for_token_target": 2,
-        "requested_cells_at_minimum_repetitions": 2016,
-        "tasks": 96
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 1558,
-        "minimum_repetitions_for_both_marginal_targets": 4,
-        "minimum_repetitions_for_correctness_noninferiority_target": 4,
-        "minimum_repetitions_for_token_target": 2,
-        "requested_cells_at_minimum_repetitions": 1416,
-        "tasks": 118
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 1690,
-        "minimum_repetitions_for_both_marginal_targets": 4,
-        "minimum_repetitions_for_correctness_noninferiority_target": 4,
-        "minimum_repetitions_for_token_target": 2,
-        "requested_cells_at_minimum_repetitions": 1536,
-        "tasks": 128
-      }
+    "prohibited_until_resolved": [
+      "mark power_target_met pass",
+      "freeze practical floors",
+      "seal or open the fresh holdout",
+      "authorize paid confirmatory calls"
     ],
-    "minimum_tasks_by_repetitions": [
-      {
-        "maximum_calls_with_10_percent_reserve": 974,
-        "minimum_tasks_for_both_marginal_targets": 295,
-        "minimum_tasks_for_correctness_noninferiority_target": 295,
-        "minimum_tasks_for_token_target": 142,
-        "repetitions_per_treatment": 1,
-        "requested_cells_at_minimum_tasks": 885
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 1169,
-        "minimum_tasks_for_both_marginal_targets": 177,
-        "minimum_tasks_for_correctness_noninferiority_target": 177,
-        "minimum_tasks_for_token_target": 89,
-        "repetitions_per_treatment": 2,
-        "requested_cells_at_minimum_tasks": 1062
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 1367,
-        "minimum_tasks_for_both_marginal_targets": 138,
-        "minimum_tasks_for_correctness_noninferiority_target": 138,
-        "minimum_tasks_for_token_target": 72,
-        "repetitions_per_treatment": 3,
-        "requested_cells_at_minimum_tasks": 1242
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 1558,
-        "minimum_tasks_for_both_marginal_targets": 118,
-        "minimum_tasks_for_correctness_noninferiority_target": 118,
-        "minimum_tasks_for_token_target": 63,
-        "repetitions_per_treatment": 4,
-        "requested_cells_at_minimum_tasks": 1416
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 1961,
-        "minimum_tasks_for_both_marginal_targets": 99,
-        "minimum_tasks_for_correctness_noninferiority_target": 99,
-        "minimum_tasks_for_token_target": 54,
-        "repetitions_per_treatment": 6,
-        "requested_cells_at_minimum_tasks": 1782
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 2350,
-        "minimum_tasks_for_both_marginal_targets": 89,
-        "minimum_tasks_for_correctness_noninferiority_target": 89,
-        "minimum_tasks_for_token_target": 50,
-        "repetitions_per_treatment": 8,
-        "requested_cells_at_minimum_tasks": 2136
-      },
-      {
-        "maximum_calls_with_10_percent_reserve": 3129,
-        "minimum_tasks_for_both_marginal_targets": 79,
-        "minimum_tasks_for_correctness_noninferiority_target": 79,
-        "minimum_tasks_for_token_target": 46,
-        "repetitions_per_treatment": 12,
-        "requested_cells_at_minimum_tasks": 2844
-      }
-    ],
-    "repetition_options": [
-      1,
-      2,
-      3,
-      4,
-      6,
-      8,
-      12
-    ],
-    "scenario": "conservative_planning",
-    "status": "arithmetic_sensitivity_not_an_approved_design",
-    "task_options": [
-      24,
-      48,
-      64,
-      80,
-      96,
-      118,
-      128
-    ]
+    "reason": "all three final-contract variance inputs and endpoint dependence are uncalibrated"
   },
-  "design_tolerance_at_24_tasks": {
-    "interpretation": "The design can meet the marginal targets only if actual task-level variability is no larger than these thresholds under the planning approximation.",
-    "maximum_task_level_log_ratio_sd_for_80_percent_token_power": 0.203129,
-    "maximum_task_level_pass_rate_difference_sd_for_80_percent_noninferiority_power_at_true_parity": 0.174865
-  },
-  "empirical_variance_computed_for_exploratory_diagnostics": true,
   "empirical_variance_used_in_confirmatory_decision": false,
   "exploratory_calibration": {
     "confirmatory_assumption_source": false,
@@ -201,7 +76,7 @@
         "sha256": "b1810656810fc004c4e5718ce7e32bda568a21278a25864e63c696d3dde001c0"
       }
     ],
-    "executed_run_predicate_version": 1,
+    "executed_run_predicate_version": 2,
     "interpretation": "The byte-verified legacy records show material heterogeneity and correctness saturation, but their selected tasks, legacy treatments, runners, and harness contracts are not exchangeable with the candidate confirmatory experiment. They cannot select assumptions or pass the power gate.",
     "manifest_path": "benchmarks/agent-brain/confirmatory/power-calibration-exploratory-v1.json",
     "manifest_sha256": "88a371da61d5aa9552fd6ccfeda13199cbe068831ff0992310aa251c12727d6b",
@@ -427,176 +302,23 @@
     ],
     "unique_task_ids_across_sources": 12
   },
-  "exploratory_outcomes_analyzed": true,
   "method": {
-    "correctness": "One-sided normal non-inferiority power for the paired task-level pass-rate difference; repeated Bernoulli variance is inflated by a stated ICC.",
-    "joint_power_caveat": "Endpoint dependence is unspecified. Frechet bounds and an independence sensitivity are reported, but the pass rule uses the two marginal targets.",
-    "multiplicity": "Holm first-step alpha=0.05/2 is used for both retained-vs-control comparisons.",
-    "small_sample_caveat": "The normal approximation does not model discrete correctness outcomes or the exact small-sample bootstrap tails at 24 task clusters; required task counts are sensitivity estimates, not a final design recommendation.",
-    "token": "Two-sided normal power for the paired task-level mean log token ratio; task SD is sqrt(between-task treatment-effect variance + averaged within-attempt variance)."
-  },
-  "next_decision": {
-    "prohibited_until_decision": [
-      "mark power_target_met pass",
-      "seal or open the fresh confirmatory holdout",
-      "authorize paid confirmatory cells",
-      "promote exploratory variance estimates into confirmatory assumptions"
-    ],
-    "recommended_action": "choose_calibration_basis_before_resizing_or_sealing_holdout",
-    "smallest_defensible_step": "Keep the gate failed and the fresh holdout unopened. Decide whether to (a) explicitly accept the hypothetical conservative assumptions and their resulting task/cell envelope, or (b) preregister and budget a separate development-only calibration under the final runner and treatment contracts. Do not choose task count from the legacy point estimates.",
-    "status": "human_methodology_decision_required",
-    "why_no_automatic_design_is_selected": [
-      "the decision scenario is hypothetical rather than empirically calibrated",
-      "the retained outcomes use legacy treatments and non-exchangeable runners and harnesses",
-      "the byte-verifiable sources contain only sparse, selected task clusters with saturated or unstable correctness",
-      "the apparent cell minimum trades repetitions for hundreds of task clusters and is only arithmetic sensitivity"
-    ]
+    "component_tests": "one-sided task-clustered superiority at each frozen practical floor",
+    "joint_rule": "intersection-union: all three component nulls must be rejected; no across-endpoint multiplicity adjustment is required",
+    "planning_rule": "each marginal power must meet 0.80 and joint power must be assessed under a frozen endpoint-dependence model or conservative simulation"
   },
   "paid_runs_performed": false,
   "protocol_inputs": {
-    "correctness_noninferiority_margin_absolute": -0.1,
-    "endpoint_family_alpha": 0.05,
-    "endpoint_family_comparisons": 2,
-    "holm_worst_case_planning_alpha": 0.025,
+    "attempt_policy": "all_executed_attempts",
+    "cluster_unit": "task",
+    "intersection_union_alpha": 0.05,
     "power_target": 0.8,
+    "primary_contrast": "retrieved_memory_vs_no_memory",
     "primary_treatments": 3,
     "repetitions_per_treatment": 4,
     "requested_cells": 288,
-    "tasks": 24,
-    "token_ratio_alternative": 0.88,
-    "token_reduction_target": 0.12
+    "tasks": 24
   },
-  "scenarios": [
-    {
-      "assumption_basis": "hypothetical planning values; no benchmark outcomes or empirical variance used",
-      "correctness": {
-        "cross_treatment_task_mean_correlation": 0.8,
-        "no_memory_pass_probability": 0.8,
-        "retrieved_memory_pass_probability": 0.8,
-        "within_arm_attempt_icc": 0.05
-      },
-      "description": "Low heterogeneity and strong task pairing; deliberately favorable.",
-      "id": "favorable_high_pairing",
-      "results": {
-        "both_endpoints": {
-          "both_marginal_targets_met": true,
-          "joint_power_frechet_lower_bound": 0.947878,
-          "joint_power_frechet_upper_bound": 0.950693,
-          "joint_power_if_independent_sensitivity_only": 0.948017,
-          "maximum_calls_with_10_percent_reserve": 199,
-          "minimum_tasks_for_both_marginal_targets_at_4_repetitions": 15,
-          "requested_cells_at_that_task_count": 180
-        },
-        "correctness_noninferiority": {
-          "marginal_power": 0.950693,
-          "minimum_tasks_at_4_repetitions": 15,
-          "standard_error": 0.027689,
-          "target_met": true,
-          "task_level_pass_rate_difference_sd": 0.135647,
-          "true_difference": 0.0
-        },
-        "token": {
-          "marginal_power": 0.997185,
-          "minimum_tasks_at_4_repetitions": 10,
-          "standard_error": 0.025516,
-          "target_met": true,
-          "task_level_log_ratio_sd": 0.125
-        }
-      },
-      "role": "sensitivity_only",
-      "token": {
-        "between_task_log_ratio_sd": 0.1,
-        "cross_treatment_residual_correlation": 0.5,
-        "within_attempt_log_token_sd": 0.15
-      }
-    },
-    {
-      "assumption_basis": "hypothetical planning values; no benchmark outcomes or empirical variance used",
-      "correctness": {
-        "cross_treatment_task_mean_correlation": 0.0,
-        "no_memory_pass_probability": 0.75,
-        "retrieved_memory_pass_probability": 0.75,
-        "within_arm_attempt_icc": 0.2
-      },
-      "description": "Material task heterogeneity, moderate repeated-attempt clustering, and no assumed cross-treatment pairing benefit.",
-      "id": "conservative_planning",
-      "results": {
-        "both_endpoints": {
-          "both_marginal_targets_met": false,
-          "joint_power_frechet_lower_bound": 0.0,
-          "joint_power_frechet_upper_bound": 0.243511,
-          "joint_power_if_independent_sensitivity_only": 0.09015,
-          "maximum_calls_with_10_percent_reserve": 1558,
-          "minimum_tasks_for_both_marginal_targets_at_4_repetitions": 118,
-          "requested_cells_at_that_task_count": 1416
-        },
-        "correctness_noninferiority": {
-          "marginal_power": 0.243511,
-          "minimum_tasks_at_4_repetitions": 118,
-          "standard_error": 0.079057,
-          "target_met": false,
-          "task_level_pass_rate_difference_sd": 0.387298,
-          "true_difference": 0.0
-        },
-        "token": {
-          "marginal_power": 0.370207,
-          "minimum_tasks_at_4_repetitions": 63,
-          "standard_error": 0.066927,
-          "target_met": false,
-          "task_level_log_ratio_sd": 0.327872
-        }
-      },
-      "role": "decision_scenario",
-      "token": {
-        "between_task_log_ratio_sd": 0.25,
-        "cross_treatment_residual_correlation": 0.0,
-        "within_attempt_log_token_sd": 0.3
-      }
-    },
-    {
-      "assumption_basis": "hypothetical planning values; no benchmark outcomes or empirical variance used",
-      "correctness": {
-        "cross_treatment_task_mean_correlation": 0.0,
-        "no_memory_pass_probability": 0.6,
-        "retrieved_memory_pass_probability": 0.57,
-        "within_arm_attempt_icc": 0.3
-      },
-      "description": "Higher heterogeneity and a true correctness difference of -0.03, still inside the -0.10 margin.",
-      "id": "stress_lower_correctness",
-      "results": {
-        "both_endpoints": {
-          "both_marginal_targets_met": false,
-          "joint_power_frechet_lower_bound": 0.0,
-          "joint_power_frechet_upper_bound": 0.106462,
-          "joint_power_if_independent_sensitivity_only": 0.021067,
-          "maximum_calls_with_10_percent_reserve": 4884,
-          "minimum_tasks_for_both_marginal_targets_at_4_repetitions": 370,
-          "requested_cells_at_that_task_count": 4440
-        },
-        "correctness_noninferiority": {
-          "marginal_power": 0.106462,
-          "minimum_tasks_at_4_repetitions": 370,
-          "standard_error": 0.097984,
-          "target_met": false,
-          "task_level_pass_rate_difference_sd": 0.480023,
-          "true_difference": -0.03
-        },
-        "token": {
-          "marginal_power": 0.197878,
-          "minimum_tasks_at_4_repetitions": 118,
-          "standard_error": 0.091856,
-          "target_met": false,
-          "task_level_log_ratio_sd": 0.45
-        }
-      },
-      "role": "sensitivity_only",
-      "token": {
-        "between_task_log_ratio_sd": 0.35,
-        "cross_treatment_residual_correlation": 0.0,
-        "within_attempt_log_token_sd": 0.4
-      }
-    }
-  ],
-  "schema_version": 2,
-  "status": "fail"
+  "schema_version": 3,
+  "status": "pending_uncalibrated"
 }

@@ -65,7 +65,9 @@ class ProtocolCheckTest(unittest.TestCase):
             "schema_version": 1,
             "runner": runner,
             "pricing_quote": {
+                "schema": "agent-brain-price-quote/v2",
                 "status": "pinned",
+                "quote_sha256": None,
                 "source_uri": "synthetic://unit-test-quote",
                 "source_artifact_path": quote_source.relative_to(repo).as_posix(),
                 "source_artifact_sha256": self._sha(quote_source),
@@ -77,8 +79,26 @@ class ProtocolCheckTest(unittest.TestCase):
                 "tokens_per_price_unit": 1_000_000,
                 "prices_usd_per_unit": {
                     "uncached_input": "2",
-                    "cached_input": "0.5",
-                    "output": "8",
+                    "cache_read_input": "0.5",
+                    "cache_write_input": "2",
+                    "visible_output": "8",
+                    "reasoning_output": "8",
+                },
+                "price_aliases": {
+                    "uncached_input": None,
+                    "cache_read_input": None,
+                    "cache_write_input": None,
+                    "visible_output": None,
+                    "reasoning_output": None,
+                },
+                "usage_semantics": {
+                    "input_tokens_includes": ["cache_read_input", "cache_write_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": False,
+                        "reasoning_output": False,
+                    },
                 },
             },
             "design": {
@@ -96,8 +116,10 @@ class ProtocolCheckTest(unittest.TestCase):
                 "mode": "explicit_per_call_caps",
                 "explicit_per_call_caps": {
                     "uncached_input": 1000,
-                    "cached_input": 500,
-                    "output": 100,
+                    "cache_read_input": 500,
+                    "cache_write_input": 200,
+                    "visible_output": 100,
+                    "reasoning_output": 50,
                     "rationale": "synthetic unit-test caps",
                 },
                 "empirical_bound": {
@@ -109,8 +131,10 @@ class ProtocolCheckTest(unittest.TestCase):
                     "safety_multiplier": None,
                     "observed_tokens_per_call": {
                         "uncached_input": None,
-                        "cached_input": None,
-                        "output": None,
+                        "cache_read_input": None,
+                        "cache_write_input": None,
+                        "visible_output": None,
+                        "reasoning_output": None,
                     },
                 },
             },
@@ -125,9 +149,12 @@ class ProtocolCheckTest(unittest.TestCase):
                 "notes": None,
             },
         }
+        quote_for_hash = copy.deepcopy(contract["pricing_quote"])
+        quote_for_hash.pop("quote_sha256")
+        contract["pricing_quote"]["quote_sha256"] = CHECK.canonical_json_sha256(quote_for_hash)  # type: ignore[index]
         calculation = CHECK.pricing_budget.calculate(contract)
-        self.assertEqual(calculation["per_call_maximum_usd"], "0.00305")
-        self.assertEqual(calculation["maximum_usd"], "0.02135")
+        self.assertEqual(calculation["per_call_maximum_usd"], "0.00385")
+        self.assertEqual(calculation["maximum_usd"], "0.02695")
         contract["calculation"] = calculation
         contract["approval"] = {
             "status": "approved",
@@ -215,7 +242,7 @@ class ProtocolCheckTest(unittest.TestCase):
         self.assertIn("--no-semantic", arms[0]["cli_flags"])
         self.assertEqual(arms[2]["environment"]["ENTIRE_BRAIN_EMBEDDER"], "ollama")
 
-    def test_power_artifact_is_derived_and_failed_decision_is_completed(self) -> None:
+    def test_power_artifact_is_derived_and_uncalibrated_decision_stays_pending(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             here = pathlib.Path(temp)
             artifact = CHECK.power_analysis.build_report()
@@ -223,11 +250,16 @@ class ProtocolCheckTest(unittest.TestCase):
             protocol = {
                 "agent_design": {
                     "power": {
-                        "completed": True,
-                        "status": "fail_calibration_insufficient",
+                        "completed": False,
+                        "status": "pending_uncalibrated",
                         "evidence": "power-analysis.json",
                         "analysis_kind": artifact["analysis_kind"],
-                        "design_options_evidence": "power-analysis.json#design_options",
+                        "co_primary_planning_floors": {
+                            "elapsed_time_ratio_max": 0.9,
+                            "normalized_cost_ratio_max": 0.88,
+                            "code_quality_difference_min": 0.05,
+                            "status": "provisional",
+                        },
                         "exploratory_calibration": {
                             "manifest": "power-calibration-exploratory-v1.json",
                             "eligibility": "exploratory_only",
@@ -330,8 +362,10 @@ class ProtocolCheckTest(unittest.TestCase):
                 "mode": "empirical_bound",
                 "explicit_per_call_caps": {
                     "uncached_input": None,
-                    "cached_input": None,
-                    "output": None,
+                    "cache_read_input": None,
+                    "cache_write_input": None,
+                    "visible_output": None,
+                    "reasoning_output": None,
                     "rationale": None,
                 },
                 "empirical_bound": {
@@ -343,8 +377,10 @@ class ProtocolCheckTest(unittest.TestCase):
                     "safety_multiplier": "1.25",
                     "observed_tokens_per_call": {
                         "uncached_input": 800,
-                        "cached_input": 400,
-                        "output": 80,
+                        "cache_read_input": 400,
+                        "cache_write_input": 100,
+                        "visible_output": 80,
+                        "reasoning_output": 20,
                     },
                 },
             }

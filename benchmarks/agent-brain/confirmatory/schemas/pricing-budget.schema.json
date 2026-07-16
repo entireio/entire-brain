@@ -20,7 +20,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "schema",
         "status",
+        "quote_sha256",
         "source_uri",
         "source_artifact_path",
         "source_artifact_sha256",
@@ -30,10 +32,17 @@
         "maximum_age_days",
         "currency",
         "tokens_per_price_unit",
-        "prices_usd_per_unit"
+        "prices_usd_per_unit",
+        "price_aliases",
+        "usage_semantics"
       ],
       "properties": {
+        "schema": {"const": "agent-brain-price-quote/v2"},
         "status": {"enum": ["pending", "pinned"]},
+        "quote_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "source_uri": {"type": ["string", "null"], "minLength": 1},
         "source_artifact_path": {"type": ["string", "null"], "minLength": 1},
         "source_artifact_sha256": {
@@ -46,7 +55,54 @@
         "maximum_age_days": {"type": ["integer", "null"], "minimum": 1},
         "currency": {"const": "USD"},
         "tokens_per_price_unit": {"const": 1000000},
-        "prices_usd_per_unit": {"$ref": "#/$defs/nullablePrices"}
+        "prices_usd_per_unit": {"$ref": "#/$defs/nullablePrices"},
+        "price_aliases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
+          "properties": {
+            "uncached_input": {"type": ["string", "null"]},
+            "cache_read_input": {"type": ["string", "null"]},
+            "cache_write_input": {"type": ["string", "null"]},
+            "visible_output": {"type": ["string", "null"]},
+            "reasoning_output": {"type": ["string", "null"]}
+          }
+        },
+        "usage_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_tokens_includes",
+            "output_tokens_includes",
+            "counter_absence_means_zero"
+          ],
+          "properties": {
+            "input_tokens_includes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"enum": ["cache_read_input", "cache_write_input"]}
+            },
+            "output_tokens_includes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"const": "reasoning_output"}
+            },
+            "counter_absence_means_zero": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cache_read_input",
+                "cache_write_input",
+                "reasoning_output"
+              ],
+              "properties": {
+                "cache_read_input": {"type": "boolean"},
+                "cache_write_input": {"type": "boolean"},
+                "reasoning_output": {"type": "boolean"}
+              }
+            }
+          }
+        }
       }
     },
     "design": {
@@ -89,11 +145,13 @@
         "explicit_per_call_caps": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["uncached_input", "cached_input", "output", "rationale"],
+          "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output", "rationale"],
           "properties": {
             "uncached_input": {"$ref": "#/$defs/nullableTokenCount"},
-            "cached_input": {"$ref": "#/$defs/nullableTokenCount"},
-            "output": {"$ref": "#/$defs/nullableTokenCount"},
+            "cache_read_input": {"$ref": "#/$defs/nullableTokenCount"},
+            "cache_write_input": {"$ref": "#/$defs/nullableTokenCount"},
+            "visible_output": {"$ref": "#/$defs/nullableTokenCount"},
+            "reasoning_output": {"$ref": "#/$defs/nullableTokenCount"},
             "rationale": {"type": ["string", "null"], "minLength": 1}
           }
         },
@@ -149,7 +207,7 @@
             "maximum_usd"
           ],
           "properties": {
-            "formula_id": {"const": "worst_case_token_envelope_v1"},
+            "formula_id": {"const": "worst_case_token_envelope_v2"},
             "tokens_per_price_unit": {"const": 1000000},
             "effective_tokens_per_call": {"$ref": "#/$defs/tokenCounts"},
             "per_call_usd_by_category": {"$ref": "#/$defs/prices"},
@@ -193,41 +251,49 @@
     "tokenCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["uncached_input", "cached_input", "output"],
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
       "properties": {
         "uncached_input": {"type": "integer", "minimum": 0},
-        "cached_input": {"type": "integer", "minimum": 0},
-        "output": {"type": "integer", "minimum": 0}
+        "cache_read_input": {"type": "integer", "minimum": 0},
+        "cache_write_input": {"type": "integer", "minimum": 0},
+        "visible_output": {"type": "integer", "minimum": 0},
+        "reasoning_output": {"type": "integer", "minimum": 0}
       }
     },
     "nullableTokenCounts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["uncached_input", "cached_input", "output"],
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
       "properties": {
         "uncached_input": {"$ref": "#/$defs/nullableTokenCount"},
-        "cached_input": {"$ref": "#/$defs/nullableTokenCount"},
-        "output": {"$ref": "#/$defs/nullableTokenCount"}
+        "cache_read_input": {"$ref": "#/$defs/nullableTokenCount"},
+        "cache_write_input": {"$ref": "#/$defs/nullableTokenCount"},
+        "visible_output": {"$ref": "#/$defs/nullableTokenCount"},
+        "reasoning_output": {"$ref": "#/$defs/nullableTokenCount"}
       }
     },
     "prices": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["uncached_input", "cached_input", "output"],
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
       "properties": {
         "uncached_input": {"$ref": "#/$defs/decimal"},
-        "cached_input": {"$ref": "#/$defs/decimal"},
-        "output": {"$ref": "#/$defs/decimal"}
+        "cache_read_input": {"$ref": "#/$defs/decimal"},
+        "cache_write_input": {"$ref": "#/$defs/decimal"},
+        "visible_output": {"$ref": "#/$defs/decimal"},
+        "reasoning_output": {"$ref": "#/$defs/decimal"}
       }
     },
     "nullablePrices": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["uncached_input", "cached_input", "output"],
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
       "properties": {
         "uncached_input": {"$ref": "#/$defs/nullableDecimal"},
-        "cached_input": {"$ref": "#/$defs/nullableDecimal"},
-        "output": {"$ref": "#/$defs/nullableDecimal"}
+        "cache_read_input": {"$ref": "#/$defs/nullableDecimal"},
+        "cache_write_input": {"$ref": "#/$defs/nullableDecimal"},
+        "visible_output": {"$ref": "#/$defs/nullableDecimal"},
+        "reasoning_output": {"$ref": "#/$defs/nullableDecimal"}
       }
     },
     "nullableRunner": {

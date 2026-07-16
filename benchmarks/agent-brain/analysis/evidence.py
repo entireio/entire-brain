@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import math
 import pathlib
 import shutil
 from typing import Any, Iterable
@@ -13,7 +14,8 @@ from .common import EXECUTED_RUN_PREDICATE_VERSION, is_executed_run, load_record
 from .metrics import headline_table
 
 SUITE_SCHEMA = "agent-brain-evidence-suite/v1"
-RUN_SCHEMA = "agent-brain-evidence-run/v1"
+RUN_SCHEMA = "agent-brain-evidence-run/v2"
+LEGACY_RUN_SCHEMA = "agent-brain-evidence-run/v1"
 REPORT_SCHEMA = "agent-brain-evidence-report/v1"
 ANALYZER_AGGREGATE_ALGORITHM = "sha256_ordered_path_nul_sha256_newline_v1"
 ANALYZER_RUNTIME_SOURCE_PATHS = (
@@ -22,8 +24,8 @@ ANALYZER_RUNTIME_SOURCE_PATHS = (
     "benchmarks/agent-brain/analysis/confirmatory.py",
     "benchmarks/agent-brain/analysis/evidence.py",
     "benchmarks/agent-brain/analysis/metrics.py",
-    "benchmarks/agent-brain/analysis/schemas/confirmatory-analysis-v1.schema.json",
-    "benchmarks/agent-brain/analysis/schemas/run-v1.schema.json",
+    "benchmarks/agent-brain/analysis/schemas/confirmatory-analysis-v2.schema.json",
+    "benchmarks/agent-brain/analysis/schemas/run-v2.schema.json",
     "benchmarks/agent-brain/analysis/schemas/suite-v1.schema.json",
 )
 _ANALYSIS_SOURCE_PREFIX = pathlib.PurePosixPath("benchmarks/agent-brain/analysis")
@@ -159,13 +161,209 @@ def validate_suite_manifest(value: dict[str, Any]) -> list[str]:
 
 def validate_run_manifest(value: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if value.get("schema") != RUN_SCHEMA:
+    if value.get("schema") not in {RUN_SCHEMA, LEGACY_RUN_SCHEMA}:
         errors.append(f"unsupported run schema: {value.get('schema')!r}")
     for key in ("run_id", "identity_sha256", "executed", "artifacts", "execution_gate", "raw_metrics"):
         if key not in value:
             errors.append(f"run manifest missing {key}")
     if not isinstance(value.get("artifacts"), list):
         errors.append("run manifest artifacts must be a list")
+    if value.get("schema") == RUN_SCHEMA:
+        execution_gate = value.get("execution_gate")
+        if not isinstance(execution_gate, dict):
+            errors.append("v2 run manifest execution_gate must be an object")
+        else:
+            treatment_started = execution_gate.get("treatment_started")
+            agent_ran = execution_gate.get("agent_ran")
+            if not isinstance(treatment_started, bool):
+                errors.append("v2 run manifest treatment_started must be boolean")
+            if not isinstance(agent_ran, bool):
+                errors.append("v2 run manifest agent_ran must be boolean")
+            if value.get("executed") != treatment_started:
+                errors.append("v2 run manifest executed/treatment_started disagree")
+            if agent_ran is True and treatment_started is not True:
+                errors.append("v2 run manifest agent_ran cannot precede treatment_started")
+        raw_metrics = value.get("raw_metrics")
+        if not isinstance(raw_metrics, dict):
+            errors.append("v2 run manifest raw_metrics must be an object")
+        else:
+            quality = raw_metrics.get("code_quality")
+            if not isinstance(quality, dict):
+                errors.append("v2 run manifest code_quality is required")
+            else:
+                if quality.get("schema") != "agent-brain-code-quality/v2":
+                    errors.append("v2 run manifest code_quality schema is unsupported")
+                if quality.get("rubric") != "task_relative_output_outcome_patch_focus_v2":
+                    errors.append("v2 run manifest code_quality rubric is unsupported")
+                score = quality.get("task_normalized_score")
+                if (
+                    isinstance(score, bool)
+                    or not isinstance(score, (int, float))
+                    or not math.isfinite(float(score))
+                    or not 0 <= float(score) <= 1
+                ):
+                    errors.append("v2 run manifest code_quality score must be in [0,1]")
+                critical = quality.get("critical_failure")
+                reasons = quality.get("critical_failure_reasons")
+                if not isinstance(critical, bool):
+                    errors.append("v2 run manifest critical_failure must be boolean")
+                if (
+                    not isinstance(reasons, list)
+                    or any(not isinstance(reason, str) or not reason for reason in reasons)
+                    or len(reasons) != len(set(reasons))
+                ):
+                    errors.append("v2 run manifest critical_failure_reasons are invalid")
+                elif isinstance(critical, bool) and critical != bool(reasons):
+                    errors.append("v2 run manifest critical flag/reasons disagree")
+                if critical is True and score != 0:
+                    errors.append("v2 run manifest critical code_quality score must be zero")
+                if quality.get("excluded_components") != [
+                    "validation_discipline",
+                    "runtime_efficiency",
+                    "brain_use",
+                ]:
+                    errors.append("v2 run manifest code_quality exclusions changed")
+            timing = raw_metrics.get("timing")
+            if not isinstance(timing, dict):
+                errors.append("v2 run manifest timing is required")
+            else:
+                if timing.get("primary") != "end_to_end_user_visible_wall_seconds":
+                    errors.append("v2 run manifest primary timing field changed")
+                if (
+                    timing.get("pre_treatment_setup_included_in_primary") is not False
+                    or timing.get("treatment_retrieval_included_in_primary") is not True
+                    or timing.get("hidden_validation_included_in_primary") is not False
+                ):
+                    errors.append("v2 run manifest primary timing boundary flags changed")
+                elapsed = timing.get("end_to_end_user_visible_wall_seconds")
+                if value.get("executed") is True and (
+                    isinstance(elapsed, bool)
+                    or not isinstance(elapsed, (int, float))
+                    or not math.isfinite(float(elapsed))
+                    or float(elapsed) <= 0
+                ):
+                    errors.append("v2 run manifest end-to-end elapsed time is required")
+                agent_limit = timing.get("agent_timeout_limit_seconds")
+                if (
+                    isinstance(agent_limit, bool)
+                    or not isinstance(agent_limit, (int, float))
+                    or not math.isfinite(float(agent_limit))
+                    or float(agent_limit) <= 0
+                ):
+                    errors.append("v2 run manifest agent timeout limit must be positive")
+                timed_out = timing.get("timeout_occurred")
+                stage = timing.get("timeout_stage")
+                component_limit = timing.get("timeout_component_limit_seconds")
+                if not isinstance(timed_out, bool):
+                    errors.append("v2 run manifest timeout_occurred must be boolean")
+                elif timed_out:
+                    if stage not in {"treatment_retrieval_or_delivery", "agent_execution"}:
+                        errors.append("v2 run manifest timeout stage is invalid")
+                    if (
+                        isinstance(component_limit, bool)
+                        or not isinstance(component_limit, (int, float))
+                        or not math.isfinite(float(component_limit))
+                        or float(component_limit) <= 0
+                    ):
+                        errors.append("v2 run manifest component timeout limit must be positive")
+                elif stage is not None or component_limit is not None:
+                    errors.append("v2 run manifest non-timeout metadata is inconsistent")
+            usage = raw_metrics.get("usage")
+            billing = usage.get("billing_v2") if isinstance(usage, dict) else None
+            if billing is not None:
+                raw_keys = {
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_write_input_tokens",
+                    "output_tokens",
+                    "reasoning_tokens",
+                }
+                exclusive_keys = {
+                    "uncached_input",
+                    "cache_read_input",
+                    "cache_write_input",
+                    "visible_output",
+                    "reasoning_output",
+                }
+                if not isinstance(billing, dict) or billing.get("schema") != "agent-brain-billing-usage/v2":
+                    errors.append("v2 run manifest billing_v2 schema is unsupported")
+                else:
+                    quote_hash = billing.get("price_quote_sha256")
+                    if (
+                        not isinstance(quote_hash, str)
+                        or len(quote_hash) != 64
+                        or any(character not in "0123456789abcdef" for character in quote_hash)
+                    ):
+                        errors.append("v2 run manifest billing_v2 quote hash is invalid")
+                    raw = billing.get("raw")
+                    if (
+                        not isinstance(raw, dict)
+                        or set(raw) != raw_keys
+                        or any(
+                            isinstance(item, bool) or not isinstance(item, int) or item < 0
+                            for item in raw.values()
+                        )
+                    ):
+                        errors.append("v2 run manifest billing_v2 raw categories are invalid")
+                    exclusive = billing.get("exclusive")
+                    if (
+                        not isinstance(exclusive, dict)
+                        or set(exclusive) != exclusive_keys
+                        or any(
+                            isinstance(item, bool) or not isinstance(item, int) or item < 0
+                            for item in exclusive.values()
+                        )
+                    ):
+                        errors.append("v2 run manifest billing_v2 exclusive categories are invalid")
+                    semantics = billing.get("semantics")
+                    if not isinstance(semantics, dict) or set(semantics) != {
+                        "input_tokens_includes",
+                        "output_tokens_includes",
+                        "counter_absence_means_zero",
+                    }:
+                        errors.append("v2 run manifest billing_v2 semantics are invalid")
+                    else:
+                        input_includes = semantics.get("input_tokens_includes")
+                        output_includes = semantics.get("output_tokens_includes")
+                        absence = semantics.get("counter_absence_means_zero")
+                        if (
+                            not isinstance(input_includes, list)
+                            or len(input_includes) != len(set(input_includes))
+                            or any(
+                                item not in {"cache_read_input", "cache_write_input"}
+                                for item in input_includes
+                            )
+                            or output_includes not in ([], ["reasoning_output"])
+                            or not isinstance(absence, dict)
+                            or set(absence)
+                            != {
+                                "cache_read_input",
+                                "cache_write_input",
+                                "reasoning_output",
+                            }
+                            or any(not isinstance(value, bool) for value in absence.values())
+                        ):
+                            errors.append("v2 run manifest billing_v2 inclusion semantics are invalid")
+            attempt_usage = raw_metrics.get("attempt_usage")
+            if not isinstance(attempt_usage, list):
+                errors.append("v2 run manifest attempt_usage must be an array")
+            else:
+                if value.get("executed") is True and not attempt_usage:
+                    errors.append("v2 executed run manifest requires attempt-level usage")
+                for index, attempt in enumerate(attempt_usage, 1):
+                    if not isinstance(attempt, dict) or attempt.get("attempt") != index:
+                        errors.append("v2 run manifest attempt_usage is missing or out of order")
+                        break
+                gate = value.get("execution_gate")
+                billing_integrity = gate.get("billing_integrity") if isinstance(gate, dict) else None
+                if isinstance(billing_integrity, dict):
+                    if billing_integrity.get("attempt_count") != len(attempt_usage):
+                        errors.append("v2 run manifest attempt count disagrees with billing integrity")
+                    if (
+                        billing_integrity.get("required") is True
+                        and billing_integrity.get("passed") is not True
+                    ):
+                        errors.append("v2 run manifest required attempt billing did not pass")
     packet = value.get("packet")
     if isinstance(packet, dict) and packet.get("present") and packet.get("recorded_matches_file") is False:
         errors.append("run manifest packet does not match recorded packet provenance")
@@ -287,6 +485,29 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         path = run_dir / name
         if path.exists():
             artifacts.append(artifact(path, suite_dir, role=role))
+    raw_agent_info = record.get("agent_info") if isinstance(record.get("agent_info"), dict) else {}
+    raw_attempts = raw_agent_info.get("attempts") if isinstance(raw_agent_info.get("attempts"), list) else []
+    for position, attempt in enumerate(raw_attempts, 1):
+        if not isinstance(attempt, dict) or attempt.get("attempt") != position:
+            raise ValueError("agent attempt billing evidence is missing or out of order")
+        for stream in ("stdout", "stderr"):
+            retained = attempt.get(f"{stream}_artifact")
+            if not isinstance(retained, dict) or not isinstance(retained.get("path"), str):
+                raise ValueError(f"agent attempt {position} {stream} artifact is missing")
+            path = (run_dir / retained["path"]).resolve()
+            try:
+                path.relative_to(run_dir.resolve())
+            except ValueError as exc:
+                raise ValueError(f"agent attempt {position} {stream} artifact escapes run directory") from exc
+            if not path.is_file():
+                raise ValueError(f"agent attempt {position} {stream} artifact is missing")
+            captured = artifact(path, suite_dir, role=f"agent_attempt_{position}_{stream}")
+            if (
+                captured["sha256"] != retained.get("sha256")
+                or captured["bytes"] != retained.get("bytes")
+            ):
+                raise ValueError(f"agent attempt {position} {stream} artifact metadata mismatch")
+            artifacts.append(captured)
     prompt = run_dir / "prompt.txt"
     packet_artifact = record.get("packet_artifact") if isinstance(record.get("packet_artifact"), dict) else {}
     packet_name = packet_artifact.get("path") or "packet.txt"
@@ -301,12 +522,20 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
     provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
     tools = provenance.get("tools") if isinstance(provenance.get("tools"), dict) else {}
     timing = record.get("timing") if isinstance(record.get("timing"), dict) else {}
-    primary_duration = timing.get("harness_agent_interval_wall_seconds")
+    primary_duration = timing.get("end_to_end_user_visible_wall_seconds")
+    if not isinstance(primary_duration, (int, float)):
+        primary_duration = timing.get("cell_total_wall_seconds")
     if not isinstance(primary_duration, (int, float)):
         primary_duration = agent_info.get("seconds")
     retrieval_evidence = retrieval_arm_evidence(record)
+    run_schema = (
+        RUN_SCHEMA
+        if isinstance(record.get("code_quality"), dict)
+        and "end_to_end_user_visible_wall_seconds" in timing
+        else LEGACY_RUN_SCHEMA
+    )
     return {
-        "schema": RUN_SCHEMA,
+        "schema": run_schema,
         "run_id": record.get("run_id"),
         "task_id": record.get("task_id"),
         "condition": record.get("condition"),
@@ -322,7 +551,9 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         "retrieval_evidence": retrieval_evidence,
         "binary_hashes": {name: item.get("sha256") for name, item in sorted(tools.items()) if isinstance(item, dict)},
         "execution_gate": {
+            "treatment_started": record.get("treatment_started"),
             "agent_ran": record.get("agent_ran"),
+            "billing_integrity": agent_info.get("billing_integrity"),
             "duration_seconds": primary_duration,
             "agent_reported_seconds": agent_info.get("seconds"),
             "total_tokens": usage.get("total_tokens"),
@@ -335,7 +566,19 @@ def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir:
         "result_sha256": hashlib.sha256(json.dumps(record, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
         "raw_metrics": {
             "score": record.get("score"),
+            "code_quality": record.get("code_quality"),
             "usage": usage,
+            "attempt_usage": [
+                {
+                    "attempt": attempt.get("attempt"),
+                    "returncode": attempt.get("returncode"),
+                    "usage": attempt.get("usage"),
+                    "stdout_artifact": attempt.get("stdout_artifact"),
+                    "stderr_artifact": attempt.get("stderr_artifact"),
+                }
+                for attempt in raw_attempts
+                if isinstance(attempt, dict)
+            ],
             "duration_seconds": primary_duration,
             "timing": timing,
         },
