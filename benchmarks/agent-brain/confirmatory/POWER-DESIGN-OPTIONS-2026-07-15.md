@@ -10,6 +10,11 @@ timeout, and quality contracts. Consequently, neither a power-sized development 
 power-sized confirmatory task count is currently defensible. The 24-task x 4-repetition design is a
 provisional arithmetic placeholder, not a powered design.
 
+The checked-in power artifact schema v3 is intentionally pending-only. It cannot be promoted by
+inserting SDs, marginal powers, joint power, or numeric sized counts. A future sizing transition
+requires a new versioned schema that binds a content-hashed, owner-approved final-calibration or
+assumption contract and deterministically recomputes power from those authenticated inputs.
+
 The provisional claim/null floors are a 10% elapsed-time reduction (ratio at most `0.90`), a 12%
 normalized-cost reduction (ratio at most `0.88`), and a `+0.05` quality-score difference. They are
 not power-planning alternatives. All three true planning alternatives remain `null` and

@@ -17,7 +17,8 @@ SPEC.loader.exec_module(POWER)
 
 class PowerAnalysisV3Test(unittest.TestCase):
     @staticmethod
-    def frozen_report() -> dict:
+    def evaluated_report() -> dict:
+        """Build an otherwise coherent evaluated-state attack on pending-only v3."""
         report = POWER.build_report()
         alternatives = {
             "elapsed_time": ("ratio_true", 0.85),
@@ -46,11 +47,6 @@ class PowerAnalysisV3Test(unittest.TestCase):
                 "power_sized_confirmatory_task_count": 24,
                 "provisional_design_power_defensible": True,
             }
-        )
-        derived = POWER.recompute_power_decision(report)
-        report["status"] = derived["status"]
-        report["decision"].update(
-            {"passed": derived["passed"], "reason": derived["reason"]}
         )
         return report
 
@@ -124,6 +120,170 @@ class PowerAnalysisV3Test(unittest.TestCase):
             ]
         )
 
+    def test_evaluated_v3_state_requires_a_new_authenticated_schema(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "content-hashed owner-approved final-calibration or assumption contract",
+        ):
+            POWER.recompute_power_decision(self.evaluated_report())
+
+    def test_synchronized_task_and_calibration_floor_reductions_fail_closed(self) -> None:
+        for task_count, message in (
+            (1, "integer of at least two"),
+            (2, "must remain the provisional 24"),
+        ):
+            with self.subTest(task_count=task_count):
+                report = self.evaluated_report()
+                cells = task_count * POWER.REPETITIONS * POWER.PRIMARY_TREATMENTS
+                report["protocol_inputs"].update(
+                    tasks=task_count,
+                    requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+                report["design_readiness"].update(
+                    provisional_tasks=task_count,
+                    provisional_requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                    power_sized_confirmatory_task_count=task_count,
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    POWER.recompute_power_decision(report)
+
+        for minimum in (1, 2):
+            with self.subTest(minimum_calibration=minimum):
+                report = self.evaluated_report()
+                report["calibration_requirements"][
+                    "minimum_independent_task_clusters"
+                ] = minimum
+                report["design_readiness"][
+                    "power_sized_development_task_count"
+                ] = minimum
+                message = (
+                    "integer of at least two"
+                    if minimum == 1
+                    else "must remain frozen at 12"
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    POWER.recompute_power_decision(report)
+
+    def test_claim_floors_cannot_drift_from_authoritative_contract(self) -> None:
+        for endpoint, key, value in (
+            ("elapsed_time", "ratio_max", 0.95),
+            ("normalized_cost", "ratio_max", 0.95),
+            ("code_quality", "difference_min", 0.01),
+        ):
+            with self.subTest(endpoint=endpoint):
+                report = self.evaluated_report()
+                report["co_primary_endpoints"][endpoint]["claim_floor"][key] = value
+                with self.assertRaisesRegex(
+                    ValueError, "bound to the authoritative success contract"
+                ):
+                    POWER.recompute_power_decision(report)
+
+    def test_synchronized_v3_design_and_method_identity_drift_fails_closed(self) -> None:
+        def resize_repetitions(report: dict) -> None:
+            repetitions = 2
+            cells = POWER.TASKS * repetitions * POWER.PRIMARY_TREATMENTS
+            report["protocol_inputs"].update(
+                repetitions_per_treatment=repetitions,
+                requested_cells=cells,
+                maximum_agent_invocations=cells,
+            )
+            report["design_readiness"].update(
+                provisional_repetitions_per_treatment=repetitions,
+                provisional_requested_cells=cells,
+                maximum_agent_invocations=cells,
+            )
+
+        def resize_treatments(report: dict) -> None:
+            treatments = 2
+            cells = POWER.TASKS * POWER.REPETITIONS * treatments
+            report["protocol_inputs"].update(
+                primary_treatments=treatments,
+                requested_cells=cells,
+                maximum_agent_invocations=cells,
+            )
+            report["design_readiness"].update(
+                provisional_requested_cells=cells,
+                maximum_agent_invocations=cells,
+            )
+
+        mutations = (
+            ("repetitions", resize_repetitions, "must remain frozen at 4"),
+            ("treatments", resize_treatments, "count must remain frozen at 3"),
+            (
+                "alpha",
+                lambda report: report["protocol_inputs"].update(
+                    intersection_union_alpha=0.5
+                ),
+                "alpha must remain frozen at 0.05",
+            ),
+            (
+                "contrast",
+                lambda report: report["protocol_inputs"].update(
+                    primary_contrast="placebo_vs_no_memory"
+                ),
+                "primary contrast changed",
+            ),
+            (
+                "cluster",
+                lambda report: report["protocol_inputs"].update(cluster_unit="cell"),
+                "cluster unit changed",
+            ),
+            (
+                "attempts",
+                lambda report: report["protocol_inputs"].update(
+                    attempt_policy="successful_attempts_only"
+                ),
+                "attempt policy changed",
+            ),
+            (
+                "artifact_id",
+                lambda report: report.update(artifact_id="easier-power-v3"),
+                "artifact_id changed",
+            ),
+            (
+                "analysis_kind",
+                lambda report: report.update(analysis_kind="arbitrary_power"),
+                "analysis_kind changed",
+            ),
+            (
+                "joint_method",
+                lambda report: report["joint_iut_power"].update(method="independent"),
+                "joint IUT power method changed",
+            ),
+            (
+                "method",
+                lambda report: report["method"].update(planning_rule="accept .81"),
+                "power method contract changed",
+            ),
+            (
+                "estimand",
+                lambda report: report["co_primary_endpoints"]["elapsed_time"].update(
+                    estimand_scale="cell_mean"
+                ),
+                "elapsed_time estimand scale changed",
+            ),
+            (
+                "empirical_variance",
+                lambda report: report.update(
+                    empirical_variance_used_in_confirmatory_decision=True
+                ),
+                "cannot claim empirical variance",
+            ),
+            (
+                "extra_field",
+                lambda report: report.update(unversioned_override=True),
+                "power report fields changed",
+            ),
+        )
+        for label, mutate, message in mutations:
+            with self.subTest(label=label):
+                report = self.evaluated_report()
+                mutate(report)
+                with self.assertRaisesRegex(ValueError, message):
+                    POWER.recompute_power_decision(report)
+
     def test_legacy_sensitivity_helper_cannot_reintroduce_call_reserve(self) -> None:
         legacy = POWER._design_power(POWER.SCENARIOS[1], POWER.TASKS, POWER.REPETITIONS)
         self.assertEqual(legacy["requested_cells"], 288)
@@ -139,26 +299,22 @@ class PowerAnalysisV3Test(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pending power design.*null"):
             POWER.recompute_power_decision(report)
 
-    def test_recomputed_gate_rejects_point_79_and_point_01_despite_tampered_pass(self) -> None:
-        report = self.frozen_report()
+    def test_v3_rejects_supplied_power_without_authenticated_recomputation(self) -> None:
+        report = self.evaluated_report()
         report["co_primary_endpoints"]["normalized_cost"]["marginal_power"] = 0.79
         report["joint_iut_power"]["intersection_union_success_probability"] = 0.01
         report["design_readiness"]["provisional_design_power_defensible"] = False
         report["decision"]["passed"] = True
         report["status"] = "pass"
-        derived = POWER.recompute_power_decision(report)
-        self.assertFalse(derived["passed"])
-        self.assertEqual(derived["status"], "fail_underpowered")
+        with self.assertRaisesRegex(ValueError, "schema v3 is pending-only"):
+            POWER.recompute_power_decision(report)
         self.assertEqual(
             POWER.validate_power_report(report),
-            [
-                "power decision.passed does not match recomputed marginal/joint gate",
-                "power status does not match recomputed marginal/joint gate",
-            ],
+            [POWER.POWERED_TRANSITION_ERROR],
         )
 
     def test_planning_alternative_must_be_strictly_better_than_claim_floor(self) -> None:
-        report = self.frozen_report()
+        report = self.evaluated_report()
         report["co_primary_endpoints"]["elapsed_time"]["planning_alternative"][
             "ratio_true"
         ] = 0.90
@@ -166,7 +322,7 @@ class PowerAnalysisV3Test(unittest.TestCase):
             POWER.recompute_power_decision(report)
 
     def test_power_target_cannot_be_lowered_to_make_point_75_pass(self) -> None:
-        report = self.frozen_report()
+        report = self.evaluated_report()
         report["protocol_inputs"]["power_target"] = 0.70
         for endpoint in report["co_primary_endpoints"].values():
             endpoint["marginal_power"] = 0.75
@@ -175,19 +331,19 @@ class PowerAnalysisV3Test(unittest.TestCase):
             POWER.recompute_power_decision(report)
 
     def test_power_sized_confirmatory_count_must_equal_protocol_tasks(self) -> None:
-        report = self.frozen_report()
+        report = self.evaluated_report()
         report["design_readiness"]["power_sized_confirmatory_task_count"] = 2
         with self.assertRaisesRegex(ValueError, "must equal the protocol task count"):
             POWER.recompute_power_decision(report)
 
     def test_power_sized_development_count_must_meet_calibration_minimum(self) -> None:
-        report = self.frozen_report()
+        report = self.evaluated_report()
         report["design_readiness"]["power_sized_development_task_count"] = 11
         with self.assertRaisesRegex(ValueError, "below the calibration minimum"):
             POWER.recompute_power_decision(report)
 
     def test_powered_design_requires_frozen_claim_floors(self) -> None:
-        report = self.frozen_report()
+        report = self.evaluated_report()
         report["co_primary_endpoints"]["elapsed_time"]["claim_floor"][
             "status"
         ] = "provisional"
@@ -203,7 +359,7 @@ class PowerAnalysisV3Test(unittest.TestCase):
             (0.05, "must be strictly above its claim floor"),
         ):
             with self.subTest(value=value):
-                report = self.frozen_report()
+                report = self.evaluated_report()
                 report["co_primary_endpoints"]["code_quality"][
                     "planning_alternative"
                 ]["difference_true"] = value
@@ -211,7 +367,7 @@ class PowerAnalysisV3Test(unittest.TestCase):
                     POWER.recompute_power_decision(report)
 
     def test_power_readiness_arithmetic_must_match_protocol_inputs(self) -> None:
-        report = self.frozen_report()
+        report = self.evaluated_report()
         report["design_readiness"]["provisional_requested_cells"] = 1
         with self.assertRaisesRegex(
             ValueError, "power readiness arithmetic mismatch: provisional_requested_cells"

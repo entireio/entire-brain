@@ -30,6 +30,63 @@ class ProtocolCheckTest(unittest.TestCase):
     def _sha(path: pathlib.Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
+    @staticmethod
+    def _pending_power_protocol(artifact: dict[str, object]) -> dict[str, object]:
+        success_contract = copy.deepcopy(
+            json.loads(
+                (HERE / "preregistration.json").read_text(encoding="utf-8")
+            )["agent_design"]["success_contract"]
+        )
+        inputs = artifact["protocol_inputs"]
+        assert isinstance(inputs, dict)
+        return {
+            "agent_design": {
+                "primary_treatments": [
+                    "no_memory",
+                    "placebo_packet",
+                    "retrieved_memory",
+                ],
+                "success_contract": success_contract,
+                "tasks": inputs["tasks"],
+                "repetitions_per_treatment": inputs["repetitions_per_treatment"],
+                "requested_cells": inputs["requested_cells"],
+                "maximum_agent_invocations": inputs["maximum_agent_invocations"],
+                "power": {
+                    "target": inputs["power_target"],
+                    "target_scope": "each_marginal_and_overall_intersection_union_joint_success",
+                    "completed": False,
+                    "status": "pending_uncalibrated",
+                    "evidence": "power-analysis.json",
+                    "analysis_kind": artifact["analysis_kind"],
+                    "co_primary_claim_floors": {
+                        "elapsed_time_ratio_max": 0.9,
+                        "normalized_cost_ratio_max": 0.88,
+                        "code_quality_difference_min": 0.05,
+                        "status": "provisional",
+                    },
+                    "planning_alternatives": {
+                        "elapsed_time_ratio_true": None,
+                        "normalized_cost_ratio_true": None,
+                        "code_quality_difference_true": None,
+                        "status": "pending_owner_approval",
+                    },
+                    "exploratory_calibration": {
+                        "manifest": "power-calibration-exploratory-v1.json",
+                        "eligibility": "exploratory_only",
+                        "confirmatory_assumption_source": False,
+                        "unique_task_ids": 12,
+                        "paired_task_cluster_instances": 14,
+                        "pooled_estimate_prohibited": True,
+                    },
+                    "minimum_calibration_task_clusters": 12,
+                    "minimum_calibration_is_power_sized_design": False,
+                    "power_sized_development_task_count": None,
+                    "power_sized_confirmatory_task_count": None,
+                    "design_decision_required": True,
+                },
+            }
+        }
+
     def _complete_pricing_budget(
         self,
         repo: pathlib.Path,
@@ -272,52 +329,7 @@ class ProtocolCheckTest(unittest.TestCase):
             here = pathlib.Path(temp)
             artifact = CHECK.power_analysis.build_report()
             self._write_json(here / "power-analysis.json", artifact)
-            protocol = {
-                "agent_design": {
-                    "primary_treatments": ["no_memory", "placebo_packet", "retrieved_memory"],
-                    "tasks": artifact["protocol_inputs"]["tasks"],
-                    "repetitions_per_treatment": artifact["protocol_inputs"][
-                        "repetitions_per_treatment"
-                    ],
-                    "requested_cells": artifact["protocol_inputs"]["requested_cells"],
-                    "maximum_agent_invocations": artifact["protocol_inputs"][
-                        "maximum_agent_invocations"
-                    ],
-                    "power": {
-                        "target": artifact["protocol_inputs"]["power_target"],
-                        "target_scope": "each_marginal_and_overall_intersection_union_joint_success",
-                        "completed": False,
-                        "status": "pending_uncalibrated",
-                        "evidence": "power-analysis.json",
-                        "analysis_kind": artifact["analysis_kind"],
-                        "co_primary_claim_floors": {
-                            "elapsed_time_ratio_max": 0.9,
-                            "normalized_cost_ratio_max": 0.88,
-                            "code_quality_difference_min": 0.05,
-                            "status": "provisional",
-                        },
-                        "planning_alternatives": {
-                            "elapsed_time_ratio_true": None,
-                            "normalized_cost_ratio_true": None,
-                            "code_quality_difference_true": None,
-                            "status": "pending_owner_approval",
-                        },
-                        "exploratory_calibration": {
-                            "manifest": "power-calibration-exploratory-v1.json",
-                            "eligibility": "exploratory_only",
-                            "confirmatory_assumption_source": False,
-                            "unique_task_ids": 12,
-                            "paired_task_cluster_instances": 14,
-                            "pooled_estimate_prohibited": True,
-                        },
-                        "minimum_calibration_task_clusters": 12,
-                        "minimum_calibration_is_power_sized_design": False,
-                        "power_sized_development_task_count": None,
-                        "power_sized_confirmatory_task_count": None,
-                        "design_decision_required": True,
-                    }
-                }
-            }
+            protocol = self._pending_power_protocol(artifact)
             check = {"status": "fail", "evidence": "power-analysis.json"}
             self.assertEqual(
                 CHECK.validate_power_analysis(protocol, check, here=here, repo=here),
@@ -389,8 +401,8 @@ class ProtocolCheckTest(unittest.TestCase):
                     "power_sized_confirmatory_task_count": 24,
                 }
             )
-            # Deliberately lie in the retained decision/status. The checker must
-            # derive failure from 0.79 marginal and 0.01 joint power instead.
+            # Even internally consistent supplied SD/power literals cannot
+            # promote pending-only v3 into an evaluated artifact.
             underpowered["decision"]["passed"] = True
             underpowered["status"] = "pass"
             underpowered_protocol = copy.deepcopy(protocol)
@@ -414,8 +426,8 @@ class ProtocolCheckTest(unittest.TestCase):
                 errors = CHECK.validate_power_analysis(
                     underpowered_protocol, check, here=here, repo=here
                 )
-            self.assertIn(
-                "power artifact: power decision.passed does not match recomputed marginal/joint gate",
+            self.assertTrue(
+                any("schema v3 is pending-only" in error for error in errors),
                 errors,
             )
             self.assertIn(
@@ -527,6 +539,20 @@ class ProtocolCheckTest(unittest.TestCase):
                     "power_sized_confirmatory_task_count": 24,
                 }
             )
+            self._write_json(here / "power-analysis.json", valid_powered)
+            with mock.patch.object(
+                CHECK.power_analysis, "build_report", return_value=valid_powered
+            ):
+                errors = CHECK.validate_power_analysis(
+                    powered_protocol,
+                    synchronized_check,
+                    here=here,
+                    repo=here,
+                )
+            self.assertTrue(
+                any("schema v3 is pending-only" in error for error in errors),
+                errors,
+            )
             adversarial = (
                 (
                     "provisional_floor",
@@ -567,6 +593,196 @@ class ProtocolCheckTest(unittest.TestCase):
                     self.assertTrue(
                         any(message in error for error in errors),
                         errors,
+                    )
+
+    def test_synchronized_power_contract_tampering_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            here = pathlib.Path(temp)
+            check = {"status": "fail", "evidence": "power-analysis.json"}
+
+            def resize_tasks(artifact: dict, protocol: dict) -> None:
+                cells = 1 * 4 * 3
+                artifact["protocol_inputs"].update(
+                    tasks=1,
+                    requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+                artifact["design_readiness"].update(
+                    provisional_tasks=1,
+                    provisional_requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+                protocol["agent_design"].update(
+                    tasks=1,
+                    requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+
+            def resize_repetitions(artifact: dict, protocol: dict) -> None:
+                cells = 24 * 2 * 3
+                artifact["protocol_inputs"].update(
+                    repetitions_per_treatment=2,
+                    requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+                artifact["design_readiness"].update(
+                    provisional_repetitions_per_treatment=2,
+                    provisional_requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+                protocol["agent_design"].update(
+                    repetitions_per_treatment=2,
+                    requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+
+            def resize_treatments(artifact: dict, protocol: dict) -> None:
+                cells = 24 * 4 * 2
+                artifact["protocol_inputs"].update(
+                    primary_treatments=2,
+                    requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+                artifact["design_readiness"].update(
+                    provisional_requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+                protocol["agent_design"].update(
+                    primary_treatments=["no_memory", "retrieved_memory"],
+                    requested_cells=cells,
+                    maximum_agent_invocations=cells,
+                )
+
+            def lower_calibration(artifact: dict, protocol: dict) -> None:
+                artifact["calibration_requirements"][
+                    "minimum_independent_task_clusters"
+                ] = 1
+                protocol["agent_design"]["power"][
+                    "minimum_calibration_task_clusters"
+                ] = 1
+
+            def drift_floors(artifact: dict, protocol: dict) -> None:
+                artifact["co_primary_endpoints"]["elapsed_time"]["claim_floor"][
+                    "ratio_max"
+                ] = 0.95
+                artifact["co_primary_endpoints"]["normalized_cost"]["claim_floor"][
+                    "ratio_max"
+                ] = 0.95
+                artifact["co_primary_endpoints"]["code_quality"]["claim_floor"][
+                    "difference_min"
+                ] = 0.01
+                protocol["agent_design"]["power"]["co_primary_claim_floors"].update(
+                    elapsed_time_ratio_max=0.95,
+                    normalized_cost_ratio_max=0.95,
+                    code_quality_difference_min=0.01,
+                )
+
+            def drift_analysis_kind(artifact: dict, protocol: dict) -> None:
+                artifact["analysis_kind"] = "arbitrary_power"
+                protocol["agent_design"]["power"]["analysis_kind"] = "arbitrary_power"
+
+            mutations = (
+                ("one_task", resize_tasks, "provisional 24"),
+                ("two_repetitions", resize_repetitions, "frozen at 4"),
+                ("two_treatments", resize_treatments, "treatment identities changed"),
+                ("one_calibration_cluster", lower_calibration, "frozen 12-cluster"),
+                (
+                    "floor_drift",
+                    drift_floors,
+                    "do not match the authoritative success contract",
+                ),
+                (
+                    "alpha",
+                    lambda artifact, protocol: artifact["protocol_inputs"].update(
+                        intersection_union_alpha=0.5
+                    ),
+                    "alpha/contrast/cluster/attempt identity changed",
+                ),
+                (
+                    "contrast",
+                    lambda artifact, protocol: artifact["protocol_inputs"].update(
+                        primary_contrast="placebo_vs_no_memory"
+                    ),
+                    "alpha/contrast/cluster/attempt identity changed",
+                ),
+                (
+                    "cluster",
+                    lambda artifact, protocol: artifact["protocol_inputs"].update(
+                        cluster_unit="cell"
+                    ),
+                    "alpha/contrast/cluster/attempt identity changed",
+                ),
+                (
+                    "attempt_policy",
+                    lambda artifact, protocol: artifact["protocol_inputs"].update(
+                        attempt_policy="successful_attempts_only"
+                    ),
+                    "alpha/contrast/cluster/attempt identity changed",
+                ),
+                (
+                    "artifact_id",
+                    lambda artifact, protocol: artifact.update(
+                        artifact_id="easier-power-v3"
+                    ),
+                    "power artifact_id changed",
+                ),
+                ("analysis_kind", drift_analysis_kind, "power analysis_kind changed"),
+                (
+                    "method",
+                    lambda artifact, protocol: artifact["method"].update(
+                        planning_rule="accept supplied .81"
+                    ),
+                    "power method contract changed",
+                ),
+                (
+                    "joint_method",
+                    lambda artifact, protocol: artifact["joint_iut_power"].update(
+                        method="independent"
+                    ),
+                    "joint IUT power method changed",
+                ),
+                (
+                    "estimand",
+                    lambda artifact, protocol: artifact["co_primary_endpoints"][
+                        "elapsed_time"
+                    ].update(estimand_scale="cell_mean"),
+                    "power elapsed_time estimand scale changed",
+                ),
+                (
+                    "calibration_status",
+                    lambda artifact, protocol: artifact[
+                        "calibration_requirements"
+                    ].update(status="complete"),
+                    "must remain open",
+                ),
+                (
+                    "empirical_variance",
+                    lambda artifact, protocol: artifact.update(
+                        empirical_variance_used_in_confirmatory_decision=True
+                    ),
+                    "cannot claim empirical variance",
+                ),
+            )
+
+            for label, mutate, message in mutations:
+                with self.subTest(label=label):
+                    artifact = CHECK.power_analysis.build_report()
+                    protocol = self._pending_power_protocol(artifact)
+                    mutate(artifact, protocol)
+                    self._write_json(here / "power-analysis.json", artifact)
+                    with mock.patch.object(
+                        CHECK.power_analysis, "build_report", return_value=artifact
+                    ):
+                        errors = CHECK.validate_power_analysis(
+                            protocol, check, here=here, repo=here
+                        )
+                    self.assertTrue(
+                        any(message in error for error in errors),
+                        errors,
+                    )
+                    self.assertEqual(
+                        CHECK.validate_joint_success_contract(protocol, freeze=False),
+                        [],
                     )
 
     def test_pricing_budget_draft_is_valid_and_both_gates_remain_pending(self) -> None:

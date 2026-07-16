@@ -36,6 +36,41 @@ import relevance_dataset  # noqa: E402  (local deterministic companion module)
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 FROZEN_POWER_TARGET = 0.80
+FROZEN_POWER_SCHEMA_VERSION = 3
+FROZEN_POWER_ARTIFACT_ID = "agent-brain-confirmatory-power-v3"
+FROZEN_POWER_ANALYSIS_KIND = "three_endpoint_intersection_union_power_calibration_pending"
+FROZEN_PROVISIONAL_TASKS = 24
+FROZEN_REPETITIONS_PER_TREATMENT = 4
+FROZEN_PRIMARY_TREATMENTS = ("no_memory", "placebo_packet", "retrieved_memory")
+FROZEN_REQUESTED_CELLS = 288
+FROZEN_MINIMUM_CALIBRATION_TASK_CLUSTERS = 12
+FROZEN_INTERSECTION_UNION_ALPHA = 0.05
+FROZEN_PRIMARY_CONTRAST = "retrieved_memory_vs_no_memory"
+FROZEN_CLUSTER_UNIT = "task"
+FROZEN_POWER_ATTEMPT_POLICY = "all_executed_attempts"
+FROZEN_POWER_ENDPOINTS: tuple[tuple[str, str, str, str, float], ...] = (
+    (
+        "elapsed_time",
+        "paired_task_log_ratio",
+        "practical_ratio_max",
+        "ratio_max",
+        0.90,
+    ),
+    (
+        "normalized_cost",
+        "ratio_of_equal_task_weighted_task_arm_mean_costs",
+        "practical_ratio_max",
+        "ratio_max",
+        0.88,
+    ),
+    (
+        "code_quality",
+        "paired_task_difference",
+        "practical_difference_min",
+        "difference_min",
+        0.05,
+    ),
+)
 STATES = ["unseen", "prompt_inspected", "retrieval_probed", "agent_run", "optimization_used"]
 ARMS = ["lexical_handrolled", "model2vec_rrf", "embeddinggemma_rrf"]
 BASE_COMMIT = "bbe1bdf5be2e4fac2f81dc9156a3118a2733c360"
@@ -893,6 +928,27 @@ def validate_power_analysis(
     errors: list[str] = []
     artifact_path = here / "power-analysis.json"
     power = protocol.get("agent_design", {}).get("power", {})
+    _require_exact_fields(
+        errors,
+        power,
+        (
+            "target",
+            "target_scope",
+            "planning_alternatives",
+            "completed",
+            "status",
+            "evidence",
+            "analysis_kind",
+            "co_primary_claim_floors",
+            "exploratory_calibration",
+            "minimum_calibration_task_clusters",
+            "minimum_calibration_is_power_sized_design",
+            "power_sized_development_task_count",
+            "power_sized_confirmatory_task_count",
+            "design_decision_required",
+        ),
+        "preregistration power contract",
+    )
     completed = power.get("completed") is True
     decided = check.get("status") in {"pass", "fail"}
     if not artifact_path.exists() and not completed and not decided:
@@ -903,6 +959,31 @@ def validate_power_analysis(
     artifact = _load_artifact(artifact_path, errors, "power-analysis.json")
     if not isinstance(artifact, dict):
         return errors
+    _require_exact_fields(
+        errors,
+        artifact,
+        (
+            "schema_version",
+            "artifact_id",
+            "analysis_kind",
+            "paid_runs_performed",
+            "protocol_inputs",
+            "co_primary_endpoints",
+            "joint_iut_power",
+            "method",
+            "calibration_requirements",
+            "design_readiness",
+            "exploratory_calibration",
+            "empirical_variance_used_in_confirmatory_decision",
+            "status",
+            "decision",
+        ),
+        "power-analysis.json",
+    )
+    errors.extend(
+        f"power success contract: {error}"
+        for error in validate_joint_success_contract(protocol, freeze=False)
+    )
     try:
         expected = power_analysis.build_report()
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
@@ -917,12 +998,110 @@ def validate_power_analysis(
         errors.append(f"cannot recompute power decision: {exc}")
         derived_decision = {"passed": False, "status": "invalid"}
     decision_passed = derived_decision["passed"] is True
-    _error(errors, artifact.get("schema_version") == 3, "power artifact schema_version must be 3")
+    _error(
+        errors,
+        artifact.get("schema_version") == FROZEN_POWER_SCHEMA_VERSION,
+        "power artifact schema_version must be 3",
+    )
+    _error(
+        errors,
+        artifact.get("artifact_id") == FROZEN_POWER_ARTIFACT_ID,
+        "power artifact_id changed",
+    )
+    _error(
+        errors,
+        artifact.get("analysis_kind") == FROZEN_POWER_ANALYSIS_KIND,
+        "power analysis_kind changed",
+    )
+    _error(
+        errors,
+        artifact.get("paid_runs_performed") is False,
+        "pending power artifact cannot claim paid runs",
+    )
+    _error(
+        errors,
+        artifact.get("method")
+        == {
+            "component_tests": "one-sided task-clustered superiority at each frozen claim floor",
+            "joint_rule": (
+                "intersection-union: all three component nulls must be rejected; no "
+                "across-endpoint multiplicity adjustment is required"
+            ),
+            "planning_rule": (
+                "owner-frozen true alternatives must be strictly better than claim floors; each "
+                "marginal power and overall intersection-union joint success probability must "
+                "each meet 0.80"
+            ),
+        },
+        "power method contract changed",
+    )
+    joint = artifact.get("joint_iut_power", {})
+    _require_exact_fields(
+        errors,
+        joint,
+        ("intersection_union_success_probability", "status", "method"),
+        "power joint_iut_power",
+    )
+    _error(
+        errors,
+        joint.get("method")
+        == "frozen_endpoint_dependence_simulation_or_conservative_bound",
+        "joint IUT power method changed",
+    )
+    calibration_contract = artifact.get("calibration_requirements", {})
+    _require_exact_fields(
+        errors,
+        calibration_contract,
+        (
+            "status",
+            "must_match",
+            "required_statistics",
+            "minimum_independent_task_clusters",
+            "minimum_is_calibration_floor_not_power_sized_design",
+            "selection_use",
+        ),
+        "power calibration_requirements",
+    )
+    _error(
+        errors,
+        calibration_contract.get("status") == "open"
+        and calibration_contract.get("minimum_independent_task_clusters")
+        == FROZEN_MINIMUM_CALIBRATION_TASK_CLUSTERS
+        and calibration_contract.get(
+            "minimum_is_calibration_floor_not_power_sized_design"
+        )
+        is True,
+        "power calibration contract must remain open with a frozen 12-cluster non-sized floor",
+    )
+    _error(
+        errors,
+        artifact.get("empirical_variance_used_in_confirmatory_decision") is False,
+        "pending-only v3 cannot claim empirical variance in a confirmatory decision",
+    )
     agent_design = protocol.get("agent_design", {})
     inputs = artifact.get("protocol_inputs")
     if not isinstance(inputs, dict):
         errors.append("power artifact protocol_inputs must be an object")
         inputs = {}
+    _require_exact_fields(
+        errors,
+        inputs,
+        (
+            "tasks",
+            "repetitions_per_treatment",
+            "primary_treatments",
+            "requested_cells",
+            "agent_retry_limit",
+            "replacement_cell_limit",
+            "maximum_agent_invocations",
+            "power_target",
+            "intersection_union_alpha",
+            "primary_contrast",
+            "cluster_unit",
+            "attempt_policy",
+        ),
+        "power protocol_inputs",
+    )
     treatments = agent_design.get("primary_treatments")
     tasks = agent_design.get("tasks")
     repetitions = agent_design.get("repetitions_per_treatment")
@@ -935,6 +1114,38 @@ def validate_power_analysis(
         and isinstance(repetitions, int)
         and not isinstance(repetitions, bool)
         else None
+    )
+    _error(
+        errors,
+        treatments == list(FROZEN_PRIMARY_TREATMENTS),
+        "preregistration primary treatment identities changed",
+    )
+    _error(
+        errors,
+        tasks == FROZEN_PROVISIONAL_TASKS and not isinstance(tasks, bool),
+        "preregistration task count must remain the provisional 24",
+    )
+    _error(
+        errors,
+        repetitions == FROZEN_REPETITIONS_PER_TREATMENT
+        and not isinstance(repetitions, bool),
+        "preregistration repetitions per treatment must remain frozen at 4 in v3",
+    )
+    _error(
+        errors,
+        inputs.get("tasks") == FROZEN_PROVISIONAL_TASKS
+        and inputs.get("repetitions_per_treatment")
+        == FROZEN_REPETITIONS_PER_TREATMENT
+        and inputs.get("primary_treatments") == len(FROZEN_PRIMARY_TREATMENTS),
+        "power artifact provisional 24 x 4 x 3 design identity changed",
+    )
+    _error(
+        errors,
+        inputs.get("intersection_union_alpha") == FROZEN_INTERSECTION_UNION_ALPHA
+        and inputs.get("primary_contrast") == FROZEN_PRIMARY_CONTRAST
+        and inputs.get("cluster_unit") == FROZEN_CLUSTER_UNIT
+        and inputs.get("attempt_policy") == FROZEN_POWER_ATTEMPT_POLICY,
+        "power artifact alpha/contrast/cluster/attempt identity changed",
     )
     _error(errors, inputs.get("tasks") == tasks, "power artifact task count does not match preregistration")
     _error(
@@ -957,8 +1168,9 @@ def validate_power_analysis(
         errors,
         not isinstance(agent_design.get("requested_cells"), bool)
         and agent_design.get("requested_cells") == expected_requested
+        and expected_requested == FROZEN_REQUESTED_CELLS
         and not isinstance(inputs.get("requested_cells"), bool)
-        and inputs.get("requested_cells") == expected_requested,
+        and inputs.get("requested_cells") == FROZEN_REQUESTED_CELLS,
         "power artifact requested-cell arithmetic does not match preregistration",
     )
     _error(
@@ -968,9 +1180,9 @@ def validate_power_analysis(
         and not isinstance(inputs.get("replacement_cell_limit"), bool)
         and inputs.get("replacement_cell_limit") == 0
         and not isinstance(inputs.get("maximum_agent_invocations"), bool)
-        and inputs.get("maximum_agent_invocations") == expected_requested
+        and inputs.get("maximum_agent_invocations") == FROZEN_REQUESTED_CELLS
         and not isinstance(agent_design.get("maximum_agent_invocations"), bool)
-        and agent_design.get("maximum_agent_invocations") == expected_requested,
+        and agent_design.get("maximum_agent_invocations") == FROZEN_REQUESTED_CELLS,
         "confirmatory agent-invocation ceiling must equal requested cells with zero retries and replacements",
     )
     _error(
@@ -980,13 +1192,49 @@ def validate_power_analysis(
     )
     _error(
         errors,
+        artifact.get("status") == "pending_uncalibrated"
+        and artifact.get("decision", {}).get("passed") is False
+        and power.get("completed") is False
+        and power.get("status") == "pending_uncalibrated"
+        and power.get("design_decision_required") is True
+        and check.get("status") == "fail",
+        "power schema v3 must remain pending-only until a versioned authenticated sizing transition",
+    )
+    _error(
+        errors,
         completed is decision_passed,
         "protocol power.completed must remain false until all three endpoints are calibrated and powered",
     )
     protocol_evidence = _evidence_path(power.get("evidence"), here, repo)
     _error(errors, protocol_evidence == artifact_path.resolve(), "protocol power evidence must reference power-analysis.json")
-    _error(errors, power.get("analysis_kind") == artifact.get("analysis_kind"), "protocol power analysis_kind does not match artifact")
+    _error(
+        errors,
+        power.get("analysis_kind") == FROZEN_POWER_ANALYSIS_KIND
+        and artifact.get("analysis_kind") == FROZEN_POWER_ANALYSIS_KIND,
+        "protocol power analysis_kind does not match the frozen pending v3 contract",
+    )
     artifact_floors = artifact.get("co_primary_endpoints", {})
+    _require_exact_fields(
+        errors,
+        artifact_floors,
+        tuple(name for name, _, _, _, _ in FROZEN_POWER_ENDPOINTS),
+        "power co-primary endpoints",
+    )
+    for name, estimand_scale, _, artifact_floor_key, frozen_floor in FROZEN_POWER_ENDPOINTS:
+        endpoint = artifact_floors.get(name, {})
+        _error(
+            errors,
+            isinstance(endpoint, dict)
+            and endpoint.get("estimand_scale") == estimand_scale,
+            f"power {name} estimand scale changed",
+        )
+        _error(
+            errors,
+            isinstance(endpoint, dict)
+            and endpoint.get("claim_floor", {}).get(artifact_floor_key)
+            == frozen_floor,
+            f"power {name} claim floor changed",
+        )
     floor_statuses = {
         endpoint.get("claim_floor", {}).get("status")
         for endpoint in artifact_floors.values()
@@ -998,16 +1246,56 @@ def validate_power_analysis(
         "all co-primary claim-floor statuses must move together",
     )
     common_floor_status = next(iter(floor_statuses)) if len(floor_statuses) == 1 else None
-    expected_floors = {
+    artifact_floor_summary = {
         "elapsed_time_ratio_max": artifact_floors.get("elapsed_time", {}).get("claim_floor", {}).get("ratio_max"),
         "normalized_cost_ratio_max": artifact_floors.get("normalized_cost", {}).get("claim_floor", {}).get("ratio_max"),
         "code_quality_difference_min": artifact_floors.get("code_quality", {}).get("claim_floor", {}).get("difference_min"),
         "status": common_floor_status,
     }
+    success_contract = agent_design.get("success_contract", {})
+    success_endpoints = (
+        success_contract.get("endpoints", {})
+        if isinstance(success_contract, dict)
+        else {}
+    )
+    contract_floor_statuses = {
+        endpoint.get("floor_status")
+        for endpoint in success_endpoints.values()
+        if isinstance(endpoint, dict)
+    }
+    common_contract_floor_status = (
+        next(iter(contract_floor_statuses))
+        if len(contract_floor_statuses) == 1
+        else None
+    )
+    success_contract_floor_summary = {
+        "elapsed_time_ratio_max": success_endpoints.get("elapsed_time", {}).get(
+            "practical_ratio_max"
+        ),
+        "normalized_cost_ratio_max": success_endpoints.get(
+            "normalized_cost", {}
+        ).get("practical_ratio_max"),
+        "code_quality_difference_min": success_endpoints.get(
+            "code_quality", {}
+        ).get("practical_difference_min"),
+        "status": common_contract_floor_status,
+    }
     _error(
         errors,
-        power.get("co_primary_claim_floors") == expected_floors,
-        "protocol co-primary claim floors do not match power artifact",
+        artifact_floor_summary == success_contract_floor_summary,
+        "power artifact claim floors/statuses do not match the authoritative success contract",
+    )
+    _error(
+        errors,
+        common_floor_status == "provisional"
+        and common_contract_floor_status == "provisional"
+        and success_contract.get("status") == "provisional",
+        "pending-only v3 claim floors and authoritative success contract must remain provisional",
+    )
+    _error(
+        errors,
+        power.get("co_primary_claim_floors") == success_contract_floor_summary,
+        "protocol co-primary claim floors do not match the authoritative success contract",
     )
     expected_alternatives = {
         "elapsed_time_ratio_true": artifact_floors.get("elapsed_time", {}).get("planning_alternative", {}).get("ratio_true"),
@@ -1050,7 +1338,9 @@ def validate_power_analysis(
     _error(
         errors,
         power.get("minimum_calibration_task_clusters")
-        == calibration_requirements.get("minimum_independent_task_clusters")
+        == FROZEN_MINIMUM_CALIBRATION_TASK_CLUSTERS
+        and calibration_requirements.get("minimum_independent_task_clusters")
+        == FROZEN_MINIMUM_CALIBRATION_TASK_CLUSTERS
         and power.get("minimum_calibration_is_power_sized_design") is False
         and calibration_requirements.get(
             "minimum_is_calibration_floor_not_power_sized_design"
@@ -1065,6 +1355,15 @@ def validate_power_analysis(
         and power.get("power_sized_confirmatory_task_count")
         == readiness.get("power_sized_confirmatory_task_count"),
         "protocol power-sized task counts do not match power readiness artifact",
+    )
+    _error(
+        errors,
+        power.get("power_sized_development_task_count") is None
+        and power.get("power_sized_confirmatory_task_count") is None
+        and readiness.get("power_sized_development_task_count") is None
+        and readiness.get("power_sized_confirmatory_task_count") is None
+        and readiness.get("provisional_design_power_defensible") is False,
+        "pending-only v3 must retain null power-sized counts and a non-defensible provisional design",
     )
     sized_development = readiness.get("power_sized_development_task_count")
     sized_confirmatory = readiness.get("power_sized_confirmatory_task_count")
@@ -1125,6 +1424,21 @@ def validate_joint_success_contract(protocol: dict[str, Any], *, freeze: bool) -
     contract = protocol.get("agent_design", {}).get("success_contract")
     if not isinstance(contract, dict):
         return ["joint superiority success contract is missing"]
+    _require_exact_fields(
+        errors,
+        contract,
+        (
+            "schema",
+            "status",
+            "primary_contrast",
+            "intersection_union_alpha",
+            "endpoints",
+            "code_quality_measurement",
+            "timeout_policy",
+            "contract_sha256",
+        ),
+        "joint superiority success contract",
+    )
     _error(
         errors,
         contract.get("schema") == "agent-brain-joint-superiority-contract/v2",
@@ -1157,6 +1471,12 @@ def validate_joint_success_contract(protocol: dict[str, Any], *, freeze: bool) -
         if not isinstance(endpoint, dict):
             errors.append(f"joint superiority {name} endpoint is missing")
             continue
+        _require_exact_fields(
+            errors,
+            endpoint,
+            ("direction", "estimand", floor_key, "floor_status"),
+            f"joint superiority {name} endpoint",
+        )
         _error(errors, endpoint.get("direction") == direction, f"joint superiority {name} direction changed")
         _error(errors, endpoint.get("estimand") == estimand, f"joint superiority {name} estimand changed")
         floor = endpoint.get(floor_key)
@@ -1191,6 +1511,19 @@ def validate_joint_success_contract(protocol: dict[str, Any], *, freeze: bool) -
     if not isinstance(timeout, dict):
         errors.append("joint superiority timeout policy is missing")
         timeout = {}
+    _require_exact_fields(
+        errors,
+        timeout,
+        (
+            "policy",
+            "elapsed_field",
+            "agent_timeout_limit_seconds",
+            "provider_retry_limit",
+            "substitute_component_timeout_limit",
+            "status",
+        ),
+        "joint superiority timeout policy",
+    )
     _error(
         errors,
         timeout.get("policy")

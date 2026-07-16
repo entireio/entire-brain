@@ -28,14 +28,19 @@ if str(AGENT_BRAIN) not in sys.path:
 from analysis.common import EXECUTED_RUN_PREDICATE_VERSION, is_executed_run  # noqa: E402
 
 
+POWER_ARTIFACT_SCHEMA_VERSION = 3
+POWER_ARTIFACT_ID = "agent-brain-confirmatory-power-v3"
+POWER_ANALYSIS_KIND = "three_endpoint_intersection_union_power_calibration_pending"
 TASKS = 24
 REPETITIONS = 4
-PRIMARY_TREATMENTS = 3
+PRIMARY_TREATMENT_IDS = ("no_memory", "placebo_packet", "retrieved_memory")
+PRIMARY_TREATMENTS = len(PRIMARY_TREATMENT_IDS)
 REQUESTED_CELLS = TASKS * REPETITIONS * PRIMARY_TREATMENTS
 AGENT_RETRY_LIMIT = 0
 REPLACEMENT_CELL_LIMIT = 0
 MAXIMUM_AGENT_INVOCATIONS = REQUESTED_CELLS
 TARGET_POWER = 0.80
+MINIMUM_CALIBRATION_TASK_CLUSTERS = 12
 TIME_REDUCTION_TARGET = 0.10
 COST_REDUCTION_TARGET = 0.12
 QUALITY_DIFFERENCE_TARGET = 0.05
@@ -44,6 +49,41 @@ TOKEN_RATIO_TARGET = 1.0 - TOKEN_REDUCTION_TARGET
 CORRECTNESS_MARGIN = -0.10
 FAMILY_ALPHA = 0.05
 FAMILY_COMPARISONS = 2
+PRIMARY_CONTRAST = "retrieved_memory_vs_no_memory"
+CLUSTER_UNIT = "task"
+ATTEMPT_POLICY = "all_executed_attempts"
+PENDING_ENDPOINT_STATUS = "pending_final_contract_calibration_and_alternative"
+PENDING_ALTERNATIVE_STATUS = "pending_owner_approval"
+PENDING_POWER_STATUS = "pending_uncalibrated"
+JOINT_POWER_METHOD = "frozen_endpoint_dependence_simulation_or_conservative_bound"
+COMPONENT_TESTS = "one-sided task-clustered superiority at each frozen claim floor"
+JOINT_RULE = (
+    "intersection-union: all three component nulls must be rejected; no "
+    "across-endpoint multiplicity adjustment is required"
+)
+PLANNING_RULE = (
+    "owner-frozen true alternatives must be strictly better than claim floors; each "
+    "marginal power and overall intersection-union joint success probability must "
+    "each meet 0.80"
+)
+PENDING_REASON = (
+    "planning alternatives, final-contract variance inputs, and endpoint dependence are pending"
+)
+POWERED_TRANSITION_ERROR = (
+    "power artifact schema v3 is pending-only; evaluated power requires a new versioned "
+    "schema, a content-hashed owner-approved final-calibration or assumption contract, "
+    "and deterministic power recomputation from those authenticated inputs"
+)
+ENDPOINT_IDENTITIES: tuple[tuple[str, str, str, float], ...] = (
+    ("elapsed_time", "paired_task_log_ratio", "ratio_max", 0.90),
+    (
+        "normalized_cost",
+        "ratio_of_equal_task_weighted_task_arm_mean_costs",
+        "ratio_max",
+        0.88,
+    ),
+    ("code_quality", "paired_task_difference", "difference_min", 0.05),
+)
 # Holm's first (worst-case) threshold for retrieved-vs-no-memory when the
 # endpoint family also contains placebo-vs-no-memory.
 PLANNING_ALPHA = FAMILY_ALPHA / FAMILY_COMPARISONS
@@ -926,16 +966,75 @@ def _probability(value: Any, label: str) -> float:
 
 
 def _positive_integer(value: Any, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{label} must be a positive integer")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 2:
+        raise ValueError(f"{label} must be an integer of at least two")
+    return value
+
+
+def _require_exact_fields(value: Any, fields: tuple[str, ...], label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be an object")
+    if set(value) != set(fields):
+        raise ValueError(f"{label} fields changed")
     return value
 
 
 def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
-    """Derive the gate from calibrated powers; never trust ``decision.passed``."""
-    inputs = report.get("protocol_inputs")
-    if not isinstance(inputs, dict):
-        raise ValueError("power protocol_inputs must be an object")
+    """Validate the pending-only v3 contract and derive its closed gate.
+
+    V3 deliberately has no authenticated final-calibration or owner-assumption
+    input ABI from which numeric power can be recomputed.  Supplying SDs,
+    marginal powers, joint power, or sized counts therefore cannot transition
+    this schema to an evaluated state.  That transition requires a new schema
+    which hashes its authoritative inputs and deterministically derives power.
+    """
+    report = _require_exact_fields(
+        report,
+        (
+            "schema_version",
+            "artifact_id",
+            "analysis_kind",
+            "paid_runs_performed",
+            "protocol_inputs",
+            "co_primary_endpoints",
+            "joint_iut_power",
+            "method",
+            "calibration_requirements",
+            "design_readiness",
+            "exploratory_calibration",
+            "empirical_variance_used_in_confirmatory_decision",
+            "status",
+            "decision",
+        ),
+        "power report",
+    )
+    if report.get("schema_version") != POWER_ARTIFACT_SCHEMA_VERSION:
+        raise ValueError("power artifact schema_version must remain 3")
+    if report.get("artifact_id") != POWER_ARTIFACT_ID:
+        raise ValueError("power artifact_id changed")
+    if report.get("analysis_kind") != POWER_ANALYSIS_KIND:
+        raise ValueError("power analysis_kind changed")
+    if report.get("paid_runs_performed") is not False:
+        raise ValueError("pending power artifact cannot claim paid runs")
+
+    inputs = _require_exact_fields(
+        report.get("protocol_inputs"),
+        (
+            "tasks",
+            "repetitions_per_treatment",
+            "primary_treatments",
+            "requested_cells",
+            "agent_retry_limit",
+            "replacement_cell_limit",
+            "maximum_agent_invocations",
+            "power_target",
+            "intersection_union_alpha",
+            "primary_contrast",
+            "cluster_unit",
+            "attempt_policy",
+        ),
+        "power protocol_inputs",
+    )
     target = _probability(inputs.get("power_target"), "power target")
     if target != TARGET_POWER:
         raise ValueError(f"power target must remain frozen at {TARGET_POWER:.2f}")
@@ -946,7 +1045,30 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
     treatments = _positive_integer(
         inputs.get("primary_treatments"), "protocol primary treatment count"
     )
+    if tasks != TASKS:
+        raise ValueError(
+            f"protocol task count must remain the provisional {TASKS} until a versioned sizing transition"
+        )
+    if repetitions != REPETITIONS:
+        raise ValueError(
+            f"protocol repetitions per treatment must remain frozen at {REPETITIONS} in v3"
+        )
+    if treatments != PRIMARY_TREATMENTS:
+        raise ValueError(
+            f"protocol primary treatment count must remain frozen at {PRIMARY_TREATMENTS} in v3"
+        )
+    alpha = _probability(inputs.get("intersection_union_alpha"), "intersection-union alpha")
+    if alpha != FAMILY_ALPHA:
+        raise ValueError(f"intersection-union alpha must remain frozen at {FAMILY_ALPHA:.2f}")
+    if inputs.get("primary_contrast") != PRIMARY_CONTRAST:
+        raise ValueError("power primary contrast changed")
+    if inputs.get("cluster_unit") != CLUSTER_UNIT:
+        raise ValueError("power cluster unit changed")
+    if inputs.get("attempt_policy") != ATTEMPT_POLICY:
+        raise ValueError("power attempt policy changed")
     expected_cells = tasks * repetitions * treatments
+    if expected_cells != REQUESTED_CELLS:
+        raise ValueError("frozen v3 task/repetition/treatment arithmetic changed")
     requested_cells = inputs.get("requested_cells")
     if isinstance(requested_cells, bool) or requested_cells != expected_cells:
         raise ValueError("protocol requested-cell arithmetic is inconsistent")
@@ -961,17 +1083,95 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "protocol invocation ceiling must equal requested cells with zero retries and replacements"
         )
-    endpoints = report.get("co_primary_endpoints")
-    if not isinstance(endpoints, dict) or set(endpoints) != {
-        "elapsed_time",
-        "normalized_cost",
-        "code_quality",
-    }:
+    endpoints = _require_exact_fields(
+        report.get("co_primary_endpoints"),
+        tuple(name for name, _, _, _ in ENDPOINT_IDENTITIES),
+        "power co-primary endpoints",
+    )
+    if set(endpoints) != {name for name, _, _, _ in ENDPOINT_IDENTITIES}:
         raise ValueError("power report must contain exactly three co-primary endpoints")
-    readiness = report.get("design_readiness")
-    joint = report.get("joint_iut_power")
-    if not isinstance(readiness, dict) or not isinstance(joint, dict):
-        raise ValueError("power readiness and joint IUT power records are required")
+    readiness = _require_exact_fields(
+        report.get("design_readiness"),
+        (
+            "provisional_tasks",
+            "provisional_repetitions_per_treatment",
+            "provisional_requested_cells",
+            "maximum_agent_invocations",
+            "agent_retry_limit",
+            "replacement_cell_limit",
+            "provisional_design_power_defensible",
+            "power_sized_development_task_count",
+            "power_sized_confirmatory_task_count",
+            "reason",
+        ),
+        "power design_readiness",
+    )
+    joint = _require_exact_fields(
+        report.get("joint_iut_power"),
+        ("intersection_union_success_probability", "status", "method"),
+        "power joint_iut_power",
+    )
+    if joint.get("method") != JOINT_POWER_METHOD:
+        raise ValueError("joint IUT power method changed")
+    method = _require_exact_fields(
+        report.get("method"),
+        ("component_tests", "joint_rule", "planning_rule"),
+        "power method",
+    )
+    if method != {
+        "component_tests": COMPONENT_TESTS,
+        "joint_rule": JOINT_RULE,
+        "planning_rule": PLANNING_RULE,
+    }:
+        raise ValueError("power method contract changed")
+    calibration = _require_exact_fields(
+        report.get("calibration_requirements"),
+        (
+            "status",
+            "must_match",
+            "required_statistics",
+            "minimum_independent_task_clusters",
+            "minimum_is_calibration_floor_not_power_sized_design",
+            "selection_use",
+        ),
+        "power calibration_requirements",
+    )
+    if calibration.get("status") != "open":
+        raise ValueError("v3 calibration requirement status must remain open")
+    minimum_calibration_tasks = _positive_integer(
+        calibration.get("minimum_independent_task_clusters"),
+        "minimum calibration task clusters",
+    )
+    if minimum_calibration_tasks != MINIMUM_CALIBRATION_TASK_CLUSTERS:
+        raise ValueError(
+            "minimum calibration task clusters must remain frozen at "
+            f"{MINIMUM_CALIBRATION_TASK_CLUSTERS}"
+        )
+    if calibration.get("minimum_is_calibration_floor_not_power_sized_design") is not True:
+        raise ValueError("minimum calibration count must remain a floor, not a power-sized design")
+    if calibration.get("selection_use") != (
+        "development calibration only; cannot enter confirmatory outcomes"
+    ):
+        raise ValueError("calibration selection-use contract changed")
+    if calibration.get("required_statistics") != {
+        "elapsed_time": "SD of paired task-level mean log ratios",
+        "normalized_cost": (
+            "paired task-arm mean-cost rows for a task-clustered equal-weight "
+            "ratio-of-means bootstrap"
+        ),
+        "code_quality": "SD of paired task-level mean differences",
+        "dependence": "joint covariance or retained task-level calibration rows",
+    }:
+        raise ValueError("calibration required-statistics contract changed")
+    expected_calibration_identity = [
+        "full frozen provider, runner, agent CLI, requested/resolved model, effort, schedule, and quote identity",
+        "v2 no_memory and retrieved_memory treatment contracts",
+        "end-to-end timing boundary and timeout policy",
+        "five-category frozen price quote, inclusion/absence semantics, authenticated structural zeros, and zero agent retries",
+        "task-normalized quality rubric and critical-failure policy",
+    ]
+    if calibration.get("must_match") != expected_calibration_identity:
+        raise ValueError("calibration identity requirements changed")
     readiness_arithmetic = {
         "provisional_tasks": tasks,
         "provisional_repetitions_per_treatment": repetitions,
@@ -984,16 +1184,63 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
         if readiness.get(field) != expected or isinstance(readiness.get(field), bool):
             raise ValueError(f"power readiness arithmetic mismatch: {field}")
 
-    alternatives_pending = True
+    exploratory = _require_exact_fields(
+        report.get("exploratory_calibration"),
+        (
+            "manifest_path",
+            "manifest_sha256",
+            "eligibility",
+            "confirmatory_assumption_source",
+            "pooling_policy",
+            "pooled_estimate_prohibited",
+            "source_count",
+            "paired_task_cluster_instances",
+            "unique_task_ids_across_sources",
+            "executed_run_predicate_version",
+            "sources",
+            "excluded_sources",
+            "interpretation",
+        ),
+        "power exploratory_calibration",
+    )
+    if (
+        exploratory.get("eligibility")
+        != "exploratory_only_excluded_from_confirmatory_decision"
+        or exploratory.get("confirmatory_assumption_source") is not False
+        or exploratory.get("pooled_estimate_prohibited") is not True
+    ):
+        raise ValueError("legacy exploratory calibration quarantine changed")
+    if report.get("empirical_variance_used_in_confirmatory_decision") is not False:
+        raise ValueError("pending-only v3 cannot claim empirical variance in a confirmatory decision")
+
+    pending_alternatives = 0
+    frozen_alternatives = 0
     marginal_powers: list[float] = []
-    for name, endpoint in endpoints.items():
-        if not isinstance(endpoint, dict):
-            raise ValueError(f"{name} endpoint must be an object")
-        floor = endpoint.get("claim_floor")
-        alternative = endpoint.get("planning_alternative")
-        if not isinstance(floor, dict) or not isinstance(alternative, dict):
-            raise ValueError(f"{name} must separate claim floor and planning alternative")
-        floor_key = "difference_min" if name == "code_quality" else "ratio_max"
+    floor_statuses: set[Any] = set()
+    for name, estimand_scale, floor_key, authoritative_floor in ENDPOINT_IDENTITIES:
+        endpoint = _require_exact_fields(
+            endpoints.get(name),
+            (
+                "estimand_scale",
+                "claim_floor",
+                "planning_alternative",
+                "paired_task_sd",
+                "marginal_power",
+                "status",
+            ),
+            f"{name} endpoint",
+        )
+        if endpoint.get("estimand_scale") != estimand_scale:
+            raise ValueError(f"{name} estimand scale changed")
+        floor = _require_exact_fields(
+            endpoint.get("claim_floor"), (floor_key, "status"), f"{name} claim floor"
+        )
+        alt_key = "difference_true" if name == "code_quality" else "ratio_true"
+        alternative = _require_exact_fields(
+            endpoint.get("planning_alternative"),
+            (alt_key, "status"),
+            f"{name} planning alternative",
+        )
         floor_value = floor.get(floor_key)
         try:
             numeric_floor = _finite_numeric(floor_value, f"{name} claim floor")
@@ -1001,22 +1248,27 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{name} claim floor is invalid") from exc
         if not 0.0 < numeric_floor < 1.0:
             raise ValueError(f"{name} claim floor is invalid")
+        if numeric_floor != authoritative_floor:
+            raise ValueError(
+                f"{name} claim floor must remain bound to the authoritative success contract"
+            )
         if floor.get("status") not in {"provisional", "frozen_approved"}:
             raise ValueError(f"{name} claim floor status is invalid")
+        floor_statuses.add(floor.get("status"))
         alt_status = alternative.get("status")
-        alt_key = "difference_true" if name == "code_quality" else "ratio_true"
         alt_value = alternative.get(alt_key)
-        if alt_status == "pending_owner_approval":
+        if alt_status == PENDING_ALTERNATIVE_STATUS:
+            pending_alternatives += 1
             if alt_value is not None:
                 raise ValueError(f"{name} pending planning alternative must be null")
             if endpoint.get("paired_task_sd") is not None or endpoint.get("marginal_power") is not None:
                 raise ValueError(f"{name} pending calibration must retain null SD and power")
-            if endpoint.get("status") != "pending_final_contract_calibration_and_alternative":
+            if endpoint.get("status") != PENDING_ENDPOINT_STATUS:
                 raise ValueError(f"{name} pending endpoint status is inconsistent")
             continue
-        alternatives_pending = False
         if alt_status != "frozen_approved":
             raise ValueError(f"{name} planning alternative status is invalid")
+        frozen_alternatives += 1
         try:
             numeric_alternative = _finite_numeric(
                 alt_value, f"{name} frozen planning alternative"
@@ -1046,33 +1298,48 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
         if endpoint.get("status") != "evaluated":
             raise ValueError(f"{name} calibrated endpoint status must be evaluated")
 
+    if len(floor_statuses) != 1:
+        raise ValueError("all co-primary claim-floor statuses must move together")
+    if pending_alternatives not in {0, len(ENDPOINT_IDENTITIES)}:
+        raise ValueError("planning alternatives must be pending for all endpoints or frozen for all")
+    if frozen_alternatives not in {0, len(ENDPOINT_IDENTITIES)}:
+        raise ValueError("planning alternatives must be pending for all endpoints or frozen for all")
     count_fields = (
         "power_sized_development_task_count",
         "power_sized_confirmatory_task_count",
     )
-    if alternatives_pending:
+    if pending_alternatives == len(ENDPOINT_IDENTITIES):
+        if floor_statuses != {"provisional"}:
+            raise ValueError("pending-only v3 claim floors must remain provisional")
         if readiness.get("provisional_design_power_defensible") is not False:
             raise ValueError("pending power design cannot be marked power-defensible")
         if any(readiness.get(field) is not None for field in count_fields):
             raise ValueError("pending power design must retain null power-sized task counts")
         if joint.get("intersection_union_success_probability") is not None:
             raise ValueError("pending power design must retain null joint IUT power")
-        if joint.get("status") != "pending_final_contract_calibration_and_alternative":
+        if joint.get("status") != PENDING_ENDPOINT_STATUS:
             raise ValueError("pending joint IUT power status is inconsistent")
+        if report.get("status") != PENDING_POWER_STATUS:
+            raise ValueError("power artifact schema v3 status must remain pending_uncalibrated")
+        decision = _require_exact_fields(
+            report.get("decision"),
+            ("passed", "reason", "prohibited_until_resolved"),
+            "power decision",
+        )
+        if decision.get("passed") is not False or decision.get("reason") != PENDING_REASON:
+            raise ValueError("pending power decision contract changed")
+        prohibited = decision.get("prohibited_until_resolved")
+        if not isinstance(prohibited, list) or not all(
+            isinstance(item, str) and item for item in prohibited
+        ):
+            raise ValueError("pending power prohibited-actions contract is invalid")
         return {
             "passed": False,
-            "status": "pending_uncalibrated",
-            "reason": "planning alternatives, final-contract variance inputs, and endpoint dependence are pending",
+            "status": PENDING_POWER_STATUS,
+            "reason": PENDING_REASON,
         }
-    if len(marginal_powers) != 3:
-        raise ValueError("planning alternatives must be pending for all endpoints or frozen for all")
-    calibration = report.get("calibration_requirements")
-    if not isinstance(calibration, dict):
-        raise ValueError("power calibration requirements must be an object")
-    minimum_calibration_tasks = _positive_integer(
-        calibration.get("minimum_independent_task_clusters"),
-        "minimum calibration task clusters",
-    )
+    if len(marginal_powers) != len(ENDPOINT_IDENTITIES):
+        raise ValueError("all three evaluated endpoints must supply marginal power")
     development_tasks = _positive_integer(
         readiness.get("power_sized_development_task_count"),
         "power_sized_development_task_count",
@@ -1089,25 +1356,12 @@ def recompute_power_decision(report: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "power-sized confirmatory task count must equal the protocol task count"
         )
-    joint_power = _probability(
+    _probability(
         joint.get("intersection_union_success_probability"), "joint IUT power"
     )
     if joint.get("status") != "evaluated":
         raise ValueError("calibrated joint IUT power status must be evaluated")
-    passed = all(value >= target for value in marginal_powers) and joint_power >= target
-    if readiness.get("provisional_design_power_defensible") is not passed:
-        raise ValueError(
-            "power-defensible readiness flag must equal the recomputed marginal/joint gate"
-        )
-    return {
-        "passed": passed,
-        "status": "pass" if passed else "fail_underpowered",
-        "reason": (
-            "every marginal and joint IUT power meets target"
-            if passed
-            else "one or more marginal or joint IUT powers is below target"
-        ),
-    }
+    raise ValueError(POWERED_TRANSITION_ERROR)
 
 
 def validate_power_report(report: dict[str, Any]) -> list[str]:
@@ -1132,32 +1386,32 @@ def build_report() -> dict[str, Any]:
         "elapsed_time": {
             "estimand_scale": "paired_task_log_ratio",
             "claim_floor": {"ratio_max": 1.0 - TIME_REDUCTION_TARGET, "status": "provisional"},
-            "planning_alternative": {"ratio_true": None, "status": "pending_owner_approval"},
+            "planning_alternative": {"ratio_true": None, "status": PENDING_ALTERNATIVE_STATUS},
             "paired_task_sd": None,
             "marginal_power": None,
-            "status": "pending_final_contract_calibration_and_alternative",
+            "status": PENDING_ENDPOINT_STATUS,
         },
         "normalized_cost": {
             "estimand_scale": "ratio_of_equal_task_weighted_task_arm_mean_costs",
             "claim_floor": {"ratio_max": 1.0 - COST_REDUCTION_TARGET, "status": "provisional"},
-            "planning_alternative": {"ratio_true": None, "status": "pending_owner_approval"},
+            "planning_alternative": {"ratio_true": None, "status": PENDING_ALTERNATIVE_STATUS},
             "paired_task_sd": None,
             "marginal_power": None,
-            "status": "pending_final_contract_calibration_and_alternative",
+            "status": PENDING_ENDPOINT_STATUS,
         },
         "code_quality": {
             "estimand_scale": "paired_task_difference",
             "claim_floor": {"difference_min": QUALITY_DIFFERENCE_TARGET, "status": "provisional"},
-            "planning_alternative": {"difference_true": None, "status": "pending_owner_approval"},
+            "planning_alternative": {"difference_true": None, "status": PENDING_ALTERNATIVE_STATUS},
             "paired_task_sd": None,
             "marginal_power": None,
-            "status": "pending_final_contract_calibration_and_alternative",
+            "status": PENDING_ENDPOINT_STATUS,
         },
     }
     report: dict[str, Any] = {
-        "schema_version": 3,
-        "artifact_id": "agent-brain-confirmatory-power-v3",
-        "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
+        "schema_version": POWER_ARTIFACT_SCHEMA_VERSION,
+        "artifact_id": POWER_ARTIFACT_ID,
+        "analysis_kind": POWER_ANALYSIS_KIND,
         "paid_runs_performed": False,
         "protocol_inputs": {
             "tasks": TASKS,
@@ -1169,27 +1423,20 @@ def build_report() -> dict[str, Any]:
             "maximum_agent_invocations": MAXIMUM_AGENT_INVOCATIONS,
             "power_target": TARGET_POWER,
             "intersection_union_alpha": FAMILY_ALPHA,
-            "primary_contrast": "retrieved_memory_vs_no_memory",
-            "cluster_unit": "task",
-            "attempt_policy": "all_executed_attempts",
+            "primary_contrast": PRIMARY_CONTRAST,
+            "cluster_unit": CLUSTER_UNIT,
+            "attempt_policy": ATTEMPT_POLICY,
         },
         "co_primary_endpoints": endpoints,
         "joint_iut_power": {
             "intersection_union_success_probability": None,
-            "status": "pending_final_contract_calibration_and_alternative",
-            "method": "frozen_endpoint_dependence_simulation_or_conservative_bound",
+            "status": PENDING_ENDPOINT_STATUS,
+            "method": JOINT_POWER_METHOD,
         },
         "method": {
-            "component_tests": "one-sided task-clustered superiority at each frozen claim floor",
-            "joint_rule": (
-                "intersection-union: all three component nulls must be rejected; no "
-                "across-endpoint multiplicity adjustment is required"
-            ),
-            "planning_rule": (
-                "owner-frozen true alternatives must be strictly better than claim floors; each "
-                "marginal power and overall intersection-union joint success probability must "
-                "each meet 0.80"
-            ),
+            "component_tests": COMPONENT_TESTS,
+            "joint_rule": JOINT_RULE,
+            "planning_rule": PLANNING_RULE,
         },
         "calibration_requirements": {
             "status": "open",
@@ -1206,7 +1453,7 @@ def build_report() -> dict[str, Any]:
                 "code_quality": "SD of paired task-level mean differences",
                 "dependence": "joint covariance or retained task-level calibration rows",
             },
-            "minimum_independent_task_clusters": 12,
+            "minimum_independent_task_clusters": MINIMUM_CALIBRATION_TASK_CLUSTERS,
             "minimum_is_calibration_floor_not_power_sized_design": True,
             "selection_use": "development calibration only; cannot enter confirmatory outcomes",
         },
@@ -1224,20 +1471,23 @@ def build_report() -> dict[str, Any]:
         },
         "exploratory_calibration": calibration,
         "empirical_variance_used_in_confirmatory_decision": False,
+        "status": PENDING_POWER_STATUS,
+        "decision": {
+            "passed": False,
+            "reason": PENDING_REASON,
+            "prohibited_until_resolved": [
+                "mark power_target_met pass",
+                "freeze practical floors or planning alternatives without owner approval",
+                "seal or open the fresh holdout",
+                "authorize paid confirmatory agent invocations",
+                "promote legacy two-endpoint sensitivity task counts into the v3 design",
+            ],
+        },
     }
     derived = recompute_power_decision(report)
     report["status"] = derived["status"]
-    report["decision"] = {
-        "passed": derived["passed"],
-        "reason": derived["reason"],
-        "prohibited_until_resolved": [
-            "mark power_target_met pass",
-            "freeze practical floors or planning alternatives without owner approval",
-            "seal or open the fresh holdout",
-            "authorize paid confirmatory agent invocations",
-            "promote legacy two-endpoint sensitivity task counts into the v3 design",
-        ],
-    }
+    report["decision"]["passed"] = derived["passed"]
+    report["decision"]["reason"] = derived["reason"]
     return _round_floats(report)
 
 

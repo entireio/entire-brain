@@ -154,6 +154,11 @@ rather than invented from legacy token/pass-rate data. The three claim floors re
 the owner-frozen, strictly better true planning alternatives, which are also currently null. The
 power gate remains failed and `power.completed` remains false.
 
+Power artifact schema v3 is pending-only: supplied SDs, powers, or task counts cannot turn it into
+an evaluated artifact. A numeric sizing transition requires a new versioned schema with a
+content-hashed, owner-approved final-calibration or assumption contract and deterministic power
+recomputation from those authenticated inputs.
+
 The 12 independent task clusters required by the calibration contract are a minimum variance-
 calibration floor, not a powered development design. Until compatible variance and endpoint-
 dependence evidence exists—or a methodology owner explicitly freezes a documented assumption
