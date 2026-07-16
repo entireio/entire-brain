@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/development-relevance-queries-v1.json",
+  "title": "Development relevance query fixture v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "fixture_id",
+    "purpose",
+    "created_at",
+    "source_bindings",
+    "coverage",
+    "items",
+    "fixture_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "fixture_id": {"type": "string", "minLength": 1},
+    "purpose": {"const": "development_retrieval_evaluation_only"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "source_bindings": {
+      "type": "object",
+      "required": [
+        "labels",
+        "review_ledger",
+        "null_review_ledger",
+        "fact_snapshot",
+        "engine_pins",
+        "task_inventory",
+        "label_set_id",
+        "snapshot_roots"
+      ],
+      "properties": {
+        "labels": {"$ref": "#/$defs/sourceBinding"},
+        "review_ledger": {"$ref": "#/$defs/sourceBinding"},
+        "null_review_ledger": {"$ref": "#/$defs/sourceBinding"},
+        "fact_snapshot": {"$ref": "#/$defs/sourceBinding"},
+        "engine_pins": {"$ref": "#/$defs/sourceBinding"},
+        "task_inventory": {"$ref": "#/$defs/sourceBinding"},
+        "label_set_id": {"type": "string", "minLength": 1},
+        "snapshot_roots": {"$ref": "#/$defs/snapshotRoots"}
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "query_count",
+        "unique_task_count",
+        "answerable_product_query_count",
+        "product_null_query_count",
+        "oracle_query_count"
+      ],
+      "properties": {
+        "query_count": {"const": 14},
+        "unique_task_count": {"const": 13},
+        "answerable_product_query_count": {"const": 12},
+        "product_null_query_count": {"const": 1},
+        "oracle_query_count": {"const": 1}
+      },
+      "additionalProperties": false
+    },
+    "items": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "items": {"$ref": "#/$defs/queryItem"}
+    },
+    "fixture_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "safeSourcePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)[Hh][Oo][Ll][Dd][Oo][Uu][Tt](?:/|$))[A-Za-z0-9._/-]+$"
+    },
+    "sourceBinding": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/safeSourcePath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "snapshotRoots": {
+      "type": "object",
+      "required": [
+        "source_facts_sha256",
+        "source_session_dates_sha256",
+        "source_active_fact_count",
+        "source_active_fact_catalog_sha256",
+        "fact_count",
+        "facts_sha256",
+        "session_date_count",
+        "session_dates_sha256"
+      ],
+      "properties": {
+        "source_facts_sha256": {"$ref": "#/$defs/sha256"},
+        "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "source_active_fact_count": {"type": "integer", "minimum": 1},
+        "source_active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "fact_count": {"type": "integer", "minimum": 1},
+        "facts_sha256": {"$ref": "#/$defs/sha256"},
+        "session_date_count": {"type": "integer", "minimum": 1},
+        "session_dates_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "queryItem": {
+      "type": "object",
+      "required": [
+        "query_id",
+        "task_id",
+        "query_source",
+        "null_query",
+        "query_text",
+        "query_sha256",
+        "task_prompt_sha256",
+        "source_config_sha256",
+        "temporal_cutoff",
+        "exclude_session_ids",
+        "temporal_policy_sha256"
+      ],
+      "properties": {
+        "query_id": {"type": "string", "minLength": 1},
+        "task_id": {"type": "string", "minLength": 1},
+        "query_source": {"enum": ["user_prompt_derived", "oracle_upper_bound"]},
+        "null_query": {"type": "boolean"},
+        "query_text": {"type": "string", "minLength": 1},
+        "query_sha256": {"$ref": "#/$defs/sha256"},
+        "task_prompt_sha256": {"$ref": "#/$defs/sha256"},
+        "source_config_sha256": {"$ref": "#/$defs/sha256"},
+        "temporal_cutoff": {"type": "string", "format": "date-time"},
+        "exclude_session_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "temporal_policy_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
