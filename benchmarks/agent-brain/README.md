@@ -17,6 +17,15 @@ attribution for future packet-format design. It does not call an agent/provider,
 measure code quality, authorize a paid trial, or change either MCP or CLI
 defaults.
 
+For the independently parsed `compact_v2` design, use
+`packet_format_v2_ab.py`; see `PACKET-FORMAT-V2-AB.md`. It additionally checks
+the in-band `~`/`^` legend, exact keyed schemas and types, same-opcode reference
+scope, and the deterministic strictly-shorter per-family wire-form choice.
+Its fixed 114-task byte/token-proxy gates and privacy/authorization limits are
+the same as the v1 comparison. Report schema 2 also binds the exact runner,
+corpus verifier, product contract, golden, schema/allowlist, legend, and gates
+through a path-free hash-only runner identity.
+
 ## Treatment-isolated tasks
 
 Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or
