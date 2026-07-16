@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-owner-approval-receipt-v1.json",
+  "title": "Power-v4 owner-approval receipt without configured trust anchor",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "complete_plan_sha256",
+    "candidate_lock_receipt_file_sha256",
+    "approver",
+    "approved_at",
+    "authentication_status",
+    "identity_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-owner-approval-receipt/v1"},
+    "status": {"const": "structurally_approved_not_authenticated"},
+    "complete_plan_sha256": {"$ref": "#/$defs/sha256"},
+    "candidate_lock_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+    "approver": {"type": "string", "minLength": 1},
+    "approved_at": {"type": "string", "format": "date-time"},
+    "authentication_status": {
+      "const": "unauthenticated_no_trust_anchor_fail_closed"
+    },
+    "identity_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    }
+  }
+}

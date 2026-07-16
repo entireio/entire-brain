@@ -18,17 +18,26 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+import copy
+from dataclasses import dataclass
 from decimal import Decimal
 import hashlib
 import importlib.util
 import json
 import math
+import os
 import pathlib
+import stat
 import sys
 from typing import Any, Mapping, Sequence
 
 
 HERE = pathlib.Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import draft202012 as DRAFT  # noqa: E402
+import task_population as TASK_POPULATION  # noqa: E402
+
 PRODUCT_SPEC = importlib.util.spec_from_file_location(
     "power_v4_product_cycle", HERE / "product_cycle.py"
 )
@@ -39,28 +48,79 @@ PRODUCT_SPEC.loader.exec_module(PRODUCT)
 CALIBRATION_SCHEMA = "agent-brain-final-calibration/v1"
 REPORT_SCHEMA = "agent-brain-power-analysis/v4"
 TASK_POPULATION_PROFILE = "agent_brain_task_population_v2"
-PRODUCT_CYCLE_SCHEMA_SHA256 = (
-    "3e029222e76091740bb1e218a7b1e23fe464f98aa2c83797d3fe71ad0b97c288"
-)
-TASK_POPULATION_SCHEMA_SHA256 = (
-    "2846906e0caa450e6c4dbc206648346ababbb91fed4675c0c7eca03cf506a8b9"
-)
 MIN_CALIBRATION_CLUSTERS = 12
 TARGET_POWER = 0.80
 CONFIDENCE = 0.95
 MIN_RESAMPLES = 100
 MAX_RESAMPLES = 10_000
 MAX_CANDIDATE_CLUSTERS = 512
+PRODUCTION_RESAMPLES = 10_000
+PRODUCTION_SEED = 0x4542563453454544
+PRODUCTION_CANDIDATE_GRID = (
+    12,
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64,
+    80,
+    96,
+    128,
+    160,
+    192,
+    256,
+    320,
+    384,
+    512,
+)
 RESAMPLING_METHOD = "paired_cluster_residual_bootstrap_shared_draws_v1"
 RESAMPLING_DOMAIN = b"entire-brain/power-analysis-v4/shared-cluster-resample\0"
 PRIMARY_COMPARISON = "retrieved_memory_vs_no_memory"
 DIAGNOSTIC_COMPARISON = "retrieved_memory_vs_preoptimization_memory"
 ENDPOINTS = ("elapsed_time", "normalized_cost", "code_quality")
 MAX_JSON_BYTES = 64 * 1024 * 1024
+NO_TRUST_ANCHOR = "unauthenticated_no_trust_anchor_fail_closed"
+POPULATION_RECEIPT_SUBJECT_SCHEMA = (
+    "agent-brain-task-population-verification-subject/full-population-v1"
+)
+SCHEMA_PATHS = {
+    "product_cycle": HERE / "schemas" / "product-cycle-v1.schema.json",
+    "task_population": HERE / "schemas" / "task-population-v2.schema.json",
+    "review_ledger": HERE.parent / "schemas" / "task-review-ledger-v2.schema.json",
+    "final_calibration": HERE / "schemas" / "final-calibration-v1.schema.json",
+    "power_report": HERE / "schemas" / "power-analysis-v4.schema.json",
+    "population_receipt": HERE / "schemas" / "task-population-verification-receipt-v1.schema.json",
+    "candidate_lock_receipt": HERE / "schemas" / "candidate-lock-receipt-v1.schema.json",
+    "owner_approval_receipt": HERE / "schemas" / "owner-approval-receipt-v1.schema.json",
+}
 
 
 class PowerV4Error(ValueError):
     """Raised when calibration or power evidence cannot safely be used."""
+
+
+@dataclass(frozen=True)
+class RawJsonArtifact:
+    path: pathlib.Path
+    raw_bytes: bytes
+    value: dict[str, Any]
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ArtifactBundle:
+    product_cycle: RawJsonArtifact
+    task_population: RawJsonArtifact
+    review_ledger: RawJsonArtifact
+    selection_receipt: RawJsonArtifact
+    assignment_receipt: RawJsonArtifact
+    overlap_receipt: RawJsonArtifact
+    candidate_lock_receipt: RawJsonArtifact
+    owner_approval_receipt: RawJsonArtifact | None
+    schemas: Mapping[str, RawJsonArtifact]
+    schema_validator: DRAFT.Validator
 
 
 def _require(condition: bool, message: str) -> None:
@@ -76,34 +136,161 @@ def _duplicate_key_guard(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return value
 
 
-def load_calibration(path: pathlib.Path) -> dict[str, Any]:
+def _reject_non_json_constant(value: str) -> None:
+    raise ValueError(f"non-JSON numeric constant {value!r}")
+
+
+def _read_regular_bytes(path: pathlib.Path, label: str) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        _require(path.is_file() and not path.is_symlink(), "calibration must be a regular non-symlink file")
-        _require(path.stat().st_size <= MAX_JSON_BYTES, "calibration exceeds the size bound")
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise PowerV4Error(f"{label} cannot be opened safely: {exc}") from exc
+    try:
+        before = os.fstat(descriptor)
+        _require(stat.S_ISREG(before.st_mode), f"{label} must be a regular file")
+        _require(before.st_size <= MAX_JSON_BYTES, f"{label} exceeds the size bound")
+        chunks: list[bytes] = []
+        remaining = before.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 1024 * 1024))
+            _require(bool(chunk), f"{label} changed while being read")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        _require(os.read(descriptor, 1) == b"", f"{label} grew while being read")
+        after = os.fstat(descriptor)
+        _require(
+            (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+            == (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns),
+            f"{label} changed while being read",
+        )
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _load_json_artifact(path: pathlib.Path, label: str) -> RawJsonArtifact:
+    raw = _read_regular_bytes(path, label)
+    try:
         value = json.loads(
-            path.read_text(encoding="utf-8"), object_pairs_hook=_duplicate_key_guard
+            raw.decode("utf-8"),
+            object_pairs_hook=_duplicate_key_guard,
+            parse_constant=_reject_non_json_constant,
         )
     except PowerV4Error:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PowerV4Error(f"calibration cannot be loaded: {exc}") from exc
-    _require(isinstance(value, dict), "calibration root must be an object")
-    return value
+    except (UnicodeError, ValueError) as exc:
+        raise PowerV4Error(f"{label} is not strict UTF-8 JSON: {exc}") from exc
+    _require(isinstance(value, dict), f"{label} root must be an object")
+    return RawJsonArtifact(
+        path=path,
+        raw_bytes=raw,
+        value=value,
+        sha256=hashlib.sha256(raw).hexdigest(),
+    )
+
+
+def load_calibration(path: pathlib.Path) -> dict[str, Any]:
+    return _load_json_artifact(path, "calibration").value
 
 
 def load_power_report(path: pathlib.Path) -> dict[str, Any]:
+    return _load_json_artifact(path, "power report").value
+
+
+def load_artifact_bundle(
+    *,
+    product_cycle: pathlib.Path,
+    task_population: pathlib.Path,
+    review_ledger: pathlib.Path,
+    selection_receipt: pathlib.Path,
+    assignment_receipt: pathlib.Path,
+    overlap_receipt: pathlib.Path,
+    candidate_lock_receipt: pathlib.Path,
+    owner_approval_receipt: pathlib.Path | None,
+) -> ArtifactBundle:
+    artifacts = {
+        "product_cycle": _load_json_artifact(product_cycle, "product-cycle evidence"),
+        "task_population": _load_json_artifact(task_population, "task-population contract"),
+        "review_ledger": _load_json_artifact(review_ledger, "task-review ledger"),
+        "selection_receipt": _load_json_artifact(selection_receipt, "selection receipt"),
+        "assignment_receipt": _load_json_artifact(assignment_receipt, "assignment receipt"),
+        "overlap_receipt": _load_json_artifact(overlap_receipt, "overlap receipt"),
+        "candidate_lock_receipt": _load_json_artifact(
+            candidate_lock_receipt, "candidate-lock receipt"
+        ),
+    }
+    approval = (
+        _load_json_artifact(owner_approval_receipt, "owner-approval receipt")
+        if owner_approval_receipt is not None
+        else None
+    )
+    schemas = {
+        name: _load_json_artifact(path, f"{name} schema")
+        for name, path in SCHEMA_PATHS.items()
+    }
     try:
-        _require(path.is_file() and not path.is_symlink(), "power report must be a regular non-symlink file")
-        _require(path.stat().st_size <= MAX_JSON_BYTES, "power report exceeds the size bound")
-        value = json.loads(
-            path.read_text(encoding="utf-8"), object_pairs_hook=_duplicate_key_guard
+        validator = DRAFT.Validator(
+            [
+                DRAFT.SchemaDocument(artifact.path.name, artifact.value)
+                for artifact in schemas.values()
+            ]
         )
-    except PowerV4Error:
-        raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise PowerV4Error(f"power report cannot be loaded: {exc}") from exc
-    _require(isinstance(value, dict), "power report root must be an object")
-    return value
+        validator.validate(
+            artifacts["product_cycle"].value,
+            SCHEMA_PATHS["product_cycle"].name,
+            label="product-cycle evidence",
+        )
+        validator.validate(
+            artifacts["task_population"].value,
+            SCHEMA_PATHS["task_population"].name,
+            label="task-population contract",
+        )
+        validator.validate(
+            artifacts["review_ledger"].value,
+            SCHEMA_PATHS["review_ledger"].name,
+            label="task-review ledger",
+        )
+        for kind in ("selection", "assignment", "overlap"):
+            validator.validate(
+                artifacts[f"{kind}_receipt"].value,
+                SCHEMA_PATHS["population_receipt"].name,
+                label=f"{kind} receipt",
+            )
+        validator.validate(
+            artifacts["candidate_lock_receipt"].value,
+            SCHEMA_PATHS["candidate_lock_receipt"].name,
+            label="candidate-lock receipt",
+        )
+        if approval is not None:
+            validator.validate(
+                approval.value,
+                SCHEMA_PATHS["owner_approval_receipt"].name,
+                label="owner-approval receipt",
+            )
+    except DRAFT.SchemaError as exc:
+        raise PowerV4Error(str(exc)) from exc
+    try:
+        TASK_POPULATION.validate_population(
+            artifacts["task_population"].value,
+            artifacts["review_ledger"].value,
+            population_schema=SCHEMA_PATHS["task_population"],
+            review_schema=SCHEMA_PATHS["review_ledger"],
+        )
+    except TASK_POPULATION.TaskPopulationError as exc:
+        raise PowerV4Error(f"task-population validation failed: {exc}") from exc
+    return ArtifactBundle(
+        product_cycle=artifacts["product_cycle"],
+        task_population=artifacts["task_population"],
+        review_ledger=artifacts["review_ledger"],
+        selection_receipt=artifacts["selection_receipt"],
+        assignment_receipt=artifacts["assignment_receipt"],
+        overlap_receipt=artifacts["overlap_receipt"],
+        candidate_lock_receipt=artifacts["candidate_lock_receipt"],
+        owner_approval_receipt=approval,
+        schemas=schemas,
+        schema_validator=validator,
+    )
 
 
 def _exact_keys(value: Any, expected: set[str], label: str) -> dict[str, Any]:
@@ -157,133 +344,277 @@ def _task_identity_sha256(task_id: str) -> str:
     ).hexdigest()
 
 
-def _validate_population_binding(value: Any) -> tuple[list[str], dict[str, dict[str, Any]]]:
-    binding = _exact_keys(
-        value,
+def _population_receipt_subject_sha256(
+    population: Mapping[str, Any], kind: str
+) -> str:
+    """Bind verified population outputs without creating receipt hash cycles."""
+    _require(
+        kind in {"selection", "assignment", "overlap_commitment"},
+        "population receipt kind is invalid",
+    )
+    projected = copy.deepcopy(dict(population))
+    _require(
+        "population_sha256" in projected
+        and isinstance(projected.get("selection_policy"), dict)
+        and isinstance(projected.get("split_policy"), dict),
+        "population receipt subject is incomplete",
+    )
+    # Each receipt attests the entire final population: selected universe,
+    # member_ref->membership assignments, overlap commitments, relation edges,
+    # review-ledger identity, and derived summary.  Only the self hash and raw
+    # receipt hashes are nulled, because including them would be circular.
+    projected["population_sha256"] = None
+    projected["selection_policy"]["selection_receipt_sha256"] = None
+    projected["split_policy"]["assignment_receipt_sha256"] = None
+    projected["split_policy"]["overlap_commitment_receipt_sha256"] = None
+    return PRODUCT.value_sha256(
         {
-            "schema_version",
-            "profile",
-            "status",
-            "schema_sha256",
-            "population_sha256",
-            "source_file_sha256",
-            "review_ledger_sha256",
-            "selection_verification_status",
-            "selection_receipt_sha256",
-            "assignment_verification_status",
-            "assignment_receipt_sha256",
-            "overlap_commitment_verification_status",
-            "overlap_commitment_receipt_sha256",
-            "calibration_min_independent_tasks",
-            "holdout_plaintext",
-            "calibration_members",
-            "identity_sha256",
-        },
-        "task_population_binding",
+            "schema": POPULATION_RECEIPT_SUBJECT_SCHEMA,
+            "kind": kind,
+            "population": projected,
+        }
+    )
+
+
+def _validate_population_receipt(
+    artifact: RawJsonArtifact,
+    *,
+    expected_kind: str,
+    expected_subject_sha256: str,
+) -> None:
+    receipt = artifact.value
+    _require(receipt["kind"] == expected_kind, f"{expected_kind} receipt kind drift")
+    _require(receipt["status"] == "verified", f"{expected_kind} receipt is not verified")
+    _require(
+        receipt["authentication_status"] == NO_TRUST_ANCHOR,
+        f"{expected_kind} receipt authentication status drift",
     )
     _require(
-        type(binding["schema_version"]) is int and binding["schema_version"] == 2,
-        "task-population schema version changed",
-    )
-    _require(binding["profile"] == TASK_POPULATION_PROFILE, "task-population profile changed")
-    _require(
-        binding["status"] in {"candidate_unopened", "frozen_unopened"},
-        "final calibration requires a candidate-locked task population",
+        receipt["verification_subject_schema"]
+        == POPULATION_RECEIPT_SUBJECT_SCHEMA,
+        f"{expected_kind} receipt subject schema drift",
     )
     _require(
-        _sha256(binding["schema_sha256"], "task_population_binding.schema_sha256")
-        == TASK_POPULATION_SCHEMA_SHA256,
-        "task-population v2 schema identity changed",
+        receipt["verification_subject_sha256"] == expected_subject_sha256,
+        f"{expected_kind} receipt subject drift",
     )
-    _sha256(binding["population_sha256"], "task_population_binding.population_sha256")
-    _sha256(
-        binding["source_file_sha256"],
-        "task_population_binding.source_file_sha256",
-    )
-    _sha256(binding["review_ledger_sha256"], "task_population_binding.review_ledger_sha256")
-    for field in (
-        "selection_verification_status",
-        "assignment_verification_status",
-        "overlap_commitment_verification_status",
-    ):
-        _require(binding[field] == "verified", f"task_population_binding.{field} must be verified")
-    for field in (
-        "selection_receipt_sha256",
-        "assignment_receipt_sha256",
-        "overlap_commitment_receipt_sha256",
-    ):
-        _sha256(binding[field], f"task_population_binding.{field}")
     _require(
-        type(binding["calibration_min_independent_tasks"]) is int
-        and binding["calibration_min_independent_tasks"]
-        == MIN_CALIBRATION_CLUSTERS,
-        "task-population calibration floor changed",
+        receipt["identity_sha256"] == _self_sha256(receipt),
+        f"{expected_kind} receipt identity hash mismatch",
     )
-    _require(binding["holdout_plaintext"] == "forbidden", "holdout plaintext policy changed")
-    members = binding["calibration_members"]
-    _require(isinstance(members, list), "task_population_binding.calibration_members must be a list")
-    _require(
-        len(members) >= MIN_CALIBRATION_CLUSTERS,
-        "final calibration requires at least 12 independent active task clusters",
-    )
-    task_ids: list[str] = []
-    by_task: dict[str, dict[str, Any]] = {}
-    member_refs: set[str] = set()
-    task_identity_commitments: set[str] = set()
-    overlap_commitments: set[str] = set()
-    for index, raw in enumerate(members):
-        label = f"task_population_binding.calibration_members[{index}]"
-        member = _exact_keys(
-            raw,
+
+
+def _independence_clusters(
+    population: Mapping[str, Any], calibration_members: Sequence[Mapping[str, Any]]
+) -> tuple[dict[str, str], str]:
+    # Build the graph over the full validated population.  Projecting first
+    # would miss A--excluded-X--B paths and falsely call A and B independent.
+    refs = {str(member["member_ref"]): member for member in population["members"]}
+    active_refs = {str(member["member_ref"]) for member in calibration_members}
+    parent = {ref: ref for ref in refs}
+
+    def find(ref: str) -> str:
+        while parent[ref] != ref:
+            parent[ref] = parent[parent[ref]]
+            ref = parent[ref]
+        return ref
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            first, second = sorted((left_root, right_root))
+            parent[second] = first
+
+    for field in ("family_commitment_sha256",):
+        groups: dict[str, list[str]] = defaultdict(list)
+        for ref, member in refs.items():
+            groups[str(member[field])].append(ref)
+        for group in groups.values():
+            for ref in group[1:]:
+                union(group[0], ref)
+    for artifact_field in ("fix_commitment_sha256",):
+        groups = defaultdict(list)
+        for ref, member in refs.items():
+            groups[str(member["artifacts"][artifact_field])].append(ref)
+        for group in groups.values():
+            for ref in group[1:]:
+                union(group[0], ref)
+    session_groups: dict[str, list[str]] = defaultdict(list)
+    for ref, member in refs.items():
+        for session in member["source_session_commitments"]:
+            session_groups[str(session)].append(ref)
+    for group in session_groups.values():
+        for ref in group[1:]:
+            union(group[0], ref)
+    for edge in population["related_task_edges"]:
+        left = str(edge["left_member_ref"])
+        right = str(edge["right_member_ref"])
+        if edge["material"] is True and left in refs and right in refs:
+            union(left, right)
+
+    components: dict[str, list[str]] = defaultdict(list)
+    for ref in sorted(refs):
+        components[find(ref)].append(ref)
+    by_task: dict[str, str] = {}
+    cluster_rows: list[dict[str, Any]] = []
+    for member_refs in sorted(components.values()):
+        active_members = [ref for ref in member_refs if ref in active_refs]
+        if not active_members:
+            continue
+        cluster_sha = PRODUCT.value_sha256(
             {
-                "member_ref",
-                "membership",
-                "task_id",
-                "task_id_sha256",
-                "product_task_sha256",
-                "task_overlap_commitment_sha256",
-                "contamination_state",
-                "review_commitment_sha256",
-                "identity_sha256",
-            },
-            label,
+                "algorithm": "family_fix_session_material_edge_transitive_closure_v1",
+                "member_refs": member_refs,
+            }
         )
-        member_ref = _sha256(member["member_ref"], f"{label}.member_ref")
-        _require(member_ref not in member_refs, "calibration member_ref is duplicated")
-        member_refs.add(member_ref)
-        _require(
-            member["membership"] == "development_calibration",
-            "optimization or holdout members are prohibited from final calibration",
+        task_ids = sorted(str(refs[ref]["task_id"]) for ref in active_members)
+        for task_id in task_ids:
+            by_task[task_id] = cluster_sha
+        cluster_rows.append(
+            {
+                "independence_cluster_sha256": cluster_sha,
+                "member_refs": member_refs,
+                "task_ids": task_ids,
+            }
         )
-        _require(
-            member["contamination_state"] == "reviewed_clear",
-            "final calibration accepts only active reviewed-clear members",
+    return by_task, PRODUCT.value_sha256(cluster_rows)
+
+
+def _derive_population_binding(
+    *,
+    bundle: ArtifactBundle,
+    product_root: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str], dict[str, str]]:
+    population = bundle.task_population.value
+    selection = population["selection_policy"]
+    split = population["split_policy"]
+    receipt_specs = (
+        (
+            bundle.selection_receipt,
+            "selection",
+            selection,
+            "selection_receipt_sha256",
+        ),
+        (
+            bundle.assignment_receipt,
+            "assignment",
+            split,
+            "assignment_receipt_sha256",
+        ),
+        (
+            bundle.overlap_receipt,
+            "overlap_commitment",
+            split,
+            "overlap_commitment_receipt_sha256",
+        ),
+    )
+    for artifact, kind, subject, field in receipt_specs:
+        _require(subject[field] == artifact.sha256, f"{kind} receipt raw-byte hash drift")
+        _validate_population_receipt(
+            artifact,
+            expected_kind=kind,
+            expected_subject_sha256=_population_receipt_subject_sha256(
+                population, kind
+            ),
         )
-        task_id = _nonempty(member["task_id"], f"{label}.task_id")
-        _require(task_id not in by_task, f"duplicate calibration task_id {task_id!r}")
-        task_identity = _sha256(member["task_id_sha256"], f"{label}.task_id_sha256")
-        _require(
-            task_identity == _task_identity_sha256(task_id),
-            f"{label}.task_id_sha256 is not bound to task_id",
-        )
-        _require(task_identity not in task_identity_commitments, "calibration task identity is duplicated")
-        task_identity_commitments.add(task_identity)
-        _sha256(member["product_task_sha256"], f"{label}.product_task_sha256")
-        overlap = _sha256(
-            member["task_overlap_commitment_sha256"],
-            f"{label}.task_overlap_commitment_sha256",
-        )
-        _require(overlap not in overlap_commitments, "calibration task-overlap commitment is duplicated")
-        overlap_commitments.add(overlap)
-        _sha256(member["review_commitment_sha256"], f"{label}.review_commitment_sha256")
-        digest = _sha256(member["identity_sha256"], f"{label}.identity_sha256")
-        _require(digest == _self_sha256(member), f"{label} identity hash mismatch")
-        task_ids.append(task_id)
-        by_task[task_id] = member
-    _require(task_ids == sorted(task_ids), "calibration members must be ordered by task_id")
-    digest = _sha256(binding["identity_sha256"], "task_population_binding.identity_sha256")
-    _require(digest == _self_sha256(binding), "task-population binding identity hash mismatch")
-    return task_ids, by_task
+
+    calibration_members = [
+        member
+        for member in population["members"]
+        if member["membership"] == "development_calibration"
+        and member["contamination_state"] != "excluded"
+    ]
+    _require(
+        all(member["contamination_state"] == "reviewed_clear" for member in calibration_members),
+        "calibration population contains a non-reviewed-clear active member",
+    )
+    cluster_by_task, closure_sha = _independence_clusters(
+        population, calibration_members
+    )
+    cluster_count = len(set(cluster_by_task.values()))
+    _require(
+        cluster_count >= MIN_CALIBRATION_CLUSTERS,
+        "final calibration requires at least 12 derived independent clusters",
+    )
+    _require(
+        cluster_count == len(calibration_members),
+        "candidate sizing requires one mutually independent calibration task per derived cluster",
+    )
+    product_tasks = {str(task["task_id"]): task for task in product_root["tasks"]}
+    task_ids = sorted(str(member["task_id"]) for member in calibration_members)
+    _require(
+        task_ids == sorted(product_tasks),
+        "raw product-cycle tasks do not exactly match validated calibration members",
+    )
+    task_hashes = [str(product_tasks[task_id]["task_sha256"]) for task_id in task_ids]
+    _require(
+        len(task_hashes) == len(set(task_hashes)),
+        "calibration product task hashes must be unique",
+    )
+    projected_members: list[dict[str, Any]] = []
+    for member in sorted(calibration_members, key=lambda item: str(item["task_id"])):
+        task_id = str(member["task_id"])
+        projected = {
+            "member_ref": member["member_ref"],
+            "membership": member["membership"],
+            "task_id": task_id,
+            "task_id_sha256": member["task_id_sha256"],
+            "product_task_sha256": product_tasks[task_id]["task_sha256"],
+            "task_overlap_commitment_sha256": member[
+                "task_overlap_commitment_sha256"
+            ],
+            "family_commitment_sha256": member["family_commitment_sha256"],
+            "fix_commitment_sha256": member["artifacts"]["fix_commitment_sha256"],
+            "source_session_commitments": sorted(member["source_session_commitments"]),
+            "contamination_state": member["contamination_state"],
+            "review_commitment_sha256": member["review_commitment_sha256"],
+            "independence_cluster_sha256": cluster_by_task[task_id],
+        }
+        projected["identity_sha256"] = _self_sha256(projected)
+        projected_members.append(projected)
+    binding: dict[str, Any] = {
+        "schema_version": 2,
+        "profile": TASK_POPULATION_PROFILE,
+        "status": population["status"],
+        "schema_file_sha256": bundle.schemas["task_population"].sha256,
+        "population_sha256": population["population_sha256"],
+        "source_file_sha256": bundle.task_population.sha256,
+        "review_ledger_sha256": bundle.review_ledger.value["ledger_sha256"],
+        "review_ledger_file_sha256": bundle.review_ledger.sha256,
+        "selection_verification_status": selection["selection_verification_status"],
+        "selection_receipt_file_sha256": bundle.selection_receipt.sha256,
+        "assignment_verification_status": split["assignment_verification_status"],
+        "assignment_receipt_file_sha256": bundle.assignment_receipt.sha256,
+        "overlap_commitment_verification_status": split[
+            "overlap_commitment_verification_status"
+        ],
+        "overlap_commitment_receipt_file_sha256": bundle.overlap_receipt.sha256,
+        "calibration_min_independent_tasks": split[
+            "calibration_min_independent_tasks"
+        ],
+        "holdout_plaintext": split["holdout_plaintext"],
+        "independence_closure_algorithm": "family_fix_session_material_edge_transitive_closure_v1",
+        "independence_cluster_count": cluster_count,
+        "independence_projection_sha256": closure_sha,
+        "calibration_members": projected_members,
+    }
+    binding["identity_sha256"] = _self_sha256(binding)
+    return binding, task_ids, cluster_by_task
+
+
+def _validate_population_binding(
+    value: Any,
+    *,
+    bundle: ArtifactBundle,
+    product_root: Mapping[str, Any],
+) -> tuple[list[str], dict[str, dict[str, Any]], dict[str, str]]:
+    expected, task_ids, cluster_by_task = _derive_population_binding(
+        bundle=bundle, product_root=product_root
+    )
+    _require(value == expected, "task-population projection differs from validated raw artifacts")
+    by_task = {member["task_id"]: member for member in expected["calibration_members"]}
+    return task_ids, by_task, cluster_by_task
 
 
 def _precalibration_plan_sha256(product_root: Mapping[str, Any]) -> str:
@@ -319,27 +650,232 @@ def _precalibration_plan_sha256(product_root: Mapping[str, Any]) -> str:
     )
 
 
-def _validate_candidate_lock(
+def _file_sha256(path: pathlib.Path, label: str) -> str:
+    return hashlib.sha256(_read_regular_bytes(path, label)).hexdigest()
+
+
+def _expected_implementation_lock(bundle: ArtifactBundle) -> dict[str, Any]:
+    """Build the exact lock for the current analyzer, validators, and schemas."""
+    lock: dict[str, Any] = {
+        "schema": "agent-brain-power-v4-implementation-lock/v1",
+        "analyzer_path": "benchmarks/agent-brain/confirmatory/power_analysis_v4.py",
+        "analyzer_file_sha256": _file_sha256(
+            HERE / "power_analysis_v4.py", "power-v4 analyzer"
+        ),
+        "draft202012_validator_file_sha256": _file_sha256(
+            HERE / "draft202012.py", "Draft 2020-12 validator"
+        ),
+        "product_cycle_validator_file_sha256": _file_sha256(
+            HERE / "product_cycle.py", "product-cycle validator"
+        ),
+        "task_population_validator_file_sha256": _file_sha256(
+            HERE / "task_population.py", "task-population validator"
+        ),
+        "product_cycle_schema_file_sha256": bundle.schemas["product_cycle"].sha256,
+        "task_population_schema_file_sha256": bundle.schemas["task_population"].sha256,
+        "review_ledger_schema_file_sha256": bundle.schemas["review_ledger"].sha256,
+        "final_calibration_schema_file_sha256": bundle.schemas[
+            "final_calibration"
+        ].sha256,
+        "power_report_schema_file_sha256": bundle.schemas["power_report"].sha256,
+        "population_receipt_schema_file_sha256": bundle.schemas[
+            "population_receipt"
+        ].sha256,
+        "candidate_lock_receipt_schema_file_sha256": bundle.schemas[
+            "candidate_lock_receipt"
+        ].sha256,
+        "owner_approval_receipt_schema_file_sha256": bundle.schemas[
+            "owner_approval_receipt"
+        ].sha256,
+    }
+    lock["identity_sha256"] = _self_sha256(lock)
+    return lock
+
+
+def _validate_implementation_lock(
+    value: Any, *, bundle: ArtifactBundle
+) -> dict[str, Any]:
+    lock = _exact_keys(
+        value,
+        {
+            "schema",
+            "analyzer_path",
+            "analyzer_file_sha256",
+            "draft202012_validator_file_sha256",
+            "product_cycle_validator_file_sha256",
+            "task_population_validator_file_sha256",
+            "product_cycle_schema_file_sha256",
+            "task_population_schema_file_sha256",
+            "review_ledger_schema_file_sha256",
+            "final_calibration_schema_file_sha256",
+            "power_report_schema_file_sha256",
+            "population_receipt_schema_file_sha256",
+            "candidate_lock_receipt_schema_file_sha256",
+            "owner_approval_receipt_schema_file_sha256",
+            "identity_sha256",
+        },
+        "v4_implementation_lock",
+    )
+    expected = _expected_implementation_lock(bundle)
+    for field, expected_value in expected.items():
+        _require(lock[field] == expected_value, f"v4 implementation lock drift: {field}")
+    _require(
+        lock["identity_sha256"] == _self_sha256(lock),
+        "v4 implementation lock identity hash mismatch",
+    )
+    return lock
+
+
+def _validate_execution_contract(
+    value: Any, *, product_root: Mapping[str, Any]
+) -> dict[str, Any]:
+    contract = _exact_keys(
+        value,
+        {
+            "schema",
+            "status",
+            "provider_id",
+            "agent_cli_id",
+            "agent_cli_version",
+            "requested_model_id",
+            "resolved_model_id",
+            "effort",
+            "runner_sha256",
+            "timeout_policy_sha256",
+            "agent_timeout_limit_seconds",
+            "timeout_component_limit_seconds",
+            "identity_sha256",
+        },
+        "execution_contract",
+    )
+    _require(contract["schema"] == "agent-brain-power-v4-execution-contract/v1", "execution contract schema changed")
+    _require(contract["status"] == "locked_before_calibration_opening", "execution contract was not locked before calibration")
+    for field in (
+        "provider_id",
+        "agent_cli_id",
+        "agent_cli_version",
+        "requested_model_id",
+        "resolved_model_id",
+        "effort",
+    ):
+        _nonempty(contract[field], f"execution_contract.{field}")
+    shared = product_root["shared_execution"]
+    _require(contract["resolved_model_id"] == shared["model_id"], "resolved model identity drift")
+    _require(contract["effort"] == shared["effort"], "execution effort drift")
+    _require(contract["runner_sha256"] == shared["runner_sha256"], "execution runner drift")
+    _sha256(contract["timeout_policy_sha256"], "execution_contract.timeout_policy_sha256")
+    _positive_int(
+        contract["agent_timeout_limit_seconds"],
+        "execution_contract.agent_timeout_limit_seconds",
+    )
+    component_limit = contract["timeout_component_limit_seconds"]
+    _require(
+        component_limit is None or (type(component_limit) is int and component_limit > 0),
+        "execution_contract.timeout_component_limit_seconds is invalid",
+    )
+    _require(
+        contract["identity_sha256"] == _self_sha256(contract),
+        "execution contract identity hash mismatch",
+    )
+    return contract
+
+
+def _validate_execution_attestations(
     value: Any,
     *,
     product_root: Mapping[str, Any],
+    execution_contract: Mapping[str, Any],
+) -> str:
+    _require(isinstance(value, list), "execution_attestations must be a list")
+    cells = {str(cell["run_id"]): cell for cell in product_root["cells"]}
+    _require(len(value) == len(cells), "execution attestation count differs from product cells")
+    expected_shared = {
+        "provider_id": execution_contract["provider_id"],
+        "agent_cli_id": execution_contract["agent_cli_id"],
+        "agent_cli_version": execution_contract["agent_cli_version"],
+        "requested_model_id": execution_contract["requested_model_id"],
+        "resolved_model_id": execution_contract["resolved_model_id"],
+        "effort": execution_contract["effort"],
+        "runner_sha256": execution_contract["runner_sha256"],
+        "timeout_policy_sha256": execution_contract["timeout_policy_sha256"],
+        "agent_timeout_limit_seconds": execution_contract[
+            "agent_timeout_limit_seconds"
+        ],
+        "timeout_component_limit_seconds": execution_contract[
+            "timeout_component_limit_seconds"
+        ],
+    }
+    seen: set[str] = set()
+    for index, raw in enumerate(value):
+        label = f"execution_attestations[{index}]"
+        attestation = _exact_keys(
+            raw,
+            {
+                "run_id",
+                "cell_identity_sha256",
+                *expected_shared.keys(),
+                "identity_sha256",
+            },
+            label,
+        )
+        run_id = _nonempty(attestation["run_id"], f"{label}.run_id")
+        _require(run_id in cells and run_id not in seen, f"{label} run identity drift")
+        seen.add(run_id)
+        cell = cells[run_id]
+        _require(
+            attestation["cell_identity_sha256"] == cell["identity_sha256"],
+            f"{label} cell identity drift",
+        )
+        for field, expected_value in expected_shared.items():
+            _require(attestation[field] == expected_value, f"{label}.{field} parity drift")
+        execution = cell["execution_identity"]
+        timing = cell["outcome"]["timing"]
+        _require(attestation["runner_sha256"] == execution["runner_sha256"], f"{label} runner/cell drift")
+        _require(attestation["resolved_model_id"] == execution["model_id"], f"{label} resolved-model/cell drift")
+        _require(attestation["effort"] == execution["effort"], f"{label} effort/cell drift")
+        _require(
+            attestation["agent_timeout_limit_seconds"]
+            == timing["agent_timeout_limit_seconds"],
+            f"{label} agent-timeout/cell drift",
+        )
+        _require(
+            attestation["timeout_component_limit_seconds"]
+            == timing["timeout_component_limit_seconds"],
+            f"{label} component-timeout/cell drift",
+        )
+        _require(
+            attestation["identity_sha256"] == _self_sha256(attestation),
+            f"{label} identity hash mismatch",
+        )
+    _require([row["run_id"] for row in value] == sorted(seen), "execution attestations must be ordered by run_id")
+    return PRODUCT.value_sha256(value)
+
+
+def _validate_candidate_lock(
+    value: Any,
+    *,
+    bundle: ArtifactBundle,
+    product_root: Mapping[str, Any],
     population_binding: Mapping[str, Any],
+    complete_plan_sha256: str,
 ) -> dict[str, Any]:
     lock = _exact_keys(
         value,
         {
             "status",
             "candidate_product_identity_sha256",
-            "precalibration_plan_sha256",
+            "complete_plan_sha256",
             "task_population_contract_sha256",
-            "lock_receipt_sha256",
+            "task_population_file_sha256",
+            "lock_receipt_file_sha256",
+            "authentication_status",
             "identity_sha256",
         },
         "candidate_lock",
     )
     _require(
-        lock["status"] == "verified_locked_before_development_calibration",
-        "candidate lock must be verified before development calibration",
+        lock["status"] == "structurally_locked_before_development_calibration",
+        "candidate lock must precede development calibration",
     )
     candidate_sha = _sha256(
         lock["candidate_product_identity_sha256"],
@@ -350,13 +886,9 @@ def _validate_candidate_lock(
         == product_root["product_identities"]["candidate"]["identity_sha256"],
         "candidate lock product identity drift",
     )
-    plan_sha = _sha256(
-        lock["precalibration_plan_sha256"],
-        "candidate_lock.precalibration_plan_sha256",
-    )
     _require(
-        plan_sha == _precalibration_plan_sha256(product_root),
-        "candidate lock pre-calibration plan drift",
+        lock["complete_plan_sha256"] == complete_plan_sha256,
+        "candidate lock complete-plan drift",
     )
     population_sha = _sha256(
         lock["task_population_contract_sha256"],
@@ -366,7 +898,31 @@ def _validate_candidate_lock(
         population_sha == population_binding["population_sha256"],
         "candidate lock task-population contract drift",
     )
-    _sha256(lock["lock_receipt_sha256"], "candidate_lock.lock_receipt_sha256")
+    _require(
+        lock["task_population_file_sha256"] == bundle.task_population.sha256,
+        "candidate lock task-population raw bytes drift",
+    )
+    _require(
+        lock["lock_receipt_file_sha256"] == bundle.candidate_lock_receipt.sha256,
+        "candidate-lock receipt raw bytes drift",
+    )
+    _require(
+        lock["authentication_status"] == NO_TRUST_ANCHOR,
+        "candidate-lock authentication status drift",
+    )
+    receipt = bundle.candidate_lock_receipt.value
+    expected_receipt = {
+        "complete_plan_sha256": complete_plan_sha256,
+        "candidate_product_identity_sha256": candidate_sha,
+        "task_population_file_sha256": bundle.task_population.sha256,
+        "authentication_status": NO_TRUST_ANCHOR,
+    }
+    for field, expected_value in expected_receipt.items():
+        _require(receipt[field] == expected_value, f"candidate-lock receipt drift: {field}")
+    _require(
+        receipt["identity_sha256"] == _self_sha256(receipt),
+        "candidate-lock receipt identity hash mismatch",
+    )
     digest = _sha256(lock["identity_sha256"], "candidate_lock.identity_sha256")
     _require(digest == _self_sha256(lock), "candidate lock identity hash mismatch")
     return lock
@@ -375,37 +931,69 @@ def _validate_candidate_lock(
 def _validate_source_byte_bindings(
     value: Any,
     *,
+    bundle: ArtifactBundle,
     product_root: Mapping[str, Any],
     population_binding: Mapping[str, Any],
+    implementation_lock_sha256: str,
+    execution_attestations_sha256: str,
 ) -> dict[str, Any]:
     bindings = _exact_keys(
         value,
         {
+            "product_cycle_file_sha256",
             "product_cycle_schema_file_sha256",
+            "product_cycle_contract_sha256",
             "product_cycle_evidence_canonical_bytes_sha256",
             "task_population_schema_file_sha256",
             "task_population_contract_file_sha256",
             "task_population_contract_sha256",
             "task_population_binding_canonical_bytes_sha256",
+            "review_ledger_schema_file_sha256",
+            "review_ledger_file_sha256",
+            "review_ledger_sha256",
+            "selection_receipt_file_sha256",
+            "assignment_receipt_file_sha256",
+            "overlap_receipt_file_sha256",
+            "candidate_lock_receipt_file_sha256",
+            "owner_approval_receipt_file_sha256",
+            "v4_implementation_lock_sha256",
+            "execution_attestations_sha256",
             "identity_sha256",
         },
         "source_byte_bindings",
     )
     expected = {
-        "product_cycle_schema_file_sha256": PRODUCT_CYCLE_SCHEMA_SHA256,
+        "product_cycle_file_sha256": bundle.product_cycle.sha256,
+        "product_cycle_schema_file_sha256": bundle.schemas["product_cycle"].sha256,
+        "product_cycle_contract_sha256": product_root["manifest_sha256"],
         "product_cycle_evidence_canonical_bytes_sha256": PRODUCT.value_sha256(
             product_root
         ),
-        "task_population_schema_file_sha256": TASK_POPULATION_SCHEMA_SHA256,
-        "task_population_contract_file_sha256": population_binding[
-            "source_file_sha256"
-        ],
+        "task_population_schema_file_sha256": bundle.schemas["task_population"].sha256,
+        "task_population_contract_file_sha256": bundle.task_population.sha256,
         "task_population_contract_sha256": population_binding["population_sha256"],
         "task_population_binding_canonical_bytes_sha256": PRODUCT.value_sha256(
             population_binding
         ),
+        "review_ledger_schema_file_sha256": bundle.schemas["review_ledger"].sha256,
+        "review_ledger_file_sha256": bundle.review_ledger.sha256,
+        "review_ledger_sha256": bundle.review_ledger.value["ledger_sha256"],
+        "selection_receipt_file_sha256": bundle.selection_receipt.sha256,
+        "assignment_receipt_file_sha256": bundle.assignment_receipt.sha256,
+        "overlap_receipt_file_sha256": bundle.overlap_receipt.sha256,
+        "candidate_lock_receipt_file_sha256": bundle.candidate_lock_receipt.sha256,
+        "owner_approval_receipt_file_sha256": (
+            bundle.owner_approval_receipt.sha256
+            if bundle.owner_approval_receipt is not None
+            else None
+        ),
+        "v4_implementation_lock_sha256": implementation_lock_sha256,
+        "execution_attestations_sha256": execution_attestations_sha256,
     }
     for field, expected_value in expected.items():
+        if expected_value is None:
+            _require(bindings[field] is None, f"source byte binding drift: {field}")
+            continue
         actual = _sha256(bindings[field], f"source_byte_bindings.{field}")
         _require(actual == expected_value, f"source byte binding drift: {field}")
     digest = _sha256(
@@ -421,18 +1009,23 @@ def _validate_source_byte_bindings(
 def _validate_locked_identities(
     value: Any,
     *,
+    bundle: ArtifactBundle,
     product_root: Mapping[str, Any],
     population_binding: Mapping[str, Any],
+    execution_contract: Mapping[str, Any],
+    implementation_lock_sha256: str,
 ) -> dict[str, Any]:
     locked = _exact_keys(
         value,
         {
             "product_cycle_schema_sha256",
+            "product_cycle_file_sha256",
             "product_cycle_contract_sha256",
             "product_cycle_evidence_canonical_bytes_sha256",
             "task_population_schema_sha256",
             "task_population_sha256",
             "task_population_file_sha256",
+            "review_ledger_file_sha256",
             "candidate_product_identity_sha256",
             "candidate_packet_format_sha256",
             "corpus_sha256",
@@ -442,10 +1035,20 @@ def _validate_locked_identities(
             "cache_policy_sha256",
             "runner_sha256",
             "model_id",
+            "provider_id",
+            "agent_cli_id",
+            "agent_cli_version",
+            "requested_model_id",
+            "resolved_model_id",
             "effort",
+            "timeout_policy_sha256",
+            "agent_timeout_limit_seconds",
+            "timeout_component_limit_seconds",
             "schedule_sha256",
             "price_quote_sha256",
             "pricing_policy_sha256",
+            "execution_contract_sha256",
+            "v4_implementation_lock_sha256",
             "identity_sha256",
         },
         "locked_identities",
@@ -453,14 +1056,16 @@ def _validate_locked_identities(
     candidate = product_root["product_identities"]["candidate"]
     shared = product_root["shared_execution"]
     expected = {
-        "product_cycle_schema_sha256": PRODUCT_CYCLE_SCHEMA_SHA256,
+        "product_cycle_schema_sha256": bundle.schemas["product_cycle"].sha256,
+        "product_cycle_file_sha256": bundle.product_cycle.sha256,
         "product_cycle_contract_sha256": product_root["manifest_sha256"],
         "product_cycle_evidence_canonical_bytes_sha256": PRODUCT.value_sha256(
             product_root
         ),
-        "task_population_schema_sha256": TASK_POPULATION_SCHEMA_SHA256,
+        "task_population_schema_sha256": bundle.schemas["task_population"].sha256,
         "task_population_sha256": population_binding["population_sha256"],
-        "task_population_file_sha256": population_binding["source_file_sha256"],
+        "task_population_file_sha256": bundle.task_population.sha256,
+        "review_ledger_file_sha256": bundle.review_ledger.sha256,
         "candidate_product_identity_sha256": candidate["identity_sha256"],
         "candidate_packet_format_sha256": candidate["packet_format"]["sha256"],
         "corpus_sha256": shared["corpus_sha256"],
@@ -470,14 +1075,33 @@ def _validate_locked_identities(
         "cache_policy_sha256": shared["cache_policy_sha256"],
         "runner_sha256": shared["runner_sha256"],
         "model_id": shared["model_id"],
+        "provider_id": execution_contract["provider_id"],
+        "agent_cli_id": execution_contract["agent_cli_id"],
+        "agent_cli_version": execution_contract["agent_cli_version"],
+        "requested_model_id": execution_contract["requested_model_id"],
+        "resolved_model_id": execution_contract["resolved_model_id"],
         "effort": shared["effort"],
+        "timeout_policy_sha256": execution_contract["timeout_policy_sha256"],
+        "agent_timeout_limit_seconds": execution_contract[
+            "agent_timeout_limit_seconds"
+        ],
+        "timeout_component_limit_seconds": execution_contract[
+            "timeout_component_limit_seconds"
+        ],
         "schedule_sha256": shared["schedule_sha256"],
         "price_quote_sha256": shared["price_quote_sha256"],
         "pricing_policy_sha256": shared["pricing_policy_sha256"],
+        "execution_contract_sha256": execution_contract["identity_sha256"],
+        "v4_implementation_lock_sha256": implementation_lock_sha256,
     }
     for field, expected_value in expected.items():
+        if expected_value is None:
+            _require(locked[field] is None, f"locked identity drift: {field}")
+            continue
         if field.endswith("_sha256"):
             _sha256(locked[field], f"locked_identities.{field}")
+        elif field.endswith("_seconds"):
+            _positive_int(locked[field], f"locked_identities.{field}")
         else:
             _nonempty(locked[field], f"locked_identities.{field}")
         _require(locked[field] == expected_value, f"locked identity drift: {field}")
@@ -546,11 +1170,21 @@ def _validate_contrast_alternatives(
 
 
 def _validate_planning(
-    value: Any, *, calibration_repetitions: int, state: str
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    value: Any,
+    *,
+    bundle: ArtifactBundle,
+    product_root: Mapping[str, Any],
+    population_binding: Mapping[str, Any],
+    calibration_repetitions: int,
+    evidence_class: str,
+    execution_contract_sha256: str,
+    implementation_lock_sha256: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     planning = _exact_keys(
         value,
         {
+            "schema",
+            "profile",
             "method",
             "target_power",
             "confidence",
@@ -563,9 +1197,26 @@ def _validate_planning(
             "replacement_cell_limit",
             "reserve_cell_limit",
             "planning_alternatives",
+            "precalibration_product_plan_sha256",
+            "task_population_contract_sha256",
+            "task_population_file_sha256",
+            "review_ledger_file_sha256",
+            "selection_receipt_file_sha256",
+            "assignment_receipt_file_sha256",
+            "overlap_receipt_file_sha256",
+            "execution_contract_sha256",
+            "v4_implementation_lock_sha256",
+            "identity_sha256",
         },
         "planning",
     )
+    _require(planning["schema"] == "agent-brain-final-calibration-plan/v1", "final-calibration plan schema changed")
+    expected_profile = (
+        "production_development_measurement_v1"
+        if evidence_class == "development_measurement"
+        else "synthetic_fixture_test_v1"
+    )
+    _require(planning["profile"] == expected_profile, "planning profile/evidence mismatch")
     _require(planning["method"] == RESAMPLING_METHOD, "power-v4 resampling method changed")
     _require(_finite(planning["target_power"], "planning.target_power") == TARGET_POWER, "target power must remain 0.80")
     _require(_finite(planning["confidence"], "planning.confidence") == CONFIDENCE, "confidence must remain 0.95")
@@ -582,6 +1233,10 @@ def _validate_planning(
         "candidate task counts must be integers in [12,512]",
     )
     _require(candidates == sorted(set(candidates)), "candidate task counts must be unique and increasing")
+    if evidence_class == "development_measurement":
+        _require(resamples == PRODUCTION_RESAMPLES, "development measurement requires exactly 10,000 resamples")
+        _require(seed == PRODUCTION_SEED, "development measurement seed drift")
+        _require(tuple(candidates) == PRODUCTION_CANDIDATE_GRID, "development measurement candidate grid drift")
     _require(planning["arms"] == list(PRODUCT.ARMS), "power-v4 four-arm design changed")
     repetitions = _positive_int(planning["repetitions_per_arm"], "planning.repetitions_per_arm")
     _require(
@@ -594,10 +1249,7 @@ def _validate_planning(
             f"planning.{field} must remain integer zero",
         )
     alternatives = planning["planning_alternatives"]
-    if state == "pending":
-        _require(alternatives is None, "pending calibration must retain null planning alternatives")
-        return planning, None
-    _require(isinstance(alternatives, dict), "candidate/frozen calibration requires planning alternatives")
+    _require(isinstance(alternatives, dict), "complete pre-calibration plan requires planning alternatives")
     alternatives = _exact_keys(alternatives, {"primary", "product_diagnostic"}, "planning.planning_alternatives")
     validated = {
         "primary": _validate_contrast_alternatives(
@@ -613,20 +1265,86 @@ def _validate_planning(
             role="diagnostic_product_progress_only",
         ),
     }
+    expected_hashes = {
+        "precalibration_product_plan_sha256": _precalibration_plan_sha256(product_root),
+        "task_population_contract_sha256": population_binding["population_sha256"],
+        "task_population_file_sha256": bundle.task_population.sha256,
+        "review_ledger_file_sha256": bundle.review_ledger.sha256,
+        "selection_receipt_file_sha256": bundle.selection_receipt.sha256,
+        "assignment_receipt_file_sha256": bundle.assignment_receipt.sha256,
+        "overlap_receipt_file_sha256": bundle.overlap_receipt.sha256,
+        "execution_contract_sha256": execution_contract_sha256,
+        "v4_implementation_lock_sha256": implementation_lock_sha256,
+    }
+    for field, expected_value in expected_hashes.items():
+        _require(planning[field] == expected_value, f"complete plan binding drift: {field}")
+    _require(
+        planning["identity_sha256"] == _self_sha256(planning),
+        "complete plan identity hash mismatch",
+    )
     return planning, validated
 
 
+def _validate_owner_approval(
+    value: Any,
+    *,
+    state: str,
+    evidence_class: str,
+    bundle: ArtifactBundle,
+    complete_plan_sha256: str,
+    candidate_lock_receipt_file_sha256: str,
+) -> bool:
+    if state != "frozen":
+        _require(value is None, "only frozen calibration may name an owner-approval receipt")
+        _require(
+            bundle.owner_approval_receipt is None,
+            "non-frozen calibration may not load an owner-approval receipt",
+        )
+        return False
+    _require(evidence_class == "development_measurement", "synthetic calibration cannot be frozen")
+    approval = bundle.owner_approval_receipt
+    _require(approval is not None, "frozen calibration requires an owner-approval receipt file")
+    assert approval is not None
+    _require(value == approval.sha256, "owner-approval receipt raw-byte hash drift")
+    receipt = approval.value
+    expected = {
+        "complete_plan_sha256": complete_plan_sha256,
+        "candidate_lock_receipt_file_sha256": candidate_lock_receipt_file_sha256,
+        "authentication_status": NO_TRUST_ANCHOR,
+    }
+    for field, expected_value in expected.items():
+        _require(receipt[field] == expected_value, f"owner-approval receipt drift: {field}")
+    _require(
+        receipt["identity_sha256"] == _self_sha256(receipt),
+        "owner-approval receipt identity hash mismatch",
+    )
+    # No owner trust root is configured in this repository.  Structural
+    # approval is retained for review, but cannot make a decision eligible.
+    return False
+
+
 def _validated_calibration(
-    calibration: Any,
+    calibration: Any, bundle: ArtifactBundle,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    try:
+        bundle.schema_validator.validate(
+            calibration,
+            SCHEMA_PATHS["final_calibration"].name,
+            label="final calibration",
+        )
+    except DRAFT.SchemaError as exc:
+        raise PowerV4Error(str(exc)) from exc
     root = _exact_keys(
         calibration,
         {
             "schema",
             "evidence_class",
             "state",
-            "owner_approval_sha256",
+            "owner_approval_receipt_sha256",
             "candidate_lock",
+            "v4_implementation_lock",
+            "execution_contract",
+            "execution_attestations",
             "source_byte_bindings",
             "locked_identities",
             "task_population_binding",
@@ -644,16 +1362,13 @@ def _validated_calibration(
     )
     state = root["state"]
     _require(state in {"pending", "candidate", "frozen"}, "calibration state is invalid")
-    approval = root["owner_approval_sha256"]
-    if state == "frozen":
-        _require(evidence_class == "development_measurement", "synthetic calibration cannot be frozen")
-        _sha256(approval, "calibration.owner_approval_sha256")
-    else:
-        _require(approval is None, "only a frozen calibration may carry owner approval")
-
+    _require(
+        root["product_cycle_evidence"] == bundle.product_cycle.value,
+        "embedded product-cycle evidence differs from loaded raw file",
+    )
     try:
         product_root, measurements, product_meta = PRODUCT._validated_manifest(
-            root["product_cycle_evidence"]
+            bundle.product_cycle.value
         )
     except PRODUCT.ProductCycleError as exc:
         raise PowerV4Error(f"product-cycle evidence is invalid: {exc}") from exc
@@ -662,7 +1377,9 @@ def _validated_calibration(
         "calibration and product-cycle evidence classes differ",
     )
     population = root["task_population_binding"]
-    task_ids, members = _validate_population_binding(population)
+    task_ids, members, cluster_by_task = _validate_population_binding(
+        population, bundle=bundle, product_root=product_root
+    )
     _require(
         product_meta["task_ids"] == task_ids,
         "product-cycle tasks do not exactly match the calibration population projection",
@@ -674,25 +1391,57 @@ def _validated_calibration(
             == product_tasks[task_id]["task_sha256"],
             f"product task identity drift for {task_id}",
         )
-    candidate_lock = _validate_candidate_lock(
-        root["candidate_lock"],
-        product_root=product_root,
-        population_binding=population,
+    implementation_lock = _validate_implementation_lock(
+        root["v4_implementation_lock"], bundle=bundle
     )
-    source_bindings = _validate_source_byte_bindings(
-        root["source_byte_bindings"],
-        product_root=product_root,
-        population_binding=population,
+    execution_contract = _validate_execution_contract(
+        root["execution_contract"], product_root=product_root
     )
-    locked = _validate_locked_identities(
-        root["locked_identities"],
+    execution_attestations_sha256 = _validate_execution_attestations(
+        root["execution_attestations"],
         product_root=product_root,
-        population_binding=population,
+        execution_contract=execution_contract,
     )
     planning, alternatives = _validate_planning(
         root["planning"],
+        bundle=bundle,
+        product_root=product_root,
+        population_binding=population,
         calibration_repetitions=product_meta["repetitions"],
+        evidence_class=evidence_class,
+        execution_contract_sha256=execution_contract["identity_sha256"],
+        implementation_lock_sha256=implementation_lock["identity_sha256"],
+    )
+    candidate_lock = _validate_candidate_lock(
+        root["candidate_lock"],
+        bundle=bundle,
+        product_root=product_root,
+        population_binding=population,
+        complete_plan_sha256=planning["identity_sha256"],
+    )
+    authenticated_owner_approval = _validate_owner_approval(
+        root["owner_approval_receipt_sha256"],
         state=state,
+        evidence_class=evidence_class,
+        bundle=bundle,
+        complete_plan_sha256=planning["identity_sha256"],
+        candidate_lock_receipt_file_sha256=bundle.candidate_lock_receipt.sha256,
+    )
+    source_bindings = _validate_source_byte_bindings(
+        root["source_byte_bindings"],
+        bundle=bundle,
+        product_root=product_root,
+        population_binding=population,
+        implementation_lock_sha256=implementation_lock["identity_sha256"],
+        execution_attestations_sha256=execution_attestations_sha256,
+    )
+    locked = _validate_locked_identities(
+        root["locked_identities"],
+        bundle=bundle,
+        product_root=product_root,
+        population_binding=population,
+        execution_contract=execution_contract,
+        implementation_lock_sha256=implementation_lock["identity_sha256"],
     )
     if state == "frozen":
         _require(population["status"] == "frozen_unopened", "frozen calibration requires frozen_unopened population")
@@ -702,11 +1451,15 @@ def _validated_calibration(
         "state": state,
         "evidence_class": evidence_class,
         "task_ids": task_ids,
-        "task_clusters": len(task_ids),
+        "cluster_by_task": cluster_by_task,
+        "task_clusters": len(set(cluster_by_task.values())),
+        "calibration_tasks": len(task_ids),
         "calibration_repetitions": product_meta["repetitions"],
         "calibration_cells": product_meta["expected_cells"],
         "planning": planning,
         "alternatives": alternatives,
+        "authenticated_owner_approval": authenticated_owner_approval,
+        "complete_plan_sha256": planning["identity_sha256"],
         "product_cycle_contract_sha256": product_root["manifest_sha256"],
         "task_population_sha256": population["population_sha256"],
         "candidate_lock_sha256": candidate_lock["identity_sha256"],
@@ -718,6 +1471,9 @@ def _validated_calibration(
             "task_population_contract_file_sha256"
         ],
         "locked_identities_sha256": locked["identity_sha256"],
+        "v4_implementation_lock_sha256": implementation_lock["identity_sha256"],
+        "execution_contract_sha256": execution_contract["identity_sha256"],
+        "execution_attestations_sha256": execution_attestations_sha256,
         "product_cycle_schema_file_sha256": source_bindings[
             "product_cycle_schema_file_sha256"
         ],
@@ -728,9 +1484,9 @@ def _validated_calibration(
     return root, measurements, metadata
 
 
-def preflight_calibration(calibration: Any) -> dict[str, Any]:
+def preflight_calibration(calibration: Any, bundle: ArtifactBundle) -> dict[str, Any]:
     """Fail closed on membership, identity, design, and pending-state drift."""
-    root, measurements, metadata = _validated_calibration(calibration)
+    root, measurements, metadata = _validated_calibration(calibration, bundle)
     return {
         "schema": "agent-brain-final-calibration-preflight/v1",
         "status": "valid",
@@ -738,6 +1494,7 @@ def preflight_calibration(calibration: Any) -> dict[str, Any]:
         "evidence_class": metadata["evidence_class"],
         "calibration_sha256": root["identity_sha256"],
         "independent_active_task_clusters": metadata["task_clusters"],
+        "active_calibration_tasks": metadata["calibration_tasks"],
         "calibration_repetitions_per_arm": metadata["calibration_repetitions"],
         "calibration_requested_cells": metadata["calibration_cells"],
         "calibration_validated_cells": len(measurements),
@@ -745,7 +1502,10 @@ def preflight_calibration(calibration: Any) -> dict[str, Any]:
         "task_population_sha256": metadata["task_population_sha256"],
         "candidate_lock_sha256": metadata["candidate_lock_sha256"],
         "source_byte_bindings_sha256": metadata["source_byte_bindings_sha256"],
-        "planning_ready": metadata["alternatives"] is not None,
+        "complete_plan_sha256": metadata["complete_plan_sha256"],
+        "planning_ready": True,
+        "owner_approval_authenticated": metadata["authenticated_owner_approval"],
+        "raw_artifacts_and_schemas_validated": True,
         "budget_authorized": False,
     }
 
@@ -771,6 +1531,7 @@ def _task_arm_means(
 def _contrast_vectors(
     measurements: Sequence[Mapping[str, Any]],
     task_ids: Sequence[str],
+    cluster_by_task: Mapping[str, str],
     *,
     numerator: str,
     denominator: str,
@@ -778,29 +1539,64 @@ def _contrast_vectors(
     elapsed = _task_arm_means(measurements, task_ids, "elapsed_time")
     costs = _task_arm_means(measurements, task_ids, "normalized_cost")
     quality = _task_arm_means(measurements, task_ids, "code_quality")
-    vectors: list[dict[str, Any]] = []
+    task_vectors: list[dict[str, Any]] = []
     for task_id in task_ids:
         elapsed_num = elapsed[task_id][numerator]
         elapsed_den = elapsed[task_id][denominator]
         cost_num = costs[task_id][numerator]
         cost_den = costs[task_id][denominator]
         _require(elapsed_num > 0 and elapsed_den > 0, f"elapsed log ratio is undefined for {task_id}")
-        _require(
-            cost_num >= 0 and cost_den > 0,
-            f"normalized-cost ratio requires a nonnegative numerator and positive denominator for {task_id}",
-        )
+        _require(cost_num >= 0 and cost_den >= 0, f"normalized costs must be nonnegative for {task_id}")
         vector = {
             "task_id": task_id,
+            "independence_cluster_sha256": cluster_by_task[task_id],
             "elapsed_log_ratio": math.log(elapsed_num / elapsed_den),
             "cost_numerator_mean": cost_num,
             "cost_denominator_mean": cost_den,
             "quality_difference": quality[task_id][numerator] - quality[task_id][denominator],
         }
         _require(
-            all(math.isfinite(float(item)) for key, item in vector.items() if key != "task_id"),
+            all(
+                math.isfinite(float(vector[field]))
+                for field in (
+                    "elapsed_log_ratio",
+                    "cost_numerator_mean",
+                    "cost_denominator_mean",
+                    "quality_difference",
+                )
+            ),
             f"contrast vector contains non-finite values for {task_id}",
         )
-        vectors.append(vector)
+        task_vectors.append(vector)
+    _require(
+        _mean([float(row["cost_denominator_mean"]) for row in task_vectors]) > 0,
+        "aggregate normalized-cost denominator must be positive",
+    )
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for vector in task_vectors:
+        grouped[vector["independence_cluster_sha256"]].append(vector)
+    vectors: list[dict[str, Any]] = []
+    for cluster_sha in sorted(grouped):
+        rows = grouped[cluster_sha]
+        vectors.append(
+            {
+                "independence_cluster_sha256": cluster_sha,
+                "task_ids": sorted(str(row["task_id"]) for row in rows),
+                "task_weight": len(rows),
+                "elapsed_log_ratio": _mean(
+                    [float(row["elapsed_log_ratio"]) for row in rows]
+                ),
+                "cost_numerator_mean": _mean(
+                    [float(row["cost_numerator_mean"]) for row in rows]
+                ),
+                "cost_denominator_mean": _mean(
+                    [float(row["cost_denominator_mean"]) for row in rows]
+                ),
+                "quality_difference": _mean(
+                    [float(row["quality_difference"]) for row in rows]
+                ),
+            }
+        )
     return vectors
 
 
@@ -849,6 +1645,15 @@ def _mean(values: Sequence[float]) -> float:
     return value
 
 
+def _weighted_mean(values: Sequence[tuple[float, int]]) -> float:
+    _require(bool(values), "cannot average an empty weighted sequence")
+    total_weight = sum(weight for _, weight in values)
+    _require(total_weight > 0, "weighted mean has no positive weight")
+    value = math.fsum(item * weight for item, weight in values) / total_weight
+    _require(math.isfinite(value), "weighted mean is non-finite")
+    return value
+
+
 def _quantile(sorted_values: Sequence[float], probability: float) -> float:
     _require(bool(sorted_values), "cannot take a quantile of an empty sequence")
     _require(0 <= probability <= 1, "quantile probability is invalid")
@@ -863,10 +1668,18 @@ def _quantile(sorted_values: Sequence[float], probability: float) -> float:
 
 def _vector_parameters(vectors: Sequence[Mapping[str, Any]]) -> dict[str, float]:
     return {
-        "elapsed_log_mean": _mean([float(row["elapsed_log_ratio"]) for row in vectors]),
-        "cost_numerator_mean": _mean([float(row["cost_numerator_mean"]) for row in vectors]),
-        "cost_denominator_mean": _mean([float(row["cost_denominator_mean"]) for row in vectors]),
-        "quality_difference_mean": _mean([float(row["quality_difference"]) for row in vectors]),
+        "elapsed_log_mean": _weighted_mean(
+            [(float(row["elapsed_log_ratio"]), int(row["task_weight"])) for row in vectors]
+        ),
+        "cost_numerator_mean": _weighted_mean(
+            [(float(row["cost_numerator_mean"]), int(row["task_weight"])) for row in vectors]
+        ),
+        "cost_denominator_mean": _weighted_mean(
+            [(float(row["cost_denominator_mean"]), int(row["task_weight"])) for row in vectors]
+        ),
+        "quality_difference_mean": _weighted_mean(
+            [(float(row["quality_difference"]), int(row["task_weight"])) for row in vectors]
+        ),
     }
 
 
@@ -875,7 +1688,7 @@ def _draw_statistics(
     draws: Sequence[Sequence[int]],
     *,
     alternative: Mapping[str, Any] | None,
-) -> tuple[list[dict[str, float]], dict[str, float]]:
+) -> tuple[list[dict[str, float | None]], dict[str, float]]:
     parameters = _vector_parameters(vectors)
     _require(
         parameters["cost_numerator_mean"] >= 0
@@ -885,48 +1698,53 @@ def _draw_statistics(
     observed_cost_ratio = (
         parameters["cost_numerator_mean"] / parameters["cost_denominator_mean"]
     )
-    statistics: list[dict[str, float]] = []
+    statistics: list[dict[str, float | None]] = []
     for draw in draws:
-        elapsed_residual = _mean(
+        selected = [vectors[index] for index in draw]
+        elapsed_residual = _weighted_mean(
             [
-                float(vectors[index]["elapsed_log_ratio"])
-                - parameters["elapsed_log_mean"]
-                for index in draw
+                (float(row["elapsed_log_ratio"]), int(row["task_weight"]))
+                for row in selected
+            ]
+        ) - parameters["elapsed_log_mean"]
+        quality_residual = _weighted_mean(
+            [
+                (float(row["quality_difference"]), int(row["task_weight"]))
+                for row in selected
+            ]
+        ) - parameters["quality_difference_mean"]
+        drawn_cost_num = _weighted_mean(
+            [
+                (float(row["cost_numerator_mean"]), int(row["task_weight"]))
+                for row in selected
             ]
         )
-        quality_residual = _mean(
+        drawn_cost_den = _weighted_mean(
             [
-                float(vectors[index]["quality_difference"])
-                - parameters["quality_difference_mean"]
-                for index in draw
+                (float(row["cost_denominator_mean"]), int(row["task_weight"]))
+                for row in selected
             ]
         )
-        drawn_cost_num = _mean(
-            [float(vectors[index]["cost_numerator_mean"]) for index in draw]
+        _require(drawn_cost_num >= 0 and drawn_cost_den >= 0, "bootstrap normalized costs became negative")
+        drawn_cost_ratio = (
+            drawn_cost_num / drawn_cost_den if drawn_cost_den > 0 else None
         )
-        drawn_cost_den = _mean(
-            [float(vectors[index]["cost_denominator_mean"]) for index in draw]
-        )
-        _require(
-            drawn_cost_num >= 0 and drawn_cost_den > 0,
-            "bootstrap normalized-cost ratio is undefined",
-        )
-        drawn_cost_ratio = drawn_cost_num / drawn_cost_den
-        cost_deviation = drawn_cost_ratio - observed_cost_ratio
         if alternative is None:
             elapsed_value = parameters["elapsed_log_mean"] + elapsed_residual
-            cost_value = observed_cost_ratio + cost_deviation
+            cost_value = drawn_cost_ratio
             quality_value = parameters["quality_difference_mean"] + quality_residual
         else:
             elapsed_value = math.log(
                 alternative["elapsed_time"]["planning_alternative_ratio"]
             ) + elapsed_residual
             cost_alt = alternative["normalized_cost"]["planning_alternative_ratio"]
-            cost_value = (
-                cost_alt
-                if observed_cost_ratio == 0
-                else drawn_cost_ratio * cost_alt / observed_cost_ratio
-            )
+            cost_value = None
+            if drawn_cost_ratio is not None:
+                cost_value = (
+                    cost_alt
+                    if observed_cost_ratio == 0
+                    else drawn_cost_ratio * cost_alt / observed_cost_ratio
+                )
             quality_value = alternative["code_quality"][
                 "planning_alternative_difference"
             ] + quality_residual
@@ -935,14 +1753,19 @@ def _draw_statistics(
             "normalized_cost": cost_value,
             "code_quality": quality_value,
         }
-        _require(all(math.isfinite(item) for item in row.values()), "resampled endpoint is non-finite")
+        _require(
+            math.isfinite(elapsed_value)
+            and math.isfinite(quality_value)
+            and (cost_value is None or math.isfinite(cost_value)),
+            "resampled endpoint is non-finite",
+        )
         statistics.append(row)
     return statistics, parameters
 
 
 def _ci_offsets(
     vectors: Sequence[Mapping[str, Any]], draws: Sequence[Sequence[int]]
-) -> dict[str, float]:
+) -> tuple[dict[str, float], int]:
     bootstrap, parameters = _draw_statistics(vectors, draws, alternative=None)
     observed = {
         "elapsed_time": parameters["elapsed_log_mean"],
@@ -950,9 +1773,26 @@ def _ci_offsets(
         / parameters["cost_denominator_mean"],
         "code_quality": parameters["quality_difference_mean"],
     }
+    cost_values: list[float] = []
+    for row in bootstrap:
+        value = row["normalized_cost"]
+        if value is not None:
+            cost_values.append(float(value))
+    _require(bool(cost_values), "every cost resample has a zero denominator")
     deviations = {
-        endpoint: sorted(row[endpoint] - observed[endpoint] for row in bootstrap)
-        for endpoint in ENDPOINTS
+        "elapsed_time": sorted(
+            float(value) - observed["elapsed_time"]
+            for row in bootstrap
+            if (value := row["elapsed_time"]) is not None
+        ),
+        "normalized_cost": sorted(
+            value - observed["normalized_cost"] for value in cost_values
+        ),
+        "code_quality": sorted(
+            float(value) - observed["code_quality"]
+            for row in bootstrap
+            if (value := row["code_quality"]) is not None
+        ),
     }
     offsets = {
         "elapsed_time": _quantile(deviations["elapsed_time"], CONFIDENCE),
@@ -960,7 +1800,7 @@ def _ci_offsets(
         "code_quality": _quantile(deviations["code_quality"], 1 - CONFIDENCE),
     }
     _require(all(math.isfinite(item) for item in offsets.values()), "CI offset is non-finite")
-    return offsets
+    return offsets, len(bootstrap) - len(cost_values)
 
 
 def _power_gate(
@@ -987,7 +1827,7 @@ def _power_for_contrast(
     task_clusters: int,
     resampling_sha256: str,
 ) -> dict[str, Any]:
-    offsets = _ci_offsets(vectors, draws)
+    offsets, zero_denominator_draws = _ci_offsets(vectors, draws)
     simulated, _ = _draw_statistics(vectors, draws, alternative=alternatives)
     thresholds = {
         "elapsed_time": math.log(alternatives["elapsed_time"]["required_ratio_max"]),
@@ -997,12 +1837,21 @@ def _power_for_contrast(
     pass_counts = {endpoint: 0 for endpoint in ENDPOINTS}
     joint_count = 0
     for row in simulated:
+        cost_value = row["normalized_cost"]
+        elapsed_value = row["elapsed_time"]
+        quality_value = row["code_quality"]
+        _require(
+            elapsed_value is not None and quality_value is not None,
+            "time and quality resamples must always be defined",
+        )
+        assert elapsed_value is not None and quality_value is not None
         passed = {
-            "elapsed_time": row["elapsed_time"] + offsets["elapsed_time"]
+            "elapsed_time": float(elapsed_value) + offsets["elapsed_time"]
             <= thresholds["elapsed_time"],
-            "normalized_cost": row["normalized_cost"] + offsets["normalized_cost"]
+            "normalized_cost": cost_value is not None
+            and float(cost_value) + offsets["normalized_cost"]
             <= thresholds["normalized_cost"],
-            "code_quality": row["code_quality"] + offsets["code_quality"]
+            "code_quality": float(quality_value) + offsets["code_quality"]
             >= thresholds["code_quality"],
         }
         for endpoint in ENDPOINTS:
@@ -1027,6 +1876,8 @@ def _power_for_contrast(
         ),
         "joint_at_least_target": joint >= TARGET_POWER,
         "finite_estimates_and_ci_inputs": True,
+        "zero_denominator_resample_policy": "automatic_cost_and_joint_failure_excluded_from_ci_quantile_v1",
+        "zero_denominator_draws": zero_denominator_draws,
         "shared_resampling_sha256": resampling_sha256,
         "independence_shortcut_used": False,
         "statistical_gate_met": gate,
@@ -1037,7 +1888,7 @@ def _calibration_estimates(
     vectors: Sequence[Mapping[str, Any]], draws: Sequence[Sequence[int]], *, comparison: str
 ) -> dict[str, Any]:
     parameters = _vector_parameters(vectors)
-    offsets = _ci_offsets(vectors, draws)
+    offsets, zero_denominator_draws = _ci_offsets(vectors, draws)
     elapsed_log = parameters["elapsed_log_mean"]
     cost_ratio = (
         parameters["cost_numerator_mean"] / parameters["cost_denominator_mean"]
@@ -1046,7 +1897,11 @@ def _calibration_estimates(
     vectors_sha = PRODUCT.value_sha256(
         [
             {
-                "task_id": row["task_id"],
+                "independence_cluster_sha256": row[
+                    "independence_cluster_sha256"
+                ],
+                "task_ids": row["task_ids"],
+                "task_weight": row["task_weight"],
                 "elapsed_log_ratio": _stable_float(row["elapsed_log_ratio"]),
                 "cost_numerator_mean": _stable_float(row["cost_numerator_mean"]),
                 "cost_denominator_mean": _stable_float(row["cost_denominator_mean"]),
@@ -1058,6 +1913,7 @@ def _calibration_estimates(
     return {
         "comparison": comparison,
         "n_task_clusters": len(vectors),
+        "n_tasks": sum(int(row["task_weight"]) for row in vectors),
         "repetition_aggregation": "arithmetic_mean_within_task_arm_before_contrast",
         "paired_task_vectors_sha256": vectors_sha,
         "elapsed_time": {
@@ -1075,6 +1931,8 @@ def _calibration_estimates(
             ),
             "geometric_mean_task_ratios_used": False,
             "structural_zero_treatment_cost_supported": True,
+            "zero_denominator_resample_policy": "automatic_cost_and_joint_failure_excluded_from_ci_quantile_v1",
+            "zero_denominator_draws": zero_denominator_draws,
         },
         "code_quality": {
             "estimand": "paired_task_mean_difference",
@@ -1095,6 +1953,7 @@ def _decision(
     role: str,
     state: str,
     evidence_class: str,
+    authenticated_owner_approval: bool,
     alters_benchmark_primary_verdict: bool | None = None,
 ) -> dict[str, Any]:
     selected = next(
@@ -1107,7 +1966,11 @@ def _decision(
         None,
     )
     statistical_gate = selected is not None
-    eligible = state == "frozen" and evidence_class == "development_measurement"
+    eligible = (
+        state == "frozen"
+        and evidence_class == "development_measurement"
+        and authenticated_owner_approval
+    )
     passed = bool(statistical_gate and eligible)
     result = {
         "comparison": comparison,
@@ -1126,6 +1989,8 @@ def _decision(
             if state == "pending"
             else "candidate_not_owner_approved"
             if state == "candidate"
+            else "no_authenticated_owner_approval_trust_anchor"
+            if not authenticated_owner_approval
             else "no_candidate_task_count_clears_every_power_gate"
         ),
     }
@@ -1136,26 +2001,28 @@ def _decision(
     return result
 
 
-def analyze_calibration(calibration: Any) -> dict[str, Any]:
+def analyze_calibration(calibration: Any, bundle: ArtifactBundle) -> dict[str, Any]:
     """Compute deterministic marginal and direct joint power for both contrasts."""
-    root, measurements, metadata = _validated_calibration(calibration)
+    root, measurements, metadata = _validated_calibration(calibration, bundle)
     task_ids = metadata["task_ids"]
     primary_vectors = _contrast_vectors(
         measurements,
         task_ids,
+        metadata["cluster_by_task"],
         numerator="retrieved_memory",
         denominator="no_memory",
     )
     diagnostic_vectors = _contrast_vectors(
         measurements,
         task_ids,
+        metadata["cluster_by_task"],
         numerator="retrieved_memory",
         denominator="preoptimization_memory",
     )
     planning = metadata["planning"]
     calibration_draws, calibration_draws_sha = shared_cluster_resamples(
-        source_clusters=len(task_ids),
-        target_clusters=len(task_ids),
+        source_clusters=metadata["task_clusters"],
+        target_clusters=metadata["task_clusters"],
         resamples=planning["resamples"],
         seed=planning["seed"],
     )
@@ -1174,12 +2041,12 @@ def analyze_calibration(calibration: Any) -> dict[str, Any]:
     for task_count in planning["candidate_task_clusters"]:
         requested_cells = task_count * planning["repetitions_per_arm"] * len(PRODUCT.ARMS)
         draws, draws_sha = shared_cluster_resamples(
-            source_clusters=len(task_ids),
+            source_clusters=metadata["task_clusters"],
             target_clusters=task_count,
             resamples=planning["resamples"],
             seed=planning["seed"],
         )
-        if metadata["alternatives"] is None:
+        if metadata["state"] == "pending":
             primary_power = None
             diagnostic_power = None
         else:
@@ -1220,6 +2087,7 @@ def analyze_calibration(calibration: Any) -> dict[str, Any]:
         role="benchmark_primary_power_gate",
         state=metadata["state"],
         evidence_class=metadata["evidence_class"],
+        authenticated_owner_approval=metadata["authenticated_owner_approval"],
     )
     product_decision = _decision(
         rows=power_rows,
@@ -1228,22 +2096,29 @@ def analyze_calibration(calibration: Any) -> dict[str, Any]:
         role="separate_product_improvement_gate",
         state=metadata["state"],
         evidence_class=metadata["evidence_class"],
+        authenticated_owner_approval=metadata["authenticated_owner_approval"],
         alters_benchmark_primary_verdict=False,
     )
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "state": metadata["state"],
         "evidence_class": metadata["evidence_class"],
-        "status": "pending" if metadata["alternatives"] is None else "evaluated",
+        "status": "pending" if metadata["state"] == "pending" else "evaluated",
         "final_calibration_sha256": root["identity_sha256"],
-        "owner_approval_sha256": root["owner_approval_sha256"],
-        "planning_sha256": PRODUCT.value_sha256(planning),
+        "owner_approval_receipt_sha256": root[
+            "owner_approval_receipt_sha256"
+        ],
+        "owner_approval_authenticated": metadata[
+            "authenticated_owner_approval"
+        ],
+        "planning_sha256": planning["identity_sha256"],
+        "complete_plan": planning,
         "planning_alternatives": metadata["alternatives"],
         "method": {
             "resampling": RESAMPLING_METHOD,
             "seed": planning["seed"],
             "resamples": planning["resamples"],
-            "cluster_unit": "independent_task",
+            "cluster_unit": "derived_independence_cluster",
             "shared_draws_across_endpoints_and_contrasts": True,
             "cross_endpoint_dependence_preserved": True,
             "joint_probability_method": "same_draw_all_endpoint_pass_frequency",
@@ -1253,7 +2128,8 @@ def analyze_calibration(calibration: Any) -> dict[str, Any]:
         },
         "design": {
             "arms": list(PRODUCT.ARMS),
-            "calibration_task_clusters": len(task_ids),
+            "calibration_task_clusters": metadata["task_clusters"],
+            "calibration_tasks": metadata["calibration_tasks"],
             "calibration_repetitions_per_arm": metadata["calibration_repetitions"],
             "calibration_requested_cells": metadata["calibration_cells"],
             "calibration_maximum_agent_invocations": metadata["calibration_cells"],
@@ -1266,7 +2142,20 @@ def analyze_calibration(calibration: Any) -> dict[str, Any]:
         "product_improvement_gate": product_decision,
         "integrity": {
             "repetitions_averaged_inside_task_arm": True,
-            "independent_task_clusters": len(task_ids),
+            "independent_task_clusters": metadata["task_clusters"],
+            "independence_closure_algorithm": "family_fix_session_material_edge_transitive_closure_v1",
+            "complete_plan_sha256": metadata["complete_plan_sha256"],
+            "v4_implementation_lock_sha256": metadata[
+                "v4_implementation_lock_sha256"
+            ],
+            "execution_contract_sha256": metadata["execution_contract_sha256"],
+            "execution_attestations_sha256": metadata[
+                "execution_attestations_sha256"
+            ],
+            "raw_artifacts_and_schemas_validated": True,
+            "owner_approval_authenticated": metadata[
+                "authenticated_owner_approval"
+            ],
             "all_calibration_members_development_calibration": True,
             "optimization_members_used": 0,
             "holdout_members_used": 0,
@@ -1297,7 +2186,7 @@ def analyze_calibration(calibration: Any) -> dict[str, Any]:
         },
     }
     report["report_sha256"] = _self_sha256(report, "report_sha256")
-    validate_power_report(report)
+    validate_power_report(report, bundle)
     return report
 
 
@@ -1324,6 +2213,8 @@ def _validate_power_result(
             "all_marginal_at_least_target",
             "joint_at_least_target",
             "finite_estimates_and_ci_inputs",
+            "zero_denominator_resample_policy",
+            "zero_denominator_draws",
             "shared_resampling_sha256",
             "independence_shortcut_used",
             "statistical_gate_met",
@@ -1353,6 +2244,16 @@ def _validate_power_result(
     _require(result["joint_at_least_target"] is expected_joint, f"{label} joint gate drift")
     _require(result["finite_estimates_and_ci_inputs"] is True, f"{label} finite-input gate is false")
     _require(
+        result["zero_denominator_resample_policy"]
+        == "automatic_cost_and_joint_failure_excluded_from_ci_quantile_v1",
+        f"{label} zero-denominator policy drift",
+    )
+    _require(
+        type(result["zero_denominator_draws"]) is int
+        and 0 <= result["zero_denominator_draws"] <= expected_resamples,
+        f"{label} zero-denominator draw count is invalid",
+    )
+    _require(
         _sha256(
             result["shared_resampling_sha256"],
             f"{label}.shared_resampling_sha256",
@@ -1368,13 +2269,19 @@ def _validate_power_result(
 
 
 def _validate_calibration_estimate(
-    value: Any, label: str, *, expected_comparison: str, expected_clusters: int
+    value: Any,
+    label: str,
+    *,
+    expected_comparison: str,
+    expected_clusters: int,
+    expected_tasks: int,
 ) -> None:
     estimate = _exact_keys(
         value,
         {
             "comparison",
             "n_task_clusters",
+            "n_tasks",
             "repetition_aggregation",
             "paired_task_vectors_sha256",
             "elapsed_time",
@@ -1392,6 +2299,10 @@ def _validate_calibration_estimate(
         estimate["n_task_clusters"], f"{label}.n_task_clusters"
     )
     _require(estimate_clusters == expected_clusters, f"{label}.n_task_clusters changed")
+    _require(
+        _positive_int(estimate["n_tasks"], f"{label}.n_tasks") == expected_tasks,
+        f"{label}.n_tasks changed",
+    )
     _require(
         estimate["repetition_aggregation"]
         == "arithmetic_mean_within_task_arm_before_contrast",
@@ -1426,6 +2337,8 @@ def _validate_calibration_estimate(
             "one_sided_upper_bound",
             "geometric_mean_task_ratios_used",
             "structural_zero_treatment_cost_supported",
+            "zero_denominator_resample_policy",
+            "zero_denominator_draws",
         },
         f"{label}.normalized_cost",
     )
@@ -1445,6 +2358,16 @@ def _validate_calibration_estimate(
     _require(
         cost["structural_zero_treatment_cost_supported"] is True,
         f"{label}.normalized_cost must support authenticated treatment structural zeros",
+    )
+    _require(
+        cost["zero_denominator_resample_policy"]
+        == "automatic_cost_and_joint_failure_excluded_from_ci_quantile_v1",
+        f"{label}.normalized_cost zero-denominator policy drift",
+    )
+    _require(
+        type(cost["zero_denominator_draws"]) is int
+        and cost["zero_denominator_draws"] >= 0,
+        f"{label}.normalized_cost zero-denominator count is invalid",
     )
 
     quality = _exact_keys(
@@ -1470,8 +2393,14 @@ def _validate_calibration_estimate(
     )
 
 
-def validate_power_report(report: Any) -> None:
+def validate_power_report(report: Any, bundle: ArtifactBundle) -> None:
     """Recheck report identities, arithmetic, null states, and both power gates."""
+    try:
+        bundle.schema_validator.validate(
+            report, SCHEMA_PATHS["power_report"].name, label="power report"
+        )
+    except DRAFT.SchemaError as exc:
+        raise PowerV4Error(str(exc)) from exc
     root = _exact_keys(
         report,
         {
@@ -1480,8 +2409,10 @@ def validate_power_report(report: Any) -> None:
             "evidence_class",
             "status",
             "final_calibration_sha256",
-            "owner_approval_sha256",
+            "owner_approval_receipt_sha256",
+            "owner_approval_authenticated",
             "planning_sha256",
+            "complete_plan",
             "planning_alternatives",
             "method",
             "design",
@@ -1507,12 +2438,19 @@ def validate_power_report(report: Any) -> None:
     _sha256(root["final_calibration_sha256"], "power_report.final_calibration_sha256")
     _sha256(root["planning_sha256"], "power_report.planning_sha256")
     if state == "frozen":
-        _sha256(root["owner_approval_sha256"], "power_report.owner_approval_sha256")
+        _sha256(
+            root["owner_approval_receipt_sha256"],
+            "power_report.owner_approval_receipt_sha256",
+        )
     else:
         _require(
-            root["owner_approval_sha256"] is None,
+            root["owner_approval_receipt_sha256"] is None,
             "only a frozen power report may carry owner approval",
         )
+    _require(
+        root["owner_approval_authenticated"] is False,
+        "no owner-approval trust anchor is configured",
+    )
     _sha256(
         root["calibration_shared_resampling_sha256"],
         "power_report.calibration_shared_resampling_sha256",
@@ -1546,7 +2484,7 @@ def validate_power_report(report: Any) -> None:
     )
     _require(resamples >= MIN_RESAMPLES, "power_report resample floor changed")
     _require(
-        method["cluster_unit"] == "independent_task",
+        method["cluster_unit"] == "derived_independence_cluster",
         "power_report cluster unit changed",
     )
     _require(
@@ -1582,6 +2520,7 @@ def validate_power_report(report: Any) -> None:
         {
             "arms",
             "calibration_task_clusters",
+            "calibration_tasks",
             "calibration_repetitions_per_arm",
             "calibration_requested_cells",
             "calibration_maximum_agent_invocations",
@@ -1598,11 +2537,18 @@ def validate_power_report(report: Any) -> None:
         calibration_clusters >= MIN_CALIBRATION_CLUSTERS,
         "power_report has too few calibration task clusters",
     )
+    calibration_tasks = _positive_int(
+        design["calibration_tasks"], "power_report.design.calibration_tasks"
+    )
+    _require(
+        calibration_tasks >= calibration_clusters,
+        "power_report has fewer tasks than independence clusters",
+    )
     repetitions = _positive_int(
         design["calibration_repetitions_per_arm"],
         "power_report.design.calibration_repetitions_per_arm",
     )
-    calibration_cells = calibration_clusters * repetitions * len(PRODUCT.ARMS)
+    calibration_cells = calibration_tasks * repetitions * len(PRODUCT.ARMS)
     _require(
         _positive_int(
             design["calibration_requested_cells"],
@@ -1634,33 +2580,33 @@ def validate_power_report(report: Any) -> None:
         candidate_counts == sorted(set(candidate_counts)),
         "power_report candidate task counts must be unique and increasing",
     )
-    if state == "pending":
-        _require(
-            root["planning_alternatives"] is None,
-            "pending power report must retain null planning alternatives",
-        )
-        alternatives = None
-    else:
-        raw_alternatives = _exact_keys(
-            root["planning_alternatives"],
-            {"primary", "product_diagnostic"},
-            "power_report.planning_alternatives",
-        )
-        alternatives = {
-            "primary": _validate_contrast_alternatives(
-                raw_alternatives["primary"],
-                label="power_report.planning_alternatives.primary",
-                comparison=PRIMARY_COMPARISON,
-                role="primary_development_contrast",
-            ),
-            "product_diagnostic": _validate_contrast_alternatives(
-                raw_alternatives["product_diagnostic"],
-                label="power_report.planning_alternatives.product_diagnostic",
-                comparison=DIAGNOSTIC_COMPARISON,
-                role="diagnostic_product_progress_only",
-            ),
-        }
-    planning_projection = {
+    raw_alternatives = _exact_keys(
+        root["planning_alternatives"],
+        {"primary", "product_diagnostic"},
+        "power_report.planning_alternatives",
+    )
+    alternatives = {
+        "primary": _validate_contrast_alternatives(
+            raw_alternatives["primary"],
+            label="power_report.planning_alternatives.primary",
+            comparison=PRIMARY_COMPARISON,
+            role="primary_development_contrast",
+        ),
+        "product_diagnostic": _validate_contrast_alternatives(
+            raw_alternatives["product_diagnostic"],
+            label="power_report.planning_alternatives.product_diagnostic",
+            comparison=DIAGNOSTIC_COMPARISON,
+            role="diagnostic_product_progress_only",
+        ),
+    }
+    complete_plan = root["complete_plan"]
+    _require(isinstance(complete_plan, dict), "power_report.complete_plan must be an object")
+    _require(
+        root["planning_sha256"] == complete_plan.get("identity_sha256")
+        and root["planning_sha256"] == _self_sha256(complete_plan),
+        "power_report planning identity drift",
+    )
+    plan_parity = {
         "method": method["resampling"],
         "target_power": method["target_power"],
         "confidence": method["confidence"],
@@ -1669,15 +2615,14 @@ def validate_power_report(report: Any) -> None:
         "candidate_task_clusters": candidate_counts,
         "arms": design["arms"],
         "repetitions_per_arm": repetitions,
-        "agent_retry_limit": 0,
-        "replacement_cell_limit": 0,
-        "reserve_cell_limit": 0,
         "planning_alternatives": alternatives,
     }
-    _require(
-        root["planning_sha256"] == PRODUCT.value_sha256(planning_projection),
-        "power_report planning identity drift",
-    )
+    for field, expected_value in plan_parity.items():
+        _require(complete_plan.get(field) == expected_value, f"power_report complete-plan drift: {field}")
+    if evidence == "development_measurement":
+        _require(resamples == PRODUCTION_RESAMPLES, "production resample count drift")
+        _require(method["seed"] == PRODUCTION_SEED, "production resampling seed drift")
+        _require(tuple(candidate_counts) == PRODUCTION_CANDIDATE_GRID, "production candidate grid drift")
     _, expected_calibration_resampling_sha256 = shared_cluster_resamples(
         source_clusters=calibration_clusters,
         target_clusters=calibration_clusters,
@@ -1700,12 +2645,14 @@ def validate_power_report(report: Any) -> None:
         "power_report.calibration_estimates.primary",
         expected_comparison=PRIMARY_COMPARISON,
         expected_clusters=calibration_clusters,
+        expected_tasks=calibration_tasks,
     )
     _validate_calibration_estimate(
         estimates["product_diagnostic"],
         "power_report.calibration_estimates.product_diagnostic",
         expected_comparison=DIAGNOSTIC_COMPARISON,
         expected_clusters=calibration_clusters,
+        expected_tasks=calibration_tasks,
     )
     candidates = root["power_candidates"]
     _require(isinstance(candidates, list) and bool(candidates), "power report candidates are missing")
@@ -1849,7 +2796,7 @@ def validate_power_report(report: Any) -> None:
             decision.get("every_marginal_and_joint_power_at_least_0_80") is statistical,
             f"power_report.{key} all-power gate drift",
         )
-        eligible = state == "frozen" and evidence == "development_measurement"
+        eligible = False
         _require(decision.get("eligible_evidence") is eligible, f"power_report.{key} eligibility drift")
         passed = bool(statistical and eligible)
         _require(decision.get("passed") is passed, f"power_report.{key} pass drift")
@@ -1862,6 +2809,8 @@ def validate_power_report(report: Any) -> None:
             if state == "pending"
             else "candidate_not_owner_approved"
             if state == "candidate"
+            else "no_authenticated_owner_approval_trust_anchor"
+            if state == "frozen"
             else "no_candidate_task_count_clears_every_power_gate"
         )
         _require(decision.get("reason") == reason, f"power_report.{key} reason drift")
@@ -1876,6 +2825,13 @@ def validate_power_report(report: Any) -> None:
         {
             "repetitions_averaged_inside_task_arm",
             "independent_task_clusters",
+            "independence_closure_algorithm",
+            "complete_plan_sha256",
+            "v4_implementation_lock_sha256",
+            "execution_contract_sha256",
+            "execution_attestations_sha256",
+            "raw_artifacts_and_schemas_validated",
+            "owner_approval_authenticated",
             "all_calibration_members_development_calibration",
             "optimization_members_used",
             "holdout_members_used",
@@ -1896,6 +2852,7 @@ def validate_power_report(report: Any) -> None:
     )
     for field in (
         "repetitions_averaged_inside_task_arm",
+        "raw_artifacts_and_schemas_validated",
         "all_calibration_members_development_calibration",
         "exact_four_arm_cells_and_invocations",
     ):
@@ -1907,6 +2864,34 @@ def validate_power_report(report: Any) -> None:
         )
         == calibration_clusters,
         "power_report integrity task-cluster count drift",
+    )
+    _require(
+        integrity["independence_closure_algorithm"]
+        == "family_fix_session_material_edge_transitive_closure_v1",
+        "power_report independence closure algorithm drift",
+    )
+    _require(
+        integrity["complete_plan_sha256"] == root["planning_sha256"],
+        "power_report integrity complete-plan drift",
+    )
+    _require(
+        integrity["execution_contract_sha256"]
+        == complete_plan["execution_contract_sha256"],
+        "power_report execution-contract/complete-plan drift",
+    )
+    _require(
+        integrity["v4_implementation_lock_sha256"]
+        == complete_plan["v4_implementation_lock_sha256"],
+        "power_report implementation-lock/complete-plan drift",
+    )
+    _require(
+        integrity["v4_implementation_lock_sha256"]
+        == _expected_implementation_lock(bundle)["identity_sha256"],
+        "power_report implementation lock does not pin current analyzer and schemas",
+    )
+    _require(
+        integrity["owner_approval_authenticated"] is False,
+        "power report may not claim authenticated approval without a trust anchor",
     )
     _require(
         type(integrity["optimization_members_used"]) is int
@@ -1926,6 +2911,10 @@ def validate_power_report(report: Any) -> None:
         "candidate_lock_sha256",
         "source_byte_bindings_sha256",
         "locked_identities_sha256",
+        "complete_plan_sha256",
+        "v4_implementation_lock_sha256",
+        "execution_contract_sha256",
+        "execution_attestations_sha256",
     ):
         _sha256(integrity[field], f"power_report.integrity.{field}")
     _require(
@@ -1933,7 +2922,7 @@ def validate_power_report(report: Any) -> None:
             integrity["product_cycle_schema_file_sha256"],
             "power_report.integrity.product_cycle_schema_file_sha256",
         )
-        == PRODUCT_CYCLE_SCHEMA_SHA256,
+        == bundle.schemas["product_cycle"].sha256,
         "power_report product-cycle schema bytes drift",
     )
     _require(
@@ -1941,8 +2930,28 @@ def validate_power_report(report: Any) -> None:
             integrity["task_population_schema_file_sha256"],
             "power_report.integrity.task_population_schema_file_sha256",
         )
-        == TASK_POPULATION_SCHEMA_SHA256,
+        == bundle.schemas["task_population"].sha256,
         "power_report task-population schema bytes drift",
+    )
+    _require(
+        integrity["product_cycle_contract_sha256"]
+        == bundle.product_cycle.value["manifest_sha256"],
+        "power_report product-cycle contract identity drift",
+    )
+    _require(
+        integrity["product_cycle_evidence_canonical_bytes_sha256"]
+        == PRODUCT.value_sha256(bundle.product_cycle.value),
+        "power_report product-cycle canonical bytes drift",
+    )
+    _require(
+        integrity["task_population_sha256"]
+        == bundle.task_population.value["population_sha256"],
+        "power_report task-population identity drift",
+    )
+    _require(
+        integrity["task_population_contract_file_sha256"]
+        == bundle.task_population.sha256,
+        "power_report task-population raw bytes drift",
     )
     _require(integrity["budget_authorized"] is False, "power v4 cannot authorize budget")
     _require(
@@ -1953,10 +2962,12 @@ def validate_power_report(report: Any) -> None:
     _require(digest == _self_sha256(root, "report_sha256"), "power report identity hash mismatch")
 
 
-def check_power_report(calibration: Any, report: Any) -> dict[str, Any]:
+def check_power_report(
+    calibration: Any, report: Any, bundle: ArtifactBundle
+) -> dict[str, Any]:
     """Recompute a report from its bound calibration and require exact equality."""
-    validate_power_report(report)
-    expected = analyze_calibration(calibration)
+    validate_power_report(report, bundle)
+    expected = analyze_calibration(calibration, bundle)
     _require(
         report == expected,
         "power report does not exactly match deterministic recomputation from calibration",
@@ -1978,21 +2989,46 @@ def _write(value: Any) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    def add_artifacts(child: argparse.ArgumentParser) -> None:
+        child.add_argument("--product-cycle", type=pathlib.Path, required=True)
+        child.add_argument("--task-population", type=pathlib.Path, required=True)
+        child.add_argument("--review-ledger", type=pathlib.Path, required=True)
+        child.add_argument("--selection-receipt", type=pathlib.Path, required=True)
+        child.add_argument("--assignment-receipt", type=pathlib.Path, required=True)
+        child.add_argument("--overlap-receipt", type=pathlib.Path, required=True)
+        child.add_argument("--candidate-lock-receipt", type=pathlib.Path, required=True)
+        child.add_argument("--owner-approval-receipt", type=pathlib.Path)
+
     for command in ("preflight", "analyze"):
         child = subparsers.add_parser(command)
         child.add_argument("calibration", type=pathlib.Path)
+        add_artifacts(child)
     checker = subparsers.add_parser("check")
     checker.add_argument("calibration", type=pathlib.Path)
     checker.add_argument("report", type=pathlib.Path)
+    add_artifacts(checker)
     args = parser.parse_args(argv)
     try:
         calibration = load_calibration(args.calibration)
+        bundle = load_artifact_bundle(
+            product_cycle=args.product_cycle,
+            task_population=args.task_population,
+            review_ledger=args.review_ledger,
+            selection_receipt=args.selection_receipt,
+            assignment_receipt=args.assignment_receipt,
+            overlap_receipt=args.overlap_receipt,
+            candidate_lock_receipt=args.candidate_lock_receipt,
+            owner_approval_receipt=args.owner_approval_receipt,
+        )
         if args.command == "preflight":
-            result = preflight_calibration(calibration)
+            result = preflight_calibration(calibration, bundle)
         elif args.command == "analyze":
-            result = analyze_calibration(calibration)
+            result = analyze_calibration(calibration, bundle)
         else:
-            result = check_power_report(calibration, load_power_report(args.report))
+            result = check_power_report(
+                calibration, load_power_report(args.report), bundle
+            )
     except PowerV4Error as exc:
         sys.stderr.write(f"power-v4 {args.command} failed: {exc}\n")
         return 2

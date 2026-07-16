@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://entire.io/schemas/agent-brain-power-analysis-v4.json",
-  "title": "Agent-brain four-arm development power analysis v4",
+  "title": "Agent-brain final calibration power analysis v4",
   "type": "object",
   "required": [
     "schema",
@@ -9,8 +9,10 @@
     "evidence_class",
     "status",
     "final_calibration_sha256",
-    "owner_approval_sha256",
+    "owner_approval_receipt_sha256",
+    "owner_approval_authenticated",
     "planning_sha256",
+    "complete_plan",
     "planning_alternatives",
     "method",
     "design",
@@ -25,22 +27,17 @@
   "properties": {
     "schema": {"const": "agent-brain-power-analysis/v4"},
     "state": {"enum": ["pending", "candidate", "frozen"]},
-    "evidence_class": {
-      "enum": ["synthetic_fixture", "development_measurement"]
-    },
+    "evidence_class": {"enum": ["synthetic_fixture", "development_measurement"]},
     "status": {"enum": ["pending", "evaluated"]},
     "final_calibration_sha256": {"$ref": "#/$defs/sha256"},
-    "owner_approval_sha256": {
+    "owner_approval_receipt_sha256": {
       "type": ["string", "null"],
       "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
     },
+    "owner_approval_authenticated": {"const": false},
     "planning_sha256": {"$ref": "#/$defs/sha256"},
-    "planning_alternatives": {
-      "oneOf": [
-        {"type": "null"},
-        {"$ref": "#/$defs/planningAlternatives"}
-      ]
-    },
+    "complete_plan": {"$ref": "final-calibration-v1.schema.json#/$defs/planning"},
+    "planning_alternatives": {"$ref": "final-calibration-v1.schema.json#/$defs/planningAlternatives"},
     "method": {"$ref": "#/$defs/method"},
     "design": {"$ref": "#/$defs/design"},
     "calibration_estimates": {
@@ -50,23 +47,13 @@
         "primary": {
           "allOf": [
             {"$ref": "#/$defs/calibrationEstimate"},
-            {
-              "properties": {
-                "comparison": {"const": "retrieved_memory_vs_no_memory"}
-              }
-            }
+            {"properties": {"comparison": {"const": "retrieved_memory_vs_no_memory"}}}
           ]
         },
         "product_diagnostic": {
           "allOf": [
             {"$ref": "#/$defs/calibrationEstimate"},
-            {
-              "properties": {
-                "comparison": {
-                  "const": "retrieved_memory_vs_preoptimization_memory"
-                }
-              }
-            }
+            {"properties": {"comparison": {"const": "retrieved_memory_vs_preoptimization_memory"}}}
           ]
         }
       },
@@ -90,8 +77,6 @@
       "then": {
         "properties": {
           "status": {"const": "pending"},
-          "owner_approval_sha256": {"const": null},
-          "planning_alternatives": {"const": null},
           "power_candidates": {
             "items": {
               "properties": {
@@ -104,16 +89,14 @@
             "properties": {
               "selected_task_clusters": {"const": null},
               "statistical_gate_met": {"const": false},
-              "eligible_evidence": {"const": false},
-              "passed": {"const": false}
+              "every_marginal_and_joint_power_at_least_0_80": {"const": false}
             }
           },
           "product_improvement_gate": {
             "properties": {
               "selected_task_clusters": {"const": null},
               "statistical_gate_met": {"const": false},
-              "eligible_evidence": {"const": false},
-              "passed": {"const": false}
+              "every_marginal_and_joint_power_at_least_0_80": {"const": false}
             }
           }
         }
@@ -121,7 +104,6 @@
       "else": {
         "properties": {
           "status": {"const": "evaluated"},
-          "planning_alternatives": {"$ref": "#/$defs/planningAlternatives"},
           "power_candidates": {
             "items": {
               "properties": {
@@ -134,136 +116,56 @@
       }
     },
     {
-      "if": {"properties": {"state": {"const": "candidate"}}},
-      "then": {
-        "properties": {
-          "owner_approval_sha256": {"const": null},
-          "benchmark_power_decision": {
-            "properties": {
-              "eligible_evidence": {"const": false},
-              "passed": {"const": false},
-              "reason": {"enum": ["synthetic_fixture_not_decision_eligible", "candidate_not_owner_approved"]}
-            }
-          },
-          "product_improvement_gate": {
-            "properties": {
-              "eligible_evidence": {"const": false},
-              "passed": {"const": false},
-              "reason": {"enum": ["synthetic_fixture_not_decision_eligible", "candidate_not_owner_approved"]}
-            }
-          }
-        }
-      }
-    },
-    {
       "if": {"properties": {"state": {"const": "frozen"}}},
       "then": {
         "properties": {
           "evidence_class": {"const": "development_measurement"},
-          "owner_approval_sha256": {"$ref": "#/$defs/sha256"},
-          "benchmark_power_decision": {
-            "properties": {"eligible_evidence": {"const": true}}
+          "owner_approval_receipt_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      },
+      "else": {
+        "properties": {"owner_approval_receipt_sha256": {"const": null}}
+      }
+    },
+    {
+      "if": {"properties": {"evidence_class": {"const": "development_measurement"}}},
+      "then": {
+        "properties": {
+          "method": {
+            "properties": {
+              "seed": {"const": 4990646119815267652},
+              "resamples": {"const": 10000}
+            }
           },
-          "product_improvement_gate": {
-            "properties": {"eligible_evidence": {"const": true}}
+          "design": {
+            "properties": {
+              "candidate_task_clusters": {
+                "const": [12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512]
+              }
+            }
+          },
+          "complete_plan": {
+            "properties": {
+              "profile": {"const": "production_development_measurement_v1"},
+              "seed": {"const": 4990646119815267652},
+              "resamples": {"const": 10000},
+              "candidate_task_clusters": {
+                "const": [12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512]
+              }
+            }
           }
+        }
+      },
+      "else": {
+        "properties": {
+          "complete_plan": {"properties": {"profile": {"const": "synthetic_fixture_test_v1"}}}
         }
       }
     }
   ],
   "$defs": {
-    "sha256": {
-      "type": "string",
-      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
-    },
-    "ratioAlternative": {
-      "type": "object",
-      "required": ["required_ratio_max", "planning_alternative_ratio"],
-      "properties": {
-        "required_ratio_max": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "exclusiveMaximum": 1
-        },
-        "planning_alternative_ratio": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "exclusiveMaximum": 1
-        }
-      },
-      "additionalProperties": false
-    },
-    "qualityAlternative": {
-      "type": "object",
-      "required": ["required_difference_min", "planning_alternative_difference"],
-      "properties": {
-        "required_difference_min": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
-        },
-        "planning_alternative_difference": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1
-        }
-      },
-      "additionalProperties": false
-    },
-    "contrastAlternatives": {
-      "type": "object",
-      "required": [
-        "comparison",
-        "role",
-        "elapsed_time",
-        "normalized_cost",
-        "code_quality"
-      ],
-      "properties": {
-        "comparison": {"type": "string", "minLength": 1},
-        "role": {
-          "enum": [
-            "primary_development_contrast",
-            "diagnostic_product_progress_only"
-          ]
-        },
-        "elapsed_time": {"$ref": "#/$defs/ratioAlternative"},
-        "normalized_cost": {"$ref": "#/$defs/ratioAlternative"},
-        "code_quality": {"$ref": "#/$defs/qualityAlternative"}
-      },
-      "additionalProperties": false
-    },
-    "planningAlternatives": {
-      "type": "object",
-      "required": ["primary", "product_diagnostic"],
-      "properties": {
-        "primary": {
-          "allOf": [
-            {"$ref": "#/$defs/contrastAlternatives"},
-            {
-              "properties": {
-                "comparison": {"const": "retrieved_memory_vs_no_memory"},
-                "role": {"const": "primary_development_contrast"}
-              }
-            }
-          ]
-        },
-        "product_diagnostic": {
-          "allOf": [
-            {"$ref": "#/$defs/contrastAlternatives"},
-            {
-              "properties": {
-                "comparison": {
-                  "const": "retrieved_memory_vs_preoptimization_memory"
-                },
-                "role": {"const": "diagnostic_product_progress_only"}
-              }
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "probability": {"type": "number", "minimum": 0, "maximum": 1},
     "method": {
       "type": "object",
       "required": [
@@ -280,13 +182,9 @@
       ],
       "properties": {
         "resampling": {"const": "paired_cluster_residual_bootstrap_shared_draws_v1"},
-        "seed": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9223372036854775807
-        },
+        "seed": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
         "resamples": {"type": "integer", "minimum": 100, "maximum": 10000},
-        "cluster_unit": {"const": "independent_task"},
+        "cluster_unit": {"const": "derived_independence_cluster"},
         "shared_draws_across_endpoints_and_contrasts": {"const": true},
         "cross_endpoint_dependence_preserved": {"const": true},
         "joint_probability_method": {"const": "same_draw_all_endpoint_pass_frequency"},
@@ -301,21 +199,16 @@
       "required": [
         "arms",
         "calibration_task_clusters",
+        "calibration_tasks",
         "calibration_repetitions_per_arm",
         "calibration_requested_cells",
         "calibration_maximum_agent_invocations",
         "candidate_task_clusters"
       ],
       "properties": {
-        "arms": {
-          "const": [
-            "no_memory",
-            "placebo_packet",
-            "preoptimization_memory",
-            "retrieved_memory"
-          ]
-        },
+        "arms": {"const": ["no_memory", "placebo_packet", "preoptimization_memory", "retrieved_memory"]},
         "calibration_task_clusters": {"type": "integer", "minimum": 12},
+        "calibration_tasks": {"type": "integer", "minimum": 12},
         "calibration_repetitions_per_arm": {"type": "integer", "minimum": 1},
         "calibration_requested_cells": {"type": "integer", "minimum": 48},
         "calibration_maximum_agent_invocations": {"type": "integer", "minimum": 48},
@@ -333,6 +226,7 @@
       "required": [
         "comparison",
         "n_task_clusters",
+        "n_tasks",
         "repetition_aggregation",
         "paired_task_vectors_sha256",
         "elapsed_time",
@@ -341,19 +235,14 @@
         "finite_estimates_and_ci_inputs"
       ],
       "properties": {
-        "comparison": {"type": "string", "minLength": 1},
+        "comparison": {"enum": ["retrieved_memory_vs_no_memory", "retrieved_memory_vs_preoptimization_memory"]},
         "n_task_clusters": {"type": "integer", "minimum": 12},
-        "repetition_aggregation": {
-          "const": "arithmetic_mean_within_task_arm_before_contrast"
-        },
+        "n_tasks": {"type": "integer", "minimum": 12},
+        "repetition_aggregation": {"const": "arithmetic_mean_within_task_arm_before_contrast"},
         "paired_task_vectors_sha256": {"$ref": "#/$defs/sha256"},
         "elapsed_time": {
           "type": "object",
-          "required": [
-            "estimand",
-            "paired_task_geometric_mean_ratio",
-            "one_sided_upper_bound"
-          ],
+          "required": ["estimand", "paired_task_geometric_mean_ratio", "one_sided_upper_bound"],
           "properties": {
             "estimand": {"const": "paired_task_geometric_mean_ratio"},
             "paired_task_geometric_mean_ratio": {"type": "number", "exclusiveMinimum": 0},
@@ -368,24 +257,24 @@
             "equal_task_weighted_mean_ratio",
             "one_sided_upper_bound",
             "geometric_mean_task_ratios_used",
-            "structural_zero_treatment_cost_supported"
+            "structural_zero_treatment_cost_supported",
+            "zero_denominator_resample_policy",
+            "zero_denominator_draws"
           ],
           "properties": {
             "estimand": {"const": "ratio_of_equal_task_weighted_task_arm_mean_costs"},
             "equal_task_weighted_mean_ratio": {"type": "number", "minimum": 0},
             "one_sided_upper_bound": {"type": "number", "minimum": 0},
             "geometric_mean_task_ratios_used": {"const": false},
-            "structural_zero_treatment_cost_supported": {"const": true}
+            "structural_zero_treatment_cost_supported": {"const": true},
+            "zero_denominator_resample_policy": {"const": "automatic_cost_and_joint_failure_excluded_from_ci_quantile_v1"},
+            "zero_denominator_draws": {"type": "integer", "minimum": 0}
           },
           "additionalProperties": false
         },
         "code_quality": {
           "type": "object",
-          "required": [
-            "estimand",
-            "paired_task_mean_difference",
-            "one_sided_lower_bound"
-          ],
+          "required": ["estimand", "paired_task_mean_difference", "one_sided_lower_bound"],
           "properties": {
             "estimand": {"const": "paired_task_mean_difference"},
             "paired_task_mean_difference": {"type": "number"},
@@ -401,9 +290,9 @@
       "type": "object",
       "required": ["elapsed_time", "normalized_cost", "code_quality"],
       "properties": {
-        "elapsed_time": {"type": "number", "minimum": 0, "maximum": 1},
-        "normalized_cost": {"type": "number", "minimum": 0, "maximum": 1},
-        "code_quality": {"type": "number", "minimum": 0, "maximum": 1}
+        "elapsed_time": {"$ref": "#/$defs/probability"},
+        "normalized_cost": {"$ref": "#/$defs/probability"},
+        "code_quality": {"$ref": "#/$defs/probability"}
       },
       "additionalProperties": false
     },
@@ -420,21 +309,25 @@
         "all_marginal_at_least_target",
         "joint_at_least_target",
         "finite_estimates_and_ci_inputs",
+        "zero_denominator_resample_policy",
+        "zero_denominator_draws",
         "shared_resampling_sha256",
         "independence_shortcut_used",
         "statistical_gate_met"
       ],
       "properties": {
-        "comparison": {"type": "string", "minLength": 1},
-        "role": {"type": "string", "minLength": 1},
+        "comparison": {"enum": ["retrieved_memory_vs_no_memory", "retrieved_memory_vs_preoptimization_memory"]},
+        "role": {"enum": ["primary_development_contrast", "diagnostic_product_progress_only"]},
         "task_clusters": {"type": "integer", "minimum": 12, "maximum": 512},
         "resamples": {"type": "integer", "minimum": 100, "maximum": 10000},
         "target_power": {"const": 0.8},
         "marginal_power": {"$ref": "#/$defs/marginalPower"},
-        "joint_all_endpoint_power": {"type": "number", "minimum": 0, "maximum": 1},
+        "joint_all_endpoint_power": {"$ref": "#/$defs/probability"},
         "all_marginal_at_least_target": {"type": "boolean"},
         "joint_at_least_target": {"type": "boolean"},
         "finite_estimates_and_ci_inputs": {"const": true},
+        "zero_denominator_resample_policy": {"const": "automatic_cost_and_joint_failure_excluded_from_ci_quantile_v1"},
+        "zero_denominator_draws": {"type": "integer", "minimum": 0},
         "shared_resampling_sha256": {"$ref": "#/$defs/sha256"},
         "independence_shortcut_used": {"const": false},
         "statistical_gate_met": {"type": "boolean"}
@@ -444,23 +337,13 @@
     "primaryPower": {
       "allOf": [
         {"$ref": "#/$defs/powerResult"},
-        {
-          "properties": {
-            "comparison": {"const": "retrieved_memory_vs_no_memory"},
-            "role": {"const": "primary_development_contrast"}
-          }
-        }
+        {"properties": {"comparison": {"const": "retrieved_memory_vs_no_memory"}, "role": {"const": "primary_development_contrast"}}}
       ]
     },
     "diagnosticPower": {
       "allOf": [
         {"$ref": "#/$defs/powerResult"},
-        {
-          "properties": {
-            "comparison": {"const": "retrieved_memory_vs_preoptimization_memory"},
-            "role": {"const": "diagnostic_product_progress_only"}
-          }
-        }
+        {"properties": {"comparison": {"const": "retrieved_memory_vs_preoptimization_memory"}, "role": {"const": "diagnostic_product_progress_only"}}}
       ]
     },
     "powerCandidate": {
@@ -488,12 +371,8 @@
         "replacement_cell_limit": {"const": 0},
         "reserve_cell_limit": {"const": 0},
         "shared_resampling_sha256": {"$ref": "#/$defs/sha256"},
-        "primary": {
-          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/primaryPower"}]
-        },
-        "product_diagnostic": {
-          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/diagnosticPower"}]
-        }
+        "primary": {"anyOf": [{"$ref": "#/$defs/primaryPower"}, {"type": "null"}]},
+        "product_diagnostic": {"anyOf": [{"$ref": "#/$defs/diagnosticPower"}, {"type": "null"}]}
       },
       "additionalProperties": false
     },
@@ -510,24 +389,20 @@
         "reason"
       ],
       "properties": {
-        "comparison": {"type": "string", "minLength": 1},
-        "role": {"type": "string", "minLength": 1},
-        "selected_task_clusters": {
-          "type": ["integer", "null"],
-          "minimum": 12,
-          "maximum": 512
-        },
+        "comparison": {"enum": ["retrieved_memory_vs_no_memory", "retrieved_memory_vs_preoptimization_memory"]},
+        "role": {"enum": ["benchmark_primary_power_gate", "separate_product_improvement_gate"]},
+        "selected_task_clusters": {"type": ["integer", "null"], "minimum": 12, "maximum": 512},
         "statistical_gate_met": {"type": "boolean"},
         "every_marginal_and_joint_power_at_least_0_80": {"type": "boolean"},
-        "eligible_evidence": {"type": "boolean"},
-        "passed": {"type": "boolean"},
-        "alters_benchmark_primary_verdict": {"type": "boolean"},
+        "eligible_evidence": {"const": false},
+        "passed": {"const": false},
+        "alters_benchmark_primary_verdict": {"const": false},
         "reason": {
           "enum": [
-            "passed",
             "synthetic_fixture_not_decision_eligible",
             "pending_calibration",
             "candidate_not_owner_approved",
+            "no_authenticated_owner_approval_trust_anchor",
             "no_candidate_task_count_clears_every_power_gate"
           ]
         }
@@ -539,10 +414,7 @@
         {"$ref": "#/$defs/decision"},
         {
           "not": {"required": ["alters_benchmark_primary_verdict"]},
-          "properties": {
-            "comparison": {"const": "retrieved_memory_vs_no_memory"},
-            "role": {"const": "benchmark_primary_power_gate"}
-          }
+          "properties": {"comparison": {"const": "retrieved_memory_vs_no_memory"}, "role": {"const": "benchmark_primary_power_gate"}}
         }
       ]
     },
@@ -552,9 +424,7 @@
         {
           "required": ["alters_benchmark_primary_verdict"],
           "properties": {
-            "comparison": {
-              "const": "retrieved_memory_vs_preoptimization_memory"
-            },
+            "comparison": {"const": "retrieved_memory_vs_preoptimization_memory"},
             "role": {"const": "separate_product_improvement_gate"},
             "alters_benchmark_primary_verdict": {"const": false}
           }
@@ -566,6 +436,13 @@
       "required": [
         "repetitions_averaged_inside_task_arm",
         "independent_task_clusters",
+        "independence_closure_algorithm",
+        "complete_plan_sha256",
+        "v4_implementation_lock_sha256",
+        "execution_contract_sha256",
+        "execution_attestations_sha256",
+        "raw_artifacts_and_schemas_validated",
+        "owner_approval_authenticated",
         "all_calibration_members_development_calibration",
         "optimization_members_used",
         "holdout_members_used",
@@ -585,19 +462,22 @@
       "properties": {
         "repetitions_averaged_inside_task_arm": {"const": true},
         "independent_task_clusters": {"type": "integer", "minimum": 12},
+        "independence_closure_algorithm": {"const": "family_fix_session_material_edge_transitive_closure_v1"},
+        "complete_plan_sha256": {"$ref": "#/$defs/sha256"},
+        "v4_implementation_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "execution_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "execution_attestations_sha256": {"$ref": "#/$defs/sha256"},
+        "raw_artifacts_and_schemas_validated": {"const": true},
+        "owner_approval_authenticated": {"const": false},
         "all_calibration_members_development_calibration": {"const": true},
         "optimization_members_used": {"const": 0},
         "holdout_members_used": {"const": 0},
         "exact_four_arm_cells_and_invocations": {"const": true},
         "product_cycle_contract_sha256": {"$ref": "#/$defs/sha256"},
-        "product_cycle_schema_file_sha256": {
-          "const": "3e029222e76091740bb1e218a7b1e23fe464f98aa2c83797d3fe71ad0b97c288"
-        },
+        "product_cycle_schema_file_sha256": {"$ref": "#/$defs/sha256"},
         "product_cycle_evidence_canonical_bytes_sha256": {"$ref": "#/$defs/sha256"},
         "task_population_sha256": {"$ref": "#/$defs/sha256"},
-        "task_population_schema_file_sha256": {
-          "const": "2846906e0caa450e6c4dbc206648346ababbb91fed4675c0c7eca03cf506a8b9"
-        },
+        "task_population_schema_file_sha256": {"$ref": "#/$defs/sha256"},
         "task_population_contract_file_sha256": {"$ref": "#/$defs/sha256"},
         "candidate_lock_sha256": {"$ref": "#/$defs/sha256"},
         "source_byte_bindings_sha256": {"$ref": "#/$defs/sha256"},

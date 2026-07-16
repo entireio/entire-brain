@@ -95,12 +95,16 @@ confirmatory analyzer is implemented and path-locked.
   separate; the alternatives and all numeric powers remain null while approval/calibration is open.
 - `power_analysis_v4.py`, `schemas/final-calibration-v1.schema.json`,
   `schemas/power-analysis-v4.schema.json`, and `FINAL-CALIBRATION-POWER-V4.md`: standalone four-arm
-  development-calibration and power-sizing lane. It binds product-cycle v1 and task-population v2
-  bytes, requires at least 12 reviewed calibration-only task clusters after candidate lock, shares
-  deterministic task resamples across all endpoints and both contrasts, and requires every marginal
-  plus direct same-draw joint power to reach 0.80. Pending, candidate, and synthetic evidence cannot
-  pass; only owner-approved frozen development measurement is eligible. This lane does not modify
-  the locked v3 artifact, authorize budget, call a provider/model, or open holdout plaintext.
+  development-calibration and power-sizing lane. It validates raw product-cycle, task-population,
+  review-ledger, and receipt files under pinned Draft 2020-12 schemas; derives full
+  family/fix/session/material-edge closure; rejects related or duplicate calibration tasks; and
+  binds a complete pre-open plan, per-cell execution attestations, and a dedicated v4
+  analyzer/schema lock. The production plan fixes 10,000 resamples, seed, exhaustive grid, and both
+  contrasts' alternatives before opening. Shared cluster draws preserve dependence and require
+  every marginal plus direct same-draw joint power to reach 0.80. No authentication trust root is
+  configured, so pending, candidate, synthetic, and frozen development evidence all remain
+  nonpassing. This lane does not modify the locked v3 artifact, authorize budget, call a
+  provider/model, or open holdout plaintext.
 - `power-calibration-exploratory-v1.json`: content-addressed manifest for sparse retained legacy
   outcomes. The derived diagnostics are quarantined from confirmatory assumptions and cannot pass
   the power gate.
