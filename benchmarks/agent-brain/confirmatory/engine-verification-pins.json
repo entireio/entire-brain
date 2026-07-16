@@ -97,7 +97,7 @@
     "package_lock_repo_path": "scripts/bench/package-lock.json",
     "package_lock_sha256": "4a3eea2319165ee0253fa07c0bbffd07b8834ac552cce1947c99d5ea7d132e1a",
     "dependency_inventory_algorithm": "sha256_ordered_relative_path_nul_sha256_newline_v1",
-    "dependency_inventory_sha256": "06102ca220d769131ede19ba1e33b91ef029342b04c72e75b8117e9dcbead3d0",
+    "dependency_inventory_sha256": "1523d24f6b40e7365aea06b37e5b8e3fc4eafea3bdeb77905e1f621a5534aab9",
     "dependency_file_count": 2698,
     "dependency_total_bytes": 46597247,
     "node_llama_cpp_version": "3.18.1",

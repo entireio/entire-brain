@@ -91,7 +91,14 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         dependency = self.dependencies / "node-llama-cpp/index.js"
         dependency.parent.mkdir(parents=True)
         dependency.write_text("export const fixture = true;\n", encoding="utf-8")
+        # These paths sort differently as pathlib components and serialized
+        # relative strings; the evidence contract uses the latter.
+        (self.dependencies / "a-b").write_text("flat\n", encoding="utf-8")
+        nested = self.dependencies / "a/b"
+        nested.parent.mkdir(parents=True)
+        nested.write_text("nested\n", encoding="utf-8")
         rows, dependency_hash = VERIFY.dependency_rows(self.dependencies)
+        self.assertEqual([row[0] for row in rows], sorted(row[0] for row in rows))
 
         runtime_sources = {
             "server_script": VERIFY.REPO / "scripts/bench/embed-server.mjs",

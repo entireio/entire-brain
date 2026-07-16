@@ -315,6 +315,10 @@ def dependency_rows(root: pathlib.Path) -> tuple[list[tuple[str, str, int]], str
             continue
         if path.is_file():
             rows.append((path.relative_to(root).as_posix(), sha256_file(path), path.stat().st_size))
+    # Canonicalize by the serialized relative path. ``Path`` ordering compares
+    # path components, which differs from string ordering for layouts such as
+    # ``a-b`` versus ``a/b``. The protocol checker hashes the serialized paths.
+    rows.sort(key=lambda row: row[0])
     aggregate = hashlib.sha256()
     for relative, digest, _ in rows:
         aggregate.update(relative.encode("utf-8"))
