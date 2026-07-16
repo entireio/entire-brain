@@ -43,6 +43,31 @@ cmp /tmp/development-task-eligibility-scan-v1.json \
   benchmarks/agent-brain/confirmatory/development-task-eligibility-scan-v1.json
 ```
 
+The separate v2 development inventory extends structural scanning to pinned 31-unit windows for
+`github.com/entireio/entire-brain`, `github.com/entirehq/entiredb`, and
+`github.com/entireio/entire-graph`. It records 62 additional candidates: 20 low, 14 medium, and 28
+high. Production Go is `.go AND NOT test_evidence`, preventing fixture/helper Go files from entering
+the reversal set. Single-parent units bind the integration commit as their source lineage;
+two-parent units bind the feature-branch lineage. Changed Go tests bind their package targets, while
+fixture/helper-only evidence binds the nearest ancestor package with `_test.go` files. All Git reads
+disable replacement objects and lazy fetch internally; any replace ref, graft file, or shallow
+boundary fails the scan. Object diffs pin
+attribute lookup to the candidate commit, while any nonempty repository `info/attributes` file
+or effective `diff` attribute on a diffed path fails closed.
+
+The v2 ledgers bind exact remote/ref/pinned-head/base/window, require the pinned head to remain an
+ancestor of the authoritative remote tip, and bind candidate-tree module/workspace manifests,
+exact Git and repository-specific Go/native toolchains, test-evidence kinds, target commitments,
+diff hashes, and stable patch IDs. They contain no prompt or patch bytes. Their 62 identities are permanently
+development-only, all source sessions remain unresolved, and no owner key, split, population, or run
+authority exists. The global registry combines them with the 23 CLI v1 identities and reports zero
+exact duplicate groups across commit, tree, source/test/full diff, and source/test/full stable patch
+ID under one canonical full-index profile. CLI v1 legacy diff hashes remain labeled separately and
+are not used as cross-repository identity dimensions. Repeated path sets are diagnostic only and do
+not resolve semantic or family overlap. See
+`MULTI-REPOSITORY-DEVELOPMENT-INVENTORY-V2.md` for exact counts and reproduction commands. No v2
+negative control is implemented or executed by this slice.
+
 `task_negative_control.py` is the next development-only filter. For each statically screened
 candidate, it runs the packages containing changed Go tests from a clean detached candidate worktree,
 then creates a second clean detached worktree, reverses only the production Go patch against the first
@@ -166,6 +191,8 @@ The schemas are:
 
 - `confirmatory/schemas/task-population-v2.schema.json`
 - `confirmatory/schemas/development-task-eligibility-scan-v1.schema.json`
+- `confirmatory/schemas/development-task-eligibility-scan-v2.schema.json`
+- `confirmatory/schemas/development-task-overlap-registry-v1.schema.json`
 - `confirmatory/schemas/development-task-negative-control-v1.schema.json`
 - `confirmatory/schemas/development-task-symptom-review-v1.schema.json`
 - `schemas/task-review-ledger-v2.schema.json`

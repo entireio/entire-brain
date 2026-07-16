@@ -1,0 +1,2982 @@
+{
+  "authority": {
+    "benchmark_execution": "forbidden_not_executed",
+    "calibration_membership": "forbidden_permanent_development_exposure",
+    "confirmatory_holdout_membership": "forbidden_permanent_development_exposure",
+    "owner_key": "absent_not_fabricated",
+    "population_assignment": "absent_not_authorized",
+    "source_session_identity": "unresolved_no_owner_source_session_receipt",
+    "status": "non_authoritative_development_inventory_only"
+  },
+  "candidates": [
+    {
+      "candidate_ref": "e0b36ace4b7e50a92617f3704a1eb915e2b68d6f5c3c6db1acb83638bf7ecd67",
+      "changed_go_test_file_count": 3,
+      "changed_path_count": 8,
+      "changed_paths_sha256": "0eadb2a17f1a19034bbc1e1fda9a82f5a5ce081add46ee175b01ed8f7278ad06",
+      "commit_oid": "dcb157ed8fa745bdf9a184bdf83d0844da55b9a4",
+      "committed_at": "2026-06-01T16:43:49-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 1,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "60f76449a71f2b9d9239b11b20f75b1c8c86e3432469fd722d71e7e6a6e4cd6e",
+      "full_stable_patch_id": "139801f78a7d682dab93c0ea7ec1a4f43c54e546",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "d3271d235a2669da67d9f6924bb31cf6fd82349c",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "dc7d3ed4de8bb6b1f66ace244eb9932b346ed3b39e4d13f583f70f7ac0704ca8",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "66760ab56233177db165d19a62a132ee694f9a2510f965a05f950f0e25819c0e",
+      "source_file_count": 3,
+      "source_lineage_commit_oids": [
+        "dcb157ed8fa745bdf9a184bdf83d0844da55b9a4"
+      ],
+      "source_lineage_sha256": "55f831fd00edde556c4dec653e215e80f1caacdcac76ccc8e50c0140114127a3",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "9c448abb8c2a839e89a59b794ad31c11adf6e31f",
+      "static_scope_band": "high",
+      "static_scope_score": 10,
+      "test_diff_sha256": "7ebf8122d4186e6b44ed726fc65ecf3785046bae93edab2970929434ecf59d2f",
+      "test_evidence_paths_sha256": "658384fd07ab484dd9928c73140dae033c6830f741ccefec480993e9c2a9e222",
+      "test_file_count": 3,
+      "test_stable_patch_id": "177b1e430946d721d3c39975bed7e593778cccc8",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "97758f95303563cf387bbfec52967a8cbb549773372c14adf1432ea81c22d022",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 4,
+          "owner_go_test_paths_sha256": "e3df196b39f36bb3e06c2d365f59064e6183edc04734b5f752821531ba87eee2",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        },
+        {
+          "bound_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        },
+        {
+          "bound_evidence_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "package_dir_sha256": "ef72edc6defc635bf05c24cd81d009b6a1088d6cc0174f90d3620013b447e812",
+          "target_sha256": "aae699d11834fc50501f703b20886125acfa39d5dff4a4ccaa5bedcea0f0a8de"
+        }
+      ],
+      "tree_oid": "ca5ade748e86d143f0a1963e6cbd178a8fe15bb0",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "3aab63bee0d8941176bd6263f3dc30cccce380e49aad13c68c76cb357b284827",
+      "changed_go_test_file_count": 2,
+      "changed_path_count": 5,
+      "changed_paths_sha256": "07b7a1500d5db880b66fb83331263766354abf5ba72bc9cc377900286fbeb311",
+      "commit_oid": "72d9d4862195a63b25d3de85b74581b36d3d51a3",
+      "committed_at": "2026-06-04T13:01:51-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 4,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "caac958485c48683b55ee03b08a48cb7758c52ba72f415a5db6302694dc8844a",
+      "full_stable_patch_id": "d1dc9ac20aad3a2dd456f4a29a1efcfc7237f9be",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "78d4950cbe6177bfaf38d622a331e3242e6bebc1",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "0c79991e6172655b3090d8e0f15fc8d2b171eae101682efb55dac59108040fe1",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "ca5440a89dd03cfd957499c1fa0d1efb42ed0664009266d7f0deb7cc3df2e5ad",
+      "source_file_count": 2,
+      "source_lineage_commit_oids": [
+        "72d9d4862195a63b25d3de85b74581b36d3d51a3"
+      ],
+      "source_lineage_sha256": "779037baccce5c1962013a0431aa17a37acb96b1aeedc67f993b3fd1d03d8b00",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "f2cd0c84c0395a7a7539756ad74dfb5dd7e21adf",
+      "static_scope_band": "low",
+      "static_scope_score": 5,
+      "test_diff_sha256": "4c816d26e0f518b39b2136fb3d34de0a189969272a4fcc2d19fd678bd80c5d87",
+      "test_evidence_paths_sha256": "42b07911a3e004a49e27df603738ec060e4b3d31aaea188b72dad6e7ca813766",
+      "test_file_count": 2,
+      "test_stable_patch_id": "43097610eb06f594fe67ef1fbd7cf2db6b175d73",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "42b07911a3e004a49e27df603738ec060e4b3d31aaea188b72dad6e7ca813766",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 4,
+          "owner_go_test_paths_sha256": "e3df196b39f36bb3e06c2d365f59064e6183edc04734b5f752821531ba87eee2",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "b242a948e53506879561dbd2edc7bceabccb221b",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "5ecc958def390ce050519b2e0e1401b6ffd33847f5a518205f36855b9ff33683",
+      "changed_go_test_file_count": 5,
+      "changed_path_count": 14,
+      "changed_paths_sha256": "c010c918bc4ac397fd49dad814a0d7505492043ae96240e1e3e83b1660a32105",
+      "commit_oid": "caacac2fcaab62de7c85c96ad91574e2cdcba87a",
+      "committed_at": "2026-06-06T21:07:45-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 5,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "cef5bf4f8cfdb10447aadc695cdc55bd3754feabdb3411ee81bce9e24c9133b6",
+      "full_stable_patch_id": "6665c235b88593048ffd374a67d858c24eda6fae",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "72d9d4862195a63b25d3de85b74581b36d3d51a3",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "7c9bfae174dfedc23f5a64619a0aa1dca161c317cb9e639bd5b1e88bbc8d569e",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "6e7793b91edc1908ece89e0e1ed4338296a665c404aa998a58cd10c18dd3c0d4",
+      "source_file_count": 5,
+      "source_lineage_commit_oids": [
+        "c490fd86ad6e2d9237d7db4e0993be07bf9a9e3a",
+        "f3f962c4b99648da6251f18487218ff6916f4b97",
+        "9e94158e8efeafd1b9ea53946d13d891de696ea9"
+      ],
+      "source_lineage_sha256": "fc4523c24d4978b75b52a84eba3f545e7a63f7e2bc9b971a50ef7edc02d02689",
+      "source_package_count": 3,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "f8f50ef467c33b98d18775ef739ebad33a252a54",
+      "static_scope_band": "high",
+      "static_scope_score": 12,
+      "test_diff_sha256": "072382ade15bdb479d89a595a526f4e1670fd167b38e97df552db9f4a1a22d88",
+      "test_evidence_paths_sha256": "5b94e2acf7e6c92a06e1d1669cba1f45aeaad06346b395defbd01695f43bfb78",
+      "test_file_count": 5,
+      "test_stable_patch_id": "8375e59dc230fe5e172b9a0bf2006ea2eb7c4263",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "30b0fe8563df14aadfbe750bbc46e6dc8b1d3eef0bb8b38c9ccc5182defe0041",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 5,
+          "owner_go_test_paths_sha256": "27d8b16f95fa061acd73bdbbe9d0863a5b9992ddb0e2dd0b7efa0348cd425741",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        },
+        {
+          "bound_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        },
+        {
+          "bound_evidence_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "package_dir_sha256": "ef72edc6defc635bf05c24cd81d009b6a1088d6cc0174f90d3620013b447e812",
+          "target_sha256": "aae699d11834fc50501f703b20886125acfa39d5dff4a4ccaa5bedcea0f0a8de"
+        }
+      ],
+      "tree_oid": "9c6d836ccdb7b28d52fb763f0d89ae69c782b021",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "3039a959d26e0dd50dad100431fd941849f9dff6cd5a07efc51ab208f9ba0258",
+      "changed_go_test_file_count": 2,
+      "changed_path_count": 7,
+      "changed_paths_sha256": "069dbdae3422fd37a2a74cdb674ca0689e2ed355d7d25d5d4f98b89639a7dd85",
+      "commit_oid": "7e5ce40713e6d7cf6ee817f6832e0776438ba258",
+      "committed_at": "2026-06-07T09:23:09-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 6,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "2562808c25e74a35f55733e73f87492efd0e2e1f4d8e9982a61183c143206bbf",
+      "full_stable_patch_id": "45b3e41155dd5decb25cb00833386c691683d86d",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "caacac2fcaab62de7c85c96ad91574e2cdcba87a",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "b43454be7c55dba726fa1de38c95c213daaf5045441c13271b688ce053186887",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "4e32d930e99bc55dda71d12b2ab3caf77a7dfb938f250c920e086012333ba45f",
+      "source_file_count": 3,
+      "source_lineage_commit_oids": [
+        "a55acac74ae0c0fb590053a10a2bafc47b7ac527",
+        "1849a274279e819983772ada1d329ca4c80e91be",
+        "3444b948acbc56d1c1b37a5f71ef21ece6c3c283"
+      ],
+      "source_lineage_sha256": "23edb46b0b0811f670b7a88f1fb75fd162d3b31d8e4577ee92b8ef183d6f43db",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "036b389af1b628b056fbaced0a772dfd33611581",
+      "static_scope_band": "high",
+      "static_scope_score": 9,
+      "test_diff_sha256": "cfd3dd89ea052a943ddc6f6c11e979050fe8a81f92b53129fa1fbb391966a22a",
+      "test_evidence_paths_sha256": "74c739124169a0482948bcfc66dc595cc2b83afd93a38599f9aebebb4c85b6eb",
+      "test_file_count": 2,
+      "test_stable_patch_id": "e8eb8db9d06d13e991805d0d8b5bdb08a9102eeb",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "97758f95303563cf387bbfec52967a8cbb549773372c14adf1432ea81c22d022",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 5,
+          "owner_go_test_paths_sha256": "27d8b16f95fa061acd73bdbbe9d0863a5b9992ddb0e2dd0b7efa0348cd425741",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        },
+        {
+          "bound_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "3aa1247fecf8b4a10f17d08ff232745313a933b5",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "39fbe1a77640796ae35a32b5aac7d3fea56897c1e57befd888350f12a4c4f06a",
+      "changed_go_test_file_count": 10,
+      "changed_path_count": 124,
+      "changed_paths_sha256": "a5d1b137d4f5f344d284bfa8e68850ebb7c58b0c30c70ec462d13a85bd64c14d",
+      "commit_oid": "35e7e5b849af3f74aee40e9a5d69ee93b941fbac",
+      "committed_at": "2026-06-24T17:21:43-04:00",
+      "evidence_kind": "changed_go_test_and_fixture_or_helper",
+      "first_parent_position": 7,
+      "fixture_or_helper_file_count": 71,
+      "fixture_owner_bindings": [
+        {
+          "fixture_or_helper_path_sha256": "01b74a1c96d5b252e4baf3a9b62645a26a6787cbc0dfdb5a83a0f3d58c7c3351",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "0b530f4e0af36894180c36d3d5d8aa287587fbfa60e9e698805e695cbd3a8034",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "169f52011e18082d87457f1ea0f96c4665504c2a5a9f494c7a1d09eccdfe6953",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "223068db47de36a3c34f495a2c6fb4f9c248e019dbe47aa7fbb5bc64961e4b5a",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "2572d3b99e3b4764b5ca69471996a01a31bcf3528b6d175cff37aaa1d8e37322",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "2744b1cc2b5b48f2a3c2323eef226906b5a3c0f6f3ca5f43c2fc3a3ff25f2671",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "2f8fa02e4cd418111253ff627a42b4c2cffa91c1831991c1652047d793fa4d08",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "35416b7fdd3d27c44080b85adb56cf5f0ea031319aa79ba1aa1de11f28122a84",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "355f197a99f489080da72261503627b82bba737d000e191e40ddd48c372d1b41",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "37df379067ee86811de5eaa4a86837e508c854cbc6f0720c051fefb9333edd0e",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "3b807be4ec5e47374a0bb656aa531815420aab94537ea7ed7f7a6caf46f2a849",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "3f86affa88b8c6c4f80908c3a3bf3d5f9ba573acf8796a59099daba326440c4a",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "40dd4df47f8d360b31f704a4586ae77ace0764eb57297a0a666e5818f41609fb",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "4afebc3c96f82b5fd4645b9eb92dffc359045da4c7ddebceaf7fb032e3f1a8f8",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "4c0b91d96af64cd21b6875654549039667b1ad8130bd8cd952e33db30589503f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5155311ff383858f80268a2d41f1997f7b72480e080dba29e3d05957eccd4296",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "517ebfb627b35df8c5bfa6d3d80bc56f9c818310697f2ee0fe6bfe62dc724158",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "578c8a03cb8c66f160245e95125a4311a15be6a7e2bbfdf2a10b54318079b93a",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "582111448b09dd3bd4b5733f32a98a309addf7b811119cb8a668b2c01f09f5bd",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5cd12bae64cd92198be82d69f1be768e58b9ba8eb046d63da28558a169318cb3",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5df7200c8172ca1c97bc008b48f48fc5b04ca9a53df1152be0d16cfe514afba4",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5e32dc680c6d0c83639a9ef48cd3e7f890509bd737d6d114b9362768ae864a84",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5ee7d5de63c987accb1e0634966abd7304192d0dbf6cdd45fd193ac9fdc5f4d5",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5fb3655651498f50d27b73cf173241bd34c98fccae455eb56ad68be89301ee9b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "63c758d412167ac36c9dd0589fe0e1a0b1a7bbe1e5e77abfae4b328de4923876",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "6fb661ee4d1675dde48ebe5620f985ccf14d6e722fe385ed154cdd973c38c4e9",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "6fe7d44935d72bea54010defb29943db3e858040ebfba03843c83d195bc30389",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "70b15f4af6b66e199579b0d96ea0f0c5ccf59771ffc2546f687761762a2144fc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7537ca7df09ee405816f39251e473e8befff06ef5da9fc94f14976b9db065c7f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "77b6cba75bb3861c677bcda679a6503f88222ec1936d79fc2fb31baf7613b5be",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7866a14b732b8ea8b3db02cd38d8c10b274e6a0cdbb044b5276cb4e23ac6b3bc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7b7b9c57333b3d94bf7579b312808eacf60fba4bc1f1562c2823bbb96726c98c",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8bc2357d26e9f102ff1b248530a2128a7d2a3880371de8a14a2369fd427fafa7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8c8c5d2d1b5bbd7671aa0ed10feca356fa884db19649e9201e060b3c5e3ecbed",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8fe5e95bdd95d8ba558491e32408c9f7f673106f7931bbfcbc583df657b9c745",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "94d1fbe008bcae8dd5340e184877a2b6a09690080e3aeb5ff247024fb3b3b6ae",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "9961dd9237e303ca1ee7cc9261c7f00c1e53174ef583d2c8cbdf03b2c2d13ef6",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "99b3c149ad55bfce1f3ee00fe96a88cbcb9f11d130658ade4638df96d2955b1e",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a303c863111f35ee8be8968fc85d0698ceb8483ea288b1a65660fb0b37d6f90b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a43e5f042eeccf3ab2d7ffafa4fdcdf4327c5dafb7833b590b9ddbaf613ec0c1",
+          "module_root": ".",
+          "owner_package_dir_sha256": "50a3bbc5136f63bab0b850fe8d41b75ca12e950f7e0278b7909da5a4b5ed090c",
+          "owner_test_paths_sha256": "4ef489303c8ef7d893efad43eed879e0d82383041c28b9d1124a445222b384af"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a63006bd9a2ebbaab3ffd2aa158b01c45e458cd4362f004a6b99d9140c96b2dd",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a930a44f2ebd8f5fccc9c2bc177a9a429f885505722ad5ce46576d58db17f726",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b319a744656ca79cce531f2efefc30e5b1706d3d82c917d9f8022d3652c63bbf",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b5510a404aa098dc68f5294dee29d4a4e5fbdfb0c98f77173d175d61d720d2a1",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b55b13980ad08c7f333fb44496a7ec9c6801aaa71b103b8600b48a2583b4c64b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b73993c6228fca95f2a45cceafc0b2951cc62b7987e21d01d96692930bae9d69",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "ba0464076efcefdef54ac839eebf8a11ef0586835541a1b35628a91ffb3cd4dc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "ba8de04827b4dc12afa00cbb12eb635b21d2fcc2e316bd6a47ac156f758b3425",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bb7bd46e08c3557a21708f1bd5f5714e7ab14ced2cf1ae3c1d003bcc38955e6f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bdf0319ffc2ca62a4bf503c87e57e8b3fdee9a079cc6058eebcdbca4d8469664",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bf394143d74b00c45a410db6306999a6aa478bef4994f5b094ec90b476647010",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bf6baeb20a25216eda854ab942fd54b27067503a1b487aceffe15e5360b086e0",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bfec425562e9aaf8e175e37bc6a54bb4c13083fd37c9642a78b98ae0da383cde",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "c139edddc6f147b5e961954cc3aa6c30e5319110d3ed90e85ac7c9f5b8e021c3",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "c297a0309c2c09044f0a6881ba1413416ee2863daa071e56f2e06cadcc8af1db",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "c6adddb0adef570ed0fa7f661fc193210043a7607234ee33324e567c27339878",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cbb10a3e08a540aa87662499aab2defd066ee67da597d29b130ae06a8e0d700d",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cd7812c6702aa7f9f4ed0f5311e3889a799df6999ea4e88c7efcff4f5537e9a7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cdc3f9384558b000900ae1910b687e6b12082b30b2a149fa00d7017c899e6591",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "dc15209ed753285e2f82b5cba05d362806b57398fc8aec1a332236a829f9a088",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "de49de8291cd05ba29c98851c5134c6f9d4decd4daf749b6d34add9baab79b08",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "de9f76b732ddbf090f72831ea13b1010fd61c18b32f1856ad9d871209ee90aeb",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e024357758d0aea38fa736a671930b9a3b7fb52617cee9cd6fc7df44be7ff33b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e03b92862111ccd9adeea66b9fdf47331f7d86862b078b0150c129e4b2ed0009",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e7ee66cd3d3a3e8b5c5f8fe38d9e2a573af078e596fe27fd64d3f019419147dc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e8a6e131e7b1eb43667228eada260f01d0ef184f8e64fb086e631c1328cc6e33",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e9900a5dc5b1cdb9650248b4c2d965f28350f5e2e7c4bfc602dba674eee79c7b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "ebf502aca68eeb39453a18f78b9bf8375ea1b4d7ecd9e6f22fcda538b6209438",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f54731b249e104adad4a1fbd694d781298f25224fc4e612eccc26acff970ecb8",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f693256320aacbd613e08cfc5bcf38e38a5d0f4af6f88ed03abaed3c8a10e2c0",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f90e4772658ed2c874e97771908b522e5b829c837c52ea7b6e80b959502111ad",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        }
+      ],
+      "full_diff_sha256": "ff78ce56e4c738957a9dca756721b5722607046616ea8e1f88e5ba244185799c",
+      "full_stable_patch_id": "e42d3273fd1397314e6e1e2565cfb6676dda4122",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "7e5ce40713e6d7cf6ee817f6832e0776438ba258",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "cd594088a757f1840e0061b8ffd75d974b5b8ac705ab085a6eec80f900895c12",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "82d85b96b5d51a2195e20998a9ae2909dbc132a9c7d8730327a313b4ae7e8077",
+      "source_file_count": 19,
+      "source_lineage_commit_oids": [
+        "f0aa84ef4499a46941faad758752e326bc7bfb0a",
+        "7c0cbab0261ecd6b69aac70eb9c7439074125861",
+        "5e8db2294bb3b83ddb35433705f7cb4e06b4422d",
+        "556196acb113a399fad40c0c90aef93e3fa92006",
+        "a95b1bdf116b009e0cee747ed2664bd2ff500d83",
+        "b86d0905541ae51e3908771779fe1d7d740d2210",
+        "7fe1d47796b82894eb7fe13e18c0612c44276df8",
+        "363b98b4c606d8fae59c2ee65126345ef8602ff4",
+        "44ef7f0d470fefde58428952b10131979506f95d",
+        "b6ce0cb7b983154ff3f4ae79b85e978f8a981c96",
+        "6168ade88e2cf628e0722250a2a15793d873446e",
+        "95f1c9411e18e7a71c70b8cd3a7d6ad6c60eca4b",
+        "53b794089be71c47bbcdf2a627264946efff8ab9",
+        "238e73aed8c357c8f0783806978c1b4257a74753",
+        "4bbbe3ee3c00088e32cfc1ed82bc2745fafbe9da",
+        "45f9052be1a064801ae99b1dc5fc2d01ebbc1ae5",
+        "84b74d9b2f348c307c6dda9f28933bb4b31eabb1",
+        "5a2813e7d381df2b0af15a6969fc37f54861dcf8",
+        "7bc9138e2eb888d6f3b780aacf5bd5a033d9e8ba",
+        "3e37f9fef04e2702b20258bd3943a45c3acd255d",
+        "03b446fa05b40eebfc8ae23930a25fc2c1dc8926",
+        "8a4ca6004e947a21fc8a4b82cf371ef7a4ec197d",
+        "61898373e467fa1caa0484bc4b6fb30205a2868a",
+        "51be6572cf9691103294d3037d1fd3b416a76d9b",
+        "a63e46d4198ecc18f7f654e8f596ab2cdd6dcbbd",
+        "606ac9cc150ccacab42f83fdb7520a5681bfaf78",
+        "cab216076bf67c2fdd1454e31d2b399e7c7ed7bb",
+        "c96618f88d3ae396530bb31bb12d67b3e0ea712a",
+        "adc3cd6bdc6fd034d411edb459eaeda8a20fbbfa",
+        "eb0aad7c1f68a05317abae58cddd8b9e084f4e8b",
+        "6660e0b3a9f7acd13084118cd48976457f9ce7a0",
+        "36b4075d2217748b6aeb23fefcd81349ec821631",
+        "60ea80acc5f51ab3c17d0d10d3b2874e7f9bbb26",
+        "4a3eed463493986202f3f9a5ff2332448e0e2880",
+        "c2fb424b6ebb36db5365ae07f342a4d1db6b2601",
+        "6b84da937da4293ab921820e83d9e27c8e510239",
+        "aa483da9f2a437407cde23cd1ad34154a234ebd7",
+        "e965a6fc4da66d1ffb872174887d78ecdc781593",
+        "6f567b81712f77d44438f909f1d64dafd058224c",
+        "4aa8d35189e50f46977466446e4229e0149b1b38",
+        "e97adf18820ffecbce9175e1cfd98aba8925e8e6",
+        "dbe19d8b90efca2ec0ea5da742e25d7675c9aba7",
+        "dbf1baf271cc3e2f03531ce89c2f830b0d353ab9",
+        "d280557c69c6da6af6fa634ee701dc1bd16f1f0a",
+        "0df9cd88e60edbf6f670683042ca7d681c86e2d1",
+        "c28e1064cafe904a34e885ef878983105d661bba",
+        "775c35a85f9236f3d2dedadaf99ee500842960ed",
+        "725a4601a79c5bd1d07ed267540bff92077098f6",
+        "9147928e8ae23be7e8740c684d0ec3889aeb475b",
+        "bd7b797f377f7eda1900e575e25be063576ddc31",
+        "dec428cec707a421fd4507d863d562c710360877",
+        "e4772ed1063d4cfe01160a1a9e70a2a8105b1779",
+        "b7395facaf00e8aab60ed33bcc6e561060dc4725",
+        "5595d8a6ef9a64b0a261c7ad5a50ec8c780151f2",
+        "9150c060ce3a8dd20ef8d9c16c2efe9cf4cbf2e8",
+        "a81c5d04936f32a7f5ff915df19d31040af50ee1",
+        "aa5e1421b88d49ad3c24f0d6396e6ce871b2ebed",
+        "9220b620972cbf972acfc52fa9fa0141b407d655",
+        "06b8b5a9b9a34a96c00a63b68df6063e61d61a5a",
+        "9280da5079ca5a48532bdf1da42fe47dc85f906f",
+        "1af9109815d95bbd0afa40a5f3fd5b2e5bde62d5",
+        "2eb3cf28d5c621b0e29a871ddeb03290fba61687",
+        "74d56707aae69c11b85e3ec6fc627fe5cb5ef0fc",
+        "584242afd7ba8f0e69301f651e7fcfeeefb398bb",
+        "ab9f1da92a910e55a9f0bcad91968c94af8c873a",
+        "57df4a8de7b821e95b73af4ffdf12bdc2f616ce1",
+        "0157eeec88508244985e94d42513cf2159f01f8e",
+        "ddb5753faafa1bcc9448ad9057979343aa5ba6c2",
+        "90b2d1c72815d060b6653ebaa036425c10d40872",
+        "33b6da2d5f3d2c35f2445b341770d264e1df92f0",
+        "220df84b3259fc000c5b8d3a130b257f91a10802",
+        "507963e48f6a427c472239cf362da3ac27980d51",
+        "bf77e20a128cced2c8981a232cb3075d82536653",
+        "b73ac8449e057033563c45aabd06817b9601758a",
+        "c44900ff8715750dee80150524864fa4257cc53f",
+        "d77e2ea6ac641f57a5a7a92f325f6250046c90dd",
+        "55c2bd4406831690b55227798d36b2344994a535",
+        "b050d7f1b5947fb2f2269eb221e86d53e7ebd9a6",
+        "431eb30ef41d24d61603f54704688cc9e64b6d36",
+        "f676bbdbc66dad57827404cd52c88bafd1cbd7bf",
+        "86e04f7fd7c5c9d8990248fdb4767ddd1a2d8457",
+        "1f89c7e9e78b78fa1d5cd7c551ad2931642ee4e2",
+        "d4398689072d120dd3f3887ff4da94c67f78d85f",
+        "75aab5c961c2437d9b5ac2fa57a6ef31d8a82f76",
+        "4336d6c93f8e80ee46cd85bc3c3c4a0c8c279826",
+        "524ae7b5a4306b2b20c096885c372cacf302ad71",
+        "68bd0cb6ebf5994740827822df13f14294552d2a",
+        "0f4c9c77aeaa8759c4431818e65c1bc24c6748bf",
+        "7bbcedd3db43e102d5a9a879b09e7a12cfe2ae58",
+        "0370c182a39672e176d2566c024501dc19fc6909",
+        "e4fb210e33711b007383f8054e9f835b9a437925",
+        "005cda32bcd45cb22c98c31317de5a123e5507df",
+        "92273de8427f2dd1793293871d58d253b13f3bac",
+        "15aa418b956f4b951a40e0d4cc098155aa4563da",
+        "79caedc1f66efd866c95c720ed4b39c2bfbebca9",
+        "ef0d4afe04b01340a446394ae41b1fea06083f27",
+        "ab7bbdc171de8d0bbc85254c4f5e49064801a849",
+        "4de54fcf8bb1455f4e60718d8bddb878d11dd63e",
+        "aa860774efa6ad1497cfa14158e8bbf44ad36986",
+        "65ae6ec27a4743f1c8def7ae0bfdfaec9fba3321",
+        "a2d7a4ec2bbc3051136474f91fd77e4d567b532a",
+        "0c424d3247310bffe05d7366135a91adc18d0051",
+        "9d5fa72deed44cc43181d5b8dc32e44b40a1143f",
+        "456f03f6a5246fadc4bf537d6d2f4feb86bcec27",
+        "717c18e1ff8c054f6023cdb92c041664da36449b",
+        "918b266d9d8d9c77bc7164a813cab21e53d6a6c7",
+        "e814e2b11c2cab0155c075e50a21c9d083ed660d",
+        "1a7e3da7fa284c6edde33dd7dad442de69a6a42a",
+        "da2cb8b64744d4d2f2d8bd069525e799c943d7dc",
+        "b73ab300950c24552e5cdd2003d33cbe03854059",
+        "4feff44585c7ad861019c415b2b34a0fec2f0465",
+        "2d3c553db9625f8d1ee712b07f85b6644d31a1a4",
+        "4df469c7937a4e6014f9ef94bab09e56244ef1fd",
+        "55f24aef45831d98d5b08ac1a2b43597974fe640",
+        "796dc1eb1c7dcc97f2085c5c28485fe086c76b81",
+        "109ea565fa2d4e1b0d8f70dfb90b44a7d14bd7f8",
+        "5b9568a7db8e14b1ea48626a8dbc02b755f684ef",
+        "ee2275804eb2d28c97d859a922661a625a6d1197",
+        "1d4e190faacc3a2dd93374b31684050ac61cdff9",
+        "29c518037ef3eab1bdfab9aa0ec0dd5d5ab7092b",
+        "f386cbacd7608be97113b986ce6bec24d49147c6",
+        "69e3d77d13c3b710210db06fb5db9a5a7b3a740f",
+        "f21ea0a857ad26d84dc4c2ba3609a67c380349f8",
+        "8db0265cd686c94d5aba19a32c4950f4487fec76",
+        "4de0ee73a3eb79ae0084fcf86e3a106440b11888",
+        "024d9d539052edc58fb87c47359dbf0d91a0605b",
+        "9ab983f261669c8dbe3c21e4fde65233521fc650",
+        "fb94d97a399584d5ace00ea18bbc63eb56811341",
+        "43ab54b06f60121e832c807e06688dbe416662ae",
+        "6cb3f78f23192be606d6ffa8d472fa6f0156f4dc",
+        "ac8d2586d7ef2c0f8e9952efc05326d9f71d3c7f",
+        "5bbf7161310fb1fa3346538c28aa0791a69770a8",
+        "f82909f1966b0bbd4edd7b6c7a43108bea93a9a9",
+        "72f269429a2ca80aeef17414959ebd70864c6cae",
+        "27e825b0403b87a6fb73f1f9c117818a5199b4c1",
+        "c7c215ce7c74d8da6a6eb54b0bc7d13d724d1410",
+        "4b9163644cfd4c520707bb21e600c470593e19b1",
+        "f49c584ac044d8aa50dfb2446c60406817fbb4a7",
+        "b26b3a55bb99983e997710232b3f1bdab43ee567",
+        "ed7e5f1386034dd7650c33e5afa489b00570cdbc",
+        "a5584f21f777ad3b193dc6d3584baeafbdaca872",
+        "84e685675761c81e4027b9e780618d6bf7726e50",
+        "ddd43aea6b6b0ee12e1734637de1decc221c6743",
+        "bcdf9d77c652ec0bc09d5e37f638af4b271ee377",
+        "e800ccfbf223b3943d821fcda5c2f0b30a6454f9",
+        "26e65729c81c2a70546a24ca6f28d45b7b9f4e01",
+        "33bd51c6f3920fc650cf7567ad6d62a73929d32f",
+        "3298b72c3c989df04029c02f7cc708e77483a521",
+        "9867851c0dd7c645977d3a6a16521e71547c2947",
+        "5a6e4d650bee5e8f44454eca3a15be462e4a9955",
+        "d4adc00d985f67937d2a2c84b7d57e3fd5617a7d",
+        "8fb0cfd4c2b799f6da5301dbb181263bcab567a0",
+        "c69dbaf732acdb6d79313e73e805e9d058c5b0ff",
+        "65ac981d4b42c5ac82cadce0e8067322eee9b509",
+        "d25424f50e6426e64d943217c3ce1a65b5032b81",
+        "dee48705f388c35be26d70942d461d3a2992deca",
+        "094b7669270f503c7ae4a378831591122638e823",
+        "84650bf7d437207d7849773ffa7522e5d0b89d60",
+        "4322f52cf37e63f6e2104914b347a3a0ed35f493",
+        "b26dc60b21a7ef74a501c5e9b880013b573fc292",
+        "a56c2435156b5d139401faa6f53f993088b5caa0",
+        "7d2b7e3c0e3b8ed309eb6731ce4d49e513e319eb",
+        "9f5be7c69323c5add9bf6ea5a2964b989c91d2fd",
+        "afa97db993247e8178b4cc450ef1554829534653",
+        "4cf07acf3584d70a120ac5beddce70dd8d60624e",
+        "f180bdd72c4dfe649ea66177b0b6028c5160e7ca",
+        "92e5e5320540fc63fb949db7f1cdc97e8d9bcff7",
+        "cef134eff6dba85e83a796adc0a26eaaa2eca59c",
+        "bc8eb6fcbb4b48fd9b6d93ee2c88334c61c5e084",
+        "b4f8f5e578a577775b5fc5b2198ed712265e3960",
+        "2cfe3fee352483652738919adc4e7353b8a801c9",
+        "332f0251b51d7a1e1f350976894d588369f91573",
+        "98adfa40da3439a6def21715fc43516f719d025e",
+        "ea5f0498924937db9819e7103a77dc90b416955f",
+        "3e8fffc57d4f972630beb215d884a121150a7910",
+        "74e2496e5068ed683ecac23bae8942d211724a0e",
+        "b11a3efb37274ee249dfceaf45918303d7f0c6e3",
+        "897dcaa991156ccd678072dddea8f0318300851f",
+        "ae21ce876ab44b8a6b07ad2df68fd76ef7e91ed5",
+        "58de51f92dc0c0c2905f4c60b6a3d1a4a05dc4a3",
+        "b95e5091939871cffeea7915aa2ad1cf94303e8f",
+        "bd047e4d3e0eb1d9b9769c537b94ade929c22e51",
+        "02138c3ded8d67d36421cc4dade3d089d57b6e91",
+        "689d2ec91036b350c2b05e9d8171c940825e2857",
+        "b482f4e9aa8936bff1d98d66f3c2ea214a764990",
+        "6f54ffac64b6b9797e5f59d72700789835e6ae96",
+        "d9d6f72eecfd10b9dd6c2a5e819bd079e993a3b6",
+        "6dfdcc4ce31b293af1afa2c678334df7a1ec4574",
+        "29b7191e1230d16ac98f0c9e68edb115691a5580",
+        "ae14390a4b0d7e38e6e17f0f2af61177a5a02d9e",
+        "1d429a509e9ae1f1962fb01faa184a1aaacdadb0",
+        "5740fc658a624461aaa63b968b25d2a5cf471b21",
+        "8ee16e7e7fe2a64bd11f75d683d07f01da7a64bf",
+        "9c63d5c93dac2a1e8af62599d6844704eb5b7a89",
+        "dbbd8a7df74cd65d92a48b18c59d7045354ef139",
+        "0f9ffa0aadff9437b68be79bccb7de004443a394",
+        "885824b3601d4f7cdc1a98e1c63fc39601ef88fd",
+        "5376537bb723435c7c220eabefa0af2822be339c",
+        "e5b7f10e4f67ef4fb8e4a64841a96ad29e3638e3",
+        "65ec3836d49bb72703b2bc02f851751ec35f0e9c",
+        "27ffcc0e4e27f64d3cf778468ffba2169a993b08",
+        "8a8f948af1371e6f4dd942988f3610ca398406e9",
+        "08439d2029142cca206ac45fed02e379d1d65b77",
+        "714892981016d6a24b29d0eacb0db374651df8f7",
+        "594c576ed391e8528f9fe0fc31066b34e0cce8e5",
+        "e4b34292043923699b6f32ba755b0c2dc672b0d8",
+        "750c2242d60f9d6cf99a9bf0785c4be8f4ee2019",
+        "e308fda1bce0d5711d7a01f3d6879c6470820752",
+        "febe0df27f0c89af3e34e16d6b787f5a0acad4f6",
+        "d09b941d93afa601c205e4328e85062a978ee2bb",
+        "5f32b204e3868c8a2bfe2d3b84b3fb69d9ac793f",
+        "e76da3bd395e37fe42a54d48db380faa870b620b",
+        "fa64e017f47ec1935eff15386352409ad1200c5f",
+        "8ffa0ee924e26f52cf31103d2995d192fc96a842",
+        "27068f668f93ca21db6b3a33bbc5945fa11fc0ba",
+        "13d3ef873c7f96cc0f271a30e62d3ebed16c9aac",
+        "b1ed9f92d767bcd3ffaaa0b97d997b6d8c929358",
+        "fd2a7ce30e2d4292a690a0f6ccac0e25b0bc7a4d",
+        "1fc989ec84d67dad31e814e17bb495e7ab2becfe",
+        "1ea25e0b47b1b50791e9b18aca156c99c3b92aaa",
+        "f80f863d31ccb38023d4278b9912a21ac6dba84f",
+        "d8b8372c5a56aa7209d5cc7f266601bb8adf030d",
+        "130acbe50092480dca065a722ebf8afcd2fa91fc",
+        "48cc8294d40b3cd0e535cc6611610f3d8cbf50bb",
+        "aca368c749ad3eb316fca2857aa6aa90b74ddfbe",
+        "558d2972f9d11fb736002b5b95c7e1c1d4a5be63",
+        "1321f7691c7191ce4f45d049aa4c0f64881a513a",
+        "fafdcf1b86739ee34c95b62edaf56a4cef12f06d",
+        "0ffe517beb9573b5b3cf5ca1854f2dfe9811b869",
+        "70064fb115dba7325f068da4be48ab69fb397c50",
+        "458670c515c06cb7906569918e9591194b2ddca5",
+        "5db0ec3c0e62458a3747a0d24c95928a4a4356d8",
+        "ea0307879a7a651cb6022e63fe468a5227959405",
+        "ccb6f80e2b005388b49fcf2236573f01739880d3",
+        "e98d351e15227557c68c7757a7be5083bedfcf1d",
+        "0ec1122db1eb3175802918910a65e0111400940d",
+        "4a946b59794fb9d11dbc986000f9587026b67aa4",
+        "3725addb5d4c3ae8e3602f5f62366273e3d959a2",
+        "8e408dda843da924ef4df5facece54e6a699a8c8",
+        "09d94d331f22fe976bd2182792bc0e7c4ef41f88",
+        "e525e082ff030d3b04d71b58b87281bafd4f0a92",
+        "378647be7f88353b7f7e4ba99e880327ddd9cccd",
+        "02e2aa496e3a73f3ced51cfa82436ccedd6b38b1",
+        "0f8ac416225ba9c91e2c9a5f087c14253553bddc",
+        "8153d56b196108000e09cde25677b6bf7e1493b3",
+        "cb1d8da9b93df65b17ead9fca4bff906d68e8ba0",
+        "216e107e90f5fbfaab8e6e3a1293e5f32d2c64aa",
+        "57c0692060ed2edad9b5c9d9ebb6e858a2767c9d",
+        "6ae7343d497bf546126cbe12ab2fb02e14f67d9c",
+        "ac0910ee631689c66c803b069b6624592b92fac1",
+        "2a91a2c63badab5beca5d310354548b1f114d477",
+        "51fc10ab8e3fef5bd34737a2e46023bc60545831",
+        "9c0bf657ae43d60cc3230158b01a6f581fb5649e",
+        "a3a1f69d84f21116e6ad0ddd9235053669f9e74a",
+        "96d86647ced55a8601a713cd694be9f4ce88b9e2",
+        "93c093ce7e356b12197930a18eb9ef8557a20b6a",
+        "fe605d33f299e1b48bc97987743e11e9a7eed901",
+        "aeb9d7a88a7d15b8aa0466b487658d4ecd926968",
+        "80f965a46becc2553822d0cc16a864611e0905d3",
+        "9f7ee3247807cd0b5b95571f531aef5e75061128",
+        "b39646325fafaa73b7bd5a7dd141bb46c09a56bf",
+        "16e209160be926c9e69be7b8a7d107c46468d064",
+        "5bd46057472790053daad0b2dcbbc9786fe1c1e7",
+        "1d906d3dbf411537ea2e0e90ccb03d2ef56a61fa",
+        "9822cd083cf195bba4c5e87564446de0284b3248",
+        "a26430aa2c7379dace41a1ff9192a534426cceca",
+        "b6701d82fee6093dae688ffd70929f5570a0f098",
+        "f877f2e8647eff09a73894274e7519abe5b0fc00",
+        "6e06a990e62dc42b2bde31fd6d87ab40392c5cb7",
+        "6f876a834070271073ab83ee85b02972ba515777",
+        "7d06f23942f991988974ac47ac42091f01ede5be",
+        "22f2e1f05bc7fe9acdfd0d040bb8c8e48a056ba0",
+        "ceb5e76c77711ba35c7664aa281dfd05845d0f18",
+        "ac1bc015433fb54d65b6aa17768ba84a5e08aa93",
+        "b74b065d94fa37290a951934da71fc109e8e870f",
+        "5518ad5f77458c634a1f66a32dcfa9da3277a291",
+        "52c2fe5e2aaefde7296ad8a359bfc5165d86ff93",
+        "190349861cc2e9131addb57b8c21b381e7c90e43",
+        "ce1a4758e025b354f03aea1da447a0eda7337561",
+        "ebf9937c4ae3da86536b0da46325c05bb3141a5f",
+        "2a2b8e474f690760e3c73c0f7698d247bc7b038b",
+        "dc334f2e62751ee80f618800d0d6d652ca0da1cb",
+        "4994f0f16353690f815d1973e1381cc46e7119ff",
+        "f612c238126f312e5bb5fa701eeb8fb610f1e8db",
+        "a15798e63796604cf8ce5818bdc2142575653f5f",
+        "83a733d7126277449dfb192cb791f23a40e26219",
+        "98fcdc7f6046da272dc4cda7756a6014f6f9a4bf",
+        "bd451abca4dccafd913ebf0927849b14ef3945bf",
+        "352ecb33a5a2803b431a40bed8045123a05b89d1",
+        "d59e8a4180551b06ac44d1f4e5f5491ffaac065e",
+        "bed8cb44dd0452068f2ab7dde98f603cdc2f3a09",
+        "f9011bb3cfc9b7d2cba62c0e25b2b4d527577670",
+        "55fc4dd23f473d324ba9356a5b77c30461a57ac7",
+        "968d6c83c344f62b2b03e8f29eba0a320ea6c200",
+        "8fbdd3817997b0f45c91d56a0b497bbe5a045d48",
+        "618a127b338f04a39f3c978de670212e2a0f76ce",
+        "219aa700463a802261e2a71797f25491eb1ea63b"
+      ],
+      "source_lineage_sha256": "bcd7650f915b342c8e77ea6ac84621041186786195f386712d04debdc2577e97",
+      "source_package_count": 7,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "27e79beaf97dfeb8411fc7d689dff357f5bb362d",
+      "static_scope_band": "high",
+      "static_scope_score": 12,
+      "test_diff_sha256": "aae7ae8ddfa5135116680a124a977cea7fafd1dae9f26094991745e5692711bb",
+      "test_evidence_paths_sha256": "ace0555f7f65ee0223b7e359d1a971a919b8fc4c5f174ce016c9dc8dbebe60bb",
+      "test_file_count": 81,
+      "test_stable_patch_id": "c2751f3667f3b4f083ace0433dea074d1d6bd5a8",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "1bf65bfa137968f99ec064292d5868e8462c2f8d56831a4bd2da2759b84caacd",
+          "evidence_sources": [
+            "changed_go_test",
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 6,
+          "owner_go_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        },
+        {
+          "bound_evidence_paths_sha256": "2e9cbb809be2ea9158e3069dadc06bd6773ed8a469a03eb954143fbeaecf1fd9",
+          "evidence_sources": [
+            "changed_go_test",
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "4ef489303c8ef7d893efad43eed879e0d82383041c28b9d1124a445222b384af",
+          "package_dir_sha256": "50a3bbc5136f63bab0b850fe8d41b75ca12e950f7e0278b7909da5a4b5ed090c",
+          "target_sha256": "b28bb793beac69e32921e0d1196826a2ae7b3baf81787a711802f8e5cedfe1c8"
+        },
+        {
+          "bound_evidence_paths_sha256": "ac63d838f68b9a279260cfaedc8ff33bd6a070e4ec0ea34c0c801e3410480af7",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "ac63d838f68b9a279260cfaedc8ff33bd6a070e4ec0ea34c0c801e3410480af7",
+          "package_dir_sha256": "67033d8854373525e3e9abb31d4e534e9a5b3c98e1a699e11b8cf83a78c7c53f",
+          "target_sha256": "e601c925d0ac85bccf066f6cfd770752c87191a3c5309af97b98eb98eb5d0e53"
+        },
+        {
+          "bound_evidence_paths_sha256": "cea979f72949647375907f26867c5bcba9e251dc36466180ab4b58a528545970",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "cea979f72949647375907f26867c5bcba9e251dc36466180ab4b58a528545970",
+          "package_dir_sha256": "a2c77018859bec65ae60e15402ea3c72a6484f6d616bb60952d566e1718722d2",
+          "target_sha256": "065534d9dd2ae2212059833dcdfdf64b915db8b08d6686374a8ddd0b9d02d0b7"
+        },
+        {
+          "bound_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        },
+        {
+          "bound_evidence_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "package_dir_sha256": "ef72edc6defc635bf05c24cd81d009b6a1088d6cc0174f90d3620013b447e812",
+          "target_sha256": "aae699d11834fc50501f703b20886125acfa39d5dff4a4ccaa5bedcea0f0a8de"
+        }
+      ],
+      "tree_oid": "0775dcf471569c66942df5a3659c5321be382b5d",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "e61d03c15fe0fe31142bc123df3c49805ea64ab6da6bd0175fbdc8cda3ff7884",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 3,
+      "changed_paths_sha256": "a6cd664eb8eb26a70b7281c8cf9c8c1b1cff28fcd9254c6c482da9ec511faae7",
+      "commit_oid": "f2adb443800afa2b65d9b713dce8e9eaec5f9b8b",
+      "committed_at": "2026-06-26T23:35:14-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 9,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "65d79ae2fae31b1379f01cc7298ce1d6830ae4281d5ca4b8d314525d3914a18c",
+      "full_stable_patch_id": "77e6ac70a2d15d190bd87dba198b132262bb9d41",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "fd2f9475752a5c8fc6a339bcffec610f48fe6761",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "76df35d831ac0f2e9c20c05de9499d375ec3532c61c605c8be54efdf870b7b34",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "2b69d044903248eec64d9c69eda5c88e09ec0f61a574d8d9063f259d3765aff6",
+      "source_file_count": 2,
+      "source_lineage_commit_oids": [
+        "003b985620464e2b9d18345934e4ef9b6d6facf1"
+      ],
+      "source_lineage_sha256": "89dbe5ad28a3fb14e7aebb6b8d4ec774aed8467517a110e16f07b88ab2e21971",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "7804b8658ebb25df4658969620a34b1ca3805706",
+      "static_scope_band": "low",
+      "static_scope_score": 4,
+      "test_diff_sha256": "cf276257e1892d5b2149bebe1d064a36c9aaa302862153e8ecc7e693606327c4",
+      "test_evidence_paths_sha256": "97758f95303563cf387bbfec52967a8cbb549773372c14adf1432ea81c22d022",
+      "test_file_count": 1,
+      "test_stable_patch_id": "ffe1f40a1416383ac47fe723f9e7c705bf3a463b",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "97758f95303563cf387bbfec52967a8cbb549773372c14adf1432ea81c22d022",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 6,
+          "owner_go_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "54bed0929852ee307aa82d397d02dc4a57081026",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "f5e7152f5e8dc6af9f9e89720cb918f7f778dd3e253aeae284bd2025def5b47d",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 29,
+      "changed_paths_sha256": "99df6e042b392c863dcc1d90d40873bc94259b3980a245820e4c9e7bc4ed683a",
+      "commit_oid": "d3834666cee04c40497ee5b066619d7222d4c696",
+      "committed_at": "2026-06-26T23:35:19-04:00",
+      "evidence_kind": "changed_go_test_and_fixture_or_helper",
+      "first_parent_position": 10,
+      "fixture_or_helper_file_count": 27,
+      "fixture_owner_bindings": [
+        {
+          "fixture_or_helper_path_sha256": "169f52011e18082d87457f1ea0f96c4665504c2a5a9f494c7a1d09eccdfe6953",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "223068db47de36a3c34f495a2c6fb4f9c248e019dbe47aa7fbb5bc64961e4b5a",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5155311ff383858f80268a2d41f1997f7b72480e080dba29e3d05957eccd4296",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "517ebfb627b35df8c5bfa6d3d80bc56f9c818310697f2ee0fe6bfe62dc724158",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5df7200c8172ca1c97bc008b48f48fc5b04ca9a53df1152be0d16cfe514afba4",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5e32dc680c6d0c83639a9ef48cd3e7f890509bd737d6d114b9362768ae864a84",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "6fe7d44935d72bea54010defb29943db3e858040ebfba03843c83d195bc30389",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "70b15f4af6b66e199579b0d96ea0f0c5ccf59771ffc2546f687761762a2144fc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7537ca7df09ee405816f39251e473e8befff06ef5da9fc94f14976b9db065c7f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "77b6cba75bb3861c677bcda679a6503f88222ec1936d79fc2fb31baf7613b5be",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7866a14b732b8ea8b3db02cd38d8c10b274e6a0cdbb044b5276cb4e23ac6b3bc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8bc2357d26e9f102ff1b248530a2128a7d2a3880371de8a14a2369fd427fafa7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8fe5e95bdd95d8ba558491e32408c9f7f673106f7931bbfcbc583df657b9c745",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "9961dd9237e303ca1ee7cc9261c7f00c1e53174ef583d2c8cbdf03b2c2d13ef6",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a63006bd9a2ebbaab3ffd2aa158b01c45e458cd4362f004a6b99d9140c96b2dd",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a930a44f2ebd8f5fccc9c2bc177a9a429f885505722ad5ce46576d58db17f726",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b55b13980ad08c7f333fb44496a7ec9c6801aaa71b103b8600b48a2583b4c64b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bb7bd46e08c3557a21708f1bd5f5714e7ab14ced2cf1ae3c1d003bcc38955e6f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bdf0319ffc2ca62a4bf503c87e57e8b3fdee9a079cc6058eebcdbca4d8469664",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bfec425562e9aaf8e175e37bc6a54bb4c13083fd37c9642a78b98ae0da383cde",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "c139edddc6f147b5e961954cc3aa6c30e5319110d3ed90e85ac7c9f5b8e021c3",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cbb10a3e08a540aa87662499aab2defd066ee67da597d29b130ae06a8e0d700d",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cd7812c6702aa7f9f4ed0f5311e3889a799df6999ea4e88c7efcff4f5537e9a7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "de9f76b732ddbf090f72831ea13b1010fd61c18b32f1856ad9d871209ee90aeb",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e024357758d0aea38fa736a671930b9a3b7fb52617cee9cd6fc7df44be7ff33b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f54731b249e104adad4a1fbd694d781298f25224fc4e612eccc26acff970ecb8",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f693256320aacbd613e08cfc5bcf38e38a5d0f4af6f88ed03abaed3c8a10e2c0",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        }
+      ],
+      "full_diff_sha256": "5c56ed19efa2f542de342a55b5d86b25280fc8f8e248b248ed7e52b18bb70553",
+      "full_stable_patch_id": "0a1cc37f127b7cd2d99bdbd785665ad28a32a703",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "f2adb443800afa2b65d9b713dce8e9eaec5f9b8b",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "400363df9de794a0ab34c0563a71f513ef56dea97b5b57eaf594d3230f09ea64",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "b3b0cace010d94372d24802907a3441ce2e56b0ba06885131fecf9221bff9e7c",
+      "source_file_count": 1,
+      "source_lineage_commit_oids": [
+        "8b4e6fc44128ac423b03b780b14794b3f48f22b0"
+      ],
+      "source_lineage_sha256": "4c7450712d197092e5e6afeae758d1b924ac30bede51d3c93af5e5f3588d7561",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "872933a2d3bf351c56b2e040861803490e352c75",
+      "static_scope_band": "low",
+      "static_scope_score": 5,
+      "test_diff_sha256": "a3758e0ea9c2c35da3f44889ae594325927395dfda68a64161ccc65e1bb8aee5",
+      "test_evidence_paths_sha256": "11d7f63194c9472c7416a30f3eab8312999998e473d1f3953439750352d4db8e",
+      "test_file_count": 28,
+      "test_stable_patch_id": "83f28fdd3ebb46b683e9fa96ff4d57897cfd7a8e",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "11d7f63194c9472c7416a30f3eab8312999998e473d1f3953439750352d4db8e",
+          "evidence_sources": [
+            "changed_go_test",
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 6,
+          "owner_go_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "d22d335a07bf6d2a95d3fed7fc40865421b86345",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "9453d8b0a95687dfda6858bd3d8c679a5f274dcf918b9547ea202bee80bd54bc",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 2,
+      "changed_paths_sha256": "24edf1944a19b87e363e0bd567fb23e5ba4c598ca888e8a2a7dc70b7ca92dbb7",
+      "commit_oid": "2398c2094a88831dc98a67bc30d6fe8736122818",
+      "committed_at": "2026-06-27T22:59:25-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 11,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "745a3d477f196258b8e1f7310968eaa5f1a17b7f26dbef0ef11ef4f5ccef7bab",
+      "full_stable_patch_id": "0c68fd00ed92410eb047fb2418b1dd2399072fa0",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "d3834666cee04c40497ee5b066619d7222d4c696",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "400363df9de794a0ab34c0563a71f513ef56dea97b5b57eaf594d3230f09ea64",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "a4f4ed9dde1ec3bfeb6c622698347dfd33938d91e4ed17fc401362d2175cc93b",
+      "source_file_count": 1,
+      "source_lineage_commit_oids": [
+        "2398c2094a88831dc98a67bc30d6fe8736122818"
+      ],
+      "source_lineage_sha256": "c488fdcff38aa5f45d9ecb75f8fffcd6662ab4e5e6e17c41ccdc2b9a651878df",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "067fdf57db80a74c3e12e6eae47bb288cdb66737",
+      "static_scope_band": "low",
+      "static_scope_score": 3,
+      "test_diff_sha256": "cf885e5c0df347f2efca336a34c765c140a7d9515930f9d664218caea2081945",
+      "test_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+      "test_file_count": 1,
+      "test_stable_patch_id": "06e91da911129ac17135153a33352b9bcb50c768",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "636d7a98ab2f2b023ed20073e8f01a46e3ded1b7",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "c0b249994f168d0521c04e55113519fafc3c75cb992678855ce5c33511993286",
+      "changed_go_test_file_count": 0,
+      "changed_path_count": 11,
+      "changed_paths_sha256": "6782ff57c85e1d8616e6257edd74a56848b9f6d6f2740562820b089a58b75b8d",
+      "commit_oid": "aea37dbbec1fc005d00475354e65625d82b99a69",
+      "committed_at": "2026-06-28T11:59:50-04:00",
+      "evidence_kind": "fixture_or_helper_only",
+      "first_parent_position": 12,
+      "fixture_or_helper_file_count": 9,
+      "fixture_owner_bindings": [
+        {
+          "fixture_or_helper_path_sha256": "9961dd9237e303ca1ee7cc9261c7f00c1e53174ef583d2c8cbdf03b2c2d13ef6",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a63006bd9a2ebbaab3ffd2aa158b01c45e458cd4362f004a6b99d9140c96b2dd",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a930a44f2ebd8f5fccc9c2bc177a9a429f885505722ad5ce46576d58db17f726",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b5510a404aa098dc68f5294dee29d4a4e5fbdfb0c98f77173d175d61d720d2a1",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bb7bd46e08c3557a21708f1bd5f5714e7ab14ced2cf1ae3c1d003bcc38955e6f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bf6baeb20a25216eda854ab942fd54b27067503a1b487aceffe15e5360b086e0",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cd7812c6702aa7f9f4ed0f5311e3889a799df6999ea4e88c7efcff4f5537e9a7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "de9f76b732ddbf090f72831ea13b1010fd61c18b32f1856ad9d871209ee90aeb",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f693256320aacbd613e08cfc5bcf38e38a5d0f4af6f88ed03abaed3c8a10e2c0",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        }
+      ],
+      "full_diff_sha256": "7722e264f646ad6cae83037134a7181b2f436f2c04e1e0f99a002f61ec6bc957",
+      "full_stable_patch_id": "5a8e468706d0389b1d8ec60ac9f59739f1ad9f0c",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "2398c2094a88831dc98a67bc30d6fe8736122818",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "5de214d00b4eadf7a7ba174bda226e3f9170a7dd233c5155a902f1b4758b9d11",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "fb0786358c42158ce1e28a97a7e689abe167b528908c5ba6ae34cc45542cde70",
+      "source_file_count": 2,
+      "source_lineage_commit_oids": [
+        "2e58ec538490b323e992521da99c634aac14a7d7",
+        "e9394eed3a23f7015647c3764779be308f04e959"
+      ],
+      "source_lineage_sha256": "da9ad894e7b48366a7f9b6f39b791ec32ead4591219172f7cba6a0e2db465fb8",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "df4f154bb98f791e2b4b389a02b716165b069ba1",
+      "static_scope_band": "medium",
+      "static_scope_score": 6,
+      "test_diff_sha256": "5f5f6278b3d2d30c410f41ddfa42119e1d5aa27bbb12fd268080bb248f9c5b58",
+      "test_evidence_paths_sha256": "aa3f0e96df7059e38ac03fbc9064ff11f5f4e8fefb2d1a3856ed78e4723f10ba",
+      "test_file_count": 9,
+      "test_stable_patch_id": "7b3e313c4d40bf7cf2428e70c63e812396a7046b",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "aa3f0e96df7059e38ac03fbc9064ff11f5f4e8fefb2d1a3856ed78e4723f10ba",
+          "evidence_sources": [
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 6,
+          "owner_go_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "d23895b7e74c35424e2f0c1629ee47a8e6ac5c82",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "9581e10ec5940cafdbd004bbdd71f217608d5f39cade150a135ab2d769653712",
+      "changed_go_test_file_count": 0,
+      "changed_path_count": 33,
+      "changed_paths_sha256": "29e95e70a5585032197f1c1815e26c03bc16e77db1b3110701b34262eabd1aa0",
+      "commit_oid": "99b6856916617ca7b4b7ea0b1bd704cf5af87f3a",
+      "committed_at": "2026-06-28T12:15:15-04:00",
+      "evidence_kind": "fixture_or_helper_only",
+      "first_parent_position": 13,
+      "fixture_or_helper_file_count": 29,
+      "fixture_owner_bindings": [
+        {
+          "fixture_or_helper_path_sha256": "169f52011e18082d87457f1ea0f96c4665504c2a5a9f494c7a1d09eccdfe6953",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "223068db47de36a3c34f495a2c6fb4f9c248e019dbe47aa7fbb5bc64961e4b5a",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5155311ff383858f80268a2d41f1997f7b72480e080dba29e3d05957eccd4296",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "517ebfb627b35df8c5bfa6d3d80bc56f9c818310697f2ee0fe6bfe62dc724158",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "582111448b09dd3bd4b5733f32a98a309addf7b811119cb8a668b2c01f09f5bd",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5df7200c8172ca1c97bc008b48f48fc5b04ca9a53df1152be0d16cfe514afba4",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5e32dc680c6d0c83639a9ef48cd3e7f890509bd737d6d114b9362768ae864a84",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "6fe7d44935d72bea54010defb29943db3e858040ebfba03843c83d195bc30389",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "70b15f4af6b66e199579b0d96ea0f0c5ccf59771ffc2546f687761762a2144fc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7537ca7df09ee405816f39251e473e8befff06ef5da9fc94f14976b9db065c7f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "77b6cba75bb3861c677bcda679a6503f88222ec1936d79fc2fb31baf7613b5be",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7866a14b732b8ea8b3db02cd38d8c10b274e6a0cdbb044b5276cb4e23ac6b3bc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8bc2357d26e9f102ff1b248530a2128a7d2a3880371de8a14a2369fd427fafa7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8fe5e95bdd95d8ba558491e32408c9f7f673106f7931bbfcbc583df657b9c745",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "9961dd9237e303ca1ee7cc9261c7f00c1e53174ef583d2c8cbdf03b2c2d13ef6",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a63006bd9a2ebbaab3ffd2aa158b01c45e458cd4362f004a6b99d9140c96b2dd",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a930a44f2ebd8f5fccc9c2bc177a9a429f885505722ad5ce46576d58db17f726",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b5510a404aa098dc68f5294dee29d4a4e5fbdfb0c98f77173d175d61d720d2a1",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b55b13980ad08c7f333fb44496a7ec9c6801aaa71b103b8600b48a2583b4c64b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bb7bd46e08c3557a21708f1bd5f5714e7ab14ced2cf1ae3c1d003bcc38955e6f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bdf0319ffc2ca62a4bf503c87e57e8b3fdee9a079cc6058eebcdbca4d8469664",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bfec425562e9aaf8e175e37bc6a54bb4c13083fd37c9642a78b98ae0da383cde",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "c139edddc6f147b5e961954cc3aa6c30e5319110d3ed90e85ac7c9f5b8e021c3",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cbb10a3e08a540aa87662499aab2defd066ee67da597d29b130ae06a8e0d700d",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cd7812c6702aa7f9f4ed0f5311e3889a799df6999ea4e88c7efcff4f5537e9a7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "de9f76b732ddbf090f72831ea13b1010fd61c18b32f1856ad9d871209ee90aeb",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e024357758d0aea38fa736a671930b9a3b7fb52617cee9cd6fc7df44be7ff33b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f54731b249e104adad4a1fbd694d781298f25224fc4e612eccc26acff970ecb8",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f693256320aacbd613e08cfc5bcf38e38a5d0f4af6f88ed03abaed3c8a10e2c0",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009"
+        }
+      ],
+      "full_diff_sha256": "f724f0598d092d63317ae7cbfc7c76c8c4eacbb8a06e87513ae9a2160f3c7db5",
+      "full_stable_patch_id": "9e622659bb0eb450011e6401b117d5031d71ad39",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "aea37dbbec1fc005d00475354e65625d82b99a69",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "e021830090a7c294e47de50989a64ad8b288249fb97634db2c493a4c152f67ef",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "0358fc9f83cc50794a40cb38983c7b9bdbecea9cd3ca8e3e81309fc0310fd1d4",
+      "source_file_count": 4,
+      "source_lineage_commit_oids": [
+        "29f3c3ba840c23d9fbc6ae3d25af9b6bb7da7497",
+        "77e43792690dd373a5052adc249bd548cc907175",
+        "ef546085ea807fb324c44d0a9502e1facc3a36f3",
+        "5a0912e18cd90868b65ad5556b81c87bdcc5c645",
+        "a9202f6a8e21bb43efe7d8bdf0122c2bf78978a3",
+        "c07e57bf2a8da54ddbcad711ced36e0e919a98b0"
+      ],
+      "source_lineage_sha256": "db0530deea904c980c8843d5576125b2b3915438b59bbbf9a7a906ec9ea15f6a",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "28272e3c2ac1652825c8df8f6f1fe76ab38b4be7",
+      "static_scope_band": "medium",
+      "static_scope_score": 8,
+      "test_diff_sha256": "e29167cec35d5b1c96cde5b45e6ae17bed0a91ee8b1ba7475ecac3a77220276c",
+      "test_evidence_paths_sha256": "d1094419f65fe00f8ebdbbbd42dc1fee73e0ecb435ac434af9dbaf76e51cc8b7",
+      "test_file_count": 29,
+      "test_stable_patch_id": "763bf81c914d4e28dc55847141f8ed9869e56152",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "d1094419f65fe00f8ebdbbbd42dc1fee73e0ecb435ac434af9dbaf76e51cc8b7",
+          "evidence_sources": [
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 6,
+          "owner_go_test_paths_sha256": "bf7482fd21baaa49d36422ae027851aa0dc83e77079229a4c6a87c66d5a83009",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "f8e549b1218932e37ee23c3b79adeb3dd045bf90",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "d14085022026881af158697b7af9cb4ef9c6d766daedb4fc6f941f61cc8612b5",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 3,
+      "changed_paths_sha256": "f15aa05d6f6d249043c4e08c1d994095043f53ac1d0bc86baf4d0d04d5e10f9a",
+      "commit_oid": "068b5c2f16653ed587163f36df3104177fdd7740",
+      "committed_at": "2026-06-28T12:16:42-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 14,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "5d7618d2e4c2a8eb540c580e711908a1d6b88f6ab5d178cfef7ee1da00a3af51",
+      "full_stable_patch_id": "8b47367ee23d57fdfe7dcf59bca0e01734b31030",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "99b6856916617ca7b4b7ea0b1bd704cf5af87f3a",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "9632c17b76a51901e28eeb80d5b6fa0f3eabc6bfff912dcd18e1445542b2d47b",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "5ae1a0a27efa0361ff43dd645f8724900c987e4d1dae2aea14183f5cb72c98d4",
+      "source_file_count": 2,
+      "source_lineage_commit_oids": [
+        "1a019d4c64d6c3dccc9396a3c196f797c94a6983"
+      ],
+      "source_lineage_sha256": "12470bec5ac7d67a2ee0947741f1abeb19300fe08c0ff5c52b32cdde680a6f4b",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "b28574addc5455dc66b53cf638dcc56b78c0bd92",
+      "static_scope_band": "low",
+      "static_scope_score": 4,
+      "test_diff_sha256": "1efca1e4f35fe30a16e0245fd45fc5c527ecc41987eeed96ae4b14bd7deb717c",
+      "test_evidence_paths_sha256": "2f119d993874cc199944d9f1e06122f1107a3eed8d705f910cd3f863ae46024d",
+      "test_file_count": 1,
+      "test_stable_patch_id": "d9c1c1d005e9012198c8926383c41aacbbf2529d",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "2f119d993874cc199944d9f1e06122f1107a3eed8d705f910cd3f863ae46024d",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 7,
+          "owner_go_test_paths_sha256": "4a7c375c3826827870d35f063ab027e25e0eed4d58d2cb552c7416540ae24cb1",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "142a7a9b9f2f4b34a78ee8b7b57ae621afa6fa3b",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "8982c8045ed6bf4eb1322faef07a6b9f1704df66f60d96ad667a2c377bb802ff",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 2,
+      "changed_paths_sha256": "21732e0d215fe6956fe473f769853488e4308c81fe6988dd643a1c9a1eea90ef",
+      "commit_oid": "d83db6bb3f794b0efe37484a88e16d547c19c01d",
+      "committed_at": "2026-06-28T12:27:37-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 15,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "e22425a6052f46716a9c527f3d3247eb7e9294bb2989f522205fee638b70384a",
+      "full_stable_patch_id": "f70895e5219c123a3f494f4deb50382a24526fb2",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "068b5c2f16653ed587163f36df3104177fdd7740",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "400363df9de794a0ab34c0563a71f513ef56dea97b5b57eaf594d3230f09ea64",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "bf175574e1c00c86ce1ea5ae216335f59d9044522695d1098b2f5a245bf2abb7",
+      "source_file_count": 1,
+      "source_lineage_commit_oids": [
+        "27d781fb0d146d7f1325a8d5dc7f5f510e4da183"
+      ],
+      "source_lineage_sha256": "5b33d71b42451917afe84e3dbef1a8315ebc7783cb10b1e8e2fb78e829aedc2e",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "589c69fd414072b70c324b6d0c003791578c08b9",
+      "static_scope_band": "low",
+      "static_scope_score": 3,
+      "test_diff_sha256": "0c0d12150c6bd7806e8bccad5f669d289be5c6481be058f76b90fe5c0feb828a",
+      "test_evidence_paths_sha256": "5c547b5124e251be21ac8a04cdcace685754ca4efd872fd47dccf879532a4bd3",
+      "test_file_count": 1,
+      "test_stable_patch_id": "9f6c2be8df5ba082321704e0de500199ccc566f9",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "5c547b5124e251be21ac8a04cdcace685754ca4efd872fd47dccf879532a4bd3",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 8,
+          "owner_go_test_paths_sha256": "fef40ffa8b7c2a7bc08d84fc69d24b3206ca29a63f2ad3efeaecce75557894da",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "e88ce742ce688fd11f31ceb96578c869712d424f",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "dd7480efaa0b0fa6e2c3ce1e6e842260ed228fb8d8abe119deed804239d9dbc1",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 5,
+      "changed_paths_sha256": "c4d5cacc3ad2534cd76c75b2311e1660af452b582fc0410313107449bc55e435",
+      "commit_oid": "e2a757a66b9d4afedde1a55a4071c77677b29adb",
+      "committed_at": "2026-07-02T12:23:21-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 18,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "f434e6262e26c4af0585306a24938352ac883e602508d2fecf27a4454a091fbc",
+      "full_stable_patch_id": "2a9d8a6b95f01b7fde3f491d85396a76b661685c",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "b031a3ce70c24076f07bb1e821efcdbb6e0f0892",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "6341630c52a80a92f0cb717552e2ec1bf3e63ea8245be4894fd2d74b08cb064d",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "25e23d9fa0d7031f4a87486141e0afed37e956ae2994dd71a6ec8842d4f282aa",
+      "source_file_count": 4,
+      "source_lineage_commit_oids": [
+        "e2a757a66b9d4afedde1a55a4071c77677b29adb"
+      ],
+      "source_lineage_sha256": "bebf2a84f8b968f30ff6e9c3d97d31ba64e63de3f06e93d4fa7a164ffa99286d",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "b19190db94516a9e3bffdca67db36112dd6f9956",
+      "static_scope_band": "high",
+      "static_scope_score": 9,
+      "test_diff_sha256": "219e387f357f15bd7c819f3b375918a49450c814eac94abc0a1593bf75d683c1",
+      "test_evidence_paths_sha256": "a23e0ad8d4176f56e430e9b212198af057fd2aee5b1ce0e5b89c0b195cd55edc",
+      "test_file_count": 1,
+      "test_stable_patch_id": "790bfa8f009fb1e0a2406c7607860864d9f1ce05",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "a23e0ad8d4176f56e430e9b212198af057fd2aee5b1ce0e5b89c0b195cd55edc",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 8,
+          "owner_go_test_paths_sha256": "fef40ffa8b7c2a7bc08d84fc69d24b3206ca29a63f2ad3efeaecce75557894da",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "2cfe31247667ef5dc979ff6f8808d2dd8102b35b",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "a7ce7c8b8b41f101707eb2f99a5ed8a3fcff80958a5dbac131c7c683db4fbbdd",
+      "changed_go_test_file_count": 18,
+      "changed_path_count": 94,
+      "changed_paths_sha256": "fd464c3fe43a4f6951414e40610d6603e8cdf3236b62019f0584cd6fc1c994e9",
+      "commit_oid": "5679f538f7755ce0a4739839308dd02542304682",
+      "committed_at": "2026-07-02T18:53:48-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 19,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "a8494794be38737aeb045ab9416f608e6c59200e0a8ce130dcef7732257b11d3",
+      "full_stable_patch_id": "707ecd40a933014e97c491bf1868598fa40eb26a",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "0658d3d70fb6e08aabd756a8a729cde3bd359e41",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "path": "go.mod",
+          "raw_sha256": "739d4ac575a9bfa201fcd1a4960efe3a3cc2de8f72765553745db3f1237a4c44",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "e2a757a66b9d4afedde1a55a4071c77677b29adb",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "714ca8b868eca4bfabc1e3ae5d4df30cb73e2ebf2d54b6481da9364e5a928b9b",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "64e9c403f592418506499628da06cdce593c2c32e11050d0598088b7fe6016db",
+      "source_file_count": 29,
+      "source_lineage_commit_oids": [
+        "8f0a1fc109bd05152808b5d7ba2cce4b5daa976a",
+        "d3527c3471e23e5bc8b5051b96560a838e6e634f",
+        "1cbd5ecd7329862647eed3a059fdf598b14f894e",
+        "05c89f30d3a8f2ccec7741efac047df715881722",
+        "b0a095c607a8385e605740ebfb7d45ea8e6bbae1",
+        "096c073f94bef6f72400a4e27f4b57868affa92c",
+        "daf42dc4923c5f65de86d725fd91445f95e247bd",
+        "d7bf737df71f994438005b9b51d1b3f90533962d",
+        "cb018621a1374f6f2e08c37bed2579091ebd6b2c",
+        "e328f70574c50086ffa2e7564a8b49b99ee9ce18",
+        "e525aaea4e73284df09f8f3d4b32c54b3d3515f8",
+        "07f2ba531ee56e3922b311befd12b2208ec2345b",
+        "f083f840afc7d9e6c76a8a89651c0993c6fe7cbc",
+        "28fbeec0a61217b1eb91028ef5faf52ba16bf8d1",
+        "bb67dc3731933e12b62451edffeca492bfeae168",
+        "f0e335e140b5f3409cd6f682411a4f7d4a1b526c",
+        "64a65c7d8da820a2a3ea01d08818afcb64d48cdd",
+        "2e0e9836c48a177001452d6bf20f911895ac9a71",
+        "7753c6da65a56d0ed8e674b2cea698775214e135",
+        "0896785834b73baf5c6d1e0d12bc14b471564d86",
+        "78906df1a80c2c490a8e076004593560b724bc01",
+        "364ac0f30ac306ea2d7c34c587b0ae72584e6bff",
+        "e7492622283a2e7b3f0aa8b2b534562d000d3115",
+        "a9781ecccbed9653e6890c7f9e318f4d726d9f08",
+        "cb51aa14629b36061acc1d840a5e5e020d297e63",
+        "848948702c61f8532ff8fbc3fe2846329f28726f",
+        "b529bb3719ba7ccae6e3421ec221089fc47f505f",
+        "17cb9416d468715eacfff01f9eeb029eef252aa2",
+        "0a9c8f9de50a7686bdfee4608e6482e77caddc02",
+        "8d4b6177c9f343a82fd4b46b66977b117d6719dd",
+        "6b89b26df4f687ec4917d24365eaf2067a8cc4a3",
+        "3d58b3ef6695df060771ccafea51fb92bd3f40af",
+        "17d9b3f372e8002c33ee4b2dddd09892e5a1fa59",
+        "8df20e86202c16fa1ddb9d2398aa9e1d661380a2",
+        "0aa5c2529c778ad04886900b5667b0fcf496040f",
+        "7be9c1e799ca09044778dc4ffc8138454099df89",
+        "3be756869139dc4f72a58712be4cc62e25b206e6",
+        "04ea3b0e4212593f003312078460e5b9cdb4ee02",
+        "f8f6fdca0cb1358b7de7beb5548e59f8b535b208",
+        "299e8ae89cb34d36eedcda11dab5b2c7b1c05d21",
+        "14ed5802894a1853ca703a768a55203ad75d2ff1",
+        "82c82db17ef4a4a0fa1c32be3a615aede190c0e0",
+        "11ea7276a32ef03fc80f48201b9596350bbc6a64",
+        "0e735de0dc40332da07b9fd59b47d30223cdbe81",
+        "cc8753ee21615cf8657ba73f964da2f8a1931811",
+        "9ded7cb1a72b8893ab939b87a1e330878223e6b0",
+        "8b7f3f6a31895e982ca7560ef2c99cd72ac90337",
+        "2040febf8027f0e5091226977e6b83c2fc6dfbe6",
+        "eeee22d4f7c5f7075e1c931bfb91a407d9161645",
+        "4690362c9da3078d5720e8e27e42fae13225e5f2",
+        "732ff5586b09aab859cf536b1aff94470f888355",
+        "db40b7599a2ce5457a71ff31f2898db510797cdb",
+        "e7b1d67c4ceb1a44278a6f286866c884c93391a6",
+        "6244943cdc55a84d7de91cca624d97bb009bdb0e",
+        "ba0c964fcd37b03ebf923fa43da6ef5f07b4e7a5",
+        "d1b569fd658e874e6db91b9197f098b74f8a0c3d",
+        "5d641e7cb522a134d2ea1e0def28fdb84c10aa60",
+        "b16b0ebb928d003ee0d4f28519381ff00d943f65",
+        "0472c5b686e1364fc2582d40ae52561fac9efb0d",
+        "eeb87bed6c70af220c4b137277920cb451333a0b",
+        "cd611baa4aecafa3860d4e8383faaae9e05b8ff9",
+        "d5a0b53f870ea4e57aabb510541fbd1835b23e97",
+        "b9ef273f3fe7409f42805be384aeea081303c174",
+        "fc1d0aef5fa4f24201af735b58a893005d4aa94b",
+        "6c5533e47e12a53feab4cfe1df7bdffde8ce2d47",
+        "a281cd77106066064ba3a057442c17d98bfd79c8",
+        "876b4954b66ac92bd5839e422200604214f7a0d5",
+        "f6ceb685f4e4b152569389d3813a412e69e520a5",
+        "b2b575c6cc8a50ae370d45b2024fd3d61d2574f2",
+        "e05882ae16c4a25503b8b6b9103fc0379d6ef996",
+        "bed608f9ec0accbb0b48216b10fb8011a6686165",
+        "d14f630870be5b194da4a31cb34c32293faf904b",
+        "2074d1ab6bd939df048fb447fde37e1338bffeab",
+        "f7c363ebd8742358c5a370aeb6788679b4b5468d",
+        "a633caa8b89745925648bc866e439790cd566242",
+        "67bf2dd63a07065be94425c96cb6d91fabc2c19e"
+      ],
+      "source_lineage_sha256": "b6ef77a6d30749ff43303896c4c863351f9ba563f41d703ef80445952dfd5630",
+      "source_package_count": 11,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "a975351cc042220141493217d5b56a97206bbe25",
+      "static_scope_band": "high",
+      "static_scope_score": 12,
+      "test_diff_sha256": "cb1f637fe675eed4cd29f1d7cbd5b2fb9abf2a78624f555f875959ca738d0708",
+      "test_evidence_paths_sha256": "e95e04e24f9c3edaf7e66d612d642d99766f0268d266fa96fd3ebaaf714d2339",
+      "test_file_count": 18,
+      "test_stable_patch_id": "cd3757522082efaf771d3cd893d27e46c54fffef",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "e95e04e24f9c3edaf7e66d612d642d99766f0268d266fa96fd3ebaaf714d2339",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "f54bb67abb758f0c8d6d49a7b7a516db78dc7e1d117e5844eed4108d68c56f3d",
+          "module_root": ".",
+          "owner_go_test_file_count": 23,
+          "owner_go_test_paths_sha256": "87b0c7dbe63a3a90bbdf7ba4cfad06cc738fc9833eb2304910d8168dcb0f9b16",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "f56cf6a36b3c748714b38475299fb89a9ced0f3a",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "9796ac99a58842f57346fed5132519983d0d95e3ca2d67272bd456a8114cf936",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 11,
+      "changed_paths_sha256": "2d5a325c943a6aa78bf38b6f5766bca5d3311c87647d859a63770340be808277",
+      "commit_oid": "e3dae0c4d481f9df5012e5672aa1b5b4d30b0e0d",
+      "committed_at": "2026-07-02T22:01:22-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 20,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "e0834fe34f5e2f83e0c1ec35945876a05f46c29fa323279a72dddc303243cfaf",
+      "full_stable_patch_id": "c16b332c2bf1a00e98b16912107f169c3cce7821",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "753d611267ecff0fade82624e6ea766b7408d329",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "path": "go.mod",
+          "raw_sha256": "b732c7b1cf15ad678d2243375e99dbad346ed7252efb0d277e9293abdc33a80e",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "5679f538f7755ce0a4739839308dd02542304682",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "237ab00234fd83eb32c1c80618b790e5043da7b176134b7e8bb7e0505bc62853",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "e3ab7649a7f5578a482e2bf256a8d0c2f688aaf632cff0242887b2f6b6bb664d",
+      "source_file_count": 8,
+      "source_lineage_commit_oids": [
+        "e3dae0c4d481f9df5012e5672aa1b5b4d30b0e0d"
+      ],
+      "source_lineage_sha256": "eb5f2698f2c8075784eba5d88b04b8fc481ca9c3b1cdb7c8ac1b46b0a904f143",
+      "source_package_count": 5,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "19a4e415ba984d4ca08d37c6033715eec495b54f",
+      "static_scope_band": "high",
+      "static_scope_score": 10,
+      "test_diff_sha256": "5f2342c0ceb7e7d473e5112c23fb70144d6880264a120456f59b37bb4daa78e7",
+      "test_evidence_paths_sha256": "ac63d838f68b9a279260cfaedc8ff33bd6a070e4ec0ea34c0c801e3410480af7",
+      "test_file_count": 1,
+      "test_stable_patch_id": "fa1ba489b7b56bcd11864b9762ca95e9e8452b51",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "ac63d838f68b9a279260cfaedc8ff33bd6a070e4ec0ea34c0c801e3410480af7",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "ac63d838f68b9a279260cfaedc8ff33bd6a070e4ec0ea34c0c801e3410480af7",
+          "package_dir_sha256": "67033d8854373525e3e9abb31d4e534e9a5b3c98e1a699e11b8cf83a78c7c53f",
+          "target_sha256": "e601c925d0ac85bccf066f6cfd770752c87191a3c5309af97b98eb98eb5d0e53"
+        }
+      ],
+      "tree_oid": "3e4b7dbf1a4434858cc10e5ee3a3c11b37bd1429",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "db0d9e9ef192aa72a4ee8934e8d89e48a56d6b93173e8fa3b4fd96b2e005cefb",
+      "changed_go_test_file_count": 5,
+      "changed_path_count": 24,
+      "changed_paths_sha256": "9eacf1a90dc470b476da0f7199e200c3d1469d64f56dcf681d10f95b8074f522",
+      "commit_oid": "2388fa8eb34509c3d6f03454fc4c00e8829977d2",
+      "committed_at": "2026-07-05T13:40:11-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 22,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "00ba9cd4ea7571ac6429f91e6df1e2dd6a27844c72865d35f27892ed46845d13",
+      "full_stable_patch_id": "a9d5546435336f2e7f4ed909ee90c91e0b353570",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "753d611267ecff0fade82624e6ea766b7408d329",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "path": "go.mod",
+          "raw_sha256": "b732c7b1cf15ad678d2243375e99dbad346ed7252efb0d277e9293abdc33a80e",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "1a2dd699f5b3d1dfa510d8984aea8e08c817ba7f",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "907169d9b27bffaaaafeeca57a371751eded65731d24989ec6fdb93cb73c5899",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "09bad65348372503d70390242decf9382d0084b145d8edf4910b931d6c85f70e",
+      "source_file_count": 13,
+      "source_lineage_commit_oids": [
+        "2388fa8eb34509c3d6f03454fc4c00e8829977d2"
+      ],
+      "source_lineage_sha256": "dd2c220d8907bef021da8fd097bb0507dd525628095f3054fa9d157f6ea8e1d9",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "2eb56ad9a78ceab206eebdac2aa893200668f6ab",
+      "static_scope_band": "high",
+      "static_scope_score": 11,
+      "test_diff_sha256": "d337ef5359c3dcf936d2b228119b7af1d7fe035c54f64f3642a102202a620816",
+      "test_evidence_paths_sha256": "f5bc3d3c2f307ebf210f1c13ec23d8372dd1ab7dec66e4237d6dd246e99e9247",
+      "test_file_count": 5,
+      "test_stable_patch_id": "d60a515f12a58659e322bfe5a03b9d65553ebbed",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "f5bc3d3c2f307ebf210f1c13ec23d8372dd1ab7dec66e4237d6dd246e99e9247",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "module_root": ".",
+          "owner_go_test_file_count": 24,
+          "owner_go_test_paths_sha256": "21d16db7c74e83dea4a11973908a009f187dc5ed57c5322d99e8183d2919ef39",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "7227433dd4b69f9f164e3d5d269b8eb012c709a3",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "64cd96ed962b899eba0f71c859f0d9b43e169d686a1fe6786c25c76bbd88bc17",
+      "changed_go_test_file_count": 5,
+      "changed_path_count": 12,
+      "changed_paths_sha256": "bc43d5e246257d823bce0578f2b68e9afc2ec7a3a3f3dda4963865c196ecbcb8",
+      "commit_oid": "4294542fa632f5f31a9e3fa7499718ab513541bb",
+      "committed_at": "2026-07-11T00:13:23-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 23,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "459c3ca5c8ea9f583ae446a158af670e7149565232199983a37a8052f8f86024",
+      "full_stable_patch_id": "5fcb87beaaafbe942d27702a06cc15773fc9280a",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "753d611267ecff0fade82624e6ea766b7408d329",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "path": "go.mod",
+          "raw_sha256": "b732c7b1cf15ad678d2243375e99dbad346ed7252efb0d277e9293abdc33a80e",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "2388fa8eb34509c3d6f03454fc4c00e8829977d2",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "16886084232207ef84ace6c7c44589a0fd13d6945747a9327d0dea6684524c17",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "29cacc664544a2e7a0b9c69e2950a3fc76368c8ef5f4df656e8cc85705aa8ba5",
+      "source_file_count": 7,
+      "source_lineage_commit_oids": [
+        "14988ada088c404032693f6b9a745eab4de5f9ec",
+        "173e9d1d31bb7f90b46b138c9df0e9ad196b28ae",
+        "aab83ca5aea2e0485ab5a7f51493dff4c66004b7",
+        "e50a3a8de01d1f49da4e5ae04d3f704764227be8",
+        "6b2e57e4f0e571dcb837014e3ac116b278027da5",
+        "46298989d773a3b8afd8933d2870094a6d545e06",
+        "09149008900cc46fb4ef796bc04fa8ab57f51052",
+        "f2e567b148c4b64f53051274a8c7ed72e7857295",
+        "6d6b7562fecb3fcbfcaf73d0546db9e853a2998e",
+        "e3ae9bd5470a367e2f0635c25dd6f55f483ae0da",
+        "493efb0cecc70d505eacf2a37d7f504b38ce6ae3",
+        "e7909a7ced4c3958299826c30586b6d3a0af6c3c",
+        "ddaf10bca40a79fd3d445f5e24a8c3e69c8517ca",
+        "757dc63d28f2dd7aa839671bdbffea4f3141f3a9",
+        "c08ee58076eed60411778201f726faa9576bef90",
+        "a3318a608a695caca68fa74d1d3b3288be8dd48f",
+        "0307fefeb0a8f131eb7425e900cdb2158ad625f9",
+        "28b6127976c08d522bfe766eebccf9dd9e9e4d25",
+        "29572a0495230f80231bb80e5117482796eb87af"
+      ],
+      "source_lineage_sha256": "18a4347dfac487e1144a3e8f5c294a1e32ff86abf6ac33828f8191f21a3c7229",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "7a7c2aea29a680f42a93b23bb69422012509ff9c",
+      "static_scope_band": "medium",
+      "static_scope_score": 8,
+      "test_diff_sha256": "d4b8839b8eceb62c5e366fb78c3d47d19ed0875ec67ed18820744be0d0eb2f46",
+      "test_evidence_paths_sha256": "4d2da1ea8e6c589a5d3f0d6268eb8726c1fafb7a8c5313f7fe16a5c68ff7e86b",
+      "test_file_count": 5,
+      "test_stable_patch_id": "e54e5dd480093ea00294bdee4f37f3751ac0296d",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "4d2da1ea8e6c589a5d3f0d6268eb8726c1fafb7a8c5313f7fe16a5c68ff7e86b",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "module_root": ".",
+          "owner_go_test_file_count": 27,
+          "owner_go_test_paths_sha256": "7d046edf3734b17508cdaf02b98955f84f0a021377c6da38e3ca0bb6f67bccd5",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        }
+      ],
+      "tree_oid": "43ccf0de7c5cc4f450dc0da4036da02d351286f5",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "cd8192008a0167e6b797eadcd723738b775e22013a577f1e653158cc3daa54d3",
+      "changed_go_test_file_count": 3,
+      "changed_path_count": 11,
+      "changed_paths_sha256": "1d75b9d2046dd30da94a6ba460a64ed38dd7d045f5504b950d0fa1e994e74621",
+      "commit_oid": "ee416b4e16f4ec3274087347971f8fa9f0f905e4",
+      "committed_at": "2026-07-13T07:36:53+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 24,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "339b3c2b532432469cfe93827a52bf9b6e718117b3145a370c61a4eef4a9e340",
+      "full_stable_patch_id": "2b457e20cc1b5ad8a71cac513ced01801d0b2fe2",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "753d611267ecff0fade82624e6ea766b7408d329",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "path": "go.mod",
+          "raw_sha256": "b732c7b1cf15ad678d2243375e99dbad346ed7252efb0d277e9293abdc33a80e",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "4294542fa632f5f31a9e3fa7499718ab513541bb",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "6d239beff4ef6d49ce5192d4ed914697f31bbbb6131591b6d172f9ff8bc82f51",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "4a1ebce0407cad75277d0cf8ad0cdcb46163c66b8fad1eadbf2c8caeea52d8bf",
+      "source_file_count": 7,
+      "source_lineage_commit_oids": [
+        "8e56095bca386663d79810622bd6ac8f9b88f030",
+        "0e071d1456ae1d1bd081b785936dce54ac496df3",
+        "8149bdf1d161adca4af9896de1615858c9b9e88c",
+        "17379882c89a655ab7789c392d004e85c9057e77",
+        "3d92dfee1c2f66594d14d977552422b2b378651b",
+        "bfc3a38c2a285ca15e55629ac9d7336c4bd61bf1",
+        "36becfeff96179cf4bfae84687d7ea422d67d05f",
+        "7bf1a4a6ead71da1b3a46384ad7a176938ccfc3e",
+        "7651779199f09745afe585c798aecd0717ecb09b"
+      ],
+      "source_lineage_sha256": "96748405ea1ec912082b954f679b23bb9b40a47cd4e87d7723a632d9107646a6",
+      "source_package_count": 3,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "17e41b1a9b513920e3d30d182006f6a47732cd06",
+      "static_scope_band": "high",
+      "static_scope_score": 12,
+      "test_diff_sha256": "9741f34cb38e41141419fe88388a291e6e54a73749249f8aaee72a171b4cc725",
+      "test_evidence_paths_sha256": "7cfba8fb2cac9d11ce94b7386b5df904036d95f7589e86522efeafe229b63edf",
+      "test_file_count": 3,
+      "test_stable_patch_id": "2bfa6282596db4c048debab193b4cb5036200963",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "0a67e74d4289ce30ff2fdf398584153e048286da7dea83c6b38725aede63c063",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "module_root": ".",
+          "owner_go_test_file_count": 28,
+          "owner_go_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        },
+        {
+          "bound_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        },
+        {
+          "bound_evidence_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "574ad6dc089f7355cafc31059af20a2f9c1d37bdfcae748397becea772f67e05",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "package_dir_sha256": "ef72edc6defc635bf05c24cd81d009b6a1088d6cc0174f90d3620013b447e812",
+          "target_sha256": "aae699d11834fc50501f703b20886125acfa39d5dff4a4ccaa5bedcea0f0a8de"
+        }
+      ],
+      "tree_oid": "6b0860958084c5202975524dd47923cf02241939",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "34c32ff7115e361af6f2aea0e4035186dac66e82e24b8695663a4e8127fd59f9",
+      "changed_go_test_file_count": 8,
+      "changed_path_count": 69,
+      "changed_paths_sha256": "276d6bc3741be2339f719b453b6fb8bb1ffb87316ca1a854fbe80c1aa4583f48",
+      "commit_oid": "18b949b28e26daf9d773c43ec13e759ea209f689",
+      "committed_at": "2026-07-14T09:34:07-04:00",
+      "evidence_kind": "changed_go_test_and_fixture_or_helper",
+      "first_parent_position": 25,
+      "fixture_or_helper_file_count": 27,
+      "fixture_owner_bindings": [
+        {
+          "fixture_or_helper_path_sha256": "169f52011e18082d87457f1ea0f96c4665504c2a5a9f494c7a1d09eccdfe6953",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "223068db47de36a3c34f495a2c6fb4f9c248e019dbe47aa7fbb5bc64961e4b5a",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5155311ff383858f80268a2d41f1997f7b72480e080dba29e3d05957eccd4296",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "517ebfb627b35df8c5bfa6d3d80bc56f9c818310697f2ee0fe6bfe62dc724158",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5df7200c8172ca1c97bc008b48f48fc5b04ca9a53df1152be0d16cfe514afba4",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "5e32dc680c6d0c83639a9ef48cd3e7f890509bd737d6d114b9362768ae864a84",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "6fe7d44935d72bea54010defb29943db3e858040ebfba03843c83d195bc30389",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "70b15f4af6b66e199579b0d96ea0f0c5ccf59771ffc2546f687761762a2144fc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7537ca7df09ee405816f39251e473e8befff06ef5da9fc94f14976b9db065c7f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "77b6cba75bb3861c677bcda679a6503f88222ec1936d79fc2fb31baf7613b5be",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "7866a14b732b8ea8b3db02cd38d8c10b274e6a0cdbb044b5276cb4e23ac6b3bc",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8bc2357d26e9f102ff1b248530a2128a7d2a3880371de8a14a2369fd427fafa7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "8fe5e95bdd95d8ba558491e32408c9f7f673106f7931bbfcbc583df657b9c745",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "9961dd9237e303ca1ee7cc9261c7f00c1e53174ef583d2c8cbdf03b2c2d13ef6",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a63006bd9a2ebbaab3ffd2aa158b01c45e458cd4362f004a6b99d9140c96b2dd",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "a930a44f2ebd8f5fccc9c2bc177a9a429f885505722ad5ce46576d58db17f726",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "b55b13980ad08c7f333fb44496a7ec9c6801aaa71b103b8600b48a2583b4c64b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bb7bd46e08c3557a21708f1bd5f5714e7ab14ced2cf1ae3c1d003bcc38955e6f",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bdf0319ffc2ca62a4bf503c87e57e8b3fdee9a079cc6058eebcdbca4d8469664",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "bfec425562e9aaf8e175e37bc6a54bb4c13083fd37c9642a78b98ae0da383cde",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "c139edddc6f147b5e961954cc3aa6c30e5319110d3ed90e85ac7c9f5b8e021c3",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cbb10a3e08a540aa87662499aab2defd066ee67da597d29b130ae06a8e0d700d",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "cd7812c6702aa7f9f4ed0f5311e3889a799df6999ea4e88c7efcff4f5537e9a7",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "de9f76b732ddbf090f72831ea13b1010fd61c18b32f1856ad9d871209ee90aeb",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "e024357758d0aea38fa736a671930b9a3b7fb52617cee9cd6fc7df44be7ff33b",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f54731b249e104adad4a1fbd694d781298f25224fc4e612eccc26acff970ecb8",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f693256320aacbd613e08cfc5bcf38e38a5d0f4af6f88ed03abaed3c8a10e2c0",
+          "module_root": ".",
+          "owner_package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "owner_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b"
+        }
+      ],
+      "full_diff_sha256": "4d710009c28fc44a32ebdfe4be7b05d73dfad82fac16cf5b0e7f20df5b8d3042",
+      "full_stable_patch_id": "702c8f817ddea42d5059d58f983aa23e2264dbdf",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "9fb6fee4cfb6b20001416442be4e2133ff0e6ddb",
+          "go_directive": "1.24",
+          "kind": "go.mod",
+          "module_directive_sha256": "cc438cf1f23025a35f38b9af4e6f1895f4db96412f7b43b0f5a81fa9e21df6a1",
+          "path": "go.mod",
+          "raw_sha256": "a8b275f719fc4037c582ce313d0ae1947be34d90e257b84d601d9308cac04e5d",
+          "root": ".",
+          "toolchain_directive": null
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "ee416b4e16f4ec3274087347971f8fa9f0f905e4",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "13fc6a4700807898c5b1ceb495fb110c61576bad48176142b06bd290ca42c677",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "519152db7b8227a6eadbf4c5aeae14acaafe8307ebf460d23d90f501776b24a7",
+      "source_file_count": 16,
+      "source_lineage_commit_oids": [
+        "958c2cb8a4ff27583109371c8184e6232fe516d3",
+        "ce3f2e37fde1a4c6bd61f3070e191d396479af90",
+        "6cc02ebf92b5a98879ce0d94476276b4b30afa7d",
+        "7c6b3c1da685040b904b1b512ffb71b7bc2052b6"
+      ],
+      "source_lineage_sha256": "742924057d8959125279aa9e2e0e8f6f22cea1332f2abfa95c9e4649cec6fdaf",
+      "source_package_count": 8,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "a8870db683cea284a4fdc7a8c937161709421d7c",
+      "static_scope_band": "high",
+      "static_scope_score": 12,
+      "test_diff_sha256": "15622743faeffff17bd895966d41d6011549c4e1f419fc719e0da2af21befb58",
+      "test_evidence_paths_sha256": "e4d90a414e3b29ddda8b101571e3b281902b7d81f7034d6038086fedc4c7b75a",
+      "test_file_count": 35,
+      "test_stable_patch_id": "abc4a4e14fcb7dce05599c7d646b8ae1438a16f3",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "33b64450defcfcae58389a3c8eb3da6ddc0fa75959a704e229dc56c3c508ceb5",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "cc438cf1f23025a35f38b9af4e6f1895f4db96412f7b43b0f5a81fa9e21df6a1",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "33b64450defcfcae58389a3c8eb3da6ddc0fa75959a704e229dc56c3c508ceb5",
+          "package_dir_sha256": "039aa37e9c5ed5195fb44fad8d821d0a0f40c044db439f87122d20d656caaf8f",
+          "target_sha256": "7f4d492b92545564532ae8862c4f754ba5d23dcbd5710acfde145466e38e8701"
+        },
+        {
+          "bound_evidence_paths_sha256": "2e6cd0d9c8aa1f041fd08eda80bb14e5c288956e306b34710bd15c1e09f4e9c9",
+          "evidence_sources": [
+            "changed_go_test",
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "cc438cf1f23025a35f38b9af4e6f1895f4db96412f7b43b0f5a81fa9e21df6a1",
+          "module_root": ".",
+          "owner_go_test_file_count": 28,
+          "owner_go_test_paths_sha256": "901a49a154576cc868e10810e8bd7c7f72d7dc6a77f3280d20b290970db7c19b",
+          "package_dir_sha256": "2f8f062adc5de8a04c4cd2465f440857749fce129a1a55a8e9cafadd009b73cf",
+          "target_sha256": "dd13926fb07ccaacfd3750b0ff8d096942fd9dbf51bf75b69ce41a258bb98160"
+        },
+        {
+          "bound_evidence_paths_sha256": "ac63d838f68b9a279260cfaedc8ff33bd6a070e4ec0ea34c0c801e3410480af7",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "cc438cf1f23025a35f38b9af4e6f1895f4db96412f7b43b0f5a81fa9e21df6a1",
+          "module_root": ".",
+          "owner_go_test_file_count": 0,
+          "owner_go_test_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "package_dir_sha256": "67033d8854373525e3e9abb31d4e534e9a5b3c98e1a699e11b8cf83a78c7c53f",
+          "target_sha256": "e601c925d0ac85bccf066f6cfd770752c87191a3c5309af97b98eb98eb5d0e53"
+        },
+        {
+          "bound_evidence_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "cc438cf1f23025a35f38b9af4e6f1895f4db96412f7b43b0f5a81fa9e21df6a1",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "98b3f9d8e952f6bd3b9c7c2682bbaad0c3db2ebbd032013e72afb3fbefb95f7a",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        },
+        {
+          "bound_evidence_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "cc438cf1f23025a35f38b9af4e6f1895f4db96412f7b43b0f5a81fa9e21df6a1",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "75a473c93f9b9d58154c92d6752eb906a38f4e2e09de37fac188d3a396f9a01b",
+          "package_dir_sha256": "ef72edc6defc635bf05c24cd81d009b6a1088d6cc0174f90d3620013b447e812",
+          "target_sha256": "aae699d11834fc50501f703b20886125acfa39d5dff4a4ccaa5bedcea0f0a8de"
+        }
+      ],
+      "tree_oid": "ee4f0b4a45c373f38e85452d529d00361086ff0a",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "execution_status": "not_executed",
+  "exposure": "permanent_development_only_identity_inspected",
+  "generated_at": "2026-07-16T07:21:42-04:00",
+  "implementation": {
+    "repository_contract_sha256": "833ea95cf95c9dd45a5fd529be89c9cc4ea5ebf8edc2fe2e46916068cecf6855",
+    "scanner_sha256": "06bcdcb2a5621e75b66796096ed315ae671965beb9b2818bc4673ba4ec821deb",
+    "schema_sha256": "dd4c6932ebd6ce2220b58c04684e23dee40d9eefe41a1755ce4f4a24f782aa42"
+  },
+  "ledger_sha256": "0832fd47b94e33f2c609259090bebce637b158a765be80763b1fea53837d3e9d",
+  "profile": "agent_brain_development_task_eligibility_scan_v2",
+  "repository": {
+    "key": "entire-graph",
+    "remote": {
+      "name": "origin",
+      "ref": "refs/remotes/origin/main",
+      "url": "https://github.com/entireio/entire-graph.git"
+    },
+    "repository_id": "github.com/entireio/entire-graph",
+    "toolchain": {
+      "git": {
+        "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+        "version_output": "git version 2.53.0"
+      },
+      "go": {
+        "binary_sha256": "c9507e881b743649af2b8d9edd8678433b999acfe4da2f9834a08a4fcebb1861",
+        "cc": "clang",
+        "cgo_enabled": "1",
+        "cxx": "clang++",
+        "goarch": "arm64",
+        "goos": "darwin",
+        "version_output": "go version go1.24.13 darwin/arm64"
+      },
+      "native": {
+        "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+        "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+        "target": "arm64-apple-darwin25.5.0",
+        "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+      }
+    },
+    "window": {
+      "base_oid": "d3271d235a2669da67d9f6924bb31cf6fd82349c",
+      "first_parent_unit_count": 31,
+      "head_oid": "fafe92878b5e920fe161d8078ee91762fe33e9b4"
+    }
+  },
+  "schema_version": 2,
+  "selection_rule": "pinned_31_first_parent_production_go_plus_test_evidence_v2",
+  "summary": {
+    "candidate_count": 19,
+    "evidence_kind_counts": {
+      "changed_go_test_and_fixture_or_helper": 3,
+      "changed_go_test_only": 14,
+      "fixture_or_helper_only": 2
+    },
+    "first_parent_unit_count": 31,
+    "runner_ready_count": 19,
+    "static_scope_band_counts": {
+      "high": 10,
+      "low": 6,
+      "medium": 3
+    },
+    "unit_kind_counts": {
+      "single_parent_integration_unit": 6,
+      "two_parent_feature_branch": 13
+    }
+  },
+  "toolchain_binding": {
+    "git": {
+      "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+      "version_output": "git version 2.53.0"
+    },
+    "go": {
+      "binary_sha256": "c9507e881b743649af2b8d9edd8678433b999acfe4da2f9834a08a4fcebb1861",
+      "cc": "clang",
+      "cgo_enabled": "1",
+      "cxx": "clang++",
+      "goarch": "arm64",
+      "goos": "darwin",
+      "version_output": "go version go1.24.13 darwin/arm64"
+    },
+    "native": {
+      "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+      "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+      "target": "arm64-apple-darwin25.5.0",
+      "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "verification_status": "matched_local_binaries_without_candidate_execution"
+  }
+}
