@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "profile": "engine_replay_checker_lock_v1",
+  "algorithm": "sha256_ordered_path_nul_sha256_newline_v1",
+  "files": [
+    {
+      "path": "benchmarks/agent-brain/confirmatory/check_protocol.py",
+      "sha256": "20d1e7200c367a353b3fff58ee48892eee578549d62cc2ef947437d8d8791066"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/hydrate_engine_evidence.py",
+      "sha256": "a36f56f6cc8dd3242d830d0a01fe6029624ccb1c9a8af646c710335787a217a8"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/public_engine_evidence.py",
+      "sha256": "1ea5743e563b6dd22f5e7bc354bca741ef0828dda2e1e4aaa4234b44e5f474ac"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/restricted_replay_attestation.py",
+      "sha256": "455e0ee4734fa297079507e9bae65256f4cba121473efb96ba61aec4cabebdd1"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-evidence-storage-v1.schema.json",
+      "sha256": "c838c9db824840ba686a8afb0c26a843044b4b1fca0bd2ec54148733dfef2f32"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-evidence-storage-v2.schema.json",
+      "sha256": "feda11dd4f2fe9b6b54d4bb919ec651bde077f5153a1c672450442732292c55d"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-replay-checker-lock-v1.schema.json",
+      "sha256": "93eec4a140b6987b1c45cc176ac5a82d9b6962185ef9135813f118ebd83a58e4"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-replay-trust-roots-v1.schema.json",
+      "sha256": "3dd6fbf277396597a7d838afd25236e5a34415ae59ca601c68b2ea396b5379ca"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-restricted-replay-attestation-v1.schema.json",
+      "sha256": "a7d9181d845f2d8b046b2db53d5fabe7360675110836af31f47ea76ece3221f4"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-verification-manifest.schema.json",
+      "sha256": "7dd7253fb9f135240600cb774319b2a97ff36ebf859e475343ec54f20f6ac52e"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-verification-public-v4.schema.json",
+      "sha256": "789278117fd71d6f29c67d414796de7667c8cb161ee5e185c27ddbe0ae458c5c"
+    },
+    {
+      "path": "benchmarks/agent-brain/confirmatory/schemas/engine-verification.schema.json",
+      "sha256": "dbcef30e2c398a8222ccade3fc53d4ebc032b566e47baf02f2befe14c270f190"
+    }
+  ],
+  "aggregate_sha256": "58fc5b378d920c61548ca7b90a6a154086f3e2f8ad251ea8cddf943a703dd684"
+}

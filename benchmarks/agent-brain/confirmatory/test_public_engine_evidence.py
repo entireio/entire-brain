@@ -646,6 +646,34 @@ class PublicEngineEvidenceTest(unittest.TestCase):
         write_json(self.public_manifest, manifest)
         self.assertTrue(any("component commitments differ from pins" in error for error in self.errors()))
 
+    def test_public_json_complexity_is_reported_without_recursion_failure(self) -> None:
+        deep = self.root / "deep-bundle" / "deep.json"
+        deep.parent.mkdir()
+        deep.write_text('{"value":' + "[" * 2000 + "0" + "]" * 2000 + "}", encoding="utf-8")
+        errors: list[str] = []
+        self.assertIsNone(PUBLIC._load_json(deep, errors, "deep fixture"))
+        self.assertTrue(any("complexity bound" in error for error in errors), errors)
+        scan_errors = PUBLIC.scan_public_bundle(deep.parent)
+        self.assertTrue(any("complexity bound" in error for error in scan_errors), scan_errors)
+
+    def test_public_manifest_duplicate_key_is_rejected(self) -> None:
+        raw = self.public_manifest.read_text(encoding="utf-8")
+        needle = f'"profile":"{PUBLIC.PROFILE}"'
+        self.assertIn(needle, raw)
+        self.public_manifest.write_text(raw.replace(needle, f"{needle},{needle}", 1), encoding="utf-8")
+        errors = self.errors()
+        self.assertTrue(any("duplicate object key 'profile'" in error for error in errors), errors)
+
+    def test_public_role_duplicate_key_is_rejected_after_inventory_reseal(self) -> None:
+        path, _ = self.payload("arm_record_lexical_handrolled")
+        raw = path.read_text(encoding="utf-8")
+        needle = '"arm":"lexical_handrolled"'
+        self.assertIn(needle, raw)
+        path.write_text(raw.replace(needle, f"{needle},{needle}", 1), encoding="utf-8")
+        self.reseal(rebuild_projection_chain=False)
+        errors = self.errors()
+        self.assertTrue(any("duplicate object key 'arm'" in error for error in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

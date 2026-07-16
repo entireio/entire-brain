@@ -29,6 +29,7 @@ if str(HERE) not in sys.path:
 
 import power_analysis  # noqa: E402  (local deterministic companion module)
 import pricing_budget  # noqa: E402  (local deterministic companion module)
+import hydrate_engine_evidence  # noqa: E402  (two-root engine evidence storage)
 import public_engine_evidence  # noqa: E402  (privacy-safe public engine evidence)
 import relevance_dataset  # noqa: E402  (local deterministic companion module)
 
@@ -134,9 +135,35 @@ DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newlin
 CANDIDATE_IDS_ALGORITHM = "sha256_canonical_sorted_id_array_v1"
 
 
+def _strict_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise json.JSONDecodeError(f"duplicate object key {key!r}", "", 0)
+        result[key] = value
+    return result
+
+
 def load(path: pathlib.Path) -> Any:
-    with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
+    try:
+        with path.open(encoding="utf-8") as handle:
+            value = json.load(handle, object_pairs_hook=_strict_object_pairs)
+        stack: list[tuple[Any, int]] = [(value, 0)]
+        nodes = 0
+        while stack:
+            current, depth = stack.pop()
+            nodes += 1
+            if depth > 64 or nodes > 100_000:
+                raise ValueError("JSON exceeds the depth/node complexity bound")
+            if isinstance(current, dict):
+                stack.extend((child, depth + 1) for child in current.values())
+            elif isinstance(current, list):
+                stack.extend((child, depth + 1) for child in current)
+        return value
+    except json.JSONDecodeError:
+        raise
+    except (ValueError, RecursionError) as exc:
+        raise json.JSONDecodeError(f"unsafe JSON structure: {exc}", "", 0) from exc
 
 
 def digest(path: pathlib.Path) -> str:
@@ -461,7 +488,12 @@ def _validate_engine_storage_schema(path: pathlib.Path, errors: list[str]) -> di
     artifact = _load_artifact(path, errors, "engine evidence storage contract")
     if artifact is None:
         return None
-    schema_path = HERE / "schemas" / "engine-evidence-storage.schema.json"
+    schema_name = (
+        "engine-evidence-storage-v1.schema.json"
+        if isinstance(artifact, dict) and artifact.get("schema_version") == 1
+        else "engine-evidence-storage-v2.schema.json"
+    )
+    schema_path = HERE / "schemas" / schema_name
     try:
         schema = load(schema_path)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -530,9 +562,57 @@ def _validate_engine_storage_contract(
     *,
     repo: pathlib.Path,
     require_published: bool,
+    validate_hydrated: bool = True,
+    allow_legacy_diagnostic: bool = False,
 ) -> dict[str, Any] | None:
     contract = _validate_engine_storage_schema(path, errors)
     if contract is None:
+        return None
+    if contract.get("schema_version") == 2:
+        try:
+            validated = hydrate_engine_evidence.load_storage_contract_v2(
+                path,
+                repo=repo,
+                verify_external_locks=True,
+            )
+        except hydrate_engine_evidence.HydrationError as exc:
+            errors.append(f"engine evidence storage v2 contract is invalid: {exc}")
+            return None
+        if validated["contract_status"] != "approved":
+            if require_published:
+                errors.append("engine evidence storage v2 is pending owner authorization")
+                return None
+            return {
+                "contract": validated,
+                "restricted_replay_verified": False,
+            }
+        if not validate_hydrated:
+            return {
+                "contract": validated,
+                "restricted_replay_verified": False,
+            }
+        try:
+            manifest_path = hydrate_engine_evidence.verify_hydrated_storage_v2(
+                path,
+                repo=repo,
+            )
+        except hydrate_engine_evidence.HydrationError as exc:
+            errors.append(f"engine evidence approved two-root verification failed: {exc}")
+            return None
+        hydration_parent = repo / hydrate_engine_evidence.STORAGE_HYDRATION_PARENT
+        return {
+            "contract": validated,
+            "artifact_repo": hydration_parent,
+            "archive_root": hydration_parent / hydrate_engine_evidence.PUBLIC_ARCHIVE_ROOT,
+            "manifest_path": manifest_path,
+            "manifest_root": manifest_path.parent,
+            "restricted_replay_verified": True,
+        }
+    if contract.get("schema_version") != 1:
+        errors.append("engine evidence storage contract schema is unsupported")
+        return None
+    if not allow_legacy_diagnostic:
+        errors.append("legacy engine evidence storage v1 is diagnostic-only and cannot satisfy production")
         return None
     storage = contract.get("storage") if isinstance(contract.get("storage"), dict) else {}
     archive = contract.get("archive") if isinstance(contract.get("archive"), dict) else {}
@@ -986,7 +1066,7 @@ def validate_power_analysis(
     )
     try:
         expected = power_analysis.build_report()
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         errors.append(f"cannot derive power-analysis.json: {exc}")
         return errors
     _error(errors, artifact == expected, "power-analysis.json is stale or does not match power_analysis.build_report()")
@@ -2658,7 +2738,7 @@ def _derive_fact_eligibility(
                 eligible_ids.add(fact_id)
                 if status == "active":
                     active_eligible_ids.add(fact_id)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         errors.append(f"{label}: retained facts cannot establish temporal/status eligibility: {exc}")
         return None
     return {
@@ -3287,8 +3367,18 @@ def validate_engine_verification(
             errors,
             repo=repo,
             require_published=True,
+            allow_legacy_diagnostic=not require_production,
         )
         if relocation is None:
+            return errors
+        if "manifest_path" not in relocation or "artifact_repo" not in relocation:
+            errors.append("engine evidence storage contract did not establish hydrated authoritative evidence")
+            return errors
+        if relocation.get("restricted_replay_verified") is True:
+            # The approved v2 verifier already schema/semantically validated one
+            # inode-bound private snapshot of all six public files plus the
+            # restricted envelope.  Reopening the mutable hydration path here
+            # would sever the gate from those attested bytes.
             return errors
         evidence_path = relocation["manifest_path"]
         artifact_repo = relocation["artifact_repo"]
@@ -3303,7 +3393,9 @@ def validate_engine_verification(
                 expected_descriptor,
             )
         )
-        if require_production:
+        if require_production and not (
+            relocation is not None and relocation.get("restricted_replay_verified") is True
+        ):
             errors.append(
                 "public v4 evidence lacks an authenticated restricted replay attestation bound to the v4 manifest, pin set, and checker"
             )
@@ -3923,6 +4015,13 @@ def validate(freeze: bool = False) -> list[str]:
     matrix = load(HERE / "engine-matrix.json")
     dataset = load(HERE / "offline-relevance-dataset.json")
     gate = load(HERE / "go-no-go.json")
+    _validate_engine_storage_contract(
+        HERE / "engine-evidence-storage.json",
+        errors,
+        repo=REPO,
+        require_published=False,
+        validate_hydrated=False,
+    )
     errors.extend(validate_inventory(inventory))
     _error(errors, protocol.get("schema_version") == 2, "preregistration schema_version must be 2")
     errors.extend(validate_joint_success_contract(protocol, freeze=freeze))

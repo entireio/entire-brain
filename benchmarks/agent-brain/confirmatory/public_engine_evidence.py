@@ -91,6 +91,29 @@ def _require(condition: bool, message: str) -> None:
         raise PublicEvidenceError(message)
 
 
+def _strict_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, child in pairs:
+        if key in value:
+            raise ValueError(f"duplicate object key {key!r}")
+        value[key] = child
+    return value
+
+
+def _validate_json_complexity(value: Any) -> None:
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    nodes = 0
+    while stack:
+        current, depth = stack.pop()
+        nodes += 1
+        if depth > 64 or nodes > 100_000:
+            raise ValueError("JSON exceeds the depth/node complexity bound")
+        if isinstance(current, dict):
+            stack.extend((child, depth + 1) for child in current.values())
+        elif isinstance(current, list):
+            stack.extend((child, depth + 1) for child in current)
+
+
 def canonical_json_bytes(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -294,8 +317,9 @@ def _build_temporal_projection(
     _require(sha256_bytes(sessions_raw) == corpus["session_dates_sha256"], "session dates differ from pin")
     _require(len(sessions_raw) == corpus["session_dates_size_bytes"], "session dates size differs from pin")
     try:
-        session_dates = json.loads(sessions_raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        session_dates = json.loads(sessions_raw, object_pairs_hook=_strict_object_pairs)
+        _validate_json_complexity(session_dates)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise PublicEvidenceError(f"session dates are unreadable: {exc}") from exc
     _require(
         isinstance(session_dates, dict)
@@ -315,7 +339,8 @@ def _build_temporal_projection(
         for line_number, line in enumerate(lines, 1):
             if not line.strip():
                 continue
-            fact = json.loads(line)
+            fact = json.loads(line, object_pairs_hook=_strict_object_pairs)
+            _validate_json_complexity(fact)
             _require(isinstance(fact, dict), f"facts line {line_number} is not an object")
             raw_id = fact.get("id")
             _require(isinstance(raw_id, str) and bool(raw_id), f"facts line {line_number} has no id")
@@ -363,7 +388,7 @@ def _build_temporal_projection(
                     "exclusion_reason": None,
                 }
             )
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise PublicEvidenceError(f"facts source is unreadable: {exc}") from exc
 
     candidates.sort(key=lambda item: item["ref"])
@@ -570,8 +595,9 @@ def _environment_policy(record: dict[str, Any], matrix: dict[str, Any]) -> dict[
 
 def _sanitize_lifecycle(raw_bytes: bytes) -> dict[str, Any]:
     try:
-        raw = json.loads(raw_bytes)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = json.loads(raw_bytes, object_pairs_hook=_strict_object_pairs)
+        _validate_json_complexity(raw)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise PublicEvidenceError(f"embedding server attestation is unreadable: {exc}") from exc
     observations = raw.get("observations")
     _require(isinstance(observations, list), "embedding server observations are missing")
@@ -635,8 +661,9 @@ def _build_arm_record(
     stdout_raw = _read_restricted_artifact(artifact_root, artifacts, "stdout", f"{arm} stdout")
     stderr_raw = _read_restricted_artifact(artifact_root, artifacts, "stderr", f"{arm} stderr")
     try:
-        stdout = json.loads(stdout_raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        stdout = json.loads(stdout_raw, object_pairs_hook=_strict_object_pairs)
+        _validate_json_complexity(stdout)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise PublicEvidenceError(f"{arm} stdout is not one JSON object: {exc}") from exc
     result = record.get("result", {})
     raw_result_ids = result.get("fact_ids_in_order")
@@ -816,8 +843,9 @@ def scan_public_bundle(bundle: pathlib.Path) -> list[str]:
                 errors.append(f"public evidence contains a non-JSON payload: {relative}")
                 continue
             try:
-                value = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_strict_object_pairs)
+                _validate_json_complexity(value)
+            except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
                 errors.append(f"public evidence JSON is unreadable at {relative}: {exc}")
                 continue
             errors.extend(_privacy_value_errors(value, relative))
@@ -835,8 +863,12 @@ def build_public_bundle(
     """Project an already validated diagnostic manifest into an atomic v4 bundle."""
     _require(not output_dir.exists(), f"refusing to replace public evidence: {output_dir}")
     try:
-        diagnostic = json.loads(diagnostic_manifest.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        diagnostic = json.loads(
+            diagnostic_manifest.read_text(encoding="utf-8"),
+            object_pairs_hook=_strict_object_pairs,
+        )
+        _validate_json_complexity(diagnostic)
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise PublicEvidenceError(f"diagnostic manifest is unreadable: {exc}") from exc
     _require(
         isinstance(diagnostic, dict) and diagnostic.get("schema_version") == 2,
@@ -970,8 +1002,10 @@ def build_public_bundle(
 
 def _load_json(path: pathlib.Path, errors: list[str], label: str) -> Any | None:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_strict_object_pairs)
+        _validate_json_complexity(value)
+        return value
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
         errors.append(f"{label} is unreadable JSON: {exc}")
         return None
 
@@ -1656,8 +1690,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        pins = json.loads(args.pins.read_text(encoding="utf-8"))
-        matrix = json.loads(args.matrix.read_text(encoding="utf-8"))
+        pins = json.loads(args.pins.read_text(encoding="utf-8"), object_pairs_hook=_strict_object_pairs)
+        matrix = json.loads(args.matrix.read_text(encoding="utf-8"), object_pairs_hook=_strict_object_pairs)
+        _validate_json_complexity(pins)
+        _validate_json_complexity(matrix)
         _validate_private_diagnostic(
             args.diagnostic_manifest,
             args.artifact_root,
@@ -1676,7 +1712,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(path)
         return 0
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, PublicEvidenceError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError, PublicEvidenceError) as exc:
         print(f"engine public evidence error: {exc}", file=sys.stderr)
         return 2
 

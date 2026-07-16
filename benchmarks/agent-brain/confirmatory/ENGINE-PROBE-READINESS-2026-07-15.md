@@ -1,7 +1,8 @@
 # Retrieval-engine probe readiness — 2026-07-15
 
 Status: **controlled three-arm verification passed; v3 is privacy-failed diagnostic evidence;
-public v4 projection passes locally; restricted replay/storage pending; no paid agent-CLI invocations**.
+public v4 projection passes locally; two-root replay/storage contract implemented but owner approval
+and evidence remain pending; no paid agent-CLI invocations**.
 
 Read-only probes used the already-exposed development task `6699ec40a` against the full rolling
 quarantine. All three runtime paths reported `identity_verified=true`, BM25 disabled, no fallback,
@@ -50,7 +51,9 @@ restricted clean-checkout replay validated the exact private bytes. The storage-
 checker therefore fails closed until a separately authenticated restricted replay attestation is
 bound to the public v4 manifest, pin set, and checker. Publication, encryption/key management,
 external storage, and clean hydration were not performed by this work. The checked-in legacy
-storage contract cannot represent that v4 binding; a new storage schema/profile remains required.
+storage contract cannot represent that v4 binding. A new v2 storage/attestation profile now
+represents it, but is intentionally checked in as `pending_owner_authorization` with empty trust
+roots and no production signer, restricted object, public release, attestation, or hydrated roots.
 
 No fresh relevance or agent holdout was opened by these probes.
 
@@ -110,8 +113,10 @@ component-sorted `Path` rows while the checker hashed serialized relative-path r
 `f125b5c2` canonicalizes the runner to serialized relative-path order, refreshes the production pin,
 and adds the adversarial `a-b` versus `a/b` regression fixture. The regenerated v3 evidence passed.
 
-The gate remains **pending** on four linked retention steps: define the authenticated restricted
-replay-attestation contract, define a v4 storage schema/profile that binds it to the public manifest,
-retain that restricted proof under approved access controls, and bind an immutable public-v4 archive
-to it through a clean hydration. The legacy v3 archive must not be published, and a locally valid
-public projection cannot close the gate by itself.
+The gate remains **pending** on the owner-executed half of the implemented contract: authorize a
+production Ed25519 trust root/principal and restricted retention controls; perform the clean
+exact-byte replay and sign its zero-error statement; privacy-review and publish the deterministic
+public-v4 archive as an immutable release asset; then hydrate and verify both approved local roots
+atomically. `ENGINE-REPLAY-ATTESTATION-CONTRACT.md` records the exact flow and fail-closed boundary.
+The legacy v3 archive must not be published, and a locally valid public projection cannot close the
+gate by itself.

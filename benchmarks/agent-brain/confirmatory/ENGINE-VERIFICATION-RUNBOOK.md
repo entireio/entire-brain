@@ -203,13 +203,31 @@ rejects absolute paths, host/user/environment values, raw IDs, free-form fact/qu
 and secret/token patterns. It copies no facts, session map, model, Node/runtime tree, source
 namespace, vector floats, raw stdout, or raw stderr.
 
-Final freeze remains blocked until a public v4 bundle and its restricted exact-byte attestation are
-retained under an approved access/publication contract and validate from a clean hydration. The
-existing storage schema/profile describes the legacy v2 archive layout; it does not bind a v4
-public manifest to an authenticated restricted replay, checker digest, and pin set. No v4 storage
-profile has been implemented, so every production-mode v4 validation fails closed even when storage
-mode is not requested. The current legacy v3 archive remains diagnostic and privacy-failed; it is
-not publishable evidence.
+The v2 two-root storage profile is now implemented in `engine-evidence-storage.json`, with its full
+operator and trust contract in `ENGINE-REPLAY-ATTESTATION-CONTRACT.md`. It deterministically packages
+the exact six-file public tree and binds it to a separately hydrated owner-only Ed25519 SSHSIG
+attestation over the private replay, production inputs, public projection, checker/analyzer locks,
+source identity, and immutable release identity. Verification captures the public tree and
+restricted envelope into single authenticated buffers and atomically publishes both roots only
+after the complete offline chain succeeds.
+
+The checked-in v2 descriptor and trust roots remain `pending_owner_authorization`: there is no
+production key/principal, restricted object, public release, or attestation. Therefore every
+production-mode v4 validation and final freeze still fails closed. The preserved legacy v1
+descriptor and its private archive remain diagnostic, privacy-failed, and non-publishable.
+
+Unpaid structural/package checks are:
+
+```sh
+python3 benchmarks/agent-brain/confirmatory/hydrate_engine_evidence.py inspect-contract
+python3 benchmarks/agent-brain/confirmatory/hydrate_engine_evidence.py package-public \
+  --bundle "$PUBLIC_V4_OUTPUT" --output "$LOCAL_PUBLIC_ARCHIVE"
+```
+
+Only after a separate owner review has approved and populated every trust, storage, release, replay,
+and cross-binding field may local approved files be passed to `hydrate-all`, followed by
+`verify-hydrated`. The v2 restricted path performs no network retrieval. Do not use the synthetic
+fixture issuer for production and do not run `legacy-hydrate` as gate evidence.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between

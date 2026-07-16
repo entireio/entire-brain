@@ -4,6 +4,7 @@ import copy
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
+import inspect
 import json
 import math
 import pathlib
@@ -19,6 +20,8 @@ assert SPEC and SPEC.loader
 CHECK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECK)
 
+import restricted_replay_attestation as ATTEST
+
 
 class ProtocolCheckTest(unittest.TestCase):
     @staticmethod
@@ -29,6 +32,25 @@ class ProtocolCheckTest(unittest.TestCase):
     @staticmethod
     def _sha(path: pathlib.Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    @staticmethod
+    def _copy_engine_storage_lock_bundle(repo: pathlib.Path) -> pathlib.Path:
+        relative_paths = {
+            CHECK.ENGINE_EVIDENCE_STORAGE_REPO_PATH,
+            CHECK.ENGINE_PINS_REPO_PATH,
+            "benchmarks/agent-brain/confirmatory/engine-matrix.json",
+            "benchmarks/agent-brain/confirmatory/analyzer-lock.json",
+            "benchmarks/agent-brain/confirmatory/engine-replay-checker-lock.json",
+            "benchmarks/agent-brain/confirmatory/engine-replay-trust-roots.json",
+            "benchmarks/agent-brain/confirmatory/engine-evidence-storage-legacy-v1.json",
+            *ATTEST.CHECKER_LOCK_PATHS,
+        }
+        for relative in relative_paths:
+            source = CHECK.REPO / relative
+            destination = repo / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        return repo / CHECK.ENGINE_EVIDENCE_STORAGE_REPO_PATH
 
     @staticmethod
     def _pending_power_protocol(artifact: dict[str, object]) -> dict[str, object]:
@@ -1416,6 +1438,156 @@ class ProtocolCheckTest(unittest.TestCase):
         errors = CHECK.validate_dataset(dataset, protocol, freeze=True)
         self.assertNotIn("too few answerable product-derived development relevance tasks", errors)
         self.assertNotIn("too few corpus-closed product-derived development null queries", errors)
+
+    def test_engine_storage_v2_pending_is_valid_but_cannot_satisfy_production(self) -> None:
+        contract_path = HERE / "engine-evidence-storage.json"
+        diagnostic_errors: list[str] = []
+        diagnostic = CHECK._validate_engine_storage_contract(
+            contract_path,
+            diagnostic_errors,
+            repo=CHECK.REPO,
+            require_published=False,
+        )
+        self.assertEqual(diagnostic_errors, [])
+        self.assertIsNotNone(diagnostic)
+        self.assertFalse(diagnostic["restricted_replay_verified"])
+
+        production_errors: list[str] = []
+        production = CHECK._validate_engine_storage_contract(
+            contract_path,
+            production_errors,
+            repo=CHECK.REPO,
+            require_published=True,
+        )
+        self.assertIsNone(production)
+        self.assertEqual(
+            production_errors,
+            ["engine evidence storage v2 is pending owner authorization"],
+        )
+
+    def test_engine_storage_checker_and_trust_dependencies_fail_closed(self) -> None:
+        cases = (
+            ("engine-replay-checker-lock.json", "unlink", "checker lock cannot be opened"),
+            ("engine-replay-checker-lock.json", "append", "checker lock raw hash differs"),
+            ("engine-replay-trust-roots.json", "unlink", "trust roots cannot be opened"),
+            ("engine-replay-trust-roots.json", "append", "trust roots raw hash changed"),
+        )
+        for name, operation, expected in cases:
+            with self.subTest(name=name, operation=operation), tempfile.TemporaryDirectory() as raw:
+                repo = pathlib.Path(raw)
+                contract_path = self._copy_engine_storage_lock_bundle(repo)
+                target = repo / "benchmarks/agent-brain/confirmatory" / name
+                if operation == "unlink":
+                    target.unlink()
+                else:
+                    target.write_bytes(target.read_bytes() + b" ")
+                with self.assertRaisesRegex(CHECK.hydrate_engine_evidence.HydrationError, expected):
+                    CHECK.hydrate_engine_evidence.load_storage_contract_v2(
+                        contract_path,
+                        repo=repo,
+                    )
+
+    def test_engine_production_interfaces_do_not_accept_verifier_injection(self) -> None:
+        self.assertNotIn(
+            "attestation_verifier",
+            inspect.signature(CHECK.validate_engine_verification).parameters,
+        )
+        self.assertNotIn("ssh_keygen", inspect.signature(ATTEST.verify_envelope).parameters)
+
+    def test_public_v4_cannot_satisfy_production_without_restricted_replay(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            here = pathlib.Path(raw)
+            manifest = here / "public-v4.json"
+            manifest.write_text('{"schema_version":4}\n', encoding="utf-8")
+            with (
+                mock.patch.object(CHECK, "_validate_engine_pins", return_value={}),
+                mock.patch.object(CHECK, "_engine_pin_descriptor", return_value={}),
+                mock.patch.object(CHECK, "_load_artifact", return_value={"schema_version": 4}),
+                mock.patch.object(CHECK, "_validate_public_engine_manifest_schema"),
+                mock.patch.object(CHECK.public_engine_evidence, "validate_public_bundle", return_value=[]),
+            ):
+                errors = CHECK.validate_engine_verification(
+                    {},
+                    {"status": "pass", "evidence": "public-v4.json"},
+                    here=here,
+                    repo=here,
+                    pins={},
+                    require_production=True,
+                )
+        self.assertEqual(
+            errors,
+            [
+                "public v4 evidence lacks an authenticated restricted replay attestation bound to the v4 manifest, pin set, and checker"
+            ],
+        )
+
+    def test_verified_two_root_snapshot_is_not_reopened_downstream(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            repo = pathlib.Path(raw)
+            contract = repo / CHECK.ENGINE_EVIDENCE_STORAGE_REPO_PATH
+            contract.parent.mkdir(parents=True)
+            contract.write_text("{}\n", encoding="utf-8")
+            relocation = {
+                "manifest_path": contract.parent / ".engine-evidence/public-v4-v1/engine-verification-public-v4.json",
+                "artifact_repo": contract.parent / ".engine-evidence",
+                "restricted_replay_verified": True,
+            }
+            with (
+                mock.patch.object(CHECK, "_validate_engine_pins", return_value={}),
+                mock.patch.object(CHECK, "_engine_pin_descriptor", return_value={}),
+                mock.patch.object(CHECK, "_validate_engine_storage_contract", return_value=relocation),
+                mock.patch.object(CHECK, "_load_artifact", side_effect=AssertionError("mutable tree reopened")) as load_artifact,
+                mock.patch.object(
+                    CHECK.public_engine_evidence,
+                    "validate_public_bundle",
+                    side_effect=AssertionError("mutable tree revalidated"),
+                ) as validate_public,
+            ):
+                errors = CHECK.validate_engine_verification(
+                    {},
+                    {
+                        "status": "pass",
+                        "evidence": CHECK.ENGINE_EVIDENCE_STORAGE_REPO_PATH,
+                    },
+                    here=contract.parent,
+                    repo=repo,
+                    pins={},
+                    require_production=True,
+                    require_storage_contract=True,
+                )
+            self.assertEqual(errors, [])
+            load_artifact.assert_not_called()
+            validate_public.assert_not_called()
+
+    def test_json_loader_rejects_duplicate_schema_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = pathlib.Path(raw) / "duplicate-schema.json"
+            path.write_text('{"type":"object","type":"array"}\n', encoding="utf-8")
+            with self.assertRaisesRegex(json.JSONDecodeError, "duplicate object key"):
+                CHECK.load(path)
+            for raw_json in (
+                '{"value":' + "1" * 5000 + '}',
+                '{"value":' + "[" * 2000 + "0" + "]" * 2000 + '}',
+            ):
+                path.write_text(raw_json, encoding="utf-8")
+                with self.assertRaisesRegex(json.JSONDecodeError, "unsafe JSON structure"):
+                    CHECK.load(path)
+
+    def test_legacy_engine_storage_v1_is_diagnostic_only(self) -> None:
+        errors: list[str] = []
+        result = CHECK._validate_engine_storage_contract(
+            HERE / "engine-evidence-storage-legacy-v1.json",
+            errors,
+            repo=CHECK.REPO,
+            require_published=True,
+            validate_hydrated=False,
+            allow_legacy_diagnostic=False,
+        )
+        self.assertIsNone(result)
+        self.assertIn(
+            "legacy engine evidence storage v1 is diagnostic-only and cannot satisfy production",
+            errors,
+        )
 
     def test_engine_gate_rejects_legacy_unpinned_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

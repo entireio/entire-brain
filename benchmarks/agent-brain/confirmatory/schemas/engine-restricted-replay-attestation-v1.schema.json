@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/engine-restricted-replay-attestation-v1.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "profile",
+    "canonicalization",
+    "signature_scheme",
+    "signature_namespace",
+    "trust_root_id",
+    "signer_principal",
+    "public_key_sha256",
+    "statement",
+    "signed_payload_sha256",
+    "signature"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"const": "restricted_engine_replay_attestation_v1"},
+    "canonicalization": {"const": "utf8_json_sort_keys_compact_no_float_v1"},
+    "signature_scheme": {"const": "sshsig_ed25519_v1"},
+    "signature_namespace": {"const": "entire-brain-engine-replay-v1"},
+    "trust_root_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"},
+    "signer_principal": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$"},
+    "public_key_sha256": {"$ref": "#/$defs/sha256"},
+    "statement": {"$ref": "#/$defs/statement"},
+    "signed_payload_sha256": {"$ref": "#/$defs/sha256"},
+    "signature": {"type": "string", "pattern": "^-----BEGIN SSH SIGNATURE-----"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "rfc3339": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|\\+\\d{2}:\\d{2}|-(?!00:00)\\d{2}:\\d{2})$"},
+    "positiveInteger": {"type": "integer", "minimum": 1},
+    "statement": {
+      "type": "object",
+      "required": [
+        "issued_at",
+        "private_diagnostic",
+        "public_projection",
+        "production_inputs",
+        "source_identity",
+        "replay_result",
+        "public_archive"
+      ],
+      "properties": {
+        "issued_at": {"$ref": "#/$defs/rfc3339"},
+        "private_diagnostic": {
+          "type": "object",
+          "required": ["manifest_schema_version", "manifest_sha256", "manifest_size_bytes"],
+          "properties": {
+            "manifest_schema_version": {"const": 2},
+            "manifest_sha256": {"const": "b7c9baae2c3f0ed9b0773226ececf5bf129bd4dd487c02ffab9945cf0fc9c17d"},
+            "manifest_size_bytes": {"$ref": "#/$defs/positiveInteger"}
+          },
+          "additionalProperties": false
+        },
+        "public_projection": {
+          "type": "object",
+          "required": [
+            "manifest_schema_version",
+            "manifest_sha256",
+            "manifest_size_bytes",
+            "artifact_inventory_algorithm",
+            "artifact_inventory_root_sha256",
+            "payload_file_count",
+            "payload_logical_bytes"
+          ],
+          "properties": {
+            "manifest_schema_version": {"const": 4},
+            "manifest_sha256": {"$ref": "#/$defs/sha256"},
+            "manifest_size_bytes": {"$ref": "#/$defs/positiveInteger"},
+            "artifact_inventory_algorithm": {"const": "sha256_ordered_relative_path_nul_sha256_nul_size_newline_v1"},
+            "artifact_inventory_root_sha256": {"$ref": "#/$defs/sha256"},
+            "payload_file_count": {"const": 5},
+            "payload_logical_bytes": {"$ref": "#/$defs/positiveInteger"}
+          },
+          "additionalProperties": false
+        },
+        "production_inputs": {
+          "type": "object",
+          "required": ["pin_set_id", "pin_set_authority", "pin_set_path", "pin_set_sha256", "matrix_path", "matrix_sha256"],
+          "properties": {
+            "pin_set_id": {"type": "string", "minLength": 1},
+            "pin_set_authority": {"const": "production"},
+            "pin_set_path": {"const": "benchmarks/agent-brain/confirmatory/engine-verification-pins.json"},
+            "pin_set_sha256": {"$ref": "#/$defs/sha256"},
+            "matrix_path": {"const": "benchmarks/agent-brain/confirmatory/engine-matrix.json"},
+            "matrix_sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": false
+        },
+        "source_identity": {
+          "type": "object",
+          "required": [
+            "repository",
+            "git_object_format",
+            "commit_oid",
+            "tree_oid",
+            "worktree_state",
+            "checker_lock_path",
+            "checker_lock_sha256",
+            "checker_lock_algorithm",
+            "checker_source_aggregate_sha256",
+            "analyzer_lock_path",
+            "analyzer_lock_sha256",
+            "analyzer_lock_algorithm",
+            "analyzer_source_aggregate_sha256"
+          ],
+          "properties": {
+            "repository": {"const": "entireio/entire-brain"},
+            "git_object_format": {"const": "sha1"},
+            "commit_oid": {"$ref": "#/$defs/sha1"},
+            "tree_oid": {"$ref": "#/$defs/sha1"},
+            "worktree_state": {"const": "clean"},
+            "checker_lock_path": {"const": "benchmarks/agent-brain/confirmatory/engine-replay-checker-lock.json"},
+            "checker_lock_sha256": {"$ref": "#/$defs/sha256"},
+            "checker_lock_algorithm": {"const": "sha256_ordered_path_nul_sha256_newline_v1"},
+            "checker_source_aggregate_sha256": {"$ref": "#/$defs/sha256"},
+            "analyzer_lock_path": {"const": "benchmarks/agent-brain/confirmatory/analyzer-lock.json"},
+            "analyzer_lock_sha256": {"$ref": "#/$defs/sha256"},
+            "analyzer_lock_algorithm": {"const": "sha256_ordered_path_nul_sha256_newline_v1"},
+            "analyzer_source_aggregate_sha256": {"$ref": "#/$defs/sha256"}
+          },
+          "additionalProperties": false
+        },
+        "replay_result": {
+          "type": "object",
+          "required": [
+            "operation",
+            "private_validator",
+            "private_error_count",
+            "public_validator",
+            "public_error_count",
+            "checker_lock_valid",
+            "analyzer_lock_valid",
+            "decision"
+          ],
+          "properties": {
+            "operation": {"const": "offline_exact_byte_validation_v1"},
+            "private_validator": {"const": "check_protocol.validate_engine_verification/v2"},
+            "private_error_count": {"const": 0},
+            "public_validator": {"const": "public_engine_evidence.validate_public_bundle/v4"},
+            "public_error_count": {"const": 0},
+            "checker_lock_valid": {"const": true},
+            "analyzer_lock_valid": {"const": true},
+            "decision": {"const": "pass"}
+          },
+          "additionalProperties": false
+        },
+        "public_archive": {
+          "type": "object",
+          "required": [
+            "format",
+            "root",
+            "sha256",
+            "size_bytes",
+            "regular_file_count",
+            "directory_count",
+            "logical_bytes",
+            "tree_inventory_algorithm",
+            "tree_inventory_sha256",
+            "repository",
+            "tag",
+            "asset_name",
+            "asset_url",
+            "release_id",
+            "asset_id",
+            "release_immutable",
+            "release_target_commitish",
+            "asset_api_digest",
+            "verified_at"
+          ],
+          "properties": {
+            "format": {"const": "tar_zstd"},
+            "root": {"const": "public-v4-v1"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "size_bytes": {"$ref": "#/$defs/positiveInteger"},
+            "regular_file_count": {"const": 6},
+            "directory_count": {"const": 2},
+            "logical_bytes": {"$ref": "#/$defs/positiveInteger"},
+            "tree_inventory_algorithm": {"const": "sha256_ordered_type_nul_path_nul_mode_nul_sha256_nul_size_newline_v1"},
+            "tree_inventory_sha256": {"$ref": "#/$defs/sha256"},
+            "repository": {"const": "entireio/entire-brain"},
+            "tag": {"type": "string", "minLength": 1},
+            "asset_name": {"type": "string", "pattern": "^[^/]+\\.tar\\.zst$"},
+            "asset_url": {"type": "string", "pattern": "^https://github\\.com/entireio/entire-brain/releases/download/[^/]+/[^/]+\\.tar\\.zst$"},
+            "release_id": {"$ref": "#/$defs/positiveInteger"},
+            "asset_id": {"$ref": "#/$defs/positiveInteger"},
+            "release_immutable": {"const": true},
+            "release_target_commitish": {"$ref": "#/$defs/sha1"},
+            "asset_api_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "verified_at": {"$ref": "#/$defs/rfc3339"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

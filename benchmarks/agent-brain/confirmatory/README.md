@@ -12,9 +12,10 @@ produced a checker-valid manifest, but its 602 MB byte-complete v3 bundle contai
 corpus/session/host material and is explicitly non-publishable. A privacy-safe public v4 projector
 and fail-closed checker lane are implemented; the retained real v3 run projects locally to a
 checker-valid six-file, sub-megabyte public bundle. External publication, restricted exact-byte
-attestation storage, a v4-capable storage schema/profile, and clean hydration are still pending;
-production-mode v4 validation deliberately fails without authenticated restricted replay regardless
-of storage mode. No development-threshold metrics have
+attestation storage, trust-root approval, and clean hydration are still pending. The v2 two-root
+storage/attestation profile, deterministic public packager, offline verifier, and atomic hydrator are
+implemented but checked in as `pending_owner_authorization`; production-mode v4 validation
+deliberately fails without authenticated restricted replay. No development-threshold metrics have
 been selected. The relevance holdout remains unopened and empty. Final freeze remains blocked on
 fresh-task validity review, approved retention of public v4 plus restricted attestation and
 development-threshold selection,
@@ -69,9 +70,15 @@ confirmatory analyzer is implemented and path-locked.
   recursive scanner, exact file inventory, independent temporal/result/vector/lifecycle checker,
   and adversarial mutation coverage. The public projection keeps cutoff-relative session states and
   ordinal lifecycle evidence, not exact session/run times; names actual safe inherited keys but no
-  environment values; and states that network isolation was not enforced. No publication,
-  encryption, storage-v4 profile, restricted replay authentication, or key-management action is
-  performed by this lane.
+  environment values; and states that network isolation was not enforced. No encryption,
+  publication, or key-management action is performed by this lane.
+- `ENGINE-REPLAY-ATTESTATION-CONTRACT.md`, `engine-evidence-storage.json`,
+  `restricted_replay_attestation.py`, and `hydrate_engine_evidence.py`: pending-only v2 two-root
+  public/restricted storage contract, exact 12-source checker lock, empty pending trust-root set,
+  canonical Ed25519 SSHSIG envelope, deterministic public tar-zstd packaging, and atomic offline
+  hydration/verification. No production key, signer, restricted object, or publication is selected.
+  `engine-evidence-storage-legacy-v1.json` is preserved as privacy-failed diagnostic-only input and
+  cannot satisfy production.
 - `verify_engines.py`: fail-closed retained runner with isolated arms, owned-server continuity
   attestation overlapping live recall, byte-complete artifacts, and
   checker-before-atomic-publication semantics.
