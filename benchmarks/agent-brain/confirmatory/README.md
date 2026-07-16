@@ -49,9 +49,10 @@ confirmatory analyzer is implemented and path-locked.
 - `offline-relevance-dataset.json`: generated 14-query/13-task development set with 46 judgments and
   one corpus-closed null; its sealed holdout intentionally contains no plaintext labels.
 - `DEVELOPMENT-RELEVANCE-QUERY-FIXTURE.md`, `development_relevance_queries.py`, and
-  `schemas/development-relevance-queries-v1.schema.json`: private development-query fixture
-  contract, fail-closed loader, source receipt, and synthetic tests. The ignored plaintext fixture
-  is intentionally absent pending an authorized safe export.
+  the two `schemas/development-relevance-*-v1.schema.json` files: fixed-path private query and
+  temporal-policy receipt contracts, machine-pinned source trust, symlink-safe fail-closed loader,
+  and synthetic tests. Both ignored private artifacts and the temporal receipt's reviewed raw-hash
+  pin are intentionally absent pending an authorized safe export.
 - `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms, public v4 authority,
   legacy diagnostic schema binding, and verification/projection steps.
 - `engine-verification-pins.json`: gate-authoritative corpus, query, reproducible binary build,

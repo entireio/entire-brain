@@ -2,8 +2,8 @@
 
 This contract enables an unpaid, development-only retrieval evaluation after an authorized safe
 export supplies the 14 reviewed query texts. The repository intentionally does **not** contain
-`development-relevance-queries-v1.json`. That path is ignored by Git because the eventual fixture
-contains product-query plaintext; do not commit, publish, or paste it into logs.
+`development-relevance-queries-v1.json` or the accompanying temporal-policy receipt. Both paths are
+ignored by Git; do not commit, publish, or paste either artifact into logs.
 
 The fixture is not confirmatory evidence, does not open a fresh holdout, and does not authorize a
 provider or paid call.
@@ -13,8 +13,9 @@ provider or paid call.
 The JSON schema is `schemas/development-relevance-queries-v1.schema.json`. The exact top-level
 fields are `schema_version`, `fixture_id`, `purpose`, `created_at`, `source_bindings`, `coverage`,
 `items`, and `fixture_sha256`. `purpose` is
-`development_retrieval_evaluation_only`; coverage is fixed at 14 queries, 13 tasks, 12 answerable
-product queries, one corpus-closed product null, and one oracle query.
+`development_retrieval_evaluation_only`, and `fixture_id` is pinned to
+`entire-brain-development-relevance-queries-v1`. Coverage is fixed at 14 queries, 13 tasks, 12
+answerable product queries, one corpus-closed product null, and one oracle query.
 
 Each item has exactly these fields:
 
@@ -30,7 +31,8 @@ uses the same canonical encoding of:
 {"exclude_session_ids":[],"temporal_cutoff":"..."}
 ```
 
-with the fixture's actual array and cutoff.
+with the fixture's actual array and cutoff. This derivation is necessary but not sufficient: every
+derived hash must also match a separately authenticated temporal-policy receipt.
 
 The verifier requires every reviewed label query ID exactly once. Product query text hashes must
 equal both `query_sha256` and the task inventory's `artifacts.prompt_sha256`; config hashes must
@@ -38,9 +40,12 @@ equal `artifacts.config_sha256`. The oracle text is bound directly to the existi
 The null query's task, query hash, and temporal-policy hash are additionally bound to the null-review
 ledger. User-prompt-derived tasks are unique; the sole oracle may share its product task.
 
-## Source receipt
+## Machine-pinned source receipt
 
-The safe exporter must pin these six repo-relative source paths and raw SHA-256 values:
+`development_relevance_queries.py` pins these six repo-relative paths and raw SHA-256 values in
+code. The fixture must echo the exact machine trust root; fixture-controlled substitutions fail
+before source I/O. Synthetic tests alone may inject a different receipt through private test-only
+helpers.
 
 | Role | Path | SHA-256 |
 |---|---|---|
@@ -70,28 +75,51 @@ same-named fields from the fact snapshot:
 
 If any receipt changes, stop and review the upstream artifact; do not silently refresh it.
 
+## Temporal-policy receipt
+
+The six permitted sources do not externally commit all 14 cutoff/exclusion policies. The fixture
+therefore cannot authenticate its own `temporal_cutoff` and `exclude_session_ids` values. A second
+authorized export must create the fixed private file
+`benchmarks/agent-brain/confirmatory/development-relevance-temporal-policy-receipt-v1.json` under
+`schemas/development-relevance-temporal-policy-receipt-v1.schema.json`.
+
+That receipt contains exactly 14 records of `query_id`, `task_id`, and
+`temporal_policy_sha256`; it contains neither query text nor cutoff/exclusion plaintext. Its fixed
+identifier is `entire-brain-development-relevance-temporal-policy-v1`. Its `receipt_sha256` uses the
+same canonical-JSON rule after removing only the top-level self-hash field.
+
+After authorization and independent review, pin the receipt's **raw file SHA-256** in
+`DEFAULT_TEMPORAL_RECEIPT_SHA256`. It is deliberately `None` now. Until that follow-up pin exists,
+the production loader fails before reading the plaintext query fixture. A fixture self-hash or a
+fixture-provided temporal hash can never substitute for this external receipt.
+
 ## Safe export and verification
 
-Safe export remains blocked until a human explicitly authorizes an approved source for the 14
-development query texts. The exporter must not enumerate or open any path whose component is
-`holdout` (case-insensitive), must not reconstruct text from hashes, and must not follow task
-inventory `config_path` values. It should write the fixture atomically with mode `0600` and never
-emit query text to stdout or stderr.
+Safe export remains blocked until a human explicitly authorizes approved sources for both the 14
+development query texts and all 14 temporal policies. The exporter must not enumerate or open any
+path whose component is `holdout` (case-insensitive), reconstruct values from hashes, or follow task
+inventory `config_path` values. It must write both fixed-path files atomically as current-owner
+regular files with mode `0600` and never emit private values to stdout or stderr.
 
 After that separately authorized export, run only the local verifier:
 
 ```sh
 chmod 600 benchmarks/agent-brain/confirmatory/development-relevance-queries-v1.json
+chmod 600 \
+  benchmarks/agent-brain/confirmatory/development-relevance-temporal-policy-receipt-v1.json
 python3 benchmarks/agent-brain/confirmatory/development_relevance_queries.py \
-  benchmarks/agent-brain/confirmatory/development-relevance-queries-v1.json \
   --repo-root .
 ```
 
-The verifier lexically validates **all** six source paths before any source I/O. Absolute paths,
-`..`, backslashes, non-canonical paths, duplicate paths, and any `holdout` component fail closed.
-It authenticates raw source bytes, recomputes snapshot and fixture canonical roots, and then enforces
-coverage, label, inventory, oracle, null-review, and temporal-policy bindings. Its success output is
-metadata-only and omits query text, task IDs, session IDs, and source paths.
+The loader accepts the plaintext fixture only at its fixed repo-relative path. It rejects non-owner,
+non-regular, symlinked, or non-`0600` files before content read. The verifier lexically validates
+**all** six source paths before any source I/O, rejects symlinks in every repo-relative component,
+and rechecks resolved components before secure open. Absolute paths, `..`, `//`, `/./`, backslashes,
+duplicate paths, and any `holdout` component fail closed. It authenticates raw source bytes,
+recomputes snapshot, fixture, receipt, and temporal-policy hashes, and then enforces coverage,
+label, inventory, oracle, null-review, and external temporal bindings. Success output contains only
+the authenticated fixture hash and aggregate counts; indexed failures never echo fixture-controlled
+IDs or text.
 
 Run the synthetic contract tests and the existing unpaid protocol checker with:
 

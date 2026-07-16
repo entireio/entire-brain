@@ -2,3 +2,4 @@ results/
 cache/
 __pycache__/
 confirmatory/development-relevance-queries-v1.json
+confirmatory/development-relevance-temporal-policy-receipt-v1.json

@@ -15,7 +15,7 @@
   ],
   "properties": {
     "schema_version": {"const": 1},
-    "fixture_id": {"type": "string", "minLength": 1},
+    "fixture_id": {"const": "entire-brain-development-relevance-queries-v1"},
     "purpose": {"const": "development_retrieval_evaluation_only"},
     "created_at": {"type": "string", "format": "date-time"},
     "source_bindings": {
@@ -73,7 +73,7 @@
     "safeSourcePath": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)[Hh][Oo][Ll][Dd][Oo][Uu][Tt](?:/|$))[A-Za-z0-9._/-]+$"
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*(?:^|/)[Hh][Oo][Ll][Dd][Oo][Uu][Tt](?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
     },
     "sourceBinding": {
       "type": "object",
