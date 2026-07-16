@@ -268,7 +268,17 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_brief",
 			"description": "Build a bounded task packet from local brain context, live state, semantic context, and indexed history.",
-			"inputSchema": objectSchema([]string{"task"}, map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section")}),
+			"inputSchema": objectSchema([]string{"task"}, map[string]any{
+				"task":  stringArg("task", "Task or bug description"),
+				"limit": integerArg("limit", "Maximum records per section"),
+				"packet_format": map[string]any{
+					"type":        "string",
+					"title":       "packet_format",
+					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response. compact_v1 and compact_v2 are experimental versioned agent packets; compact_v2's hashed in-band legend defines ~=absent and ^=the previous record of the same opcode and column (interleaved other opcodes do not reset it). Each repeated family uses positional rows only when their canonical bytes including the declaration are strictly smaller; ties stay keyed.",
+					"enum":        []string{"legacy_json", "compact_v1", "compact_v2"},
+					"default":     "legacy_json",
+				},
+			}),
 		},
 		{
 			"name":        "brain_query",
@@ -510,10 +520,18 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = stringErr
 			break
 		}
-		if strings.TrimSpace(task) == "" {
+		packetFormat, formatErr := mcpBrainBriefPacketFormat(params.Arguments)
+		if formatErr != nil {
+			err = formatErr
+		} else if strings.TrimSpace(task) == "" {
 			err = errors.New("task is required")
 		} else {
-			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{limit: limit, json: true, surface: "mcp:brain_brief"}, task)
+			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{
+				limit:        limit,
+				json:         true,
+				surface:      "mcp:brain_brief",
+				packetFormat: packetFormat,
+			}, task)
 		}
 	case "brain_query":
 		err = requireMCPQuery(query)
@@ -960,6 +978,27 @@ func mcpOptionalString(args map[string]any, key string) (string, error) {
 		return typed, nil
 	}
 	return "", fmt.Errorf("%s must be string", key)
+}
+
+func mcpBrainBriefPacketFormat(args map[string]any) (brainBriefPacketFormat, error) {
+	value, ok := args["packet_format"]
+	if !ok {
+		return brainBriefPacketLegacyJSON, nil
+	}
+	format, ok := value.(string)
+	if !ok {
+		return "", errors.New("packet_format must be string")
+	}
+	switch format {
+	case "legacy_json":
+		return brainBriefPacketLegacyJSON, nil
+	case "compact_v1":
+		return brainBriefPacketCompactV1, nil
+	case "compact_v2":
+		return brainBriefPacketCompactV2, nil
+	default:
+		return "", fmt.Errorf("packet_format must be legacy_json, compact_v1, or compact_v2: %q", format)
+	}
 }
 
 func mcpBool(args map[string]any, key string) (bool, error) {

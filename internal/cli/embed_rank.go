@@ -44,6 +44,7 @@ type semanticReranker struct {
 	store   vectorStore     // nil => in-memory only (eval, tests)
 	touched map[string]bool // ids seen this run; nil unless disk-backed
 	dirty   bool            // a new vector was embedded this run
+	loaded  int             // full-dimension vectors loaded from the store
 }
 
 // newSemanticReranker returns nil when no embedder is available, so callers can
@@ -67,6 +68,7 @@ func newSemanticRerankerForBranch(e Embedder, brainDir, branch string) *semantic
 	}
 	rr.store = newVectorStore(brainDir, branch, factEmbeddingModelID(e.ID()), e.Dim())
 	rr.cache = rr.store.load()
+	rr.loaded = len(rr.cache)
 	rr.touched = map[string]bool{}
 	return rr
 }

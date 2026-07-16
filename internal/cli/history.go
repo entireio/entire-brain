@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -51,6 +52,9 @@ const (
 type historySourceManifest struct {
 	GeneratedAt         time.Time `json:"generated_at"`
 	IndexPath           string    `json:"index_path"`
+	IndexBytes          int64     `json:"index_bytes,omitempty"`
+	IndexSHA256         string    `json:"index_sha256,omitempty"`
+	RecordsFingerprint  string    `json:"records_fingerprint,omitempty"`
 	SessionsFingerprint string    `json:"sessions_fingerprint,omitempty"`
 	Records             int       `json:"records"`
 	Decisions           int       `json:"decisions"`
@@ -65,6 +69,10 @@ type historyIndex struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 	Records     []historyRecord `json:"records"`
 	Warnings    []string        `json:"warnings,omitempty"`
+
+	// recordsFingerprint is populated after build/load validation so the FTS
+	// freshness check stays O(1). Any caller that replaces Records must clear it.
+	recordsFingerprint string
 }
 
 type historyRecord struct {
@@ -204,6 +212,10 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 		return nil, err
 	}
 	data = append(data, '\n')
+	source.IndexBytes = int64(len(data))
+	source.IndexSHA256 = historyIndexBytesFingerprint(data)
+	source.RecordsFingerprint = historyRecordsFingerprint(index.Records)
+	index.recordsFingerprint = source.RecordsFingerprint
 	if err := writeBrainRelativeFileAtomic(outputDir, historyIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write history index: %w", err)
 	}
@@ -228,6 +240,34 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 		return nil, err
 	}
 	return source, nil
+}
+
+// historyRecordsFingerprint is the content identity shared by history/index.json
+// and its derived indexes. It covers every record field in stable record order,
+// while deliberately excluding generation time and warnings: neither changes
+// retrieval content. Empty and nil term slices have the same JSON representation
+// in index.json (omitempty), so canonicalize them to the same identity here too.
+func historyRecordsFingerprint(records []historyRecord) string {
+	h := sha256.New()
+	_, _ = io.WriteString(h, "entire-brain/history-records/v1\x00")
+	_, _ = io.WriteString(h, strconv.Itoa(len(records))+"\x00")
+	for _, record := range records {
+		if len(record.Terms) == 0 {
+			record.Terms = nil
+		}
+		data, err := json.Marshal(record)
+		if err != nil {
+			return ""
+		}
+		_, _ = io.WriteString(h, strconv.Itoa(len(data))+":")
+		_, _ = h.Write(data)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+func historyIndexBytesFingerprint(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {
@@ -1591,9 +1631,31 @@ func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (hist
 	if err != nil {
 		return historyIndex{}, err
 	}
+	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
+		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d", len(data), source.IndexBytes)
+	}
+	if source.IndexSHA256 != "" && historyIndexBytesFingerprint(data) != source.IndexSHA256 {
+		return historyIndex{}, errors.New("history index checksum does not match manifest")
+	}
 	var index historyIndex
 	if err := json.Unmarshal(data, &index); err != nil {
 		return historyIndex{}, err
+	}
+	if source.RecordsFingerprint != "" {
+		if !validHistorySHA256(source.RecordsFingerprint) {
+			return historyIndex{}, errors.New("history records fingerprint is invalid")
+		}
+		if len(index.Records) != source.Records {
+			return historyIndex{}, fmt.Errorf("history record count mismatch: got %d, manifest declares %d", len(index.Records), source.Records)
+		}
+		if !source.GeneratedAt.IsZero() && !index.GeneratedAt.Equal(source.GeneratedAt) {
+			return historyIndex{}, errors.New("history index generation does not match manifest")
+		}
+		// IndexSHA256 binds the exact serialized record set to this manifest.
+		// Recomputing the canonical per-record hash here would marshal hundreds
+		// of thousands of records on every semantic/get path; the exact byte
+		// checksum above already provides the integrity check we need.
+		index.recordsFingerprint = source.RecordsFingerprint
 	}
 	return index, nil
 }

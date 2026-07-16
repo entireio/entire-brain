@@ -7,6 +7,6 @@ and the full set of usage scenarios are all there.
 Deeper references:
 
 - [operations.md](operations.md) — build targets, cgo, shared baseline
-- [semantic_mcp_guide.md](semantic_mcp_guide.md) — the full MCP tool surface
+- [semantic_mcp_guide.md](semantic_mcp_guide.md) — the full MCP tool surface and opt-in compact packet formats
 - [diffless_review_seam.md](diffless_review_seam.md) — the diff-less review contract
 - [durable_facts_plan.md](durable_facts_plan.md) — durable-facts design and eval

@@ -1,6 +1,13 @@
 package cli
 
 import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,6 +32,346 @@ func ftsExcerpts(scored []scoredHistoryRecord) []string {
 		out[i] = s.Record.ID
 	}
 	return out
+}
+
+func writeDirectHistoryFTSFixture(t testing.TB, index historyIndex) (string, *historySourceManifest) {
+	t.Helper()
+	brainDir := t.TempDir()
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, '\n')
+	fingerprint := historyRecordsFingerprint(index.Records)
+	source := &historySourceManifest{
+		GeneratedAt:        index.GeneratedAt,
+		IndexPath:          historyIndexPath,
+		IndexBytes:         int64(len(data)),
+		IndexSHA256:        historyIndexBytesFingerprint(data),
+		RecordsFingerprint: fingerprint,
+		Records:            len(index.Records),
+	}
+	if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	index.recordsFingerprint = fingerprint
+	db, err := openHistoryFTSLocked(brainDir, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: source}}); err != nil {
+		t.Fatal(err)
+	}
+	return brainDir, source
+}
+
+func TestHistoryFTSDirectHydrationMatchesIndexBackedRanking(t *testing.T) {
+	index := ftsTestIndex()
+	index.Records = append(index.Records,
+		historyRecord{ID: "d3", Kind: "decision", Branch: "feature", Path: "sessions/feature/20260601T000003Z_d.jsonl", Line: 4, Summary: "Embedding cache invalidation uses a model fingerprint.", Terms: []string{"EmbeddingCache", "model_fingerprint"}},
+		historyRecord{ID: "d4", Kind: "decision", Path: "sessions/main/20260601T000004Z_e.jsonl", Line: 5, Summary: "Embedding cache invalidation uses a model fingerprint."}, // dedup tail
+		historyRecord{ID: "r1", Kind: "request", Path: "sessions/main/20260601T000005Z_f.jsonl", Line: 6, Summary: "Please explain embedding cache invalidation."},
+	)
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+
+	for _, tc := range []struct {
+		kind  string
+		query string
+	}{
+		{kind: "history", query: "embedding cache invalidation fingerprint"},
+		{kind: "decisions", query: "EmbeddingCache model_fingerprint"},
+		{kind: "tool-paths", query: "go test README apply_patch"},
+		{kind: "requests", query: "embedding cache invalidation"},
+		{kind: "history", query: "xylophone zebra quokka"},
+	} {
+		want, ok := rankHistoryViaFTS(brainDir, index, tc.kind, tc.query, 25)
+		if !ok {
+			t.Fatalf("index-backed %s/%q unavailable", tc.kind, tc.query)
+		}
+		got, used, err := rankHistoryViaFreshFTS(brainDir, source, tc.kind, tc.query, 25)
+		if err != nil || !used {
+			t.Fatalf("direct %s/%q: used=%v err=%v", tc.kind, tc.query, used, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("direct parity %s/%q\n got: %#v\nwant: %#v", tc.kind, tc.query, got, want)
+		}
+	}
+}
+
+func TestHistoryFTSDirectPathDoesNotLoadJSON(t *testing.T) {
+	index := ftsTestIndex()
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+	loads := 0
+	loader := func(string, *historySourceManifest) (historyIndex, error) {
+		loads++
+		return historyIndex{}, errors.New("JSON loader must not run")
+	}
+	got, access, inputs, err := rankHistoryLexicalFromSourceWithLoader(brainDir, source, "decisions", "embedding model", 25, loader)
+	if err != nil || loads != 0 || access != historyIndexAccessFTSPayload || inputs != len(index.Records) || len(got) == 0 {
+		t.Fatalf("direct path: loads=%d access=%q inputs=%d matches=%v err=%v", loads, access, inputs, ftsExcerpts(got), err)
+	}
+}
+
+func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		mutate     func(*testing.T, string)
+		wholeDBBad bool
+	}{
+		{
+			name: "stale metadata",
+			mutate: func(t *testing.T, brainDir string) {
+				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				if _, err := db.Exec(`UPDATE history_fts_meta SET value = ? WHERE key = 'records_fingerprint'`, "sha256:"+strings.Repeat("0", 64)); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "malformed payload",
+			mutate: func(t *testing.T, brainDir string) {
+				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				if _, err := db.Exec(`UPDATE history_records SET terms_json = '{' WHERE id = 'd1'`); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:       "corrupt sqlite",
+			wholeDBBad: true,
+			mutate: func(t *testing.T, brainDir string) {
+				if err := os.WriteFile(historyFTSDBPath(brainDir), []byte("not a sqlite database"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "aliased record order",
+			mutate: func(t *testing.T, brainDir string) {
+				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer db.Close()
+				if _, err := db.Exec(`PRAGMA ignore_check_constraints=ON`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`UPDATE history_records SET rec_order = 99 WHERE id = 'd1'`); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			index := ftsTestIndex()
+			brainDir, source := writeDirectHistoryFTSFixture(t, index)
+			want, ok := rankHistoryViaFTS(brainDir, index, "decisions", "embedding model", 25)
+			if !ok {
+				t.Fatal("precondition: index-backed BM25 unavailable")
+			}
+			tc.mutate(t, brainDir)
+			if tc.wholeDBBad {
+				want = rankHistoryRecordsScored(index, "decisions", "embedding model", 25, 0)
+			}
+			if _, used, directErr := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding model", 25); directErr != nil || used {
+				t.Fatalf("derived corruption must be a soft direct miss: used=%v err=%v", used, directErr)
+			}
+			loads := 0
+			loader := func(string, *historySourceManifest) (historyIndex, error) {
+				loads++
+				return index, nil
+			}
+			got, access, _, err := rankHistoryLexicalFromSourceWithLoader(brainDir, source, "decisions", "embedding model", 25, loader)
+			if err != nil || loads != 1 || access != historyIndexAccessJSON || !reflect.DeepEqual(got, want) {
+				t.Fatalf("fallback: loads=%d access=%q matches=%v err=%v", loads, access, ftsExcerpts(got), err)
+			}
+		})
+	}
+}
+
+func TestHistoryFTSReadOnlyMissDoesNotCreateCache(t *testing.T) {
+	index := ftsTestIndex()
+	brainDir := t.TempDir()
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, '\n')
+	source := &historySourceManifest{
+		GeneratedAt:        index.GeneratedAt,
+		IndexPath:          historyIndexPath,
+		IndexBytes:         int64(len(data)),
+		IndexSHA256:        historyIndexBytesFingerprint(data),
+		RecordsFingerprint: historyRecordsFingerprint(index.Records),
+		Records:            len(index.Records),
+	}
+	if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(historyFTSDBPath(brainDir)); !os.IsNotExist(err) {
+		t.Fatalf("precondition: FTS cache exists: %v", err)
+	}
+	if _, used, err := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding", 25); err != nil || used {
+		t.Fatalf("missing cache: used=%v err=%v", used, err)
+	}
+	if _, err := os.Stat(historyFTSDBPath(brainDir)); !os.IsNotExist(err) {
+		t.Fatalf("read-only miss created FTS cache: %v", err)
+	}
+}
+
+func TestHistoryFTSDirectSizeMismatchIsHardWithoutWriter(t *testing.T) {
+	index := ftsTestIndex()
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: source}}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(" "); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, used, err := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding", 25); err == nil || used {
+		t.Fatalf("out-of-band size change: used=%v err=%v", used, err)
+	}
+}
+
+func TestHistoryFTSDirectServesMatchingSnapshotDuringRefresh(t *testing.T) {
+	index := ftsTestIndex()
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+	unlock, err := acquireBrainWriteLock(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(" next-generation-in-progress"); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, used, err := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding model", 25)
+	if err != nil || !used || len(got) == 0 {
+		t.Fatalf("old published snapshot unavailable during refresh: used=%v matches=%v err=%v", used, ftsExcerpts(got), err)
+	}
+}
+
+func TestHistoryIndexSourceIdentityDetectsTamper(t *testing.T) {
+	index := ftsTestIndex()
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+	if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
+		t.Fatalf("valid source rejected: %v", err)
+	}
+	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range data {
+		if data[i] == 's' {
+			data[i] = 'S' // preserve byte length while changing exact content
+			break
+		}
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadBrainHistoryIndex(brainDir, source); err == nil {
+		t.Fatal("same-size history index tamper passed source checksum validation")
+	}
+}
+
+func TestHistoryFTSDirectSecurityAndAuthoritativeFailures(t *testing.T) {
+	index := ftsTestIndex()
+
+	t.Run("missing authoritative index is hard error", func(t *testing.T) {
+		brainDir, source := writeDirectHistoryFTSFixture(t, index)
+		if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))); err != nil {
+			t.Fatal(err)
+		}
+		if _, used, err := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding", 25); err == nil || used {
+			t.Fatalf("missing truth: used=%v err=%v", used, err)
+		}
+	})
+
+	t.Run("unsafe source path is hard error", func(t *testing.T) {
+		brainDir, source := writeDirectHistoryFTSFixture(t, index)
+		bad := *source
+		bad.IndexPath = "../history/index.json"
+		if _, used, err := rankHistoryViaFreshFTS(brainDir, &bad, "decisions", "embedding", 25); err == nil || used {
+			t.Fatalf("unsafe truth: used=%v err=%v", used, err)
+		}
+	})
+
+	t.Run("symlinked authoritative index is hard error", func(t *testing.T) {
+		brainDir, source := writeDirectHistoryFTSFixture(t, index)
+		path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+		outside := filepath.Join(t.TempDir(), "index.json")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(outside, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, path); err != nil {
+			t.Fatal(err)
+		}
+		if _, used, err := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding", 25); err == nil || used {
+			t.Fatalf("symlink truth: used=%v err=%v", used, err)
+		}
+	})
+
+	t.Run("symlinked derived cache falls back", func(t *testing.T) {
+		brainDir, source := writeDirectHistoryFTSFixture(t, index)
+		path := historyFTSDBPath(brainDir)
+		outside := filepath.Join(t.TempDir(), "cache.sqlite")
+		if err := os.WriteFile(outside, []byte("not sqlite"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, path); err != nil {
+			t.Fatal(err)
+		}
+		loads := 0
+		loader := func(string, *historySourceManifest) (historyIndex, error) {
+			loads++
+			return index, nil
+		}
+		got, access, _, err := rankHistoryLexicalFromSourceWithLoader(brainDir, source, "decisions", "embedding model", 25, loader)
+		if err != nil || loads != 1 || access != historyIndexAccessJSON || len(got) == 0 {
+			t.Fatalf("derived symlink fallback: loads=%d access=%q matches=%v err=%v", loads, access, ftsExcerpts(got), err)
+		}
+	})
 }
 
 // TestHistoryFTSSurfacesLowCoverageParaphrase locks in the Stage 1a fix as a

@@ -378,7 +378,8 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	history := manifest.Sources.History
-	if history.IndexPath == "" || history.SessionsFingerprint == "" {
+	if history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
+		!validHistorySHA256(history.IndexSHA256) || !validHistorySHA256(history.RecordsFingerprint) {
 		return false
 	}
 	if history.SessionsFingerprint != sessionSourceFingerprint(manifest.Sources.Sessions) {

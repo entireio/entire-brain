@@ -2,12 +2,16 @@ package cli
 
 import (
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // history_fts.go builds a derived FTS5 BM25 index over the history records and
@@ -26,7 +30,8 @@ import (
 
 const (
 	historyFTSFileName = "index-fts.sqlite"
-	historyFTSSchema   = "1"
+	historyFTSSchema   = "2"
+	historyFTSPayload  = "1"
 )
 
 // historyFTSRelevanceCutoff keeps only matches scoring at least this fraction of
@@ -76,8 +81,32 @@ func historyFTSMatchExpr(query string) string {
 	return strings.Join(parts, " OR ")
 }
 
-func historyFTSFingerprint(index historyIndex) string {
-	return index.GeneratedAt.UTC().Format(time.RFC3339Nano) + ":" + strconv.Itoa(len(index.Records))
+type historyFTSIdentity struct {
+	RecordsFingerprint string
+	RecordCount        int
+}
+
+func historyFTSIdentityFromIndex(index historyIndex) historyFTSIdentity {
+	fingerprint := index.recordsFingerprint
+	if !validHistorySHA256(fingerprint) {
+		fingerprint = historyRecordsFingerprint(index.Records)
+	}
+	return historyFTSIdentity{
+		RecordsFingerprint: fingerprint,
+		RecordCount:        len(index.Records),
+	}
+}
+
+func historyFTSIdentityFromSource(source *historySourceManifest) (historyFTSIdentity, bool) {
+	if source == nil || source.Records < 0 || !validHistorySHA256(source.RecordsFingerprint) {
+		return historyFTSIdentity{}, false
+	}
+	return historyFTSIdentity{RecordsFingerprint: source.RecordsFingerprint, RecordCount: source.Records}, true
+}
+
+func validHistorySHA256(value string) bool {
+	raw, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
+	return strings.HasPrefix(value, "sha256:") && err == nil && len(raw) == 32
 }
 
 // openHistoryFTS opens (and rebuilds if stale) the derived BM25 index. The index
@@ -92,13 +121,14 @@ func historyFTSFingerprint(index historyIndex) string {
 // have rebuilt while we waited. Concurrent readers of the fresh index are
 // safe: the store is WAL-mode SQLite with a busy timeout.
 func openHistoryFTS(brainDir string, index historyIndex) (*sql.DB, error) {
-	if db, err := openHistoryFTSIfFresh(brainDir, index); err == nil && db != nil {
+	identity := historyFTSIdentityFromIndex(index)
+	if db, err := openHistoryFTSIfFreshIdentity(brainDir, identity); err == nil && db != nil {
 		return db, nil
 	}
 	var db *sql.DB
 	err := withBrainWriteLock(brainDir, func() error {
 		var runErr error
-		db, runErr = openHistoryFTSLocked(brainDir, index)
+		db, runErr = openHistoryFTSLockedIdentity(brainDir, index, identity)
 		return runErr
 	})
 	return db, err
@@ -107,6 +137,10 @@ func openHistoryFTS(brainDir string, index historyIndex) (*sql.DB, error) {
 // openHistoryFTSIfFresh returns an open handle when the on-disk index already
 // matches the current history index, (nil, nil) when it is stale or missing.
 func openHistoryFTSIfFresh(brainDir string, index historyIndex) (*sql.DB, error) {
+	return openHistoryFTSIfFreshIdentity(brainDir, historyFTSIdentityFromIndex(index))
+}
+
+func openHistoryFTSIfFreshIdentity(brainDir string, identity historyFTSIdentity) (*sql.DB, error) {
 	path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
 	if err != nil {
 		return nil, err
@@ -122,7 +156,7 @@ func openHistoryFTSIfFresh(brainDir string, index historyIndex) (*sql.DB, error)
 			return nil, err
 		}
 	}
-	if historyFTSFresh(db, index) {
+	if historyFTSFreshIdentity(db, identity) {
 		return db, nil
 	}
 	db.Close()
@@ -130,6 +164,10 @@ func openHistoryFTSIfFresh(brainDir string, index historyIndex) (*sql.DB, error)
 }
 
 func openHistoryFTSLocked(brainDir string, index historyIndex) (*sql.DB, error) {
+	return openHistoryFTSLockedIdentity(brainDir, index, historyFTSIdentityFromIndex(index))
+}
+
+func openHistoryFTSLockedIdentity(brainDir string, index historyIndex, identity historyFTSIdentity) (*sql.DB, error) {
 	path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
 	if err != nil {
 		return nil, err
@@ -147,10 +185,10 @@ func openHistoryFTSLocked(brainDir string, index historyIndex) (*sql.DB, error) 
 			return nil, err
 		}
 	}
-	if historyFTSFresh(db, index) {
+	if historyFTSFreshIdentity(db, identity) {
 		return db, nil
 	}
-	if err := buildHistoryFTS(db, index); err != nil {
+	if err := buildHistoryFTSIdentity(db, index, identity); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -161,7 +199,18 @@ func openHistoryFTSLocked(brainDir string, index historyIndex) (*sql.DB, error) 
 // index. Any error (missing tables, unreadable meta) is treated as stale so the
 // caller rebuilds rather than failing.
 func historyFTSFresh(db *sql.DB, index historyIndex) bool {
-	rows, err := db.Query(`SELECT key, value FROM history_fts_meta`)
+	return historyFTSFreshIdentity(db, historyFTSIdentityFromIndex(index))
+}
+
+type historyFTSQueryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func historyFTSFreshIdentity(q historyFTSQueryer, identity historyFTSIdentity) bool {
+	if !validHistorySHA256(identity.RecordsFingerprint) || identity.RecordCount < 0 {
+		return false
+	}
+	rows, err := q.Query(`SELECT key, value FROM history_fts_meta`)
 	if err != nil {
 		return false
 	}
@@ -177,10 +226,21 @@ func historyFTSFresh(db *sql.DB, index historyIndex) bool {
 	if rows.Err() != nil {
 		return false // a driver error mid-iteration must read as stale, not fresh
 	}
-	return got["schema"] == historyFTSSchema && got["fingerprint"] == historyFTSFingerprint(index)
+	return got["schema"] == historyFTSSchema &&
+		got["payload_schema"] == historyFTSPayload &&
+		got["records_fingerprint"] == identity.RecordsFingerprint &&
+		got["record_count"] == strconv.Itoa(identity.RecordCount)
 }
 
 func buildHistoryFTS(db *sql.DB, index historyIndex) error {
+	return buildHistoryFTSIdentity(db, index, historyFTSIdentityFromIndex(index))
+}
+
+func buildHistoryFTSIdentity(db *sql.DB, index historyIndex, identity historyFTSIdentity) error {
+	actualIdentity := historyFTSIdentityFromIndex(index)
+	if identity != actualIdentity {
+		return errors.New("history fts source identity does not match records")
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -188,30 +248,461 @@ func buildHistoryFTS(db *sql.DB, index historyIndex) error {
 	defer tx.Rollback()
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS history_fts`,
+		`DROP TABLE IF EXISTS history_records`,
 		`DROP TABLE IF EXISTS history_fts_meta`,
 		`CREATE TABLE history_fts_meta(key TEXT PRIMARY KEY, value TEXT)`,
-		`CREATE VIRTUAL TABLE history_fts USING fts5(content, kind UNINDEXED, rec_order UNINDEXED, tokenize='porter unicode61')`,
+		`CREATE TABLE history_records(
+			fts_rowid INTEGER PRIMARY KEY,
+			rec_order INTEGER NOT NULL UNIQUE,
+			id TEXT NOT NULL UNIQUE,
+			kind TEXT NOT NULL,
+			branch TEXT NOT NULL,
+			path TEXT NOT NULL,
+			line INTEGER NOT NULL,
+			summary TEXT NOT NULL,
+			terms_json TEXT NOT NULL,
+			CHECK(fts_rowid = rec_order + 1)
+		)`,
+		`CREATE VIRTUAL TABLE history_fts USING fts5(content, content='', tokenize='porter unicode61')`,
 	} {
 		if _, err := tx.Exec(stmt); err != nil {
 			return fmt.Errorf("history fts schema: %w", err)
 		}
 	}
-	ins, err := tx.Prepare(`INSERT INTO history_fts(content, kind, rec_order) VALUES (?, ?, ?)`)
+	recordIns, err := tx.Prepare(`INSERT INTO history_records(fts_rowid, rec_order, id, kind, branch, path, line, summary, terms_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
-	defer ins.Close()
+	defer recordIns.Close()
+	ftsIns, err := tx.Prepare(`INSERT INTO history_fts(rowid, content) VALUES (?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer ftsIns.Close()
 	for i, r := range index.Records {
-		if _, err := ins.Exec(historyFTSContent(r), r.Kind, i); err != nil {
+		termsJSON := "null"
+		if len(r.Terms) > 0 {
+			encoded, err := json.Marshal(r.Terms)
+			if err != nil {
+				return fmt.Errorf("history fts terms: %w", err)
+			}
+			termsJSON = string(encoded)
+		}
+		ftsRowID := i + 1
+		if _, err := recordIns.Exec(ftsRowID, i, r.ID, r.Kind, r.Branch, r.Path, r.Line, r.Summary, termsJSON); err != nil {
+			return fmt.Errorf("history fts payload insert: %w", err)
+		}
+		if _, err := ftsIns.Exec(ftsRowID, historyFTSContent(r)); err != nil {
 			return fmt.Errorf("history fts insert: %w", err)
 		}
 	}
-	for k, v := range map[string]string{"schema": historyFTSSchema, "fingerprint": historyFTSFingerprint(index)} {
+	meta := map[string]string{
+		"schema":              historyFTSSchema,
+		"payload_schema":      historyFTSPayload,
+		"records_fingerprint": identity.RecordsFingerprint,
+		"record_count":        strconv.Itoa(identity.RecordCount),
+	}
+	keys := make([]string, 0, len(meta))
+	for key := range meta {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := meta[k]
 		if _, err := tx.Exec(`INSERT INTO history_fts_meta(key, value) VALUES (?, ?)`, k, v); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// rebuildHistoryFTSFromTruth force-replaces a corrupt derived payload after the
+// authoritative JSON index has been verified and loaded. Normal stale caches use
+// openHistoryFTS's cheaper double-checked rebuild; this path is only for a v2
+// database whose metadata claimed freshness but whose hydrated rows were invalid.
+func rebuildHistoryFTSFromTruth(brainDir string, index historyIndex) error {
+	return withBrainWriteLock(brainDir, func() error {
+		path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
+		if err != nil {
+			return err
+		}
+		db, err := sql.Open(sqliteDriverName, path)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		db.SetMaxOpenConns(1)
+		for _, pragma := range []string{"PRAGMA busy_timeout=5000;", "PRAGMA journal_mode=WAL;"} {
+			if _, err := db.Exec(pragma); err != nil {
+				return err
+			}
+		}
+		return buildHistoryFTS(db, index)
+	})
+}
+
+// validateHistoryFTSDirectSource establishes the authoritative side of the
+// no-JSON-read contract. The manifest must carry a strong record identity and
+// exact index-file metadata produced by refresh. We require the declared truth
+// to remain a safe regular file and compare its size without reading it. A size
+// mismatch is resolved by the bounded publication-race logic in the caller:
+// refresh writes the next JSON generation before committing its FTS transaction,
+// so an old reader may use the matching old FTS only while the writer lock proves
+// that publication is in progress. The exact checksum is verified on the full
+// JSON path.
+func validateHistoryFTSDirectSource(brainDir string, source *historySourceManifest) (historyFTSIdentity, bool, bool, error) {
+	identity, ok := historyFTSIdentityFromSource(source)
+	if !ok || source.IndexBytes <= 0 || !validHistorySHA256(source.IndexSHA256) {
+		return historyFTSIdentity{}, false, false, nil // legacy source: use the verified full-index path
+	}
+	clean, err := validateHistoryIndexPath(source.IndexPath)
+	if err != nil {
+		return historyFTSIdentity{}, false, false, err
+	}
+	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+		return historyFTSIdentity{}, false, false, err
+	}
+	path := filepath.Join(brainDir, clean)
+	if err := rejectUnsafeExistingRegularFile(path, "history index"); err != nil {
+		return historyFTSIdentity{}, false, false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return historyFTSIdentity{}, false, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return historyFTSIdentity{}, false, false, fmt.Errorf("history index must be a regular file: %s", source.IndexPath)
+	}
+	return identity, true, info.Size() == source.IndexBytes, nil
+}
+
+// openHistoryFTSReadOnly opens only an already-present, safe derived cache. It
+// never creates directories/files and never changes journal mode on the query
+// path. Unsafe or absent SQLite artifacts are cache misses; the authoritative
+// JSON fallback decides whether the user-visible request can still succeed.
+func openHistoryFTSReadOnly(brainDir string) (*sql.DB, error) {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return nil, err
+	}
+	clean, err := cleanBrainRelativePath(historyFTSDBRelPath())
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(brainDir, clean)
+	for _, candidate := range []string{path, path + "-wal", path + "-shm", path + "-journal"} {
+		if err := rejectUnsafeExistingRegularFile(candidate, "history sqlite cache"); err != nil {
+			return nil, err
+		}
+	}
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}).String()
+	db, err := sql.Open(sqliteDriverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	for _, pragma := range []string{"PRAGMA busy_timeout=5000;", "PRAGMA query_only=ON;"} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	return db, nil
+}
+
+// rankHistoryViaFreshFTS hydrates BM25 matches directly from schema-v2 SQLite
+// payload rows. Metadata validation and ranking share one read transaction, so
+// a concurrent refresh cannot commit a new generation between the two reads.
+// used=false is a soft cache miss and requires the caller to load index.json;
+// used=true includes an honest empty result.
+func rankHistoryViaFreshFTS(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, bool, error) {
+	return rankHistoryViaFreshFTSCutoff(brainDir, source, kind, query, limit, historyFTSRelevanceCutoff)
+}
+
+type historyFTSDirectRetry int
+
+var errHistoryFTSPayloadCorrupt = errors.New("history fts payload is corrupt")
+
+const (
+	historyFTSDirectNoRetry historyFTSDirectRetry = iota
+	historyFTSDirectReloadManifest
+	historyFTSDirectWaitForPublication
+)
+
+func rankHistoryViaFreshFTSCutoff(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool, error) {
+	out, used, err := rankHistoryViaFreshFTSCutoffDetailed(brainDir, source, kind, query, limit, cutoff)
+	if errors.Is(err, errHistoryFTSPayloadCorrupt) {
+		return nil, false, nil // derived-cache corruption is always a soft miss
+	}
+	return out, used, err
+}
+
+func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool, error) {
+	out, used, retry, err := rankHistoryViaFreshFTSCutoffOnce(brainDir, source, kind, query, limit, cutoff)
+	if err != nil || retry == historyFTSDirectNoRetry {
+		return out, used, err
+	}
+	current, err := currentHistorySource(brainDir)
+	if err != nil {
+		return nil, false, err
+	}
+	if !sameHistoryDirectSource(source, current) {
+		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff)
+		return out, used, err
+	}
+	if retry == historyFTSDirectReloadManifest {
+		return nil, false, nil // ordinary stale/corrupt derived cache
+	}
+
+	// index.json is a different size while the caller still holds the old
+	// manifest. This is either a refresh publication window or out-of-band
+	// corruption. Wait once on the writer lock as a publication barrier, then
+	// re-read the manifest. The normal long rebuild path never waits here: while
+	// it runs, the old committed FTS metadata still matches and the read proceeds.
+	unlock, lockErr := acquireBrainWriteLock(brainDir)
+	if lockErr != nil {
+		return nil, false, lockErr
+	}
+	unlock()
+	current, err = currentHistorySource(brainDir)
+	if err != nil {
+		return nil, false, err
+	}
+	if !sameHistoryDirectSource(source, current) {
+		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff)
+		return out, used, err
+	}
+	return nil, false, errors.New("history index size does not match manifest")
+}
+
+func currentHistorySource(brainDir string) (*historySourceManifest, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.History == nil {
+		return nil, errors.New("history source missing after manifest reload")
+	}
+	return manifest.Sources.History, nil
+}
+
+func sameHistoryDirectSource(a, b *historySourceManifest) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.IndexPath == b.IndexPath && a.IndexBytes == b.IndexBytes && a.IndexSHA256 == b.IndexSHA256 &&
+		a.RecordsFingerprint == b.RecordsFingerprint && a.Records == b.Records
+}
+
+func historyBrainWriteInProgress(brainDir string) (bool, error) {
+	unlock, err := acquireBrainWriteLockTimeout(brainDir, 0)
+	if err == nil {
+		unlock()
+		return false, nil
+	}
+	if strings.Contains(err.Error(), "brain_locked:") {
+		return true, nil
+	}
+	return false, err
+}
+
+func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceManifest, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool, historyFTSDirectRetry, error) {
+	if limit <= 0 {
+		return nil, false, historyFTSDirectNoRetry, nil
+	}
+	expr := historyFTSMatchExpr(query)
+	if expr == "" {
+		return nil, false, historyFTSDirectNoRetry, nil
+	}
+	identity, eligible, sizeMatches, err := validateHistoryFTSDirectSource(brainDir, source)
+	if err != nil || !eligible {
+		return nil, false, historyFTSDirectNoRetry, err
+	}
+	db, err := openHistoryFTSReadOnly(brainDir)
+	if err != nil {
+		if !sizeMatches {
+			return nil, false, historyFTSDirectWaitForPublication, nil
+		}
+		return nil, false, historyFTSDirectNoRetry, nil
+	}
+	defer db.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		if !sizeMatches {
+			return nil, false, historyFTSDirectWaitForPublication, nil
+		}
+		return nil, false, historyFTSDirectNoRetry, nil
+	}
+	defer tx.Rollback()
+	if !historyFTSFreshIdentity(tx, identity) {
+		if !sizeMatches {
+			return nil, false, historyFTSDirectWaitForPublication, nil
+		}
+		return nil, false, historyFTSDirectReloadManifest, nil
+	}
+	if !sizeMatches {
+		writing, lockErr := historyBrainWriteInProgress(brainDir)
+		if lockErr != nil {
+			return nil, false, historyFTSDirectNoRetry, lockErr
+		}
+		if !writing {
+			return nil, false, historyFTSDirectWaitForPublication, nil
+		}
+	}
+
+	args := []any{expr}
+	var sb strings.Builder
+	sb.WriteString(`SELECT r.fts_rowid, r.rec_order, r.id, r.kind, r.branch, r.path, r.line, r.summary, r.terms_json, bm25(history_fts)
+		FROM history_fts JOIN history_records r ON r.fts_rowid = history_fts.rowid
+		WHERE history_fts MATCH ?`)
+	appendHistoryFTSKindFilter(&sb, &args, kind, "r.kind")
+	sb.WriteString(" ORDER BY bm25(history_fts) LIMIT ?")
+	args = append(args, limit*4)
+
+	rows, err := tx.Query(sb.String(), args...)
+	if err != nil {
+		if !sizeMatches {
+			return nil, false, historyFTSDirectWaitForPublication, nil
+		}
+		return nil, false, historyFTSDirectNoRetry, nil
+	}
+	out := make([]scoredHistoryRecord, 0, limit)
+	seen := map[string]struct{}{}
+	seenOrders := map[int]struct{}{}
+	seenIDs := map[string]struct{}{}
+	var topScore float64
+	valid := true
+	for rows.Next() {
+		var rec historyRecord
+		var ftsRowID int
+		var order int
+		var termsJSON string
+		var bm float64
+		if err := rows.Scan(&ftsRowID, &order, &rec.ID, &rec.Kind, &rec.Branch, &rec.Path, &rec.Line, &rec.Summary, &termsJSON, &bm); err != nil {
+			valid = false
+			break
+		}
+		if order < 0 || order >= identity.RecordCount || ftsRowID != order+1 || rec.ID == "" || len(termsJSON) > historyMaxLineBytes*4 {
+			valid = false
+			break
+		}
+		if _, duplicate := seenOrders[order]; duplicate {
+			valid = false
+			break
+		}
+		if _, duplicate := seenIDs[rec.ID]; duplicate {
+			valid = false
+			break
+		}
+		seenOrders[order] = struct{}{}
+		seenIDs[rec.ID] = struct{}{}
+		if termsJSON != "null" {
+			if err := json.Unmarshal([]byte(termsJSON), &rec.Terms); err != nil {
+				valid = false
+				break
+			}
+			if len(rec.Terms) == 0 {
+				rec.Terms = nil
+			}
+		}
+		score := -bm
+		if topScore == 0 {
+			topScore = score
+		} else if score < cutoff*topScore {
+			break
+		}
+		key := normalizeHistorySearchText(rec.Summary)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, scoredHistoryRecord{Record: rec, Score: int(score*1000 + 0.5), Order: order})
+		if len(out) >= limit {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		valid = false
+	}
+	if err := rows.Close(); err != nil {
+		valid = false
+	}
+	if !valid {
+		if !sizeMatches {
+			return nil, false, historyFTSDirectWaitForPublication, nil
+		}
+		return nil, false, historyFTSDirectNoRetry, errHistoryFTSPayloadCorrupt
+	}
+	if err := tx.Commit(); err != nil {
+		if !sizeMatches {
+			return nil, false, historyFTSDirectWaitForPublication, nil
+		}
+		return nil, false, historyFTSDirectNoRetry, nil
+	}
+	return out, true, historyFTSDirectNoRetry, nil
+}
+
+func appendHistoryFTSKindFilter(sb *strings.Builder, args *[]any, kind, column string) {
+	if allowed := historyInspectKinds(kind); len(allowed) > 0 {
+		kinds := make([]string, 0, len(allowed))
+		for k := range allowed {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		placeholders := make([]string, len(kinds))
+		for i, k := range kinds {
+			placeholders[i] = "?"
+			*args = append(*args, k)
+		}
+		sb.WriteString(" AND " + column + " IN (" + strings.Join(placeholders, ",") + ")")
+		return
+	}
+	sb.WriteString(" AND " + column + " != 'request'")
+}
+
+const (
+	historyIndexAccessFTSPayload = "fts_payload"
+	historyIndexAccessJSON       = "index_json"
+)
+
+type historyIndexLoadFunc func(string, *historySourceManifest) (historyIndex, error)
+
+func rankHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, string, int, error) {
+	return rankHistoryLexicalFromSourceWithLoader(brainDir, source, kind, query, limit, loadBrainHistoryIndex)
+}
+
+func rankHistoryLexicalFromSourceWithLoader(brainDir string, source *historySourceManifest, kind, query string, limit int, loader historyIndexLoadFunc) ([]scoredHistoryRecord, string, int, error) {
+	scored, used, directErr := rankHistoryViaFreshFTSCutoffDetailed(brainDir, source, kind, query, limit, historyFTSRelevanceCutoff)
+	derivedCorrupt := errors.Is(directErr, errHistoryFTSPayloadCorrupt)
+	if directErr != nil && !derivedCorrupt {
+		return nil, "", 0, directErr
+	} else if used {
+		return scored, historyIndexAccessFTSPayload, source.Records, nil
+	}
+	index, err := loader(brainDir, source)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	if derivedCorrupt {
+		if rebuildErr := rebuildHistoryFTSFromTruth(brainDir, index); rebuildErr == nil {
+			if rebuilt, ok := rankHistoryViaFTS(brainDir, index, kind, query, limit); ok {
+				scored = rebuilt
+			} else {
+				scored = rankHistoryRecordsScored(index, kind, query, limit, 0)
+			}
+		} else {
+			scored = rankHistoryRecordsScored(index, kind, query, limit, 0)
+		}
+	} else {
+		var ok bool
+		scored, ok = rankHistoryViaFTS(brainDir, index, kind, query, limit)
+		if !ok {
+			scored = rankHistoryRecordsScored(index, kind, query, limit, 0)
+		}
+	}
+	return scored, historyIndexAccessJSON, len(index.Records), nil
 }
 
 // rankHistoryViaFTS ranks records with the BM25 index, returning ok=false on any
@@ -244,25 +735,10 @@ func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query st
 
 	args := []any{expr}
 	var sb strings.Builder
-	sb.WriteString(`SELECT CAST(rec_order AS INTEGER), bm25(history_fts) FROM history_fts WHERE history_fts MATCH ?`)
-	if allowed := historyInspectKinds(kind); len(allowed) > 0 {
-		kinds := make([]string, 0, len(allowed))
-		for k := range allowed {
-			kinds = append(kinds, k)
-		}
-		sort.Strings(kinds)
-		placeholders := make([]string, len(kinds))
-		for i, k := range kinds {
-			placeholders[i] = "?"
-			args = append(args, k)
-		}
-		sb.WriteString(" AND kind IN (" + strings.Join(placeholders, ",") + ")")
-	} else {
-		// User-prompt records add noise to general ranking (measured: they displace
-		// relevant content without improving recall). Surface them only via the
-		// explicit `requests` kind, not the broad history/sessions sweep.
-		sb.WriteString(" AND kind != 'request'")
-	}
+	sb.WriteString(`SELECT r.rec_order, bm25(history_fts)
+		FROM history_fts JOIN history_records r ON r.fts_rowid = history_fts.rowid
+		WHERE history_fts MATCH ?`)
+	appendHistoryFTSKindFilter(&sb, &args, kind, "r.kind")
 	sb.WriteString(" ORDER BY bm25(history_fts) LIMIT ?")
 	args = append(args, limit*4) // over-fetch so summary dedup still fills limit
 
