@@ -31,6 +31,26 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _minimal_compact_packet(body_line: str) -> bytes:
+    body = (packet_format_ab.COMPACT_MARKER + "\n" + body_line + "\n").encode("utf-8")
+    end = (
+        "end symbols=0 relations=0 neighbors=0 runtime_traces=0 test_roots=0 "
+        "test_suggestions=0 history=0 facts=0 actions=0 patterns=0 consolidations=0 "
+        "themes=0 guidance=0 warnings=0 body_records=1 body_sha256=\"sha256:"
+        + hashlib.sha256(body).hexdigest()
+        + "\"\n"
+    ).encode("utf-8")
+    return body + end
+
+
+def _assert_int_leaves(test: unittest.TestCase, value: object) -> None:
+    if isinstance(value, dict):
+        for child in value.values():
+            _assert_int_leaves(test, child)
+        return
+    test.assertIs(type(value), int)
+
+
 def _rich_legacy_packet() -> dict[str, object]:
     symbol = {
         "id": "sym:validate",
@@ -491,6 +511,67 @@ class PacketFormatABTests(unittest.TestCase):
         self.assertEqual(legacy_projection, compact["records"])
         self.assertEqual(compact["body_record_count"], 35)
 
+    def test_structural_attribution_partitions_every_golden_byte(self) -> None:
+        golden = (REPO_ROOT / "internal/cli/testdata/brain_brief_compact_v1.golden").read_bytes()
+        attribution = packet_format_ab.parse_compact_packet(golden)[
+            "structural_size_attribution"
+        ]
+        _assert_int_leaves(self, attribution)
+        self.assertEqual(attribution["schema_version"], 1)
+        partition = attribution["structural_partition"]
+        self.assertEqual(sum(partition.values()), len(golden))
+        invariants = attribution["accounting_invariants"]
+        self.assertEqual(invariants["exact_inner_byte_count"], len(golden))
+        self.assertEqual(invariants["structural_partition_delta_byte_count"], 0)
+        self.assertEqual(invariants["per_tag_encoded_delta_byte_count"], 0)
+        self.assertEqual(invariants["per_tag_record_count_delta"], 0)
+        self.assertEqual(invariants["per_tag_field_count_delta"], 0)
+        self.assertEqual(set(attribution["per_tag"]), set(packet_format_ab.COMPACT_BODY_TAG_ORDER))
+        for metrics in attribution["per_tag"].values():
+            self.assertEqual(
+                metrics["encoded_byte_count"],
+                sum(metrics[field] for field in packet_format_ab.RECORD_SIZE_PARTITION_FIELDS),
+            )
+
+    def test_structural_attribution_retains_no_adversarial_field_or_value_text(self) -> None:
+        packet = _minimal_compact_packet(
+            r'task private_field_sentinel="PRIVATE_SCALAR_SENTINEL\n\t\"é🚀" '
+            r'aliases=["PRIVATE_ARRAY_SENTINEL","x\\y"] count=-12 ratio=1.25 enabled=true'
+        )
+        attribution = packet_format_ab.parse_compact_packet(packet)[
+            "structural_size_attribution"
+        ]
+        _assert_int_leaves(self, attribution)
+        retained = json.dumps(attribution, sort_keys=True)
+        for forbidden in (
+            "private_field_sentinel",
+            "PRIVATE_SCALAR_SENTINEL",
+            "PRIVATE_ARRAY_SENTINEL",
+            "é",
+            "🚀",
+            "x\\\\y",
+        ):
+            self.assertNotIn(forbidden, retained)
+        task = attribution["per_tag"]["task"]
+        self.assertEqual(task["record_count"], 1)
+        self.assertEqual(task["field_count"], 5)
+        self.assertEqual(task["array_field_count"], 1)
+        self.assertEqual(task["array_item_count"], 2)
+        self.assertGreater(task["escape_overhead_byte_count"], 0)
+        self.assertEqual(
+            attribution["accounting_invariants"]["exact_inner_byte_count"], len(packet)
+        )
+
+    def test_unknown_body_tag_cannot_become_a_retained_attribution_key(self) -> None:
+        packet = _minimal_compact_packet(
+            'private_tag_sentinel value="PRIVATE_UNKNOWN_TAG_VALUE"'
+        )
+        with self.assertRaises(packet_format_ab.CompactPacketError) as raised:
+            packet_format_ab.parse_compact_packet(packet)
+        retained_error = str(raised.exception)
+        self.assertNotIn("private_tag_sentinel", retained_error)
+        self.assertNotIn("PRIVATE_UNKNOWN_TAG_VALUE", retained_error)
+
     def test_compact_integrity_rejects_tamper_and_truncation(self) -> None:
         golden = (REPO_ROOT / "internal/cli/testdata/brain_brief_compact_v1.golden").read_bytes()
         tampered = golden.replace(
@@ -571,6 +652,9 @@ class PacketFormatABTests(unittest.TestCase):
                 first["canonical_projection"]["compact_sha256"],
             )
             self.assertTrue(first["formats"]["compact_v1"]["integrity_ok"])
+            _assert_int_leaves(
+                self, first["formats"]["compact_v1"]["structural_size_attribution"]
+            )
             retained = json.dumps(first, sort_keys=True)
             for forbidden in (
                 "PRIVATE_PROMPT_SENTINEL",
@@ -647,6 +731,7 @@ class PacketFormatABTests(unittest.TestCase):
             first = packet_format_ab.build_report(corpus, [task], binary, repos, 10.0)
             second = packet_format_ab.build_report(corpus, [task], binary, repos, 10.0)
             self.assertEqual(first, second)
+            self.assertEqual(first["schema_version"], 2)
             self.assertTrue(packet_format_ab.verify_self_hash(first, "report_sha256"))
             self.assertEqual(
                 first["offline_token_proxy"]["definition"],
@@ -654,6 +739,15 @@ class PacketFormatABTests(unittest.TestCase):
             )
             self.assertFalse(
                 first["promotion_gate"]["eligible_for_separately_authorized_agent_quality_trial"]
+            )
+            aggregate_attribution = first["aggregate"]["compact_v1"][
+                "structural_size_attribution"
+            ]
+            _assert_int_leaves(self, aggregate_attribution)
+            self.assertEqual(aggregate_attribution["packet_count"], 1)
+            self.assertEqual(
+                aggregate_attribution["accounting_invariants"]["exact_inner_byte_count"],
+                first["aggregate"]["compact_v1"]["inner_byte_count_sum"],
             )
             output = directory / "private-report.json"
             packet_format_ab.write_private_json(output, first)

@@ -58,6 +58,24 @@ line grammar, fixed end-field order, record counts, final newline, body-record
 count, body SHA-256, and warning/category counts. It fails closed on malformed,
 truncated, tampered, non-UTF-8, duplicate-field, or non-finite input.
 
+Report schema 2 also attributes every compact inner-packet byte in process.
+The exact, disjoint partition is: marker bytes, newline bytes, the complete end
+record, body record-tag bytes, body field-key-plus-`=` bytes, decoded scalar
+payload bytes, decoded string-array payload bytes, separators, quote/bracket
+delimiters, and escape expansion. Escape expansion is the encoded Go-quoted
+length less its delimiters and decoded UTF-8 payload length. Each record and
+each string array is checked against its lexical byte length before its numbers
+are retained; the packet partition must sum exactly to the existing compact
+inner-byte count or the pair fails closed.
+
+The report retains numeric body record/field/value-kind counts and byte totals
+both per packet and summed over successful packets. It also retains the same
+numeric totals for each member of the fixed `compact_v1` body-tag vocabulary.
+Unknown body tags fail closed rather than becoming report keys. The attribution
+subtrees contain integer leaves only: no tag value, field key, field value,
+packet text, prompt, path, stdout, or stderr is retained. Per-tag names are
+fixed format-schema keys, not values discovered from a packet.
+
 Separately, Python code projects the parsed legacy JSON onto the allowlisted
 semantic record stream defined for `compact_v1`. It does not call or reuse the
 Go compact renderer. The two canonical projections are compared in memory and
@@ -78,6 +96,7 @@ process memory. A successful pair retains:
 - inner and framed byte counts/hashes for both formats;
 - frozen offline token-proxy counts;
 - parse and compact-integrity results plus compact body count/hash;
+- numeric-only exact structural-size attribution and accounting invariants;
 - canonical-projection hashes/parity; and
 - integer bytes/token savings and reductions in parts per million.
 

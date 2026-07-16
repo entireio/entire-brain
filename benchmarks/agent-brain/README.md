@@ -12,8 +12,10 @@ For an unpaid, same-query comparison of the MCP `brain_brief` `legacy_json` and
 opt-in `compact_v1` packet formats, use `packet_format_ab.py`. See
 `PACKET-FORMAT-AB.md`. It checks parseability, compact-packet integrity,
 independently projected semantic parity, exact bytes, and a frozen offline token
-proxy. It does not call an agent/provider, measure code quality, authorize a
-paid trial, or change either MCP or CLI defaults.
+proxy. Report schema 2 also retains numeric-only, exact structural byte
+attribution for future packet-format design. It does not call an agent/provider,
+measure code quality, authorize a paid trial, or change either MCP or CLI
+defaults.
 
 ## Treatment-isolated tasks
 

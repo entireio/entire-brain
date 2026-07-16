@@ -30,7 +30,8 @@ import profile_brief
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_CORPUS = pathlib.Path(__file__).with_name("brief-profile-corpus-v1.json")
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
+SIZE_ATTRIBUTION_SCHEMA_VERSION = 1
 EVIDENCE_ROLE = "development_only_unpaid_brain_brief_packet_format_ab"
 FORMAT_ORDER = ("legacy_json", "compact_v1")
 COMPACT_MARKER = "entire.brain_brief compact_v1"
@@ -69,6 +70,63 @@ END_FIELD_ORDER = (
 )
 SIMPLE_GO_ESCAPES = frozenset('abfnrtv\\"')
 HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+COMPACT_BODY_TAG_ORDER = (
+    "task",
+    "status",
+    "sources",
+    "live",
+    "live_symbol",
+    "facts_status",
+    "semantic_status",
+    "freshness_axis",
+    "freshness_warning",
+    "semantic_warning",
+    "semantic_partial_failure",
+    "blind_spot",
+    "edit_file",
+    "test_file",
+    "likely_file",
+    "symbol",
+    "relation",
+    "relation_evidence",
+    "neighbor",
+    "runtime_trace",
+    "runtime_trace_evidence",
+    "test_root",
+    "test_suggestion",
+    "history",
+    "fact",
+    "fact_drift",
+    "action",
+    "pattern",
+    "consolidation",
+    "theme",
+    "guidance",
+    "warning",
+)
+COMPACT_BODY_TAGS = frozenset(COMPACT_BODY_TAG_ORDER)
+RECORD_SIZE_COUNT_FIELDS = (
+    "record_count",
+    "field_count",
+    "string_scalar_field_count",
+    "integer_scalar_field_count",
+    "float_scalar_field_count",
+    "boolean_scalar_field_count",
+    "array_field_count",
+    "array_item_count",
+)
+RECORD_SIZE_BYTE_FIELDS = (
+    "encoded_byte_count",
+    "tag_byte_count",
+    "field_key_equals_byte_count",
+    "scalar_value_payload_byte_count",
+    "array_value_payload_byte_count",
+    "separator_byte_count",
+    "quoting_delimiter_byte_count",
+    "escape_overhead_byte_count",
+)
+RECORD_SIZE_FIELDS = RECORD_SIZE_COUNT_FIELDS + RECORD_SIZE_BYTE_FIELDS
+RECORD_SIZE_PARTITION_FIELDS = RECORD_SIZE_BYTE_FIELDS[1:]
 
 
 class PacketABError(RuntimeError):
@@ -274,11 +332,40 @@ def _parse_go_quoted(raw: str) -> str:
     return value
 
 
-def _parse_compact_array(raw: str) -> list[str]:
+def _utf8_byte_count(value: str, role: str) -> int:
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise CompactPacketError(f"{role} is not valid Unicode") from exc
+
+
+def _empty_record_size() -> dict[str, int]:
+    return {field: 0 for field in RECORD_SIZE_FIELDS}
+
+
+def _add_record_size(target: dict[str, int], source: Mapping[str, int]) -> None:
+    for field in RECORD_SIZE_FIELDS:
+        target[field] += source[field]
+
+
+def _parse_compact_array_sized(raw: str) -> tuple[list[str], dict[str, int]]:
     if len(raw) < 2 or raw[0] != "[" or raw[-1] != "]":
         raise CompactPacketError("invalid compact string array")
+    size = {
+        "string_scalar_field_count": 0,
+        "integer_scalar_field_count": 0,
+        "float_scalar_field_count": 0,
+        "boolean_scalar_field_count": 0,
+        "array_field_count": 1,
+        "array_item_count": 0,
+        "scalar_value_payload_byte_count": 0,
+        "array_value_payload_byte_count": 0,
+        "separator_byte_count": 0,
+        "quoting_delimiter_byte_count": 2,
+        "escape_overhead_byte_count": 0,
+    }
     if raw == "[]":
-        return []
+        return [], size
     values: list[str] = []
     cursor = 1
     end = len(raw) - 1
@@ -288,38 +375,99 @@ def _parse_compact_array(raw: str) -> list[str]:
         stop = _scan_quoted(raw, cursor)
         if stop > end:
             raise CompactPacketError("compact array string exceeds its boundary")
-        values.append(_parse_go_quoted(raw[cursor:stop]))
+        item_raw = raw[cursor:stop]
+        value = _parse_go_quoted(item_raw)
+        payload_bytes = _utf8_byte_count(value, "compact array item")
+        raw_bytes = _utf8_byte_count(item_raw, "compact array item encoding")
+        escape_overhead = raw_bytes - 2 - payload_bytes
+        if escape_overhead < 0:
+            raise CompactPacketError("compact array item has negative escape overhead")
+        values.append(value)
+        size["array_item_count"] += 1
+        size["array_value_payload_byte_count"] += payload_bytes
+        size["quoting_delimiter_byte_count"] += 2
+        size["escape_overhead_byte_count"] += escape_overhead
         cursor = stop
         if cursor == end:
-            return values
+            break
         if raw[cursor] != ",":
             raise CompactPacketError("compact array values are not comma separated")
+        size["separator_byte_count"] += 1
         cursor += 1
         if cursor == end:
             raise CompactPacketError("compact array has a trailing comma")
-    raise CompactPacketError("invalid compact string array")
+    if cursor != end:
+        raise CompactPacketError("invalid compact string array")
+    accounted = sum(size[field] for field in (
+        "array_value_payload_byte_count",
+        "separator_byte_count",
+        "quoting_delimiter_byte_count",
+        "escape_overhead_byte_count",
+    ))
+    if accounted != _utf8_byte_count(raw, "compact array encoding"):
+        raise CompactPacketError("compact array size accounting mismatch")
+    return values, size
 
 
-def _parse_compact_value(raw: str) -> Any:
+def _parse_compact_array(raw: str) -> list[str]:
+    return _parse_compact_array_sized(raw)[0]
+
+
+def _parse_compact_value_sized(raw: str) -> tuple[Any, dict[str, int]]:
+    size = {
+        "string_scalar_field_count": 0,
+        "integer_scalar_field_count": 0,
+        "float_scalar_field_count": 0,
+        "boolean_scalar_field_count": 0,
+        "array_field_count": 0,
+        "array_item_count": 0,
+        "scalar_value_payload_byte_count": 0,
+        "array_value_payload_byte_count": 0,
+        "separator_byte_count": 0,
+        "quoting_delimiter_byte_count": 0,
+        "escape_overhead_byte_count": 0,
+    }
     if raw.startswith('"'):
-        return _parse_go_quoted(raw)
+        value = _parse_go_quoted(raw)
+        payload_bytes = _utf8_byte_count(value, "compact scalar string")
+        raw_bytes = _utf8_byte_count(raw, "compact scalar string encoding")
+        escape_overhead = raw_bytes - 2 - payload_bytes
+        if escape_overhead < 0:
+            raise CompactPacketError("compact scalar string has negative escape overhead")
+        size["string_scalar_field_count"] = 1
+        size["scalar_value_payload_byte_count"] = payload_bytes
+        size["quoting_delimiter_byte_count"] = 2
+        size["escape_overhead_byte_count"] = escape_overhead
+        return value, size
     if raw.startswith("["):
-        return _parse_compact_array(raw)
+        return _parse_compact_array_sized(raw)
     if raw == "true":
-        return True
+        size["boolean_scalar_field_count"] = 1
+        size["scalar_value_payload_byte_count"] = len(raw)
+        return True, size
     if raw == "false":
-        return False
+        size["boolean_scalar_field_count"] = 1
+        size["scalar_value_payload_byte_count"] = len(raw)
+        return False, size
     if INT_RE.fullmatch(raw):
-        return int(raw)
+        size["integer_scalar_field_count"] = 1
+        size["scalar_value_payload_byte_count"] = len(raw)
+        return int(raw), size
     if FLOAT_RE.fullmatch(raw):
         value = float(raw)
         if not math.isfinite(value):
             raise CompactPacketError("compact number is not finite")
-        return value
+        size["float_scalar_field_count"] = 1
+        size["scalar_value_payload_byte_count"] = len(raw)
+        return value, size
     raise CompactPacketError("invalid compact scalar")
 
 
-def _parse_compact_record(line: str) -> dict[str, Any]:
+def _parse_compact_value(raw: str) -> Any:
+    return _parse_compact_value_sized(raw)[0]
+
+
+def _parse_compact_record_sized(line: str) -> tuple[dict[str, Any], dict[str, int]]:
     space = line.find(" ")
     if space < 0:
         tag = line
@@ -329,6 +477,9 @@ def _parse_compact_record(line: str) -> dict[str, Any]:
         remainder = line[space + 1 :]
     if TAG_RE.fullmatch(tag) is None:
         raise CompactPacketError("invalid compact record tag")
+    size = _empty_record_size()
+    size["record_count"] = 1
+    size["tag_byte_count"] = _utf8_byte_count(tag, "compact record tag")
     fields: list[list[Any]] = []
     seen: set[str] = set()
     cursor = 0
@@ -340,6 +491,7 @@ def _parse_compact_record(line: str) -> dict[str, Any]:
         if KEY_RE.fullmatch(key) is None or key in seen:
             raise CompactPacketError("invalid or duplicate compact field key")
         seen.add(key)
+        size["field_key_equals_byte_count"] += _utf8_byte_count(key, "compact field key") + 1
         cursor = equals + 1
         if cursor >= len(remainder):
             raise CompactPacketError("compact field has no value")
@@ -352,18 +504,124 @@ def _parse_compact_record(line: str) -> dict[str, Any]:
             next_space = remainder.find(" ", cursor)
             cursor = len(remainder) if next_space < 0 else next_space
         raw = remainder[value_start:cursor]
-        fields.append([key, _parse_compact_value(raw)])
+        value, value_size = _parse_compact_value_sized(raw)
+        fields.append([key, value])
+        for field, amount in value_size.items():
+            size[field] += amount
         if cursor < len(remainder):
             if remainder[cursor] != " ":
                 raise CompactPacketError("compact fields are not space separated")
             cursor += 1
             if cursor == len(remainder):
                 raise CompactPacketError("compact record has trailing space")
-    return {"tag": tag, "fields": fields}
+    size["field_count"] = len(fields)
+    # One ASCII space introduces every field; array commas were counted while
+    # parsing their values.
+    size["separator_byte_count"] += len(fields)
+    size["encoded_byte_count"] = _utf8_byte_count(line, "compact record")
+    if sum(size[field] for field in RECORD_SIZE_PARTITION_FIELDS) != size["encoded_byte_count"]:
+        raise CompactPacketError("compact record size accounting mismatch")
+    return {"tag": tag, "fields": fields}, size
+
+
+def _parse_compact_record(line: str) -> dict[str, Any]:
+    return _parse_compact_record_sized(line)[0]
 
 
 def _field_map(record: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in record["fields"]}
+
+
+def _sum_record_sizes(values: Sequence[Mapping[str, int]]) -> dict[str, int]:
+    total = _empty_record_size()
+    for value in values:
+        _add_record_size(total, value)
+    return total
+
+
+def _build_compact_size_attribution(
+    data: bytes,
+    records: Sequence[Mapping[str, Any]],
+    record_sizes: Sequence[Mapping[str, int]],
+) -> dict[str, Any]:
+    if len(records) != len(record_sizes) or not records or records[-1]["tag"] != "end":
+        raise CompactIntegrityError("compact attribution record shape mismatch")
+    body_records = records[:-1]
+    body_sizes = record_sizes[:-1]
+    end_size = record_sizes[-1]
+    per_tag = {tag: _empty_record_size() for tag in COMPACT_BODY_TAG_ORDER}
+    for record, size in zip(body_records, body_sizes):
+        tag = record["tag"]
+        if tag not in COMPACT_BODY_TAGS:
+            raise CompactPacketError("compact packet contains an unsupported body record tag")
+        _add_record_size(per_tag[tag], size)
+
+    body_totals = _sum_record_sizes(body_sizes)
+    marker_bytes = len(COMPACT_MARKER.encode("ascii"))
+    newline_bytes = data.count(b"\n")
+    structural_partition = {
+        "marker_byte_count": marker_bytes,
+        "newline_byte_count": newline_bytes,
+        "end_record_byte_count": end_size["encoded_byte_count"],
+        "body_record_tag_byte_count": body_totals["tag_byte_count"],
+        "body_field_key_equals_byte_count": body_totals["field_key_equals_byte_count"],
+        "body_scalar_value_payload_byte_count": body_totals["scalar_value_payload_byte_count"],
+        "body_array_value_payload_byte_count": body_totals["array_value_payload_byte_count"],
+        "body_separator_byte_count": body_totals["separator_byte_count"],
+        "body_quoting_delimiter_byte_count": body_totals["quoting_delimiter_byte_count"],
+        "body_escape_overhead_byte_count": body_totals["escape_overhead_byte_count"],
+    }
+    partition_sum = sum(structural_partition.values())
+    per_tag_encoded_sum = sum(value["encoded_byte_count"] for value in per_tag.values())
+    per_tag_record_sum = sum(value["record_count"] for value in per_tag.values())
+    per_tag_field_sum = sum(value["field_count"] for value in per_tag.values())
+    invariants = {
+        "exact_inner_byte_count": len(data),
+        "structural_partition_byte_count_sum": partition_sum,
+        "structural_partition_delta_byte_count": partition_sum - len(data),
+        "body_encoded_byte_count": body_totals["encoded_byte_count"],
+        "per_tag_encoded_byte_count_sum": per_tag_encoded_sum,
+        "per_tag_encoded_delta_byte_count": per_tag_encoded_sum - body_totals["encoded_byte_count"],
+        "body_record_count": body_totals["record_count"],
+        "per_tag_record_count_sum": per_tag_record_sum,
+        "per_tag_record_count_delta": per_tag_record_sum - body_totals["record_count"],
+        "body_field_count": body_totals["field_count"],
+        "per_tag_field_count_sum": per_tag_field_sum,
+        "per_tag_field_count_delta": per_tag_field_sum - body_totals["field_count"],
+    }
+    if any(
+        invariants[field] != 0
+        for field in (
+            "structural_partition_delta_byte_count",
+            "per_tag_encoded_delta_byte_count",
+            "per_tag_record_count_delta",
+            "per_tag_field_count_delta",
+        )
+    ):
+        raise CompactIntegrityError("compact structural size accounting mismatch")
+    counts = {
+        "body_record_count": body_totals["record_count"],
+        "end_record_count": 1,
+        "total_record_count": body_totals["record_count"] + 1,
+        "body_field_count": body_totals["field_count"],
+        "end_field_count": end_size["field_count"],
+        "total_field_count": body_totals["field_count"] + end_size["field_count"],
+        "body_string_scalar_field_count": body_totals["string_scalar_field_count"],
+        "body_integer_scalar_field_count": body_totals["integer_scalar_field_count"],
+        "body_float_scalar_field_count": body_totals["float_scalar_field_count"],
+        "body_boolean_scalar_field_count": body_totals["boolean_scalar_field_count"],
+        "body_array_field_count": body_totals["array_field_count"],
+        "body_array_item_count": body_totals["array_item_count"],
+        "distinct_body_tag_count": sum(value["record_count"] > 0 for value in per_tag.values()),
+    }
+    return {
+        "schema_version": SIZE_ATTRIBUTION_SCHEMA_VERSION,
+        "structural_partition": structural_partition,
+        "counts": counts,
+        "body_totals": body_totals,
+        "per_tag": per_tag,
+        "accounting_invariants": invariants,
+    }
 
 
 def parse_compact_packet(data: bytes) -> dict[str, Any]:
@@ -376,7 +634,9 @@ def parse_compact_packet(data: bytes) -> dict[str, Any]:
     lines = text[:-1].split("\n")
     if len(lines) < 3 or lines[0] != COMPACT_MARKER:
         raise CompactPacketError("compact packet version marker mismatch")
-    parsed = [_parse_compact_record(line) for line in lines[1:]]
+    parsed_and_sizes = [_parse_compact_record_sized(line) for line in lines[1:]]
+    parsed = [record for record, _ in parsed_and_sizes]
+    record_sizes = [size for _, size in parsed_and_sizes]
     end = parsed[-1]
     if end["tag"] != "end":
         raise CompactIntegrityError("compact end record is missing")
@@ -431,10 +691,12 @@ def parse_compact_packet(data: bytes) -> dict[str, Any]:
     for key, expected in expected_counts.items():
         if end_fields[key] != expected:
             raise CompactIntegrityError(f"compact end count mismatch for {key}")
+    size_attribution = _build_compact_size_attribution(data, parsed, record_sizes)
     return {
         "records": records,
         "body_record_count": len(records),
         "body_sha256": sha256_bytes(body),
+        "structural_size_attribution": size_attribution,
     }
 
 
@@ -1051,6 +1313,9 @@ def run_pair(
     format_metrics["compact_v1"]["integrity_ok"] = True
     format_metrics["compact_v1"]["body_record_count"] = compact["body_record_count"]
     format_metrics["compact_v1"]["body_sha256"] = compact["body_sha256"]
+    format_metrics["compact_v1"]["structural_size_attribution"] = compact[
+        "structural_size_attribution"
+    ]
 
     legacy_projection_bytes = canonical_json_bytes(legacy_projection)
     compact_projection_bytes = canonical_json_bytes(compact_projection)
@@ -1103,6 +1368,98 @@ def _lower_median(values: Sequence[int]) -> int | None:
     return None if not values else int(statistics.median_low(sorted(values)))
 
 
+def _aggregate_size_attributions(values: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    partition_fields = (
+        "marker_byte_count",
+        "newline_byte_count",
+        "end_record_byte_count",
+        "body_record_tag_byte_count",
+        "body_field_key_equals_byte_count",
+        "body_scalar_value_payload_byte_count",
+        "body_array_value_payload_byte_count",
+        "body_separator_byte_count",
+        "body_quoting_delimiter_byte_count",
+        "body_escape_overhead_byte_count",
+    )
+    count_fields = (
+        "body_record_count",
+        "end_record_count",
+        "total_record_count",
+        "body_field_count",
+        "end_field_count",
+        "total_field_count",
+        "body_string_scalar_field_count",
+        "body_integer_scalar_field_count",
+        "body_float_scalar_field_count",
+        "body_boolean_scalar_field_count",
+        "body_array_field_count",
+        "body_array_item_count",
+        "distinct_body_tag_count",
+    )
+    for value in values:
+        if value.get("schema_version") != SIZE_ATTRIBUTION_SCHEMA_VERSION:
+            raise PacketABError("compact structural size attribution schema mismatch")
+    partition = {
+        field: sum(value["structural_partition"][field] for value in values)
+        for field in partition_fields
+    }
+    counts = {
+        field: sum(value["counts"][field] for value in values)
+        for field in count_fields
+    }
+    body_totals = {
+        field: sum(value["body_totals"][field] for value in values)
+        for field in RECORD_SIZE_FIELDS
+    }
+    per_tag = {
+        tag: {
+            field: sum(value["per_tag"][tag][field] for value in values)
+            for field in RECORD_SIZE_FIELDS
+        }
+        for tag in COMPACT_BODY_TAG_ORDER
+    }
+    exact_inner_sum = sum(
+        value["accounting_invariants"]["exact_inner_byte_count"] for value in values
+    )
+    partition_sum = sum(partition.values())
+    per_tag_encoded_sum = sum(value["encoded_byte_count"] for value in per_tag.values())
+    per_tag_record_sum = sum(value["record_count"] for value in per_tag.values())
+    per_tag_field_sum = sum(value["field_count"] for value in per_tag.values())
+    invariants = {
+        "exact_inner_byte_count": exact_inner_sum,
+        "structural_partition_byte_count_sum": partition_sum,
+        "structural_partition_delta_byte_count": partition_sum - exact_inner_sum,
+        "body_encoded_byte_count": body_totals["encoded_byte_count"],
+        "per_tag_encoded_byte_count_sum": per_tag_encoded_sum,
+        "per_tag_encoded_delta_byte_count": per_tag_encoded_sum - body_totals["encoded_byte_count"],
+        "body_record_count": body_totals["record_count"],
+        "per_tag_record_count_sum": per_tag_record_sum,
+        "per_tag_record_count_delta": per_tag_record_sum - body_totals["record_count"],
+        "body_field_count": body_totals["field_count"],
+        "per_tag_field_count_sum": per_tag_field_sum,
+        "per_tag_field_count_delta": per_tag_field_sum - body_totals["field_count"],
+    }
+    if any(
+        invariants[field] != 0
+        for field in (
+            "structural_partition_delta_byte_count",
+            "per_tag_encoded_delta_byte_count",
+            "per_tag_record_count_delta",
+            "per_tag_field_count_delta",
+        )
+    ):
+        raise PacketABError("aggregate compact structural size accounting mismatch")
+    return {
+        "schema_version": SIZE_ATTRIBUTION_SCHEMA_VERSION,
+        "packet_count": len(values),
+        "structural_partition": partition,
+        "summed_packet_counts": counts,
+        "body_totals": body_totals,
+        "per_tag": per_tag,
+        "accounting_invariants": invariants,
+    }
+
+
 def _aggregate(observations: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     successes = [row for row in observations if row["status"] == "ok"]
     failures = Counter(row["failure"]["kind"] for row in observations if row["status"] == "failed")
@@ -1122,6 +1479,15 @@ def _aggregate(observations: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             ),
             "parse_pass_count": sum(row["formats"][format_name]["parse_ok"] for row in successes),
         }
+    size_aggregate = _aggregate_size_attributions(
+        [row["formats"]["compact_v1"]["structural_size_attribution"] for row in successes]
+    )
+    if (
+        size_aggregate["accounting_invariants"]["exact_inner_byte_count"]
+        != result["compact_v1"]["inner_byte_count_sum"]
+    ):
+        raise PacketABError("aggregate attribution does not match compact inner-byte total")
+    result["compact_v1"]["structural_size_attribution"] = size_aggregate
     for key in (
         "inner_byte_reduction_ppm",
         "framed_byte_reduction_ppm",
