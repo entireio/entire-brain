@@ -4,6 +4,7 @@
 .DS_Store
 __pycache__/
 .pytest_cache/
+/benchmarks/agent-brain/confirmatory/.engine-evidence/
 
 # Machine-local Claude tooling state (pid/lock files), not shared config.
 .claude/scheduled_tasks.lock

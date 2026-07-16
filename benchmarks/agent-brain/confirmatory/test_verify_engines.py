@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import shutil
 import socket
 import struct
 import subprocess
@@ -386,6 +387,82 @@ class EngineVerificationRunnerTest(unittest.TestCase):
             pin_repo=VERIFY.REPO,
         )
 
+    def storage_checker_fixture(self, manifest_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, dict[str, object]]:
+        checkout = self.root / "storage-checkout"
+        if checkout.exists() or checkout.is_symlink():
+            if checkout.is_symlink():
+                checkout.unlink()
+            else:
+                shutil.rmtree(checkout)
+        here = checkout / "benchmarks/agent-brain/confirmatory"
+        hydration_parent = checkout / VERIFY.check_protocol.ENGINE_EVIDENCE_HYDRATION_PARENT
+        hydration_parent.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(self.root / "evidence", hydration_parent / "evidence")
+        archive_root = hydration_parent / "evidence"
+        files = [path for path in archive_root.rglob("*") if path.is_file() and not path.is_symlink()]
+        relocated_manifest = hydration_parent / manifest_path.relative_to(self.root)
+        recorded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        contract: dict[str, object] = {
+            "schema_version": 1,
+            "storage": {
+                "kind": "github_immutable_release_asset",
+                "repository": "entireio/entire-brain",
+                "tag": "engine-evidence-fixture-v1",
+                "asset_name": "engine-evidence-fixture-v1.tar.zst",
+                "asset_url": "https://github.com/entireio/entire-brain/releases/download/engine-evidence-fixture-v1/engine-evidence-fixture-v1.tar.zst",
+                "asset_size_bytes": 123,
+                "asset_sha256": "1" * 64,
+                "publication_disposition": "approved",
+                "privacy_review": "publishable",
+                "published": True,
+                "release_id": 101,
+                "asset_id": 202,
+                "release_immutable": True,
+                "release_target_commitish": "a" * 40,
+                "asset_api_digest": "sha256:" + "1" * 64,
+                "verified_at": "2026-07-16T12:00:00Z",
+            },
+            "archive": {
+                "format": "tar_zstd",
+                "root": "evidence",
+                "regular_file_count": len(files),
+                "logical_bytes": sum(path.stat().st_size for path in files),
+                "symlink_count": 0,
+            },
+            "evidence": {
+                "manifest_path": manifest_path.relative_to(self.root).as_posix(),
+                "manifest_sha256": digest(relocated_manifest),
+                "recorded_artifact_root": str(self.root.resolve()),
+            },
+            "recorded_external_inputs": {
+                "repo_root": recorded_manifest["records"][0]["requested"]["environment"]["ENTIRE_REPO_ROOT"],
+                "repo_key": "local/example",
+            },
+            "hydration": {
+                "repo_relative_parent": VERIFY.check_protocol.ENGINE_EVIDENCE_HYDRATION_PARENT,
+            },
+        }
+        contract_path = checkout / VERIFY.check_protocol.ENGINE_EVIDENCE_STORAGE_REPO_PATH
+        contract_path.parent.mkdir(parents=True, exist_ok=True)
+        contract_path.write_text(json.dumps(contract, sort_keys=True) + "\n", encoding="utf-8")
+        return checkout, contract_path, contract
+
+    def storage_checker_errors(self, checkout: pathlib.Path) -> list[str]:
+        matrix = json.loads((HERE / "engine-matrix.json").read_text(encoding="utf-8"))
+        return VERIFY.check_protocol.validate_engine_verification(
+            matrix,
+            {
+                "status": "pass",
+                "evidence": VERIFY.check_protocol.ENGINE_EVIDENCE_STORAGE_REPO_PATH,
+            },
+            here=checkout / "benchmarks/agent-brain/confirmatory",
+            repo=checkout,
+            pins=self.pins,
+            require_production=False,
+            pin_repo=VERIFY.REPO,
+            require_storage_contract=True,
+        )
+
     def test_execute_publishes_exact_three_checker_valid_records(self) -> None:
         source_before = self.facts.read_bytes()
         manifest_path = self.execute()
@@ -398,6 +475,83 @@ class EngineVerificationRunnerTest(unittest.TestCase):
         self.assertEqual(len({record["artifacts"]["derived_facts_path"] for record in records}), 3)
         self.assertEqual(len({record["artifacts"]["facts_source_path"] for record in records}), 1)
         self.assertEqual(self.checker_errors(manifest_path), [])
+
+    def test_storage_contract_validates_relocated_hydrated_evidence_without_rewriting_manifest(self) -> None:
+        manifest_path = self.execute()
+        original_manifest = manifest_path.read_bytes()
+        checkout, _, _ = self.storage_checker_fixture(manifest_path)
+        self.assertEqual(self.storage_checker_errors(checkout), [])
+        self.assertEqual(manifest_path.read_bytes(), original_manifest)
+
+    def test_storage_contract_fails_closed_for_missing_and_mutated_hydrated_bytes(self) -> None:
+        manifest_path = self.execute()
+        checkout, _, _ = self.storage_checker_fixture(manifest_path)
+        hydration = checkout / VERIFY.check_protocol.ENGINE_EVIDENCE_HYDRATION_PARENT
+        missing = hydration / "evidence/engine-run/runs/lexical_handrolled/recall.stderr.txt"
+        missing.unlink()
+        errors = self.storage_checker_errors(checkout)
+        self.assertTrue(any("regular-file count differs" in error for error in errors), errors)
+        self.assertTrue(any("file does not exist" in error for error in errors), errors)
+
+        checkout, _, _ = self.storage_checker_fixture(manifest_path)
+        hydration = checkout / VERIFY.check_protocol.ENGINE_EVIDENCE_HYDRATION_PARENT
+        mutated = hydration / "evidence/engine-run/artifacts/sources/facts.ndjson"
+        mutated.write_bytes(b"X" + mutated.read_bytes()[1:])
+        errors = self.storage_checker_errors(checkout)
+        self.assertTrue(any("content hash mismatch" in error for error in errors), errors)
+
+    def test_storage_contract_rejects_redirected_or_symlinked_hydration_root(self) -> None:
+        manifest_path = self.execute()
+        checkout, contract_path, contract = self.storage_checker_fixture(manifest_path)
+        contract["hydration"]["repo_relative_parent"] = "benchmarks/agent-brain/confirmatory/.redirected"  # type: ignore[index]
+        contract_path.write_text(json.dumps(contract, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.storage_checker_errors(checkout)
+        self.assertIn("engine evidence hydration parent was redirected", errors)
+
+        checkout, _, _ = self.storage_checker_fixture(manifest_path)
+        hydration = checkout / VERIFY.check_protocol.ENGINE_EVIDENCE_HYDRATION_PARENT
+        moved = hydration.with_name(".engine-evidence-real")
+        hydration.rename(moved)
+        hydration.symlink_to(moved, target_is_directory=True)
+        errors = self.storage_checker_errors(checkout)
+        self.assertIn("engine evidence hydration parent must not traverse a symlink", errors)
+
+    def test_storage_contract_rejects_unmapped_absolute_recorded_fields(self) -> None:
+        manifest_path = self.execute()
+        checkout, _, _ = self.storage_checker_fixture(manifest_path)
+        relocated = (
+            checkout
+            / VERIFY.check_protocol.ENGINE_EVIDENCE_HYDRATION_PARENT
+            / manifest_path.relative_to(self.root)
+        )
+        manifest = json.loads(relocated.read_text(encoding="utf-8"))
+        manifest["records"][0]["requested"]["command"][0] = "/tmp/unmapped-entire-brain"
+        manifest["records"][1]["requested"]["environment"]["UNMAPPED_ROOT"] = "/tmp/unmapped-root"
+        relocated.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.storage_checker_errors(checkout)
+        self.assertTrue(any("outside recorded_artifact_root" in error for error in errors), errors)
+        self.assertTrue(any("unmapped absolute field UNMAPPED_ROOT" in error for error in errors), errors)
+
+    def test_storage_contract_refuses_pending_or_privacy_failed_release(self) -> None:
+        manifest_path = self.execute()
+        checkout, contract_path, contract = self.storage_checker_fixture(manifest_path)
+        storage = contract["storage"]
+        storage.update({  # type: ignore[union-attr]
+            "publication_disposition": "regeneration_required",
+            "privacy_review": "fail",
+            "published": False,
+            "release_id": None,
+            "asset_id": None,
+            "release_immutable": False,
+            "release_target_commitish": None,
+            "asset_api_digest": None,
+            "verified_at": None,
+        })
+        contract_path.write_text(json.dumps(contract, sort_keys=True) + "\n", encoding="utf-8")
+        errors = self.storage_checker_errors(checkout)
+        self.assertIn("engine evidence publication disposition is not approved", errors)
+        self.assertIn("engine evidence privacy review did not pass", errors)
+        self.assertIn("engine evidence release asset is not published", errors)
 
     def test_checker_requires_exact_v2_manifest_wrapper_file(self) -> None:
         manifest_path = self.execute()

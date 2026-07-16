@@ -11,8 +11,10 @@ from decimal import Decimal
 import hashlib
 import json
 import math
+import os
 import pathlib
 import re
+import stat
 import struct
 import subprocess
 import sys
@@ -89,6 +91,8 @@ RELEVANCE_SOURCE_CONTRACT_SHA256 = "5708b8f6f0ade1cedf4e1f7d0b4ff499d707e2c9cd93
 RELEVANCE_NULL_REVIEW_CONTRACT_SHA256 = "e606192db0f30cb091338db578cb88c7accb61e391a3ec21f06d83f6c40ecf0b"
 ENGINE_PINS_REPO_PATH = "benchmarks/agent-brain/confirmatory/engine-verification-pins.json"
 ENGINE_PINS = REPO / ENGINE_PINS_REPO_PATH
+ENGINE_EVIDENCE_STORAGE_REPO_PATH = "benchmarks/agent-brain/confirmatory/engine-evidence-storage.json"
+ENGINE_EVIDENCE_HYDRATION_PARENT = "benchmarks/agent-brain/confirmatory/.engine-evidence"
 DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newline_v1"
 CANDIDATE_IDS_ALGORITHM = "sha256_canonical_sorted_id_array_v1"
 
@@ -189,6 +193,20 @@ def _evidence_path_contains_symlink(evidence: Any, here: pathlib.Path, repo: pat
     if relative.is_absolute() or ".." in relative.parts:
         return False
     base = repo if relative.parts and relative.parts[0] == "benchmarks" else here
+    current = base
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def _relative_path_contains_symlink(raw: Any, base: pathlib.Path) -> bool:
+    if not isinstance(raw, str) or not raw:
+        return False
+    relative = pathlib.Path(raw)
+    if relative.is_absolute() or ".." in relative.parts:
+        return False
     current = base
     for part in relative.parts:
         current = current / part
@@ -380,6 +398,198 @@ def _validate_engine_manifest_schema(path: pathlib.Path, errors: list[str]) -> N
         root_schema=schema,
         schema_dir=schema_path.parent,
     )
+
+
+def _validate_engine_storage_schema(path: pathlib.Path, errors: list[str]) -> dict[str, Any] | None:
+    artifact = _load_artifact(path, errors, "engine evidence storage contract")
+    if artifact is None:
+        return None
+    schema_path = HERE / "schemas" / "engine-evidence-storage.schema.json"
+    try:
+        schema = load(schema_path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        errors.append(f"engine evidence storage schema is unreadable: {exc}")
+        return None
+    _validate_schema_node(
+        artifact,
+        schema,
+        errors,
+        "engine evidence storage contract",
+        root_schema=schema,
+        schema_dir=schema_path.parent,
+    )
+    if not isinstance(artifact, dict):
+        errors.append("engine evidence storage contract must be an object")
+        return None
+    return artifact
+
+
+def _canonical_release_asset_url(repository: Any, tag: Any, asset_name: Any) -> str | None:
+    if not all(isinstance(value, str) and value and "/" not in value for value in (tag, asset_name)):
+        return None
+    if not isinstance(repository, str) or repository.count("/") != 1:
+        return None
+    return f"https://github.com/{repository}/releases/download/{tag}/{asset_name}"
+
+
+def _validate_hydrated_tree(
+    root: pathlib.Path,
+    archive: dict[str, Any],
+    errors: list[str],
+) -> None:
+    _error(errors, root.exists(), "engine evidence hydrated archive root is missing")
+    _error(errors, root.is_dir() and not root.is_symlink(), "engine evidence hydrated archive root must be a real directory")
+    if not root.is_dir() or root.is_symlink():
+        return
+    regular_count = 0
+    logical_bytes = 0
+    symlink_count = 0
+    special_count = 0
+    try:
+        for current, dirnames, filenames in os.walk(root, followlinks=False):
+            current_path = pathlib.Path(current)
+            for name in [*dirnames, *filenames]:
+                entry = current_path / name
+                mode = entry.lstat().st_mode
+                if stat.S_ISLNK(mode):
+                    symlink_count += 1
+                elif stat.S_ISREG(mode):
+                    regular_count += 1
+                    logical_bytes += entry.stat().st_size
+                elif not stat.S_ISDIR(mode):
+                    special_count += 1
+    except OSError as exc:
+        errors.append(f"engine evidence hydrated archive tree is unreadable: {exc}")
+        return
+    _error(errors, special_count == 0, "engine evidence hydrated archive contains a special filesystem entry")
+    _error(errors, symlink_count == archive.get("symlink_count") == 0, "engine evidence hydrated archive symlink count differs")
+    _error(errors, regular_count == archive.get("regular_file_count"), "engine evidence hydrated archive regular-file count differs")
+    _error(errors, logical_bytes == archive.get("logical_bytes"), "engine evidence hydrated archive logical byte count differs")
+
+
+def _validate_engine_storage_contract(
+    path: pathlib.Path,
+    errors: list[str],
+    *,
+    repo: pathlib.Path,
+    require_published: bool,
+) -> dict[str, Any] | None:
+    contract = _validate_engine_storage_schema(path, errors)
+    if contract is None:
+        return None
+    storage = contract.get("storage") if isinstance(contract.get("storage"), dict) else {}
+    archive = contract.get("archive") if isinstance(contract.get("archive"), dict) else {}
+    evidence = contract.get("evidence") if isinstance(contract.get("evidence"), dict) else {}
+    external = contract.get("recorded_external_inputs") if isinstance(contract.get("recorded_external_inputs"), dict) else {}
+    hydration = contract.get("hydration") if isinstance(contract.get("hydration"), dict) else {}
+
+    expected_url = _canonical_release_asset_url(storage.get("repository"), storage.get("tag"), storage.get("asset_name"))
+    _error(errors, storage.get("asset_url") == expected_url, "engine evidence release asset URL is not canonical")
+    _error(errors, storage.get("kind") == "github_immutable_release_asset", "engine evidence storage kind is invalid")
+    _error(errors, archive.get("format") == "tar_zstd", "engine evidence archive format is invalid")
+    _error(errors, archive.get("symlink_count") == 0, "engine evidence archive must prohibit symlinks")
+    _error(errors, _is_sha256(storage.get("asset_sha256")), "engine evidence archive SHA-256 is invalid")
+    _error(errors, _is_nonnegative_int(storage.get("asset_size_bytes")) and storage.get("asset_size_bytes", 0) > 0, "engine evidence archive size is invalid")
+    _error(errors, _is_sha256(evidence.get("manifest_sha256")), "engine evidence manifest SHA-256 is invalid")
+
+    if require_published:
+        _error(errors, storage.get("publication_disposition") == "approved", "engine evidence publication disposition is not approved")
+        _error(errors, storage.get("privacy_review") == "publishable", "engine evidence privacy review did not pass")
+        _error(errors, storage.get("published") is True, "engine evidence release asset is not published")
+        _error(errors, _is_nonnegative_int(storage.get("release_id")) and storage.get("release_id", 0) > 0, "engine evidence release ID is missing")
+        _error(errors, _is_nonnegative_int(storage.get("asset_id")) and storage.get("asset_id", 0) > 0, "engine evidence asset ID is missing")
+        _error(errors, storage.get("release_immutable") is True, "engine evidence release is not immutable")
+        _error(errors, _is_commit(storage.get("release_target_commitish")), "engine evidence release target commit is not pinned")
+        _error(errors, storage.get("asset_api_digest") == f"sha256:{storage.get('asset_sha256')}", "engine evidence API digest differs from the archive hash")
+        _error(errors, _parse_rfc3339(storage.get("verified_at")) is not None, "engine evidence release verification timestamp is invalid")
+
+    hydration_relative = hydration.get("repo_relative_parent")
+    _error(errors, hydration_relative == ENGINE_EVIDENCE_HYDRATION_PARENT, "engine evidence hydration parent was redirected")
+    hydration_parent = _safe_relative_path(hydration_relative, repo)
+    _error(errors, hydration_parent is not None, "engine evidence hydration parent is unsafe")
+    _error(errors, not _relative_path_contains_symlink(hydration_relative, repo), "engine evidence hydration parent must not traverse a symlink")
+    if hydration_parent is None:
+        return None
+
+    archive_root_name = archive.get("root")
+    archive_root = _safe_relative_path(archive_root_name, hydration_parent)
+    _error(errors, archive_root is not None, "engine evidence archive root is unsafe")
+    if archive_root is None:
+        return None
+    _error(errors, not _relative_path_contains_symlink(archive_root_name, hydration_parent), "engine evidence archive root must not traverse a symlink")
+    _validate_hydrated_tree(archive_root, archive, errors)
+
+    manifest_relative = evidence.get("manifest_path")
+    manifest_path = _safe_relative_path(manifest_relative, hydration_parent)
+    _error(errors, manifest_path is not None, "engine evidence manifest path is unsafe")
+    if manifest_path is None:
+        return None
+    try:
+        manifest_path.relative_to(archive_root)
+    except ValueError:
+        errors.append("engine evidence manifest path is outside the archive root")
+    _error(errors, not _relative_path_contains_symlink(manifest_relative, hydration_parent), "engine evidence manifest must not traverse a symlink")
+    _error(errors, manifest_path.is_file() and not manifest_path.is_symlink(), "engine evidence hydrated manifest is missing")
+    if manifest_path.is_file() and _is_sha256(evidence.get("manifest_sha256")):
+        _error(errors, digest(manifest_path) == evidence["manifest_sha256"], "engine evidence hydrated manifest hash differs")
+
+    recorded_root = pathlib.Path(evidence.get("recorded_artifact_root", ""))
+    _error(errors, recorded_root.is_absolute() and ".." not in recorded_root.parts, "engine evidence recorded artifact root is invalid")
+    external_root = pathlib.Path(external.get("repo_root", ""))
+    _error(errors, external_root.is_absolute() and ".." not in external_root.parts, "engine evidence recorded external repo root is invalid")
+    repo_key = external.get("repo_key")
+    _error(errors, isinstance(repo_key, str) and _safe_relative_path(repo_key, pathlib.Path("/")) is not None, "engine evidence recorded repo key is invalid")
+    return {
+        "contract": contract,
+        "artifact_repo": hydration_parent,
+        "archive_root": archive_root,
+        "manifest_path": manifest_path,
+        "manifest_root": manifest_path.parent,
+        "recorded_artifact_root": recorded_root,
+        "recorded_external_repo_root": external.get("repo_root"),
+        "recorded_external_repo_key": repo_key,
+    }
+
+
+def _map_recorded_artifact_path(
+    raw: Any,
+    context: dict[str, Any],
+    errors: list[str],
+    label: str,
+    *,
+    expected: pathlib.Path | None = None,
+    kind: str = "file",
+) -> pathlib.Path | None:
+    if not isinstance(raw, str) or not raw:
+        errors.append(f"{label}: recorded absolute path is missing")
+        return None
+    source = pathlib.Path(raw)
+    recorded_root = context["recorded_artifact_root"]
+    if not source.is_absolute() or ".." in source.parts:
+        errors.append(f"{label}: recorded path is not a normalized absolute path")
+        return None
+    source = source.resolve(strict=False)
+    recorded_root = recorded_root.resolve(strict=False)
+    try:
+        relative = source.relative_to(recorded_root)
+    except ValueError:
+        errors.append(f"{label}: recorded absolute path is outside recorded_artifact_root")
+        return None
+    target = _safe_relative_path(relative.as_posix(), context["artifact_repo"])
+    if target is None:
+        errors.append(f"{label}: recorded path cannot be mapped into the hydrated artifact root")
+        return None
+    try:
+        target.relative_to(context["archive_root"])
+    except ValueError:
+        errors.append(f"{label}: mapped path is outside the hydrated archive root")
+    if expected is not None:
+        _error(errors, target == expected.resolve(), f"{label}: recorded path maps to the wrong hydrated artifact")
+    if kind == "file":
+        _error(errors, target.is_file() and not target.is_symlink(), f"{label}: mapped hydrated file is missing")
+    elif kind == "directory":
+        _error(errors, target.is_dir() and not target.is_symlink(), f"{label}: mapped hydrated directory is missing")
+    return target
 
 
 def _required_object_fields(errors: list[str], value: Any, fields: tuple[str, ...], label: str) -> bool:
@@ -2084,6 +2294,8 @@ def _validate_server_attestation(
     label: str,
     *,
     repo: pathlib.Path,
+    relocation: dict[str, Any] | None = None,
+    expected_model_path: pathlib.Path | None = None,
 ) -> None:
     target = _safe_relative_path(raw_path, repo)
     if target is None or not target.is_file():
@@ -2119,6 +2331,14 @@ def _validate_server_attestation(
     _error(errors, _is_sha256(token_hash), f"{label}: server ownership token hash is invalid")
     model_path = artifact.get("model_path")
     _error(errors, isinstance(model_path, str) and bool(model_path), f"{label}: attested model path is missing")
+    if relocation is not None:
+        _map_recorded_artifact_path(
+            model_path,
+            relocation,
+            errors,
+            f"{label}: attested model path",
+            expected=expected_model_path,
+        )
     _error(errors, artifact.get("model_sha256") == model.get("sha256"), f"{label}: attested model hash differs from pin")
     _error(errors, artifact.get("embedding_dimension") == model.get("dimension"), f"{label}: attested dimension differs from pin")
     _error(errors, artifact.get("node_version") == runtime.get("node_version"), f"{label}: attested Node version differs from pin")
@@ -2136,13 +2356,30 @@ def _validate_server_attestation(
             f"{label}: server environment ownership token differs from attestation",
         )
         gguf = environment.get("GGUF")
-        _error(
-            errors,
-            isinstance(gguf, str)
-            and isinstance(model_path, str)
-            and pathlib.Path(gguf).resolve() == pathlib.Path(model_path).resolve(),
-            f"{label}: attested model path differs from server environment",
-        )
+        if relocation is None:
+            _error(
+                errors,
+                isinstance(gguf, str)
+                and isinstance(model_path, str)
+                and pathlib.Path(gguf).resolve() == pathlib.Path(model_path).resolve(),
+                f"{label}: attested model path differs from server environment",
+            )
+        else:
+            mapped_gguf = _map_recorded_artifact_path(
+                gguf,
+                relocation,
+                errors,
+                f"{label}: server environment GGUF",
+                expected=expected_model_path,
+            )
+            mapped_model = _map_recorded_artifact_path(
+                model_path,
+                relocation,
+                errors,
+                f"{label}: server attestation model",
+                expected=expected_model_path,
+            )
+            _error(errors, mapped_gguf is not None and mapped_gguf == mapped_model, f"{label}: attested model path differs from server environment")
     else:
         errors.append(f"{label}: server environment ownership token is missing")
     recall_window = artifact.get("recall_window")
@@ -2256,6 +2493,7 @@ def validate_engine_verification(
     pins: dict[str, Any] | None = None,
     require_production: bool = True,
     pin_repo: pathlib.Path | None = None,
+    require_storage_contract: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     if check.get("status") != "pass":
@@ -2277,8 +2515,26 @@ def validate_engine_verification(
     )
     if evidence_path is None or not evidence_path.exists():
         return errors
+    relocation: dict[str, Any] | None = None
+    artifact_repo = repo
+    if require_storage_contract:
+        _error(
+            errors,
+            check.get("evidence") == ENGINE_EVIDENCE_STORAGE_REPO_PATH,
+            "engine pass evidence must reference the canonical storage contract",
+        )
+        relocation = _validate_engine_storage_contract(
+            evidence_path,
+            errors,
+            repo=repo,
+            require_published=True,
+        )
+        if relocation is None:
+            return errors
+        evidence_path = relocation["manifest_path"]
+        artifact_repo = relocation["artifact_repo"]
     _validate_engine_manifest_schema(evidence_path, errors)
-    records = _load_engine_records(evidence_path, errors, repo)
+    records = _load_engine_records(evidence_path, errors, artifact_repo)
     record_arms = [record.get("arm") if isinstance(record, dict) else None for record in records]
     _error(errors, len(record_arms) == len(ARMS), "engine verification must contain exactly one record per primary arm")
     _error(errors, _unique_strings(record_arms), "engine verification arms are not unique strings")
@@ -2422,12 +2678,22 @@ def validate_engine_verification(
             _error(errors, effective.get("embedding_dimension") == engine_pin.get("dimension"), f"{label}: dimension differs from canonical pin")
 
         if artifacts_ok:
+            if relocation is not None:
+                for field in artifact_fields:
+                    if not field.endswith("_path") or artifacts.get(field) is None:
+                        continue
+                    target = _safe_relative_path(artifacts.get(field), artifact_repo)
+                    try:
+                        inside_archive = target is not None and target.relative_to(relocation["archive_root"]) is not None
+                    except ValueError:
+                        inside_archive = False
+                    _error(errors, inside_archive, f"{label}.{field}: retained artifact path is outside the hydrated archive root")
             for stem in ("binary", "binary_attestation", "stdout", "stderr", "facts_source", "session_dates_source", "derived_facts"):
                 _verify_hashed_file(
                     errors,
                     {"path": artifacts.get(f"{stem}_path"), "sha256": artifacts.get(f"{stem}_sha256")},
                     f"{label}.{stem} artifact",
-                    repo=repo,
+                    repo=artifact_repo,
                 )
             binary_paths.append(artifacts.get("binary_path"))
             binary_hashes.append(artifacts.get("binary_sha256"))
@@ -2438,9 +2704,9 @@ def validate_engine_verification(
             _error(errors, artifacts.get("facts_source_sha256") == corpus_pin.get("facts_sha256"), f"{label}: retained facts source differs from pin")
             _error(errors, artifacts.get("session_dates_source_sha256") == corpus_pin.get("session_dates_sha256"), f"{label}: retained session dates differ from pin")
             _error(errors, artifacts.get("derived_facts_sha256") == corpus_pin.get("facts_sha256"), f"{label}: derived facts changed during recall")
-            binary_target = _safe_relative_path(artifacts.get("binary_path"), repo)
-            sessions_target = _safe_relative_path(artifacts.get("session_dates_source_path"), repo)
-            derived_target = _safe_relative_path(artifacts.get("derived_facts_path"), repo)
+            binary_target = _safe_relative_path(artifacts.get("binary_path"), artifact_repo)
+            sessions_target = _safe_relative_path(artifacts.get("session_dates_source_path"), artifact_repo)
+            derived_target = _safe_relative_path(artifacts.get("derived_facts_path"), artifact_repo)
             if (
                 derived_target is not None
                 and derived_target.is_file()
@@ -2511,7 +2777,7 @@ def validate_engine_verification(
                 pin_data,
                 errors,
                 label,
-                repo=repo,
+                repo=artifact_repo,
             )
             command = requested.get("command") if isinstance(requested, dict) else None
             query_id = result.get("query_id") if isinstance(result, dict) else None
@@ -2541,9 +2807,66 @@ def validate_engine_verification(
                 if arm_id == "lexical_handrolled":
                     expected_command.append("--no-semantic")
                 expected_command.append("--json")
+                if relocation is not None:
+                    expected_command[0] = str(relocation["recorded_artifact_root"] / artifacts["binary_path"])
+                    expected_command[10] = str(relocation["recorded_artifact_root"] / artifacts["session_dates_source_path"])
+                    _map_recorded_artifact_path(
+                        command[0] if command else None,
+                        relocation,
+                        errors,
+                        f"{label}: recall command binary",
+                        expected=binary_target,
+                    )
+                    _map_recorded_artifact_path(
+                        command[10] if len(command) > 10 else None,
+                        relocation,
+                        errors,
+                        f"{label}: recall command session dates",
+                        expected=sessions_target,
+                    )
+                    for command_index, part in enumerate(command):
+                        if isinstance(part, str) and pathlib.Path(part).is_absolute() and command_index not in {0, 10}:
+                            errors.append(f"{label}: recall command contains an unmapped absolute field at index {command_index}")
                 _error(errors, command == expected_command, f"{label}: requested recall command differs from the pinned retained-binary invocation")
 
-            stdout = _load_runtime_stdout(artifacts.get("stdout_path"), errors, label, repo=repo)
+            if relocation is not None and isinstance(requested, dict):
+                environment = requested.get("environment")
+                mapped_environment = {
+                    "ENTIRE_PLUGIN_CONFIG_DIR": "config",
+                    "ENTIRE_PLUGIN_DATA_DIR": "data",
+                    "ENTIRE_PLUGIN_STATE_DIR": "state",
+                    "ENTIRE_PLUGIN_CACHE_DIR": "cache",
+                }
+                if isinstance(environment, dict):
+                    for key, directory in mapped_environment.items():
+                        _map_recorded_artifact_path(
+                            environment.get(key),
+                            relocation,
+                            errors,
+                            f"{label}: {key}",
+                            expected=relocation["manifest_root"] / "runtime" / str(arm_id) / directory,
+                            kind="directory",
+                        )
+                    _error(
+                        errors,
+                        environment.get("ENTIRE_REPO_ROOT") == relocation["recorded_external_repo_root"],
+                        f"{label}: ENTIRE_REPO_ROOT differs from the recorded external input",
+                    )
+                    inert_absolute_keys = {"HOME", "PATH", "TMPDIR"}
+                    allowed_absolute_keys = set(mapped_environment) | {"ENTIRE_REPO_ROOT"} | inert_absolute_keys
+                    for key, value in environment.items():
+                        if isinstance(value, str) and pathlib.Path(value).is_absolute() and key not in allowed_absolute_keys:
+                            errors.append(f"{label}: requested environment contains unmapped absolute field {key}")
+                repo_key = relocation["recorded_external_repo_key"]
+                if isinstance(repo_key, str) and derived_target is not None:
+                    expected_fragment = pathlib.Path("data") / "repos" / repo_key / "facts"
+                    _error(
+                        errors,
+                        expected_fragment.as_posix() in derived_target.as_posix(),
+                        f"{label}: derived facts path does not bind the recorded external repo key",
+                    )
+
+            stdout = _load_runtime_stdout(artifacts.get("stdout_path"), errors, label, repo=artifact_repo)
             if (
                 stdout is not None
                 and isinstance(effective, dict)
@@ -2560,13 +2883,24 @@ def validate_engine_verification(
                     errors,
                     label,
                 )
+                if relocation is not None and arm.get("semantic") is True:
+                    runtime_engine = stdout.get("retrieval_engine")
+                    runtime_vector = runtime_engine.get("vector_cache_path") if isinstance(runtime_engine, dict) else None
+                    expected_runtime_vector = derived_target.parent / "embeddings" / "vectors.bin" if derived_target is not None else None
+                    _map_recorded_artifact_path(
+                        runtime_vector,
+                        relocation,
+                        errors,
+                        f"{label}: runtime vector cache",
+                        expected=expected_runtime_vector,
+                    )
 
             vector_path = artifacts.get("vector_artifact_path")
             vector_hash = artifacts.get("vector_artifact_sha256")
             if arm.get("semantic") is True:
                 semantic_vector_paths.append(vector_path)
-                _verify_hashed_file(errors, {"path": vector_path, "sha256": vector_hash}, f"{label}.vector artifact", repo=repo)
-                vector_target = _safe_relative_path(vector_path, repo)
+                _verify_hashed_file(errors, {"path": vector_path, "sha256": vector_hash}, f"{label}.vector artifact", repo=artifact_repo)
+                vector_target = _safe_relative_path(vector_path, artifact_repo)
                 parsed_vector = (
                     _parse_vector_artifact(vector_target, errors, f"{label}.vector artifact")
                     if vector_target is not None and vector_target.is_file()
@@ -2588,14 +2922,14 @@ def validate_engine_verification(
             model_path = artifacts.get("embedding_model_path")
             model_hash = artifacts.get("embedding_model_sha256")
             if arm_id == "embeddinggemma_rrf":
-                _verify_hashed_file(errors, {"path": model_path, "sha256": model_hash}, f"{label}.embedding model artifact", repo=repo)
+                _verify_hashed_file(errors, {"path": model_path, "sha256": model_hash}, f"{label}.embedding model artifact", repo=artifact_repo)
                 _error(errors, model_hash == model_pin.get("sha256"), f"{label}: embedding model differs from pin")
                 for stem in server_stems:
                     _verify_hashed_file(
                         errors,
                         {"path": artifacts.get(f"{stem}_path"), "sha256": artifacts.get(f"{stem}_sha256")},
                         f"{label}.{stem} artifact",
-                        repo=repo,
+                        repo=artifact_repo,
                     )
                 for stem, expected in (
                     ("server_script", runtime_pin.get("server_script_sha256")),
@@ -2604,11 +2938,11 @@ def validate_engine_verification(
                     ("package_lock", runtime_pin.get("package_lock_sha256")),
                 ):
                     _error(errors, artifacts.get(f"{stem}_sha256") == expected, f"{label}: retained {stem} differs from pin")
-                server_script_target = _safe_relative_path(artifacts.get("server_script_path"), repo)
-                node_target = _safe_relative_path(artifacts.get("node_runtime_path"), repo)
-                model_target = _safe_relative_path(model_path, repo)
-                package_target = _safe_relative_path(artifacts.get("package_manifest_path"), repo)
-                lock_target = _safe_relative_path(artifacts.get("package_lock_path"), repo)
+                server_script_target = _safe_relative_path(artifacts.get("server_script_path"), artifact_repo)
+                node_target = _safe_relative_path(artifacts.get("node_runtime_path"), artifact_repo)
+                model_target = _safe_relative_path(model_path, artifact_repo)
+                package_target = _safe_relative_path(artifacts.get("package_manifest_path"), artifact_repo)
+                lock_target = _safe_relative_path(artifacts.get("package_lock_path"), artifact_repo)
                 if server_script_target is not None:
                     _error(errors, package_target == server_script_target.parent / "package.json", f"{label}: package manifest is not beside server script")
                     _error(errors, lock_target == server_script_target.parent / "package-lock.json", f"{label}: package lock is not beside server script")
@@ -2617,7 +2951,7 @@ def validate_engine_verification(
                     pin_data,
                     errors,
                     label,
-                    repo=repo,
+                    repo=artifact_repo,
                     expected_root=server_script_target.parent / "node_modules" if server_script_target is not None else None,
                 )
                 _validate_server_attestation(
@@ -2626,7 +2960,9 @@ def validate_engine_verification(
                     pin_data,
                     errors,
                     label,
-                    repo=repo,
+                    repo=artifact_repo,
+                    relocation=relocation,
+                    expected_model_path=model_target,
                 )
                 server_command = requested.get("embedding_server_command") if isinstance(requested, dict) else None
                 _error(errors, isinstance(server_command, list) and len(server_command) == 2 and all(isinstance(part, str) and part for part in server_command), f"{label}: controlled server command is invalid")
@@ -2635,15 +2971,29 @@ def validate_engine_verification(
                     and len(server_command) == 2
                     and all(isinstance(part, str) and part for part in server_command)
                 ):
-                    _error(errors, pathlib.Path(server_command[0]).resolve() == node_target, f"{label}: server command did not use retained Node")
-                    _error(errors, pathlib.Path(server_command[1]).resolve() == server_script_target, f"{label}: server command did not use retained script")
+                    if relocation is None:
+                        _error(errors, pathlib.Path(server_command[0]).resolve() == node_target, f"{label}: server command did not use retained Node")
+                        _error(errors, pathlib.Path(server_command[1]).resolve() == server_script_target, f"{label}: server command did not use retained script")
+                    else:
+                        _map_recorded_artifact_path(server_command[0], relocation, errors, f"{label}: server command Node", expected=node_target)
+                        _map_recorded_artifact_path(server_command[1], relocation, errors, f"{label}: server command script", expected=server_script_target)
                 server_environment = requested.get("embedding_server_environment") if isinstance(requested, dict) else None
                 _error(errors, isinstance(server_environment, dict), f"{label}: controlled server environment is invalid")
                 if isinstance(server_environment, dict):
                     _error(errors, server_environment.get("HOST") == "127.0.0.1", f"{label}: controlled server host is not loopback-pinned")
                     _error(errors, server_environment.get("PORT") == "11500", f"{label}: controlled server port differs from matrix")
                     gguf = server_environment.get("GGUF")
-                    _error(errors, isinstance(gguf, str) and pathlib.Path(gguf).resolve() == model_target, f"{label}: controlled server did not use retained GGUF")
+                    if relocation is None:
+                        _error(errors, isinstance(gguf, str) and pathlib.Path(gguf).resolve() == model_target, f"{label}: controlled server did not use retained GGUF")
+                    else:
+                        _map_recorded_artifact_path(gguf, relocation, errors, f"{label}: controlled server GGUF", expected=model_target)
+                        for key, value in server_environment.items():
+                            if (
+                                isinstance(value, str)
+                                and pathlib.Path(value).is_absolute()
+                                and key not in {"GGUF", "HOME", "PATH", "TMPDIR"}
+                            ):
+                                errors.append(f"{label}: server environment contains unmapped absolute field {key}")
             else:
                 _error(errors, model_path is None and model_hash is None, f"{label}: non-EmbeddingGemma model artifact must be null")
                 for stem in server_stems:
@@ -2825,7 +3175,13 @@ def validate(freeze: bool = False) -> list[str]:
     errors.extend(validate_integration_verification(protocol, checks))
     errors.extend(validate_analyzer_lock(protocol, checks.get("analyzer_hash_frozen", {})))
     errors.extend(validate_power_analysis(protocol, checks.get("power_target_met", {})))
-    errors.extend(validate_engine_verification(matrix, checks.get("all_engines_machine_verified", {})))
+    errors.extend(
+        validate_engine_verification(
+            matrix,
+            checks.get("all_engines_machine_verified", {}),
+            require_storage_contract=True,
+        )
+    )
     errors.extend(validate_pricing_budget(protocol, checks))
 
     freeze_info = protocol.get("freeze", {})

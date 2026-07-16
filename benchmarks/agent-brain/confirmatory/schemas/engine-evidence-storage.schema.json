@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/engine-evidence-storage-v1.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "storage",
+    "archive",
+    "evidence",
+    "recorded_external_inputs",
+    "hydration"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "storage": {
+      "type": "object",
+      "required": [
+        "kind",
+        "repository",
+        "tag",
+        "asset_name",
+        "asset_url",
+        "asset_size_bytes",
+        "asset_sha256",
+        "publication_disposition",
+        "privacy_review",
+        "published",
+        "release_id",
+        "asset_id",
+        "release_immutable",
+        "release_target_commitish",
+        "asset_api_digest",
+        "verified_at"
+      ],
+      "properties": {
+        "kind": {"const": "github_immutable_release_asset"},
+        "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+        "tag": {"type": "string", "minLength": 1},
+        "asset_name": {"type": "string", "pattern": "^[^/]+\\.tar\\.zst$"},
+        "asset_url": {"type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/releases/download/[^/]+/[^/]+$"},
+        "asset_size_bytes": {"type": "integer", "minimum": 1},
+        "asset_sha256": {"$ref": "#/$defs/sha256"},
+        "publication_disposition": {"enum": ["regeneration_required", "approved"]},
+        "privacy_review": {"enum": ["fail", "publishable"]},
+        "published": {"type": "boolean"},
+        "release_id": {"type": ["integer", "null"], "minimum": 1},
+        "asset_id": {"type": ["integer", "null"], "minimum": 1},
+        "release_immutable": {"type": "boolean"},
+        "release_target_commitish": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "asset_api_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "verified_at": {"type": ["string", "null"], "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "archive": {
+      "type": "object",
+      "required": ["format", "root", "regular_file_count", "logical_bytes", "symlink_count"],
+      "properties": {
+        "format": {"const": "tar_zstd"},
+        "root": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+        "regular_file_count": {"type": "integer", "minimum": 1},
+        "logical_bytes": {"type": "integer", "minimum": 1},
+        "symlink_count": {"const": 0}
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["manifest_path", "manifest_sha256", "recorded_artifact_root"],
+      "properties": {
+        "manifest_path": {"type": "string", "minLength": 1},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "recorded_artifact_root": {"type": "string", "pattern": "^/"}
+      },
+      "additionalProperties": false
+    },
+    "recorded_external_inputs": {
+      "type": "object",
+      "required": ["repo_root", "repo_key"],
+      "properties": {
+        "repo_root": {"type": "string", "pattern": "^/"},
+        "repo_key": {"type": "string", "pattern": "^[^/]+/[^/]+$"}
+      },
+      "additionalProperties": false
+    },
+    "hydration": {
+      "type": "object",
+      "required": ["repo_relative_parent"],
+      "properties": {
+        "repo_relative_parent": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}
