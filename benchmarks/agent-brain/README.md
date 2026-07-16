@@ -3,6 +3,11 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+For unpaid product-path latency and packet-size profiling without an agent or
+model, use `profile_brief.py` with the 114-task checked-in development corpus.
+See `BRIEF-PROFILE-BASELINE.md`. That profile is explicitly not confirmatory and
+does not measure code quality.
+
 ## Treatment-isolated tasks
 
 Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or

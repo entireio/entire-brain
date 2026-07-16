@@ -43,3 +43,10 @@ output count, but keep `error_count` at zero. Distinguishing those cases would
 require changing their product behavior, so this instrumentation does not do
 so. Likewise, a fatal status/build error produces no sidecar because there is no
 complete packet/profile to commit.
+
+The deterministic, unpaid development runner for this sidecar is documented in
+`benchmarks/agent-brain/BRIEF-PROFILE-BASELINE.md`. It uses 114 deduplicated
+checked-in task prompts, executes adjacent `first_observation` and
+`immediate_repeat` profiles, and retains packet hashes plus numeric profiles
+only. Those order labels make no OS-cache cold/warm claim, and the resulting
+reports are explicitly ineligible for confirmatory or quality conclusions.
