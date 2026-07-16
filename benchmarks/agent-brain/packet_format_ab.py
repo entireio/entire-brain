@@ -31,7 +31,7 @@ import profile_brief
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_CORPUS = pathlib.Path(__file__).with_name("brief-profile-corpus-v1.json")
 REPORT_SCHEMA_VERSION = 2
-SIZE_ATTRIBUTION_SCHEMA_VERSION = 1
+SIZE_ATTRIBUTION_SCHEMA_VERSION = 2
 EVIDENCE_ROLE = "development_only_unpaid_brain_brief_packet_format_ab"
 FORMAT_ORDER = ("legacy_json", "compact_v1")
 COMPACT_MARKER = "entire.brain_brief compact_v1"
@@ -339,6 +339,57 @@ def _utf8_byte_count(value: str, role: str) -> int:
         raise CompactPacketError(f"{role} is not valid Unicode") from exc
 
 
+def _go_quoted_decoded_byte_count(raw: str) -> int:
+    """Count decoded Go-string source bytes without interpreting them as Unicode.
+
+    Go's ``\\xNN`` escape contributes one source byte even when NN is at least
+    0x80. Named escapes do the same. Unicode escapes and literal runes instead
+    contribute the UTF-8 width of their valid Unicode scalar value.
+    """
+
+    if len(raw) < 2 or raw[0] != '"' or raw[-1] != '"':
+        raise CompactPacketError("invalid Go-quoted compact string")
+    decoded_bytes = 0
+    cursor = 1
+    end = len(raw) - 1
+    while cursor < end:
+        character = raw[cursor]
+        codepoint = ord(character)
+        if character == '"' or codepoint < 0x20:
+            raise CompactPacketError("invalid unescaped character in compact string")
+        if character != "\\":
+            if 0xD800 <= codepoint <= 0xDFFF:
+                raise CompactPacketError("invalid Unicode scalar in compact string")
+            decoded_bytes += _utf8_byte_count(character, "compact string literal rune")
+            cursor += 1
+            continue
+
+        cursor += 1
+        if cursor >= end:
+            raise CompactPacketError("incomplete compact string escape")
+        escape = raw[cursor]
+        if escape in SIMPLE_GO_ESCAPES:
+            decoded_bytes += 1
+            cursor += 1
+            continue
+        digits = {"x": 2, "u": 4, "U": 8}.get(escape)
+        if digits is None:
+            raise CompactPacketError("unsupported compact string escape")
+        start = cursor + 1
+        stop = start + digits
+        if stop > end or any(character not in HEX_DIGITS for character in raw[start:stop]):
+            raise CompactPacketError("invalid hexadecimal compact string escape")
+        escaped_value = int(raw[start:stop], 16)
+        if escape == "x":
+            decoded_bytes += 1
+        else:
+            if escaped_value > 0x10FFFF or 0xD800 <= escaped_value <= 0xDFFF:
+                raise CompactPacketError("invalid Unicode scalar in compact string escape")
+            decoded_bytes += len(chr(escaped_value).encode("utf-8"))
+        cursor = stop
+    return decoded_bytes
+
+
 def _empty_record_size() -> dict[str, int]:
     return {field: 0 for field in RECORD_SIZE_FIELDS}
 
@@ -376,8 +427,8 @@ def _parse_compact_array_sized(raw: str) -> tuple[list[str], dict[str, int]]:
         if stop > end:
             raise CompactPacketError("compact array string exceeds its boundary")
         item_raw = raw[cursor:stop]
+        payload_bytes = _go_quoted_decoded_byte_count(item_raw)
         value = _parse_go_quoted(item_raw)
-        payload_bytes = _utf8_byte_count(value, "compact array item")
         raw_bytes = _utf8_byte_count(item_raw, "compact array item encoding")
         escape_overhead = raw_bytes - 2 - payload_bytes
         if escape_overhead < 0:
@@ -428,8 +479,8 @@ def _parse_compact_value_sized(raw: str) -> tuple[Any, dict[str, int]]:
         "escape_overhead_byte_count": 0,
     }
     if raw.startswith('"'):
+        payload_bytes = _go_quoted_decoded_byte_count(raw)
         value = _parse_go_quoted(raw)
-        payload_bytes = _utf8_byte_count(value, "compact scalar string")
         raw_bytes = _utf8_byte_count(raw, "compact scalar string encoding")
         escape_overhead = raw_bytes - 2 - payload_bytes
         if escape_overhead < 0:

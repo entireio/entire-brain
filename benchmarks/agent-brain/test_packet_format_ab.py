@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import random
 import stat
 import sys
 import tempfile
@@ -517,7 +518,7 @@ class PacketFormatABTests(unittest.TestCase):
             "structural_size_attribution"
         ]
         _assert_int_leaves(self, attribution)
-        self.assertEqual(attribution["schema_version"], 1)
+        self.assertEqual(attribution["schema_version"], 2)
         partition = attribution["structural_partition"]
         self.assertEqual(sum(partition.values()), len(golden))
         invariants = attribution["accounting_invariants"]
@@ -531,6 +532,129 @@ class PacketFormatABTests(unittest.TestCase):
             self.assertEqual(
                 metrics["encoded_byte_count"],
                 sum(metrics[field] for field in packet_format_ab.RECORD_SIZE_PARTITION_FIELDS),
+            )
+
+    def test_go_quoted_source_byte_metrics_are_exact_for_hex_unicode_and_literals(self) -> None:
+        cases = (
+            (r'"\xff"', 1, 3),
+            (r'"\xc3\xa9"', 2, 6),
+            (r'"\x00"', 1, 3),
+            (r'"\u0080"', 2, 4),
+            (r'"\u20ac"', 3, 3),
+            (r'"\U0001f680"', 4, 6),
+            ('"é🚀"', 6, 0),
+        )
+        for raw, expected_payload, expected_expansion in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(
+                    packet_format_ab._go_quoted_decoded_byte_count(raw), expected_payload
+                )
+                _, size = packet_format_ab._parse_compact_value_sized(raw)
+                self.assertEqual(size["scalar_value_payload_byte_count"], expected_payload)
+                self.assertEqual(size["escape_overhead_byte_count"], expected_expansion)
+                self.assertEqual(
+                    len(raw.encode("utf-8")),
+                    expected_payload
+                    + size["quoting_delimiter_byte_count"]
+                    + expected_expansion,
+                )
+
+        array_raw = "[" + ",".join(raw for raw, _, _ in cases) + "]"
+        _, array_size = packet_format_ab._parse_compact_value_sized(array_raw)
+        self.assertEqual(
+            array_size["array_value_payload_byte_count"],
+            sum(payload for _, payload, _ in cases),
+        )
+        self.assertEqual(
+            array_size["escape_overhead_byte_count"],
+            sum(expansion for _, _, expansion in cases),
+        )
+        self.assertEqual(array_size["array_item_count"], len(cases))
+        self.assertEqual(array_size["separator_byte_count"], len(cases) - 1)
+        self.assertEqual(array_size["quoting_delimiter_byte_count"], 2 + 2 * len(cases))
+        self.assertEqual(
+            len(array_raw.encode("utf-8")),
+            sum(
+                array_size[field]
+                for field in (
+                    "array_value_payload_byte_count",
+                    "separator_byte_count",
+                    "quoting_delimiter_byte_count",
+                    "escape_overhead_byte_count",
+                )
+            ),
+        )
+
+        for invalid in (r'"\ud800"', r'"\udfff"', r'"\U00110000"'):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(packet_format_ab.CompactPacketError):
+                    packet_format_ab._parse_compact_value_sized(invalid)
+                with self.assertRaises(packet_format_ab.CompactPacketError):
+                    packet_format_ab._parse_compact_value_sized("[" + invalid + "]")
+
+        for source_byte in range(256):
+            raw = f'"\\x{source_byte:02x}"'
+            _, size = packet_format_ab._parse_compact_value_sized(raw)
+            self.assertEqual(size["scalar_value_payload_byte_count"], 1, source_byte)
+            self.assertEqual(size["escape_overhead_byte_count"], 3, source_byte)
+
+    def test_go_quoted_size_fuzz_conserves_scalar_and_array_bytes(self) -> None:
+        rng = random.Random(0xC0DEC0DE)
+        atoms = (
+            ("a", 1),
+            ("é", 2),
+            ("€", 3),
+            ("🚀", 4),
+            (r"\a", 1),
+            (r"\n", 1),
+            (r"\t", 1),
+            (r'\"', 1),
+            (r"\\", 1),
+            (r"\x00", 1),
+            (r"\x80", 1),
+            (r"\xff", 1),
+            (r"\u0080", 2),
+            (r"\u20ac", 3),
+            (r"\U0001f680", 4),
+        )
+
+        for iteration in range(512):
+            items: list[tuple[str, int]] = []
+            for _ in range(rng.randrange(7)):
+                selected = [rng.choice(atoms) for _ in range(rng.randrange(9))]
+                raw = '"' + "".join(atom for atom, _ in selected) + '"'
+                expected_payload = sum(width for _, width in selected)
+                self.assertEqual(
+                    packet_format_ab._go_quoted_decoded_byte_count(raw), expected_payload
+                )
+                _, scalar_size = packet_format_ab._parse_compact_value_sized(raw)
+                self.assertEqual(
+                    len(raw.encode("utf-8")),
+                    scalar_size["scalar_value_payload_byte_count"]
+                    + scalar_size["quoting_delimiter_byte_count"]
+                    + scalar_size["escape_overhead_byte_count"],
+                )
+                items.append((raw, expected_payload))
+
+            array_raw = "[" + ",".join(raw for raw, _ in items) + "]"
+            _, array_size = packet_format_ab._parse_compact_value_sized(array_raw)
+            self.assertEqual(
+                array_size["array_value_payload_byte_count"],
+                sum(payload for _, payload in items),
+                iteration,
+            )
+            self.assertEqual(
+                len(array_raw.encode("utf-8")),
+                sum(
+                    array_size[field]
+                    for field in (
+                        "array_value_payload_byte_count",
+                        "separator_byte_count",
+                        "quoting_delimiter_byte_count",
+                        "escape_overhead_byte_count",
+                    )
+                ),
+                iteration,
             )
 
     def test_structural_attribution_retains_no_adversarial_field_or_value_text(self) -> None:

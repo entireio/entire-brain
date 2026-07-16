@@ -58,15 +58,19 @@ line grammar, fixed end-field order, record counts, final newline, body-record
 count, body SHA-256, and warning/category counts. It fails closed on malformed,
 truncated, tampered, non-UTF-8, duplicate-field, or non-finite input.
 
-Report schema 2 also attributes every compact inner-packet byte in process.
+Report schema 2 and structural-attribution schema 2 attribute every compact
+inner-packet byte in process.
 The exact, disjoint partition is: marker bytes, newline bytes, the complete end
 record, body record-tag bytes, body field-key-plus-`=` bytes, decoded scalar
 payload bytes, decoded string-array payload bytes, separators, quote/bracket
-delimiters, and escape expansion. Escape expansion is the encoded Go-quoted
-length less its delimiters and decoded UTF-8 payload length. Each record and
-each string array is checked against its lexical byte length before its numbers
-are retained; the packet partition must sum exactly to the existing compact
-inner-byte count or the pair fails closed.
+delimiters, and escape expansion. Payload means decoded Go-string source bytes:
+literal runes contribute their UTF-8 width, named escapes and `\xNN` each
+contribute one source byte, and valid `\u`/`\U` escapes contribute their Unicode
+scalar's UTF-8 width. Surrogate and out-of-range Unicode escapes fail closed.
+Escape expansion is the encoded Go-quoted length less its delimiters and decoded
+source-byte count. Each record and each string array is checked against its
+lexical byte length before its numbers are retained; the packet partition must
+sum exactly to the existing compact inner-byte count or the pair fails closed.
 
 The report retains numeric body record/field/value-kind counts and byte totals
 both per packet and summed over successful packets. It also retains the same
