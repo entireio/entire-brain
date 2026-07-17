@@ -41,6 +41,7 @@
       "additionalProperties": false,
       "properties": {
         "archive_byte_count": {
+          "maximum": 2147483648,
           "minimum": 1,
           "type": "integer"
         },
@@ -54,6 +55,7 @@
           "$ref": "#/$defs/sha256"
         },
         "file_count": {
+          "maximum": 250000,
           "minimum": 3,
           "type": "integer"
         },
@@ -64,7 +66,8 @@
           "const": "injected_archive_identity_unattested"
         },
         "unpacked_byte_count": {
-          "minimum": 0,
+          "maximum": 2147483648,
+          "minimum": 3,
           "type": "integer"
         }
       },
@@ -107,6 +110,19 @@
         "manifest_schema_sha256": {
           "$ref": "#/$defs/sha256"
         },
+        "python_executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python_implementation": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "python_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
         "receipt_schema_sha256": {
           "$ref": "#/$defs/sha256"
         },
@@ -115,6 +131,47 @@
         },
         "schema_validator_sha256": {
           "$ref": "#/$defs/sha256"
+        },
+        "unicode_data_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "verifier_sources": {
+          "additionalProperties": false,
+          "properties": {
+            "draft202012.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "relevance_dataset.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_eligibility.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_eligibility_v2.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_negative_control_plan_v2.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_overlap_registry.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_population.py": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "draft202012.py",
+            "relevance_dataset.py",
+            "task_eligibility.py",
+            "task_eligibility_v2.py",
+            "task_negative_control_plan_v2.py",
+            "task_overlap_registry.py",
+            "task_population.py"
+          ],
+          "type": "object"
         }
       },
       "required": [
@@ -122,9 +179,14 @@
         "builder_sha256",
         "canonical_json_profile",
         "manifest_schema_sha256",
+        "python_executable_sha256",
+        "python_implementation",
+        "python_version",
         "receipt_schema_sha256",
         "run_plan_builder_sha256",
-        "schema_validator_sha256"
+        "schema_validator_sha256",
+        "unicode_data_version",
+        "verifier_sources"
       ],
       "type": "object"
     },

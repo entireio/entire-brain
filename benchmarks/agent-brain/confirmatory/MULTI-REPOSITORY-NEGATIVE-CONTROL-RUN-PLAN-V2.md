@@ -59,7 +59,11 @@ caches is forbidden.
 The required cache-seed manifest hash, archive hash, byte count, and source locator are all null;
 none was fabricated. A schema-bound pure manifest/check primitive now exists, but no actual archive
 exists and an injected identity observation is explicitly not safe archive traversal/content
-verification. The future raw-log root is likewise runtime-only and null in this host-free plan. Its
+verification. That primitive is pinned to this plan's exact raw/self hashes and exact dependency
+rebuild; its v1 planning envelope permits at most 250,000 non-empty files and a 128 MiB canonical
+manifest, with global NFC/case-fold collision and ancestor rejection. Those limits still require
+validation against a real safely inspected seed before any future authorization. The future raw-log
+root is likewise runtime-only and null in this host-free plan. Its
 required directory/file modes are `0700`/`0600`, raw logs are retained for seven days and addressed
 by exact-byte SHA-256, and public receipts may expose only each raw-log hash and byte count. Raw test
 output can contain secrets, so this plan makes no redaction claim and forbids putting raw output in a
