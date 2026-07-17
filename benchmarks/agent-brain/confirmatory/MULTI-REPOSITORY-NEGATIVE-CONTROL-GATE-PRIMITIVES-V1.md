@@ -54,7 +54,7 @@ does not fabricate or bind an actual seed.
 
 The manifest and receipt schema arguments are not caller-defined policy. Their raw bytes must match
 the pinned checked-in v1 schema SHA-256 values (`37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999`
-and `a6ea9aee520a11afd5a17339661dd4e67e503aa89593f69696a4306670201e81`, respectively); an alternate
+and `7603f755dd8429ff8c0a17114a50cda0aa23ae99c07cf2cfff9856df00c0a8e0`, respectively); an alternate
 path is accepted only when its bytes are identical. Manual fail-closed invariants remain authoritative
 and schema validation is additionally executed.
 
@@ -73,6 +73,13 @@ capacity, or eliminate time-of-check/time-of-use races. A synthetic 11 GiB obser
 fails deterministically without consuming disk, while an exact 16 GiB observation passes the pure
 arithmetic primitive.
 
+Both injected factors and every emitted variable resource integer have the explicit maximum
+`10^64 - 1`, the largest non-negative value admitted by the 64-digit JSON profile. This is far above
+the frozen 16 GiB threshold, so it does not weaken the plan's lower-bound arithmetic. Multiplication
+is division-guarded (`available_blocks <= maximum // fragment_size_bytes`) before it occurs; two
+individually valid 64-digit factors therefore cannot create an unparseable derived value. The receipt
+schema repeats the same maxima for blocks, fragment size, free bytes, and headroom.
+
 A deterministic primitive receipt binds the exact canonical plan and manifest bytes, both schemas,
 all implementation dependencies, the injected observations, and its own self-hash. Its status is
 `primitive_checks_passed_execution_forbidden`, its cache binding remains
@@ -88,7 +95,10 @@ keys, floats/non-finite numbers, integers longer than 64 digits, and nesting dee
 fail closed with CLI exit 2 and no traceback. Raw limits are 1 MiB for the checked plan, 128 MiB for
 the manifest, and 4 MiB each for schemas and the primitive receipt. Validators recheck canonical
 rendered byte counts after manual shape/count/scalar bounds, so a constructed Python object cannot
-bypass the file parser or force an unbounded render before basic rejection.
+bypass the file parser or force an unbounded render before basic rejection. The same iterative
+depth/integer/no-float validator runs on every Python-constructed and API-validated manifest and
+receipt before self-hashing or schema validation. Consequently, any artifact successfully built and
+canonically rendered by the Python API is accepted by the CLI parser under the same JSON profile.
 
 ## Residual hard gates
 
