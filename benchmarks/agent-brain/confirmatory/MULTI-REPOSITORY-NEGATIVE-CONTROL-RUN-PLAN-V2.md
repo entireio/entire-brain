@@ -72,6 +72,12 @@ attempt classifier now exist, but neither is integrated with an executor or prov
 cleanup, or execution attestation. See `NEGATIVE-CONTROL-PRIVATE-RAW-LOG-V1.md` and
 `MULTI-REPOSITORY-NEGATIVE-CONTROL-CLASSIFICATION-V1.md`.
 
+A build/check-only v1 execution-contract compiler now projects this exact plan into all 62 detailed
+candidate bindings and the complete 248-row schedule, and freezes first-parent reversal plus cleanup
+state-machine requirements. It binds current pure component bytes but keeps every runtime binding
+null and remains unexecutable. See
+`MULTI-REPOSITORY-NEGATIVE-CONTROL-EXECUTION-CONTRACT-V1.md`.
+
 ## Remaining hard gates
 
 All of the following must be implemented and independently reviewed before a separate plan version

@@ -78,6 +78,13 @@ confirmatory analyzer is implemented and path-locked.
   for all 62 candidates. The schemas pin all attempt, result, and repository positions; public rows
   expose only status/exit and content-addressed log-receipt metadata. The receipt remains explicitly
   unexecutable and does not claim the attempts ran.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-EXECUTION-CONTRACT-V1.md`,
+  `negative_control_execution_contract_v1.py`, its checked artifact, and schema/test: a deterministic
+  build/check-only projection of the exact 62 candidates and 248-attempt order into a future-executor
+  contract. It binds the current gate/log/classifier/APFS-observer components plus first-parent
+  reversal and cleanup-state requirements, while every approval, cache, host, reservation, producer,
+  private-root, and cleanup runtime binding remains null. It has no candidate or subprocess surface
+  and remains `contract_compiled_execution_forbidden`.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.
