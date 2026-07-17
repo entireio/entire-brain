@@ -1,0 +1,142 @@
+{
+  "$id": "https://entire.io/schemas/negative-control-darwin-capacity-observation-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "benchmark_execution": {"const": "forbidden_pending_separate_owner_approval"},
+        "candidate_execution": {"const": "forbidden_plan_unexecutable"},
+        "model_provider_execution": {"const": "forbidden_not_authorized"},
+        "paid_execution": {"const": "forbidden_not_authorized"}
+      },
+      "required": [
+        "benchmark_execution",
+        "candidate_execution",
+        "model_provider_execution",
+        "paid_execution"
+      ],
+      "type": "object"
+    },
+    "execution_status": {
+      "const": "forbidden_missing_trusted_observer_and_atomic_reservation"
+    },
+    "measurement": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "important_usage_threshold_met": {"const": false},
+              "threshold_status": {"const": "important_usage_below_threshold_unattested"}
+            }
+          },
+          "if": {
+            "properties": {
+              "available_capacity_for_important_usage_bytes": {"minimum": 17179869184}
+            },
+            "required": ["available_capacity_for_important_usage_bytes"]
+          },
+          "then": {
+            "properties": {
+              "important_usage_threshold_met": {"const": true},
+              "threshold_status": {"const": "important_usage_meets_threshold_unattested"}
+            }
+          }
+        },
+        {
+          "else": {
+            "properties": {"raw_free_threshold_met": {"const": false}}
+          },
+          "if": {
+            "properties": {
+              "available_capacity_bytes": {"minimum": 17179869184}
+            },
+            "required": ["available_capacity_bytes"]
+          },
+          "then": {
+            "properties": {"raw_free_threshold_met": {"const": true}}
+          }
+        }
+      ],
+      "properties": {
+        "available_capacity_bytes": {"maximum": 9223372036854775807, "minimum": 0, "type": "integer"},
+        "available_capacity_for_important_usage_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "available_capacity_for_opportunistic_usage_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "important_usage_threshold_met": {"type": "boolean"},
+        "measurement_api": {"const": "Foundation.URLResourceValues.volume_capacity_v1"},
+        "raw_free_threshold_met": {"type": "boolean"},
+        "required_capacity_bytes": {"const": 17179869184},
+        "threshold_status": {
+          "enum": [
+            "important_usage_meets_threshold_unattested",
+            "important_usage_below_threshold_unattested"
+          ]
+        },
+        "total_capacity_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "available_capacity_bytes",
+        "available_capacity_for_important_usage_bytes",
+        "available_capacity_for_opportunistic_usage_bytes",
+        "important_usage_threshold_met",
+        "measurement_api",
+        "raw_free_threshold_met",
+        "required_capacity_bytes",
+        "threshold_status",
+        "total_capacity_bytes"
+      ],
+      "type": "object"
+    },
+    "profile": {"const": "agent_brain_negative_control_darwin_capacity_observation_v1"},
+    "reservation": {
+      "additionalProperties": false,
+      "properties": {
+        "cleanup_attestation_sha256": {"type": "null"},
+        "reserved_bytes": {"type": "null"},
+        "status": {"const": "absent_not_implemented"},
+        "trusted_observer_attestation_sha256": {"type": "null"}
+      },
+      "required": [
+        "cleanup_attestation_sha256",
+        "reserved_bytes",
+        "status",
+        "trusted_observer_attestation_sha256"
+      ],
+      "type": "object"
+    },
+    "residual_gates": {
+      "const": [
+        "trusted_darwin_capacity_observer_attestation",
+        "bounded_atomic_resource_reservation_and_cleanup_attestation"
+      ]
+    },
+    "schema_version": {"const": 1},
+    "status": {"const": "live_unattested_capacity_observation_execution_forbidden"}
+  },
+  "required": [
+    "authority",
+    "execution_status",
+    "measurement",
+    "profile",
+    "reservation",
+    "residual_gates",
+    "schema_version",
+    "status"
+  ],
+  "title": "Unattested Darwin capacity observation that cannot authorize execution",
+  "type": "object"
+}

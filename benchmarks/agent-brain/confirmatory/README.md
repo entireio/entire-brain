@@ -62,6 +62,11 @@ confirmatory analyzer is implemented and path-locked.
   rebuild, complete Go/native/Git toolchains, runtime/verifier sources, checked schema bytes, and a
   bounded 250,000-file/128 MiB portable-path-safe manifest profile, but explicitly do not verify an
   actual archive, observe/reserve host disk, authorize execution, or expose an executor.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-DARWIN-CAPACITY-V1.md`,
+  `negative_control_darwin_capacity_v1.swift`, and its schema/test: a live but explicitly unattested
+  Foundation observation of immediately free, important-use, and opportunistic volume capacity. It
+  corrects the APFS `df` interpretation without recording the supplied path or adding reservation,
+  cleanup, authority, or execution.
 - `NEGATIVE-CONTROL-PRIVATE-RAW-LOG-V1.md`, `negative_control_private_log.py`, and
   `schemas/negative-control-private-log-receipt-v1.schema.json`: content-addressed private raw-log
   storage/check primitive with bounded streaming, exact public two-field receipts, private modes,
