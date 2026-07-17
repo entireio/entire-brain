@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import errno
 import fcntl
 import hashlib
 import io
@@ -293,6 +294,65 @@ class NegativeControlPrivateLogTest(unittest.TestCase):
             with self.assertRaisesRegex(private_log.PrivateLogError, "byte count|ceiling"):
                 private_log.check_raw_log(root, first, limits=tighter)
 
+    def test_final_file_ceiling_is_incremental_and_dedup_aware(self) -> None:
+        limits = private_log.LogLimits(
+            max_bytes_per_arm=8,
+            max_bytes_total=32,
+            max_final_file_count=2,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.private_root(pathlib.Path(temporary))
+            first_payload = b"one"
+            second_payload = b"two"
+            first = self.write(root, first_payload, limits=limits)
+            self.write(root, second_payload, limits=limits)
+            store = root / private_log.STORE_DIRECTORY
+            self.assertEqual(len(list(store.iterdir())), 2)
+            private_log.check_raw_log(root, first, limits=limits)
+
+            duplicate = self.write(root, first_payload, limits=limits)
+            self.assertEqual(duplicate, first)
+            self.assertEqual(len(list(store.iterdir())), 2)
+
+            third_payload = b"three"
+            with self.assertRaisesRegex(private_log.PrivateLogError, "final-file ceiling"):
+                self.write(root, third_payload, limits=limits)
+            self.assertEqual(len(list(store.iterdir())), 2)
+
+            third = store / hashlib.sha256(third_payload).hexdigest()
+            third.write_bytes(third_payload)
+            third.chmod(0o600)
+            with self.assertRaisesRegex(private_log.PrivateLogError, "final-file ceiling"):
+                private_log.check_raw_log(root, first, limits=limits)
+
+    def test_incremental_enumeration_stops_before_stating_limit_plus_one(self) -> None:
+        limits = private_log.LogLimits(
+            max_bytes_per_arm=8,
+            max_bytes_total=32,
+            max_final_file_count=2,
+        )
+
+        class SyntheticEntry:
+            def __init__(self, name: str) -> None:
+                self.name = name
+
+        entries = [SyntheticEntry(character * 64) for character in ("a", "b", "c")]
+        scanner = mock.MagicMock()
+        scanner.__enter__.return_value = iter(entries)
+        scanner.__exit__.return_value = False
+        with tempfile.TemporaryDirectory() as temporary:
+            metadata_path = pathlib.Path(temporary) / "metadata"
+            metadata_path.write_bytes(b"")
+            metadata_path.chmod(0o600)
+            metadata = metadata_path.stat()
+            with (
+                mock.patch.object(private_log.os, "scandir", return_value=scanner),
+                mock.patch.object(private_log.os, "stat", return_value=metadata) as stat_call,
+                self.assertRaisesRegex(private_log.PrivateLogError, "final-file ceiling"),
+            ):
+                private_log._scan_store(123, limits)
+            self.assertEqual(stat_call.call_count, 2)
+
     def test_full_store_allows_exact_duplicate_but_rejects_new_content(self) -> None:
         limits = private_log.LogLimits(max_bytes_per_arm=6, max_bytes_total=6)
         with tempfile.TemporaryDirectory() as temporary:
@@ -345,6 +405,7 @@ class NegativeControlPrivateLogTest(unittest.TestCase):
     def test_limits_can_only_tighten_the_frozen_16_mib_and_2_gib_values(self) -> None:
         self.assertEqual(private_log.FROZEN_LIMITS.max_bytes_per_arm, 16 * 1024 * 1024)
         self.assertEqual(private_log.FROZEN_LIMITS.max_bytes_total, 2 * 1024 * 1024 * 1024)
+        self.assertEqual(private_log.FROZEN_LIMITS.max_final_file_count, 4096)
         invalid = [
             private_log.LogLimits(
                 max_bytes_per_arm=private_log.MAX_PRIVATE_RAW_LOG_BYTES_PER_ARM + 1,
@@ -355,6 +416,9 @@ class NegativeControlPrivateLogTest(unittest.TestCase):
                 max_bytes_total=private_log.MAX_PRIVATE_RAW_LOG_BYTES_TOTAL + 1,
             ),
             private_log.LogLimits(max_bytes_per_arm=2, max_bytes_total=1),
+            private_log.LogLimits(
+                max_final_file_count=private_log.MAX_PRIVATE_RAW_LOG_FINAL_FILE_COUNT + 1,
+            ),
         ]
         with tempfile.TemporaryDirectory() as temporary:
             root = self.private_root(pathlib.Path(temporary))
@@ -373,6 +437,51 @@ class NegativeControlPrivateLogTest(unittest.TestCase):
                 receipt_raw = self.write(root, b"synthetic")
             self.assertIsNone(receipt_raw)
             self.assertEqual(list((root / private_log.STORE_DIRECTORY).iterdir()), [])
+
+    def test_every_directory_sync_error_returns_no_receipt(self) -> None:
+        for stage, fail_on_directory_sync, error_number in (
+            ("root-setup", 1, errno.EINVAL),
+            ("store-publication", 2, errno.ENOTSUP),
+        ):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as temporary:
+                root = self.private_root(pathlib.Path(temporary))
+                payload = b"directory-sync-proof"
+                real_fsync = private_log.os.fsync
+                real_fstat = private_log.os.fstat
+                directory_sync_count = 0
+
+                def fail_selected_directory_sync(descriptor: int) -> None:
+                    nonlocal directory_sync_count
+                    if stat.S_ISDIR(real_fstat(descriptor).st_mode):
+                        directory_sync_count += 1
+                        if directory_sync_count == fail_on_directory_sync:
+                            raise OSError(error_number, "synthetic directory sync failure")
+                    real_fsync(descriptor)
+
+                receipt_raw: bytes | None = None
+                with (
+                    mock.patch.object(
+                        private_log.os,
+                        "fsync",
+                        side_effect=fail_selected_directory_sync,
+                    ),
+                    self.assertRaisesRegex(
+                        private_log.PrivateLogError,
+                        "directory synchronization failed",
+                    ),
+                ):
+                    receipt_raw = self.write(root, payload)
+                self.assertIsNone(receipt_raw)
+
+                store = root / private_log.STORE_DIRECTORY
+                digest = hashlib.sha256(payload).hexdigest()
+                if stage == "root-setup":
+                    self.assertEqual(list(store.iterdir()), [])
+                else:
+                    content = store / digest
+                    self.assertEqual(content.read_bytes(), payload)
+                    self.assertEqual(content.stat().st_nlink, 1)
+                    private_log.check_raw_log(root, self.write_receipt_for(payload))
 
     def test_interruption_after_link_returns_no_receipt_and_leaves_only_complete_final(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -405,6 +514,50 @@ class NegativeControlPrivateLogTest(unittest.TestCase):
             self.assertEqual(content.stat().st_nlink, 1)
             private_log.check_raw_log(root, self.write_receipt_for(payload))
 
+    def test_failed_temp_and_rollback_unlinks_leave_two_links_no_receipt_and_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.private_root(pathlib.Path(temporary))
+            payload = b"complete-two-link-state"
+
+            def refuse_descriptor_relative_unlink(
+                _path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                *,
+                dir_fd: int | None = None,
+            ) -> None:
+                if dir_fd is not None:
+                    raise OSError(errno.EIO, "synthetic unlink failure")
+                raise AssertionError("unexpected non-descriptor-relative unlink")
+
+            receipt_raw: bytes | None = None
+            with (
+                mock.patch.object(
+                    private_log.os,
+                    "unlink",
+                    side_effect=refuse_descriptor_relative_unlink,
+                ),
+                self.assertRaisesRegex(
+                    private_log.PrivateLogError,
+                    "temporary cleanup failed",
+                ),
+            ):
+                receipt_raw = self.write(root, payload)
+            self.assertIsNone(receipt_raw)
+
+            store = root / private_log.STORE_DIRECTORY
+            entries = list(store.iterdir())
+            self.assertEqual(len(entries), 2)
+            digest = hashlib.sha256(payload).hexdigest()
+            digest_path = store / digest
+            temporary_paths = [path for path in entries if path.name != digest]
+            self.assertEqual(len(temporary_paths), 1)
+            self.assertTrue(temporary_paths[0].name.startswith(".raw-log-"))
+            self.assertEqual(digest_path.read_bytes(), payload)
+            self.assertEqual(temporary_paths[0].read_bytes(), payload)
+            self.assertEqual(digest_path.stat().st_ino, temporary_paths[0].stat().st_ino)
+            self.assertEqual(digest_path.stat().st_nlink, 2)
+            with self.assertRaisesRegex(private_log.PrivateLogError, "invalid entry|hard-linked"):
+                private_log.check_raw_log(root, self.write_receipt_for(payload))
+
     def test_orphan_temporary_entry_blocks_future_use_pending_cleanup_gate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = self.private_root(pathlib.Path(temporary))
@@ -418,7 +571,52 @@ class NegativeControlPrivateLogTest(unittest.TestCase):
                 self.write(root, b"second")
             self.assertTrue(orphan.exists())
 
-    def test_mutation_is_detected_and_errors_never_echo_raw_bytes_or_paths(self) -> None:
+    def test_digest_path_replacement_after_hashing_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = pathlib.Path(temporary)
+            root = self.private_root(parent)
+            payload = b"opened-content"
+            receipt_raw = self.write(root, payload)
+            digest = hashlib.sha256(payload).hexdigest()
+            content = root / private_log.STORE_DIRECTORY / digest
+            replacement = parent / "replacement"
+            replacement.write_bytes(b"replaced-bytes")
+            replacement.chmod(0o600)
+            opened_original = parent / "opened-original"
+            real_stat = private_log.os.stat
+            real_replace = private_log.os.replace
+            digest_stat_count = 0
+
+            def replace_before_post_hash_path_stat(
+                path: str | bytes | int | os.PathLike[str] | os.PathLike[bytes],
+                *args: Any,
+                **kwargs: Any,
+            ) -> os.stat_result:
+                nonlocal digest_stat_count
+                if path == digest and kwargs.get("dir_fd") is not None:
+                    digest_stat_count += 1
+                    if digest_stat_count == 2:
+                        real_replace(content, opened_original)
+                        real_replace(replacement, content)
+                return real_stat(path, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    private_log.os,
+                    "stat",
+                    side_effect=replace_before_post_hash_path_stat,
+                ),
+                self.assertRaisesRegex(
+                    private_log.PrivateLogError,
+                    "pathname no longer names the opened file",
+                ),
+            ):
+                private_log.check_raw_log(root, receipt_raw)
+            self.assertEqual(digest_stat_count, 2)
+            self.assertEqual(opened_original.read_bytes(), payload)
+            self.assertEqual(content.read_bytes(), b"replaced-bytes")
+
+    def test_private_log_errors_never_echo_raw_bytes_or_paths(self) -> None:
         secret = b"ULTRA_SECRET_RAW_VALUE"
 
         class ExplodingStream:
@@ -449,6 +647,25 @@ class NegativeControlPrivateLogTest(unittest.TestCase):
             with self.assertRaises(private_log.PrivateLogError) as caught:
                 private_log.check_raw_log(root, receipt_raw)
             self.assertNotIn("same-size-mutated", str(caught.exception))
+
+    def test_base_exception_cancellation_propagates_and_is_outside_non_leaking_claim(self) -> None:
+        secret = "CALLER_CANCELLATION_TEXT"
+        cancellation = KeyboardInterrupt(secret)
+
+        class CancellingStream:
+            def read(self, _size: int) -> bytes:
+                raise cancellation
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.private_root(pathlib.Path(temporary))
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                private_log.write_raw_log(
+                    root,
+                    cast(BinaryIO, CancellingStream()),
+                )
+            self.assertIs(caught.exception, cancellation)
+            self.assertEqual(caught.exception.args, (secret,))
+            self.assertEqual(list((root / private_log.STORE_DIRECTORY).iterdir()), [])
 
     def test_module_has_no_execution_network_provider_or_retention_surface(self) -> None:
         source_path = pathlib.Path(private_log.__file__)
