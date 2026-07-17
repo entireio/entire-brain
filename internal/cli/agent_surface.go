@@ -1346,7 +1346,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	report.ActionChecklist = brainBriefActionChecklist(status.Repo.Root, report, task)
 	if len(report.ActionChecklist) > 0 {
 		brainBriefPrioritizeActionTargets(status.Repo.Root, &report)
-		report.Guidance = append(report.Guidance, "Treat action_checklist as the first-pass current-code inventory; edit listed files first, and broaden only when the checklist is missing, ambiguous, or validation fails.")
+		report.Guidance = append(report.Guidance, brainBriefActionChecklistGuidance)
 	}
 	if profile != nil {
 		profile.finishStage(&profile.Synthesis.ActionChecklist, actionStarted, len(report.LikelyFiles)+len(report.History.Matches), len(report.ActionChecklist), 0)
@@ -2482,28 +2482,15 @@ func brainBriefRootFile(path string) bool {
 }
 
 func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task string) []brainBriefAction {
-	context := strings.ToLower(task)
-	for _, match := range report.History.Matches {
-		context += "\n" + strings.ToLower(match.Excerpt)
-	}
+	families := brainBriefActionFamiliesForReport(report, task)
 	var actions []brainBriefAction
-	if strings.Contains(context, "normalizelimit") ||
-		strings.Contains(context, "max_query_limit") ||
-		(strings.Contains(context, "query limit") && strings.Contains(context, "limit normalization")) ||
-		(strings.Contains(context, "normalize") && strings.Contains(context, "limit")) ||
-		(strings.Contains(context, "oversized") && strings.Contains(context, "limit")) {
+	if families&brainBriefActionFamilyLimit != 0 {
 		actions = append(actions, brainBriefLimitNormalizationActions(repoRoot, report.LikelyEditFiles)...)
 	}
-	if strings.Contains(context, "metadata.step") ||
-		strings.Contains(context, "metadata values must be strings") ||
-		strings.Contains(context, "invalid_type") ||
-		(strings.Contains(context, "metadata") && strings.Contains(context, "responses api")) {
+	if families&brainBriefActionFamilyMetadata != 0 {
 		actions = append(actions, brainBriefMetadataStringActions(repoRoot, report.LikelyEditFiles)...)
 	}
-	if strings.Contains(context, "previousresponseid") ||
-		strings.Contains(context, "previous_response_id") ||
-		(strings.Contains(context, "self-contained") && strings.Contains(context, "perception")) ||
-		(strings.Contains(context, "stale") && strings.Contains(context, "model state")) {
+	if families&brainBriefActionFamilyPreviousResponse != 0 {
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)
