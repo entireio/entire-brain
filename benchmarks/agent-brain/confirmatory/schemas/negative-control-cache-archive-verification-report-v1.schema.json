@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/negative-control-cache-archive-verification-report-v1.json",
+  "title": "Non-authorizing negative-control cache archive raw-identity verification report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "archive",
+    "authority",
+    "contents",
+    "identity_binding_status",
+    "manifest",
+    "material_declaration_sha256",
+    "profile",
+    "report_sha256",
+    "safety",
+    "schema_version",
+    "status",
+    "verifier_contract_sha256"
+  ],
+  "properties": {
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_file",
+        "byte_count",
+        "sha256",
+        "verification"
+      ],
+      "properties": {
+        "artifact_file": {
+          "$ref": "#/$defs/artifact_file"
+        },
+        "byte_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483648
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "verification": {
+          "const": "exact_bounded_regular_file_raw_identity"
+        }
+      }
+    },
+    "authority": {
+      "const": {
+        "atomic_consumption": false,
+        "benchmark_execution": "forbidden",
+        "candidate_execution": "forbidden",
+        "execution_authority": false,
+        "model_provider_execution": "forbidden",
+        "network_access": "forbidden",
+        "owner_approval": false,
+        "paid_execution": "forbidden"
+      }
+    },
+    "contents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_count",
+        "inventory_sha256",
+        "repository_file_counts",
+        "unpacked_byte_count"
+      ],
+      "properties": {
+        "file_count": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 250000
+        },
+        "inventory_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "repository_file_counts": {
+          "$ref": "#/$defs/repository_file_counts"
+        },
+        "unpacked_byte_count": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 2147483648
+        }
+      }
+    },
+    "identity_binding_status": {
+      "const": "source_reviewed_actual_cache_manifest_and_archive_raw_identity"
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_file",
+        "file_sha256",
+        "manifest_sha256",
+        "profile",
+        "schema_sha256",
+        "verification"
+      ],
+      "properties": {
+        "artifact_file": {
+          "$ref": "#/$defs/artifact_file"
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile": {
+          "const": "content_addressed_offline_go_cache_seed_manifest_v1"
+        },
+        "schema_sha256": {
+          "const": "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999"
+        },
+        "verification": {
+          "const": "canonical_schema_self_scope_and_material_identity"
+        }
+      }
+    },
+    "material_declaration_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_cache_archive_verification_report_v1"
+    },
+    "report_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "safety": {
+      "const": {
+        "archive_content_parsed": false,
+        "content_safety_verified": false,
+        "e0_runtime_binding": false,
+        "extraction": false,
+        "staging": false
+      }
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "status": {
+      "const": "archive_identity_verified_content_unparsed_staging_forbidden"
+    },
+    "verifier_contract_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "artifact_file": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[^/\\\\]+$"
+    },
+    "repository_file_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entire-brain",
+        "entire-db",
+        "entire-graph"
+      ],
+      "properties": {
+        "entire-brain": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 250000
+        },
+        "entire-db": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 250000
+        },
+        "entire-graph": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 250000
+        }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    }
+  }
+}

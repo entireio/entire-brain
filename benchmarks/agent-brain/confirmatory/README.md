@@ -93,6 +93,14 @@ confirmatory analyzer is implemented and path-locked.
   can produce only a non-persistent, non-authorizing report: execution and atomic consumption remain
   forbidden. The module has no signing, key-generation, trust-root installation, approval issuance,
   candidate execution, provider, or network lane.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-CACHE-ARCHIVE-V1.md`,
+  `negative_control_cache_archive_v1.py`, the pending material declaration, verifier contract, and
+  three adjacent schemas/test: a deterministic build/check/verify-only raw-identity gate for the
+  future offline Go cache seed. The checked declaration has no archive, manifest, inventory, or
+  count identities, so production verification fails before reading caller locators. Even a future
+  source-reviewed match treats the archive as opaque bytes and leaves content safety, extraction,
+  staging, E0 runtime binding, owner approval, atomic consumption, candidate execution, network,
+  model/provider work, and paid work forbidden.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.
