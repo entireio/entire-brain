@@ -483,6 +483,32 @@ func TestRankHistoryRecordsUsesIdentifierTerms(t *testing.T) {
 	}
 }
 
+func TestRankHistoryRecordsUsesTemporalRelationTerms(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{
+			ID:      "before",
+			Kind:    "decision",
+			Path:    "sessions/main/20260101T000000Z_before.jsonl",
+			Summary: "Credentials rotate before artifacts publish.",
+		},
+		{
+			ID:      "after",
+			Kind:    "decision",
+			Path:    "sessions/main/20260102T000000Z_after.jsonl",
+			Summary: "Credentials rotate after artifacts publish.",
+		},
+	}}
+
+	// The content words are deliberately identical and the contrary record is
+	// newer. The temporal relation must supply the deciding evidence; treating
+	// "before" as generic filler would leave a tie and incorrectly prefer the
+	// newer "after" record.
+	records := rankHistoryRecords(index, "history", "publish credentials before rotate", 2)
+	if len(records) != 2 || records[0].ID != "before" {
+		t.Fatalf("temporal ordering record did not rank first: %+v", records)
+	}
+}
+
 func TestRankHistoryRecordsPrefersPreciseCodeFactsOverSetupLogs(t *testing.T) {
 	index := historyIndex{Records: []historyRecord{
 		{

@@ -1850,7 +1850,7 @@ func historyShortQueryTerm(term string) bool {
 // legitimately differ (e.g. "regression"/"preserve" are noise for free-text
 // history search but valid filename-match terms like regression.go for brief).
 var genericQueryStopwords = map[string]bool{
-	"and": true, "are": true, "before": true, "but": true, "can": true,
+	"and": true, "are": true, "but": true, "can": true,
 	"did": true, "does": true, "fix": true, "for": true, "from": true,
 	"has": true, "have": true, "how": true, "into": true, "its": true,
 	"make": true, "must": true, "need": true, "new": true, "not": true,
