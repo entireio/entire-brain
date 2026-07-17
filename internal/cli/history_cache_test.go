@@ -112,7 +112,7 @@ func TestHistoryScanCacheVersionMismatchIgnored(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	stale := historyScanCache{Version: historyScanCacheVersion + 1, Files: map[string]historyScanCacheEntry{
-		"sessions/main/old.jsonl": {Size: 1, ModUnixNano: 1, Records: []historyRecord{{ID: "stale"}}},
+		"sessions/main/old.jsonl": {Records: []historyRecord{{ID: "stale"}}},
 	}}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)

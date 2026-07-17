@@ -46,23 +46,27 @@ const (
 	// opening request and the history eval's midtask stratum mines follow-up
 	// questions as queries. The v3 noise concern is unchanged and unaffected:
 	// both rankers still exclude kind=request from general ranking.
-	historyScanCacheVersion = 4
+	// v5: bind cache reuse to transcript content, not only size/mtime. This keeps
+	// same-path rewrites (including restored mtimes) from resurrecting stale
+	// parsed records after freshness detection triggers a rebuild.
+	historyScanCacheVersion = 5
 )
 
 type historySourceManifest struct {
-	GeneratedAt         time.Time `json:"generated_at"`
-	IndexPath           string    `json:"index_path"`
-	IndexBytes          int64     `json:"index_bytes,omitempty"`
-	IndexSHA256         string    `json:"index_sha256,omitempty"`
-	RecordsFingerprint  string    `json:"records_fingerprint,omitempty"`
-	SessionsFingerprint string    `json:"sessions_fingerprint,omitempty"`
-	Records             int       `json:"records"`
-	Decisions           int       `json:"decisions"`
-	Learnings           int       `json:"learnings"`
-	Validations         int       `json:"validations"`
-	ToolCalls           int       `json:"tool_calls"`
-	CodeFacts           int       `json:"code_facts"`
-	Warnings            []string  `json:"warnings,omitempty"`
+	GeneratedAt            time.Time `json:"generated_at"`
+	IndexPath              string    `json:"index_path"`
+	IndexBytes             int64     `json:"index_bytes,omitempty"`
+	IndexSHA256            string    `json:"index_sha256,omitempty"`
+	RecordsFingerprint     string    `json:"records_fingerprint,omitempty"`
+	SessionsFingerprint    string    `json:"sessions_fingerprint,omitempty"`
+	TranscriptsFingerprint string    `json:"transcripts_fingerprint,omitempty"`
+	Records                int       `json:"records"`
+	Decisions              int       `json:"decisions"`
+	Learnings              int       `json:"learnings"`
+	Validations            int       `json:"validations"`
+	ToolCalls              int       `json:"tool_calls"`
+	CodeFacts              int       `json:"code_facts"`
+	Warnings               []string  `json:"warnings,omitempty"`
 }
 
 type historyIndex struct {
@@ -97,27 +101,26 @@ type historyFragment struct {
 }
 
 type historySessionFile struct {
-	Path        string
-	SortTime    time.Time
-	Size        int64
-	ModUnixNano int64
+	Path          string
+	SortTime      time.Time
+	ContentSHA256 string
 }
 
 // historyScanCache memoizes the parsed history records for each session
-// transcript so a refresh only re-scans files whose size or mtime changed.
+// transcript so a refresh only re-parses files whose content changed.
 // Session transcripts are content-stable across refreshes (the export step
-// reuses unchanged transcripts via the export cursor), so the (size, mtime)
-// pair is a reliable change signal and lets the index skip both the I/O and
-// the parse for the vast majority of files on every run.
+// reuses unchanged transcripts via the export cursor). The strong digest is
+// intentional: size/mtime can be restored after a same-path rewrite, which
+// would otherwise let stale parsed records survive a correctly-triggered
+// history rebuild.
 type historyScanCache struct {
 	Version int                              `json:"version"`
 	Files   map[string]historyScanCacheEntry `json:"files"`
 }
 
 type historyScanCacheEntry struct {
-	Size        int64           `json:"size"`
-	ModUnixNano int64           `json:"mod_unix_nano"`
-	Records     []historyRecord `json:"records"`
+	ContentSHA256 string          `json:"content_sha256"`
+	Records       []historyRecord `json:"records"`
 }
 
 func newHistoryIndexCommand(opts Options) *cobra.Command {
@@ -283,6 +286,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	if err != nil {
 		return index, nil, err
 	}
+	transcriptsFingerprint := historyTranscriptFilesFingerprint(outputDir, files)
 
 	prevCache := loadHistoryScanCache(outputDir)
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
@@ -302,7 +306,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		rel = filepath.ToSlash(rel)
 
 		var records []historyRecord
-		if cached, ok := prevCache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano {
+		if cached, ok := prevCache.Files[rel]; ok &&
+			cached.ContentSHA256 != "" && cached.ContentSHA256 == file.ContentSHA256 {
 			records = cached.Records
 		} else {
 			scanned, scanErr := scanHistoryFile(outputDir, file.Path)
@@ -318,7 +323,10 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		// Only files that scanned cleanly (or were reused) are cached; a file
 		// that errored is left out so the next refresh retries it.
-		newCache.Files[rel] = historyScanCacheEntry{Size: file.Size, ModUnixNano: file.ModUnixNano, Records: records}
+		newCache.Files[rel] = historyScanCacheEntry{
+			ContentSHA256: file.ContentSHA256,
+			Records:       records,
+		}
 
 		for _, record := range records {
 			if record.Kind == "decision" {
@@ -345,11 +353,12 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		return index.Records[i].Line < index.Records[j].Line
 	})
 	source := &historySourceManifest{
-		GeneratedAt:         now,
-		IndexPath:           historyIndexPath,
-		SessionsFingerprint: brainSessionsFingerprint(outputDir),
-		Records:             len(index.Records),
-		Warnings:            append([]string(nil), index.Warnings...),
+		GeneratedAt:            now,
+		IndexPath:              historyIndexPath,
+		SessionsFingerprint:    brainSessionsFingerprint(outputDir),
+		TranscriptsFingerprint: transcriptsFingerprint,
+		Records:                len(index.Records),
+		Warnings:               append([]string(nil), index.Warnings...),
 	}
 	for _, record := range index.Records {
 		switch record.Kind {
@@ -522,8 +531,80 @@ func sessionSourceFingerprint(source *sessionSourceManifest) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// historyTranscriptFilesFingerprint binds a history generation to the exact
+// regular transcript files it scanned. Paths are sorted independently of the
+// recency order used for indexing so mtime-only changes do not invalidate the
+// generation; content changes always do.
+func historyTranscriptFilesFingerprint(outputDir string, files []historySessionFile) string {
+	type entry struct {
+		path string
+		sha  string
+	}
+	entries := make([]entry, 0, len(files))
+	for _, file := range files {
+		rel, err := filepath.Rel(outputDir, file.Path)
+		if err != nil || file.ContentSHA256 == "" {
+			return ""
+		}
+		entries = append(entries, entry{path: filepath.ToSlash(rel), sha: file.ContentSHA256})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	h := sha256.New()
+	_, _ = io.WriteString(h, "entire-brain/history-transcripts/v1\x00")
+	_, _ = io.WriteString(h, strconv.Itoa(len(entries))+"\x00")
+	for _, entry := range entries {
+		_, _ = io.WriteString(h, strconv.Itoa(len(entry.path))+":")
+		_, _ = io.WriteString(h, entry.path)
+		_, _ = io.WriteString(h, strconv.Itoa(len(entry.sha))+":")
+		_, _ = io.WriteString(h, entry.sha)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+func historyTranscriptContentSHA(path string, expected fs.FileInfo, scratch []byte) (string, error) {
+	const label = "history transcript"
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !opened.Mode().IsRegular() {
+		return "", fmt.Errorf("%s must be a regular file: %s", label, path)
+	}
+	if expected != nil && !os.SameFile(expected, opened) {
+		return "", fmt.Errorf("%s changed while opening: %s", label, path)
+	}
+	h := sha256.New()
+	// Hide os.File's WriterTo method so CopyBuffer uses the one reusable buffer
+	// allocated for the whole transcript walk instead of allocating per file.
+	if _, err := io.CopyBuffer(h, struct{ io.Reader }{f}, scratch); err != nil {
+		return "", err
+	}
+	after, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if after.Size() != opened.Size() || !after.ModTime().Equal(opened.ModTime()) {
+		return "", fmt.Errorf("%s changed while reading: %s", label, path)
+	}
+	current, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(after, current) ||
+		current.Size() != after.Size() || !current.ModTime().Equal(after.ModTime()) {
+		return "", fmt.Errorf("%s changed while reading: %s", label, path)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]historySessionFile, error) {
 	var files []historySessionFile
+	hashScratch := make([]byte, 64*1024)
 	err := filepath.WalkDir(sessionsRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			*warnings = append(*warnings, err.Error())
@@ -536,16 +617,28 @@ func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]hist
 		if ext != ".jsonl" && ext != ".json" && ext != ".md" && ext != ".txt" {
 			return nil
 		}
+		if d.Type()&os.ModeSymlink != 0 {
+			*warnings = append(*warnings, fmt.Sprintf("history transcript must not be a symlink: %s", path))
+			return nil
+		}
 		info, statErr := d.Info()
 		if statErr != nil {
 			*warnings = append(*warnings, statErr.Error())
 			return nil
 		}
+		if !info.Mode().IsRegular() {
+			*warnings = append(*warnings, fmt.Sprintf("history transcript must be a regular file: %s", path))
+			return nil
+		}
+		contentSHA256, hashErr := historyTranscriptContentSHA(path, info, hashScratch)
+		if hashErr != nil {
+			*warnings = append(*warnings, hashErr.Error())
+			return nil
+		}
 		files = append(files, historySessionFile{
-			Path:        path,
-			SortTime:    historySessionSortTime(path, info.ModTime()),
-			Size:        info.Size(),
-			ModUnixNano: info.ModTime().UnixNano(),
+			Path:          path,
+			SortTime:      historySessionSortTime(path, info.ModTime()),
+			ContentSHA256: contentSHA256,
 		})
 		return nil
 	})
