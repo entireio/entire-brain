@@ -197,12 +197,27 @@ type brainBriefAgentV1Emission struct {
 }
 
 func emitBrainBriefAgentV1(cmd *cobra.Command, report brainBriefReport, policy brainBriefDeliveryPolicy, requestedLimit int) error {
+	_, err := emitBrainBriefAgentV1WithCounts(cmd, report, policy, requestedLimit)
+	return err
+}
+
+// emitBrainBriefAgentV1WithCounts returns the counts carried by the exact
+// projection written to the caller. Counts are released only after the packet
+// write succeeds, so profiling cannot publish metadata for a failed emission.
+func emitBrainBriefAgentV1WithCounts(
+	cmd *cobra.Command,
+	report brainBriefReport,
+	policy brainBriefDeliveryPolicy,
+	requestedLimit int,
+) (brainBriefAgentV1Counts, error) {
 	emission, err := prepareBrainBriefAgentV1(report, policy, requestedLimit)
 	if err != nil {
-		return err
+		return brainBriefAgentV1Counts{}, err
 	}
-	_, err = io.WriteString(cmd.OutOrStdout(), emission.projection.packet)
-	return err
+	if _, err := io.WriteString(cmd.OutOrStdout(), emission.projection.packet); err != nil {
+		return brainBriefAgentV1Counts{}, err
+	}
+	return emission.projection.counts, nil
 }
 
 func prepareBrainBriefAgentV1(report brainBriefReport, policy brainBriefDeliveryPolicy, requestedLimit int) (brainBriefAgentV1Emission, error) {

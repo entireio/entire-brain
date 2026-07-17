@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,6 +71,23 @@ func newBrainBriefProfileFixture(t *testing.T) brainBriefProfileFixture {
 	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	return brainBriefProfileFixture{repoDir: repoDir, brainDir: storage.BrainDir, opts: opts}
+}
+
+func runBrainBriefProfileAgentV1Test(
+	t *testing.T,
+	fixture brainBriefProfileFixture,
+	briefOpts brainBriefOptions,
+	task string,
+) string {
+	t.Helper()
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	if err := runBrainBrief(context.Background(), cmd, fixture.opts, briefOpts, task); err != nil {
+		t.Fatalf("run profiled agent_v1: %v\n%s", err, out.String())
+	}
+	return out.String()
 }
 
 func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *testing.T) {
@@ -174,6 +195,85 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	assertProfileObjectFields(t, factsObject, "embed", "invoked", "duration_ns", "query_call_count", "fact_call_count", "valid_vector_count", "invalid_vector_count")
 }
 
+func TestBrainBriefProfilePreservesAgentV1PacketAndUsesEmittedCounts(t *testing.T) {
+	fixture := newBrainBriefProfileFixture(t)
+	task := "PRIVATE_AGENT_PROFILE_TASK PRIVATE_FACT_PAYLOAD ValidateToken"
+	var alwaysPacket string
+	for _, policy := range []brainBriefDeliveryPolicy{brainBriefDeliveryAlways, brainBriefDeliveryShadow} {
+		t.Run(string(policy), func(t *testing.T) {
+			briefOpts := brainBriefOptions{
+				limit:          brainBriefPacketMeasurementLimit,
+				noSemantic:     true,
+				packetFormat:   brainBriefPacketAgentV1,
+				deliveryPolicy: policy,
+			}
+			withoutProfile := runBrainBriefProfileAgentV1Test(t, fixture, briefOpts, task)
+			profilePath := filepath.Join(t.TempDir(), "agent-v1-profile.json")
+			briefOpts.profileJSON = profilePath
+			withProfile := runBrainBriefProfileAgentV1Test(t, fixture, briefOpts, task)
+
+			if withProfile != withoutProfile {
+				t.Fatalf("profiling changed agent_v1 packet bytes\nwithout (%d):\n%s\nwith (%d):\n%s",
+					len(withoutProfile), withoutProfile, len(withProfile), withProfile)
+			}
+			if err := validateBrainBriefAgentV1Integrity(withProfile); err != nil {
+				t.Fatalf("profiled agent_v1 integrity: %v", err)
+			}
+			if !strings.Contains(withProfile, `delivery_policy="always"`) || strings.Contains(withProfile, `delivery_policy="shadow"`) {
+				t.Fatalf("%s changed the always-bound packet config:\n%s", policy, withProfile)
+			}
+			if policy == brainBriefDeliveryAlways {
+				alwaysPacket = withProfile
+			} else if withProfile != alwaysPacket {
+				t.Fatal("profiled shadow changed bytes from profiled always mode")
+			}
+
+			data, err := os.ReadFile(profilePath)
+			if err != nil {
+				t.Fatalf("read profile: %v", err)
+			}
+			for _, private := range []string{task, "PRIVATE_AGENT_PROFILE_TASK", "PRIVATE_FACT_PAYLOAD", fixture.repoDir, fixture.brainDir} {
+				if strings.Contains(string(data), private) {
+					t.Fatalf("agent_v1 profile leaked private value %q:\n%s", private, data)
+				}
+			}
+			var profile brainBriefProfile
+			if err := json.Unmarshal(data, &profile); err != nil {
+				t.Fatalf("parse profile: %v", err)
+			}
+			if profile.Packet.Format != string(brainBriefPacketAgentV1) || profile.Packet.ByteCount != len(withProfile) {
+				t.Fatalf("agent_v1 packet metrics = %+v, output bytes = %d", profile.Packet, len(withProfile))
+			}
+			if !profile.Packet.Serialization.Invoked || profile.Packet.Serialization.OutputCount != 1 || profile.Packet.Serialization.ErrorCount != 0 {
+				t.Fatalf("agent_v1 serialization metrics = %+v", profile.Packet.Serialization)
+			}
+			footerCounts, _ := agentV1ProfileCountsFromFooter(t, withProfile)
+			if profile.Packet.Counts != footerCounts {
+				t.Fatalf("profile counts = %+v, emitted footer = %+v", profile.Packet.Counts, footerCounts)
+			}
+		})
+	}
+}
+
+func TestBrainBriefProfileAgentV1CountsFailClosedWithoutEmission(t *testing.T) {
+	report := newBrainBriefPacketMeasurementReport()
+	counts, err := brainBriefProfilePacketCounts(report, brainBriefPacketAgentV1, nil)
+	if err == nil || !strings.Contains(err.Error(), "counts unavailable") {
+		t.Fatalf("missing emitted counts error = %v", err)
+	}
+	if counts != (brainBriefProfileCounts{}) {
+		t.Fatalf("missing emission released counts: %+v", counts)
+	}
+
+	textCounts, err := brainBriefProfilePacketCounts(report, brainBriefPacketText, nil)
+	if err != nil {
+		t.Fatalf("text counts: %v", err)
+	}
+	if textCounts.Facts != len(report.Facts) || textCounts.SemanticRelations != 0 {
+		t.Fatalf("non-agent counts changed: %+v", textCounts)
+	}
+}
+
 func TestBrainBriefProfilePreservesTextPacket(t *testing.T) {
 	fixture := newBrainBriefProfileFixture(t)
 	task := "ValidateToken PRIVATE_TEXT_PACKET_TASK"
@@ -278,6 +378,66 @@ func TestBrainBriefProfileWriteFailureIsAtomicAndFailClosed(t *testing.T) {
 	}
 	if len(temps) != 0 {
 		t.Fatalf("failed atomic write left temporary files: %+v", temps)
+	}
+}
+
+func TestBrainBriefProfileAgentV1SidecarFailureReleasesNoPacketOrReceipt(t *testing.T) {
+	fixture := newBrainBriefProfileFixture(t)
+	profilePath := filepath.Join(t.TempDir(), "profile-target")
+	if err := os.Mkdir(profilePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	err := runBrainBrief(context.Background(), cmd, fixture.opts, brainBriefOptions{
+		limit:          brainBriefPacketMeasurementLimit,
+		noSemantic:     true,
+		profileJSON:    profilePath,
+		packetFormat:   brainBriefPacketAgentV1,
+		deliveryPolicy: brainBriefDeliveryAlways,
+	}, "PRIVATE_FACT_PAYLOAD agent profile sidecar failure")
+	if err == nil {
+		t.Fatal("agent_v1 brief succeeded despite unwritable profile target")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("agent_v1 packet escaped before profile commit: %d bytes", out.Len())
+	}
+	if got := vitalitySidecarBytes(t, fixture.brainDir, "feature"); len(got) != 0 {
+		t.Fatalf("failed agent_v1 profile wrote a receipt: %s", got)
+	}
+}
+
+func TestBrainBriefProfileAgentV1OutputFailureKeepsSidecarButNoReceipt(t *testing.T) {
+	fixture := newBrainBriefProfileFixture(t)
+	profilePath := filepath.Join(t.TempDir(), "agent-v1-profile.json")
+	cmd := &cobra.Command{}
+	cmd.SetOut(failingVitalityWriter{})
+	cmd.SetErr(io.Discard)
+	err := runBrainBrief(context.Background(), cmd, fixture.opts, brainBriefOptions{
+		limit:          brainBriefPacketMeasurementLimit,
+		noSemantic:     true,
+		profileJSON:    profilePath,
+		packetFormat:   brainBriefPacketAgentV1,
+		deliveryPolicy: brainBriefDeliveryAlways,
+	}, "PRIVATE_FACT_PAYLOAD agent profile output failure")
+	if err == nil || !errors.Is(err, errVitalityTestOutput) {
+		t.Fatalf("agent_v1 output failure = %v", err)
+	}
+	data, readErr := os.ReadFile(profilePath)
+	if readErr != nil {
+		t.Fatalf("profile sidecar was not committed before output: %v", readErr)
+	}
+	var profile brainBriefProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
+		t.Fatalf("parse committed profile: %v", err)
+	}
+	if profile.Packet.Format != string(brainBriefPacketAgentV1) || profile.Packet.ByteCount == 0 {
+		t.Fatalf("committed profile packet metrics = %+v", profile.Packet)
+	}
+	if got := vitalitySidecarBytes(t, fixture.brainDir, "feature"); len(got) != 0 {
+		t.Fatalf("failed agent_v1 output wrote a receipt: %s", got)
 	}
 }
 

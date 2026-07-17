@@ -486,6 +486,114 @@ func TestBrainBriefAgentV1PreservesAllUnsafeLocusDriftTrustState(t *testing.T) {
 	}
 }
 
+func TestBrainBriefAgentV1WithCountsMatchesEmittedFooter(t *testing.T) {
+	fixtures := []struct {
+		name          string
+		newReport     func() brainBriefReport
+		wantTruncated string
+	}{
+		{name: "rich", newReport: newBrainBriefPacketMeasurementReport, wantTruncated: "false"},
+		{name: "near_budget_history", newReport: newBrainBriefAgentV1NearBudgetHistoryReport, wantTruncated: "true"},
+	}
+	for _, fixture := range fixtures {
+		for _, policy := range []brainBriefDeliveryPolicy{brainBriefDeliveryAlways, brainBriefDeliveryShadow} {
+			t.Run(fixture.name+"/"+string(policy), func(t *testing.T) {
+				report := fixture.newReport()
+				before := brainBriefPacketMeasurementFingerprint(t, report)
+				projection, err := buildBrainBriefAgentV1(report, brainBriefDeliveryAlways, brainBriefPacketMeasurementLimit)
+				if err != nil {
+					t.Fatalf("build: %v", err)
+				}
+
+				var out bytes.Buffer
+				cmd := &cobra.Command{}
+				cmd.SetOut(&out)
+				emittedCounts, err := emitBrainBriefAgentV1WithCounts(
+					cmd, report, policy, brainBriefPacketMeasurementLimit,
+				)
+				if err != nil {
+					t.Fatalf("emit with counts: %v", err)
+				}
+				if out.String() != projection.packet {
+					t.Fatal("emission bytes differ from the always-bound direct projection")
+				}
+
+				footerCounts, truncated := agentV1ProfileCountsFromFooter(t, out.String())
+				if truncated != fixture.wantTruncated {
+					t.Fatalf("truncated = %s, want %s", truncated, fixture.wantTruncated)
+				}
+				if got := emittedCounts.profileCounts(); got != footerCounts {
+					t.Fatalf("emitted counts = %+v, footer = %+v", got, footerCounts)
+				}
+				profileCounts, err := brainBriefProfilePacketCounts(report, brainBriefPacketAgentV1, &emittedCounts)
+				if err != nil {
+					t.Fatalf("profile counts: %v", err)
+				}
+				if profileCounts != footerCounts {
+					t.Fatalf("profile counts = %+v, footer = %+v", profileCounts, footerCounts)
+				}
+				if after := brainBriefPacketMeasurementFingerprint(t, report); after != before {
+					t.Fatalf("emission mutated fixture: before=%s after=%s", before, after)
+				}
+			})
+		}
+	}
+}
+
+func TestBrainBriefAgentV1WithCountsReleasesNothingOnFailure(t *testing.T) {
+	tests := []struct {
+		name          string
+		mutate        func(*brainBriefReport)
+		writerFailure bool
+		wantError     string
+	}{
+		{name: "writer", writerFailure: true, wantError: errVitalityTestOutput.Error()},
+		{
+			name: "mandatory_overflow",
+			mutate: func(report *brainBriefReport) {
+				report.Facts[0].Text = strings.Repeat("x", brainBriefAgentV1BudgetBytes)
+			},
+			wantError: "mandatory packet",
+		},
+		{
+			name: "nonfinite",
+			mutate: func(report *brainBriefReport) {
+				report.FactsPendingReview = map[string]factReviewNotice{
+					report.Facts[0].ID: {ReviewID: "review:nan", Confidence: math.NaN(), Message: "review"},
+				}
+			},
+			wantError: "agent_v1 cannot encode non-finite",
+		},
+	}
+	for _, test := range tests {
+		for _, policy := range []brainBriefDeliveryPolicy{brainBriefDeliveryAlways, brainBriefDeliveryShadow} {
+			t.Run(test.name+"/"+string(policy), func(t *testing.T) {
+				report := comprehensiveCompactV1Report()
+				if test.mutate != nil {
+					test.mutate(&report)
+				}
+				var out bytes.Buffer
+				cmd := &cobra.Command{}
+				if test.writerFailure {
+					cmd.SetOut(failingVitalityWriter{})
+				} else {
+					cmd.SetOut(&out)
+				}
+				counts, err := emitBrainBriefAgentV1WithCounts(cmd, report, policy, 8)
+				if err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("error = %v, want containing %q", err, test.wantError)
+				}
+				if counts != (brainBriefAgentV1Counts{}) {
+					t.Fatalf("failed emission released counts: %+v", counts)
+				}
+				if out.Len() != 0 {
+					t.Fatalf("failed emission wrote %d bytes", out.Len())
+				}
+			})
+		}
+	}
+}
+
 func TestBrainBriefAgentV1RejectsNonFiniteConfidenceBeforeWrite(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -617,6 +725,27 @@ func TestBrainBriefAgentV1FailedEmissionWritesNoVitalityReceipt(t *testing.T) {
 	if got := vitalitySidecarBytes(t, fixture.brainDir, "main"); len(got) != 0 {
 		t.Fatalf("failed agent_v1 emission wrote a receipt: %s", got)
 	}
+}
+
+func agentV1ProfileCountsFromFooter(t *testing.T, packet string) (brainBriefProfileCounts, string) {
+	t.Helper()
+	records := parseAgentV1Records(t, packet)
+	end := agentV1RecordsByTag(records, "end")
+	if len(end) != 1 {
+		t.Fatalf("end records = %d, want 1", len(end))
+	}
+	return brainBriefProfileCounts{
+		SemanticSymbols:     agentV1IntField(t, end[0], "symbols"),
+		TestSuggestions:     agentV1IntField(t, end[0], "test_suggestions"),
+		HistoryMatches:      agentV1IntField(t, end[0], "history"),
+		Facts:               agentV1IntField(t, end[0], "facts"),
+		FactsWithLocusDrift: agentV1IntField(t, end[0], "facts_with_locus_drift"),
+		Warnings:            agentV1IntField(t, end[0], "trust_warnings"),
+		Actions:             agentV1IntField(t, end[0], "actions"),
+		LikelyEditFiles:     agentV1IntField(t, end[0], "edit_files"),
+		LikelyTestFiles:     agentV1IntField(t, end[0], "test_files"),
+		LikelyFiles:         agentV1IntField(t, end[0], "likely_files"),
+	}, agentV1RawField(t, end[0], "truncated")
 }
 
 func projectionHistoryCount(projection brainBriefAgentV1Projection) int {

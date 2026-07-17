@@ -188,11 +188,16 @@ func (p *brainBriefProfile) finishTotal() {
 	p.TotalBrief.DurationNS = p.elapsed(p.started)
 }
 
-func brainBriefProfilePacketCounts(report brainBriefReport, packetFormat brainBriefPacketFormat, requestedLimit int) brainBriefProfileCounts {
+func brainBriefProfilePacketCounts(
+	report brainBriefReport,
+	packetFormat brainBriefPacketFormat,
+	emittedAgentV1Counts *brainBriefAgentV1Counts,
+) (brainBriefProfileCounts, error) {
 	if packetFormat == brainBriefPacketAgentV1 {
-		if projection, err := buildBrainBriefAgentV1(report, brainBriefDeliveryAlways, requestedLimit); err == nil {
-			return projection.counts.profileCounts()
+		if emittedAgentV1Counts == nil {
+			return brainBriefProfileCounts{}, fmt.Errorf("profile packet counts unavailable for %s emission", packetFormat)
 		}
+		return emittedAgentV1Counts.profileCounts(), nil
 	}
 	counts := brainBriefProfileCounts{
 		SemanticSymbols:     len(report.Semantic.Context.Symbols),
@@ -224,7 +229,7 @@ func brainBriefProfilePacketCounts(report brainBriefReport, packetFormat brainBr
 		counts.GuidanceItems = 0
 		counts.Warnings = len(report.Status.Warnings) + len(report.Warnings)
 	}
-	return counts
+	return counts, nil
 }
 
 func writeBrainBriefProfile(path string, profile brainBriefProfile) error {

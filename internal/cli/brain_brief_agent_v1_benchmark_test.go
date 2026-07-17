@@ -39,10 +39,11 @@ func TestBrainBriefAgentV1PressureFixtures(t *testing.T) {
 	}
 }
 
-// BenchmarkBrainBriefAgentV1ProfileEmissionCounts freezes the current profiled
-// agent_v1 cost: emit the packet, then reconstruct it to derive emitted counts.
-// Fixture construction, snapshot checks, and byte/count parity checks stay
-// outside the timer so a later shared-result implementation has a clean base.
+// BenchmarkBrainBriefAgentV1ProfileEmissionCounts measures the production
+// profiled agent_v1 serialization/count path. Its name and fixtures match the
+// precursor baseline that rebuilt the packet for counts, while this version
+// consumes counts returned by the successful emission. Fixture construction,
+// snapshot checks, and byte/count parity checks stay outside the timer.
 func BenchmarkBrainBriefAgentV1ProfileEmissionCounts(b *testing.B) {
 	for _, fixture := range brainBriefAgentV1PressureFixtures() {
 		fixture := fixture
@@ -54,19 +55,23 @@ func BenchmarkBrainBriefAgentV1ProfileEmissionCounts(b *testing.B) {
 			cmd := &cobra.Command{}
 			cmd.SetOut(io.Discard)
 			var (
-				counts brainBriefProfileCounts
-				err    error
+				counts        brainBriefProfileCounts
+				emittedCounts brainBriefAgentV1Counts
+				err           error
 			)
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				err = emitBrainBriefPacketWithPolicy(
-					cmd, report, brainBriefPacketAgentV1, brainBriefDeliveryAlways, brainBriefPacketMeasurementLimit,
+				emittedCounts, err = emitBrainBriefAgentV1WithCounts(
+					cmd, report, brainBriefDeliveryAlways, brainBriefPacketMeasurementLimit,
 				)
 				if err != nil {
 					break
 				}
-				counts = brainBriefProfilePacketCounts(report, brainBriefPacketAgentV1, brainBriefPacketMeasurementLimit)
+				counts, err = brainBriefProfilePacketCounts(report, brainBriefPacketAgentV1, &emittedCounts)
+				if err != nil {
+					break
+				}
 			}
 			b.StopTimer()
 
@@ -249,7 +254,11 @@ func verifyBrainBriefAgentV1PressureFixture(
 	if emitted.String() != projection.packet {
 		tb.Fatalf("%s emitter bytes differ from direct builder", fixture.name)
 	}
-	if counts := brainBriefProfilePacketCounts(report, brainBriefPacketAgentV1, brainBriefPacketMeasurementLimit); counts != projection.counts.profileCounts() {
+	counts, err := brainBriefProfilePacketCounts(report, brainBriefPacketAgentV1, &projection.counts)
+	if err != nil {
+		tb.Fatalf("profile %s pressure fixture: %v", fixture.name, err)
+	}
+	if counts != projection.counts.profileCounts() {
 		tb.Fatalf("%s profile counts = %+v, want emitted %+v", fixture.name, counts, projection.counts.profileCounts())
 	}
 	if after := brainBriefPacketMeasurementFingerprint(tb, report); after != fingerprint {
