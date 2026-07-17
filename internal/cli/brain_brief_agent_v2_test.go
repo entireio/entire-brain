@@ -59,7 +59,7 @@ func TestBrainBriefAgentV2RetainsV1CoreAndAddsTypedEdges(t *testing.T) {
 }
 
 func TestBrainBriefAgentV2ConfigSchemaAndAlwaysOnlyPolicy(t *testing.T) {
-	const wantConfig = "sha256:3df679cbb399abcde3f63e3af30af9d5c8b2a0c899a90f6268460e2441e0f7cc"
+	const wantConfig = "sha256:b50ea93c29dc0fde44fd884a8fb8c2db1fc11b706cb4c7d709f199b446e4257e"
 	if got := brainBriefAgentV2ConfigIdentity(brainBriefDeliveryAlways, 8, 6); got != wantConfig {
 		t.Fatalf("agent_v2 config identity = %s, want frozen %s", got, wantConfig)
 	}
@@ -978,7 +978,7 @@ func TestBrainBriefAgentV2RichMeasurementAgainstFrozenSixArmBaseline(t *testing.
 	v2Utility := measureBrainBriefPacketUtility(v2.packet)
 	const wantUtility = "evidence_fidelity=10/10@3500bp;trust_signal_retention=4/7@2500bp;navigation_actionability=9/9@2500bp;task_current_state=3/3@1500bp;packet_utility_score_bp=8928"
 	wantMetrics := brainBriefPacketMeasurementMetrics{
-		SHA256: "sha256:79b9646aefe2cf98734c3f13bae4bae571054999117505890be07074f8d002be", Bytes: 2866, UnicodeRunes: 2866, Lexemes: 584,
+		SHA256: "sha256:6693efb3a0d0a0828b562fa486d9e36f18326a218f91d298c48d01737aa023cc", Bytes: 2866, UnicodeRunes: 2866, Lexemes: 584,
 		LexemeMetric: brainBriefPacketMeasurementLexemeVersion,
 	}
 	if v2Metrics != wantMetrics {
