@@ -132,8 +132,8 @@ func TestBrainBriefSemanticFreshnessRefillsThenHonorsCaps(t *testing.T) {
 	if got := strings.Count(packet, "\ny\t") + strings.Count(packet, "\nsymbol "); got != 1 {
 		t.Fatalf("symbol cap = %d, want 1:\n%s", got, packet)
 	}
-	if got := strings.Count(packet, "\no\t") + strings.Count(packet, "\ntest_root "); got != 1 {
-		t.Fatalf("test-root cap = %d, want 1:\n%s", got, packet)
+	if got := strings.Count(packet, "\no\t") + strings.Count(packet, "\ntest_root "); got != 0 {
+		t.Fatalf("context-duplicate test roots = %d, want 0:\n%s", got, packet)
 	}
 	if got := strings.Count(packet, "\ntest_suggestion "); got > 1 {
 		t.Fatalf("test suggestion cap = %d, want <= 1:\n%s", got, packet)

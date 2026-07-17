@@ -1371,6 +1371,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if profile != nil {
 		profile.finishStage(&profile.Knowledge.Themes, themesStarted, 0, len(report.Themes), 0)
 	}
+	brainBriefDeduplicateTestRoots(&report.Semantic)
 	packetFormat := briefOpts.resolvedPacketFormat()
 	if profile == nil {
 		return emitBrainBriefPacket(cmd, report, packetFormat)
