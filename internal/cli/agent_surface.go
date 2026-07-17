@@ -1182,7 +1182,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				// in-memory scorer if SQLite remains unavailable.
 				indexLoadStarted := profile.start()
 				var index historyIndex
-				index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
+				var legacyIdentity *historyLegacyIdentity
+				index, legacyIdentity, historyErr = loadBrainHistoryIndexWithLegacyIdentity(status.Brain.Path, source)
 				if profile != nil {
 					historyErrors := 0
 					if historyErr != nil {
@@ -1204,9 +1205,12 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 						}
 					} else {
 						var ok bool
-						scoredHistory, ok = rankHistoryViaFTS(status.Brain.Path, index, "history", task, briefOpts.limit)
+						scoredHistory, ok = rankHistoryViaLegacyDirectPayload(status.Brain.Path, source, legacyIdentity, "history", task, briefOpts.limit, historyFTSRelevanceCutoff)
 						if !ok {
-							scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
+							scoredHistory, ok = rankHistoryViaFTS(status.Brain.Path, index, "history", task, briefOpts.limit)
+							if !ok {
+								scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
+							}
 						}
 					}
 					if profile != nil {

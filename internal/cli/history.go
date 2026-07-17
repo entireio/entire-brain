@@ -1883,20 +1883,57 @@ func historyQueryStopword(term string) bool {
 }
 
 func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (historyIndex, error) {
+	data, err := readBrainHistoryIndex(brainDir, source)
+	if err != nil {
+		return historyIndex{}, err
+	}
+	return decodeBrainHistoryIndex(data, source)
+}
+
+// loadBrainHistoryIndexWithLegacyIdentity returns the same verified index as
+// loadBrainHistoryIndex plus an optional identity upgrade derived from the
+// exact byte slice that was parsed. Older manifests predate the strong source
+// identity fields required by direct FTS hydration. Keeping hashing and parsing
+// on one immutable slice prevents a path replacement from producing a hash of
+// generation A and parsed records from generation B.
+func loadBrainHistoryIndexWithLegacyIdentity(brainDir string, source *historySourceManifest) (historyIndex, *historyLegacyIdentity, error) {
+	data, err := readBrainHistoryIndex(brainDir, source)
+	if err != nil {
+		return historyIndex{}, nil, err
+	}
+	index, err := decodeBrainHistoryIndex(data, source)
+	if err != nil {
+		return historyIndex{}, nil, err
+	}
+	legacyIdentity := deriveHistoryLegacyIdentity(source, data, index)
+	if legacyIdentity != nil {
+		// The direct/index-backed FTS freshness check consumes this private
+		// identity. It is derived from the parsed truth, not trusted from a
+		// legacy manifest, and avoids recomputing it later in this same request.
+		index.recordsFingerprint = legacyIdentity.RecordsFingerprint
+	}
+	return index, legacyIdentity, nil
+}
+
+func readBrainHistoryIndex(brainDir string, source *historySourceManifest) ([]byte, error) {
 	if source == nil || source.IndexPath == "" {
-		return historyIndex{}, errors.New("history index missing; run `entire brain refresh`")
+		return nil, errors.New("history index missing; run `entire brain refresh`")
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {
-		return historyIndex{}, err
+		return nil, err
 	}
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return historyIndex{}, err
+		return nil, err
 	}
 	data, err := os.ReadFile(filepath.Join(brainDir, clean))
 	if err != nil {
-		return historyIndex{}, err
+		return nil, err
 	}
+	return data, nil
+}
+
+func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (historyIndex, error) {
 	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
 		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d", len(data), source.IndexBytes)
 	}
