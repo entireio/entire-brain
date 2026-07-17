@@ -411,7 +411,7 @@ func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T
 		if !brainBriefAgentV2EdgeIDComponentStart(view, index) {
 			continue
 		}
-		if view[index] == '/' && !brainBriefAgentV2CanonicalRouteRootSlash(view, index) {
+		if view[index] == '/' && !brainBriefAgentV2CanonicalRouteSlash(view, index) {
 			return false
 		}
 		if index+2 < len(view) && isASCIIAlpha(view[index]) && view[index+1] == ':' && view[index+2] == '/' {
@@ -455,9 +455,9 @@ func brainBriefAgentV2EdgeIDComponentDelimiter(value byte) bool {
 	}
 }
 
-func brainBriefAgentV2CanonicalRouteRootSlash[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
+func brainBriefAgentV2CanonicalRouteSlash[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
 	const prefix = "external:route:"
-	if index != len(prefix) {
+	if len(value) <= len(prefix) || value[len(prefix)] != '/' {
 		return false
 	}
 	for offset := 0; offset < len(prefix); offset++ {
@@ -465,7 +465,7 @@ func brainBriefAgentV2CanonicalRouteRootSlash[T brainBriefAgentV2EdgeIDView](val
 			return false
 		}
 	}
-	return true
+	return index == len(prefix) || (index > len(prefix) && value[index-1] != '/')
 }
 
 func brainBriefAgentV2EdgeIDComponentStart[T brainBriefAgentV2EdgeIDView](value T, index int) bool {

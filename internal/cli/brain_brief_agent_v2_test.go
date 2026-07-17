@@ -369,6 +369,11 @@ func TestBrainBriefAgentV2EdgeIDComponentPrivacy(t *testing.T) {
 		"sym-%2FUsers/private/repo/file.go",
 		"sym_%2e%2e/private/file.go",
 		"sym.%24HOME/private/file.go",
+		"external:route:/api//users",
+		"external:route:/api/../private",
+		"external:route:/api/$HOME/private",
+		"external:route:/api/C:/private",
+		"external:route:%2Fapi%2F%2Fusers",
 	}
 	for _, value := range invalid {
 		t.Run("reject_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
@@ -408,6 +413,10 @@ func TestBrainBriefAgentV2EdgeIDComponentPrivacy(t *testing.T) {
 		"external:route:/docs/[[lang]]",
 		"external:route:/blog/[...slug]",
 		"external:route:/assets/*path",
+		"external:route:/api/users/{id}/posts",
+		"external:route:/api/projects/<project_id>/edit",
+		"external:route:/docs/[[lang]]/intro",
+		"external:route:/assets/*path/chunk",
 	}
 	for _, value := range valid {
 		t.Run("retain_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
@@ -450,6 +459,11 @@ func TestBrainBriefAgentV2BuilderOmitsPrefixedPrivateEdgeIDs(t *testing.T) {
 		"sym-../private/file.go",
 		"sym-$HOME/private/file.go",
 		"sym-%2FUsers/private/repo/file.go",
+		"external:route:/api//users",
+		"external:route:/api/../private",
+		"external:route:/api/$HOME/private",
+		"external:route:/api/C:/private",
+		"external:route:%2Fapi%2F%2Fusers",
 	}
 	report := newBrainBriefPacketMeasurementReport()
 	report.Semantic.Context.Relations = make([]semanticRecord, len(unsafe))
@@ -498,6 +512,10 @@ func TestBrainBriefAgentV2BuilderRetainsCanonicalFileAndRouteEdgeIDs(t *testing.
 		"external:route:/docs/[[lang]]",
 		"external:route:/blog/[...slug]",
 		"external:route:/assets/*path",
+		"external:route:/api/users/{id}/posts",
+		"external:route:/api/projects/<project_id>/edit",
+		"external:route:/docs/[[lang]]/intro",
+		"external:route:/assets/*path/chunk",
 	}
 	report := newBrainBriefPacketMeasurementReport()
 	report.Semantic.Context.Relations = make([]semanticRecord, 0, len(canonical))
@@ -802,6 +820,11 @@ func TestBrainBriefAgentV2IntegrityRejectsRecomputedPrefixedPrivateEdgeIDs(t *te
 		"sym-../private/file.go",
 		"sym-$HOME/private/file.go",
 		"sym-%2FUsers/private/repo/file.go",
+		"external:route:/api//users",
+		"external:route:/api/../private",
+		"external:route:/api/$HOME/private",
+		"external:route:/api/C:/private",
+		"external:route:%2Fapi%2F%2Fusers",
 	}
 	for _, value := range unsafe {
 		t.Run("unsafe_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
@@ -822,6 +845,8 @@ func TestBrainBriefAgentV2IntegrityRejectsRecomputedPrefixedPrivateEdgeIDs(t *te
 		"gh/example/repo:file:apps/web/src/app.ts",
 		"external:route:/shared",
 		"external:route:/blog/[...slug]",
+		"external:route:/api/users/{id}/posts",
+		"external:route:/docs/[[lang]]/intro",
 	} {
 		t.Run("valid_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
 			recomputed := rewriteAgentV2StringFieldForTest(
