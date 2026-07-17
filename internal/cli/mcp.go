@@ -412,7 +412,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_review",
-			"description": "Diff-less review (versioned schema_version contract): review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The contract `entire review`'s diff-less mode and `labs investigate` are intended to bind to; those consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
+			"description": "Diff-less review (versioned schema_version contract) of the current working tree against brain memory, not a branch/base diff. Returns severity-ranked suspected regressions with provenance.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
