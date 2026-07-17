@@ -85,6 +85,14 @@ confirmatory analyzer is implemented and path-locked.
   reversal and cleanup-state requirements, while every approval, cache, host, reservation, producer,
   private-root, and cleanup runtime binding remains null. It has no candidate or subprocess surface
   and remains `contract_compiled_execution_forbidden`.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-OWNER-APPROVAL-V1.md`,
+  `negative_control_owner_approval_v1.py`, the checked verifier/trust-root artifacts, and their
+  schemas/test: a deterministic build/check/verify-only SSHSIG approval gate bound to the exact
+  execution contract. The checked trust-root set is pending and empty, so production verification
+  fails before reading an approval or invoking `/usr/bin/ssh-keygen`. A future valid owner signature
+  can produce only a non-persistent, non-authorizing report: execution and atomic consumption remain
+  forbidden. The module has no signing, key-generation, trust-root installation, approval issuance,
+  candidate execution, provider, or network lane.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.

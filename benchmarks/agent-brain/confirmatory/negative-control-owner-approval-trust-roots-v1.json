@@ -1,0 +1,9 @@
+{
+  "canonical_json_profile": "sorted_keys_indent_2_utf8_lf_v1",
+  "profile": "agent_brain_negative_control_owner_approval_trust_roots_v1",
+  "roots": [],
+  "schema_version": 1,
+  "signature_namespace": "entire-brain-negative-control-approval-v1",
+  "status": "pending_owner_authorization",
+  "trust_roots_sha256": "b3374aff490518f3f1eb142428810bb7791aeaf5a6a05cf16f63455d02908b37"
+}
