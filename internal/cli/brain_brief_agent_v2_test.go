@@ -404,6 +404,10 @@ func TestBrainBriefAgentV2EdgeIDComponentPrivacy(t *testing.T) {
 		"external:route:/",
 		"external:route:/shared",
 		"external:route:/api/users/{id}",
+		"external:route:/api/projects/<project_id>",
+		"external:route:/docs/[[lang]]",
+		"external:route:/blog/[...slug]",
+		"external:route:/assets/*path",
 	}
 	for _, value := range valid {
 		t.Run("retain_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
@@ -490,6 +494,10 @@ func TestBrainBriefAgentV2BuilderRetainsCanonicalFileAndRouteEdgeIDs(t *testing.
 		"external:route:/",
 		"external:route:/shared",
 		"external:route:/api/users/{id}",
+		"external:route:/api/projects/<project_id>",
+		"external:route:/docs/[[lang]]",
+		"external:route:/blog/[...slug]",
+		"external:route:/assets/*path",
 	}
 	report := newBrainBriefPacketMeasurementReport()
 	report.Semantic.Context.Relations = make([]semanticRecord, 0, len(canonical))
@@ -813,6 +821,7 @@ func TestBrainBriefAgentV2IntegrityRejectsRecomputedPrefixedPrivateEdgeIDs(t *te
 		"repo:%E5%87%BD%E6%95%B0",
 		"gh/example/repo:file:apps/web/src/app.ts",
 		"external:route:/shared",
+		"external:route:/blog/[...slug]",
 	} {
 		t.Run("valid_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
 			recomputed := rewriteAgentV2StringFieldForTest(

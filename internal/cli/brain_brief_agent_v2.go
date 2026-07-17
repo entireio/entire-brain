@@ -417,10 +417,10 @@ func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T
 		if index+2 < len(view) && isASCIIAlpha(view[index]) && view[index+1] == ':' && view[index+2] == '/' {
 			return false
 		}
-		if brainBriefAgentV2FoldComponent(view, index, "..") ||
-			brainBriefAgentV2FoldComponent(view, index, "~") ||
-			brainBriefAgentV2FoldComponent(view, index, "$home") ||
-			brainBriefAgentV2FoldComponent(view, index, "${home}") {
+		if brainBriefAgentV2FoldPathSegment(view, index, "..") ||
+			brainBriefAgentV2FoldPathSegment(view, index, "~") ||
+			brainBriefAgentV2FoldPathSegment(view, index, "$home") ||
+			brainBriefAgentV2FoldPathSegment(view, index, "${home}") {
 			return false
 		}
 		if brainBriefAgentV2FoldPrefix(view, index, "http:") ||
@@ -472,10 +472,6 @@ func brainBriefAgentV2EdgeIDComponentStart[T brainBriefAgentV2EdgeIDView](value 
 	return index == 0 || brainBriefAgentV2EdgeIDComponentDelimiter(value[index-1])
 }
 
-func brainBriefAgentV2EdgeIDComponentEnd[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
-	return index == len(value) || brainBriefAgentV2EdgeIDComponentDelimiter(value[index])
-}
-
 func brainBriefAgentV2FoldPrefix[T brainBriefAgentV2EdgeIDView](value T, index int, prefix string) bool {
 	if index+len(prefix) > len(value) {
 		return false
@@ -492,9 +488,12 @@ func brainBriefAgentV2FoldPrefix[T brainBriefAgentV2EdgeIDView](value T, index i
 	return true
 }
 
-func brainBriefAgentV2FoldComponent[T brainBriefAgentV2EdgeIDView](value T, index int, component string) bool {
+func brainBriefAgentV2FoldPathSegment[T brainBriefAgentV2EdgeIDView](value T, index int, component string) bool {
+	if index > 0 && value[index-1] == component[0] {
+		return false
+	}
 	return brainBriefAgentV2FoldPrefix(value, index, component) &&
-		brainBriefAgentV2EdgeIDComponentEnd(value, index+len(component))
+		(index+len(component) == len(value) || value[index+len(component)] == '/')
 }
 
 func finalizeBrainBriefAgentV2Body(bodyText string, bodyRecords int, emitted, available brainBriefAgentV2Counts) string {
