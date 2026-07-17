@@ -2501,11 +2501,21 @@ type semanticTestsOptions struct {
 type semanticTestSuggestion struct {
 	Symbol semanticRecord `json:"symbol"`
 	Reason string         `json:"reason"`
+	// weak is a bounded reservoir-only fallback. It remains available through
+	// freshness filtering, then is omitted from the emitted packet.
+	weak bool
+	// fallback inherits exact/graph evidence from a task-aligned root. It is
+	// emitted only when no candidate-local strong suggestion survives freshness.
+	fallback bool
 }
 
 type semanticTestsResult struct {
 	Roots       []semanticRecord         `json:"roots"`
 	Suggestions []semanticTestSuggestion `json:"suggestions"`
+	// synthesisSuggestions preserves the former bounded file-evidence stream
+	// for likely-file/action synthesis while Suggestions carries the ranked,
+	// higher-precision agent-facing stream. It is never serialized.
+	synthesisSuggestions []semanticTestSuggestion
 }
 
 func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, queryOpts semanticQueryOptions, query string) error {
@@ -3329,49 +3339,22 @@ func semanticTestFacts(brainDir string, source *semanticSourceManifest, query st
 	if err != nil {
 		return semanticTestsResult{}, err
 	}
-	related := map[string]struct{}{}
-	for _, root := range roots {
-		related[root.ID] = struct{}{}
+	return semanticTestsResult{
+		Roots:       roots,
+		Suggestions: visibleSemanticTestSuggestions(rankSemanticTestSuggestions(symbolsByID, roots, relations, query, limit), limit),
+	}, nil
+}
+
+func semanticTestFactsReservoir(brainDir string, source *semanticSourceManifest, query string, limit int) (semanticTestsResult, error) {
+	roots, _, relations, symbolsByID, err := semanticGraphFacts(brainDir, source, query, 1, limit)
+	if err != nil {
+		return semanticTestsResult{}, err
 	}
-	for _, relation := range relations {
-		if _, ok := related[relation.FromID]; ok {
-			related[relation.ToID] = struct{}{}
-		}
-		if _, ok := related[relation.ToID]; ok {
-			related[relation.FromID] = struct{}{}
-		}
-	}
-	rootDirs := map[string]struct{}{}
-	rootNames := make([]string, 0, len(roots))
-	for _, root := range roots {
-		if root.FilePath != "" {
-			rootDirs[pathDirSlash(root.FilePath)] = struct{}{}
-		}
-		name := strings.ToLower(root.Name)
-		if name != "" {
-			rootNames = append(rootNames, name)
-		}
-	}
-	result := semanticTestsResult{Roots: roots}
-	seen := map[string]struct{}{}
-	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
-		if !isSemanticTestSymbol(symbol) {
-			continue
-		}
-		reason := semanticTestReason(symbol, related, rootDirs, rootNames)
-		if reason == "" {
-			continue
-		}
-		if _, ok := seen[symbol.ID]; ok {
-			continue
-		}
-		seen[symbol.ID] = struct{}{}
-		result.Suggestions = append(result.Suggestions, semanticTestSuggestion{Symbol: symbol, Reason: reason})
-		if len(result.Suggestions) >= limit {
-			break
-		}
-	}
-	return result, nil
+	return semanticTestsResult{
+		Roots:                roots,
+		Suggestions:          rankSemanticTestSuggestions(symbolsByID, roots, relations, query, limit),
+		synthesisSuggestions: legacySemanticTestSuggestions(symbolsByID, roots, relations, limit),
+	}, nil
 }
 
 func semanticGraphFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, map[string]semanticRecord, error) {
@@ -4395,30 +4378,11 @@ func sortedSemanticSymbols(symbols map[string]semanticRecord) []semanticRecord {
 }
 
 func isSemanticTestSymbol(symbol semanticRecord) bool {
-	kind := strings.ToLower(symbol.Kind)
-	path := strings.ToLower(symbol.FilePath)
-	name := strings.ToLower(symbol.Name)
-	return strings.Contains(kind, "test") ||
-		strings.HasSuffix(path, "_test.go") ||
-		strings.Contains(path, "/test/") ||
-		strings.Contains(path, "/tests/") ||
-		strings.HasPrefix(name, "test")
-}
-
-func semanticTestReason(symbol semanticRecord, related map[string]struct{}, rootDirs map[string]struct{}, rootNames []string) string {
-	if _, ok := related[symbol.ID]; ok {
-		return "semantic relation"
-	}
-	if _, ok := rootDirs[pathDirSlash(symbol.FilePath)]; ok {
-		return "same directory"
-	}
-	lowerName := strings.ToLower(symbol.Name)
-	for _, rootName := range rootNames {
-		if rootName != "" && strings.Contains(lowerName, rootName) {
-			return "name match"
-		}
-	}
-	return ""
+	return semanticTestContainsFold(symbol.Kind, "test") ||
+		semanticTestHasSuffixFold(symbol.FilePath, "_test.go") ||
+		semanticTestContainsFold(symbol.FilePath, "/test/") ||
+		semanticTestContainsFold(symbol.FilePath, "/tests/") ||
+		semanticTestHasPrefixFold(symbol.Name, "test")
 }
 
 func pathDirSlash(path string) string {

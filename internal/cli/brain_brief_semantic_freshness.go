@@ -53,6 +53,7 @@ func brainBriefCapSemantic(semantic *brainBriefSemantic, limit int) {
 	semantic.RuntimeTraces = capBrainBriefSlice(semantic.RuntimeTraces, limit)
 	semantic.Tests.Roots = capBrainBriefSlice(semantic.Tests.Roots, limit)
 	semantic.Tests.Suggestions = capBrainBriefSlice(semantic.Tests.Suggestions, limit)
+	semantic.Tests.synthesisSuggestions = capBrainBriefSlice(semantic.Tests.synthesisSuggestions, limit)
 	contextIDs := map[string]struct{}{}
 	for _, records := range [][]semanticRecord{semantic.Context.Symbols, semantic.Context.Neighbors} {
 		for _, record := range records {
@@ -132,22 +133,43 @@ func brainBriefFilterDepartedSemantic(repoRoot string, live brainLiveState, sema
 	semantic.Tests.Roots = filterRecords(semantic.Tests.Roots, false)
 
 	suggestions := make([]semanticTestSuggestion, 0, len(semantic.Tests.Suggestions))
+	// When a private legacy stream is present, it owns graph endpoint retention
+	// exactly as the pre-ranking public stream did. The ranked public reservoir
+	// has different IDs by design and must not perturb context-relation filtering
+	// or downstream likely-file ordering.
+	publicOwnsGraphIDs := semantic.Tests.synthesisSuggestions == nil
 	for _, suggestion := range semantic.Tests.Suggestions {
 		stats.InputRecords++
 		if !filter.keepRecord(suggestion.Symbol) {
 			stats.RemovedRecords++
-			if suggestion.Symbol.ID != "" {
+			if publicOwnsGraphIDs && suggestion.Symbol.ID != "" {
 				droppedIDs[suggestion.Symbol.ID] = struct{}{}
 			}
 			continue
 		}
 		stats.KeptRecords++
-		if suggestion.Symbol.ID != "" {
+		if publicOwnsGraphIDs && suggestion.Symbol.ID != "" {
 			keptIDs[suggestion.Symbol.ID] = struct{}{}
 		}
 		suggestions = append(suggestions, suggestion)
 	}
 	semantic.Tests.Suggestions = nonNil(suggestions)
+	if semantic.Tests.synthesisSuggestions != nil {
+		synthesis := make([]semanticTestSuggestion, 0, len(semantic.Tests.synthesisSuggestions))
+		for _, suggestion := range semantic.Tests.synthesisSuggestions {
+			if !filter.keepRecord(suggestion.Symbol) {
+				if suggestion.Symbol.ID != "" {
+					droppedIDs[suggestion.Symbol.ID] = struct{}{}
+				}
+				continue
+			}
+			if suggestion.Symbol.ID != "" {
+				keptIDs[suggestion.Symbol.ID] = struct{}{}
+			}
+			synthesis = append(synthesis, suggestion)
+		}
+		semantic.Tests.synthesisSuggestions = nonNil(synthesis)
+	}
 
 	for id := range keptIDs {
 		delete(droppedIDs, id)
