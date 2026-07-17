@@ -31,10 +31,12 @@ func factsBM25Enabled() bool {
 }
 
 // factsFTSContent indexes the dual normalized/raw form (like history) so both
-// spaced and camelCase queries hit identifiers, and folds in the taxonomy paths
-// so a path term ("preferences coding style") is searchable too.
+// spaced and camelCase queries hit identifiers. Taxonomy paths remain searchable,
+// and locus metadata is included because it is the fact's explicit code/entity
+// address: the hand-rolled lexical arm already treats locus overlap as a strong
+// retrieval signal, so the opt-in BM25 arm must not lose identifier-only queries.
 func factsFTSContent(f factRecord) string {
-	raw := f.Text + " " + strings.Join(f.Paths, " ")
+	raw := f.Text + " " + strings.Join(f.Paths, " ") + " " + strings.Join(f.Locus, " ")
 	return normalizeHistorySearchText(raw) + " " + strings.ToLower(raw)
 }
 
