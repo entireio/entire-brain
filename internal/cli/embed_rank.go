@@ -10,7 +10,10 @@ import (
 // the original RRF paper and what hybrid-search systems (e.g. qmd) use; it
 // damps the influence of a single retriever's top ranks so neither the lexical
 // nor the semantic list can unilaterally dominate the fusion.
-const rrfK = 60.0
+const (
+	rrfK                     = 60.0
+	semanticFusionOversample = 2
+)
 
 // vectorStore persists fact vectors across CLI invocations. Two
 // implementations exist, selected by build tag: the pure-Go vectors.bin flat
@@ -188,16 +191,22 @@ func (s *semanticReranker) flush() error {
 // lexical), so callers without an embedder are unaffected.
 //
 // The fusion is what attacks both measured failure modes at once:
-//   - Reachability (the 0.667 lexical ceiling): the semantic list ranks every
-//     active candidate with a valid vector, so a relevant fact that shares no
-//     query term still gets a rank and can surface — something no lexical
-//     weighting can do.
+//   - Reachability (the 0.667 lexical ceiling): the semantic list lets a relevant
+//     fact that shares no query term surface — something no lexical weighting
+//     can do.
 //   - Ranking within reach: a fact strong in both lists fuses above one strong
 //     in only one, reordering the lexically-reachable set by meaning.
 //
 // An empty (or whitespace-only) query keeps the lexical path's recency listing
 // (no query vector to compare against), matching rankFacts exactly.
 func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool, rr *semanticReranker) []factRecord {
+	return rankFactsFusedWithSemanticDepthMultiplier(facts, query, limit, includeAll, rr, semanticFusionOversample)
+}
+
+// rankFactsFusedWithSemanticDepthMultiplier is the implementation seam used to
+// compare semantic oversampling depths in deterministic retrieval tests. A
+// multiplier <= 0 preserves the historical full-candidate contribution.
+func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string, limit int, includeAll bool, rr *semanticReranker, semanticDepthMultiplier int) []factRecord {
 	if rr == nil {
 		return rankFacts(facts, query, limit, includeAll)
 	}
@@ -318,10 +327,12 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	}
 
 	// Semantic ranks: candidates backed by valid vectors are ranked by cosine, so
-	// a term-disjoint but semantically-near fact still earns a rank. Failure-shaped
+	// a term-disjoint but semantically-near fact can earn a rank. Failure-shaped
 	// vectors are excluded rather than receiving a recency-ordered zero-cosine
-	// rank. Skipped entirely when there's no valid query embedding, leaving a clean
-	// lexical-only ranking.
+	// rank. Only an oversampled top window contributes to RRF: the weak tail of a
+	// small static model is not evidence strong enough to displace a top lexical
+	// match. Skipped entirely when there's no valid query embedding, leaving a
+	// clean lexical-only ranking.
 	if haveSemantic {
 		sort.SliceStable(order, func(a, b int) bool {
 			ia, ib := order[a], order[b]
@@ -333,8 +344,9 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 			}
 			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 		})
+		semanticDepth := semanticFusionDepth(limit, semanticDepthMultiplier, len(order))
 		for rank, idx := range order {
-			if !cands[idx].semHit {
+			if rank >= semanticDepth || !cands[idx].semHit {
 				break
 			}
 			fused[idx] += 1.0 / (rrfK + float64(rank+1))
@@ -351,11 +363,11 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 	})
-	// Only facts that earned a retrieval signal (fused > 0) are returned. With an
-	// healthy embedder, every valid candidate gets a semantic RRF term so this
-	// keeps all of them; but when embeddings are unavailable and nothing matched
-	// lexically, every fused score is 0 — return nothing rather than an arbitrary
-	// recency-ordered top-N (matches rankFacts's score>0 filter).
+	// Only facts that earned a retrieval signal (fused > 0) are returned. The
+	// oversampled semantic window and every lexical hit are eligible; when
+	// embeddings are unavailable and nothing matched lexically, every fused score
+	// is 0 — return nothing rather than an arbitrary recency-ordered top-N
+	// (matches rankFacts's score>0 filter).
 	out := make([]factRecord, 0, min(limit, len(order)))
 	for _, idx := range order {
 		if fused[idx] <= 0 {
@@ -367,6 +379,22 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 	}
 	return out
+}
+
+// semanticFusionDepth computes limit*multiplier capped to the candidate count
+// without overflowing int. A non-positive multiplier means the full candidate
+// set, which is retained as the comparison arm in tests.
+func semanticFusionDepth(limit, multiplier, candidates int) int {
+	if candidates <= 0 {
+		return 0
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if multiplier <= 0 || limit > candidates/multiplier {
+		return candidates
+	}
+	return limit * multiplier
 }
 
 // validSemanticEmbedding rejects failure-shaped vectors before they can earn
