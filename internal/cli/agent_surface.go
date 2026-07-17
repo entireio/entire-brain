@@ -1489,45 +1489,63 @@ func brainBriefFactsCount(limit int) int {
 
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
 	counts := map[string]int{}
+	var currentFileCache map[string]bool
 	taskTerms := brainBriefFileMatchTerms(task)
-	add := func(path string, weight int) {
+	add := func(path string, weight int, requireCurrentFile bool) {
 		clean, ok := cleanBrainBriefLikelyFile(path)
 		if !ok {
 			return
 		}
+		// Semantic results come from an indexed snapshot, so a syntactically
+		// valid path may have departed from the current worktree. Live changed
+		// paths and history are intentionally exempt: a deleted live file can be
+		// a restoration target, and history may name a file the task must create.
+		if requireCurrentFile && repoRoot != "" {
+			if currentFileCache == nil {
+				currentFileCache = make(map[string]bool)
+			}
+			exists, cached := currentFileCache[clean]
+			if !cached {
+				exists = brainBriefRepoFileExists(repoRoot, clean)
+				currentFileCache[clean] = exists
+			}
+			if !exists {
+				return
+			}
+		}
 		counts[clean] += weight + brainBriefLikelyFileBonus(clean) + brainBriefTaskTermBonus(clean, taskTerms)
 	}
 	for _, symbol := range report.Semantic.Context.Symbols {
-		add(symbol.FilePath, 12)
-		add(symbol.Path, 4)
+		add(symbol.FilePath, 12, true)
+		add(symbol.Path, 4, true)
 	}
 	for _, relation := range report.Semantic.Context.Relations {
-		add(relation.FilePath, 4)
-		add(relation.Path, 2)
+		add(relation.FilePath, 4, true)
+		add(relation.Path, 2, true)
 	}
 	for _, trace := range report.Semantic.RuntimeTraces {
-		add(trace.FilePath, 7)
-		add(trace.Path, 3)
+		add(trace.FilePath, 7, true)
+		add(trace.Path, 3, true)
 		for _, evidence := range trace.Evidence {
-			add(evidence.FilePath, 2)
+			add(evidence.FilePath, 2, true)
 		}
 	}
 	for _, root := range report.Semantic.Tests.Roots {
-		add(root.FilePath, 6)
+		add(root.FilePath, 6, true)
 	}
 	for _, suggestion := range report.Semantic.Tests.Suggestions {
-		add(suggestion.Symbol.FilePath, 9)
+		add(suggestion.Symbol.FilePath, 9, true)
 	}
 	for _, changed := range report.Status.Live.ChangedFiles {
-		add(changed, 3)
+		add(changed, 3, false)
 	}
 	for _, match := range report.History.Matches {
 		for _, path := range extractBrainBriefPaths(match.Excerpt) {
-			add(path, 5)
+			add(path, 5, false)
 		}
 	}
 	for path, score := range brainBriefCurrentCodeFileCounts(repoRoot, task) {
-		add(path, score)
+		add(path, score, false)
 	}
 	editCounts := map[string]int{}
 	testCounts := map[string]int{}

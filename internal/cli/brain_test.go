@@ -612,6 +612,84 @@ func TestBrainBriefLikelyFilesExtractsDotSlashHistoryPaths(t *testing.T) {
 	}
 }
 
+func TestBrainBriefLikelyFilesExcludeDepartedSemanticPath(t *testing.T) {
+	repoDir := t.TempDir()
+	livePath := filepath.Join(repoDir, "src", "auth", "token_store.go")
+	if err := os.MkdirAll(filepath.Dir(livePath), 0o700); err != nil {
+		t.Fatalf("mkdir live source dir: %v", err)
+	}
+	if err := os.WriteFile(livePath, []byte("package auth\n"), 0o600); err != nil {
+		t.Fatalf("write live source: %v", err)
+	}
+
+	report := brainBriefReport{
+		Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{{
+			Name:     "ValidateToken",
+			FilePath: "src/auth/removed_token_store.go",
+		}}}},
+		History: brainBriefHistory{Matches: []brainTextMatch{{
+			Excerpt: "Current repair context is in ./src/auth/token_store.go: ValidateToken.",
+		}}},
+	}
+
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "repair token validation in the auth token store")
+	if slices.Contains(editFiles, "src/auth/removed_token_store.go") {
+		t.Fatalf("departed semantic path must not be recommended: %+v", editFiles)
+	}
+	if len(editFiles) == 0 || editFiles[0] != "src/auth/token_store.go" {
+		t.Fatalf("live history-backed path should rank first, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefLikelyFilesRetainDeletedLivePath(t *testing.T) {
+	repoDir := t.TempDir()
+	report := brainBriefReport{Status: brainStatusReport{Live: brainLiveState{
+		ChangedFiles: []string{"src/auth/deleted_token_store.go"},
+	}}}
+
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "restore the deleted auth token store")
+	if !slices.Contains(editFiles, "src/auth/deleted_token_store.go") {
+		t.Fatalf("deleted live path remains actionable worktree truth, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefLikelyFilesRetainHistoryPathToCreate(t *testing.T) {
+	repoDir := t.TempDir()
+	report := brainBriefReport{History: brainBriefHistory{Matches: []brainTextMatch{{
+		Excerpt: "Create ./src/auth/token_revocation.go for the new revocation workflow.",
+	}}}}
+
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "add the token revocation workflow")
+	if !slices.Contains(editFiles, "src/auth/token_revocation.go") {
+		t.Fatalf("history-backed intended-create path should remain actionable, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefLikelyFilesExcludeSemanticPathThroughSymlink(t *testing.T) {
+	repoDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "token_store.go")
+	if err := os.WriteFile(outsidePath, []byte("package auth\n"), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	linkDir := filepath.Join(repoDir, "src", "auth")
+	if err := os.MkdirAll(filepath.Dir(linkDir), 0o700); err != nil {
+		t.Fatalf("mkdir link parent: %v", err)
+	}
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{{
+		Name:     "ValidateToken",
+		FilePath: "src/auth/token_store.go",
+	}}}}}
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "repair token validation")
+	if slices.Contains(editFiles, "src/auth/token_store.go") {
+		t.Fatalf("semantic path through an outside symlink must not be recommended: %+v", editFiles)
+	}
+}
+
 func TestBrainBriefTaskTermBonusFavorsBasenameMatch(t *testing.T) {
 	// The task-term ranking (experimental, post-campaign) must score a file whose
 	// BASENAME matches the task terms above one that only matches in the path, so the
