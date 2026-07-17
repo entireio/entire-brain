@@ -15,6 +15,7 @@ import (
 )
 
 const brainBriefRawHistoryBenchmarkTask = "ALPHA_IDENTIFIER BETA_IDENTIFIER GAMMA_IDENTIFIER DELTA_IDENTIFIER EPSILON_IDENTIFIER ZETA_IDENTIFIER ETA_IDENTIFIER THETA_IDENTIFIER"
+const brainBriefDefaultScenarioTask = "Restore repository query limit normalization around normalizeLimit and MAX_QUERY_LIMIT"
 
 var brainBriefRawHistoryBenchmarkSink []brainTextMatch
 var brainBriefPacketBenchmarkSink int
@@ -96,6 +97,42 @@ func TestBrainBriefRawHistorySingleScanHandlesMoreThan256Files(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("matches = %d, want 1", len(got))
+	}
+}
+
+func TestBrainBriefRawHistorySingleScanReusesBufferAfterLongLine(t *testing.T) {
+	brainDir := t.TempDir()
+	sessionDir := filepath.Join(brainDir, "sessions", "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	longLine := strings.Repeat("ordinary payload ", 5000) + "ALPHA_IDENTIFIER\n"
+	if len(longLine) <= 64*1024 || len(longLine) >= brainInspectHistoryMaxLine {
+		t.Fatalf("long line size = %d, want between initial and maximum scanner buffers", len(longLine))
+	}
+	files := map[string]string{
+		"20260716T010203Z_0001.jsonl": longLine,
+		"20260716T020304Z_0002.jsonl": "BETA_IDENTIFIER follows the grown scanner buffer\n",
+	}
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(sessionDir, name), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want, err := brainBriefRawHistoryMatchesMultiScan(brainDir, "ALPHA_IDENTIFIER BETA_IDENTIFIER", nil, 8, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := brainBriefRawHistoryMatchesSingleScan(brainDir, "ALPHA_IDENTIFIER BETA_IDENTIFIER", nil, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("reused scanner buffer changed long-line results: got=%#v want=%#v", got, want)
+	}
+	if len(got) != 2 {
+		t.Fatalf("matches = %d, want 2", len(got))
 	}
 }
 
@@ -194,8 +231,32 @@ func BenchmarkBrainBriefEndToEndRawHistoryScanPaths(b *testing.B) {
 	})
 }
 
+// BenchmarkBrainBriefDefaultScenario exercises the shipped, unprofiled
+// command path with a representative two-identifier maintenance task. The
+// synthetic transcript corpus mirrors exported JSONL history without using
+// private sessions or provider calls.
+func BenchmarkBrainBriefDefaultScenario(b *testing.B) {
+	fixture := newBrainBriefRawHistoryEndToEndFixture(b)
+	fixture.task = brainBriefDefaultScenarioTask
+	if got := len(brainBriefRawHistoryQueries(fixture.task)); got != 2 {
+		b.Fatalf("default scenario query count = %d, want 2", got)
+	}
+	want := runBrainBriefRawHistoryEndToEnd(b, fixture, brainBriefRawHistoryMatchesMultiScan)
+	got := runBrainBriefRawHistoryEndToEnd(b, fixture, brainBriefRawHistoryMatchesObserved)
+	if got != want {
+		b.Fatalf("default packet differs from reference: got=%s want=%s", got, want)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		brainBriefPacketBenchmarkSink = runBrainBriefRawHistoryEndToEndLen(b, fixture, brainBriefRawHistoryMatchesObserved)
+	}
+}
+
 type brainBriefRawHistoryEndToEndFixture struct {
 	opts Options
+	task string
 }
 
 func newBrainBriefRawHistoryEndToEndFixture(tb testing.TB) brainBriefRawHistoryEndToEndFixture {
@@ -223,7 +284,7 @@ func newBrainBriefRawHistoryEndToEndFixture(tb testing.TB) brainBriefRawHistoryE
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
-	return brainBriefRawHistoryEndToEndFixture{opts: opts}
+	return brainBriefRawHistoryEndToEndFixture{opts: opts, task: brainBriefRawHistoryBenchmarkTask}
 }
 
 func writeBrainBriefRawHistoryEndToEndCorpus(tb testing.TB, brainDir string) {
@@ -271,7 +332,7 @@ func runBrainBriefRawHistoryEndToEndInto(out *bytes.Buffer, fixture brainBriefRa
 	cmd := &cobra.Command{}
 	cmd.SetOut(out)
 	briefOpts := brainBriefOptions{json: true, limit: brainBriefDefaultLimit, noSemantic: true}
-	return runBrainBriefWithRawHistoryMatcher(context.Background(), cmd, fixture.opts, briefOpts, brainBriefRawHistoryBenchmarkTask, matcher)
+	return runBrainBriefWithRawHistoryMatcher(context.Background(), cmd, fixture.opts, briefOpts, fixture.task, matcher)
 }
 
 func writeBrainBriefRawHistoryComparisonFixture(t *testing.T) string {

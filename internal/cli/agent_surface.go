@@ -2846,6 +2846,7 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 
 	fullQueries := 0
 	scannedFiles := 0
+	scanBuffer := make([]byte, 64*1024)
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -2878,7 +2879,7 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 			return nil
 		}
 		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 0, 64*1024), brainInspectHistoryMaxLine)
+		scanner.Buffer(scanBuffer, brainInspectHistoryMaxLine)
 		lineNo := 0
 		for scanner.Scan() {
 			lineNo++
