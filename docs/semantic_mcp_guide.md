@@ -105,11 +105,13 @@ function, file, package, and external stable IDs. Endpoint IDs are emitted in
 their original form only after a bounded inspection view decodes one layer of
 percent escapes and normalizes encoded backslashes. The inspection rejects
 absolute slash components, absolute Windows drives, parent/home components,
-file/HTTP/mail URI schemes, encoded grammar violations, and nested percent
-escapes. Every new structured field is checked symmetrically while building and
-while validating packet integrity, including bounds, control/Unicode
-whitespace, host paths, traversal, selected URI schemes, and credential-shaped
-text. Agent V2 does not add generated paths, source spans, provenance,
+HTTP/mail URI schemes, encoded grammar violations, and nested percent escapes.
+It retains repository-relative `:file:` IDs and the leading slash in the exact
+canonical `external:route:/...` namespace; absolute `file:` URI shapes remain
+blocked by the slash, drive, parent, and home rules. Every new structured field
+is checked symmetrically while building and while validating packet integrity,
+including bounds, control/Unicode whitespace, host paths, traversal, selected
+URI schemes, and credential-shaped text. Agent V2 does not add generated paths, source spans, provenance,
 session/checkpoint identifiers, or transcript anchors. As in Agent V1,
 existing natural-language task, fact, review, action, signature/reason, and
 history fields remain verbatim and are not a redaction boundary; do not put

@@ -59,7 +59,7 @@ func TestBrainBriefAgentV2RetainsV1CoreAndAddsTypedEdges(t *testing.T) {
 }
 
 func TestBrainBriefAgentV2ConfigSchemaAndAlwaysOnlyPolicy(t *testing.T) {
-	const wantConfig = "sha256:c501b81b4ac43eabf8859a4db3abf21ef1cc5a4a39c1c3a571b5ddd3a9cfaf80"
+	const wantConfig = "sha256:3df679cbb399abcde3f63e3af30af9d5c8b2a0c899a90f6268460e2441e0f7cc"
 	if got := brainBriefAgentV2ConfigIdentity(brainBriefDeliveryAlways, 8, 6); got != wantConfig {
 		t.Fatalf("agent_v2 config identity = %s, want frozen %s", got, wantConfig)
 	}
@@ -361,6 +361,14 @@ func TestBrainBriefAgentV2EdgeIDComponentPrivacy(t *testing.T) {
 		"sym:source%E2%80%8Bprompt",
 		"sym:x@/Users/private/file.go",
 		"sym:x#https:example.com/private",
+		"sym-/Users/private/repo/file.go",
+		"sym_/Users/private/repo/file.go",
+		"sym./Users/private/repo/file.go",
+		"sym-../private/file.go",
+		"sym_$HOME/private/file.go",
+		"sym-%2FUsers/private/repo/file.go",
+		"sym_%2e%2e/private/file.go",
+		"sym.%24HOME/private/file.go",
 	}
 	for _, value := range invalid {
 		t.Run("reject_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
@@ -392,6 +400,10 @@ func TestBrainBriefAgentV2EdgeIDComponentPrivacy(t *testing.T) {
 		"sym:C:version",
 		"sym:source%3A003",
 		"repo:%E5%87%BD%E6%95%B0",
+		"gh/example/repo:file:apps/web/src/app.ts",
+		"external:route:/",
+		"external:route:/shared",
+		"external:route:/api/users/{id}",
 	}
 	for _, value := range valid {
 		t.Run("retain_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
@@ -430,6 +442,10 @@ func TestBrainBriefAgentV2BuilderOmitsPrefixedPrivateEdgeIDs(t *testing.T) {
 		"sym:mailto:user@example.com",
 		"sym:https:example.com/private",
 		"sym:https:%2F%2Fexample.com/private",
+		"sym-/Users/private/repo/file.go",
+		"sym-../private/file.go",
+		"sym-$HOME/private/file.go",
+		"sym-%2FUsers/private/repo/file.go",
 	}
 	report := newBrainBriefPacketMeasurementReport()
 	report.Semantic.Context.Relations = make([]semanticRecord, len(unsafe))
@@ -463,6 +479,44 @@ func TestBrainBriefAgentV2BuilderOmitsPrefixedPrivateEdgeIDs(t *testing.T) {
 		}
 		if strings.Contains(projection.packet, unsafe[index]) {
 			t.Errorf("packet leaked unsafe edge ID %q", unsafe[index])
+		}
+	}
+}
+
+func TestBrainBriefAgentV2BuilderRetainsCanonicalFileAndRouteEdgeIDs(t *testing.T) {
+	canonical := []string{
+		"gh/example/repo:file:apps/web/src/app.ts",
+		"gh/example/repo:file:packages/utils/src/index.ts",
+		"external:route:/",
+		"external:route:/shared",
+		"external:route:/api/users/{id}",
+	}
+	report := newBrainBriefPacketMeasurementReport()
+	report.Semantic.Context.Relations = make([]semanticRecord, 0, len(canonical))
+	report.Semantic.RuntimeTraces = nil
+	for index, value := range canonical {
+		report.Semantic.Context.Relations = append(report.Semantic.Context.Relations, semanticRecord{
+			Type:       "IMPORTS",
+			FromID:     value,
+			ToID:       fmt.Sprintf("sym:safe:%02d", index),
+			Resolution: "exact",
+			Confidence: 0.5,
+		})
+	}
+	projection, err := buildBrainBriefAgentV2(report, brainBriefDeliveryAlways, 8)
+	if err != nil {
+		t.Fatalf("build agent_v2: %v", err)
+	}
+	if err := validateBrainBriefAgentV2Integrity(projection.packet); err != nil {
+		t.Fatalf("agent_v2 integrity: %v", err)
+	}
+	relations := agentV1RecordsByTag(parseAgentV2Records(t, projection.packet), "semantic_relation")
+	if len(relations) != len(canonical) {
+		t.Fatalf("semantic relation records = %d, want %d", len(relations), len(canonical))
+	}
+	for index, relation := range relations {
+		if got := agentV2StringField(t, relation, "from"); got != canonical[index] {
+			t.Errorf("canonical relation[%d].from = %q, want %q", index, got, canonical[index])
 		}
 	}
 }
@@ -686,6 +740,14 @@ func TestBrainBriefAgentV2IntegrityRejectsTamperingAndRecomputedInvalidConfig(t 
 		{name: "runtime_observed_type_oversized", tag: "runtime_trace", field: "observed_type", value: "A" + strings.Repeat("B", brainBriefAgentV2MaxRelationTypeBytes)},
 		{name: "runtime_observed_type_path", tag: "runtime_trace", field: "observed_type", value: "/Users/private/type"},
 		{name: "runtime_observed_type_credential", tag: "runtime_trace", field: "observed_type", value: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+		{name: "relation_type_empty", tag: "semantic_relation", field: "type", value: ""},
+		{name: "relation_from_empty", tag: "semantic_relation", field: "from", value: ""},
+		{name: "relation_to_empty", tag: "semantic_relation", field: "to", value: ""},
+		{name: "relation_resolution_empty", tag: "semantic_relation", field: "resolution", value: ""},
+		{name: "runtime_type_empty", tag: "runtime_trace", field: "type", value: ""},
+		{name: "runtime_from_empty", tag: "runtime_trace", field: "from", value: ""},
+		{name: "runtime_to_empty", tag: "runtime_trace", field: "to", value: ""},
+		{name: "runtime_observed_type_empty", tag: "runtime_trace", field: "observed_type", value: ""},
 	}
 	for _, test := range structuredFields {
 		t.Run("recomputed_unsafe_"+test.name, func(t *testing.T) {
@@ -728,6 +790,10 @@ func TestBrainBriefAgentV2IntegrityRejectsRecomputedPrefixedPrivateEdgeIDs(t *te
 		"sym:mailto:user@example.com",
 		"sym:https:example.com/private",
 		"sym:https:%2F%2Fexample.com/private",
+		"sym-/Users/private/repo/file.go",
+		"sym-../private/file.go",
+		"sym-$HOME/private/file.go",
+		"sym-%2FUsers/private/repo/file.go",
 	}
 	for _, value := range unsafe {
 		t.Run("unsafe_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
@@ -745,6 +811,8 @@ func TestBrainBriefAgentV2IntegrityRejectsRecomputedPrefixedPrivateEdgeIDs(t *te
 		"external:config:kubernetes/image/shared:latest",
 		"sym:source%3A003",
 		"repo:%E5%87%BD%E6%95%B0",
+		"gh/example/repo:file:apps/web/src/app.ts",
+		"external:route:/shared",
 	} {
 		t.Run("valid_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
 			recomputed := rewriteAgentV2StringFieldForTest(
@@ -910,7 +978,7 @@ func TestBrainBriefAgentV2RichMeasurementAgainstFrozenSixArmBaseline(t *testing.
 	v2Utility := measureBrainBriefPacketUtility(v2.packet)
 	const wantUtility = "evidence_fidelity=10/10@3500bp;trust_signal_retention=4/7@2500bp;navigation_actionability=9/9@2500bp;task_current_state=3/3@1500bp;packet_utility_score_bp=8928"
 	wantMetrics := brainBriefPacketMeasurementMetrics{
-		SHA256: "sha256:5014f74d305e45145e6469ef9ac86ddfc9c9b26b5dff552aa930e3c3f9558f47", Bytes: 2866, UnicodeRunes: 2866, Lexemes: 584,
+		SHA256: "sha256:79b9646aefe2cf98734c3f13bae4bae571054999117505890be07074f8d002be", Bytes: 2866, UnicodeRunes: 2866, Lexemes: 584,
 		LexemeMetric: brainBriefPacketMeasurementLexemeVersion,
 	}
 	if v2Metrics != wantMetrics {

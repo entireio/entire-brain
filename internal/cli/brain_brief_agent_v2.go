@@ -32,7 +32,7 @@ const (
 		"overflow=mandatory_error,optional_prefix_drop\n" +
 		"trust=locus_drift_marker_from_unfiltered_values,stale_locus_safe_values_only\n" +
 		"semantic_edges=typed_relation_and_runtime_trace_with_finite_confidence,relation_type_ascii_upper_identifier_max64,resolution_ascii_identifier_max64,edge_id_bounded_whitespace_free_stable_identifier_max1024,optional_observed_type_from_exact_generated_reason_prefix_using_relation_type_grammar,no_free_form_runtime_reason,no_span_provenance\n" +
-		"edge_id_privacy=pct_decode_once,backslash_as_slash,nested_pct_reject,decoded_grammar,ascii_casefold_components,absolute_slash_component_reject,drive=[A-Za-z]:/,home=..|~|$HOME|${HOME},schemes=file|http|https|mailto\n" +
+		"edge_id_privacy=pct_decode_once,backslash_as_slash,nested_pct_reject,decoded_grammar,ascii_casefold_components,all_punctuation_component_boundaries,absolute_slash_component_reject_except_exact_external_route_root,drive=[A-Za-z]:/,home=..|~|$HOME|${HOME},schemes=http|https|mailto\n" +
 		"privacy=omit_structured_generated_at,host_roots,history_source_path,history_timestamp,session,checkpoint,transcript,provenance_anchor,raw_status_warnings,raw_live_warnings,raw_report_warnings_except_proposal_state_unavailable,free_form_runtime_reason;filter_new_edge_fields_symmetrically_for_paths,credentials,controls,unicode_whitespace,and_invalid_grammar;preserve_existing_v1_natural_language_verbatim\n"
 )
 
@@ -411,7 +411,7 @@ func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T
 		if !brainBriefAgentV2EdgeIDComponentStart(view, index) {
 			continue
 		}
-		if view[index] == '/' {
+		if view[index] == '/' && !brainBriefAgentV2CanonicalRouteRootSlash(view, index) {
 			return false
 		}
 		if index+2 < len(view) && isASCIIAlpha(view[index]) && view[index+1] == ':' && view[index+2] == '/' {
@@ -423,8 +423,7 @@ func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T
 			brainBriefAgentV2FoldComponent(view, index, "${home}") {
 			return false
 		}
-		if brainBriefAgentV2FoldPrefix(view, index, "file:") ||
-			brainBriefAgentV2FoldPrefix(view, index, "http:") ||
+		if brainBriefAgentV2FoldPrefix(view, index, "http:") ||
 			brainBriefAgentV2FoldPrefix(view, index, "https:") ||
 			brainBriefAgentV2FoldPrefix(view, index, "mailto:") {
 			return false
@@ -448,12 +447,25 @@ func brainBriefAgentV2HexNibble(value byte) (byte, bool) {
 
 func brainBriefAgentV2EdgeIDComponentDelimiter(value byte) bool {
 	switch value {
-	case ':', '/', '$', '#', '@', '+', '*', '=', '?', '!', '%', '&', '|', '^', '~',
+	case ':', '/', '.', '_', '-', '$', '#', '@', '+', '*', '=', '?', '!', '%', '&', '|', '^', '~',
 		'(', ')', '[', ']', '{', '}', '<', '>', ',', '\'', '`':
 		return true
 	default:
 		return false
 	}
+}
+
+func brainBriefAgentV2CanonicalRouteRootSlash[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
+	const prefix = "external:route:"
+	if index != len(prefix) {
+		return false
+	}
+	for offset := 0; offset < len(prefix); offset++ {
+		if value[offset] != prefix[offset] {
+			return false
+		}
+	}
+	return true
 }
 
 func brainBriefAgentV2EdgeIDComponentStart[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
@@ -796,7 +808,7 @@ func validateBrainBriefAgentV2StructuredEdge(record compactV1RawRecord) error {
 			if err != nil {
 				return err
 			}
-			if rule.safe(value) != value {
+			if value == "" || rule.safe(value) != value {
 				return fmt.Errorf("agent_v2 %s.%s is unsafe", record.tag, rule.name)
 			}
 			break
