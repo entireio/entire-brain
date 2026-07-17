@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"math"
+	"os"
 	"testing"
 	"time"
 )
@@ -25,6 +27,37 @@ func TestEmbedStoreRoundTrip(t *testing.T) {
 				t.Errorf("%s[%d] = %v, want %v", id, d, got[id][d], vec[d])
 			}
 		}
+	}
+}
+
+func TestEmbedStoreRejectsFailureShapedVectors(t *testing.T) {
+	dir := t.TempDir()
+	s := newEmbedStore(dir, "main", "test-model", 2)
+	if err := s.save(map[string][]float32{
+		"valid": {1, 0},
+		"zero":  {0, 0},
+		"nan":   {float32(math.NaN()), 1},
+		"inf":   {float32(math.Inf(1)), 1},
+		"short": {1},
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := s.load(); len(got) != 1 || got["valid"] == nil {
+		t.Fatalf("save persisted failure-shaped vectors: %v", got)
+	}
+
+	// Simulate a legacy/corrupt same-dimension zero vector. The final dim*4
+	// bytes are the only saved vector's payload.
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(raw[len(raw)-s.dim*4:])
+	if err := os.WriteFile(s.path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.load(); len(got) != 0 {
+		t.Fatalf("failure-shaped persisted cache must rebuild, got %v", got)
 	}
 }
 

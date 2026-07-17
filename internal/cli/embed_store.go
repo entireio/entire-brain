@@ -79,6 +79,9 @@ func (s *embedStore) loadUnlocked() map[string][]float32 {
 		if r.err != nil {
 			return map[string][]float32{} // truncated/corrupt -> rebuild
 		}
+		if !validSemanticEmbedding(vec, dim) {
+			return map[string][]float32{} // failure-shaped cache -> rebuild
+		}
 		out[id] = vec
 	}
 	return out
@@ -121,7 +124,7 @@ func (s *embedStore) saveUnlocked(vecs map[string][]float32) error {
 	// next load() see a truncated file and force an unnecessary rebuild.
 	count := 0
 	for _, vec := range vecs {
-		if len(vec) == s.dim {
+		if validSemanticEmbedding(vec, s.dim) {
 			count++
 		}
 	}
@@ -134,7 +137,7 @@ func (s *embedStore) saveUnlocked(vecs map[string][]float32) error {
 	_ = binary.Write(&buf, binary.LittleEndian, uint32(s.dim))
 	_ = binary.Write(&buf, binary.LittleEndian, uint32(count))
 	for factID, vec := range vecs {
-		if len(vec) != s.dim {
+		if !validSemanticEmbedding(vec, s.dim) {
 			continue
 		}
 		_ = binary.Write(&buf, binary.LittleEndian, uint16(len(factID)))
