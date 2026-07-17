@@ -51,15 +51,28 @@ confirmatory analyzer is implemented and path-locked.
   `development-task-negative-control-run-plan-v2.json`, `task_negative_control_plan_v2.py`, and
   `schemas/development-task-negative-control-run-plan-v2.schema.json`: deterministic exact-input
   plan/check lane for those 62 candidates. The checked plan is unexecutable
-  `pending_owner_authorization`; its approval trust mechanism, offline cache seed, executor,
-  classifier, private-log writer, and resource/cleanup attestation are explicitly absent. Building
-  or checking it invokes no candidate process.
+  `pending_owner_authorization`. It froze the approval trust mechanism, offline cache seed, executor,
+  classifier, private-log writer, and resource/cleanup attestation as absent when authored. Pure
+  gate, private-log, and classification primitives now exist, but none changes the checked plan's
+  authority or supplies executor attestation. Building or checking the plan invokes no candidate
+  process.
 - `MULTI-REPOSITORY-NEGATIVE-CONTROL-GATE-PRIMITIVES-V1.md`,
   `task_negative_control_gate_v1.py`, and the adjacent manifest/receipt schemas: pure fail-closed
   cache-identity and injected resource-arithmetic primitives. They pin the exact plan/dependency
   rebuild, complete Go/native/Git toolchains, runtime/verifier sources, checked schema bytes, and a
   bounded 250,000-file/128 MiB portable-path-safe manifest profile, but explicitly do not verify an
   actual archive, observe/reserve host disk, authorize execution, or expose an executor.
+- `NEGATIVE-CONTROL-PRIVATE-RAW-LOG-V1.md`, `negative_control_private_log.py`, and
+  `schemas/negative-control-private-log-receipt-v1.schema.json`: content-addressed private raw-log
+  storage/check primitive with bounded streaming, exact public two-field receipts, private modes,
+  safe descriptor-relative operations, aggregate limits, and atomic publication. It is not wired to
+  an executor and provides no retention, cleanup, or execution attestation by itself.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-CLASSIFICATION-V1.md`,
+  `task_negative_control_classification_v1.py`, and the attempt/receipt schemas: pure fail-closed
+  validation and seven-class truth-table derivation over exactly 248 injected, unattested attempts
+  for all 62 candidates. The schemas pin all attempt, result, and repository positions; public rows
+  expose only status/exit and content-addressed log-receipt metadata. The receipt remains explicitly
+  unexecutable and does not claim the attempts ran.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.

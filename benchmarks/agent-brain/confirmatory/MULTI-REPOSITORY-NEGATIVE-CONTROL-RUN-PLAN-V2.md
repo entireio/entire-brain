@@ -67,7 +67,10 @@ root is likewise runtime-only and null in this host-free plan. Its
 required directory/file modes are `0700`/`0600`, raw logs are retained for seven days and addressed
 by exact-byte SHA-256, and public receipts may expose only each raw-log hash and byte count. Raw test
 output can contain secrets, so this plan makes no redaction claim and forbids putting raw output in a
-public plan or receipt. The private log writer and checker are still absent.
+public plan or receipt. A subsequent pure content-addressed private writer/checker and a pure public
+attempt classifier now exist, but neither is integrated with an executor or provides retention,
+cleanup, or execution attestation. See `NEGATIVE-CONTROL-PRIVATE-RAW-LOG-V1.md` and
+`MULTI-REPOSITORY-NEGATIVE-CONTROL-CLASSIFICATION-V1.md`.
 
 ## Remaining hard gates
 
@@ -78,8 +81,9 @@ could even represent authorization:
 - a safely traversed/content-verified actual Go cache archive and manifest bound into an authorized
   plan (the pure external-manifest primitive is not that binding);
 - the clean detached-worktree executor and first-parent-only source-reversal proof;
-- the full classification truth table and receipt checker;
-- the private content-addressed raw-log writer/checker; and
+- an attested attempt producer wired to the pure classification truth table and receipt checker;
+- executor integration, retention enforcement, and aggregate accounting for the pure private
+  content-addressed raw-log writer/checker; and
 - a trusted filesystem observer plus atomic resource reservation, fail-closed cleanup, and
   no-receipt-on-interruption attestation.
 
