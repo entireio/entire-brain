@@ -2,6 +2,7 @@ package cli
 
 import (
 	"math"
+	"math/rand"
 	"testing"
 	"time"
 )
@@ -264,6 +265,32 @@ func TestSemanticFusionDepthCapsWithoutOverflow(t *testing.T) {
 				t.Fatalf("semanticFusionDepth(%d, %d, %d) = %d, want %d", tc.limit, tc.multiplier, tc.candidates, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCosineFloat32WithQueryNormIsBitExact(t *testing.T) {
+	rng := rand.New(rand.NewSource(99173))
+	for _, dim := range []int{1, 2, 17, 512} {
+		for iteration := 0; iteration < 100; iteration++ {
+			query := make([]float32, dim)
+			candidate := make([]float32, dim)
+			for i := range query {
+				query[i] = float32(rng.Float64()*2 - 1)
+				candidate[i] = float32(rng.Float64()*2 - 1)
+			}
+			queryNorm, valid := semanticEmbeddingSquaredNorm(query, dim)
+			if !valid {
+				t.Fatalf("dim=%d iteration=%d: generated invalid query", dim, iteration)
+			}
+			got, valid := cosineFloat32WithQueryNorm(query, queryNorm, candidate)
+			if !valid {
+				t.Fatalf("dim=%d iteration=%d: generated invalid candidate", dim, iteration)
+			}
+			want := cosineFloat32(query, candidate)
+			if math.Float64bits(got) != math.Float64bits(want) {
+				t.Fatalf("dim=%d iteration=%d: cosine bits %x, want %x (%v vs %v)", dim, iteration, math.Float64bits(got), math.Float64bits(want), got, want)
+			}
+		}
 	}
 }
 
