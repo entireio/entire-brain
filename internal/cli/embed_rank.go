@@ -230,7 +230,7 @@ func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string,
 	// No query embedding (e.g. the embedder is unavailable) → fall back cleanly to
 	// lexical-only ranking. Otherwise every cosine is 0 and the semantic arm would
 	// still add an RRF term, reordering results by the UpdatedAt tiebreaker.
-	haveSemantic := validSemanticEmbedding(qvec, rr.e.Dim())
+	queryNorm, haveSemantic := semanticEmbeddingSquaredNorm(qvec, rr.e.Dim())
 	rr.lastRun.Applied = haveSemantic
 	rr.lastRun.QueryVectorValid = haveSemantic
 	candidates := make([]factRecord, 0, len(facts))
@@ -292,8 +292,8 @@ func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string,
 			}
 			if !semHit {
 				fvec := rr.factVector(f)
-				if validSemanticEmbedding(fvec, rr.e.Dim()) {
-					cos = cosineFloat32(qvec, fvec)
+				if candidateCos, ok := cosineFloat32WithQueryNorm(qvec, queryNorm, fvec); ok {
+					cos = candidateCos
 					semHit = true
 					rr.lastRun.ValidCandidateVectors++
 				}
@@ -401,18 +401,46 @@ func semanticFusionDepth(limit, multiplier, candidates int) int {
 // an RRF rank. Length alone is insufficient: a backend can return the expected
 // number of zero or non-finite values while still providing no semantic signal.
 func validSemanticEmbedding(v []float32, dim int) bool {
+	_, valid := semanticEmbeddingSquaredNorm(v, dim)
+	return valid
+}
+
+func semanticEmbeddingSquaredNorm(v []float32, dim int) (float64, bool) {
 	if dim <= 0 || len(v) != dim {
-		return false
+		return 0, false
 	}
 	norm := 0.0
 	for _, value := range v {
 		f := float64(value)
 		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return false
+			return 0, false
 		}
 		norm += f * f
 	}
-	return norm > 0 && !math.IsInf(norm, 0)
+	return norm, norm > 0 && !math.IsInf(norm, 0)
+}
+
+// cosineFloat32WithQueryNorm validates the candidate while computing its
+// cosine in one pass. rankFactsFused has already validated the query and keeps
+// its exact squared norm, avoiding two redundant vector scans per candidate:
+// candidate validation and recomputing the same query norm for every cosine.
+func cosineFloat32WithQueryNorm(query []float32, queryNorm float64, candidate []float32) (float64, bool) {
+	if len(query) == 0 || len(query) != len(candidate) || queryNorm <= 0 || math.IsInf(queryNorm, 0) || math.IsNaN(queryNorm) {
+		return 0, false
+	}
+	var dot, candidateNorm float64
+	for i, value := range candidate {
+		f := float64(value)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0, false
+		}
+		dot += float64(query[i]) * f
+		candidateNorm += f * f
+	}
+	if candidateNorm <= 0 || math.IsInf(candidateNorm, 0) {
+		return 0, false
+	}
+	return dot / (math.Sqrt(queryNorm) * math.Sqrt(candidateNorm)), true
 }
 
 // cosineFloat32 is the cosine similarity of two vectors. Vectors from the
