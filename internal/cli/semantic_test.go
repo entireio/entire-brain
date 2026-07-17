@@ -1940,7 +1940,8 @@ func TestSemanticGraphQueriesDataFlowRelations(t *testing.T) {
 	}
 	if !strings.Contains(queryOut.String(), `"DATA_FLOWS"`) ||
 		!strings.Contains(queryOut.String(), `"run"`) ||
-		!strings.Contains(queryOut.String(), `"normalize"`) {
+		!strings.Contains(queryOut.String(), `"normalize"`) ||
+		!strings.Contains(queryOut.String(), `"resolution": "exact"`) {
 		t.Fatalf("query output missing data-flow edge:\n%s", queryOut.String())
 	}
 }

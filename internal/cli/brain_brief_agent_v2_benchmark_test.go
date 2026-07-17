@@ -15,10 +15,10 @@ type brainBriefAgentV2PressureSnapshot struct {
 }
 
 var brainBriefAgentV2PressureSnapshots = map[string]brainBriefAgentV2PressureSnapshot{
-	"rich":                {fixtureSHA256: "sha256:d35d2cd5942f86c3849d0fa48a6db8bea65c289c2c3d225096dd1ca141d7489e", packetSHA256: "sha256:9bb1de87f60a493b0cb6abdb653f11becb49a6547b1f7fd98413cae31e404802", packetBytes: 2866},
-	"near_budget_history": {fixtureSHA256: "sha256:287efbecfb3902fcf6b3a273e5a710c1d2d403bbcfac32649b1627d37a8903ef", packetSHA256: "sha256:ccd0098b193f76a73b38096b3c85b464dea8c5e34888b18c90e2f69f45d44049", packetBytes: 32202},
-	"section_prefix":      {fixtureSHA256: "sha256:561f157a0afb0f0b07619f3cb509294adbe4ebc802a92e8dc4d30cbd6ec3e9ea", packetSHA256: "sha256:bc6d81c94f522d8d43522e8bff47fc434112177c612ff2b5d7f6c136cd939811", packetBytes: 32704},
-	"fixed_utf8":          {fixtureSHA256: "sha256:d3916973e1a19d7c4897e19e293133d3aefadb2a170b97d8195f296bfd820913", packetSHA256: "sha256:2bbd186c5cf92320704f7783bb8e9fd2d2d9e179675be65609bd84e2c51ad4d5", packetBytes: 31604},
+	"rich":                {fixtureSHA256: "sha256:d35d2cd5942f86c3849d0fa48a6db8bea65c289c2c3d225096dd1ca141d7489e", packetSHA256: "sha256:42bf05fc7efa9b1bb1c6e1bd81dec232637da59d22d4aa2930795f32821d34ef", packetBytes: 2866},
+	"near_budget_history": {fixtureSHA256: "sha256:287efbecfb3902fcf6b3a273e5a710c1d2d403bbcfac32649b1627d37a8903ef", packetSHA256: "sha256:021f200ef85e91ddca101a4fc93affc9a2bd7494754f1b2ddbade4ddd59cdde9", packetBytes: 32202},
+	"section_prefix":      {fixtureSHA256: "sha256:561f157a0afb0f0b07619f3cb509294adbe4ebc802a92e8dc4d30cbd6ec3e9ea", packetSHA256: "sha256:fc3a026e50dac05f1587de06eacc104e93afc55ad457c78ba7d167b97a903f70", packetBytes: 32704},
+	"fixed_utf8":          {fixtureSHA256: "sha256:d3916973e1a19d7c4897e19e293133d3aefadb2a170b97d8195f296bfd820913", packetSHA256: "sha256:c19ad45dd0e673e09af65b47b0c2fefeeeee2349a7c747afc5563509b7fb29b4", packetBytes: 31604},
 }
 
 func TestBrainBriefAgentV2PressureFixtures(t *testing.T) {

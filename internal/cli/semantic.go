@@ -1314,7 +1314,7 @@ func initializeSemanticSQLite(db *sql.DB) error {
 		`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 		`CREATE TABLE files (path TEXT PRIMARY KEY, blob TEXT, content_hash TEXT, language TEXT)`,
 		`CREATE TABLE symbols (id TEXT PRIMARY KEY, kind TEXT, name TEXT, qualified_name TEXT, file_path TEXT, start_line INTEGER, end_line INTEGER, signature TEXT, language TEXT, stable_id_version TEXT)`,
-		`CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, to_id TEXT NOT NULL, type TEXT NOT NULL, confidence REAL, reason TEXT, warning_codes TEXT)`,
+		`CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, to_id TEXT NOT NULL, type TEXT NOT NULL, confidence REAL, reason TEXT, warning_codes TEXT, resolution TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE reverse_relations (to_id TEXT NOT NULL, from_id TEXT NOT NULL, type TEXT NOT NULL)`,
 		`CREATE TABLE runtime_traces (id INTEGER PRIMARY KEY AUTOINCREMENT, imported_at TEXT NOT NULL, source_path TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, observed_type TEXT, matched_static_edge INTEGER NOT NULL)`,
 		`CREATE INDEX idx_symbols_name ON symbols(name)`,
@@ -1498,8 +1498,8 @@ func insertSemanticRelation(tx *sql.Tx, record semanticRecord) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO relations(from_id, to_id, type, confidence, reason, warning_codes) VALUES (?, ?, ?, ?, ?, ?)`,
-		record.FromID, record.ToID, record.Type, record.Confidence, record.Reason, string(warningCodes)); err != nil {
+	if _, err := tx.Exec(`INSERT INTO relations(from_id, to_id, type, confidence, reason, warning_codes, resolution) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		record.FromID, record.ToID, record.Type, record.Confidence, record.Reason, string(warningCodes), record.Resolution); err != nil {
 		return err
 	}
 	_, err = tx.Exec(`INSERT INTO reverse_relations(to_id, from_id, type) VALUES (?, ?, ?)`, record.ToID, record.FromID, record.Type)
@@ -3703,6 +3703,20 @@ func findSemanticSymbols(snapshotPath, query string, limit, offset int) ([]seman
 	return results, scanner.Err()
 }
 
+// semanticRelationResolutionSelect keeps older immutable generation stores
+// queryable. Stores built before the resolution column existed project an
+// empty value; refresh/repair rebuilds persist the real schema-1.1 field.
+func semanticRelationResolutionSelect(db *sql.DB) (string, error) {
+	hasResolution, err := semanticSQLiteColumnExists(db, "relations", "resolution")
+	if err != nil {
+		return "", err
+	}
+	if !hasResolution {
+		return `''`, nil
+	}
+	return `COALESCE(resolution, '')`, nil
+}
+
 func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanticRecord, limit int) ([]semanticRecord, error) {
 	if len(symbols) == 0 {
 		return nil, nil
@@ -3712,6 +3726,10 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 		return nil, err
 	}
 	defer db.Close()
+	resolutionSelect, err := semanticRelationResolutionSelect(db)
+	if err != nil {
+		return nil, err
+	}
 	// Chunk the IN-clause. Each id is bound twice (from_id and to_id), so a single
 	// query over the whole set blows past SQLITE_MAX_VARIABLE_NUMBER (~32766) once
 	// the symbol set exceeds ~16k — which the viz graph reaches at scale. Query in
@@ -3762,7 +3780,7 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 		args = append(args, limit)
 		inClause := strings.Join(placeholders, ",")
 		if err := func() error {
-			rows, err := db.Query(`SELECT id, from_id, to_id, type, confidence, reason FROM relations
+			rows, err := db.Query(`SELECT id, from_id, to_id, type, confidence, reason, `+resolutionSelect+` FROM relations
 WHERE from_id IN (`+inClause+`) OR to_id IN (`+inClause+`)
 ORDER BY id LIMIT ?`, args...)
 			if err != nil {
@@ -3773,7 +3791,7 @@ ORDER BY id LIMIT ?`, args...)
 				var id int64
 				var record semanticRecord
 				record.RecordType = "relation"
-				if err := rows.Scan(&id, &record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason); err != nil {
+				if err := rows.Scan(&id, &record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason, &record.Resolution); err != nil {
 					return err
 				}
 				if seen[id] {
@@ -3808,13 +3826,17 @@ func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string
 		return nil, err
 	}
 	defer db.Close()
+	resolutionSelect, err := semanticRelationResolutionSelect(db)
+	if err != nil {
+		return nil, err
+	}
 	args := make([]any, 0, len(relationTypes))
 	placeholders := make([]string, 0, len(relationTypes))
 	for _, relationType := range relationTypes {
 		args = append(args, relationType)
 		placeholders = append(placeholders, "?")
 	}
-	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason FROM relations WHERE type IN (`+strings.Join(placeholders, ",")+`) ORDER BY id`, args...)
+	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason, `+resolutionSelect+` FROM relations WHERE type IN (`+strings.Join(placeholders, ",")+`) ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -3823,7 +3845,7 @@ func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string
 	for rows.Next() {
 		var record semanticRecord
 		record.RecordType = "relation"
-		if err := rows.Scan(&record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason); err != nil {
+		if err := rows.Scan(&record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason, &record.Resolution); err != nil {
 			return nil, err
 		}
 		relations = append(relations, record)

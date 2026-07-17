@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
@@ -17,6 +18,10 @@ const (
 	brainBriefAgentV2BudgetBytes  = 32 * 1024
 	brainBriefAgentV2SizingSHA256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
+	brainBriefAgentV2MaxRelationTypeBytes = 64
+	brainBriefAgentV2MaxResolutionBytes   = 64
+	brainBriefAgentV2MaxEdgeIDBytes       = 1024
+
 	// Agent V2 is a separately selected candidate. It retains the exact Agent
 	// V1 task/live/fact/trust records and old optional-section order, then admits
 	// typed semantic edges ahead of history only. No adaptive admission or default
@@ -26,8 +31,8 @@ const (
 		"packing=section_prefix_then_lower_priority_residual\n" +
 		"overflow=mandatory_error,optional_prefix_drop\n" +
 		"trust=locus_drift_marker_from_unfiltered_values,stale_locus_safe_values_only\n" +
-		"semantic_edges=typed_relation_and_runtime_trace_with_filtered_structured_identity,finite_confidence,optional_observed_type_from_exact_generated_reason_prefix,no_free_form_runtime_reason,no_span_provenance\n" +
-		"privacy=omit_structured_generated_at,host_roots,history_source_path,history_timestamp,session,checkpoint,transcript,provenance_anchor,raw_status_warnings,raw_live_warnings,raw_report_warnings_except_proposal_state_unavailable,free_form_runtime_reason;filter_absolute_or_parent_structured_paths_and_observed_type_credentials;preserve_existing_v1_natural_language_verbatim\n"
+		"semantic_edges=typed_relation_and_runtime_trace_with_finite_confidence,relation_type_ascii_upper_identifier_max64,resolution_ascii_identifier_max64,edge_id_bounded_whitespace_free_stable_identifier_max1024,optional_observed_type_from_exact_generated_reason_prefix_using_relation_type_grammar,no_free_form_runtime_reason,no_span_provenance\n" +
+		"privacy=omit_structured_generated_at,host_roots,history_source_path,history_timestamp,session,checkpoint,transcript,provenance_anchor,raw_status_warnings,raw_live_warnings,raw_report_warnings_except_proposal_state_unavailable,free_form_runtime_reason;filter_new_edge_fields_symmetrically_for_paths,credentials,controls,unicode_whitespace,and_invalid_grammar;preserve_existing_v1_natural_language_verbatim\n"
 )
 
 const brainBriefAgentV2RuntimeReasonPrefix = "runtime trace observed "
@@ -221,10 +226,10 @@ func brainBriefAgentV2OptionalSections(report brainBriefReport) [][]brainBriefAg
 	for rank, relation := range report.Semantic.Context.Relations {
 		relations = append(relations, agentV1Record(agentV2SemanticRelation, "semantic_relation",
 			compactV1IntAlways("rank", rank),
-			compactV1String("type", agentV1SafeStructuredField(relation.Type)),
-			compactV1String("from", agentV1SafeStructuredField(relation.FromID)),
-			compactV1String("to", agentV1SafeStructuredField(relation.ToID)),
-			compactV1String("resolution", agentV1SafeStructuredField(relation.Resolution)),
+			compactV1String("type", brainBriefAgentV2SafeRelationType(relation.Type)),
+			compactV1String("from", brainBriefAgentV2SafeEdgeID(relation.FromID)),
+			compactV1String("to", brainBriefAgentV2SafeEdgeID(relation.ToID)),
+			compactV1String("resolution", brainBriefAgentV2SafeResolution(relation.Resolution)),
 			compactV1Float("confidence", relation.Confidence),
 		))
 	}
@@ -232,9 +237,9 @@ func brainBriefAgentV2OptionalSections(report brainBriefReport) [][]brainBriefAg
 	for rank, trace := range report.Semantic.RuntimeTraces {
 		runtimeTraces = append(runtimeTraces, agentV1Record(agentV2RuntimeTrace, "runtime_trace",
 			compactV1IntAlways("rank", rank),
-			compactV1String("type", agentV1SafeStructuredField(trace.Type)),
-			compactV1String("from", agentV1SafeStructuredField(trace.FromID)),
-			compactV1String("to", agentV1SafeStructuredField(trace.ToID)),
+			compactV1String("type", brainBriefAgentV2SafeRelationType(trace.Type)),
+			compactV1String("from", brainBriefAgentV2SafeEdgeID(trace.FromID)),
+			compactV1String("to", brainBriefAgentV2SafeEdgeID(trace.ToID)),
 			compactV1String("observed_type", brainBriefAgentV2ObservedType(trace.Reason)),
 			compactV1Float("confidence", trace.Confidence),
 		))
@@ -264,18 +269,69 @@ func brainBriefAgentV2ObservedType(reason string) string {
 	if observedType == "" || observedType == "edge" {
 		return ""
 	}
-	return brainBriefAgentV2SafeObservedType(observedType)
+	return brainBriefAgentV2SafeRelationType(observedType)
 }
 
-func brainBriefAgentV2SafeObservedType(observedType string) string {
-	if strings.TrimSpace(observedType) != observedType ||
-		strings.IndexFunc(observedType, unicode.IsControl) >= 0 ||
-		!agentV1SafeStructuredValue(observedType) ||
-		sanitizeSemanticWarningText(observedType, "") == "<redacted>" ||
-		redactText(observedType) != observedType {
+func brainBriefAgentV2SafeRelationType(value string) string {
+	if len(value) == 0 || len(value) > brainBriefAgentV2MaxRelationTypeBytes || value[0] < 'A' || value[0] > 'Z' {
 		return ""
 	}
-	return observedType
+	for index := 1; index < len(value); index++ {
+		ch := value[index]
+		if (ch < 'A' || ch > 'Z') && (ch < '0' || ch > '9') && ch != '_' {
+			return ""
+		}
+	}
+	return value
+}
+
+func brainBriefAgentV2SafeResolution(value string) string {
+	if len(value) == 0 || len(value) > brainBriefAgentV2MaxResolutionBytes || !isASCIIAlpha(value[0]) {
+		return ""
+	}
+	for index := 1; index < len(value); index++ {
+		ch := value[index]
+		if !isASCIIAlpha(ch) && (ch < '0' || ch > '9') && ch != '_' && ch != '-' {
+			return ""
+		}
+	}
+	// Of the shared credential languages, only a GitHub token can satisfy the
+	// resolution grammar above. Keep that exact matcher rather than running the
+	// four regexes whose required spaces, punctuation, or lowercase prefix make
+	// them unreachable here.
+	if reGitHubTok.MatchString(value) {
+		return ""
+	}
+	return value
+}
+
+func brainBriefAgentV2SafeEdgeID(value string) string {
+	if len(value) == 0 || len(value) > brainBriefAgentV2MaxEdgeIDBytes || !utf8.ValidString(value) {
+		return ""
+	}
+	for index, ch := range value {
+		if index == 0 && ch != '_' && !unicode.IsLetter(ch) && !unicode.IsDigit(ch) {
+			return ""
+		}
+		if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
+			continue
+		}
+		switch ch {
+		case ':', '/', '.', '_', '-', '$', '#', '@', '+', '*', '=', '?', '!', '%', '&', '|', '^', '~', '(', ')', '[', ']', '{', '}', '<', '>', ',', '\'', '`':
+		default:
+			return ""
+		}
+	}
+	if !agentV1SafeStructuredValue(value) || sanitizeSemanticWarningText(value, "") == "<redacted>" {
+		return ""
+	}
+	// Whitespace-free IDs cannot contain the private-key or Bearer languages.
+	// JWTs, GitHub tokens, and secret assignments remain grammar-reachable, so
+	// retain those exact shared matchers without a heuristic prefilter.
+	if reJWT.MatchString(value) || reGitHubTok.MatchString(value) || reSecretEnv.MatchString(value) {
+		return ""
+	}
+	return value
 }
 
 func finalizeBrainBriefAgentV2Body(bodyText string, bodyRecords int, emitted, available brainBriefAgentV2Counts) string {
@@ -556,8 +612,8 @@ func validateBrainBriefAgentV2RecordOrder(records []compactV1RawRecord) error {
 			}
 			nextRank[record.tag]++
 		}
-		if record.tag == "runtime_trace" {
-			if err := validateBrainBriefAgentV2ObservedType(record); err != nil {
+		if record.tag == "semantic_relation" || record.tag == "runtime_trace" {
+			if err := validateBrainBriefAgentV2StructuredEdge(record); err != nil {
 				return err
 			}
 		}
@@ -565,19 +621,35 @@ func validateBrainBriefAgentV2RecordOrder(records []compactV1RawRecord) error {
 	return nil
 }
 
-func validateBrainBriefAgentV2ObservedType(record compactV1RawRecord) error {
-	for _, field := range record.fields {
-		if field.key != "observed_type" {
-			continue
+func validateBrainBriefAgentV2StructuredEdge(record compactV1RawRecord) error {
+	type fieldRule struct {
+		name string
+		safe func(string) string
+	}
+	rules := []fieldRule{
+		{name: "type", safe: brainBriefAgentV2SafeRelationType},
+		{name: "from", safe: brainBriefAgentV2SafeEdgeID},
+		{name: "to", safe: brainBriefAgentV2SafeEdgeID},
+	}
+	if record.tag == "semantic_relation" {
+		rules = append(rules, fieldRule{name: "resolution", safe: brainBriefAgentV2SafeResolution})
+	} else {
+		rules = append(rules, fieldRule{name: "observed_type", safe: brainBriefAgentV2SafeRelationType})
+	}
+	for _, rule := range rules {
+		for _, field := range record.fields {
+			if field.key != rule.name {
+				continue
+			}
+			value, err := agentV2RecordString(record, rule.name)
+			if err != nil {
+				return err
+			}
+			if rule.safe(value) != value {
+				return fmt.Errorf("agent_v2 %s.%s is unsafe", record.tag, rule.name)
+			}
+			break
 		}
-		observedType, err := agentV2RecordString(record, "observed_type")
-		if err != nil {
-			return err
-		}
-		if brainBriefAgentV2SafeObservedType(observedType) != observedType {
-			return fmt.Errorf("agent_v2 runtime_trace observed_type is unsafe")
-		}
-		break
 	}
 	return nil
 }

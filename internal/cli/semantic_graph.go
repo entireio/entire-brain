@@ -606,7 +606,11 @@ func queryGraphRelations(db *sql.DB, filters graphQueryFilters, limit int) ([]se
 		limit = filters.Limit
 	}
 	where, args := graphRelationWhereSQL(filters)
-	query := `SELECT from_id, to_id, type, confidence, reason, warning_codes FROM relations` + where
+	resolutionSelect, err := semanticRelationResolutionSelect(db)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT from_id, to_id, type, confidence, reason, warning_codes, ` + resolutionSelect + ` FROM relations` + where
 	query += ` ORDER BY type, from_id, to_id LIMIT ?`
 	args = append(args, limit)
 	rows, err := db.Query(query, args...)
@@ -773,6 +777,10 @@ func traceGraphPath(db *sql.DB, startID, endID string, maxDepth int) (semanticTr
 		Path  []string
 		Edges []semanticRecord
 	}
+	resolutionSelect, err := semanticRelationResolutionSelect(db)
+	if err != nil {
+		return semanticTracePathResult{}, err
+	}
 	queue := []node{{ID: startID, Path: []string{startID}}}
 	seen := map[string]struct{}{startID: {}}
 	for len(queue) > 0 {
@@ -781,7 +789,7 @@ func traceGraphPath(db *sql.DB, startID, endID string, maxDepth int) (semanticTr
 		if len(current.Path)-1 >= maxDepth {
 			continue
 		}
-		edges, err := relationsFrom(db, current.ID)
+		edges, err := relationsFrom(db, current.ID, resolutionSelect)
 		if err != nil {
 			return semanticTracePathResult{}, err
 		}
@@ -806,8 +814,8 @@ func traceGraphPath(db *sql.DB, startID, endID string, maxDepth int) (semanticTr
 	return semanticTracePathResult{Found: false, Path: []semanticRecord{}, Relations: []semanticRecord{}}, nil
 }
 
-func relationsFrom(db *sql.DB, id string) ([]semanticRecord, error) {
-	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason, warning_codes FROM relations WHERE from_id = ? ORDER BY type, to_id`, id)
+func relationsFrom(db *sql.DB, id, resolutionSelect string) ([]semanticRecord, error) {
+	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason, warning_codes, `+resolutionSelect+` FROM relations WHERE from_id = ? ORDER BY type, to_id`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1076,7 +1084,11 @@ func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUI
 }
 
 func graphUIRelations(db *sql.DB, limit int) ([]semanticRecord, error) {
-	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason, warning_codes FROM relations ORDER BY type, from_id, to_id LIMIT ?`, limit)
+	resolutionSelect, err := semanticRelationResolutionSelect(db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason, warning_codes, `+resolutionSelect+` FROM relations ORDER BY type, from_id, to_id LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1353,7 +1365,7 @@ func scanGraphRelations(rows *sql.Rows) ([]semanticRecord, error) {
 		var record semanticRecord
 		var warningCodes string
 		record.RecordType = "relation"
-		if err := rows.Scan(&record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason, &warningCodes); err != nil {
+		if err := rows.Scan(&record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason, &warningCodes, &record.Resolution); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(warningCodes), &record.WarningCodes)

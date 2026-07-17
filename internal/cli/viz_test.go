@@ -161,6 +161,11 @@ func TestFindSemanticRelationsForSymbols_ChunksLargeInClause(t *testing.T) {
 	if rels[0].FromID != "sym-1" || rels[1].FromID != "sym-3" {
 		t.Fatalf("relations not merged in rowid order across chunks: %+v", rels)
 	}
+	for index, relation := range rels {
+		if relation.Resolution != "" {
+			t.Fatalf("legacy relation %d resolution = %q, want empty compatibility value", index, relation.Resolution)
+		}
+	}
 }
 
 // Every endpoint's ?limit goes through one policy: bad input keeps the
