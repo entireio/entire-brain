@@ -1343,13 +1343,19 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		profile.finishStage(&profile.Synthesis.LikelyFiles, likelyFilesStarted, likelyInputs, len(report.LikelyEditFiles)+len(report.LikelyTestFiles)+len(report.LikelyFiles), 0)
 	}
 	actionStarted := profile.start()
+	actionInputs := len(report.LikelyFiles) + len(report.History.Matches)
 	report.ActionChecklist = brainBriefActionChecklist(status.Repo.Root, report, task)
 	if len(report.ActionChecklist) > 0 {
 		brainBriefPrioritizeActionTargets(status.Repo.Root, &report)
 		report.Guidance = append(report.Guidance, "Treat action_checklist as the first-pass current-code inventory; edit listed files first, and broaden only when the checklist is missing, ambiguous, or validation fails.")
+	} else if brainBriefPromoteGitIntentFile(ctx, opts.Runner, status.Repo.Root, task, &report) {
+		brainBriefApplyLayoutGuidance(status.Repo.Root, task, &report)
+		if profile != nil {
+			profile.Synthesis.LikelyFiles.OutputCount = len(report.LikelyEditFiles) + len(report.LikelyTestFiles) + len(report.LikelyFiles)
+		}
 	}
 	if profile != nil {
-		profile.finishStage(&profile.Synthesis.ActionChecklist, actionStarted, len(report.LikelyFiles)+len(report.History.Matches), len(report.ActionChecklist), 0)
+		profile.finishStage(&profile.Synthesis.ActionChecklist, actionStarted, actionInputs, len(report.ActionChecklist), 0)
 	}
 	patternsStarted := profile.start()
 	views, _, perr := loadPatternViews(status.Brain.Path)
