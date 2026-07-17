@@ -32,7 +32,7 @@ const (
 		"overflow=mandatory_error,optional_prefix_drop\n" +
 		"trust=locus_drift_marker_from_unfiltered_values,stale_locus_safe_values_only\n" +
 		"semantic_edges=typed_relation_and_runtime_trace_with_finite_confidence,relation_type_ascii_upper_identifier_max64,resolution_ascii_identifier_max64,edge_id_bounded_whitespace_free_stable_identifier_max1024,optional_observed_type_from_exact_generated_reason_prefix_using_relation_type_grammar,no_free_form_runtime_reason,no_span_provenance\n" +
-		"edge_id_privacy=pct1,bslash_slash,nested_pct_reject,decoded_grammar,ascii_fold,punct_boundaries=all,abs_slash_reject,route_root=external:route:/,drive=[A-Za-z]:/,home=..|~|$HOME|${HOME},uri=http|https|mailto\n" +
+		"edge_id_privacy=pct1,bslash_slash,nested_pct_reject,decoded_grammar,ascii_fold,punct_boundaries=all,abs_slash_reject,route_root=external:route:/,drive=[A-Za-z]:/,home=..|~|$HOME|${HOME},uri=file:/|http|https|mailto\n" +
 		"privacy=omit_structured_generated_at,host_roots,history_source_path,history_timestamp,session,checkpoint,transcript,provenance_anchor,raw_status_warnings,raw_live_warnings,raw_report_warnings_except_proposal_state_unavailable,free_form_runtime_reason;filter_new_edge_fields_symmetrically_for_paths,credentials,controls,unicode_whitespace,and_invalid_grammar;preserve_existing_v1_natural_language_verbatim\n"
 )
 
