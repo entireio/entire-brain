@@ -2,6 +2,7 @@ package cli
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"os"
@@ -615,14 +616,35 @@ func parseCompactV2Records(t *testing.T, packet string) []compactV2ParsedRecord 
 }
 
 func parseCompactV2Packet(packet string) ([]compactV2ParsedRecord, error) {
+	return parseCompactPacket(packet, brainBriefCompactV2Marker, brainBriefCompactV2Legend, compactV2Schemas, compactV2DigestMatches)
+}
+
+func parseCompactV3Records(t *testing.T, packet string) []compactV2ParsedRecord {
+	t.Helper()
+	records, err := parseCompactV3Packet(packet)
+	if err != nil {
+		t.Fatalf("compact_v3 parse: %v", err)
+	}
+	return records
+}
+
+func parseCompactV3Packet(packet string) ([]compactV2ParsedRecord, error) {
+	return parseCompactPacket(packet, brainBriefCompactV3Marker, brainBriefCompactV3Legend, compactV3Schemas, compactV3DigestMatches)
+}
+
+func parseCompactPacket(
+	packet, marker, legend string,
+	schemas []compactV2Schema,
+	digestMatches func(string, string) bool,
+) ([]compactV2ParsedRecord, error) {
 	if !strings.HasSuffix(packet, "\n") {
 		return nil, fmt.Errorf("missing final newline")
 	}
 	lines := strings.Split(strings.TrimSuffix(packet, "\n"), "\n")
-	if len(lines) < 4 || lines[0] != brainBriefCompactV2Marker {
+	if len(lines) < 4 || lines[0] != marker {
 		return nil, fmt.Errorf("marker mismatch")
 	}
-	if lines[1] != brainBriefCompactV2Legend {
+	if lines[1] != legend {
 		return nil, fmt.Errorf("legend mismatch")
 	}
 	footer := strings.Split(lines[len(lines)-1], "\t")
@@ -633,22 +655,18 @@ func parseCompactV2Packet(packet string) ([]compactV2ParsedRecord, error) {
 	if err != nil || count < 0 || strconv.Itoa(count) != footer[1] {
 		return nil, fmt.Errorf("footer count")
 	}
-	if !compactV2LowerHexDigest(footer[2]) {
-		return nil, fmt.Errorf("footer digest")
-	}
 	footerAt := strings.LastIndex(packet, "\nend\t")
 	if footerAt < 0 {
 		return nil, fmt.Errorf("footer boundary")
 	}
 	body := packet[:footerAt+1]
-	digest := sha256.Sum256([]byte(body))
-	if footer[2] != fmt.Sprintf("%x", digest) {
+	if !digestMatches(body, footer[2]) {
 		return nil, fmt.Errorf("checksum mismatch")
 	}
 
-	byTag := make(map[string]compactV2Schema, len(compactV2Schemas))
-	byOpcode := make(map[byte]compactV2Schema, len(compactV2Schemas))
-	for _, schema := range compactV2Schemas {
+	byTag := make(map[string]compactV2Schema, len(schemas))
+	byOpcode := make(map[byte]compactV2Schema, len(schemas))
+	for _, schema := range schemas {
 		if _, exists := byTag[schema.tag]; exists {
 			return nil, fmt.Errorf("duplicate static tag")
 		}
@@ -737,6 +755,23 @@ func parseCompactV2Packet(packet string) ([]compactV2ParsedRecord, error) {
 		}
 	}
 	return records, nil
+}
+
+func compactV2DigestMatches(body, encoded string) bool {
+	if !compactV2LowerHexDigest(encoded) {
+		return false
+	}
+	digest := sha256.Sum256([]byte(body))
+	return encoded == fmt.Sprintf("%x", digest)
+}
+
+func compactV3DigestMatches(body, encoded string) bool {
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
+	if err != nil || len(decoded) != sha256.Size || base64.RawURLEncoding.EncodeToString(decoded) != encoded {
+		return false
+	}
+	digest := sha256.Sum256([]byte(body))
+	return reflect.DeepEqual(decoded, digest[:])
 }
 
 func validateCompactV2KeyedRecord(record compactV1RawRecord, schema compactV2Schema) error {

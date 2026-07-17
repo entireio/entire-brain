@@ -212,11 +212,14 @@ Then the agent should make only targeted follow-up calls:
 
 `brain_brief` keeps its existing JSON-in-text response by default. Clients
 experimenting with a smaller agent packet can pass
-`packet_format: "compact_v1"` or `packet_format: "compact_v2"`; these are
-opt-in serialization changes over the same ranked report, not different
-retrieval treatments. In v2's hashed in-band legend, `~` means absent and `^`
-means the previous value in the same opcode and column, across interleaved
-records. V2 uses positional rows for a repeated family only when its complete
+`packet_format: "compact_v1"`, `packet_format: "compact_v2"`, or
+`packet_format: "compact_v3"`; these are opt-in serialization changes over the
+same ranked report, not different retrieval treatments. In v2 and v3's hashed
+in-band legend, `~` means absent and `^` means the previous value in the same
+opcode and column, across interleaved records. V2 limits `^` to metadata
+columns; v3 permits it for every exact repeated value. V3 also uses the compact
+`entire.brain_brief c3` marker and an unpadded base64url SHA-256 footer. Both
+formats use positional rows for a repeated family only when its complete
 canonical encoding is strictly smaller than keyed rows; ties remain keyed. Use
 `legacy_json` (or omit the argument) when a consumer depends on the existing
 JSON contract.

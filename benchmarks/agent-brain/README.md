@@ -26,6 +26,12 @@ the same as the v1 comparison. Report schema 2 also binds the exact runner,
 corpus verifier, product contract, golden, schema/allowlist, legend, and gates
 through a path-free hash-only runner identity.
 
+For the smaller opt-in `compact_v3` product serializer and its scoped
+public/synthetic fixture evidence, see
+[`PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md`](PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md).
+That local measurement covers exact packet bytes and `o200k_base` tokens only;
+it is not a run over the private 114-task corpus and makes no quality claim.
+
 ## Treatment-isolated tasks
 
 Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or

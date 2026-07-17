@@ -262,14 +262,14 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 	schema := brief["inputSchema"].(map[string]any)
 	properties := schema["properties"].(map[string]any)
 	format := properties["packet_format"].(map[string]any)
-	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2"}; !reflect.DeepEqual(got, want) {
+	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2", "compact_v3"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("packet_format enum = %#v, want %#v", got, want)
 	}
 	if format["default"] != "legacy_json" {
 		t.Fatalf("packet_format default = %#v", format["default"])
 	}
 
-	for _, value := range []any{nil, "", "compact_v3", true} {
+	for _, value := range []any{nil, "", "compact_v4", true} {
 		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{"task": "x", "packet_format": value}))
 		if err == nil || !strings.Contains(err.Error(), "packet_format") {
 			t.Errorf("packet_format %#v error = %v", value, err)
@@ -301,6 +301,12 @@ func TestMCPBrainBriefDefaultLegacyAndVersionedCompactPackets(t *testing.T) {
 		t.Fatalf("compact_v2 response marker missing:\n%s", compactV2Text)
 	}
 	parseCompactV2Records(t, compactV2Text)
+
+	compactV3Text := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "compact_v3"})
+	if !strings.HasPrefix(compactV3Text, brainBriefCompactV3Marker+"\n") {
+		t.Fatalf("compact_v3 response marker missing:\n%s", compactV3Text)
+	}
+	parseCompactV3Records(t, compactV3Text)
 }
 
 func comprehensiveCompactV1Report() brainBriefReport {
