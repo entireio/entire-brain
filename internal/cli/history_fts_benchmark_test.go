@@ -81,6 +81,66 @@ func BenchmarkHistoryFTSQueryPaths(b *testing.B) {
 	})
 }
 
+// BenchmarkHistoryLegacyIdentityUpgrade measures the one-time legacy fallback
+// against the next invocation's direct payload path. Manifest reset is outside
+// the timed region; the first arm includes full truth load, identity derivation,
+// schema-v2 cache validation and ranking, locking, revalidation, and atomic
+// migration.
+func BenchmarkHistoryLegacyIdentityUpgrade(b *testing.B) {
+	index := benchmarkHistoryFTSIndex(b)
+	brainDir, strong := writeDirectHistoryFTSFixture(b, index)
+	legacy := *strong
+	legacy.IndexBytes = 0
+	legacy.IndexSHA256 = ""
+	legacy.RecordsFingerprint = ""
+	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: &legacy}}
+	query := "embedding cache invalidation fingerprint"
+
+	b.Run("first_legacy_upgrade", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+				b.Fatal(err)
+			}
+			b.StartTimer()
+			_, identity, err := loadBrainHistoryIndexWithLegacyIdentity(brainDir, &legacy)
+			if err != nil || identity == nil {
+				b.Fatalf("legacy load: identity=%+v err=%v", identity, err)
+			}
+			if _, used := rankHistoryViaLegacyDirectPayload(brainDir, &legacy, identity, "history", query, 10, historyFTSRelevanceCutoff); !used {
+				b.Fatal("legacy direct payload unavailable")
+			}
+		}
+	})
+
+	upgraded, err := loadBrainManifest(brainDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Run("second_direct", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, used, err := rankHistoryViaFreshFTS(brainDir, upgraded.Sources.History, "history", query, 10); err != nil || !used {
+				b.Fatalf("direct payload: used=%v err=%v", used, err)
+			}
+		}
+	})
+}
+
+func BenchmarkHistoryLegacyIdentityLockRecheck(b *testing.B) {
+	index := benchmarkHistoryFTSIndex(b)
+	brainDir, source := writeDirectHistoryFTSFixture(b, index)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		fingerprint, err := historyIndexFingerprintForIdentityRecheck(brainDir, source.IndexPath, source.IndexBytes)
+		if err != nil || fingerprint != source.IndexSHA256 {
+			b.Fatalf("stream identity: fingerprint=%q err=%v", fingerprint, err)
+		}
+	}
+}
+
 func BenchmarkHistoryFTSStorageDelta(b *testing.B) {
 	b.StopTimer()
 	index := benchmarkHistoryFTSIndex(b)
