@@ -1,9 +1,26 @@
 package cli
 
 import (
+	"math"
 	"testing"
 	"time"
 )
+
+type controlledSemanticEmbedder struct {
+	query []float32
+	docs  map[string][]float32
+	calls map[string]int
+}
+
+func (e *controlledSemanticEmbedder) Embed(text string) []float32 {
+	if e.calls != nil {
+		e.calls[text]++
+	}
+	return e.docs[text]
+}
+func (e *controlledSemanticEmbedder) EmbedQuery(string) []float32 { return e.query }
+func (e *controlledSemanticEmbedder) Dim() int                    { return 2 }
+func (e *controlledSemanticEmbedder) ID() string                  { return "controlled-semantic" }
 
 // TestRankFactsFusedReachesTermDisjoint is the core Phase D claim in miniature:
 // a relevant fact that shares NO term with the query is unreachable by the
@@ -107,5 +124,132 @@ func TestRankFactsFusedNoResultsWhenLexicalMissAndEmbedderEmpty(t *testing.T) {
 	rr := newSemanticReranker(emptyEmbedder{}) // no query vector → lexical-only
 	if got := rankFactsFused(facts, "zzqqxxnomatch", 10, false, rr); len(got) != 0 {
 		t.Fatalf("expected no results for a lexical miss with no embedder, got %v", got)
+	}
+}
+
+func TestRankFactsFusedInvalidQueryVectorsFallBackExactlyToLexical(t *testing.T) {
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	facts := []factRecord{
+		{ID: "fact:strong", Text: "checkpoint advance committed ref", Status: factStatusActive, UpdatedAt: older},
+		{ID: "fact:weak", Text: "checkpoint notes", Status: factStatusActive, UpdatedAt: newer},
+		{ID: "fact:inactive", Text: "checkpoint advance", Status: factStatusSuperseded, UpdatedAt: newer.Add(time.Hour)},
+	}
+	want := rankFacts(facts, "checkpoint advance", 10, false)
+	variants := map[string][]float32{
+		"nil":       nil,
+		"wrong-dim": {1},
+		"zero":      {0, 0},
+		"nan":       {float32(math.NaN()), 1},
+		"inf":       {float32(math.Inf(1)), 1},
+	}
+	for name, query := range variants {
+		t.Run(name, func(t *testing.T) {
+			e := &controlledSemanticEmbedder{query: query, docs: map[string][]float32{
+				facts[0].Text: {1, 0},
+				facts[1].Text: {0, 1},
+			}}
+			rr := newSemanticReranker(e)
+			got := rankFactsFused(facts, "checkpoint advance", 10, false, rr)
+			assertFactIDsEqual(t, got, want)
+			if rr.lastRun.Applied || rr.lastRun.QueryVectorValid {
+				t.Fatalf("invalid query vector must not apply semantic ranks: %+v", rr.lastRun)
+			}
+		})
+	}
+}
+
+func TestRankFactsFusedInvalidCandidateVectorsCannotEarnRecencyRanks(t *testing.T) {
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	facts := []factRecord{
+		{ID: "fact:strong", Text: "checkpoint advance committed ref", Status: factStatusActive, UpdatedAt: older},
+		{ID: "fact:weak", Text: "checkpoint notes", Status: factStatusActive, UpdatedAt: newer},
+		{ID: "fact:inactive", Text: "checkpoint advance exact inactive", Status: factStatusSuperseded, UpdatedAt: newer.Add(time.Hour)},
+	}
+	want := rankFacts(facts, "checkpoint advance", 10, false)
+	variants := map[string][]float32{
+		"nil":       nil,
+		"wrong-dim": {1},
+		"zero":      {0, 0},
+		"nan":       {float32(math.NaN()), 1},
+		"inf":       {float32(math.Inf(1)), 1},
+	}
+	for name, document := range variants {
+		t.Run(name, func(t *testing.T) {
+			e := &controlledSemanticEmbedder{
+				query: []float32{1, 0},
+				docs: map[string][]float32{
+					facts[0].Text: document,
+					facts[1].Text: document,
+				},
+			}
+			rr := newSemanticReranker(e)
+			got := rankFactsFused(facts, "checkpoint advance", 10, false, rr)
+			assertFactIDsEqual(t, got, want)
+			if !rr.lastRun.Applied || !rr.lastRun.QueryVectorValid || rr.lastRun.ValidCandidateVectors != 0 {
+				t.Fatalf("candidate diagnostics = %+v", rr.lastRun)
+			}
+		})
+	}
+}
+
+func TestSemanticRerankerRetriesFailureShapedCandidateVectors(t *testing.T) {
+	text := "checkpoint advance committed ref"
+	e := &controlledSemanticEmbedder{
+		query: []float32{1, 0},
+		docs:  map[string][]float32{text: {0, 0}},
+		calls: map[string]int{},
+	}
+	rr := newSemanticReranker(e)
+	got := rr.factVector(factRecord{ID: "fact:retry", Text: text})
+	if validSemanticEmbedding(got, e.Dim()) || e.calls[text] != 1 || rr.cache["fact:retry"] != nil {
+		t.Fatalf("failure-shaped result was cached: got=%v calls=%d cache=%v", got, e.calls[text], rr.cache)
+	}
+	e.docs[text] = []float32{1, 0}
+	_ = rr.factVector(factRecord{ID: "fact:retry", Text: text})
+	_ = rr.factVector(factRecord{ID: "fact:retry", Text: text})
+	if e.calls[text] != 2 {
+		t.Fatalf("failed vector was not retried or valid retry was not cached: calls=%d", e.calls[text])
+	}
+
+	e.docs[text] = []float32{0, 0}
+	delete(rr.cache, "fact:retry")
+	_ = rr.factVector(factRecord{ID: "fact:retry", Text: text})
+	_ = rr.factVector(factRecord{ID: "fact:retry", Text: text})
+	if e.calls[text] != 4 {
+		t.Fatalf("failed vector must remain retryable, calls=%d want=4", e.calls[text])
+	}
+}
+
+func TestValidSemanticEmbedding(t *testing.T) {
+	for name, tc := range map[string]struct {
+		vector []float32
+		valid  bool
+	}{
+		"valid":     {[]float32{1, 0}, true},
+		"nil":       {nil, false},
+		"wrong-dim": {[]float32{1}, false},
+		"zero":      {[]float32{0, 0}, false},
+		"nan":       {[]float32{float32(math.NaN()), 0}, false},
+		"inf":       {[]float32{float32(math.Inf(1)), 0}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := validSemanticEmbedding(tc.vector, 2); got != tc.valid {
+				t.Fatalf("validSemanticEmbedding(%v) = %v, want %v", tc.vector, got, tc.valid)
+			}
+		})
+	}
+}
+
+func assertFactIDsEqual(t *testing.T, got, want []factRecord) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("fact count = %d, want %d: got=%v want=%v", len(got), len(want), got, want)
+	}
+	for i := range got {
+		if got[i].ID != want[i].ID {
+			t.Fatalf("rank %d = %s, want %s", i+1, got[i].ID, want[i].ID)
+		}
 	}
 }

@@ -60,6 +60,54 @@ func TestVecStoreRoundtripAndPrune(t *testing.T) {
 	}
 }
 
+func TestVecStoreRejectsFailureShapedVectorsBeforeKNN(t *testing.T) {
+	s := testVecStore(t, "m1", 2)
+	if err := s.save(map[string][]float32{
+		"valid": {1, 0},
+		"zero":  {0, 0},
+		"nan":   {float32(math.NaN()), 1},
+		"inf":   {float32(math.Inf(1)), 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.load(); len(got) != 1 || got["valid"] == nil {
+		t.Fatalf("save persisted failure-shaped vectors: %v", got)
+	}
+	for name, query := range map[string][]float32{
+		"zero": {0, 0},
+		"nan":  {float32(math.NaN()), 1},
+		"inf":  {float32(math.Inf(1)), 1},
+	} {
+		t.Run("query-"+name, func(t *testing.T) {
+			if _, ok := s.knnCos(query); ok {
+				t.Fatal("KNN served a failure-shaped query vector")
+			}
+		})
+	}
+
+	// Simulate a legacy/corrupt same-dimension zero vector. sqlite-vec can
+	// produce a finite distance for it, so KNN must validate source blobs rather
+	// than treating a finite score as proof of a valid embedding.
+	db, err := s.open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE vec_facts SET embedding = ?`, make([]byte, 2*4)); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fresh := &vecStore{path: s.path, modelID: s.modelID, dim: s.dim}
+	if _, ok := fresh.knnCos([]float32{1, 0}); ok {
+		t.Fatal("KNN served a failure-shaped persisted vector")
+	}
+	if got := fresh.load(); len(got) != 0 {
+		t.Fatalf("failure-shaped vec0 cache must rebuild, got %v", got)
+	}
+}
+
 func TestVecStoreModelAndDimMismatchRebuild(t *testing.T) {
 	dir := t.TempDir()
 	s := newVectorStore(dir, "main", "m1", 3).(*vecStore)

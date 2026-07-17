@@ -28,7 +28,9 @@ type vectorStore interface {
 // provides: one vec0 MATCH query returns cosine similarity for every stored
 // fact, replacing the per-fact brute-force loop in the semantic arm. ok=false
 // (store absent, model mismatch, empty) sends the caller to the brute-force
-// fallback, so a degraded store never breaks ranking.
+// fallback, so a degraded store never breaks ranking. Implementations may
+// return scores only for validated, non-zero stored vectors; the ranker also
+// cross-checks each score against its independently loaded vector cache.
 type knnVectorStore interface {
 	knnCos(qvec []float32) (map[string]float64, bool)
 }
@@ -105,15 +107,16 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 		s.touched[f.ID] = true
 	}
 	if v, ok := s.cache[f.ID]; ok {
+		// Both insertion below and every persistent store load enforce the same
+		// validity predicate, so a cache hit is already known-good.
 		return v
 	}
 	v := s.e.Embed(f.Text)
-	// Cache only a full-dimension vector. A transient embed failure (nil/short)
+	// Cache only a full-dimension vector with actual numeric signal. A transient
+	// embed failure (nil/short/zero/non-finite)
 	// must not be cached, or every later call this process would reuse the empty
 	// result and never retry; returning it uncached lets a later call re-embed.
-	// Require Dim()>0 too: a failed dimension probe can report 0, which a nil
-	// vector (len 0) would otherwise satisfy and get cached.
-	if d := s.e.Dim(); d > 0 && len(v) == d {
+	if validSemanticEmbedding(v, s.e.Dim()) {
 		s.cache[f.ID] = v
 		s.dirty = true
 	}
@@ -185,10 +188,10 @@ func (s *semanticReranker) flush() error {
 // lexical), so callers without an embedder are unaffected.
 //
 // The fusion is what attacks both measured failure modes at once:
-//   - Reachability (the 0.667 lexical ceiling): the semantic list ranks the
-//     *entire* active candidate set, so a relevant fact that shares no query
-//     term still gets a rank and can surface — something no lexical weighting
-//     can do.
+//   - Reachability (the 0.667 lexical ceiling): the semantic list ranks every
+//     active candidate with a valid vector, so a relevant fact that shares no
+//     query term still gets a rank and can surface — something no lexical
+//     weighting can do.
 //   - Ranking within reach: a fact strong in both lists fuses above one strong
 //     in only one, reordering the lexically-reachable set by meaning.
 //
@@ -210,6 +213,7 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		lex    float64
 		lexHit bool // retrieved by the lexical arm (distinguishes a 0-score BM25 hit from a miss)
 		cos    float64
+		semHit bool // backed by a valid candidate vector, not failure-shaped zero noise
 	}
 	queryLocus := factLocus(query)
 	rr.lastRun.Attempted = true
@@ -217,9 +221,9 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	// No query embedding (e.g. the embedder is unavailable) → fall back cleanly to
 	// lexical-only ranking. Otherwise every cosine is 0 and the semantic arm would
 	// still add an RRF term, reordering results by the UpdatedAt tiebreaker.
-	haveSemantic := len(qvec) > 0
+	haveSemantic := validSemanticEmbedding(qvec, rr.e.Dim())
 	rr.lastRun.Applied = haveSemantic
-	rr.lastRun.QueryVectorValid = rr.e.Dim() > 0 && len(qvec) == rr.e.Dim()
+	rr.lastRun.QueryVectorValid = haveSemantic
 	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
@@ -267,20 +271,26 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 			lexHit = lex > 0
 		}
 		cos := 0.0
+		semHit := false
 		if haveSemantic {
-			if c, ok := storeCos[f.ID]; ok {
-				cos = c
-				rr.markTouched(f.ID)
-				rr.lastRun.ValidCandidateVectors++
-			} else {
+			if c, ok := storeCos[f.ID]; ok && !math.IsNaN(c) && !math.IsInf(c, 0) {
+				if _, exists := rr.cache[f.ID]; exists {
+					cos = c
+					semHit = true
+					rr.markTouched(f.ID)
+					rr.lastRun.ValidCandidateVectors++
+				}
+			}
+			if !semHit {
 				fvec := rr.factVector(f)
-				cos = cosineFloat32(qvec, fvec)
-				if d := rr.e.Dim(); d > 0 && len(fvec) == d {
+				if validSemanticEmbedding(fvec, rr.e.Dim()) {
+					cos = cosineFloat32(qvec, fvec)
+					semHit = true
 					rr.lastRun.ValidCandidateVectors++
 				}
 			}
 		}
-		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos})
+		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos, semHit: semHit})
 	}
 
 	// Lexical ranks: only facts retrieved lexically (lexHit) contribute a lexical
@@ -307,18 +317,26 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 	}
 
-	// Semantic ranks: the full candidate set is ranked by cosine, so a
-	// term-disjoint but semantically-near fact still earns a rank. Skipped entirely
-	// when there's no query embedding, leaving a clean lexical-only ranking.
+	// Semantic ranks: candidates backed by valid vectors are ranked by cosine, so
+	// a term-disjoint but semantically-near fact still earns a rank. Failure-shaped
+	// vectors are excluded rather than receiving a recency-ordered zero-cosine
+	// rank. Skipped entirely when there's no valid query embedding, leaving a clean
+	// lexical-only ranking.
 	if haveSemantic {
 		sort.SliceStable(order, func(a, b int) bool {
 			ia, ib := order[a], order[b]
+			if cands[ia].semHit != cands[ib].semHit {
+				return cands[ia].semHit
+			}
 			if cands[ia].cos != cands[ib].cos {
 				return cands[ia].cos > cands[ib].cos
 			}
 			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 		})
 		for rank, idx := range order {
+			if !cands[idx].semHit {
+				break
+			}
 			fused[idx] += 1.0 / (rrfK + float64(rank+1))
 		}
 	}
@@ -334,8 +352,8 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 	})
 	// Only facts that earned a retrieval signal (fused > 0) are returned. With an
-	// embedder, every candidate gets a semantic RRF term so this keeps all of them;
-	// but when the embedder is unavailable (lexical-only) and nothing matched
+	// healthy embedder, every valid candidate gets a semantic RRF term so this
+	// keeps all of them; but when embeddings are unavailable and nothing matched
 	// lexically, every fused score is 0 — return nothing rather than an arbitrary
 	// recency-ordered top-N (matches rankFacts's score>0 filter).
 	out := make([]factRecord, 0, min(limit, len(order)))
@@ -349,6 +367,24 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 	}
 	return out
+}
+
+// validSemanticEmbedding rejects failure-shaped vectors before they can earn
+// an RRF rank. Length alone is insufficient: a backend can return the expected
+// number of zero or non-finite values while still providing no semantic signal.
+func validSemanticEmbedding(v []float32, dim int) bool {
+	if dim <= 0 || len(v) != dim {
+		return false
+	}
+	norm := 0.0
+	for _, value := range v {
+		f := float64(value)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return false
+		}
+		norm += f * f
+	}
+	return norm > 0 && !math.IsInf(norm, 0)
 }
 
 // cosineFloat32 is the cosine similarity of two vectors. Vectors from the

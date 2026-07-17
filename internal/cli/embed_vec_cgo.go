@@ -29,9 +29,10 @@ import (
 // load, at most one KNN query, and one save, so holding a handle across the
 // process buys nothing and leaks on early exits.
 type vecStore struct {
-	path    string // absolute path to vectors.sqlite
-	modelID string
-	dim     int
+	path      string // absolute path to vectors.sqlite
+	modelID   string
+	dim       int
+	validated bool // every persisted fact vector passed validSemanticEmbedding
 }
 
 const vecStoreFileName = "vectors.sqlite"
@@ -82,6 +83,7 @@ func (s *vecStore) metaMatches(db *sql.DB) bool {
 }
 
 func (s *vecStore) load() map[string][]float32 {
+	s.validated = false
 	out := map[string][]float32{}
 	if _, err := os.Stat(s.path); err != nil {
 		return out
@@ -109,11 +111,15 @@ func (s *vecStore) load() map[string][]float32 {
 		for d := range vec {
 			vec[d] = math.Float32frombits(binary.LittleEndian.Uint32(blob[4*d:]))
 		}
+		if !validSemanticEmbedding(vec, s.dim) {
+			return map[string][]float32{} // failure-shaped cache -> rebuild
+		}
 		out[id] = vec
 	}
 	if rows.Err() != nil {
 		return map[string][]float32{}
 	}
+	s.validated = true
 	return out
 }
 
@@ -168,8 +174,8 @@ func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]str
 	}
 	rowid := int64(0)
 	for factID, vec := range vecs {
-		if len(vec) != s.dim {
-			continue // wrong-dim vector: skip, as embedStore.save does
+		if !validSemanticEmbedding(vec, s.dim) {
+			continue // failure-shaped vector: skip, as embedStore.save does
 		}
 		blob, err := sqlitevec.SerializeFloat32(vec)
 		if err != nil {
@@ -183,7 +189,41 @@ func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]str
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.validated = true
+	return nil
+}
+
+// validateStoredVectors closes the one remaining failure path before vec0
+// KNN: an older or externally corrupted store can hold a same-dimension zero
+// vector whose cosine distance is a finite number. Validate the source blobs
+// once before allowing their derived scores to earn semantic ranks.
+func (s *vecStore) validateStoredVectors(db *sql.DB) bool {
+	rows, err := db.Query(`SELECT embedding FROM vec_facts`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var blob []byte
+		if err := rows.Scan(&blob); err != nil || len(blob) != 4*s.dim {
+			return false
+		}
+		vec := make([]float32, s.dim)
+		for d := range vec {
+			vec[d] = math.Float32frombits(binary.LittleEndian.Uint32(blob[4*d:]))
+		}
+		if !validSemanticEmbedding(vec, s.dim) {
+			return false
+		}
+	}
+	if rows.Err() != nil {
+		return false
+	}
+	s.validated = true
+	return true
 }
 
 // historyVecStore is the vec0 store for history record vectors, at
@@ -396,7 +436,7 @@ func (s *historyVecStore) knnCos(qvec []float32, k int) (map[string]float64, boo
 // model/dim mismatch, empty, wrong query dim) sends rankFactsFused to the
 // brute-force fallback.
 func (s *vecStore) knnCos(qvec []float32) (map[string]float64, bool) {
-	if len(qvec) != s.dim {
+	if !validSemanticEmbedding(qvec, s.dim) {
 		return nil, false
 	}
 	if _, err := os.Stat(s.path); err != nil {
@@ -408,6 +448,9 @@ func (s *vecStore) knnCos(qvec []float32) (map[string]float64, bool) {
 	}
 	defer db.Close()
 	if !s.metaMatches(db) {
+		return nil, false
+	}
+	if !s.validated && !s.validateStoredVectors(db) {
 		return nil, false
 	}
 	var count int
