@@ -408,8 +408,9 @@ type brainBriefAgentV2EdgeIDView interface {
 
 func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T) bool {
 	const routePrefix = "external:route:"
-	if brainBriefAgentV2ExactPrefix(view, 0, routePrefix) &&
-		(len(view) == len(routePrefix) || view[len(routePrefix)] != '/') {
+	if brainBriefAgentV2FoldPrefix(view, 0, routePrefix) &&
+		(!brainBriefAgentV2ExactPrefix(view, 0, routePrefix) ||
+			len(view) == len(routePrefix) || view[len(routePrefix)] != '/') {
 		return false
 	}
 	for index := 0; index < len(view); index++ {
