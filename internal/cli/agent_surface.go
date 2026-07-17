@@ -1332,6 +1332,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		brainBriefCapSemantic(&report.Semantic, briefOpts.limit)
 	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
+	report.LikelyEditFiles = brainBriefAddGoTestSourceCompanions(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 	if profile != nil {
@@ -1764,6 +1765,68 @@ func brainBriefPreviousResponseFileScore(rel, source string) int {
 
 func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []string) []string {
 	return brainBriefAddSiblingTestFilesWithGoSuffixes(repoRoot, editFiles, testFiles, nil)
+}
+
+const brainBriefGoTestSourceProbeLimit = 6
+
+// brainBriefAddGoTestSourceCompanions closes the common inverse-layout gap in
+// semantic retrieval: an exact test hit such as mcp_test.go is useful evidence
+// for its existing mcp.go implementation even when no implementation symbol
+// matched the task terms. This is an always-live, bounded postprocess over the
+// already-ranked test files; it never scans a directory or trusts an indexed
+// path without checking the current worktree.
+func brainBriefAddGoTestSourceCompanions(repoRoot string, editFiles, testFiles []string) []string {
+	if len(editFiles) >= 8 || len(testFiles) == 0 {
+		return editFiles
+	}
+	var (
+		repoFiles brainBriefRepoFileChecker
+		checked   bool
+		out       []string
+	)
+	for i, testFile := range testFiles {
+		if i >= brainBriefGoTestSourceProbeLimit {
+			break
+		}
+		candidate, ok := brainBriefGoTestSourceCandidate(testFile)
+		if !ok || slices.Contains(editFiles, candidate) || slices.Contains(out, candidate) {
+			continue
+		}
+		if !checked {
+			repoFiles, ok = newBrainBriefRepoFileChecker(repoRoot)
+			if !ok {
+				return editFiles
+			}
+			checked = true
+		}
+		if !repoFiles.exists(candidate) {
+			continue
+		}
+		if out == nil {
+			out = append([]string(nil), editFiles...)
+		}
+		out = append(out, candidate)
+		if len(out) >= 8 {
+			return out
+		}
+	}
+	if out == nil {
+		return editFiles
+	}
+	return out
+}
+
+func brainBriefGoTestSourceCandidate(testFile string) (string, bool) {
+	clean, ok := cleanBrainBriefLikelyFile(testFile)
+	if !ok {
+		return "", false
+	}
+	base := filepath.Base(clean)
+	stem, ok := strings.CutSuffix(base, "_test.go")
+	if !ok || stem == "" || strings.Contains(stem, ".") || strings.HasSuffix(stem, "_test") {
+		return "", false
+	}
+	return strings.TrimSuffix(clean, "_test.go") + ".go", true
 }
 
 func brainBriefAddSiblingTestFilesWithGoSuffixes(
