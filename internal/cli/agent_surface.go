@@ -1815,8 +1815,8 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 	return out
 }
 
-// brainBriefNestedTestCandidates covers the common JavaScript/TypeScript
-// __tests__ subdirectory layout. It is consulted only when no direct sibling
+// brainBriefNestedTestCandidates covers a small set of common test layouts that
+// are not direct source siblings. It is consulted only when no direct sibling
 // was recommended, and callers require a safe existing regular repository file.
 func brainBriefNestedTestCandidates(file string) []string {
 	ext := filepath.Ext(file)
@@ -1829,6 +1829,14 @@ func brainBriefNestedTestCandidates(file string) []string {
 			strings.TrimSuffix(filepath.Base(nativeFile), ext),
 		))
 		return []string{nestedStem + ".test" + ext, nestedStem + ".spec" + ext}
+	case ".py":
+		clean, ok := cleanBrainBriefRepoRelativePath(file)
+		if !ok || !strings.HasPrefix(clean, "src/") {
+			return nil
+		}
+		sourceRelative := filepath.FromSlash(strings.TrimPrefix(clean, "src/"))
+		testName := "test_" + strings.TrimSuffix(filepath.Base(sourceRelative), ext) + ext
+		return []string{filepath.ToSlash(filepath.Join("tests", filepath.Dir(sourceRelative), testName))}
 	default:
 		return nil
 	}
@@ -1846,7 +1854,7 @@ func brainBriefSiblingTestCandidates(file string) []string {
 	case ".go":
 		return []string{stem + "_test.go"}
 	case ".py":
-		return []string{stem + "_test.py", stem + "_test" + ext}
+		return []string{stem + "_test.py"}
 	default:
 		return nil
 	}
