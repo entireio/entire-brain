@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	brainBriefAgentV1Marker      = "entire.brain_brief agent_v1"
-	brainBriefAgentV1Schema      = 1
-	brainBriefAgentV1BudgetBytes = 32 * 1024
+	brainBriefAgentV1Marker       = "entire.brain_brief agent_v1"
+	brainBriefAgentV1Schema       = 1
+	brainBriefAgentV1BudgetBytes  = 32 * 1024
+	brainBriefAgentV1SizingSHA256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 	// This canonical description is the identity of the projection policy, not
 	// merely a display label. Any change to selected fields, priority, overflow
@@ -351,16 +352,33 @@ func buildBrainBriefAgentV1(report brainBriefReport, policy brainBriefDeliveryPo
 		}
 	}
 
-	selected := append([]brainBriefAgentV1Record(nil), mandatory...)
 	var emitted brainBriefAgentV1Counts
-	for _, record := range selected {
+	bodyCapacity := len(brainBriefAgentV1Marker) + 1
+	for _, record := range mandatory {
 		emitted.add(record)
+		bodyCapacity += len(record.line)
 	}
-	mandatoryPacket := finalizeBrainBriefAgentV1(selected, emitted, available)
-	if len(mandatoryPacket) > brainBriefAgentV1BudgetBytes {
+	for _, section := range optional {
+		for _, record := range section {
+			bodyCapacity += len(record.line)
+		}
+	}
+	if bodyCapacity > brainBriefAgentV1BudgetBytes {
+		bodyCapacity = brainBriefAgentV1BudgetBytes
+	}
+	var body strings.Builder
+	body.Grow(bodyCapacity)
+	body.WriteString(brainBriefAgentV1Marker)
+	body.WriteByte('\n')
+	for _, record := range mandatory {
+		body.WriteString(record.line)
+	}
+	bodyRecords := len(mandatory)
+	mandatoryPacketBytes := brainBriefAgentV1SizedPacketBytes(body.Len(), bodyRecords, emitted, available)
+	if mandatoryPacketBytes > brainBriefAgentV1BudgetBytes {
 		return brainBriefAgentV1Projection{}, fmt.Errorf(
 			"agent_v1 mandatory packet is %d bytes, exceeds %d-byte budget",
-			len(mandatoryPacket), brainBriefAgentV1BudgetBytes,
+			mandatoryPacketBytes, brainBriefAgentV1BudgetBytes,
 		)
 	}
 
@@ -370,18 +388,22 @@ func buildBrainBriefAgentV1(report brainBriefReport, policy brainBriefDeliveryPo
 	// contribute shorter records.
 	for _, section := range optional {
 		for _, record := range section {
-			candidateRecords := append(append([]brainBriefAgentV1Record(nil), selected...), record)
 			candidateCounts := emitted
 			candidateCounts.add(record)
-			if len(finalizeBrainBriefAgentV1(candidateRecords, candidateCounts, available)) > brainBriefAgentV1BudgetBytes {
+			candidateBodyBytes := body.Len() + len(record.line)
+			candidateBodyRecords := bodyRecords + 1
+			if brainBriefAgentV1SizedPacketBytes(
+				candidateBodyBytes, candidateBodyRecords, candidateCounts, available,
+			) > brainBriefAgentV1BudgetBytes {
 				break
 			}
-			selected = candidateRecords
+			body.WriteString(record.line)
+			bodyRecords = candidateBodyRecords
 			emitted = candidateCounts
 		}
 	}
 
-	packet := finalizeBrainBriefAgentV1(selected, emitted, available)
+	packet := finalizeBrainBriefAgentV1Body(body.String(), bodyRecords, emitted, available)
 	if len(packet) > brainBriefAgentV1BudgetBytes {
 		return brainBriefAgentV1Projection{}, fmt.Errorf(
 			"agent_v1 packet is %d bytes, exceeds %d-byte budget",
@@ -512,43 +534,152 @@ func brainBriefAgentV1OptionalSections(report brainBriefReport) [][]brainBriefAg
 	}
 }
 
-func finalizeBrainBriefAgentV1(records []brainBriefAgentV1Record, emitted, available brainBriefAgentV1Counts) string {
-	var body strings.Builder
-	body.WriteString(brainBriefAgentV1Marker)
-	body.WriteByte('\n')
-	for _, record := range records {
-		body.WriteString(record.line)
-	}
-	bodyText := body.String()
+func finalizeBrainBriefAgentV1Body(
+	bodyText string,
+	bodyRecords int,
+	emitted, available brainBriefAgentV1Counts,
+) string {
 	bodyHash := sha256.Sum256([]byte(bodyText))
-	end := agentV1RecordLine("end",
-		compactV1IntAlways("facts", emitted.facts),
-		compactV1IntAlways("fact_reviews", emitted.factReviews),
-		compactV1IntAlways("facts_with_locus_drift", emitted.factsWithLocusDrift),
-		compactV1IntAlways("trust_warnings", emitted.trustWarnings),
-		compactV1IntAlways("edit_files", emitted.editFiles),
-		compactV1IntAlways("test_files", emitted.testFiles),
-		compactV1IntAlways("likely_files", emitted.likelyFiles),
-		compactV1IntAlways("actions", emitted.actions),
-		compactV1IntAlways("symbols", emitted.symbols),
-		compactV1IntAlways("test_suggestions", emitted.testSuggestions),
-		compactV1IntAlways("history", emitted.history),
-		compactV1IntAlways("available_facts", available.facts),
-		compactV1IntAlways("available_fact_reviews", available.factReviews),
-		compactV1IntAlways("available_trust_warnings", available.trustWarnings),
-		compactV1IntAlways("available_edit_files", available.editFiles),
-		compactV1IntAlways("available_test_files", available.testFiles),
-		compactV1IntAlways("available_likely_files", available.likelyFiles),
-		compactV1IntAlways("available_actions", available.actions),
-		compactV1IntAlways("available_symbols", available.symbols),
-		compactV1IntAlways("available_test_suggestions", available.testSuggestions),
-		compactV1IntAlways("available_history", available.history),
-		compactV1Bool("truncated", emitted.truncated(available)),
-		compactV1IntAlways("body_records", len(records)),
-		compactV1IntAlways("body_bytes", len(bodyText)),
-		compactV1StringAlways("body_sha256", fmt.Sprintf("sha256:%x", bodyHash)),
+	end := brainBriefAgentV1EndRecordLine(
+		emitted, available, bodyRecords, len(bodyText), fmt.Sprintf("sha256:%x", bodyHash),
 	)
-	return bodyText + end
+	var packet strings.Builder
+	packet.Grow(len(bodyText) + len(end))
+	packet.WriteString(bodyText)
+	packet.WriteString(end)
+	return packet.String()
+}
+
+func brainBriefAgentV1SizedPacketBytes(
+	bodyBytes, bodyRecords int,
+	emitted, available brainBriefAgentV1Counts,
+) int {
+	return bodyBytes + brainBriefAgentV1EncodeEndRecord(
+		nil, emitted, available, bodyRecords, bodyBytes, brainBriefAgentV1SizingSHA256,
+	)
+}
+
+func brainBriefAgentV1EndRecordLine(
+	emitted, available brainBriefAgentV1Counts,
+	bodyRecords, bodyBytes int,
+	bodySHA256 string,
+) string {
+	endBytes := brainBriefAgentV1EncodeEndRecord(
+		nil, emitted, available, bodyRecords, bodyBytes, brainBriefAgentV1SizingSHA256,
+	)
+	var end strings.Builder
+	end.Grow(endBytes)
+	brainBriefAgentV1EncodeEndRecord(&end, emitted, available, bodyRecords, bodyBytes, bodySHA256)
+	return end.String()
+}
+
+type brainBriefAgentV1EndRecordEncoder struct {
+	out   *strings.Builder
+	bytes int
+}
+
+func (encoder *brainBriefAgentV1EndRecordEncoder) string(value string) {
+	encoder.bytes += len(value)
+	if encoder.out != nil {
+		encoder.out.WriteString(value)
+	}
+}
+
+func (encoder *brainBriefAgentV1EndRecordEncoder) byte(value byte) {
+	encoder.bytes++
+	if encoder.out != nil {
+		encoder.out.WriteByte(value)
+	}
+}
+
+func (encoder *brainBriefAgentV1EndRecordEncoder) field(key string) {
+	encoder.byte(' ')
+	encoder.string(key)
+	encoder.byte('=')
+}
+
+func (encoder *brainBriefAgentV1EndRecordEncoder) integer(key string, value int) {
+	encoder.field(key)
+	if encoder.out == nil {
+		encoder.bytes += brainBriefAgentV1DecimalBytes(value)
+		return
+	}
+	var scratch [32]byte
+	encoded := strconv.AppendInt(scratch[:0], int64(value), 10)
+	encoder.bytes += len(encoded)
+	encoder.out.Write(encoded)
+}
+
+func (encoder *brainBriefAgentV1EndRecordEncoder) boolean(key string, value bool) {
+	encoder.field(key)
+	if value {
+		encoder.string("true")
+		return
+	}
+	encoder.string("false")
+}
+
+// quotedASCII is exact for the generated SHA-256 identity used by the footer:
+// its alphabet never requires escaping under strconv.Quote.
+func (encoder *brainBriefAgentV1EndRecordEncoder) quotedASCII(key, value string) {
+	encoder.field(key)
+	encoder.byte('"')
+	encoder.string(value)
+	encoder.byte('"')
+}
+
+func brainBriefAgentV1EncodeEndRecord(
+	out *strings.Builder,
+	emitted, available brainBriefAgentV1Counts,
+	bodyRecords, bodyBytes int,
+	bodySHA256 string,
+) int {
+	encoder := brainBriefAgentV1EndRecordEncoder{out: out}
+	encoder.string("end")
+	encoder.integer("facts", emitted.facts)
+	encoder.integer("fact_reviews", emitted.factReviews)
+	encoder.integer("facts_with_locus_drift", emitted.factsWithLocusDrift)
+	encoder.integer("trust_warnings", emitted.trustWarnings)
+	encoder.integer("edit_files", emitted.editFiles)
+	encoder.integer("test_files", emitted.testFiles)
+	encoder.integer("likely_files", emitted.likelyFiles)
+	encoder.integer("actions", emitted.actions)
+	encoder.integer("symbols", emitted.symbols)
+	encoder.integer("test_suggestions", emitted.testSuggestions)
+	encoder.integer("history", emitted.history)
+	encoder.integer("available_facts", available.facts)
+	encoder.integer("available_fact_reviews", available.factReviews)
+	encoder.integer("available_trust_warnings", available.trustWarnings)
+	encoder.integer("available_edit_files", available.editFiles)
+	encoder.integer("available_test_files", available.testFiles)
+	encoder.integer("available_likely_files", available.likelyFiles)
+	encoder.integer("available_actions", available.actions)
+	encoder.integer("available_symbols", available.symbols)
+	encoder.integer("available_test_suggestions", available.testSuggestions)
+	encoder.integer("available_history", available.history)
+	encoder.boolean("truncated", emitted.truncated(available))
+	encoder.integer("body_records", bodyRecords)
+	encoder.integer("body_bytes", bodyBytes)
+	encoder.quotedASCII("body_sha256", bodySHA256)
+	encoder.byte('\n')
+	return encoder.bytes
+}
+
+func brainBriefAgentV1DecimalBytes(value int) int {
+	if value < 0 {
+		bytes := 2 // sign plus the first digit
+		for value <= -10 {
+			bytes++
+			value /= 10
+		}
+		return bytes
+	}
+	bytes := 1
+	for value >= 10 {
+		bytes++
+		value /= 10
+	}
+	return bytes
 }
 
 func agentV1Record(kind brainBriefAgentV1RecordKind, tag string, fields ...string) brainBriefAgentV1Record {

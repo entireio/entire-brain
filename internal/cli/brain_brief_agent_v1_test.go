@@ -289,6 +289,81 @@ func TestBrainBriefAgentV1UTF8ByteBudgetBoundary(t *testing.T) {
 	}
 }
 
+func TestBrainBriefAgentV1EndRecordSizingDecimalBoundaries(t *testing.T) {
+	testCounts := func(value int) brainBriefAgentV1Counts {
+		return brainBriefAgentV1Counts{
+			facts: value, factReviews: value, factsWithLocusDrift: value, trustWarnings: value,
+			editFiles: value, testFiles: value, likelyFiles: value, actions: value,
+			symbols: value, testSuggestions: value, history: value,
+		}
+	}
+	tests := []struct {
+		name                   string
+		emitted, available     brainBriefAgentV1Counts
+		bodyRecords, bodyBytes int
+	}{
+		{name: "zero_complete", emitted: testCounts(0), available: testCounts(0)},
+		{name: "single_digit_complete", emitted: testCounts(8), available: testCounts(8), bodyRecords: 9, bodyBytes: 9},
+		{name: "single_to_double_truncated", emitted: testCounts(9), available: testCounts(10), bodyRecords: 10, bodyBytes: 10},
+		{name: "double_digit_complete", emitted: testCounts(10), available: testCounts(10), bodyRecords: 99, bodyBytes: 99},
+		{name: "double_to_triple_truncated", emitted: testCounts(99), available: testCounts(100), bodyRecords: 100, bodyBytes: 100},
+		{name: "triple_digit_complete", emitted: testCounts(100), available: testCounts(100), bodyRecords: 999, bodyBytes: 999},
+		{name: "triple_to_four_truncated", emitted: testCounts(999), available: testCounts(1000), bodyRecords: 1000, bodyBytes: 1000},
+		{name: "packet_budget_width", emitted: testCounts(0), available: testCounts(0), bodyRecords: 9999, bodyBytes: brainBriefAgentV1BudgetBytes},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			hash := sha256.Sum256([]byte(test.name))
+			bodySHA256 := fmt.Sprintf("sha256:%x", hash)
+			got := brainBriefAgentV1EndRecordLine(
+				test.emitted, test.available, test.bodyRecords, test.bodyBytes, bodySHA256,
+			)
+			want := legacyBrainBriefAgentV1EndRecordLineForTest(
+				test.emitted, test.available, test.bodyRecords, test.bodyBytes, bodySHA256,
+			)
+			if got != want {
+				t.Fatalf("end record changed\ngot:  %s\nwant: %s", got, want)
+			}
+			if gotBytes := brainBriefAgentV1EncodeEndRecord(
+				nil, test.emitted, test.available, test.bodyRecords, test.bodyBytes, bodySHA256,
+			); gotBytes != len(got) {
+				t.Fatalf("encoded end bytes = %d, actual = %d", gotBytes, len(got))
+			}
+			if gotPacketBytes := brainBriefAgentV1SizedPacketBytes(
+				test.bodyBytes, test.bodyRecords, test.emitted, test.available,
+			); gotPacketBytes != test.bodyBytes+len(got) {
+				t.Fatalf("sized packet bytes = %d, actual = %d", gotPacketBytes, test.bodyBytes+len(got))
+			}
+		})
+	}
+
+	if len(brainBriefAgentV1SizingSHA256) != len("sha256:")+sha256.Size*2 ||
+		strconv.Quote(brainBriefAgentV1SizingSHA256) != `"`+brainBriefAgentV1SizingSHA256+`"` {
+		t.Fatalf("sizing SHA is not a fixed-width unescaped SHA-256 value: %q", brainBriefAgentV1SizingSHA256)
+	}
+	for _, value := range []int{-1000, -100, -10, -9, 0, 9, 10, 99, 100, 999, 1000, brainBriefAgentV1BudgetBytes} {
+		if got, want := brainBriefAgentV1DecimalBytes(value), len(strconv.Itoa(value)); got != want {
+			t.Errorf("decimal bytes(%d) = %d, want %d", value, got, want)
+		}
+	}
+}
+
+func TestBrainBriefAgentV1EndRecordSizingRecomputesTruncation(t *testing.T) {
+	emitted := brainBriefAgentV1Counts{history: 8}
+	available := emitted
+	completeBytes := brainBriefAgentV1SizedPacketBytes(100, 9, emitted, available)
+	available.history = 9
+	truncatedBytes := brainBriefAgentV1SizedPacketBytes(100, 9, emitted, available)
+	if truncatedBytes != completeBytes-1 {
+		t.Fatalf("truncation flip bytes = %d, complete = %d, want one byte shorter true/false width", truncatedBytes, completeBytes)
+	}
+	complete := brainBriefAgentV1EndRecordLine(emitted, emitted, 9, 100, brainBriefAgentV1SizingSHA256)
+	truncated := brainBriefAgentV1EndRecordLine(emitted, available, 9, 100, brainBriefAgentV1SizingSHA256)
+	if !strings.Contains(complete, " truncated=false ") || !strings.Contains(truncated, " truncated=true ") {
+		t.Fatalf("truncation field did not flip\ncomplete:  %s\ntruncated: %s", complete, truncated)
+	}
+}
+
 func TestBrainBriefAgentV1BudgetIsDeterministicAndKeepsHistoryPrefix(t *testing.T) {
 	report := comprehensiveCompactV1Report()
 	report.Semantic = brainBriefSemantic{}
@@ -679,8 +754,9 @@ func TestBrainBriefAgentV1MandatoryOverflowFailsBeforeWrite(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
 	err := emitBrainBriefAgentV1(cmd, report, brainBriefDeliveryAlways, 8)
-	if err == nil || !strings.Contains(err.Error(), "mandatory packet") {
-		t.Fatalf("overflow error = %v", err)
+	const wantError = "agent_v1 mandatory packet is 33868 bytes, exceeds 32768-byte budget"
+	if err == nil || err.Error() != wantError {
+		t.Fatalf("overflow error = %v, want %q", err, wantError)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("overflow wrote %d partial bytes", out.Len())
@@ -725,6 +801,40 @@ func TestBrainBriefAgentV1FailedEmissionWritesNoVitalityReceipt(t *testing.T) {
 	if got := vitalitySidecarBytes(t, fixture.brainDir, "main"); len(got) != 0 {
 		t.Fatalf("failed agent_v1 emission wrote a receipt: %s", got)
 	}
+}
+
+func legacyBrainBriefAgentV1EndRecordLineForTest(
+	emitted, available brainBriefAgentV1Counts,
+	bodyRecords, bodyBytes int,
+	bodySHA256 string,
+) string {
+	return agentV1RecordLine("end",
+		compactV1IntAlways("facts", emitted.facts),
+		compactV1IntAlways("fact_reviews", emitted.factReviews),
+		compactV1IntAlways("facts_with_locus_drift", emitted.factsWithLocusDrift),
+		compactV1IntAlways("trust_warnings", emitted.trustWarnings),
+		compactV1IntAlways("edit_files", emitted.editFiles),
+		compactV1IntAlways("test_files", emitted.testFiles),
+		compactV1IntAlways("likely_files", emitted.likelyFiles),
+		compactV1IntAlways("actions", emitted.actions),
+		compactV1IntAlways("symbols", emitted.symbols),
+		compactV1IntAlways("test_suggestions", emitted.testSuggestions),
+		compactV1IntAlways("history", emitted.history),
+		compactV1IntAlways("available_facts", available.facts),
+		compactV1IntAlways("available_fact_reviews", available.factReviews),
+		compactV1IntAlways("available_trust_warnings", available.trustWarnings),
+		compactV1IntAlways("available_edit_files", available.editFiles),
+		compactV1IntAlways("available_test_files", available.testFiles),
+		compactV1IntAlways("available_likely_files", available.likelyFiles),
+		compactV1IntAlways("available_actions", available.actions),
+		compactV1IntAlways("available_symbols", available.symbols),
+		compactV1IntAlways("available_test_suggestions", available.testSuggestions),
+		compactV1IntAlways("available_history", available.history),
+		compactV1Bool("truncated", emitted.truncated(available)),
+		compactV1IntAlways("body_records", bodyRecords),
+		compactV1IntAlways("body_bytes", bodyBytes),
+		compactV1StringAlways("body_sha256", bodySHA256),
+	)
 }
 
 func agentV1ProfileCountsFromFooter(t *testing.T, packet string) (brainBriefProfileCounts, string) {
