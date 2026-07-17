@@ -866,6 +866,160 @@ func TestBrainBriefAddsSiblingTestFiles(t *testing.T) {
 	}
 }
 
+func TestBrainBriefActionTargetsAddNestedJavaScriptTests(t *testing.T) {
+	repoDir := t.TempDir()
+	for path, body := range map[string]string{
+		"src/auth/token.ts":                "export function validateToken() {}\n",
+		"src/auth/__tests__/token.test.ts": "test('token', () => {})\n",
+	} {
+		absolute := filepath.Join(repoDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	report := brainBriefReport{
+		Task:            "fix token validation",
+		ActionChecklist: []brainBriefAction{{File: "src/auth/token.ts", Symbol: "validateToken", Action: "preserve expiry validation"}},
+		LikelyEditFiles: []string{"src/auth/token.ts"},
+		LikelyTestFiles: []string{
+			"tests/distractor_1.test.ts", "tests/distractor_2.test.ts", "tests/distractor_3.test.ts",
+			"tests/distractor_4.test.ts", "tests/distractor_5.test.ts", "tests/distractor_6.test.ts",
+		},
+	}
+	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+	baseline := report
+
+	brainBriefPrioritizeActionTargets(repoDir, &report)
+	wantTests := []string{
+		"src/auth/__tests__/token.test.ts",
+		"tests/distractor_1.test.ts", "tests/distractor_2.test.ts", "tests/distractor_3.test.ts",
+		"tests/distractor_4.test.ts", "tests/distractor_5.test.ts",
+	}
+	if !slices.Equal(report.LikelyTestFiles, wantTests) {
+		t.Fatalf("nested action test should rank first under the six-file cap: got %+v want %+v", report.LikelyTestFiles, wantTests)
+	}
+	if len(report.LikelyFiles) != 7 || report.LikelyFiles[1] != "src/auth/__tests__/token.test.ts" {
+		t.Fatalf("combined packet lost nested action-test priority: %+v", report.LikelyFiles)
+	}
+
+	baselinePacket := renderBrainBriefCompactV3ForTest(t, baseline)
+	candidatePacket := renderBrainBriefCompactV3ForTest(t, report)
+	byteDelta := len(candidatePacket) - len(baselinePacket)
+	proxyDelta := compactPacketByteProxy(candidatePacket) - compactPacketByteProxy(baselinePacket)
+	if byteDelta > 64 || proxyDelta > 16 {
+		t.Fatalf("one recalled test grew the bounded packet too much: bytes %+d proxy %+d", byteDelta, proxyDelta)
+	}
+	t.Logf(
+		"nested-test scenario: recall@6 0->1, reciprocal-rank 0->1; compact_v3 bytes %d->%d (%+d), ceil(bytes/4) proxy %d->%d (%+d)",
+		len(baselinePacket), len(candidatePacket), byteDelta,
+		compactPacketByteProxy(baselinePacket), compactPacketByteProxy(candidatePacket), proxyDelta,
+	)
+
+	emptyBaseline := baseline
+	emptyBaseline.LikelyTestFiles = nil
+	emptyBaseline.LikelyFiles = brainBriefMergeLikelyFiles(emptyBaseline.LikelyEditFiles, nil)
+	emptyCandidate := emptyBaseline
+	brainBriefPrioritizeActionTargets(repoDir, &emptyCandidate)
+	emptyBaselinePacket := renderBrainBriefCompactV3ForTest(t, emptyBaseline)
+	emptyCandidatePacket := renderBrainBriefCompactV3ForTest(t, emptyCandidate)
+	emptyByteDelta := len(emptyCandidatePacket) - len(emptyBaselinePacket)
+	emptyProxyDelta := compactPacketByteProxy(emptyCandidatePacket) - compactPacketByteProxy(emptyBaselinePacket)
+	if emptyByteDelta > 64 || emptyProxyDelta > 16 {
+		t.Fatalf("one recalled test grew an empty test section too much: bytes %+d proxy %+d", emptyByteDelta, emptyProxyDelta)
+	}
+	t.Logf(
+		"empty-test-section packet cost: compact_v3 bytes %d->%d (%+d), ceil(bytes/4) proxy %d->%d (%+d)",
+		len(emptyBaselinePacket), len(emptyCandidatePacket), emptyByteDelta,
+		compactPacketByteProxy(emptyBaselinePacket), compactPacketByteProxy(emptyCandidatePacket), emptyProxyDelta,
+	)
+}
+
+func TestBrainBriefNestedJavaScriptTestsAreFallbackToDirectSiblings(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, path := range []string{
+		"src/auth/token.test.ts",
+		"src/auth/__tests__/token.test.ts",
+	} {
+		absolute := filepath.Join(repoDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(absolute, []byte("test('token', () => {})\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil)
+	want := []string{"src/auth/token.test.ts"}
+	if !slices.Equal(tests, want) {
+		t.Fatalf("direct sibling should suppress the nested fallback: got %+v want %+v", tests, want)
+	}
+}
+
+func TestBrainBriefNestedJavaScriptTestsRequireSafeExistingFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "token.test.ts")
+	if err := os.WriteFile(outsidePath, []byte("test('outside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write outside test: %v", err)
+	}
+	linkPath := filepath.Join(repoDir, "src", "auth", "__tests__", "token.test.ts")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatalf("mkdir link dir: %v", err)
+	}
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts", "src/auth/missing.ts"}, nil)
+	if len(tests) != 0 {
+		t.Fatalf("outside symlink or nonexistent nested test should not be surfaced: %+v", tests)
+	}
+}
+
+func TestBrainBriefNestedJavaScriptTestsSkipSymlinkedDirectory(t *testing.T) {
+	repoDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "token.test.ts")
+	if err := os.WriteFile(outsidePath, []byte("test('outside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write outside test: %v", err)
+	}
+	linkDir := filepath.Join(repoDir, "src", "auth", "__tests__")
+	if err := os.MkdirAll(filepath.Dir(linkDir), 0o700); err != nil {
+		t.Fatalf("mkdir link parent: %v", err)
+	}
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil)
+	if len(tests) != 0 {
+		t.Fatalf("test under outside symlinked directory should not be surfaced: %+v", tests)
+	}
+}
+
+func TestBrainBriefAddSiblingTestFilesKeepsSixFileCap(t *testing.T) {
+	repoDir := t.TempDir()
+	testPath := filepath.Join(repoDir, "src", "target.test.ts")
+	if err := os.MkdirAll(filepath.Dir(testPath), 0o700); err != nil {
+		t.Fatalf("mkdir test dir: %v", err)
+	}
+	if err := os.WriteFile(testPath, []byte("test('target', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	existing := []string{
+		"tests/one.test.ts", "tests/two.test.ts", "tests/three.test.ts",
+		"tests/four.test.ts", "tests/five.test.ts", "tests/six.test.ts",
+	}
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/target.ts"}, existing)
+	if !slices.Equal(tests, existing) {
+		t.Fatalf("six-file cap changed: got %+v want %+v", tests, existing)
+	}
+}
+
 func TestBrainBriefAddsSiblingTestFilesSkipsSymlinkedOutsideFile(t *testing.T) {
 	repoDir := t.TempDir()
 	outsidePath := filepath.Join(t.TempDir(), "index.test.ts")

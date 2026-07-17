@@ -1757,11 +1757,35 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 		}
 		seen[file] = struct{}{}
 		out = append(out, file)
+		if len(out) >= 6 {
+			return out
+		}
 	}
 	for _, file := range editFiles {
+		directFound := false
 		for _, candidate := range brainBriefSiblingTestCandidates(file) {
 			if _, ok := seen[candidate]; ok {
+				directFound = true
 				continue
+			}
+			if !brainBriefRepoFileExists(repoRoot, candidate) {
+				continue
+			}
+			directFound = true
+			seen[candidate] = struct{}{}
+			out = append(out, candidate)
+			if len(out) >= 6 {
+				return out
+			}
+		}
+		if directFound {
+			continue
+		}
+		// A common-layout test is a fallback, not an invitation to fill the
+		// packet with every naming variant. The first safe existing match wins.
+		for _, candidate := range brainBriefNestedTestCandidates(file) {
+			if _, ok := seen[candidate]; ok {
+				break
 			}
 			if !brainBriefRepoFileExists(repoRoot, candidate) {
 				continue
@@ -1771,9 +1795,29 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 			if len(out) >= 6 {
 				return out
 			}
+			break
 		}
 	}
 	return out
+}
+
+// brainBriefNestedTestCandidates covers the common JavaScript/TypeScript
+// __tests__ subdirectory layout. It is consulted only when no direct sibling
+// was recommended, and callers require a safe existing regular repository file.
+func brainBriefNestedTestCandidates(file string) []string {
+	ext := filepath.Ext(file)
+	switch ext {
+	case ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs":
+		nativeFile := filepath.FromSlash(file)
+		nestedStem := filepath.ToSlash(filepath.Join(
+			filepath.Dir(nativeFile),
+			"__tests__",
+			strings.TrimSuffix(filepath.Base(nativeFile), ext),
+		))
+		return []string{nestedStem + ".test" + ext, nestedStem + ".spec" + ext}
+	default:
+		return nil
+	}
 }
 
 func brainBriefSiblingTestCandidates(file string) []string {
