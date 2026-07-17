@@ -1775,6 +1775,10 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 			return out
 		}
 	}
+	repoFiles, ok := newBrainBriefRepoFileChecker(repoRoot)
+	if !ok {
+		return out
+	}
 	for _, file := range editFiles {
 		directFound := false
 		for _, candidate := range brainBriefSiblingTestCandidates(file) {
@@ -1782,7 +1786,7 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 				directFound = true
 				continue
 			}
-			if !brainBriefRepoFileExists(repoRoot, candidate) {
+			if !repoFiles.exists(candidate) {
 				continue
 			}
 			directFound = true
@@ -1801,7 +1805,7 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 			if _, ok := seen[candidate]; ok {
 				break
 			}
-			if !brainBriefRepoFileExists(repoRoot, candidate) {
+			if !repoFiles.exists(candidate) {
 				continue
 			}
 			seen[candidate] = struct{}{}
@@ -1813,6 +1817,42 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 		}
 	}
 	return out
+}
+
+// brainBriefRepoFileChecker reuses the resolved repository root for one test-
+// guidance pass. Comparing each fully resolved candidate with its expected
+// physical path rejects every symlink component without separately resolving
+// the root for each candidate. Candidate results are deliberately not cached,
+// so file changes are observed and no state survives beyond this invocation.
+type brainBriefRepoFileChecker struct {
+	rootResolved string
+}
+
+func newBrainBriefRepoFileChecker(repoRoot string) (brainBriefRepoFileChecker, bool) {
+	rootForEval := repoRoot
+	if rootForEval == "" {
+		rootForEval = "."
+	}
+	rootResolved, err := filepath.EvalSymlinks(rootForEval)
+	if err != nil {
+		return brainBriefRepoFileChecker{}, false
+	}
+	return brainBriefRepoFileChecker{rootResolved: rootResolved}, true
+}
+
+func (files brainBriefRepoFileChecker) exists(rel string) bool {
+	clean, ok := cleanBrainBriefRepoRelativePath(rel)
+	if !ok {
+		return false
+	}
+	nativeRel := filepath.FromSlash(clean)
+	path := filepath.Join(files.rootResolved, nativeRel)
+	pathResolved, err := filepath.EvalSymlinks(path)
+	if err != nil || filepath.Clean(pathResolved) != path {
+		return false
+	}
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink == 0 && !info.IsDir()
 }
 
 // brainBriefNestedTestCandidates covers a small set of common test layouts that
