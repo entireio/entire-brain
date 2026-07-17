@@ -112,6 +112,18 @@ counter therefore make traversal linear in the visited JSON tree and prevent an 
 expanding exponentially. Parsed CLI JSON already has tree semantics, so valid file behavior is
 unchanged.
 
+The constructed-input profile admits only exact built-in `dict`, `list`, `str`, `int`, `bool`, and
+`None` values. Exact built-in tuples are retained only for Python API canonicalization and render as
+JSON arrays; parsed CLI arrays remain lists. Built-in floats retain their dedicated rejection, while
+all subclasses and other custom objects are rejected by exact `type` before any attacker-overridable
+length, truth, iteration, mapping, comparison, or encoding method can run. Object keys likewise must
+be exact built-in strings. The manifest's root/contents/file-count envelope guards enforce those exact
+container and key types before using `set`, truth, or `len`, preserving the 250,000-entry precedence
+without opening a subclass-dispatch path. The same boundary applies to the public manifest builder's
+entry sequence and scalar values and to injected archive-observation and filesystem-stat mappings;
+only exact lists/tuples of exact JSON values and exact dictionaries, respectively, are accepted.
+Raw plan and manifest inputs must be exact built-in bytes before length, hashing, or equality work.
+
 ## Residual hard gates
 
 These primitives do not close:

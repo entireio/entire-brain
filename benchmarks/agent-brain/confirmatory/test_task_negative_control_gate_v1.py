@@ -7,8 +7,9 @@ import json
 import pathlib
 import tempfile
 import unittest
+from collections.abc import Iterator, Mapping
 from unittest import mock
-from typing import Any, Callable
+from typing import Any, Callable, Never
 
 import draft202012
 import task_negative_control_gate_v1 as gate
@@ -16,6 +17,129 @@ import task_negative_control_plan_v2 as run_plan
 
 
 GIB = 1024**3
+_TRIPWIRE_CALLS: list[str] = []
+
+
+def _tripwire(label: str) -> Never:
+    _TRIPWIRE_CALLS.append(label)
+    raise AssertionError(f"attacker-controlled {label} was invoked")
+
+
+class _IteratingDictSubclass(dict[str, Any]):
+    def __iter__(self) -> Any:
+        _tripwire("dict.__iter__")
+
+    def __len__(self) -> int:
+        _tripwire("dict.__len__")
+
+    def __getitem__(self, key: str) -> Any:
+        _tripwire("dict.__getitem__")
+
+
+class _MappingMethodsDictSubclass(dict[str, Any]):
+    def keys(self) -> Any:
+        _tripwire("dict.keys")
+
+    def values(self) -> Any:
+        _tripwire("dict.values")
+
+
+class _LyingLengthListSubclass(list[Any]):
+    def __len__(self) -> int:
+        _TRIPWIRE_CALLS.append("list.__len__")
+        return gate.MAX_JSON_VISITED_NODES + 1
+
+
+class _UnboundedIteratorListSubclass(list[Any]):
+    def __iter__(self) -> Any:
+        _tripwire("list.__iter__ would be unbounded")
+
+
+class _HostileTupleSubclass(tuple[Any, ...]):
+    def __len__(self) -> int:
+        _TRIPWIRE_CALLS.append("tuple.__len__")
+        return gate.MAX_JSON_VISITED_NODES + 1
+
+    def __iter__(self) -> Any:
+        _tripwire("tuple.__iter__ would be unbounded")
+
+
+class _HostileIntSubclass(int):
+    def __le__(self, other: object) -> bool:
+        _tripwire("int.__le__")
+
+    def __ge__(self, other: object) -> bool:
+        _tripwire("int.__ge__")
+
+
+class _HostileStringSubclass(str):
+    def __len__(self) -> int:
+        _TRIPWIRE_CALLS.append("str.__len__")
+        return gate.MAX_JSON_VISITED_NODES + 1
+
+
+class _FloatSubclass(float):
+    pass
+
+
+class _CustomIterableObject:
+    def __len__(self) -> int:
+        _tripwire("custom.__len__")
+
+    def __iter__(self) -> Any:
+        _tripwire("custom.__iter__ would be unbounded")
+
+    def values(self) -> Any:
+        _tripwire("custom.values")
+
+
+class _HostileMapping(Mapping[str, Any]):
+    def __getitem__(self, key: str) -> Any:
+        _tripwire("Mapping.__getitem__")
+
+    def __iter__(self) -> Iterator[str]:
+        _tripwire("Mapping.__iter__ would be unbounded")
+
+    def __len__(self) -> int:
+        _tripwire("Mapping.__len__")
+
+
+class _LyingBytesSubclass(bytes):
+    def __len__(self) -> int:
+        _TRIPWIRE_CALLS.append("bytes.__len__")
+        return gate.MAX_MANIFEST_RAW_BYTES + 1
+
+
+@contextlib.contextmanager
+def _downstream_tripwires() -> Iterator[None]:
+    with (
+        mock.patch.object(
+            run_plan,
+            "validate_plan",
+            side_effect=AssertionError("plan validation must follow type rejection"),
+        ),
+        mock.patch.object(
+            gate,
+            "_canonical_hash",
+            side_effect=AssertionError("hashing must follow type rejection"),
+        ),
+        mock.patch.object(
+            gate,
+            "_self_hash",
+            side_effect=AssertionError("self hash must follow type rejection"),
+        ),
+        mock.patch.object(
+            gate,
+            "_render",
+            side_effect=AssertionError("render must follow type rejection"),
+        ),
+        mock.patch.object(
+            gate,
+            "_validate_against_schema",
+            side_effect=AssertionError("schema must follow type rejection"),
+        ),
+    ):
+        yield
 
 
 class TaskNegativeControlGateV1Test(unittest.TestCase):
@@ -844,6 +968,484 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
                     gate._validate_json_profile(schema),
                     gate.MAX_JSON_FIXED_ENVELOPE_NODES,
                 )
+
+    def test_json_profile_requires_exact_builtins_without_subclass_dispatch(self) -> None:
+        accepted = {
+            "list": [False],
+            "tuple": ("leaf", gate.MAX_JSON_INTEGER_ABSOLUTE, True, None),
+        }
+        self.assertEqual(gate._validate_json_profile(accepted), 8)
+        with self.assertRaisesRegex(
+            gate.GatePrimitiveError,
+            "forbids floating-point values",
+        ):
+            gate._validate_json_profile(1.0)
+
+        mapping_methods = _MappingMethodsDictSubclass()
+        dict.__setitem__(mapping_methods, "leaf", 1)
+        lying_length = _LyingLengthListSubclass()
+        list.append(lying_length, "leaf")
+        unbounded_iterator = _UnboundedIteratorListSubclass()
+        list.append(unbounded_iterator, "leaf")
+        cases: list[tuple[str, Any]] = [
+            ("iterating dict subclass", _IteratingDictSubclass()),
+            ("custom mapping-method dict subclass", mapping_methods),
+            ("lying-length list subclass", lying_length),
+            ("unbounded-iterator list subclass", unbounded_iterator),
+            ("tuple subclass", _HostileTupleSubclass(("leaf",))),
+            ("integer subclass", _HostileIntSubclass(1)),
+            ("string subclass", _HostileStringSubclass("leaf")),
+            ("float subclass", _FloatSubclass(1.0)),
+            ("custom iterable object", _CustomIterableObject()),
+        ]
+        for label, value in cases:
+            with self.subTest(value_type=label):
+                _TRIPWIRE_CALLS.clear()
+                with self.assertRaisesRegex(
+                    gate.GatePrimitiveError,
+                    "exact built-in JSON value types",
+                ):
+                    gate._validate_json_profile(value)
+                self.assertEqual(_TRIPWIRE_CALLS, [])
+
+        subclass_key = _HostileStringSubclass("leaf")
+        _TRIPWIRE_CALLS.clear()
+        with self.assertRaisesRegex(
+            gate.GatePrimitiveError,
+            "exact built-in string object keys",
+        ):
+            gate._validate_json_profile({subclass_key: 1})
+        self.assertEqual(_TRIPWIRE_CALLS, [])
+
+        hostile_plan = copy.deepcopy(self.plan)
+        hostile_plan["authority"]["hostile"] = _UnboundedIteratorListSubclass()
+        _TRIPWIRE_CALLS.clear()
+        with (
+            mock.patch.object(
+                run_plan,
+                "validate_plan",
+                side_effect=AssertionError("plan validation must follow type rejection"),
+            ),
+            self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "exact built-in JSON value types",
+            ),
+        ):
+            gate._pending_authority(hostile_plan)
+        self.assertEqual(_TRIPWIRE_CALLS, [])
+
+        hostile_self_hash = _IteratingDictSubclass()
+        dict.__setitem__(hostile_self_hash, "receipt_sha256", None)
+        _TRIPWIRE_CALLS.clear()
+        with self.assertRaisesRegex(
+            gate.GatePrimitiveError,
+            "exact built-in JSON value types",
+        ):
+            gate._self_hash(hostile_self_hash, "receipt_sha256")
+        self.assertEqual(_TRIPWIRE_CALLS, [])
+
+    def test_exact_type_rejection_precedes_manifest_and_receipt_downstream_work(self) -> None:
+        manifest = self.build_manifest()
+
+        root_subclass = _IteratingDictSubclass()
+        dict.update(root_subclass, manifest)
+
+        contents_subclass_manifest = copy.deepcopy(manifest)
+        contents_subclass = _IteratingDictSubclass()
+        dict.update(contents_subclass, contents_subclass_manifest["contents"])
+        contents_subclass_manifest["contents"] = contents_subclass
+
+        entries_subclass_manifest = copy.deepcopy(manifest)
+        entries_subclass = _LyingLengthListSubclass()
+        list.extend(entries_subclass, entries_subclass_manifest["contents"]["entries"])
+        entries_subclass_manifest["contents"]["entries"] = entries_subclass
+
+        entry_subclass_manifest = copy.deepcopy(manifest)
+        entry_subclass = _MappingMethodsDictSubclass()
+        dict.update(entry_subclass, entry_subclass_manifest["contents"]["entries"][0])
+        entry_subclass_manifest["contents"]["entries"][0] = entry_subclass
+
+        tuple_subclass_manifest = copy.deepcopy(manifest)
+        tuple_subclass_manifest["implementation"]["hostile"] = _HostileTupleSubclass(
+            ("leaf",)
+        )
+
+        int_subclass_manifest = copy.deepcopy(manifest)
+        int_subclass_manifest["archive"]["byte_count"] = _HostileIntSubclass(1024)
+
+        str_subclass_manifest = copy.deepcopy(manifest)
+        str_subclass_manifest["status"] = _HostileStringSubclass(manifest["status"])
+
+        key_subclass_manifest = copy.deepcopy(manifest)
+        status = key_subclass_manifest.pop("status")
+        key_subclass_manifest[_HostileStringSubclass("status")] = status
+
+        manifest_cases: list[tuple[str, dict[str, Any], str]] = [
+            ("root dict subclass", root_subclass, "exact built-in JSON value types"),
+            (
+                "contents dict subclass",
+                contents_subclass_manifest,
+                "exact built-in JSON value types",
+            ),
+            (
+                "entries list with lying length",
+                entries_subclass_manifest,
+                "exact built-in JSON value types",
+            ),
+            (
+                "entry custom mapping methods",
+                entry_subclass_manifest,
+                "exact built-in JSON value types",
+            ),
+            (
+                "nested tuple subclass",
+                tuple_subclass_manifest,
+                "exact built-in JSON value types",
+            ),
+            (
+                "nested integer subclass",
+                int_subclass_manifest,
+                "exact built-in JSON value types",
+            ),
+            (
+                "nested string subclass",
+                str_subclass_manifest,
+                "exact built-in JSON value types",
+            ),
+            (
+                "root string-key subclass",
+                key_subclass_manifest,
+                "exact built-in string object keys",
+            ),
+        ]
+        for label, changed, pattern in manifest_cases:
+            with self.subTest(artifact="manifest", value_type=label):
+                _TRIPWIRE_CALLS.clear()
+                with (
+                    _downstream_tripwires(),
+                    self.assertRaisesRegex(gate.GatePrimitiveError, pattern),
+                ):
+                    gate.validate_cache_seed_manifest(
+                        changed,
+                        plan=self.plan,
+                        manifest_schema_path=self.manifest_schema,
+                    )
+                self.assertEqual(_TRIPWIRE_CALLS, [])
+
+        manifest_raw = gate._render(manifest)
+        receipt = self.build_receipt(manifest, manifest_raw=manifest_raw)
+        receipt_kwargs = {
+            "plan": self.plan,
+            "plan_raw": self.plan_raw,
+            "manifest": manifest,
+            "manifest_raw": manifest_raw,
+            "manifest_schema_path": self.manifest_schema,
+            "receipt_schema_path": self.receipt_schema,
+        }
+
+        root_receipt_subclass = _IteratingDictSubclass()
+        dict.update(root_receipt_subclass, receipt)
+
+        list_subclass_receipt = copy.deepcopy(receipt)
+        list_subclass = _UnboundedIteratorListSubclass()
+        list.extend(list_subclass, list_subclass_receipt["checks"])
+        list_subclass_receipt["checks"] = list_subclass
+
+        mapping_subclass_receipt = copy.deepcopy(receipt)
+        mapping_subclass = _MappingMethodsDictSubclass()
+        dict.update(mapping_subclass, mapping_subclass_receipt["inputs"])
+        mapping_subclass_receipt["inputs"] = mapping_subclass
+
+        tuple_subclass_receipt = copy.deepcopy(receipt)
+        tuple_subclass_receipt["inputs"]["hostile"] = _HostileTupleSubclass(("leaf",))
+
+        int_subclass_receipt = copy.deepcopy(receipt)
+        int_subclass_receipt["resource"]["available_blocks"] = _HostileIntSubclass(
+            int_subclass_receipt["resource"]["available_blocks"]
+        )
+
+        str_subclass_receipt = copy.deepcopy(receipt)
+        str_subclass_receipt["status"] = _HostileStringSubclass(receipt["status"])
+
+        receipt_cases: list[tuple[str, dict[str, Any]]] = [
+            ("root dict subclass", root_receipt_subclass),
+            ("unbounded-iterator list subclass", list_subclass_receipt),
+            ("custom mapping-method dict subclass", mapping_subclass_receipt),
+            ("nested tuple subclass", tuple_subclass_receipt),
+            ("nested integer subclass", int_subclass_receipt),
+            ("nested string subclass", str_subclass_receipt),
+        ]
+        for label, changed in receipt_cases:
+            with self.subTest(artifact="receipt", value_type=label):
+                _TRIPWIRE_CALLS.clear()
+                with (
+                    _downstream_tripwires(),
+                    self.assertRaisesRegex(
+                        gate.GatePrimitiveError,
+                        "exact built-in JSON value types",
+                    ),
+                ):
+                    gate.validate_preflight_receipt(changed, **receipt_kwargs)
+                self.assertEqual(_TRIPWIRE_CALLS, [])
+
+    def test_manifest_builder_rejects_hostile_constructed_inputs_before_dispatch(self) -> None:
+        tuple_manifest = gate.build_cache_seed_manifest(
+            plan=self.plan,
+            manifest_schema_path=self.manifest_schema,
+            archive_file="offline-go-cache-seed-v1.tar",
+            archive_sha256=self.archive_sha256,
+            archive_byte_count=1024,
+            entries=tuple(copy.deepcopy(self.entries)),
+        )
+        self.assertIs(type(tuple_manifest["contents"]["entries"]), list)
+
+        custom_mapping_entries: list[Any] = copy.deepcopy(self.entries)
+        custom_mapping_entries[0] = _HostileMapping()
+
+        dict_subclass_entries: list[Any] = copy.deepcopy(self.entries)
+        dict_subclass_entry = _MappingMethodsDictSubclass()
+        dict.update(dict_subclass_entry, dict_subclass_entries[0])
+        dict_subclass_entries[0] = dict_subclass_entry
+
+        string_subclass_entries: list[Any] = copy.deepcopy(self.entries)
+        string_subclass_entries[0]["path"] = _HostileStringSubclass(
+            string_subclass_entries[0]["path"]
+        )
+
+        lying_entries = _LyingLengthListSubclass()
+        list.extend(lying_entries, copy.deepcopy(self.entries))
+
+        cases: list[tuple[str, Any, Any, Any, Any]] = [
+            (
+                "custom Mapping entries",
+                _HostileMapping(),
+                "offline-go-cache-seed-v1.tar",
+                self.archive_sha256,
+                1024,
+            ),
+            (
+                "lying-length entries list",
+                lying_entries,
+                "offline-go-cache-seed-v1.tar",
+                self.archive_sha256,
+                1024,
+            ),
+            (
+                "custom Mapping entry",
+                custom_mapping_entries,
+                "offline-go-cache-seed-v1.tar",
+                self.archive_sha256,
+                1024,
+            ),
+            (
+                "dict-subclass entry",
+                dict_subclass_entries,
+                "offline-go-cache-seed-v1.tar",
+                self.archive_sha256,
+                1024,
+            ),
+            (
+                "nested string subclass",
+                string_subclass_entries,
+                "offline-go-cache-seed-v1.tar",
+                self.archive_sha256,
+                1024,
+            ),
+            (
+                "archive-file string subclass",
+                copy.deepcopy(self.entries),
+                _HostileStringSubclass("offline-go-cache-seed-v1.tar"),
+                self.archive_sha256,
+                1024,
+            ),
+            (
+                "archive-hash string subclass",
+                copy.deepcopy(self.entries),
+                "offline-go-cache-seed-v1.tar",
+                _HostileStringSubclass(self.archive_sha256),
+                1024,
+            ),
+            (
+                "archive-byte integer subclass",
+                copy.deepcopy(self.entries),
+                "offline-go-cache-seed-v1.tar",
+                self.archive_sha256,
+                _HostileIntSubclass(1024),
+            ),
+        ]
+        for (
+            label,
+            entries,
+            archive_file,
+            archive_sha256,
+            archive_byte_count,
+        ) in cases:
+            with self.subTest(builder_input=label):
+                _TRIPWIRE_CALLS.clear()
+                with (
+                    _downstream_tripwires(),
+                    self.assertRaisesRegex(
+                        gate.GatePrimitiveError,
+                        "exact built-in JSON value types",
+                    ),
+                ):
+                    gate.build_cache_seed_manifest(
+                        plan=self.plan,
+                        manifest_schema_path=self.manifest_schema,
+                        archive_file=archive_file,
+                        archive_sha256=archive_sha256,
+                        archive_byte_count=archive_byte_count,
+                        entries=entries,
+                    )
+                self.assertEqual(_TRIPWIRE_CALLS, [])
+
+    def test_injected_mapping_and_raw_inputs_reject_before_dispatch(self) -> None:
+        manifest = self.build_manifest()
+        manifest_raw = gate._render(manifest)
+        observation = self.observation(manifest)
+        stats = self.filesystem_stats(16 * GIB)
+
+        observation_subclass = _MappingMethodsDictSubclass()
+        dict.update(observation_subclass, observation)
+        stats_subclass = _MappingMethodsDictSubclass()
+        dict.update(stats_subclass, stats)
+
+        direct_cases: list[tuple[str, Callable[[], Any]]] = [
+            (
+                "archive custom Mapping",
+                lambda: gate._validate_archive_observation(_HostileMapping(), manifest),
+            ),
+            (
+                "archive dict subclass",
+                lambda: gate._validate_archive_observation(observation_subclass, manifest),
+            ),
+            (
+                "resource custom Mapping",
+                lambda: gate.evaluate_injected_resource_stats(self.plan, _HostileMapping()),
+            ),
+            (
+                "resource dict subclass",
+                lambda: gate.evaluate_injected_resource_stats(self.plan, stats_subclass),
+            ),
+        ]
+        for label, invoke in direct_cases:
+            with self.subTest(direct_input=label):
+                _TRIPWIRE_CALLS.clear()
+                with (
+                    _downstream_tripwires(),
+                    self.assertRaisesRegex(
+                        gate.GatePrimitiveError,
+                        "exact built-in JSON value types",
+                    ),
+                ):
+                    invoke()
+                self.assertEqual(_TRIPWIRE_CALLS, [])
+
+        build_cases: list[tuple[str, Any, Any, Any, Any]] = [
+            (
+                "archive custom Mapping",
+                _HostileMapping(),
+                stats,
+                self.plan_raw,
+                manifest_raw,
+            ),
+            (
+                "archive dict subclass",
+                observation_subclass,
+                stats,
+                self.plan_raw,
+                manifest_raw,
+            ),
+            (
+                "resource custom Mapping",
+                observation,
+                _HostileMapping(),
+                self.plan_raw,
+                manifest_raw,
+            ),
+            (
+                "resource dict subclass",
+                observation,
+                stats_subclass,
+                self.plan_raw,
+                manifest_raw,
+            ),
+            (
+                "run-plan bytes subclass",
+                observation,
+                stats,
+                _LyingBytesSubclass(self.plan_raw),
+                manifest_raw,
+            ),
+            (
+                "manifest bytes subclass",
+                observation,
+                stats,
+                self.plan_raw,
+                _LyingBytesSubclass(manifest_raw),
+            ),
+        ]
+        for (
+            label,
+            archive_observation,
+            filesystem_stats,
+            plan_raw,
+            candidate_manifest_raw,
+        ) in build_cases:
+            with self.subTest(builder_input=label):
+                _TRIPWIRE_CALLS.clear()
+                with (
+                    _downstream_tripwires(),
+                    self.assertRaisesRegex(
+                        gate.GatePrimitiveError,
+                        "exact built-in",
+                    ),
+                ):
+                    gate.build_preflight_receipt(
+                        plan=self.plan,
+                        plan_raw=plan_raw,
+                        manifest=manifest,
+                        manifest_raw=candidate_manifest_raw,
+                        manifest_schema_path=self.manifest_schema,
+                        receipt_schema_path=self.receipt_schema,
+                        archive_observation=archive_observation,
+                        filesystem_stats=filesystem_stats,
+                    )
+                self.assertEqual(_TRIPWIRE_CALLS, [])
+
+        receipt = self.build_receipt(manifest, manifest_raw=manifest_raw)
+        validator_cases = [
+            (
+                "run-plan bytes subclass",
+                _LyingBytesSubclass(self.plan_raw),
+                manifest_raw,
+            ),
+            (
+                "manifest bytes subclass",
+                self.plan_raw,
+                _LyingBytesSubclass(manifest_raw),
+            ),
+        ]
+        for label, plan_raw, candidate_manifest_raw in validator_cases:
+            with self.subTest(validator_input=label):
+                _TRIPWIRE_CALLS.clear()
+                with (
+                    _downstream_tripwires(),
+                    self.assertRaisesRegex(
+                        gate.GatePrimitiveError,
+                        "exact built-in bytes",
+                    ),
+                ):
+                    gate.validate_preflight_receipt(
+                        receipt,
+                        plan=self.plan,
+                        plan_raw=plan_raw,
+                        manifest=manifest,
+                        manifest_raw=candidate_manifest_raw,
+                        manifest_schema_path=self.manifest_schema,
+                        receipt_schema_path=self.receipt_schema,
+                    )
+                self.assertEqual(_TRIPWIRE_CALLS, [])
 
     def test_manifest_and_receipt_graph_failures_precede_hash_render_and_schema(self) -> None:
         manifest = self.build_manifest()
