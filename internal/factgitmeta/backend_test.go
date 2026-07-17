@@ -6,6 +6,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -250,5 +253,97 @@ func TestBackendTwoWriterInterleaveViaSync(t *testing.T) {
 	}
 	if len(got) != 3 {
 		t.Fatalf("converged head has %d distinct facts; want 3", len(got))
+	}
+}
+
+// TestBackendConcurrentCreateNoLostUpdate is the regression for the create-path
+// race: two backends on the SAME on-disk repo (two processes) both create the
+// head from empty at once. go-git's create ref write is UNCONDITIONAL (it skips
+// the absence check when the old ref is nil), so before the advisory lock both
+// creates "won" and one member's facts were silently dropped. With the lock,
+// exactly one wins and the loser gets ErrConflict — Sync then re-reads and
+// re-merges, never dropping a member's facts.
+func TestBackendConcurrentCreateNoLostUpdate(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gitmeta.git")
+	bA, err := NewLocalBackend(dir, "gh/entireio/cli", testNow)
+	if err != nil {
+		t.Fatalf("NewLocalBackend A: %v", err)
+	}
+	bB, err := NewLocalBackend(dir, "gh/entireio/cli", testNow)
+	if err != nil {
+		t.Fatalf("NewLocalBackend B: %v", err)
+	}
+
+	blobA := ndjson(t, fact("fact A", []string{"topic/a"}, "sA"))
+	blobB := ndjson(t, fact("fact B", []string{"topic/b"}, "sB"))
+
+	type res struct {
+		ref string
+		err error
+	}
+	ch := make(chan res, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); r, e := bA.Advance(context.Background(), "repo", "main", "", blobA); ch <- res{r, e} }()
+	go func() { defer wg.Done(); r, e := bB.Advance(context.Background(), "repo", "main", "", blobB); ch <- res{r, e} }()
+	wg.Wait()
+	close(ch)
+
+	wins, conflicts := 0, 0
+	for r := range ch {
+		switch {
+		case r.err == nil && r.ref != "":
+			wins++
+		case errors.Is(r.err, factsync.ErrConflict):
+			conflicts++
+		default:
+			t.Fatalf("unexpected Advance result: ref=%q err=%v", r.ref, r.err)
+		}
+	}
+	if wins != 1 || conflicts != 1 {
+		t.Fatalf("concurrent create: want exactly 1 win + 1 conflict, got wins=%d conflicts=%d", wins, conflicts)
+	}
+
+	// The head + blob left on disk are consistent — the racer did not corrupt it.
+	ref, blob, found, err := bA.Current(context.Background(), "repo", "main")
+	if err != nil {
+		t.Fatalf("Current after race: %v", err)
+	}
+	if !found {
+		t.Fatal("head missing after a successful create")
+	}
+	if FactSetRef(blob) != ref {
+		t.Fatalf("blob/head mismatch after race: blob ref %s != head %s", FactSetRef(blob), ref)
+	}
+}
+
+// TestBackendBlobDoesNotAccumulate is the regression for unbounded blob growth:
+// the live git-meta state must hold exactly ONE blob record (the current
+// fact-set), not one per historical version, or Materialize/Serialize grow
+// O(versions) on every sync. Prior versions live in git history, not the tree.
+func TestBackendBlobDoesNotAccumulate(t *testing.T) {
+	b, _ := newBackend(t)
+	ctx := context.Background()
+	oldRef := ""
+	for i := 0; i < 4; i++ {
+		blob := ndjson(t, fact("fact "+strconv.Itoa(i), []string{"topic/x"}, "s"+strconv.Itoa(i)))
+		ref, err := b.Advance(ctx, "repo", "main", oldRef, blob)
+		if err != nil {
+			t.Fatalf("advance %d: %v", i, err)
+		}
+		oldRef = ref
+	}
+	st, _, err := b.state()
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+	blobs := 0
+	for _, s := range st.Strings {
+		if strings.HasSuffix(s.Key, ":blob") {
+			blobs++
+		}
+	}
+	if blobs != 1 {
+		t.Fatalf("want exactly 1 live blob record after 4 advances, got %d", blobs)
 	}
 }

@@ -11,9 +11,10 @@
 //
 //	head  key = "brain:facts:" + hex(repoKey) + ":" + hex(branch) + ":head"
 //	      val = "<version>|<contentRef>"        (moved with OpCompareAndSet)
-//	blob  key = "brain:facts:" + hex(repoKey) + ":" + hex(branch) + ":blob:" + contentRef
-//	      val = <full NDJSON fact-set plaintext> (OpSetString; content-addressed
-//	            key ⇒ immutable ⇒ no CAS)
+//	blob  key = "brain:facts:" + hex(repoKey) + ":" + hex(branch) + ":blob"
+//	      val = <full NDJSON fact-set plaintext> (OpSetString; a SINGLE per-branch
+//	            key overwritten each advance — the live tree holds only the current
+//	            blob, prior versions stay in git history, keeping live state O(1))
 //
 // repoKey and branch are hex-encoded into single key segments so any slug/branch
 // is a valid git-meta key (git-meta rejects '/', '.', '..', NUL in key segments
@@ -122,9 +123,15 @@ func (b *Backend) Current(_ context.Context, _, branch string) (string, []byte, 
 	if err != nil {
 		return "", nil, false, fmt.Errorf("factgitmeta: %w", err)
 	}
-	blob, ok := st.CurrentString(projectTarget, b.blobKey(branch, contentRef))
+	blob, ok := st.CurrentString(projectTarget, b.blobKey(branch))
 	if !ok {
-		return "", nil, false, fmt.Errorf("factgitmeta: head %q points at missing blob %s", headVal, contentRef)
+		return "", nil, false, fmt.Errorf("factgitmeta: head %q points at missing blob", headVal)
+	}
+	// Integrity: the single per-branch blob must be exactly the content the head
+	// names. head + blob are written in one commit, so a mismatch is on-disk
+	// corruption, never a normal state.
+	if got := FactSetRef([]byte(blob)); got != contentRef {
+		return "", nil, false, fmt.Errorf("factgitmeta: blob content ref %s != head %s (corrupt store)", got, contentRef)
 	}
 	return contentRef, []byte(blob), true, nil
 }
@@ -147,8 +154,18 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 		return "", factsync.ErrNoChange
 	}
 
+	// Serialize the whole read-CAS loop across processes. go-git's create-path ref
+	// write is UNCONDITIONAL (CheckAndSetReference with a nil old ref skips the
+	// absence check), so without this two concurrent first-syncs both succeed and
+	// silently drop one member's facts. Released on return.
+	unlock, err := b.repo.lock()
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+
 	headKey := b.headKey(branch)
-	blobKey := b.blobKey(branch, newRef)
+	blobKey := b.blobKey(branch)
 
 	for attempt := 0; attempt < maxRefCASRetries; attempt++ {
 		st, headRefObj, err := b.state()
@@ -285,8 +302,12 @@ func (b *Backend) headKey(branch string) string {
 	return factsKeyPrefix + hexSeg(b.repoKey) + ":" + hexSeg(branch) + ":head"
 }
 
-func (b *Backend) blobKey(branch, contentRef string) string {
-	return factsKeyPrefix + hexSeg(b.repoKey) + ":" + hexSeg(branch) + ":blob:" + contentRef
+// blobKey is a SINGLE per-branch key, overwritten each Advance — the live tree
+// holds only the current fact-set blob (prior versions remain in git history for
+// audit). A per-contentRef key would accumulate every version in the live state,
+// making Materialize/Serialize grow O(versions) per sync (cumulative O(n^2)).
+func (b *Backend) blobKey(branch string) string {
+	return factsKeyPrefix + hexSeg(b.repoKey) + ":" + hexSeg(branch) + ":blob"
 }
 
 func hexSeg(s string) string { return hex.EncodeToString([]byte(s)) }
