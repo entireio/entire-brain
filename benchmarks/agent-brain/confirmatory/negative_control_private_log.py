@@ -31,6 +31,7 @@ from typing import Any, BinaryIO
 
 MAX_PRIVATE_RAW_LOG_BYTES_PER_ARM = 16_777_216
 MAX_PRIVATE_RAW_LOG_BYTES_TOTAL = 2_147_483_648
+MAX_PRIVATE_RAW_LOG_FINAL_FILE_COUNT = 4_096
 PRIVATE_ROOT_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
 STORE_DIRECTORY = "sha256"
@@ -59,6 +60,7 @@ class LogLimits:
 
     max_bytes_per_arm: int = MAX_PRIVATE_RAW_LOG_BYTES_PER_ARM
     max_bytes_total: int = MAX_PRIVATE_RAW_LOG_BYTES_TOTAL
+    max_final_file_count: int = MAX_PRIVATE_RAW_LOG_FINAL_FILE_COUNT
 
 
 FROZEN_LIMITS = LogLimits()
@@ -106,6 +108,11 @@ def _validate_limits(limits: LogLimits) -> None:
     _require(
         limits.max_bytes_per_arm <= limits.max_bytes_total,
         "private-log limit ordering is invalid",
+    )
+    _require(
+        type(limits.max_final_file_count) is int
+        and 0 < limits.max_final_file_count <= MAX_PRIVATE_RAW_LOG_FINAL_FILE_COUNT,
+        "private-log final-file limit may only be tightened",
     )
 
 
@@ -242,6 +249,26 @@ def _open_store_directory(root_fd: int, *, create: bool) -> int:
         raise PrivateLogError("private-log content store could not be opened securely") from None
 
 
+def _validate_root_entries(root_fd: int) -> None:
+    expected = {LOCK_FILE, STORE_DIRECTORY}
+    seen: set[str] = set()
+    try:
+        with os.scandir(root_fd) as entries:
+            for entry in entries:
+                _require(
+                    len(seen) < len(expected),
+                    "private-log root contains an unexpected entry",
+                )
+                _require(entry.name in expected, "private-log root contains an unexpected entry")
+                _require(entry.name not in seen, "private-log root contains an unexpected entry")
+                seen.add(entry.name)
+    except PrivateLogError:
+        raise
+    except OSError:
+        raise PrivateLogError("private-log root could not be enumerated securely") from None
+    _require(seen == expected, "private-log root entries differ")
+
+
 @contextlib.contextmanager
 def _open_private_store(private_root: pathlib.Path, *, create: bool) -> Iterator[_StoreHandles]:
     root_fd = -1
@@ -274,14 +301,7 @@ def _open_private_store(private_root: pathlib.Path, *, create: bool) -> Iterator
 
         lock_fd = _open_lock(root_fd, create=create)
         store_fd = _open_store_directory(root_fd, create=create)
-        try:
-            root_entries = set(os.listdir(root_fd))
-        except OSError:
-            raise PrivateLogError("private-log root could not be enumerated securely") from None
-        _require(
-            root_entries == {LOCK_FILE, STORE_DIRECTORY},
-            "private-log root contains an unexpected entry",
-        )
+        _validate_root_entries(root_fd)
         if create:
             _fsync_directory(root_fd)
         yield _StoreHandles(root_fd=root_fd, store_fd=store_fd, lock_fd=lock_fd)
@@ -299,32 +319,43 @@ def _open_private_store(private_root: pathlib.Path, *, create: bool) -> Iterator
 def _fsync_directory(descriptor: int) -> None:
     try:
         os.fsync(descriptor)
-    except OSError as exc:
-        if exc.errno not in {errno.EINVAL, errno.ENOTSUP}:
-            raise PrivateLogError("private-log directory synchronization failed") from None
+    except OSError:
+        raise PrivateLogError("private-log directory synchronization failed") from None
 
 
 def _scan_store(store_fd: int, limits: LogLimits) -> tuple[dict[str, int], int]:
-    try:
-        names = sorted(os.listdir(store_fd))
-    except OSError:
-        raise PrivateLogError("private-log content store could not be enumerated") from None
     inventory: dict[str, int] = {}
     total = 0
-    for name in names:
-        _require(SHA256_RE.fullmatch(name) is not None, "private-log content store contains an invalid entry")
-        try:
-            metadata = os.stat(name, dir_fd=store_fd, follow_symlinks=False)
-        except OSError:
-            raise PrivateLogError("private-log content metadata check failed") from None
-        _validate_private_file(metadata, "private raw-log file")
-        _require(
-            0 <= metadata.st_size <= limits.max_bytes_per_arm,
-            "private raw-log file exceeds the per-arm ceiling",
-        )
-        total += metadata.st_size
-        _require(total <= limits.max_bytes_total, "private raw-log store exceeds the total ceiling")
-        inventory[name] = metadata.st_size
+    final_file_count = 0
+    try:
+        with os.scandir(store_fd) as entries:
+            for entry in entries:
+                final_file_count += 1
+                _require(
+                    final_file_count <= limits.max_final_file_count,
+                    "private raw-log store exceeds the final-file ceiling",
+                )
+                name = entry.name
+                _require(
+                    SHA256_RE.fullmatch(name) is not None,
+                    "private-log content store contains an invalid entry",
+                )
+                try:
+                    metadata = os.stat(name, dir_fd=store_fd, follow_symlinks=False)
+                except OSError:
+                    raise PrivateLogError("private-log content metadata check failed") from None
+                _validate_private_file(metadata, "private raw-log file")
+                _require(
+                    0 <= metadata.st_size <= limits.max_bytes_per_arm,
+                    "private raw-log file exceeds the per-arm ceiling",
+                )
+                total += metadata.st_size
+                _require(total <= limits.max_bytes_total, "private raw-log store exceeds the total ceiling")
+                inventory[name] = metadata.st_size
+    except PrivateLogError:
+        raise
+    except OSError:
+        raise PrivateLogError("private-log content store could not be enumerated") from None
     return inventory, total
 
 
@@ -448,6 +479,23 @@ def _verify_content_file(store_fd: int, receipt: RawLogReceipt, limits: LogLimit
         )
         _require(byte_count == receipt.raw_log_byte_count, "private raw-log byte count differs")
         _require(digest.hexdigest() == receipt.raw_log_sha256, "private raw-log SHA-256 differs")
+        named = os.stat(
+            receipt.raw_log_sha256,
+            dir_fd=store_fd,
+            follow_symlinks=False,
+        )
+        final_opened = os.fstat(descriptor)
+        _validate_private_file(
+            named,
+            "private raw-log pathname",
+            expected_size=receipt.raw_log_byte_count,
+        )
+        _require(
+            _metadata_identity(named)
+            == _metadata_identity(after)
+            == _metadata_identity(final_opened),
+            "private raw-log pathname no longer names the opened file",
+        )
     except PrivateLogError:
         raise
     except OSError:
@@ -495,6 +543,10 @@ def write_raw_log(
             _close_quietly(descriptor)
             descriptor = -1
             if receipt.raw_log_sha256 not in inventory:
+                _require(
+                    len(inventory) < limits.max_final_file_count,
+                    "private raw-log store would exceed the final-file ceiling",
+                )
                 _require(
                     existing_total + receipt.raw_log_byte_count <= limits.max_bytes_total,
                     "private raw-log store would exceed the total ceiling",
