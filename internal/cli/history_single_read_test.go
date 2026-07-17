@@ -211,8 +211,8 @@ func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time
 			index.Warnings = append(index.Warnings, scanErr.Error())
 			continue
 		}
-		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		newCache.Files[rel] = historyScanCacheEntry{ContentSHA256: file.ContentSHA256, Records: records}
+		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		for _, record := range records {
 			if record.Kind == "decision" {
 				dedupeKey := normalizeHistorySearchText(record.Summary)
