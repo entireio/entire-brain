@@ -67,8 +67,10 @@ are not used as cross-repository identity dimensions. Repeated path sets are dia
 not resolve semantic or family overlap. See
 `MULTI-REPOSITORY-DEVELOPMENT-INVENTORY-V2.md` for exact counts and reproduction commands. The
 separate checked v2 negative-control plan binds all 62 candidates but is
-`pending_owner_authorization`: no approval trust mechanism, cache-seed manifest, executor,
-classifier, or private-log writer exists, and no v2 candidate has been executed. See
+`pending_owner_authorization`: no approval trust mechanism, actual bound cache-seed
+manifest/archive, executor, classifier, or private-log writer exists, and no v2 candidate has been
+executed. Pure external-manifest identity and injected resource-arithmetic primitives do not change
+that boundary. See
 `MULTI-REPOSITORY-NEGATIVE-CONTROL-RUN-PLAN-V2.md`.
 
 `task_negative_control.py` is the next development-only filter. For each statically screened
@@ -198,6 +200,8 @@ The schemas are:
 - `confirmatory/schemas/development-task-overlap-registry-v1.schema.json`
 - `confirmatory/schemas/development-task-negative-control-v1.schema.json`
 - `confirmatory/schemas/development-task-negative-control-run-plan-v2.schema.json`
+- `confirmatory/schemas/offline-go-cache-seed-manifest-v1.schema.json`
+- `confirmatory/schemas/negative-control-gate-primitive-receipt-v1.schema.json`
 - `confirmatory/schemas/development-task-symptom-review-v1.schema.json`
 - `schemas/task-review-ledger-v2.schema.json`
 
