@@ -228,18 +228,22 @@
       "additionalProperties": false,
       "properties": {
         "available_blocks": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
           "minimum": 0,
           "type": "integer"
         },
         "fragment_size_bytes": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
           "minimum": 1,
           "type": "integer"
         },
         "free_bytes": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
           "minimum": 17179869184,
           "type": "integer"
         },
         "headroom_bytes": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
           "minimum": 0,
           "type": "integer"
         },

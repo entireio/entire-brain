@@ -43,7 +43,7 @@ ROOT = pathlib.Path(__file__).parent
 CHECKED_PLAN_SHA256 = "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e"
 CHECKED_PLAN_FILE_SHA256 = "f55b6e22a25daf8016305304adf3b7ac8d31675281d97cfc9bb78cc76b619790"
 CHECKED_MANIFEST_SCHEMA_FILE_SHA256 = "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999"
-CHECKED_RECEIPT_SCHEMA_FILE_SHA256 = "a6ea9aee520a11afd5a17339661dd4e67e503aa89593f69696a4306670201e81"
+CHECKED_RECEIPT_SCHEMA_FILE_SHA256 = "7603f755dd8429ff8c0a17114a50cda0aa23ae99c07cf2cfff9856df00c0a8e0"
 MAX_PLAN_RAW_BYTES = 1 * 1024 * 1024
 MAX_SCHEMA_RAW_BYTES = 4 * 1024 * 1024
 MAX_RECEIPT_RAW_BYTES = 4 * 1024 * 1024
@@ -51,6 +51,10 @@ MAX_MANIFEST_RAW_BYTES = 128 * 1024 * 1024
 MAX_MANIFEST_FILE_COUNT = 250_000
 MAX_JSON_DEPTH = 64
 MAX_JSON_INTEGER_DIGITS = 64
+MAX_JSON_INTEGER_ABSOLUTE = 10**MAX_JSON_INTEGER_DIGITS - 1
+MAX_RESOURCE_AVAILABLE_BLOCKS = MAX_JSON_INTEGER_ABSOLUTE
+MAX_RESOURCE_FRAGMENT_SIZE_BYTES = MAX_JSON_INTEGER_ABSOLUTE
+MAX_RESOURCE_DERIVED_BYTES = MAX_JSON_INTEGER_ABSOLUTE
 MAX_IMPLEMENTATION_SOURCE_BYTES = 4 * 1024 * 1024
 MAX_PYTHON_EXECUTABLE_BYTES = 256 * 1024 * 1024
 CHECKS = [
@@ -85,19 +89,32 @@ def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _reject_floats(value: Any) -> None:
-    if isinstance(value, float):
-        raise GatePrimitiveError("canonical gate JSON forbids floating-point values")
-    if isinstance(value, dict):
-        for child in value.values():
-            _reject_floats(child)
-    elif isinstance(value, list):
-        for child in value:
-            _reject_floats(child)
+def _validate_json_profile(value: Any) -> None:
+    stack: list[tuple[Any, int]] = [(value, 1)]
+    while stack:
+        current, depth = stack.pop()
+        _require(depth <= MAX_JSON_DEPTH, "JSON exceeds the nesting-depth ceiling")
+        if isinstance(current, float):
+            raise GatePrimitiveError("canonical gate JSON forbids floating-point values")
+        if isinstance(current, int) and not isinstance(current, bool):
+            _require(
+                -MAX_JSON_INTEGER_ABSOLUTE
+                <= cast(int, current)
+                <= MAX_JSON_INTEGER_ABSOLUTE,
+                "JSON integer exceeds the digit ceiling",
+            )
+        if isinstance(current, dict):
+            _require(
+                all(isinstance(key, str) for key in current),
+                "canonical gate JSON requires string object keys",
+            )
+            stack.extend((child, depth + 1) for child in current.values())
+        elif isinstance(current, (list, tuple)):
+            stack.extend((child, depth + 1) for child in current)
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
-    _reject_floats(value)
+    _validate_json_profile(value)
     try:
         return json.dumps(
             value,
@@ -106,7 +123,7 @@ def _canonical_json_bytes(value: Any) -> bytes:
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeError) as exc:
         raise GatePrimitiveError(f"value is not canonical JSON: {exc}") from exc
 
 
@@ -115,7 +132,7 @@ def _canonical_hash(value: Any) -> str:
 
 
 def _render(value: dict[str, Any]) -> bytes:
-    _reject_floats(value)
+    _validate_json_profile(value)
     try:
         return (
             json.dumps(
@@ -127,7 +144,7 @@ def _render(value: dict[str, Any]) -> bytes:
             )
             + "\n"
         ).encode("utf-8")
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, UnicodeError) as exc:
         raise GatePrimitiveError(f"value is not renderable canonical JSON: {exc}") from exc
 
 
@@ -231,17 +248,6 @@ def _reject_json_constant(_text: str) -> None:
     raise GatePrimitiveError("canonical gate JSON forbids non-finite values")
 
 
-def _enforce_json_depth(value: Any) -> None:
-    stack: list[tuple[Any, int]] = [(value, 1)]
-    while stack:
-        current, depth = stack.pop()
-        _require(depth <= MAX_JSON_DEPTH, "JSON exceeds the nesting-depth ceiling")
-        if isinstance(current, dict):
-            stack.extend((child, depth + 1) for child in current.values())
-        elif isinstance(current, list):
-            stack.extend((child, depth + 1) for child in current)
-
-
 def _load_json(
     path: pathlib.Path,
     *,
@@ -257,7 +263,7 @@ def _load_json(
             parse_float=_reject_json_float,
             parse_int=_parse_bounded_integer,
         )
-        _enforce_json_depth(value)
+        _validate_json_profile(value)
     except GatePrimitiveError:
         raise
     except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
@@ -275,8 +281,17 @@ def _valid_sha(value: Any) -> bool:
     )
 
 
-def _integer(value: Any, field: str, *, minimum: int = 0) -> int:
-    _require(type(value) is int and value >= minimum, f"{field} is invalid")
+def _integer(
+    value: Any,
+    field: str,
+    *,
+    minimum: int = 0,
+    maximum: int = MAX_JSON_INTEGER_ABSOLUTE,
+) -> int:
+    _require(
+        type(value) is int and minimum <= value <= maximum,
+        f"{field} is invalid",
+    )
     return cast(int, value)
 
 
@@ -317,16 +332,14 @@ def _cache_path(value: Any, field: str) -> str:
     )
     _require(root in CACHE_ROOTS, f"{field} is outside the isolated cache roots")
     _require(
-        len(value.encode("utf-8")) <= 1024
-        and unicodedata.normalize("NFC", value) == value,
-        f"{field} encoding is not canonical",
+        not any(unicodedata.category(character).startswith("C") for character in value),
+        f"{field} component encoding is not canonical",
     )
     _require(
-        all(len(part.encode("utf-8")) <= 255 for part in pure.parts)
-        and not any(
-            unicodedata.category(character).startswith("C") for character in value
-        ),
-        f"{field} component encoding is not canonical",
+        len(value.encode("utf-8")) <= 1024
+        and unicodedata.normalize("NFC", value) == value
+        and all(len(part.encode("utf-8")) <= 255 for part in pure.parts),
+        f"{field} encoding is not canonical",
     )
     return value
 
@@ -650,6 +663,7 @@ def build_cache_seed_manifest(
         "schema_version": SCHEMA_VERSION,
         "status": MANIFEST_STATUS,
     }
+    _validate_json_profile(manifest)
     manifest["manifest_sha256"] = _self_hash(manifest, "manifest_sha256")
     validate_cache_seed_manifest(
         manifest,
@@ -665,6 +679,7 @@ def validate_cache_seed_manifest(
     plan: dict[str, Any],
     manifest_schema_path: pathlib.Path,
 ) -> None:
+    _validate_json_profile(value)
     authority = _pending_authority(plan)
     expected_root = {
         "archive", "authority", "contents", "host_shared_cache_reuse", "implementation",
@@ -822,17 +837,39 @@ def evaluate_injected_resource_stats(
         and set(filesystem_stats) == {"available_blocks", "fragment_size_bytes"},
         "filesystem stats fields differ",
     )
-    fragment_size = _integer(filesystem_stats["fragment_size_bytes"], "fragment_size_bytes", minimum=1)
-    available_blocks = _integer(filesystem_stats["available_blocks"], "available_blocks")
+    _validate_json_profile(dict(filesystem_stats))
+    fragment_size = _integer(
+        filesystem_stats["fragment_size_bytes"],
+        "fragment_size_bytes",
+        minimum=1,
+        maximum=MAX_RESOURCE_FRAGMENT_SIZE_BYTES,
+    )
+    available_blocks = _integer(
+        filesystem_stats["available_blocks"],
+        "available_blocks",
+        maximum=MAX_RESOURCE_AVAILABLE_BLOCKS,
+    )
+    _require(
+        available_blocks <= MAX_RESOURCE_DERIVED_BYTES // fragment_size,
+        "filesystem free-byte multiplication exceeds the JSON integer ceiling",
+    )
     free_bytes = fragment_size * available_blocks
     budget = plan["resource_budget"]
     reserve = _integer(budget["minimum_free_disk_reserve_bytes"], "minimum_free_disk_reserve_bytes", minimum=1)
     staging = _integer(budget["max_total_staging_bytes"], "max_total_staging_bytes", minimum=1)
     required = _integer(budget["minimum_free_disk_before_staging_bytes"], "minimum_free_disk_before_staging_bytes", minimum=1)
+    _require(
+        reserve <= MAX_RESOURCE_DERIVED_BYTES - staging,
+        "frozen free-space arithmetic exceeds the JSON integer ceiling",
+    )
     _require(required == reserve + staging, "frozen free-space arithmetic differs")
+    _require(
+        required <= MAX_RESOURCE_DERIVED_BYTES,
+        "frozen free-space threshold exceeds the JSON integer ceiling",
+    )
     _require(free_bytes >= required, "free space is below the frozen 16 GiB preflight threshold")
     _require(free_bytes - staging >= reserve, "staging would consume the frozen free-space reserve")
-    return {
+    resource = {
         "available_blocks": available_blocks,
         "free_bytes": free_bytes,
         "fragment_size_bytes": fragment_size,
@@ -842,6 +879,8 @@ def evaluate_injected_resource_stats(
         "reserve_bytes": reserve,
         "staging_ceiling_bytes": staging,
     }
+    _validate_json_profile(resource)
+    return resource
 
 
 def build_preflight_receipt(
@@ -886,6 +925,7 @@ def build_preflight_receipt(
         "schema_version": SCHEMA_VERSION,
         "status": RECEIPT_STATUS,
     }
+    _validate_json_profile(receipt)
     receipt["receipt_sha256"] = _self_hash(receipt, "receipt_sha256")
     validate_preflight_receipt(
         receipt,
@@ -909,6 +949,7 @@ def validate_preflight_receipt(
     manifest_schema_path: pathlib.Path,
     receipt_schema_path: pathlib.Path,
 ) -> None:
+    _validate_json_profile(value)
     authority = _pending_authority(plan)
     _require(len(plan_raw) <= MAX_PLAN_RAW_BYTES, "run-plan bytes exceed the raw-byte ceiling")
     _require(_sha256(plan_raw) == CHECKED_PLAN_FILE_SHA256, "run-plan raw hash differs")

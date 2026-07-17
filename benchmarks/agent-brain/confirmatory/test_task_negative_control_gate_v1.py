@@ -307,6 +307,7 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
             "gocache\\windows",
             "gocache/e\u0301/non-nfc",
             "gocache/control\u0001/name",
+            "gocache/\ud800",
         ):
             entries = copy.deepcopy(self.entries)
             entries[0]["path"] = path
@@ -590,6 +591,187 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
         ):
             with self.subTest(stats=stats), self.assertRaises(gate.GatePrimitiveError):
                 gate.evaluate_injected_resource_stats(self.plan, stats)
+
+    def test_resource_profile_maxima_overflow_and_cli_round_trip(self) -> None:
+        maximum = gate.MAX_RESOURCE_DERIVED_BYTES
+        self.assertEqual(maximum, 10**gate.MAX_JSON_INTEGER_DIGITS - 1)
+        self.assertEqual(len(str(maximum)), gate.MAX_JSON_INTEGER_DIGITS)
+        self.assertEqual(gate.MAX_RESOURCE_AVAILABLE_BLOCKS, maximum)
+        self.assertEqual(gate.MAX_RESOURCE_FRAGMENT_SIZE_BYTES, maximum)
+
+        resource = gate.evaluate_injected_resource_stats(
+            self.plan,
+            {"available_blocks": maximum, "fragment_size_bytes": 1},
+        )
+        required = self.plan["resource_budget"]["minimum_free_disk_before_staging_bytes"]
+        self.assertEqual(resource["free_bytes"], maximum)
+        self.assertEqual(resource["headroom_bytes"], maximum - required)
+        gate._validate_json_profile(resource)
+
+        for stats in (
+            {"available_blocks": maximum + 1, "fragment_size_bytes": 1},
+            {"available_blocks": 1, "fragment_size_bytes": maximum + 1},
+        ):
+            with self.subTest(stats=stats), self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "integer exceeds the digit ceiling",
+            ):
+                gate.evaluate_injected_resource_stats(self.plan, stats)
+
+        for stats in (
+            {"available_blocks": maximum, "fragment_size_bytes": maximum},
+            {"available_blocks": maximum // 2 + 1, "fragment_size_bytes": 2},
+        ):
+            with self.subTest(stats=stats), self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "multiplication exceeds the JSON integer ceiling",
+            ):
+                gate.evaluate_injected_resource_stats(self.plan, stats)
+
+        schema = json.loads(self.receipt_schema.read_text(encoding="utf-8"))
+        resource_schema = schema["properties"]["resource"]["properties"]
+        for field in (
+            "available_blocks",
+            "fragment_size_bytes",
+            "free_bytes",
+            "headroom_bytes",
+        ):
+            with self.subTest(schema_field=field):
+                self.assertEqual(resource_schema[field]["maximum"], maximum)
+
+        manifest = self.build_manifest()
+        receipt = self.build_receipt(manifest, free_bytes=maximum)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            plan_path = root / "plan.json"
+            manifest_path = root / "manifest.json"
+            receipt_path = root / "receipt.json"
+            plan_path.write_bytes(self.plan_raw)
+            manifest_path.write_bytes(gate._render(manifest))
+            receipt_path.write_bytes(gate._render(receipt))
+            parsed_receipt, parsed_raw = gate._load_json(
+                receipt_path,
+                max_raw_bytes=gate.MAX_RECEIPT_RAW_BYTES,
+                label="round-trip receipt",
+            )
+            self.assertEqual(parsed_receipt, receipt)
+            self.assertEqual(parsed_raw, gate._render(receipt))
+            self.assertEqual(
+                gate.main(
+                    [
+                        "check-receipt",
+                        str(receipt_path),
+                        "--plan",
+                        str(plan_path),
+                        "--manifest",
+                        str(manifest_path),
+                        "--manifest-schema",
+                        str(self.manifest_schema),
+                        "--receipt-schema",
+                        str(self.receipt_schema),
+                    ]
+                ),
+                0,
+            )
+
+    def test_api_artifacts_share_parser_integer_depth_and_no_float_profile(self) -> None:
+        maximum = gate.MAX_JSON_INTEGER_ABSOLUTE
+        gate._canonical_json_bytes({"value": maximum})
+        gate._canonical_json_bytes({"value": -maximum})
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "integer exceeds the digit ceiling"):
+            gate._canonical_json_bytes({"value": maximum + 1})
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "floating-point"):
+            gate._canonical_json_bytes({"value": (1.0,)})
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "string object keys"):
+            gate._canonical_json_bytes({1: "value"})
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "not canonical JSON"):
+            gate._canonical_json_bytes({"value": "\ud800"})
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "not renderable canonical JSON"):
+            gate._render({"value": "\ud800"})
+
+        nested: Any = 0
+        for _ in range(gate.MAX_JSON_DEPTH):
+            nested = [nested]
+
+        manifest = self.build_manifest()
+        manifest_cases: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
+            (
+                "floating-point",
+                lambda value: value["archive"].__setitem__("byte_count", 1.0),
+            ),
+            (
+                "integer exceeds the digit ceiling",
+                lambda value: value["archive"].__setitem__("byte_count", maximum + 1),
+            ),
+            (
+                "nesting-depth ceiling",
+                lambda value: value.__setitem__("implementation", copy.deepcopy(nested)),
+            ),
+        ]
+        for pattern, mutate in manifest_cases:
+            changed = copy.deepcopy(manifest)
+            mutate(changed)
+            with (
+                self.subTest(artifact="manifest", pattern=pattern),
+                mock.patch.object(
+                    gate,
+                    "_self_hash",
+                    side_effect=AssertionError("self hash must follow profile validation"),
+                ),
+                mock.patch.object(
+                    gate,
+                    "_validate_against_schema",
+                    side_effect=AssertionError("schema must follow profile validation"),
+                ),
+                self.assertRaisesRegex(gate.GatePrimitiveError, pattern),
+            ):
+                gate.validate_cache_seed_manifest(
+                    changed,
+                    plan=self.plan,
+                    manifest_schema_path=self.manifest_schema,
+                )
+
+        receipt = self.build_receipt(manifest)
+        receipt_kwargs = {
+            "plan": self.plan,
+            "plan_raw": self.plan_raw,
+            "manifest": manifest,
+            "manifest_raw": gate._render(manifest),
+            "manifest_schema_path": self.manifest_schema,
+            "receipt_schema_path": self.receipt_schema,
+        }
+        receipt_cases: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
+            (
+                "floating-point",
+                lambda value: value["resource"].__setitem__("available_blocks", 1.0),
+            ),
+            (
+                "integer exceeds the digit ceiling",
+                lambda value: value["resource"].__setitem__("available_blocks", maximum + 1),
+            ),
+            (
+                "nesting-depth ceiling",
+                lambda value: value.__setitem__("inputs", copy.deepcopy(nested)),
+            ),
+        ]
+        for pattern, mutate in receipt_cases:
+            changed = copy.deepcopy(receipt)
+            mutate(changed)
+            with (
+                self.subTest(artifact="receipt", pattern=pattern),
+                mock.patch.object(
+                    gate,
+                    "_self_hash",
+                    side_effect=AssertionError("self hash must follow profile validation"),
+                ),
+                mock.patch.object(
+                    gate,
+                    "_validate_against_schema",
+                    side_effect=AssertionError("schema must follow profile validation"),
+                ),
+                self.assertRaisesRegex(gate.GatePrimitiveError, pattern),
+            ):
+                gate.validate_preflight_receipt(changed, **receipt_kwargs)
 
     def test_receipt_validator_rejects_noncanonical_raw_inputs_and_authority_reseal(self) -> None:
         manifest = self.build_manifest()
