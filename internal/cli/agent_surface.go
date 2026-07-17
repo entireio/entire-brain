@@ -1327,9 +1327,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	actionStarted := profile.start()
 	report.ActionChecklist = brainBriefActionChecklist(status.Repo.Root, report, task)
 	if len(report.ActionChecklist) > 0 {
-		report.LikelyEditFiles = brainBriefActionFiles(report.ActionChecklist)
-		report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
-		report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+		brainBriefPrioritizeActionTargets(status.Repo.Root, &report)
 		report.Guidance = append(report.Guidance, "Treat action_checklist as the first-pass current-code inventory; edit listed files first, and broaden only when the checklist is missing, ambiguous, or validation fails.")
 	}
 	if profile != nil {
@@ -1809,12 +1807,24 @@ func brainBriefMergeLikelyFiles(editFiles, testFiles []string) []string {
 	return all
 }
 
-func brainBriefActionFiles(actions []brainBriefAction) []string {
+func brainBriefActionFiles(actions []brainBriefAction, candidates []string) []string {
+	eligible := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if clean, ok := cleanBrainBriefLikelyFile(candidate); ok {
+			eligible[clean] = struct{}{}
+		}
+	}
 	seen := map[string]struct{}{}
 	files := make([]string, 0, len(actions))
 	for _, action := range actions {
 		clean, ok := cleanBrainBriefLikelyFile(action.File)
 		if !ok || !brainBriefSourceFile(clean) {
+			continue
+		}
+		// The action scanners only read report.LikelyEditFiles. Requiring the
+		// path to remain in that same bounded candidate set prevents a stale or
+		// injected action from consuming a slot without another filesystem walk.
+		if _, ok := eligible[clean]; !ok {
 			continue
 		}
 		if _, exists := seen[clean]; exists {
@@ -1827,6 +1837,53 @@ func brainBriefActionFiles(actions []brainBriefAction) []string {
 		}
 	}
 	return files
+}
+
+// brainBriefPrioritizeActionTargets keeps concrete current-code actions first
+// without turning the checklist into a lossy replacement for other evidence.
+// Action paths come from safe current-file reads and must still belong to the
+// bounded candidate set; live-deleted and history-backed intended-create paths
+// are retained from that set even though they may not exist yet. The upstream
+// edit/test caps remain hard after reprioritization.
+func brainBriefPrioritizeActionTargets(repoRoot string, report *brainBriefReport) {
+	if report == nil || len(report.ActionChecklist) == 0 {
+		return
+	}
+	actionFiles := brainBriefActionFiles(report.ActionChecklist, report.LikelyEditFiles)
+	report.LikelyEditFiles = brainBriefMergePrioritizedFiles(actionFiles, report.LikelyEditFiles, 8)
+	actionTests := brainBriefAddSiblingTestFiles(repoRoot, actionFiles, nil)
+	report.LikelyTestFiles = brainBriefMergePrioritizedFiles(actionTests, report.LikelyTestFiles, 6)
+	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+}
+
+func brainBriefMergePrioritizedFiles(primary, fallback []string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, min(len(primary)+len(fallback), limit))
+	seen := make(map[string]struct{}, cap(out))
+	appendFiles := func(files []string) bool {
+		for _, path := range files {
+			clean, ok := cleanBrainBriefLikelyFile(path)
+			if !ok {
+				continue
+			}
+			if _, exists := seen[clean]; exists {
+				continue
+			}
+			seen[clean] = struct{}{}
+			out = append(out, clean)
+			if len(out) >= limit {
+				return true
+			}
+		}
+		return false
+	}
+	if appendFiles(primary) {
+		return out
+	}
+	appendFiles(fallback)
+	return out
 }
 
 type rankedBrainBriefFile struct {
