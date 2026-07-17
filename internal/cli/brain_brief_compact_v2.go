@@ -36,9 +36,11 @@ type compactV2Field struct {
 }
 
 type compactV2Schema struct {
-	tag    string
-	opcode byte
-	fields []compactV2Field
+	tag            string
+	opcode         byte
+	fields         []compactV2Field
+	fieldPositions map[string]int
+	declaration    string
 }
 
 type compactV1RawField struct {
@@ -67,7 +69,15 @@ func compactV2Metadata(name string, kind compactV2FieldKind) compactV2Field {
 }
 
 func compactV2SchemaFor(tag string, opcode byte, fields ...compactV2Field) compactV2Schema {
-	return compactV2Schema{tag: tag, opcode: opcode, fields: fields}
+	positions := make(map[string]int, len(fields))
+	for i, field := range fields {
+		positions[field.name] = i
+	}
+	schema := compactV2Schema{tag: tag, opcode: opcode, fields: fields, fieldPositions: positions}
+	var declaration strings.Builder
+	writeCompactV2Declaration(&declaration, schema)
+	schema.declaration = declaration.String()
+	return schema
 }
 
 // compactV2Schemas is the complete, versioned positional schema. Natural
@@ -291,31 +301,42 @@ func transcodeBrainBriefCompactV2(v1 string) (string, error) {
 // keyed, which freezes a deterministic tie rule and prevents declarations from
 // ever making a family grow.
 func planCompactV2Families(records []compactV1RawRecord, schemasByTag map[string]compactV2Schema) (map[string]compactV2FamilyPlan, error) {
-	grouped := make(map[string][]compactV1RawRecord, len(schemasByTag))
-	for _, record := range records {
-		grouped[record.tag] = append(grouped[record.tag], record)
+	type familyState struct {
+		plan            compactV2FamilyPlan
+		previous        []string
+		keyedBytes      int
+		positionalBytes int
+		records         int
 	}
-	plans := make(map[string]compactV2FamilyPlan, len(grouped))
-	for tag, family := range grouped {
-		schema := schemasByTag[tag]
-		var declaration strings.Builder
-		writeCompactV2Declaration(&declaration, schema)
-		plan := compactV2FamilyPlan{declaration: declaration.String(), rows: make([]string, 0, len(family))}
-		keyedBytes := 0
-		positionalBytes := len(plan.declaration)
-		var previous []string
-		for _, record := range family {
-			keyedBytes += len(record.raw) + 1
-			row, cells, err := encodeCompactV2Row(schema, record, previous)
-			if err != nil {
-				return nil, err
-			}
-			plan.rows = append(plan.rows, row)
-			positionalBytes += len(row)
-			previous = cells
+	counts := make(map[string]int, len(schemasByTag))
+	for _, record := range records {
+		counts[record.tag]++
+	}
+	states := make(map[string]familyState, len(schemasByTag))
+	for _, record := range records {
+		schema := schemasByTag[record.tag]
+		state := states[record.tag]
+		if state.records == 0 {
+			state.plan.declaration = schema.declaration
+			state.plan.rows = make([]string, 0, counts[record.tag])
+			state.positionalBytes = len(schema.declaration)
 		}
-		plan.positional = compactV2UsePositional(len(family), keyedBytes, positionalBytes)
-		plans[tag] = plan
+		row, cells, err := encodeCompactV2Row(schema, record, state.previous)
+		if err != nil {
+			return nil, err
+		}
+		state.plan.rows = append(state.plan.rows, row)
+		state.previous = cells
+		state.keyedBytes += len(record.raw) + 1
+		state.positionalBytes += len(row)
+		state.records++
+		states[record.tag] = state
+	}
+
+	plans := make(map[string]compactV2FamilyPlan, len(states))
+	for tag, state := range states {
+		state.plan.positional = compactV2UsePositional(state.records, state.keyedBytes, state.positionalBytes)
+		plans[tag] = state.plan
 	}
 	return plans, nil
 }
@@ -330,6 +351,11 @@ func encodeCompactV2Row(schema compactV2Schema, record compactV1RawRecord, previ
 		return "", nil, err
 	}
 	var out strings.Builder
+	rowBytes := 3 + last // opcode, tabs, and trailing newline
+	for i := 0; i <= last; i++ {
+		rowBytes += len(cells[i])
+	}
+	out.Grow(rowBytes)
 	out.WriteByte(schema.opcode)
 	for i := 0; i <= last; i++ {
 		out.WriteByte('\t')
@@ -364,13 +390,9 @@ func compactV2Cells(schema compactV2Schema, record compactV1RawRecord) ([]string
 	for i := range cells {
 		cells[i] = "~"
 	}
-	positions := make(map[string]int, len(schema.fields))
-	for i, field := range schema.fields {
-		positions[field.name] = i
-	}
 	last := -1
 	for _, field := range record.fields {
-		position, ok := positions[field.key]
+		position, ok := schema.fieldPositions[field.key]
 		if !ok {
 			return nil, -1, fmt.Errorf("compact_v2 %s has unknown field %q", record.tag, field.key)
 		}
@@ -450,6 +472,7 @@ func encodeCompactV2StringArray(raw string) (string, error) {
 		return "", err
 	}
 	var out strings.Builder
+	out.Grow(len(raw))
 	out.WriteByte('[')
 	for i, value := range values {
 		if i > 0 {

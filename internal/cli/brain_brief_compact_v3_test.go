@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -43,6 +44,44 @@ func TestBrainBriefCompactV3ExactProjectionAndMeasuredWin(t *testing.T) {
 		"compact_v3 exhaustive fixture: bytes=%d vs compact_v2=%d (%.2f%% reduction); ceil(bytes/4) proxy=%d vs %d; sha256=%x",
 		len(v3), len(v2), 100*(1-float64(len(v3))/float64(len(v2))), compactPacketByteProxy(v3), compactPacketByteProxy(v2), sum,
 	)
+}
+
+func TestBrainBriefCompactV3ConcurrentEmissionIsExact(t *testing.T) {
+	report := comprehensiveCompactV2Report()
+	want := renderBrainBriefCompactV3ForTest(t, report)
+	wantSum := sha256.Sum256([]byte(want))
+
+	const (
+		workers    = 8
+		iterations = 20
+	)
+	errs := make(chan error, workers)
+	var group sync.WaitGroup
+	group.Add(workers)
+	for worker := 0; worker < workers; worker++ {
+		go func() {
+			defer group.Done()
+			var out strings.Builder
+			cmd := (&cobraCommandForCompactV2Test{out: &out}).command()
+			for iteration := 0; iteration < iterations; iteration++ {
+				out.Reset()
+				if err := emitBrainBriefCompactV3(cmd, report); err != nil {
+					errs <- err
+					return
+				}
+				if got := out.String(); got != want {
+					gotSum := sha256.Sum256([]byte(got))
+					errs <- fmt.Errorf("packet sha256 = %x, want %x", gotSum, wantSum)
+					return
+				}
+			}
+		}()
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
 }
 
 func TestBrainBriefCompactV3IntegrityAndCanonicalChecksumRejections(t *testing.T) {

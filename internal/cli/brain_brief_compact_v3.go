@@ -24,6 +24,11 @@ const (
 // prior value in the same opcode and column; unique values remain inline.
 var compactV3Schemas = compactV3AllReferenceSchemas()
 
+// compactV3SchemasByTag is immutable after initialization and safe for
+// concurrent emitters. Keeping the versioned lookup here also validates the
+// frozen schema once instead of rebuilding the same map for every packet.
+var compactV3SchemasByTag = compactV3SchemaLookup()
+
 func compactV3AllReferenceSchemas() []compactV2Schema {
 	schemas := make([]compactV2Schema, len(compactV2Schemas))
 	for i, schema := range compactV2Schemas {
@@ -34,6 +39,17 @@ func compactV3AllReferenceSchemas() []compactV2Schema {
 		}
 	}
 	return schemas
+}
+
+func compactV3SchemaLookup() map[string]compactV2Schema {
+	byTag := make(map[string]compactV2Schema, len(compactV3Schemas))
+	for _, schema := range compactV3Schemas {
+		if _, exists := byTag[schema.tag]; exists {
+			panic(fmt.Sprintf("compact_v3 duplicate schema tag %q", schema.tag))
+		}
+		byTag[schema.tag] = schema
+	}
+	return byTag
 }
 
 // emitBrainBriefCompactV3 transcodes the same compact_v1 canonical solving
@@ -61,19 +77,12 @@ func transcodeBrainBriefCompactV3(v1 string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("compact_v3: %w", err)
 	}
-	schemasByTag := make(map[string]compactV2Schema, len(compactV3Schemas))
-	for _, schema := range compactV3Schemas {
-		if _, exists := schemasByTag[schema.tag]; exists {
-			return "", fmt.Errorf("compact_v3 duplicate schema tag %q", schema.tag)
-		}
-		schemasByTag[schema.tag] = schema
-	}
 	for _, record := range records {
-		if _, ok := schemasByTag[record.tag]; !ok {
+		if _, ok := compactV3SchemasByTag[record.tag]; !ok {
 			return "", fmt.Errorf("compact_v3 has no schema for %q", record.tag)
 		}
 	}
-	plans, err := planCompactV2Families(records, schemasByTag)
+	plans, err := planCompactV2Families(records, compactV3SchemasByTag)
 	if err != nil {
 		return "", fmt.Errorf("compact_v3: %w", err)
 	}
