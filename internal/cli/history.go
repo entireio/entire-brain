@@ -106,6 +106,11 @@ type historySessionFile struct {
 	ContentSHA256 string
 }
 
+type historySessionCandidate struct {
+	historySessionFile
+	Info fs.FileInfo
+}
+
 // historyScanCache memoizes the parsed history records for each session
 // transcript so a refresh only re-parses files whose content changed.
 // Session transcripts are content-stable across refreshes (the export step
@@ -282,16 +287,32 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		}
 		return index, nil, err
 	}
-	files, err := collectHistorySessionFiles(sessionsRoot, &index.Warnings)
-	if err != nil {
-		return index, nil, err
-	}
-	transcriptsFingerprint := historyTranscriptFilesFingerprint(outputDir, files)
-
 	prevCache := loadHistoryScanCache(outputDir)
+	var files []historySessionCandidate
+	if len(prevCache.Files) == 0 {
+		// A cache-empty rebuild needs every transcript parsed. Collect metadata
+		// only so parsing and SHA-256 can share one forward-only file read.
+		var err error
+		files, err = collectHistorySessionFileCandidates(sessionsRoot, &index.Warnings)
+		if err != nil {
+			return index, nil, err
+		}
+	} else {
+		// Preserve v5's hash-only cache-hit path exactly. Content SHA remains the
+		// authority, including for same-size/restored-mtime rewrites.
+		hashed, err := collectHistorySessionFiles(sessionsRoot, &index.Warnings)
+		if err != nil {
+			return index, nil, err
+		}
+		files = make([]historySessionCandidate, 0, len(hashed))
+		for _, file := range hashed {
+			files = append(files, historySessionCandidate{historySessionFile: file})
+		}
+	}
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
 	manifest, _ := loadBrainManifest(outputDir)
 	branchByPath := historyBranchByTranscriptPath(manifest)
+	fingerprintedFiles := make([]historySessionFile, 0, len(files))
 
 	total := len(files)
 	if progress != nil {
@@ -306,12 +327,38 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		rel = filepath.ToSlash(rel)
 
 		var records []historyRecord
-		if cached, ok := prevCache.Files[rel]; ok &&
-			cached.ContentSHA256 != "" && cached.ContentSHA256 == file.ContentSHA256 {
-			records = cached.Records
+		cached, hasCached := prevCache.Files[rel]
+		if file.ContentSHA256 != "" {
+			fingerprintedFiles = append(fingerprintedFiles, file.historySessionFile)
+			if hasCached && cached.ContentSHA256 != "" && cached.ContentSHA256 == file.ContentSHA256 {
+				records = cached.Records
+			} else {
+				scanned, scanErr := scanHistoryFile(outputDir, file.Path)
+				if scanErr != nil {
+					index.Warnings = append(index.Warnings, scanErr.Error())
+					if progress != nil {
+						progress(i+1, total)
+					}
+					continue
+				}
+				records = scanned
+			}
 		} else {
-			scanned, scanErr := scanHistoryFile(outputDir, file.Path)
+			// Cache-empty files take this path: parsing and SHA-256 consume the
+			// transcript through one bounded stream.
+			scanned, contentSHA256, scanErr := scanHistoryFileWithContentSHA(outputDir, file.Path, file.Info)
+			if contentSHA256 == "" {
+				index.Warnings = append(index.Warnings, scanErr.Error())
+				if progress != nil {
+					progress(i+1, total)
+				}
+				continue
+			}
+			file.ContentSHA256 = contentSHA256
+			fingerprintedFiles = append(fingerprintedFiles, file.historySessionFile)
 			if scanErr != nil {
+				// A parse failure is still fingerprinted when the complete regular
+				// file was read safely, matching the prior hash-then-scan behavior.
 				index.Warnings = append(index.Warnings, scanErr.Error())
 				if progress != nil {
 					progress(i+1, total)
@@ -352,6 +399,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		}
 		return index.Records[i].Line < index.Records[j].Line
 	})
+	transcriptsFingerprint := historyTranscriptFilesFingerprint(outputDir, fingerprintedFiles)
 	source := &historySourceManifest{
 		GeneratedAt:            now,
 		IndexPath:              historyIndexPath,
@@ -584,28 +632,84 @@ func historyTranscriptContentSHA(path string, expected fs.FileInfo, scratch []by
 	if _, err := io.CopyBuffer(h, struct{ io.Reader }{f}, scratch); err != nil {
 		return "", err
 	}
-	after, err := f.Stat()
-	if err != nil {
+	if err := validateHistoryTranscriptRead(f, path, opened); err != nil {
 		return "", err
 	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func validateHistoryTranscriptRead(f *os.File, path string, opened fs.FileInfo) error {
+	const label = "history transcript"
+	after, err := f.Stat()
+	if err != nil {
+		return err
+	}
 	if after.Size() != opened.Size() || !after.ModTime().Equal(opened.ModTime()) {
-		return "", fmt.Errorf("%s changed while reading: %s", label, path)
+		return fmt.Errorf("%s changed while reading: %s", label, path)
 	}
 	current, err := os.Lstat(path)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(after, current) ||
 		current.Size() != after.Size() || !current.ModTime().Equal(after.ModTime()) {
-		return "", fmt.Errorf("%s changed while reading: %s", label, path)
+		return fmt.Errorf("%s changed while reading: %s", label, path)
 	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+	return nil
 }
 
 func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]historySessionFile, error) {
 	var files []historySessionFile
 	hashScratch := make([]byte, 64*1024)
-	err := filepath.WalkDir(sessionsRoot, func(path string, d fs.DirEntry, err error) error {
+	err := walkHistorySessionFiles(sessionsRoot, warnings, func(path string, info fs.FileInfo) {
+		contentSHA256, hashErr := historyTranscriptContentSHA(path, info, hashScratch)
+		if hashErr != nil {
+			*warnings = append(*warnings, hashErr.Error())
+			return
+		}
+		files = append(files, historySessionFile{
+			Path:          path,
+			SortTime:      historySessionSortTime(path, info.ModTime()),
+			ContentSHA256: contentSHA256,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(files, func(i, j int) bool {
+		if !files[i].SortTime.Equal(files[j].SortTime) {
+			return files[i].SortTime.After(files[j].SortTime)
+		}
+		return files[i].Path < files[j].Path
+	})
+	return files, nil
+}
+
+func collectHistorySessionFileCandidates(sessionsRoot string, warnings *[]string) ([]historySessionCandidate, error) {
+	var files []historySessionCandidate
+	err := walkHistorySessionFiles(sessionsRoot, warnings, func(path string, info fs.FileInfo) {
+		files = append(files, historySessionCandidate{
+			historySessionFile: historySessionFile{
+				Path:     path,
+				SortTime: historySessionSortTime(path, info.ModTime()),
+			},
+			Info: info,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(files, func(i, j int) bool {
+		if !files[i].SortTime.Equal(files[j].SortTime) {
+			return files[i].SortTime.After(files[j].SortTime)
+		}
+		return files[i].Path < files[j].Path
+	})
+	return files, nil
+}
+
+func walkHistorySessionFiles(sessionsRoot string, warnings *[]string, visit func(string, fs.FileInfo)) error {
+	return filepath.WalkDir(sessionsRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			*warnings = append(*warnings, err.Error())
 			return nil
@@ -630,28 +734,9 @@ func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]hist
 			*warnings = append(*warnings, fmt.Sprintf("history transcript must be a regular file: %s", path))
 			return nil
 		}
-		contentSHA256, hashErr := historyTranscriptContentSHA(path, info, hashScratch)
-		if hashErr != nil {
-			*warnings = append(*warnings, hashErr.Error())
-			return nil
-		}
-		files = append(files, historySessionFile{
-			Path:          path,
-			SortTime:      historySessionSortTime(path, info.ModTime()),
-			ContentSHA256: contentSHA256,
-		})
+		visit(path, info)
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(files, func(i, j int) bool {
-		if !files[i].SortTime.Equal(files[j].SortTime) {
-			return files[i].SortTime.After(files[j].SortTime)
-		}
-		return files[i].Path < files[j].Path
-	})
-	return files, nil
 }
 
 func historySessionSortTime(path string, fallback time.Time) time.Time {
@@ -672,23 +757,104 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	defer f.Close()
 	rel, _ := filepath.Rel(outputDir, path)
 	rel = filepath.ToSlash(rel)
+	return scanHistoryReader(rel, filepath.Ext(path), f)
+}
+
+func scanHistoryFileWithContentSHA(outputDir, path string, expected fs.FileInfo) ([]historyRecord, string, error) {
+	const label = "history transcript"
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, "", err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return nil, "", err
+	}
+	if !opened.Mode().IsRegular() {
+		return nil, "", fmt.Errorf("%s must be a regular file: %s", label, path)
+	}
+	if expected != nil && !os.SameFile(expected, opened) {
+		return nil, "", fmt.Errorf("%s changed while opening: %s", label, path)
+	}
+
+	h := sha256.New()
+	reader := historyHashingReader{Reader: f, Writer: h}
+	rel, _ := filepath.Rel(outputDir, path)
+	rel = filepath.ToSlash(rel)
+	records, scanErr := scanHistoryReader(rel, filepath.Ext(path), &reader)
+	// Parsers may stop on a bounded-input error (an oversized scanner token or
+	// document). Drain the same stream so a complete, validated digest can still
+	// identify the excluded transcript exactly as the old hash-first path did.
+	if scanErr != nil || reader.N != opened.Size() {
+		drainScratch := make([]byte, 64*1024)
+		if _, err := io.CopyBuffer(io.Discard, struct{ io.Reader }{&reader}, drainScratch); err != nil {
+			return nil, "", err
+		}
+	}
+	if reader.N != opened.Size() {
+		return nil, "", fmt.Errorf("%s changed while reading: %s", label, path)
+	}
+	if err := validateHistoryTranscriptRead(f, path, opened); err != nil {
+		return nil, "", err
+	}
+	return records, "sha256:" + hex.EncodeToString(h.Sum(nil)), scanErr
+}
+
+type historyHashingReader struct {
+	io.Reader
+	io.Writer
+	N int64
+}
+
+func (r *historyHashingReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n > 0 {
+		written, writeErr := r.Writer.Write(p[:n])
+		r.N += int64(written)
+		if writeErr != nil {
+			return written, writeErr
+		}
+		if written != n {
+			return written, io.ErrShortWrite
+		}
+	}
+	return n, err
+}
+
+func scanHistoryReader(rel, ext string, reader io.Reader) ([]historyRecord, error) {
 	// Document-form transcripts (e.g. opencode: one pretty-printed JSON
 	// document) have no individually parseable lines, so the line scanner
-	// below indexes nothing from them. Probe the first line the same way
-	// distill does and route them through the shared document parser instead.
-	if records, isDocument, err := scanDocumentHistoryFile(f, rel); err != nil {
-		return nil, err
-	} else if isDocument {
-		return records, nil
+	// below indexes nothing from them. Probe once, then replay those bounded
+	// bytes into either parser without seeking or rereading the file.
+	buffered := bufio.NewReaderSize(reader, 4096)
+	probe, readErr := buffered.Peek(4096)
+	if readErr != nil && readErr != io.EOF && readErr != bufio.ErrBufferFull {
+		return nil, readErr
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil { // rewind the probe read
-		return nil, err
+	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe)), "\n")
+	if strings.HasPrefix(firstLine, "{") && !json.Valid([]byte(firstLine)) {
+		data, err := safeReadAll(buffered, maxDocumentTranscriptBytes, "document transcript "+rel)
+		if err != nil {
+			return nil, err
+		}
+		if messages, ok := parseDocumentConversation(string(data)); ok {
+			return historyDocumentRecords(rel, messages), nil
+		}
+		// The probe looked document-shaped but the shared parser rejected it.
+		// The old seek-based implementation fell back to line parsing; replay
+		// the already-bounded document bytes to preserve that behavior.
+		return scanHistoryLines(rel, ext, bytes.NewReader(data))
 	}
-	scanner := bufio.NewScanner(f)
+	return scanHistoryLines(rel, ext, buffered)
+}
+
+func scanHistoryLines(rel, ext string, reader io.Reader) ([]historyRecord, error) {
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
 	var records []historyRecord
 	lineNumber := 0
-	allowRawText := filepath.Ext(path) == ".md" || filepath.Ext(path) == ".txt"
+	allowRawText := ext == ".md" || ext == ".txt"
 	for scanner.Scan() {
 		lineNumber++
 		text := strings.TrimSpace(scanner.Text())
@@ -736,30 +902,8 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	return records, scanner.Err()
 }
 
-// scanDocumentHistoryFile detects and indexes a document-form transcript (see
-// parseDocumentConversation). isDocument=false means the file is line-oriented
-// (or not a transcript at all) and the caller's line scanner should handle it
-// after rewinding past the probe read. Mirrors the JSONL indexing policy:
-// assistant text is narrative, user turns are skipped; record lines anchor to
-// the document line each message object opens on.
-func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, isDocument bool, err error) {
-	probe := make([]byte, 4096)
-	n, readErr := f.Read(probe)
-	if readErr != nil && readErr != io.EOF {
-		return nil, false, readErr
-	}
-	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe[:n])), "\n")
-	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
-		return nil, false, nil // JSONL or non-JSON: the line scanner's job
-	}
-	data, err := safeReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f), maxDocumentTranscriptBytes, "document transcript "+rel)
-	if err != nil {
-		return nil, false, err
-	}
-	messages, ok := parseDocumentConversation(string(data))
-	if !ok {
-		return nil, false, nil
-	}
+func historyDocumentRecords(rel string, messages []documentMessage) []historyRecord {
+	var records []historyRecord
 	for _, message := range messages {
 		if message.Role != "assistant" || message.Text == "" {
 			continue
@@ -776,7 +920,7 @@ func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, i
 			})
 		}
 	}
-	return records, true, nil
+	return records
 }
 
 // extractHistoryJSONFragments returns the indexable fragments of one
