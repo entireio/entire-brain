@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-negative-control-private-log-receipt-v1.json",
+  "title": "Agent Brain negative-control private raw-log public receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "raw_log_byte_count",
+    "raw_log_sha256"
+  ],
+  "properties": {
+    "raw_log_byte_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16777216
+    },
+    "raw_log_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
