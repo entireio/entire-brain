@@ -242,6 +242,31 @@ func TestValidSemanticEmbedding(t *testing.T) {
 	}
 }
 
+func TestSemanticFusionDepthCapsWithoutOverflow(t *testing.T) {
+	maxInt := int(^uint(0) >> 1)
+	for name, tc := range map[string]struct {
+		limit      int
+		multiplier int
+		candidates int
+		want       int
+	}{
+		"two-times oversampling": {limit: 6, multiplier: 2, candidates: 44, want: 12},
+		"exact candidate cap":    {limit: 22, multiplier: 2, candidates: 44, want: 44},
+		"above candidate cap":    {limit: 23, multiplier: 2, candidates: 44, want: 44},
+		"default limit":          {limit: 0, multiplier: 2, candidates: 44, want: 20},
+		"full-depth comparison":  {limit: 6, multiplier: 0, candidates: 44, want: 44},
+		"limit cannot overflow":  {limit: maxInt, multiplier: 2, candidates: 44, want: 44},
+		"factor cannot overflow": {limit: 6, multiplier: maxInt, candidates: 44, want: 44},
+		"empty candidates":       {limit: maxInt, multiplier: 2, candidates: 0, want: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := semanticFusionDepth(tc.limit, tc.multiplier, tc.candidates); got != tc.want {
+				t.Fatalf("semanticFusionDepth(%d, %d, %d) = %d, want %d", tc.limit, tc.multiplier, tc.candidates, got, tc.want)
+			}
+		})
+	}
+}
+
 func assertFactIDsEqual(t *testing.T, got, want []factRecord) {
 	t.Helper()
 	if len(got) != len(want) {
