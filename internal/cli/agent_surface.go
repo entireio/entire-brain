@@ -1095,9 +1095,16 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		},
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
-		semanticInputCount := status.Manifest.Sources.Semantic.Symbols + status.Manifest.Sources.Semantic.Relations
+		semanticSource := status.Manifest.Sources.Semantic
+		semanticInputCount := semanticSource.Symbols + semanticSource.Relations
+		semanticLimit := briefOpts.limit
+		if brainBriefSemanticNeedsCurrentBoundary(report.Status) {
+			// A bounded overfetch lets the current-worktree boundary refill slots
+			// which stale top-ranked records would otherwise consume.
+			semanticLimit = brainBriefSemanticCandidateLimit(briefOpts.limit, semanticSource.Symbols)
+		}
 		contextStarted := profile.start()
-		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit, 0)
+		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
 		if contextErr != nil {
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
 		} else {
@@ -1115,7 +1122,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			profile.finishStage(&profile.Semantic.Context, contextStarted, semanticInputCount, len(contextSymbols)+len(contextRelations)+len(contextNeighbors), contextErrors)
 		}
 		runtimeStarted := profile.start()
-		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
+		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, semanticSource, task, semanticLimit)
 		if runtimeErr != nil {
 			report.Warnings = append(report.Warnings, "runtime trace context unavailable: "+runtimeErr.Error())
 		} else {
@@ -1129,7 +1136,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			profile.finishStage(&profile.Semantic.RuntimeTraces, runtimeStarted, semanticInputCount, len(runtimeTraces), runtimeErrors)
 		}
 		testsStarted := profile.start()
-		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
+		tests, testsErr := semanticTestFacts(status.Brain.Path, semanticSource, task, semanticLimit)
 		if testsErr != nil {
 			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
 		} else {
@@ -1317,6 +1324,13 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	}
 	likelyFilesStarted := profile.start()
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
+	// A non-current semantic index is still useful for intent and graph shape,
+	// but its repository loci must cross the live worktree boundary before the
+	// packet can present them as current context. The durable index is unchanged.
+	if brainBriefSemanticNeedsCurrentBoundary(report.Status) {
+		brainBriefFilterDepartedSemantic(status.Repo.Root, report.Status.Live, &report.Semantic)
+		brainBriefCapSemantic(&report.Semantic, briefOpts.limit)
+	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
