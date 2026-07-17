@@ -1333,7 +1333,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
-	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+	brainBriefAddCxxHeaderLayoutGuidance(status.Repo.Root, task, &report)
 	if profile != nil {
 		likelyInputs := len(report.Semantic.Context.Symbols) + len(report.Semantic.Context.Relations) + len(report.Semantic.RuntimeTraces) + len(report.Semantic.Tests.Suggestions) + len(report.History.Matches) + len(report.Facts)
 		profile.finishStage(&profile.Synthesis.LikelyFiles, likelyFilesStarted, likelyInputs, len(report.LikelyEditFiles)+len(report.LikelyTestFiles)+len(report.LikelyFiles), 0)
@@ -1852,7 +1852,7 @@ func (files brainBriefRepoFileChecker) exists(rel string) bool {
 		return false
 	}
 	info, err := os.Lstat(path)
-	return err == nil && info.Mode()&os.ModeSymlink == 0 && !info.IsDir()
+	return err == nil && info.Mode().IsRegular()
 }
 
 // brainBriefNestedTestCandidates covers a small set of common test layouts that
@@ -1959,6 +1959,97 @@ func brainBriefActionFiles(actions []brainBriefAction, candidates []string) []st
 		}
 	}
 	return files
+}
+
+func brainBriefCxxHeaderCandidates(file string) []string {
+	clean, ok := cleanBrainBriefRepoRelativePath(file)
+	ext := strings.ToLower(filepath.Ext(clean))
+	if !ok || (ext != ".c" && ext != ".cc" && ext != ".cpp") {
+		return nil
+	}
+	stem := strings.TrimSuffix(clean, filepath.Ext(clean))
+	marker := strings.LastIndex(stem, "src/")
+	if marker < 0 || (marker > 0 && stem[marker-1] != '/') || marker+len("src/") == len(stem) {
+		return nil
+	}
+	includeStem := stem[:marker] + "include/" + stem[marker+len("src/"):]
+	return []string{includeStem + ".h", includeStem + ".hpp"}
+}
+
+func brainBriefCxxDeclarationChangeTask(task string) bool {
+	lower := strings.ToLower(task)
+	for _, negative := range []string{
+		"without changing public api", "without changing the public api", "without changing its public api",
+		"without touching header", "without touching the header",
+		"signature unchanged", "do not change signature", "do not change the signature",
+		"do not change public api", "do not change the public api",
+		"preserve public api", "preserve the public api",
+	} {
+		if strings.Contains(lower, negative) {
+			return false
+		}
+	}
+	change, declaration := false, false
+	for _, word := range brainBriefTaskWordPattern.FindAllString(lower, -1) {
+		switch {
+		case strings.HasPrefix(word, "chang"), strings.HasPrefix(word, "updat"), strings.HasPrefix(word, "modif"),
+			strings.HasPrefix(word, "remov"), strings.HasPrefix(word, "renam"), strings.HasPrefix(word, "extend"),
+			strings.HasPrefix(word, "replac"), strings.HasPrefix(word, "alter"),
+			word == "add", word == "adds", word == "added", word == "adding":
+			change = true
+		case strings.HasPrefix(word, "signatur"), strings.HasPrefix(word, "declarat"), strings.HasPrefix(word, "prototyp"):
+			declaration = true
+		}
+	}
+	return change && declaration
+}
+
+func brainBriefAddCxxHeaderLayoutGuidance(repoRoot, task string, report *brainBriefReport) {
+	if report == nil {
+		return
+	}
+	if brainBriefCxxDeclarationChangeTask(task) {
+		var repoFiles *brainBriefRepoFileChecker
+	search:
+		for i, source := range report.LikelyEditFiles {
+			if i+1 >= 8 {
+				break
+			}
+			candidates := brainBriefCxxHeaderCandidates(source)
+			if len(candidates) == 0 {
+				continue
+			}
+			if repoFiles == nil {
+				files, ok := newBrainBriefRepoFileChecker(repoRoot)
+				if !ok {
+					break
+				}
+				repoFiles = &files
+			}
+			companion := ""
+			for _, candidate := range candidates {
+				if slices.Contains(report.LikelyEditFiles, candidate) {
+					break search
+				}
+				if repoFiles.exists(candidate) {
+					if companion != "" {
+						companion = ""
+						break
+					}
+					companion = candidate
+				}
+			}
+			if companion == "" {
+				continue
+			}
+			guided := append([]string{}, report.LikelyEditFiles[:i+1]...)
+			guided = append(guided, companion)
+			guided = append(guided, report.LikelyEditFiles[i+1:]...)
+			report.LikelyEditFiles = guided[:min(len(guided), 8)]
+			break search
+		}
+	}
+	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 }
 
 // brainBriefPrioritizeActionTargets keeps concrete current-code actions first
@@ -2197,6 +2288,7 @@ func brainBriefLikelyPathRoot(path string) bool {
 		"apps/",
 		"cmd/",
 		"docs/",
+		"include/",
 		"internal/",
 		"lib/",
 		"packages/",
