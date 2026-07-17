@@ -101,6 +101,16 @@ confirmatory analyzer is implemented and path-locked.
   source-reviewed match treats the archive as opaque bytes and leaves content safety, extraction,
   staging, E0 runtime binding, owner approval, atomic consumption, candidate execution, network,
   model/provider work, and paid work forbidden.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-CACHE-BUNDLE-V2.md`,
+  `negative-control-cache-bundle-format-v2.json`, `negative_control_cache_bundle_v2.py`, and the
+  three adjacent schemas/test: a frozen, uncompressed, regular-file-only bundle grammar and
+  verifier-only successor to the opaque v1 boundary. It binds one shared manifest-v1 union seed,
+  copied unchanged to every arm; repository IDs are ownership/provenance and ordering metadata,
+  not destination namespaces. The two-pass verifier first checks reviewed raw identity and then,
+  on the same held descriptor, streams bounded structure, exact manifest bijection, every payload
+  hash, trailer digests, and exact EOF. The checked v1 material remains pending and no actual bundle
+  exists; the checked pending v2 verifier contract cannot access caller locators. There is no
+  production pack, extract, stage, execution, provider, network, or paid surface.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.

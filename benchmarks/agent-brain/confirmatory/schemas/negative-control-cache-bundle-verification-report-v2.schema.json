@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/negative-control-cache-bundle-verification-report-v2.json",
+  "title": "Non-authorizing negative-control cache bundle verification report v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "authority",
+    "bindings",
+    "bundle",
+    "contents",
+    "manifest",
+    "profile",
+    "report_sha256",
+    "safety",
+    "schema_version",
+    "status",
+    "structure"
+  ],
+  "properties": {
+    "authority": {
+      "const": {
+        "atomic_consumption": false,
+        "benchmark_execution": "forbidden",
+        "candidate_execution": "forbidden",
+        "execution_authority": false,
+        "model_provider_execution": "forbidden",
+        "network_access": "forbidden",
+        "owner_approval": false,
+        "paid_execution": "forbidden"
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_status",
+        "format_artifact_sha256",
+        "format_contract_sha256",
+        "v1_material_artifact_sha256",
+        "v1_material_declaration_sha256",
+        "v1_verifier_contract_artifact_sha256",
+        "v1_verifier_contract_sha256",
+        "v2_verifier_contract_sha256"
+      ],
+      "properties": {
+        "binding_status": {
+          "const": "same_descriptor_raw_identity_recomputed_against_source_reviewed_v1_material"
+        },
+        "format_artifact_sha256": {
+          "const": "970669197065a563fa0a09c281f671f5a3cd63061d6ff8f52da64926fa5ac406"
+        },
+        "format_contract_sha256": {
+          "const": "e2231e7fae7dfdad054c770d928b549bb996b4c452169cb22abea7f8f6f0ee59"
+        },
+        "v1_material_artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "v1_material_declaration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "v1_verifier_contract_artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "v1_verifier_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "v2_verifier_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_file",
+        "byte_count",
+        "flags",
+        "format_version",
+        "header_byte_count",
+        "prefix_sha256",
+        "raw_sha256",
+        "record_fixed_byte_count",
+        "records_sha256",
+        "trailer_byte_count"
+      ],
+      "properties": {
+        "artifact_file": {
+          "$ref": "#/$defs/artifact_file"
+        },
+        "byte_count": {
+          "type": "integer",
+          "minimum": 498,
+          "maximum": 2147483648
+        },
+        "flags": {
+          "const": 0
+        },
+        "format_version": {
+          "const": 2
+        },
+        "header_byte_count": {
+          "const": 232
+        },
+        "prefix_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "raw_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "record_fixed_byte_count": {
+          "const": 52
+        },
+        "records_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "trailer_byte_count": {
+          "const": 104
+        }
+      }
+    },
+    "contents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "all_payload_sha256_verified",
+        "file_count",
+        "manifest_bijection",
+        "repository_file_counts",
+        "shared_seed_semantics",
+        "unpacked_byte_count"
+      ],
+      "properties": {
+        "all_payload_sha256_verified": {
+          "const": true
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 250000
+        },
+        "manifest_bijection": {
+          "const": true
+        },
+        "repository_file_counts": {
+          "$ref": "#/$defs/repository_file_counts"
+        },
+        "shared_seed_semantics": {
+          "const": "one_shared_union_seed_copied_unchanged_to_every_arm"
+        },
+        "unpacked_byte_count": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 2147483648
+        }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_file",
+        "artifact_sha256",
+        "inventory_sha256",
+        "manifest_sha256",
+        "profile",
+        "projection_sha256",
+        "run_plan_sha256",
+        "schema_sha256",
+        "toolchain_bindings_sha256"
+      ],
+      "properties": {
+        "artifact_file": {
+          "$ref": "#/$defs/artifact_file"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "inventory_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile": {
+          "const": "content_addressed_offline_go_cache_seed_manifest_v1"
+        },
+        "projection_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "run_plan_sha256": {
+          "const": "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e"
+        },
+        "schema_sha256": {
+          "const": "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999"
+        },
+        "toolchain_bindings_sha256": {
+          "const": "e8240c5af77530079643593a7484cb0062408829bab76690b7f55d12176fc87c"
+        }
+      }
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_cache_bundle_verification_report_v2"
+    },
+    "report_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "safety": {
+      "const": {
+        "bundle_creation": false,
+        "e0_runtime_binding": false,
+        "extraction": false,
+        "staged_tree_created": false,
+        "staging": false
+      }
+    },
+    "schema_version": {
+      "const": 2
+    },
+    "status": {
+      "const": "bundle_v2_same_descriptor_raw_identity_structure_manifest_bijection_and_all_file_contents_verified_extraction_staging_execution_forbidden"
+    },
+    "structure": {
+      "const": {
+        "canonical_record_order": true,
+        "compression": false,
+        "exact_eof": true,
+        "header_verified": true,
+        "path_policy_verified": true,
+        "record_kind": "nonempty_regular_file_only",
+        "structurally_unrepresentable_verified": [
+          "explicit_directories",
+          "symlinks",
+          "hardlinks_or_inode_identity",
+          "fifos",
+          "sockets",
+          "block_devices",
+          "character_devices",
+          "other_devices",
+          "whiteouts",
+          "sparse_metadata",
+          "alternate_data_streams",
+          "resource_forks",
+          "compression",
+          "encryption",
+          "signatures",
+          "padding",
+          "concatenated_members",
+          "acls",
+          "extended_attributes",
+          "uid_gid",
+          "timestamps",
+          "mode_bits",
+          "executable_setuid_setgid_sticky_bits"
+        ],
+        "trailer_verified": true
+      }
+    }
+  },
+  "$defs": {
+    "artifact_file": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[^/\\\\]+$"
+    },
+    "repository_file_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entire-brain", "entire-db", "entire-graph"],
+      "properties": {
+        "entire-brain": { "type": "integer", "minimum": 1, "maximum": 250000 },
+        "entire-db": { "type": "integer", "minimum": 1, "maximum": 250000 },
+        "entire-graph": { "type": "integer", "minimum": 1, "maximum": 250000 }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "authority": {
+    "atomic_consumption": false,
+    "benchmark_execution": "forbidden",
+    "bundle_creation": "forbidden",
+    "bundle_extraction": "forbidden",
+    "bundle_staging": "forbidden",
+    "candidate_execution": "forbidden",
+    "e0_runtime_binding": false,
+    "execution_authority": false,
+    "model_provider_execution": "forbidden",
+    "network_access": "forbidden",
+    "owner_approval": false,
+    "paid_execution": "forbidden"
+  },
+  "format_binding": {
+    "artifact_file": "negative-control-cache-bundle-format-v2.json",
+    "artifact_sha256": "970669197065a563fa0a09c281f671f5a3cd63061d6ff8f52da64926fa5ac406",
+    "format_contract_sha256": "e2231e7fae7dfdad054c770d928b549bb996b4c452169cb22abea7f8f6f0ee59",
+    "profile": "agent_brain_negative_control_cache_bundle_format_v2",
+    "schema_file": "negative-control-cache-bundle-format-v2.schema.json",
+    "schema_sha256": "95712ba76c36107f583a195167e6dea9d90ba81729fba10fa211096d277617d8",
+    "schema_version": 2,
+    "status": "wire_format_frozen_no_material_no_authority"
+  },
+  "implementation": {
+    "builder": {
+      "artifact_file": "negative_control_cache_bundle_v2.py",
+      "artifact_sha256": "1236f3244be5d25cb72b7937aab159903a20cb97c2ce057023e4c4694f248bfc"
+    },
+    "draft202012_validator": {
+      "artifact_file": "draft202012.py",
+      "artifact_sha256": "8688b67468b096427f758163174432e221d8197c6b13870a6427939f6ea281eb",
+      "size_bytes": 18097
+    },
+    "format_artifact": {
+      "artifact_file": "negative-control-cache-bundle-format-v2.json",
+      "artifact_sha256": "970669197065a563fa0a09c281f671f5a3cd63061d6ff8f52da64926fa5ac406"
+    },
+    "format_schema": {
+      "artifact_file": "negative-control-cache-bundle-format-v2.schema.json",
+      "artifact_sha256": "95712ba76c36107f583a195167e6dea9d90ba81729fba10fa211096d277617d8"
+    },
+    "manifest_schema": {
+      "artifact_file": "offline-go-cache-seed-manifest-v1.schema.json",
+      "artifact_sha256": "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999"
+    },
+    "report_schema": {
+      "artifact_file": "negative-control-cache-bundle-verification-report-v2.schema.json",
+      "artifact_sha256": "3afd8fec9da54a8b7358b497031633bfeaf8c5df1f595347424769d4a30ec4ad"
+    },
+    "v1_raw_verifier_source": {
+      "artifact_file": "negative_control_cache_archive_v1.py",
+      "artifact_sha256": "2f21da09c28cf2de62f808a6362f74fbc7aead07a04cfef96c15c93584540b94"
+    },
+    "verifier_contract_schema": {
+      "artifact_file": "negative-control-cache-bundle-verifier-contract-v2.schema.json",
+      "artifact_sha256": "eca24ad3f0a50f4a9dcbd9e106715db8fee449d4735eaeee87912a95e7c564bd"
+    }
+  },
+  "manifest_binding": {
+    "manifest_profile": "content_addressed_offline_go_cache_seed_manifest_v1",
+    "manifest_schema_sha256": "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999",
+    "repository_key_semantics": "deterministic_ownership_and_provenance_only_not_destination_namespace",
+    "run_plan_artifact_sha256": "f55b6e22a25daf8016305304adf3b7ac8d31675281d97cfc9bb78cc76b619790",
+    "run_plan_schema_sha256": "294f77f165676bec6053e9637578ca22f048a887d2a978bbf8b8e300f21a2dad",
+    "run_plan_sha256": "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e",
+    "shared_seed_semantics": "one_shared_union_seed_copied_unchanged_to_every_arm",
+    "toolchain_bindings_sha256": "e8240c5af77530079643593a7484cb0062408829bab76690b7f55d12176fc87c"
+  },
+  "profile": "agent_brain_negative_control_cache_bundle_verifier_contract_v2",
+  "raw_identity_binding": {
+    "v1_material": {
+      "artifact_file": "negative-control-cache-archive-material-v1.json",
+      "artifact_sha256": "7527cec7b2f1b47498845ae38710369997b7c82d2d0150761b23d2b594f68d93",
+      "material_declaration_sha256": "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852",
+      "profile": "agent_brain_negative_control_cache_archive_material_v1",
+      "status": "pending_source_review"
+    },
+    "v1_material_schema_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5",
+    "v1_raw_verifier_source_sha256": "2f21da09c28cf2de62f808a6362f74fbc7aead07a04cfef96c15c93584540b94",
+    "v1_report_schema_sha256": "5827c78df73b024df32bf2853d412df428e7362e869d5d202b33dac15bbe4e5d",
+    "v1_verifier_contract": {
+      "artifact_file": "negative-control-cache-archive-verifier-contract-v1.json",
+      "artifact_sha256": "2138adb640dee8ab3537afc1ccb69e846a6af5d360c02da9cfed30c33dded33c",
+      "profile": "agent_brain_negative_control_cache_archive_verifier_contract_v1",
+      "status": "verifier_compiled_material_source_review_pending_execution_forbidden",
+      "verifier_contract_sha256": "56b5e019f65ef1afc0e4f265a705cdc1523585aad899d5c18ff7a5230463bb47"
+    },
+    "v1_verifier_contract_schema_sha256": "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914"
+  },
+  "residual_gates": [
+    "successful_v2_bundle_content_verification_report",
+    "separate_safe_stager_with_go_cache_behavior_validation",
+    "trusted_apfs_observer_and_atomic_capacity_reservation",
+    "clean_detached_worktree_executor_and_first_parent_reversal_proof",
+    "attested_attempt_producer_and_classifier_integration",
+    "private_log_executor_integration_retention_and_aggregate_accounting",
+    "fail_closed_cleanup_interruption_attestation_and_no_receipt_guarantee",
+    "atomic_single_use_approval_consumption_and_execution_binding"
+  ],
+  "runtime_bindings": {
+    "actual_bundle_sha256": null,
+    "actual_manifest_sha256": null,
+    "bundle_verification_report_sha256": null,
+    "consumption_run_sha256": null,
+    "owner_approval_verification_report_sha256": null,
+    "raw_identity_report_sha256": null,
+    "staged_tree_sha256": null
+  },
+  "schema_version": 2,
+  "status": "verifier_compiled_raw_material_source_review_pending_bundle_access_forbidden",
+  "verification_policy": {
+    "bundle_byte_count_formula": "232 + 104 + 52*N + sum(path_utf8_byte_count) + unpacked_byte_count",
+    "bundle_byte_count_max": 2147483648,
+    "bundle_descriptor": "one_held_single_link_stable_regular_file_descriptor_never_reopened",
+    "cli": {
+      "build": "build --output CONTRACT",
+      "check": "check",
+      "verify": "verify MANIFEST BUNDLE"
+    },
+    "file_count_max": 250000,
+    "file_count_min": 3,
+    "json_depth_max": 64,
+    "json_nodes_max": 1270000,
+    "manifest_byte_count_max": 134217728,
+    "no_payload_sized_allocations": true,
+    "pass_1": "raw_bundle_size_and_sha256_against_source_reviewed_v1_material_before_interpretation_then_fstat",
+    "pass_2": "rewind_same_descriptor_then_bounded_parse_stream_hash_manifest_bijection_exact_eof_then_fstat",
+    "production_commands_absent": [
+      "pack",
+      "extract",
+      "stage"
+    ],
+    "report_persistence": "forbidden_stdout_only",
+    "stream_chunk_byte_count": 1048576,
+    "successful_claim": "raw_identity_structure_manifest_bijection_and_every_regular_file_payload_sha256_only_not_staging_or_execution",
+    "unpacked_byte_count_max": 2147483648
+  },
+  "verifier_contract_sha256": "98de7291aceb5a84ff03d1862e66550fb4d67a55796634eacc4e610856829bdd"
+}
