@@ -1765,6 +1765,68 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 	return brainBriefAddSiblingTestFilesWithGoSuffixes(repoRoot, editFiles, testFiles, nil)
 }
 
+const brainBriefGoTestSourceProbeLimit = 6
+
+// brainBriefAddGoTestSourceCompanions closes the common inverse-layout gap in
+// semantic retrieval: an exact test hit such as mcp_test.go is useful evidence
+// for its existing mcp.go implementation even when no implementation symbol
+// matched the task terms. This is an always-live, bounded postprocess over the
+// already-ranked test files; it never scans a directory or trusts an indexed
+// path without checking the current worktree.
+func brainBriefAddGoTestSourceCompanions(repoRoot string, editFiles, testFiles []string) []string {
+	if len(editFiles) >= 8 || len(testFiles) == 0 {
+		return editFiles
+	}
+	var (
+		repoFiles brainBriefRepoFileChecker
+		checked   bool
+		out       []string
+	)
+	for i, testFile := range testFiles {
+		if i >= brainBriefGoTestSourceProbeLimit {
+			break
+		}
+		candidate, ok := brainBriefGoTestSourceCandidate(testFile)
+		if !ok || slices.Contains(editFiles, candidate) || slices.Contains(out, candidate) {
+			continue
+		}
+		if !checked {
+			repoFiles, ok = newBrainBriefRepoFileChecker(repoRoot)
+			if !ok {
+				return editFiles
+			}
+			checked = true
+		}
+		if !repoFiles.exists(candidate) {
+			continue
+		}
+		if out == nil {
+			out = append([]string(nil), editFiles...)
+		}
+		out = append(out, candidate)
+		if len(out) >= 8 {
+			return out
+		}
+	}
+	if out == nil {
+		return editFiles
+	}
+	return out
+}
+
+func brainBriefGoTestSourceCandidate(testFile string) (string, bool) {
+	clean, ok := cleanBrainBriefLikelyFile(testFile)
+	if !ok {
+		return "", false
+	}
+	base := filepath.Base(clean)
+	stem, ok := strings.CutSuffix(base, "_test.go")
+	if !ok || stem == "" || strings.HasPrefix(stem, "_") || strings.Contains(stem, ".") || strings.HasSuffix(stem, "_test") {
+		return "", false
+	}
+	return strings.TrimSuffix(clean, "_test.go") + ".go", true
+}
+
 func brainBriefAddSiblingTestFilesWithGoSuffixes(
 	repoRoot string,
 	editFiles, testFiles []string,
@@ -1853,6 +1915,7 @@ func brainBriefApplyLayoutGuidance(repoRoot, task string, report *brainBriefRepo
 	if report == nil {
 		return
 	}
+	report.LikelyEditFiles = brainBriefAddGoTestSourceCompanions(repoRoot, report.LikelyEditFiles, report.LikelyTestFiles)
 	if len(report.LikelyEditFiles) > 0 {
 		goSuffixes := brainBriefGoTaskTestSuffixes(task, report.LikelyEditFiles)
 		inferred := brainBriefAddSiblingTestFilesWithGoSuffixes(repoRoot, report.LikelyEditFiles, nil, goSuffixes)
