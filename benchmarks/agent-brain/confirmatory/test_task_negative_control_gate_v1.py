@@ -773,6 +773,218 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
             ):
                 gate.validate_preflight_receipt(changed, **receipt_kwargs)
 
+    def test_json_tree_profile_rejects_cycles_alias_dags_and_bounds_nodes(self) -> None:
+        self.assertEqual(gate.MAX_MANIFEST_ENTRY_JSON_NODES, 5)
+        self.assertEqual(
+            gate.MAX_JSON_VISITED_NODES,
+            gate.MAX_MANIFEST_FILE_COUNT * gate.MAX_MANIFEST_ENTRY_JSON_NODES
+            + gate.MAX_JSON_FIXED_ENVELOPE_NODES,
+        )
+
+        boundary_tree = {"items": [1, 2]}
+        with mock.patch.object(gate, "MAX_JSON_VISITED_NODES", 4):
+            self.assertEqual(gate._validate_json_profile(boundary_tree), 4)
+        with (
+            mock.patch.object(gate, "MAX_JSON_VISITED_NODES", 3),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "visited-node ceiling"),
+        ):
+            gate._validate_json_profile(boundary_tree)
+
+        cycle: dict[str, Any] = {}
+        cycle["self"] = cycle
+        with self.assertRaisesRegex(
+            gate.GatePrimitiveError,
+            "cycle or repeated container alias",
+        ):
+            gate._validate_json_profile(cycle)
+
+        shared_list: list[Any] = ["leaf"]
+        shared_tuple = ("leaf",)
+        for graph in ([shared_list, shared_list], [shared_tuple, shared_tuple]):
+            with self.subTest(container=type(graph[0]).__name__), self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "cycle or repeated container alias",
+            ):
+                gate._validate_json_profile(graph)
+
+        alias_dag: Any = {"leaf": 1}
+        for _ in range(40):
+            alias_dag = [alias_dag, alias_dag]
+        with (
+            mock.patch.object(gate, "MAX_JSON_VISITED_NODES", 100),
+            self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "cycle or repeated container alias",
+            ),
+        ):
+            gate._validate_json_profile(alias_dag)
+
+        self.assertLessEqual(
+            gate._validate_json_profile(self.plan),
+            gate.MAX_JSON_FIXED_ENVELOPE_NODES,
+        )
+        cyclic_plan = copy.deepcopy(self.plan)
+        cyclic_plan["authority"]["cycle"] = cyclic_plan
+        with (
+            mock.patch.object(
+                run_plan,
+                "validate_plan",
+                side_effect=AssertionError("plan validation must follow graph validation"),
+            ),
+            self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "cycle or repeated container alias",
+            ),
+        ):
+            gate._pending_authority(cyclic_plan)
+        for schema_path in (self.manifest_schema, self.receipt_schema):
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+            with self.subTest(schema=schema_path.name):
+                self.assertLessEqual(
+                    gate._validate_json_profile(schema),
+                    gate.MAX_JSON_FIXED_ENVELOPE_NODES,
+                )
+
+    def test_manifest_and_receipt_graph_failures_precede_hash_render_and_schema(self) -> None:
+        manifest = self.build_manifest()
+        manifest_nodes = gate._validate_json_profile(manifest)
+        manifest_envelope_nodes = (
+            manifest_nodes
+            - len(manifest["contents"]["entries"])
+            * gate.MAX_MANIFEST_ENTRY_JSON_NODES
+        )
+        self.assertLessEqual(
+            manifest_envelope_nodes,
+            gate.MAX_JSON_FIXED_ENVELOPE_NODES,
+        )
+
+        manifest_alias = copy.deepcopy(manifest)
+        manifest_alias["implementation"]["verifier_sources"]["alias"] = manifest_alias[
+            "authority"
+        ]
+        manifest_cycle = copy.deepcopy(manifest)
+        manifest_cycle["implementation"]["cycle"] = manifest_cycle["implementation"]
+        for label, changed in (
+            ("alias", manifest_alias),
+            ("cycle", manifest_cycle),
+        ):
+            with (
+                self.subTest(artifact="manifest", failure=label),
+                mock.patch.object(
+                    gate,
+                    "_self_hash",
+                    side_effect=AssertionError("self hash must follow graph validation"),
+                ),
+                mock.patch.object(
+                    gate,
+                    "_render",
+                    side_effect=AssertionError("render must follow graph validation"),
+                ),
+                mock.patch.object(
+                    gate,
+                    "_validate_against_schema",
+                    side_effect=AssertionError("schema must follow graph validation"),
+                ),
+                self.assertRaisesRegex(
+                    gate.GatePrimitiveError,
+                    "cycle or repeated container alias",
+                ),
+            ):
+                gate.validate_cache_seed_manifest(
+                    changed,
+                    plan=self.plan,
+                    manifest_schema_path=self.manifest_schema,
+                )
+
+        with (
+            mock.patch.object(gate, "MAX_JSON_VISITED_NODES", manifest_nodes - 1),
+            mock.patch.object(
+                gate,
+                "_self_hash",
+                side_effect=AssertionError("self hash must follow node validation"),
+            ),
+            mock.patch.object(
+                gate,
+                "_render",
+                side_effect=AssertionError("render must follow node validation"),
+            ),
+            mock.patch.object(
+                gate,
+                "_validate_against_schema",
+                side_effect=AssertionError("schema must follow node validation"),
+            ),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "visited-node ceiling"),
+        ):
+            gate.validate_cache_seed_manifest(
+                manifest,
+                plan=self.plan,
+                manifest_schema_path=self.manifest_schema,
+            )
+
+        receipt = self.build_receipt(manifest)
+        receipt_nodes = gate._validate_json_profile(receipt)
+        self.assertLessEqual(receipt_nodes, gate.MAX_JSON_FIXED_ENVELOPE_NODES)
+        receipt_kwargs = {
+            "plan": self.plan,
+            "plan_raw": self.plan_raw,
+            "manifest": manifest,
+            "manifest_raw": gate._render(manifest),
+            "manifest_schema_path": self.manifest_schema,
+            "receipt_schema_path": self.receipt_schema,
+        }
+        receipt_alias = copy.deepcopy(receipt)
+        receipt_alias["inputs"]["alias"] = receipt_alias["resource"]
+        receipt_cycle = copy.deepcopy(receipt)
+        receipt_cycle["inputs"]["cycle"] = receipt_cycle["inputs"]
+        for label, changed in (
+            ("alias", receipt_alias),
+            ("cycle", receipt_cycle),
+        ):
+            with (
+                self.subTest(artifact="receipt", failure=label),
+                mock.patch.object(
+                    gate,
+                    "_self_hash",
+                    side_effect=AssertionError("self hash must follow graph validation"),
+                ),
+                mock.patch.object(
+                    gate,
+                    "_render",
+                    side_effect=AssertionError("render must follow graph validation"),
+                ),
+                mock.patch.object(
+                    gate,
+                    "_validate_against_schema",
+                    side_effect=AssertionError("schema must follow graph validation"),
+                ),
+                self.assertRaisesRegex(
+                    gate.GatePrimitiveError,
+                    "cycle or repeated container alias",
+                ),
+            ):
+                gate.validate_preflight_receipt(changed, **receipt_kwargs)
+
+        with (
+            mock.patch.object(gate, "MAX_JSON_VISITED_NODES", receipt_nodes - 1),
+            mock.patch.object(
+                gate,
+                "_self_hash",
+                side_effect=AssertionError("self hash must follow node validation"),
+            ),
+            mock.patch.object(
+                gate,
+                "_render",
+                side_effect=AssertionError("render must follow node validation"),
+            ),
+            mock.patch.object(
+                gate,
+                "_validate_against_schema",
+                side_effect=AssertionError("schema must follow node validation"),
+            ),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "visited-node ceiling"),
+        ):
+            gate.validate_preflight_receipt(receipt, **receipt_kwargs)
+
     def test_receipt_validator_rejects_noncanonical_raw_inputs_and_authority_reseal(self) -> None:
         manifest = self.build_manifest()
         manifest_raw = gate._render(manifest)
