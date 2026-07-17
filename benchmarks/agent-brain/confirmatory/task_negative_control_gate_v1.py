@@ -58,6 +58,9 @@ MAX_JSON_VISITED_NODES = (
 MAX_JSON_DEPTH = 64
 MAX_JSON_INTEGER_DIGITS = 64
 MAX_JSON_INTEGER_ABSOLUTE = 10**MAX_JSON_INTEGER_DIGITS - 1
+_NONE_TYPE = type(None)
+EXACT_JSON_TYPES_ERROR = "canonical gate JSON requires exact built-in JSON value types"
+EXACT_JSON_KEYS_ERROR = "canonical gate JSON requires exact built-in string object keys"
 MAX_RESOURCE_AVAILABLE_BLOCKS = MAX_JSON_INTEGER_ABSOLUTE
 MAX_RESOURCE_FRAGMENT_SIZE_BYTES = MAX_JSON_INTEGER_ABSOLUTE
 MAX_RESOURCE_DERIVED_BYTES = MAX_JSON_INTEGER_ABSOLUTE
@@ -92,6 +95,7 @@ def _require(condition: bool, message: str) -> None:
 
 
 def _sha256(raw: bytes) -> str:
+    _require(type(raw) is bytes, "SHA-256 input must be exact built-in bytes")
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -107,26 +111,39 @@ def _validate_json_profile(value: Any) -> int:
             "JSON exceeds the visited-node ceiling",
         )
         _require(depth <= MAX_JSON_DEPTH, "JSON exceeds the nesting-depth ceiling")
-        if isinstance(current, float):
+        current_type = type(current)
+        if current_type is float:
             raise GatePrimitiveError("canonical gate JSON forbids floating-point values")
-        if isinstance(current, int) and not isinstance(current, bool):
+        is_container = (
+            current_type is dict
+            or current_type is list
+            or current_type is tuple
+        )
+        is_scalar = (
+            current_type is _NONE_TYPE
+            or current_type is str
+            or current_type is int
+            or current_type is bool
+        )
+        _require(is_container or is_scalar, EXACT_JSON_TYPES_ERROR)
+        if current_type is int:
             _require(
                 -MAX_JSON_INTEGER_ABSOLUTE
                 <= cast(int, current)
                 <= MAX_JSON_INTEGER_ABSOLUTE,
                 "JSON integer exceeds the digit ceiling",
             )
-        if isinstance(current, (dict, list, tuple)):
+        if is_container:
             identity = id(current)
             _require(
                 identity not in seen_container_ids,
                 "JSON contains a cycle or repeated container alias",
             )
             seen_container_ids.add(identity)
-        if isinstance(current, dict):
+        if current_type is dict:
             _require(
-                all(isinstance(key, str) for key in current),
-                "canonical gate JSON requires string object keys",
+                all(type(key) is str for key in current),
+                EXACT_JSON_KEYS_ERROR,
             )
             _require(
                 visited_nodes + len(stack) + len(current)
@@ -134,7 +151,7 @@ def _validate_json_profile(value: Any) -> int:
                 "JSON exceeds the visited-node ceiling",
             )
             stack.extend((child, depth + 1) for child in current.values())
-        elif isinstance(current, (list, tuple)):
+        elif current_type is list or current_type is tuple:
             _require(
                 visited_nodes + len(stack) + len(current)
                 <= MAX_JSON_VISITED_NODES,
@@ -180,8 +197,11 @@ def _render(value: dict[str, Any]) -> bytes:
 
 
 def _self_hash(value: dict[str, Any], field: str) -> str:
-    projected = copy.deepcopy(value)
-    _require(field in projected, f"{field} is missing")
+    _validate_json_profile(value)
+    _require(type(value) is dict, EXACT_JSON_TYPES_ERROR)
+    _require(type(field) is str, EXACT_JSON_TYPES_ERROR)
+    _require(field in value, f"{field} is missing")
+    projected = value.copy()
     projected[field] = None
     return _canonical_hash(projected)
 
@@ -299,13 +319,13 @@ def _load_json(
         raise
     except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         raise GatePrimitiveError(f"cannot parse {label}: {exc}") from exc
-    _require(isinstance(value, dict), "JSON root must be an object")
+    _require(type(value) is dict, "JSON root must be an object")
     return value, raw
 
 
 def _valid_sha(value: Any) -> bool:
     return (
-        isinstance(value, str)
+        type(value) is str
         and len(value) == 64
         and run_plan_v2.eligibility.SHA256_RE.fullmatch(value) is not None
         and value != "0" * 64
@@ -326,8 +346,13 @@ def _integer(
     return cast(int, value)
 
 
+def _exact_bytes(value: Any, label: str) -> bytes:
+    _require(type(value) is bytes, f"{label} must be exact built-in bytes")
+    return cast(bytes, value)
+
+
 def _artifact_file(value: Any, field: str) -> str:
-    _require(isinstance(value, str) and bool(value), f"{field} is invalid")
+    _require(type(value) is str and bool(value), f"{field} is invalid")
     value = cast(str, value)
     _require(len(value) <= 255, f"{field} is too long")
     _require(
@@ -347,7 +372,7 @@ def _artifact_file(value: Any, field: str) -> str:
 
 
 def _cache_path(value: Any, field: str) -> str:
-    _require(isinstance(value, str) and bool(value), f"{field} is invalid")
+    _require(type(value) is str and bool(value), f"{field} is invalid")
     value = cast(str, value)
     _require(len(value) <= 1024, f"{field} is too long")
     pure = pathlib.PurePosixPath(value)
@@ -478,7 +503,7 @@ def _toolchain_projection(plan: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _module_source_sha256(module: Any, label: str) -> str:
     source = getattr(module, "__file__", None)
-    _require(isinstance(source, str) and bool(source), f"{label} source path is unavailable")
+    _require(type(source) is str and bool(source), f"{label} source path is unavailable")
     raw = _read_bounded(
         pathlib.Path(cast(str, source)),
         max_raw_bytes=MAX_IMPLEMENTATION_SOURCE_BYTES,
@@ -604,11 +629,20 @@ def build_cache_seed_manifest(
     archive_byte_count: int,
     entries: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    authority = _pending_authority(plan)
+    entries_type = type(entries)
+    _require(
+        entries_type is list or entries_type is tuple,
+        EXACT_JSON_TYPES_ERROR,
+    )
     _require(
         3 <= len(entries) <= MAX_MANIFEST_FILE_COUNT,
         "manifest file count exceeds the frozen profile ceiling",
     )
+    _validate_json_profile(entries)
+    _validate_json_profile(archive_file)
+    _validate_json_profile(archive_sha256)
+    _validate_json_profile(archive_byte_count)
+    authority = _pending_authority(plan)
     maximum_seed_bytes = _integer(
         plan["resource_budget"]["max_cache_seed_bytes"],
         "max_cache_seed_bytes",
@@ -627,7 +661,7 @@ def build_cache_seed_manifest(
     unpacked_byte_count = 0
     for index, entry in enumerate(entries):
         _require(
-            isinstance(entry, Mapping) and set(entry) == expected_entry_fields,
+            type(entry) is dict and set(entry) == expected_entry_fields,
             f"entry[{index}] fields differ",
         )
         key = entry["repository_key"]
@@ -662,7 +696,7 @@ def build_cache_seed_manifest(
             }
         )
     counts = Counter(
-        key if isinstance(key, str) else None
+        key if type(key) is str else None
         for entry in normalized_entries
         for key in (entry.get("repository_key"),)
     )
@@ -716,16 +750,20 @@ def validate_cache_seed_manifest(
         "manifest_sha256", "network_dependency_resolution", "profile", "run_plan",
         "schema_version", "status",
     }
-    _require(isinstance(value, dict) and set(value) == expected_root, "manifest root fields differ")
+    _require(type(value) is dict, EXACT_JSON_TYPES_ERROR)
+    _require(all(type(key) is str for key in value), EXACT_JSON_KEYS_ERROR)
+    _require(set(value) == expected_root, "manifest root fields differ")
     contents = value["contents"]
+    _require(type(contents) is dict, EXACT_JSON_TYPES_ERROR)
+    _require(all(type(key) is str for key in contents), EXACT_JSON_KEYS_ERROR)
     _require(
-        isinstance(contents, dict)
-        and set(contents)
+        set(contents)
         == {"entries", "file_count", "inventory_sha256", "repository_file_counts", "unpacked_byte_count"},
         "manifest contents fields differ",
     )
     entries = contents["entries"]
-    _require(isinstance(entries, list) and bool(entries), "manifest entries must be a non-empty list")
+    _require(type(entries) is list, EXACT_JSON_TYPES_ERROR)
+    _require(bool(entries), "manifest entries must be a non-empty list")
     _require(
         3 <= len(entries) <= MAX_MANIFEST_FILE_COUNT,
         "manifest file count exceeds the frozen profile ceiling",
@@ -749,7 +787,7 @@ def validate_cache_seed_manifest(
     _require(value["run_plan"] == expected_run_plan, "manifest run-plan binding differs")
 
     archive = value["archive"]
-    _require(isinstance(archive, dict) and set(archive) == {"artifact_file", "byte_count", "sha256"}, "manifest archive fields differ")
+    _require(type(archive) is dict and set(archive) == {"artifact_file", "byte_count", "sha256"}, "manifest archive fields differ")
     _artifact_file(archive["artifact_file"], "archive.artifact_file")
     _require(_valid_sha(archive["sha256"]), "archive.sha256 is invalid")
     archive_bytes = _integer(archive["byte_count"], "archive.byte_count", minimum=1)
@@ -778,13 +816,18 @@ def validate_cache_seed_manifest(
     scalar_byte_count = 0
     repository_counts: Counter[str] = Counter()
     for index, entry in enumerate(entries):
-        _require(isinstance(entry, dict) and set(entry) == expected_entry_fields, f"entry[{index}] fields differ")
-        key = entry["repository_key"]
-        _require(key in REPOSITORY_KEYS, f"entry[{index}].repository_key is invalid")
-        path = _cache_path(entry["path"], f"entry[{index}].path")
-        _require(_valid_sha(entry["sha256"]), f"entry[{index}].sha256 is invalid")
+        _require(type(entry) is dict and set(entry) == expected_entry_fields, f"entry[{index}] fields differ")
+        exact_entry = cast(dict[str, Any], entry)
+        key_value = exact_entry["repository_key"]
+        _require(
+            type(key_value) is str and key_value in REPOSITORY_KEYS,
+            f"entry[{index}].repository_key is invalid",
+        )
+        key = cast(str, key_value)
+        path = _cache_path(exact_entry["path"], f"entry[{index}].path")
+        _require(_valid_sha(exact_entry["sha256"]), f"entry[{index}].sha256 is invalid")
         entry_byte_count = _integer(
-            entry["byte_count"],
+            exact_entry["byte_count"],
             f"entry[{index}].byte_count",
             minimum=1,
         )
@@ -793,7 +836,7 @@ def validate_cache_seed_manifest(
             f"entry[{index}].byte_count exceeds the frozen byte ceiling",
         )
         unpacked_bytes += entry_byte_count
-        scalar_byte_count += len(path.encode("utf-8")) + len(cast(str, key).encode("utf-8")) + 64
+        scalar_byte_count += len(path.encode("utf-8")) + len(key.encode("utf-8")) + 64
         _require(
             scalar_byte_count <= MAX_MANIFEST_RAW_BYTES,
             "manifest scalar bytes exceed the frozen profile ceiling",
@@ -836,12 +879,15 @@ def _validate_archive_observation(
     observation: Mapping[str, Any],
     manifest: dict[str, Any],
 ) -> dict[str, Any]:
+    _validate_json_profile(observation)
+    _require(type(observation) is dict, EXACT_JSON_TYPES_ERROR)
+    exact_observation = cast(dict[str, Any], observation)
     expected_fields = {
         "archive_sha256", "archive_byte_count", "content_inventory_sha256",
         "file_count", "observation_kind", "unpacked_byte_count",
     }
     _require(
-        isinstance(observation, Mapping) and set(observation) == expected_fields,
+        set(exact_observation) == expected_fields,
         "cache archive observation fields differ",
     )
     archive = manifest["archive"]
@@ -854,7 +900,7 @@ def _validate_archive_observation(
         "observation_kind": CACHE_ARCHIVE_OBSERVATION_KIND,
         "unpacked_byte_count": contents["unpacked_byte_count"],
     }
-    observed = dict(observation)
+    observed = exact_observation.copy()
     _require(observed == expected, "cache archive observation differs from manifest")
     return expected
 
@@ -863,21 +909,22 @@ def evaluate_injected_resource_stats(
     plan: dict[str, Any],
     filesystem_stats: Mapping[str, Any],
 ) -> dict[str, Any]:
+    _validate_json_profile(filesystem_stats)
+    _require(type(filesystem_stats) is dict, EXACT_JSON_TYPES_ERROR)
+    exact_filesystem_stats = cast(dict[str, Any], filesystem_stats)
     _pending_authority(plan)
     _require(
-        isinstance(filesystem_stats, Mapping)
-        and set(filesystem_stats) == {"available_blocks", "fragment_size_bytes"},
+        set(exact_filesystem_stats) == {"available_blocks", "fragment_size_bytes"},
         "filesystem stats fields differ",
     )
-    _validate_json_profile(dict(filesystem_stats))
     fragment_size = _integer(
-        filesystem_stats["fragment_size_bytes"],
+        exact_filesystem_stats["fragment_size_bytes"],
         "fragment_size_bytes",
         minimum=1,
         maximum=MAX_RESOURCE_FRAGMENT_SIZE_BYTES,
     )
     available_blocks = _integer(
-        filesystem_stats["available_blocks"],
+        exact_filesystem_stats["available_blocks"],
         "available_blocks",
         maximum=MAX_RESOURCE_AVAILABLE_BLOCKS,
     )
@@ -926,6 +973,12 @@ def build_preflight_receipt(
     archive_observation: Mapping[str, Any],
     filesystem_stats: Mapping[str, Any],
 ) -> dict[str, Any]:
+    plan_raw = _exact_bytes(plan_raw, "run-plan raw input")
+    manifest_raw = _exact_bytes(manifest_raw, "manifest raw input")
+    _validate_json_profile(archive_observation)
+    _require(type(archive_observation) is dict, EXACT_JSON_TYPES_ERROR)
+    _validate_json_profile(filesystem_stats)
+    _require(type(filesystem_stats) is dict, EXACT_JSON_TYPES_ERROR)
     authority = _pending_authority(plan)
     _require(len(plan_raw) <= MAX_PLAN_RAW_BYTES, "run-plan bytes exceed the raw-byte ceiling")
     _require(_sha256(plan_raw) == CHECKED_PLAN_FILE_SHA256, "run-plan raw hash differs")
@@ -982,6 +1035,8 @@ def validate_preflight_receipt(
     receipt_schema_path: pathlib.Path,
 ) -> None:
     _validate_json_profile(value)
+    plan_raw = _exact_bytes(plan_raw, "run-plan raw input")
+    manifest_raw = _exact_bytes(manifest_raw, "manifest raw input")
     authority = _pending_authority(plan)
     _require(len(plan_raw) <= MAX_PLAN_RAW_BYTES, "run-plan bytes exceed the raw-byte ceiling")
     _require(_sha256(plan_raw) == CHECKED_PLAN_FILE_SHA256, "run-plan raw hash differs")
@@ -993,7 +1048,7 @@ def validate_preflight_receipt(
         "authority", "cache_seed", "checks", "execution_status", "implementation", "inputs",
         "profile", "receipt_sha256", "residual_gates", "resource", "schema_version", "status",
     }
-    _require(isinstance(value, dict) and set(value) == expected_root, "preflight receipt root fields differ")
+    _require(type(value) is dict and set(value) == expected_root, "preflight receipt root fields differ")
     _require(value["profile"] == PREFLIGHT_RECEIPT_PROFILE and value["schema_version"] == 1, "preflight receipt profile differs")
     _require(value["status"] == RECEIPT_STATUS, "preflight receipt status differs")
     _require(value["authority"] == authority, "preflight receipt authority differs")
@@ -1007,7 +1062,7 @@ def validate_preflight_receipt(
         "plan_sha256": plan["plan_sha256"],
     }, "preflight receipt input bindings differ")
     cache_seed = value["cache_seed"]
-    _require(isinstance(cache_seed, dict), "preflight receipt cache binding is invalid")
+    _require(type(cache_seed) is dict, "preflight receipt cache binding is invalid")
     expected_cache = {
         **_validate_archive_observation(
             {
@@ -1025,7 +1080,7 @@ def validate_preflight_receipt(
     }
     _require(value["cache_seed"] == expected_cache, "preflight receipt cache binding differs")
     resource = value["resource"]
-    _require(isinstance(resource, dict), "preflight receipt resource is invalid")
+    _require(type(resource) is dict, "preflight receipt resource is invalid")
     observed_resource = evaluate_injected_resource_stats(
         plan,
         {
