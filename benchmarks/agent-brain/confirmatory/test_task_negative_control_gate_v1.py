@@ -7,6 +7,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 from typing import Any, Callable
 
 import draft202012
@@ -46,6 +47,7 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
                 "sha256": gate._sha256(b"synthetic graph cache entry"),
             },
         ]
+        cls.maximum_seed_bytes = cls.plan["resource_budget"]["max_cache_seed_bytes"]
 
     def build_manifest(
         self,
@@ -121,6 +123,19 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
                 manifest_schema_path=self.manifest_schema,
             )
 
+    def assert_cli_exit_2(self, arguments: list[str], pattern: str) -> str:
+        stderr = io.StringIO()
+        with (
+            contextlib.redirect_stderr(stderr),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            gate.main(arguments)
+        self.assertEqual(raised.exception.code, 2)
+        output = stderr.getvalue()
+        self.assertIn(pattern, output)
+        self.assertNotIn("Traceback", output)
+        return output
+
     def test_manifest_and_receipt_are_deterministic_self_bound_and_schema_valid(self) -> None:
         first = self.build_manifest()
         second = self.build_manifest()
@@ -154,6 +169,129 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
             validator = draft202012.Validator([draft202012.SchemaDocument(path.name, schema)])
             validator.validate(value, path.name, label=label)
 
+    def test_gate_anchors_exact_plan_dependencies_and_full_toolchains(self) -> None:
+        self.assertEqual(self.plan["plan_sha256"], gate.CHECKED_PLAN_SHA256)
+        self.assertEqual(gate._sha256(self.plan_raw), gate.CHECKED_PLAN_FILE_SHA256)
+        gate._pending_authority(self.plan)
+
+        projection = gate._toolchain_projection(self.plan)
+        self.assertEqual(
+            [item["repository_key"] for item in projection],
+            list(run_plan.REPOSITORY_ORDER),
+        )
+        self.assertTrue(
+            all(set(item["toolchain"]) == {"git", "go", "native"} for item in projection)
+        )
+
+        drift_cases: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
+            (
+                "Go",
+                lambda value: value["repositories"][0]["toolchain"]["go"].__setitem__(
+                    "version_output", "go version drift"
+                ),
+            ),
+            (
+                "native",
+                lambda value: value["repositories"][0]["toolchain"]["native"].__setitem__(
+                    "target", "drift-target"
+                ),
+            ),
+            (
+                "Git",
+                lambda value: value["repositories"][0]["toolchain"]["git"].__setitem__(
+                    "version_output", "git version drift"
+                ),
+            ),
+            (
+                "builder",
+                lambda value: value["implementation"].__setitem__("builder_sha256", "a" * 64),
+            ),
+            (
+                "schema",
+                lambda value: value["implementation"].__setitem__("schema_sha256", "b" * 64),
+            ),
+            (
+                "eligibility",
+                lambda value: value["dependencies"]["eligibility_schema"].__setitem__(
+                    "artifact_sha256", "c" * 64
+                ),
+            ),
+            (
+                "registry",
+                lambda value: value["dependencies"]["overlap_registry"].__setitem__(
+                    "registry_sha256", "d" * 64
+                ),
+            ),
+            (
+                "ledger",
+                lambda value: value["repositories"][0].__setitem__("ledger_file_sha256", "e" * 64),
+            ),
+            (
+                "candidate",
+                lambda value: value["repositories"][0]["candidate_order"][0].__setitem__(
+                    "candidate_ref", "f" * 64
+                ),
+            ),
+        ]
+        for label, mutate in drift_cases:
+            changed = copy.deepcopy(self.plan)
+            mutate(changed)
+            changed["plan_sha256"] = run_plan._self_hash(changed)
+            with self.subTest(label=label), self.assertRaises(gate.GatePrimitiveError):
+                gate._pending_authority(changed)
+
+        with (
+            mock.patch.object(
+                run_plan,
+                "verify_plan_dependencies",
+                side_effect=run_plan.RunPlanError("synthetic exact dependency drift"),
+            ),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "exact dependency verification failed"),
+        ):
+            gate._pending_authority(self.plan)
+
+    def test_runtime_unicode_and_transitive_verifier_sources_are_exactly_bound(self) -> None:
+        manifest = self.build_manifest()
+        implementation = manifest["implementation"]
+        self.assertEqual(implementation["python_implementation"], gate.platform.python_implementation())
+        self.assertEqual(implementation["python_version"], gate.platform.python_version())
+        self.assertEqual(implementation["unicode_data_version"], gate.unicodedata.unidata_version)
+        self.assertEqual(implementation["verifier_sources"], gate._verifier_source_hashes())
+        self.assertEqual(
+            implementation["run_plan_builder_sha256"],
+            implementation["verifier_sources"]["task_negative_control_plan_v2.py"],
+        )
+        self.assertEqual(
+            implementation["schema_validator_sha256"],
+            implementation["verifier_sources"]["draft202012.py"],
+        )
+
+        for field in ("python_version", "unicode_data_version", "python_executable_sha256"):
+            changed = copy.deepcopy(manifest)
+            changed["implementation"][field] = "a" * 64
+            self.reseal(changed, "manifest_sha256")
+            with self.subTest(field=field), self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "implementation binding differs",
+            ):
+                gate.validate_cache_seed_manifest(
+                    changed,
+                    plan=self.plan,
+                    manifest_schema_path=self.manifest_schema,
+                )
+
+        changed_sources = copy.deepcopy(implementation["verifier_sources"])
+        changed_sources["task_population.py"] = "b" * 64
+        with (
+            mock.patch.object(gate, "_verifier_source_hashes", return_value=changed_sources),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "implementation binding differs"),
+        ):
+            gate.validate_cache_seed_manifest(
+                manifest,
+                plan=self.plan,
+                manifest_schema_path=self.manifest_schema,
+            )
+
     def test_manifest_rejects_path_collisions_traversal_order_and_missing_repository(self) -> None:
         duplicate = copy.deepcopy(self.entries)
         duplicate[1]["path"] = duplicate[0]["path"]
@@ -164,9 +302,11 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
             "/gocache/host",
             "gocache/../escape",
             "gocache//double",
+            "gocache",
             "other/cache",
             "gocache\\windows",
             "gocache/e\u0301/non-nfc",
+            "gocache/control\u0001/name",
         ):
             entries = copy.deepcopy(self.entries)
             entries[0]["path"] = path
@@ -178,8 +318,50 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
 
         with self.assertRaisesRegex(gate.GatePrimitiveError, "entries are not canonical"):
             self.build_manifest(entries=list(reversed(copy.deepcopy(self.entries))))
+        missing_repository = copy.deepcopy(self.entries)
+        missing_repository[2]["repository_key"] = "entire-db"
+        missing_repository[2]["path"] = "gomodcache/example.org/db@v1.0.0/mod.zip"
+        missing_repository.sort(key=lambda entry: (entry["repository_key"], entry["path"]))
         with self.assertRaisesRegex(gate.GatePrimitiveError, "every repository"):
-            self.build_manifest(entries=copy.deepcopy(self.entries[:2]))
+            self.build_manifest(entries=missing_repository)
+
+    def test_portable_path_key_rejects_casefold_unicode_and_ancestor_aliases(self) -> None:
+        collision_pairs = (
+            ("gocache/Case/item.a", "gocache/case/item.a"),
+            ("gocache/straße/item.a", "gocache/strasse/item.a"),
+            ("gocache/ΐ/item.a", "gocache/Ϊ\u0301/item.a"),
+        )
+        for first, second in collision_pairs:
+            self.assertEqual(gate._portable_path_key(first), gate._portable_path_key(second))
+            self.assertEqual(gate.unicodedata.normalize("NFC", first), first)
+            self.assertEqual(gate.unicodedata.normalize("NFC", second), second)
+            entries = copy.deepcopy(self.entries)
+            entries[0]["path"] = first
+            entries[1]["path"] = second
+            with self.subTest(first=first, second=second), self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "portable path key",
+            ):
+                self.build_manifest(entries=entries)
+
+        self.assertEqual(
+            gate._portable_path_key("gocache/é/item.a"),
+            gate._portable_path_key("gocache/e\u0301/item.a"),
+        )
+
+        ancestor_assignments = (
+            ("gocache/tree", "gocache/tree/item.a"),
+            ("gocache/tree/item.a", "gocache/tree"),
+        )
+        for first, second in ancestor_assignments:
+            entries = copy.deepcopy(self.entries)
+            entries[0]["path"] = first
+            entries[1]["path"] = second
+            with self.subTest(first=first, second=second), self.assertRaisesRegex(
+                gate.GatePrimitiveError,
+                "portable ancestor conflict",
+            ):
+                self.build_manifest(entries=entries)
 
     def test_manifest_rejects_noncanonical_archive_file_and_frozen_byte_ceiling(self) -> None:
         for artifact_file in ("../seed.tar", "/tmp/seed.tar", ".", "..", "e\u0301.tar", "bad\nname.tar"):
@@ -196,13 +378,134 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
                     entries=copy.deepcopy(self.entries),
                 )
 
-        maximum = self.plan["resource_budget"]["max_cache_seed_bytes"]
+        maximum = self.maximum_seed_bytes
         with self.assertRaisesRegex(gate.GatePrimitiveError, "archive exceeds"):
             self.build_manifest(archive_byte_count=maximum + 1)
         entries = copy.deepcopy(self.entries)
         entries[0]["byte_count"] = maximum + 1
-        with self.assertRaisesRegex(gate.GatePrimitiveError, "unpacked cache seed exceeds"):
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "byte_count exceeds"):
             self.build_manifest(entries=entries)
+
+    def test_manifest_profile_limits_cover_boundaries_zeroes_aggregate_and_raw_bytes(self) -> None:
+        gate._validate_manifest_profile_limits(
+            file_count=gate.MAX_MANIFEST_FILE_COUNT,
+            rendered_byte_count=gate.MAX_MANIFEST_RAW_BYTES,
+        )
+        for file_count, rendered_byte_count in (
+            (gate.MAX_MANIFEST_FILE_COUNT + 1, gate.MAX_MANIFEST_RAW_BYTES),
+            (gate.MAX_MANIFEST_FILE_COUNT, gate.MAX_MANIFEST_RAW_BYTES + 1),
+        ):
+            with self.subTest(
+                file_count=file_count,
+                rendered_byte_count=rendered_byte_count,
+            ), self.assertRaisesRegex(gate.GatePrimitiveError, "profile ceiling"):
+                gate._validate_manifest_profile_limits(
+                    file_count=file_count,
+                    rendered_byte_count=rendered_byte_count,
+                )
+
+        zero_entries = copy.deepcopy(self.entries)
+        for entry in zero_entries:
+            entry["byte_count"] = 0
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "byte_count is invalid"):
+            self.build_manifest(entries=zero_entries)
+
+        aggregate_entries = copy.deepcopy(self.entries)
+        aggregate_entries[0]["byte_count"] = self.maximum_seed_bytes // 2
+        aggregate_entries[1]["byte_count"] = self.maximum_seed_bytes // 2
+        aggregate_entries[2]["byte_count"] = 1
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "unpacked cache seed exceeds"):
+            self.build_manifest(entries=aggregate_entries)
+
+        schema = json.loads(self.manifest_schema.read_text(encoding="utf-8"))
+        entries_schema = schema["properties"]["contents"]["properties"]["entries"]
+        self.assertEqual(entries_schema["maxItems"], gate.MAX_MANIFEST_FILE_COUNT)
+        self.assertNotIn("uniqueItems", entries_schema)
+        self.assertEqual(
+            entries_schema["items"]["properties"]["byte_count"]["minimum"],
+            1,
+        )
+
+        oversized_count = self.build_manifest()
+        oversized_count["contents"]["entries"] = [
+            oversized_count["contents"]["entries"][0]
+        ] * (gate.MAX_MANIFEST_FILE_COUNT + 1)
+        with (
+            mock.patch.object(
+                gate,
+                "_render",
+                side_effect=AssertionError("render must not run before count rejection"),
+            ),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "file count"),
+        ):
+            gate.validate_cache_seed_manifest(
+                oversized_count,
+                plan=self.plan,
+                manifest_schema_path=self.manifest_schema,
+            )
+
+        oversized_scalar = self.build_manifest()
+        oversized_scalar["contents"]["entries"][0]["path"] = "gocache/" + "x" * 1_000_000
+        with (
+            mock.patch.object(
+                gate,
+                "_render",
+                side_effect=AssertionError("render must not run before scalar rejection"),
+            ),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "too long"),
+        ):
+            gate.validate_cache_seed_manifest(
+                oversized_scalar,
+                plan=self.plan,
+                manifest_schema_path=self.manifest_schema,
+            )
+
+        manifest = self.build_manifest()
+        manifest_raw = gate._render(manifest)
+        with (
+            mock.patch.object(gate, "MAX_MANIFEST_RAW_BYTES", len(manifest_raw) - 1),
+            self.assertRaisesRegex(gate.GatePrimitiveError, "rendered bytes"),
+        ):
+            gate.validate_cache_seed_manifest(
+                manifest,
+                plan=self.plan,
+                manifest_schema_path=self.manifest_schema,
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            path = root / "bounded.json"
+            payload = b'{"value":1}'
+            path.write_bytes(payload)
+            self.assertEqual(
+                gate._read_bounded(
+                    path,
+                    max_raw_bytes=len(payload),
+                    label="boundary input",
+                ),
+                payload,
+            )
+            with self.assertRaisesRegex(gate.GatePrimitiveError, "raw-byte ceiling"):
+                gate._read_bounded(
+                    path,
+                    max_raw_bytes=len(payload) - 1,
+                    label="boundary input",
+                )
+
+            plan_path = root / "plan.json"
+            manifest_path = root / "manifest.json"
+            plan_path.write_bytes(self.plan_raw)
+            manifest_path.write_bytes(manifest_raw)
+            arguments = [
+                "check-manifest",
+                str(manifest_path),
+                "--plan",
+                str(plan_path),
+                "--manifest-schema",
+                str(self.manifest_schema),
+            ]
+            with mock.patch.object(gate, "MAX_MANIFEST_RAW_BYTES", len(manifest_raw) - 1):
+                self.assert_cli_exit_2(arguments, "raw-byte ceiling")
 
     def test_manifest_self_content_toolchain_and_implementation_tampering_fail_closed(self) -> None:
         cases: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
@@ -301,7 +604,7 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
             "receipt_schema_path": self.receipt_schema,
         }
         gate.validate_preflight_receipt(receipt, **kwargs)
-        with self.assertRaisesRegex(gate.GatePrimitiveError, "run-plan bytes are not canonical"):
+        with self.assertRaisesRegex(gate.GatePrimitiveError, "run-plan raw hash differs"):
             gate.validate_preflight_receipt(receipt, **{**kwargs, "plan_raw": self.plan_raw + b"\n"})
         with self.assertRaisesRegex(gate.GatePrimitiveError, "manifest bytes are not canonical"):
             gate.validate_preflight_receipt(receipt, **{**kwargs, "manifest_raw": manifest_raw + b"\n"})
@@ -312,14 +615,38 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
         with self.assertRaisesRegex(gate.GatePrimitiveError, "overclaims execution authority"):
             gate.validate_preflight_receipt(changed, **kwargs)
 
-    def test_schema_validation_is_executed_not_only_hash_bound(self) -> None:
+    def test_schema_bytes_are_pinned_and_schema_validation_is_executed(self) -> None:
+        self.assertEqual(
+            gate._sha256(self.manifest_schema.read_bytes()),
+            gate.CHECKED_MANIFEST_SCHEMA_FILE_SHA256,
+        )
+        self.assertEqual(
+            gate._sha256(self.receipt_schema.read_bytes()),
+            gate.CHECKED_RECEIPT_SCHEMA_FILE_SHA256,
+        )
+        with mock.patch.object(
+            gate,
+            "_validate_against_schema",
+            wraps=gate._validate_against_schema,
+        ) as validate_schema:
+            manifest = self.build_manifest()
+            self.build_receipt(manifest)
+        self.assertIn(
+            "cache manifest",
+            [call.args[2] for call in validate_schema.call_args_list],
+        )
+        self.assertIn(
+            "preflight receipt",
+            [call.args[2] for call in validate_schema.call_args_list],
+        )
+
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             manifest_schema = json.loads(self.manifest_schema.read_text(encoding="utf-8"))
             manifest_schema["properties"]["status"]["const"] = "impossible"
             changed_manifest_schema = root / self.manifest_schema.name
             changed_manifest_schema.write_text(json.dumps(manifest_schema), encoding="utf-8")
-            with self.assertRaisesRegex(gate.GatePrimitiveError, "schema validation failed"):
+            with self.assertRaisesRegex(gate.GatePrimitiveError, "manifest schema raw hash differs"):
                 self.build_manifest(manifest_schema=changed_manifest_schema)
 
             manifest = self.build_manifest()
@@ -327,7 +654,7 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
             receipt_schema["properties"]["status"]["const"] = "impossible"
             changed_receipt_schema = root / self.receipt_schema.name
             changed_receipt_schema.write_text(json.dumps(receipt_schema), encoding="utf-8")
-            with self.assertRaisesRegex(gate.GatePrimitiveError, "schema validation failed"):
+            with self.assertRaisesRegex(gate.GatePrimitiveError, "receipt schema raw hash differs"):
                 self.build_receipt(manifest, receipt_schema=changed_receipt_schema)
 
     def test_manifest_and_receipt_cli_check_canonical_bytes_with_no_execution_surface(self) -> None:
@@ -408,6 +735,135 @@ class TaskNegativeControlGateV1Test(unittest.TestCase):
         ):
             with self.subTest(prohibited_import=prohibited_import):
                 self.assertNotIn(prohibited_import, source)
+
+    def test_both_cli_lanes_reject_a_self_resealed_plan_drift(self) -> None:
+        manifest = self.build_manifest()
+        receipt = self.build_receipt(manifest)
+        changed_plan = copy.deepcopy(self.plan)
+        changed_plan["implementation"]["builder_sha256"] = "a" * 64
+        changed_plan["plan_sha256"] = run_plan._self_hash(changed_plan)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            plan_path = root / "plan.json"
+            manifest_path = root / "manifest.json"
+            receipt_path = root / "receipt.json"
+            plan_path.write_bytes(run_plan._render(changed_plan))
+            manifest_path.write_bytes(gate._render(manifest))
+            receipt_path.write_bytes(gate._render(receipt))
+            common = [
+                "--plan",
+                str(plan_path),
+                "--manifest-schema",
+                str(self.manifest_schema),
+            ]
+            self.assert_cli_exit_2(
+                ["check-manifest", str(manifest_path), *common],
+                "run-plan raw hash differs",
+            )
+            self.assert_cli_exit_2(
+                [
+                    "check-receipt",
+                    str(receipt_path),
+                    "--manifest",
+                    str(manifest_path),
+                    *common,
+                    "--receipt-schema",
+                    str(self.receipt_schema),
+                ],
+                "run-plan raw hash differs",
+            )
+
+    def test_bounded_parser_rejects_digit_depth_and_same_size_read_races(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            plan_path = root / "plan.json"
+            manifest_path = root / "manifest.json"
+            plan_path.write_bytes(self.plan_raw)
+            arguments = [
+                "check-manifest",
+                str(manifest_path),
+                "--plan",
+                str(plan_path),
+                "--manifest-schema",
+                str(self.manifest_schema),
+            ]
+
+            manifest_path.write_bytes(b'{"value":' + b"9" * 5000 + b"}")
+            self.assert_cli_exit_2(arguments, "integer exceeds the digit ceiling")
+
+            manifest_path.write_bytes(
+                b'{"value":' + b"[" * 80 + b"0" + b"]" * 80 + b"}"
+            )
+            self.assert_cli_exit_2(arguments, "nesting-depth ceiling")
+
+            parseable = root / "parseable.json"
+            parseable.write_bytes(b"{}")
+            for exception in (ValueError("synthetic"), RecursionError("synthetic")):
+                with (
+                    self.subTest(exception=type(exception).__name__),
+                    mock.patch.object(gate.json, "loads", side_effect=exception),
+                    self.assertRaisesRegex(gate.GatePrimitiveError, "cannot parse"),
+                ):
+                    gate._load_json(parseable)
+
+            raced = root / "raced.json"
+            before = b'{"value":1}'
+            after = b'{"value":2}'
+            self.assertEqual(len(before), len(after))
+            raced.write_bytes(before)
+            real_read = gate.os.read
+            changed = False
+
+            def mutate_after_read(descriptor: int, byte_count: int) -> bytes:
+                nonlocal changed
+                chunk = real_read(descriptor, byte_count)
+                if chunk and not changed:
+                    changed = True
+                    raced.write_bytes(after)
+                return chunk
+
+            with (
+                mock.patch.object(gate.os, "read", side_effect=mutate_after_read),
+                self.assertRaisesRegex(gate.GatePrimitiveError, "changed while being read"),
+            ):
+                gate._read_bounded(
+                    raced,
+                    max_raw_bytes=len(before),
+                    label="raced input",
+                )
+
+            symlink = root / "linked.json"
+            symlink.symlink_to(parseable)
+            with self.assertRaisesRegex(gate.GatePrimitiveError, "cannot read"):
+                gate._read_bounded(
+                    symlink,
+                    max_raw_bytes=1024,
+                    label="symlink input",
+                )
+
+            fifo = root / "stream.json"
+            gate.os.mkfifo(fifo)
+            with self.assertRaisesRegex(gate.GatePrimitiveError, "not a regular file"):
+                gate._read_bounded(
+                    fifo,
+                    max_raw_bytes=1024,
+                    label="FIFO input",
+                )
+
+            for flag_name in ("O_NOFOLLOW", "O_NONBLOCK"):
+                with (
+                    self.subTest(flag_name=flag_name),
+                    mock.patch.object(gate.os, flag_name, 0),
+                    self.assertRaisesRegex(
+                        gate.GatePrimitiveError,
+                        f"{flag_name} is unavailable",
+                    ),
+                ):
+                    gate._read_bounded(
+                        parseable,
+                        max_raw_bytes=1024,
+                        label="no-flag input",
+                    )
 
     def test_duplicate_keys_floats_and_plan_authority_tampering_fail_closed(self) -> None:
         with self.assertRaisesRegex(gate.GatePrimitiveError, "floating-point"):

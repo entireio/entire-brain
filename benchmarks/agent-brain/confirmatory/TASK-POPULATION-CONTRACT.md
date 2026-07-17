@@ -70,7 +70,8 @@ separate checked v2 negative-control plan binds all 62 candidates but is
 `pending_owner_authorization`: no approval trust mechanism, actual bound cache-seed
 manifest/archive, executor, classifier, or private-log writer exists, and no v2 candidate has been
 executed. Pure external-manifest identity and injected resource-arithmetic primitives do not change
-that boundary. See
+that boundary; those primitives are pinned to the exact checked plan/dependency rebuild and checked
+schemas, with bounded JSON and a planning-only 250,000-file/128 MiB manifest envelope. See
 `MULTI-REPOSITORY-NEGATIVE-CONTROL-RUN-PLAN-V2.md`.
 
 `task_negative_control.py` is the next development-only filter. For each statically screened

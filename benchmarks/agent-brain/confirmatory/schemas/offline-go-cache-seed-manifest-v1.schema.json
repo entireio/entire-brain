@@ -19,6 +19,7 @@
           "type": "string"
         },
         "byte_count": {
+          "maximum": 2147483648,
           "minimum": 1,
           "type": "integer"
         },
@@ -65,7 +66,8 @@
             "additionalProperties": false,
             "properties": {
               "byte_count": {
-                "minimum": 0,
+                "maximum": 2147483648,
+                "minimum": 1,
                 "type": "integer"
               },
               "path": {
@@ -83,11 +85,12 @@
             "required": ["byte_count", "path", "repository_key", "sha256"],
             "type": "object"
           },
+          "maxItems": 250000,
           "minItems": 3,
-          "type": "array",
-          "uniqueItems": true
+          "type": "array"
         },
         "file_count": {
+          "maximum": 250000,
           "minimum": 3,
           "type": "integer"
         },
@@ -98,14 +101,17 @@
           "additionalProperties": false,
           "properties": {
             "entire-brain": {
+              "maximum": 250000,
               "minimum": 1,
               "type": "integer"
             },
             "entire-db": {
+              "maximum": 250000,
               "minimum": 1,
               "type": "integer"
             },
             "entire-graph": {
+              "maximum": 250000,
               "minimum": 1,
               "type": "integer"
             }
@@ -114,7 +120,8 @@
           "type": "object"
         },
         "unpacked_byte_count": {
-          "minimum": 0,
+          "maximum": 2147483648,
+          "minimum": 3,
           "type": "integer"
         }
       },
@@ -145,11 +152,65 @@
         "manifest_schema_sha256": {
           "$ref": "#/$defs/sha256"
         },
+        "python_executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python_implementation": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "python_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
         "run_plan_builder_sha256": {
           "$ref": "#/$defs/sha256"
         },
         "schema_validator_sha256": {
           "$ref": "#/$defs/sha256"
+        },
+        "unicode_data_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "verifier_sources": {
+          "additionalProperties": false,
+          "properties": {
+            "draft202012.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "relevance_dataset.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_eligibility.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_eligibility_v2.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_negative_control_plan_v2.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_overlap_registry.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_population.py": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "draft202012.py",
+            "relevance_dataset.py",
+            "task_eligibility.py",
+            "task_eligibility_v2.py",
+            "task_negative_control_plan_v2.py",
+            "task_overlap_registry.py",
+            "task_population.py"
+          ],
+          "type": "object"
         }
       },
       "required": [
@@ -157,8 +218,13 @@
         "builder_sha256",
         "canonical_json_profile",
         "manifest_schema_sha256",
+        "python_executable_sha256",
+        "python_implementation",
+        "python_version",
         "run_plan_builder_sha256",
-        "schema_validator_sha256"
+        "schema_validator_sha256",
+        "unicode_data_version",
+        "verifier_sources"
       ],
       "type": "object"
     },
@@ -175,7 +241,7 @@
       "additionalProperties": false,
       "properties": {
         "plan_sha256": {
-          "$ref": "#/$defs/sha256"
+          "const": "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e"
         },
         "profile": {
           "const": "agent_brain_development_task_negative_control_run_plan_v2"
