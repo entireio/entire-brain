@@ -407,6 +407,11 @@ type brainBriefAgentV2EdgeIDView interface {
 }
 
 func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T) bool {
+	const routePrefix = "external:route:"
+	if brainBriefAgentV2ExactPrefix(view, 0, routePrefix) &&
+		(len(view) == len(routePrefix) || view[len(routePrefix)] != '/') {
+		return false
+	}
 	for index := 0; index < len(view); index++ {
 		if !brainBriefAgentV2EdgeIDComponentStart(view, index) {
 			continue
@@ -423,7 +428,8 @@ func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T
 			brainBriefAgentV2FoldPathSegment(view, index, "${home}") {
 			return false
 		}
-		if brainBriefAgentV2FoldPrefix(view, index, "http:") ||
+		if brainBriefAgentV2FoldPrefix(view, index, "file:/") ||
+			brainBriefAgentV2FoldPrefix(view, index, "http:") ||
 			brainBriefAgentV2FoldPrefix(view, index, "https:") ||
 			brainBriefAgentV2FoldPrefix(view, index, "mailto:") {
 			return false
@@ -457,15 +463,9 @@ func brainBriefAgentV2EdgeIDComponentDelimiter(value byte) bool {
 
 func brainBriefAgentV2CanonicalRouteSlash[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
 	const prefix = "external:route:"
-	if len(value) <= len(prefix) || value[len(prefix)] != '/' {
-		return false
-	}
-	for offset := 0; offset < len(prefix); offset++ {
-		if value[offset] != prefix[offset] {
-			return false
-		}
-	}
-	return index == len(prefix) || (index > len(prefix) && value[index-1] != '/')
+	return len(value) > len(prefix) && value[len(prefix)] == '/' &&
+		brainBriefAgentV2ExactPrefix(value, 0, prefix) &&
+		(index == len(prefix) || (index > len(prefix) && value[index-1] != '/'))
 }
 
 func brainBriefAgentV2EdgeIDComponentStart[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
@@ -482,6 +482,18 @@ func brainBriefAgentV2FoldPrefix[T brainBriefAgentV2EdgeIDView](value T, index i
 			got += 'a' - 'A'
 		}
 		if got != prefix[offset] {
+			return false
+		}
+	}
+	return true
+}
+
+func brainBriefAgentV2ExactPrefix[T brainBriefAgentV2EdgeIDView](value T, index int, prefix string) bool {
+	if index+len(prefix) > len(value) {
+		return false
+	}
+	for offset := 0; offset < len(prefix); offset++ {
+		if value[index+offset] != prefix[offset] {
 			return false
 		}
 	}
