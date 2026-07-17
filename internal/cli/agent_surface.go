@@ -1763,6 +1763,14 @@ func brainBriefPreviousResponseFileScore(rel, source string) int {
 }
 
 func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []string) []string {
+	return brainBriefAddSiblingTestFilesWithGoSuffixes(repoRoot, editFiles, testFiles, nil)
+}
+
+func brainBriefAddSiblingTestFilesWithGoSuffixes(
+	repoRoot string,
+	editFiles, testFiles []string,
+	goTestSuffixes map[string][]string,
+) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(testFiles)+len(editFiles))
 	for _, file := range testFiles {
@@ -1815,6 +1823,21 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 			}
 			break
 		}
+		for _, suffix := range goTestSuffixes[file] {
+			candidate := strings.TrimSuffix(file, ".go") + "_" + suffix + "_test.go"
+			if _, ok := seen[candidate]; ok {
+				break
+			}
+			if !repoFiles.exists(candidate) {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			out = append(out, candidate)
+			if len(out) >= 6 {
+				return out
+			}
+			break
+		}
 	}
 	return out
 }
@@ -1847,12 +1870,15 @@ func (files brainBriefRepoFileChecker) exists(rel string) bool {
 	}
 	nativeRel := filepath.FromSlash(clean)
 	path := filepath.Join(files.rootResolved, nativeRel)
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
 	pathResolved, err := filepath.EvalSymlinks(path)
 	if err != nil || filepath.Clean(pathResolved) != path {
 		return false
 	}
-	info, err := os.Lstat(path)
-	return err == nil && info.Mode()&os.ModeSymlink == 0 && !info.IsDir()
+	return true
 }
 
 // brainBriefNestedTestCandidates covers a small set of common test layouts that
@@ -1896,6 +1922,52 @@ func brainBriefNestedTestCandidates(file string) []string {
 	default:
 		return nil
 	}
+}
+
+const brainBriefGoTestCandidateLimit = 24
+
+var brainBriefGoIdentifierBoundary = regexp.MustCompile(`([\p{Ll}\p{N}])([\p{Lu}])`)
+
+// brainBriefGoActionTestSuffixes derives bounded focused Go test names: task,
+// action, then symbol terms, with adjacent pairs ahead of their singles.
+func brainBriefGoActionTestSuffixes(task string, actions []brainBriefAction) map[string][]string {
+	byFile := make(map[string][]string)
+	for _, action := range actions {
+		file, ok := cleanBrainBriefLikelyFile(action.File)
+		if !ok || filepath.Ext(file) != ".go" {
+			continue
+		}
+		sourceTerms := make(map[string]bool)
+		for _, term := range brainBriefFileMatchTerms(strings.TrimSuffix(filepath.Base(file), ".go")) {
+			sourceTerms[term] = true
+		}
+		seen := make(map[string]bool)
+		for _, suffix := range byFile[file] {
+			seen[suffix] = true
+		}
+		add := func(suffix string) {
+			if suffix != "" && len(suffix) <= 80 && !seen[suffix] && len(byFile[file]) < brainBriefGoTestCandidateLimit {
+				seen[suffix] = true
+				byFile[file] = append(byFile[file], suffix)
+			}
+		}
+		for _, text := range []string{task, action.Action, brainBriefGoIdentifierBoundary.ReplaceAllString(action.Symbol, "$1 $2")} {
+			terms := brainBriefFileMatchTerms(text)
+			filtered := terms[:0]
+			for _, term := range terms {
+				if !sourceTerms[term] {
+					filtered = append(filtered, term)
+				}
+			}
+			for i := 0; i+1 < len(filtered); i++ {
+				add(filtered[i] + "_" + filtered[i+1])
+			}
+			for _, term := range filtered {
+				add(term)
+			}
+		}
+	}
+	return byFile
 }
 
 func brainBriefSiblingTestCandidates(file string) []string {
@@ -1973,7 +2045,12 @@ func brainBriefPrioritizeActionTargets(repoRoot string, report *brainBriefReport
 	}
 	actionFiles := brainBriefActionFiles(report.ActionChecklist, report.LikelyEditFiles)
 	report.LikelyEditFiles = brainBriefMergePrioritizedFiles(actionFiles, report.LikelyEditFiles, 8)
-	actionTests := brainBriefAddSiblingTestFiles(repoRoot, actionFiles, nil)
+	actionTests := brainBriefAddSiblingTestFilesWithGoSuffixes(
+		repoRoot,
+		actionFiles,
+		nil,
+		brainBriefGoActionTestSuffixes(report.Task, report.ActionChecklist),
+	)
 	report.LikelyTestFiles = brainBriefMergePrioritizedFiles(actionTests, report.LikelyTestFiles, 6)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 }
