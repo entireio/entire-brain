@@ -13,8 +13,8 @@ import (
 )
 
 // brainBriefPacketFormat is an internal render choice. MCP exposes the stable
-// names legacy_json, compact_v1, compact_v2, and agent_v1; the CLI keeps its
-// existing text/json flags.
+// names legacy_json, compact_v1, compact_v2, agent_v1, and agent_v2; the CLI
+// keeps its existing text/json flags.
 type brainBriefPacketFormat string
 
 const (
@@ -23,6 +23,7 @@ const (
 	brainBriefPacketCompactV1  brainBriefPacketFormat = "compact_v1"
 	brainBriefPacketCompactV2  brainBriefPacketFormat = "compact_v2"
 	brainBriefPacketAgentV1    brainBriefPacketFormat = "agent_v1"
+	brainBriefPacketAgentV2    brainBriefPacketFormat = "agent_v2"
 )
 
 const brainBriefCompactV1Marker = "entire.brain_brief compact_v1"
@@ -53,6 +54,8 @@ func emitBrainBriefPacketWithPolicy(cmd *cobra.Command, report brainBriefReport,
 		return emitBrainBriefCompactV2(cmd, report)
 	case brainBriefPacketAgentV1:
 		return emitBrainBriefAgentV1(cmd, report, policy, requestedLimit)
+	case brainBriefPacketAgentV2:
+		return emitBrainBriefAgentV2(cmd, report, policy, requestedLimit)
 	default:
 		return fmt.Errorf("unsupported brain brief packet format: %q", format)
 	}

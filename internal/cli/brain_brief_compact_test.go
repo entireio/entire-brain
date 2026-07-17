@@ -262,7 +262,7 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 	schema := brief["inputSchema"].(map[string]any)
 	properties := schema["properties"].(map[string]any)
 	format := properties["packet_format"].(map[string]any)
-	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2", "agent_v1"}; !reflect.DeepEqual(got, want) {
+	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2", "agent_v1", "agent_v2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("packet_format enum = %#v, want %#v", got, want)
 	}
 	if format["default"] != "legacy_json" {
@@ -288,12 +288,20 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 			t.Errorf("delivery_policy %#v error = %v", value, err)
 		}
 	}
+	if got, err := mcpBrainBriefDeliveryPolicy(map[string]any{"delivery_policy": "always"}, brainBriefPacketAgentV2); err != nil || got != brainBriefDeliveryAlways {
+		t.Fatalf("agent_v2 explicit always policy = %q, %v", got, err)
+	}
+	for _, value := range []any{"shadow", "adaptive", "serve", "silence"} {
+		if _, err := mcpBrainBriefDeliveryPolicy(map[string]any{"delivery_policy": value}, brainBriefPacketAgentV2); err == nil || !strings.Contains(err.Error(), "agent_v2") {
+			t.Errorf("agent_v2 delivery_policy %#v error = %v", value, err)
+		}
+	}
 	for _, formatName := range []string{"legacy_json", "compact_v1", "compact_v2"} {
 		for _, policyName := range []string{"always", "shadow"} {
 			_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{
 				"task": "x", "packet_format": formatName, "delivery_policy": policyName,
 			}))
-			if err == nil || !strings.Contains(err.Error(), "only valid with packet_format agent_v1") {
+			if err == nil || !strings.Contains(err.Error(), "only valid with packet_format agent_v1 or agent_v2") {
 				t.Errorf("cross-format delivery policy %s for %s error = %v", policyName, formatName, err)
 			}
 		}
@@ -337,6 +345,18 @@ func TestMCPBrainBriefDefaultLegacyAndVersionedCompactPackets(t *testing.T) {
 	shadow := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "agent_v1", "delivery_policy": "shadow"})
 	if shadow != agentText {
 		t.Fatal("shadow instrumentation changed agent_v1 bytes")
+	}
+
+	agentV2Text := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "agent_v2"})
+	if !strings.HasPrefix(agentV2Text, brainBriefAgentV2Marker+"\n") {
+		t.Fatalf("agent_v2 response marker missing:\n%s", agentV2Text)
+	}
+	if err := validateBrainBriefAgentV2Integrity(agentV2Text); err != nil {
+		t.Fatalf("agent_v2 response integrity: %v", err)
+	}
+	agentV2Always := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "agent_v2", "delivery_policy": "always"})
+	if agentV2Always != agentV2Text {
+		t.Fatal("explicit always policy changed agent_v2 bytes")
 	}
 }
 

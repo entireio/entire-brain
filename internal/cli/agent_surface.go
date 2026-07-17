@@ -1407,6 +1407,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	packetCmd.SetOut(&packet)
 	var (
 		emittedAgentV1Counts *brainBriefAgentV1Counts
+		emittedAgentV2Counts *brainBriefAgentV2Counts
 		serializationErr     error
 	)
 	if packetFormat == brainBriefPacketAgentV1 {
@@ -1416,6 +1417,14 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		serializationErr = err
 		if err == nil {
 			emittedAgentV1Counts = &counts
+		}
+	} else if packetFormat == brainBriefPacketAgentV2 {
+		counts, err := emitBrainBriefAgentV2WithCounts(
+			packetCmd, report, briefOpts.resolvedDeliveryPolicy(), briefOpts.limit,
+		)
+		serializationErr = err
+		if err == nil {
+			emittedAgentV2Counts = &counts
 		}
 	} else {
 		serializationErr = emitBrainBriefPacketWithPolicy(
@@ -1436,7 +1445,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	profile.Packet.Format = string(packetFormat)
 	profile.Packet.ByteCount = packet.Len()
-	packetCounts, err := brainBriefProfilePacketCounts(report, packetFormat, emittedAgentV1Counts)
+	packetCounts, err := brainBriefProfilePacketCountsWithV2(
+		report, packetFormat, emittedAgentV1Counts, emittedAgentV2Counts,
+	)
 	if err != nil {
 		return err
 	}

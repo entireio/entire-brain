@@ -193,11 +193,26 @@ func brainBriefProfilePacketCounts(
 	packetFormat brainBriefPacketFormat,
 	emittedAgentV1Counts *brainBriefAgentV1Counts,
 ) (brainBriefProfileCounts, error) {
+	return brainBriefProfilePacketCountsWithV2(report, packetFormat, emittedAgentV1Counts, nil)
+}
+
+func brainBriefProfilePacketCountsWithV2(
+	report brainBriefReport,
+	packetFormat brainBriefPacketFormat,
+	emittedAgentV1Counts *brainBriefAgentV1Counts,
+	emittedAgentV2Counts *brainBriefAgentV2Counts,
+) (brainBriefProfileCounts, error) {
 	if packetFormat == brainBriefPacketAgentV1 {
 		if emittedAgentV1Counts == nil {
 			return brainBriefProfileCounts{}, fmt.Errorf("profile packet counts unavailable for %s emission", packetFormat)
 		}
 		return emittedAgentV1Counts.profileCounts(), nil
+	}
+	if packetFormat == brainBriefPacketAgentV2 {
+		if emittedAgentV2Counts == nil {
+			return brainBriefProfileCounts{}, fmt.Errorf("profile packet counts unavailable for %s emission", packetFormat)
+		}
+		return emittedAgentV2Counts.profileCounts(), nil
 	}
 	counts := brainBriefProfileCounts{
 		SemanticSymbols:     len(report.Semantic.Context.Symbols),

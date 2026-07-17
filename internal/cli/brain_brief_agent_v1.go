@@ -292,6 +292,33 @@ func buildBrainBriefAgentV1(report brainBriefReport, policy brainBriefDeliveryPo
 			compactV1IntAlways("effective_fact_limit", effectiveFactLimit),
 			compactV1StringAlways("config_sha256", brainBriefAgentV1ConfigIdentity(policy, requestedLimit, effectiveFactLimit)),
 		),
+	}
+	mandatory = append(mandatory, brainBriefAgentSharedMandatoryRecords(report)...)
+	optional := brainBriefAgentV1OptionalSections(report)
+	packet, emitted, err := packBrainBriefAgentPacket(mandatory, optional, brainBriefAgentPacketProfile[brainBriefAgentV1Counts]{
+		format: "agent_v1",
+		marker: brainBriefAgentV1Marker,
+		budget: brainBriefAgentV1BudgetBytes,
+		add: func(counts *brainBriefAgentV1Counts, record brainBriefAgentV1Record) {
+			counts.add(record)
+		},
+		sized:    brainBriefAgentV1SizedPacketBytes,
+		finalize: finalizeBrainBriefAgentV1Body,
+		validate: validateBrainBriefAgentV1Integrity,
+	})
+	if err != nil {
+		return brainBriefAgentV1Projection{}, err
+	}
+	return brainBriefAgentV1Projection{packet: packet, counts: emitted}, nil
+}
+
+// brainBriefAgentSharedMandatoryRecords is the version-independent coding-agent
+// core. Agent V2 composes these exact records so task/live/fact/trust semantics
+// remain identical without copying the privacy- and trust-sensitive logic.
+// Versioned config records, optional additions, packing, and footers stay in
+// their respective implementations.
+func brainBriefAgentSharedMandatoryRecords(report brainBriefReport) []brainBriefAgentV1Record {
+	mandatory := []brainBriefAgentV1Record{
 		agentV1Record(agentV1Metadata, "task", compactV1StringAlways("value", report.Task)),
 		agentV1Record(agentV1Metadata, "live",
 			compactV1String("branch", report.Status.Live.Branch),
@@ -340,80 +367,7 @@ func buildBrainBriefAgentV1(report brainBriefReport, policy brainBriefDeliveryPo
 			))
 		}
 	}
-
-	optional := brainBriefAgentV1OptionalSections(report)
-	var available brainBriefAgentV1Counts
-	for _, record := range mandatory {
-		available.add(record)
-	}
-	for _, section := range optional {
-		for _, record := range section {
-			available.add(record)
-		}
-	}
-
-	var emitted brainBriefAgentV1Counts
-	bodyCapacity := len(brainBriefAgentV1Marker) + 1
-	for _, record := range mandatory {
-		emitted.add(record)
-		bodyCapacity += len(record.line)
-	}
-	for _, section := range optional {
-		for _, record := range section {
-			bodyCapacity += len(record.line)
-		}
-	}
-	if bodyCapacity > brainBriefAgentV1BudgetBytes {
-		bodyCapacity = brainBriefAgentV1BudgetBytes
-	}
-	var body strings.Builder
-	body.Grow(bodyCapacity)
-	body.WriteString(brainBriefAgentV1Marker)
-	body.WriteByte('\n')
-	for _, record := range mandatory {
-		body.WriteString(record.line)
-	}
-	bodyRecords := len(mandatory)
-	mandatoryPacketBytes := brainBriefAgentV1SizedPacketBytes(body.Len(), bodyRecords, emitted, available)
-	if mandatoryPacketBytes > brainBriefAgentV1BudgetBytes {
-		return brainBriefAgentV1Projection{}, fmt.Errorf(
-			"agent_v1 mandatory packet is %d bytes, exceeds %d-byte budget",
-			mandatoryPacketBytes, brainBriefAgentV1BudgetBytes,
-		)
-	}
-
-	// Optional sections are admitted in a frozen priority order. Each section is
-	// a prefix: if one complete record cannot fit, later records from that same
-	// section are not allowed to leapfrog it. Lower-priority sections may still
-	// contribute shorter records.
-	for _, section := range optional {
-		for _, record := range section {
-			candidateCounts := emitted
-			candidateCounts.add(record)
-			candidateBodyBytes := body.Len() + len(record.line)
-			candidateBodyRecords := bodyRecords + 1
-			if brainBriefAgentV1SizedPacketBytes(
-				candidateBodyBytes, candidateBodyRecords, candidateCounts, available,
-			) > brainBriefAgentV1BudgetBytes {
-				break
-			}
-			body.WriteString(record.line)
-			bodyRecords = candidateBodyRecords
-			emitted = candidateCounts
-		}
-	}
-
-	packet := finalizeBrainBriefAgentV1Body(body.String(), bodyRecords, emitted, available)
-	if len(packet) > brainBriefAgentV1BudgetBytes {
-		return brainBriefAgentV1Projection{}, fmt.Errorf(
-			"agent_v1 packet is %d bytes, exceeds %d-byte budget",
-			len(packet), brainBriefAgentV1BudgetBytes,
-		)
-	}
-	if err := validateBrainBriefAgentV1Integrity(packet); err != nil {
-		return brainBriefAgentV1Projection{}, err
-	}
-	return brainBriefAgentV1Projection{packet: packet, counts: emitted}, nil
+	return mandatory
 }
 
 func validateBrainBriefAgentV1Numbers(report brainBriefReport) error {
@@ -437,6 +391,16 @@ func validateBrainBriefAgentV1Numbers(report brainBriefReport) error {
 	}
 	return nil
 }
+
+const (
+	brainBriefAgentOptionalEditFiles = iota
+	brainBriefAgentOptionalTestFiles
+	brainBriefAgentOptionalLikelyFiles
+	brainBriefAgentOptionalActions
+	brainBriefAgentOptionalSymbols
+	brainBriefAgentOptionalTestSuggestions
+	brainBriefAgentOptionalHistory
+)
 
 func brainBriefAgentV1OptionalSections(report brainBriefReport) [][]brainBriefAgentV1Record {
 	editFiles := make([]brainBriefAgentV1Record, 0, len(report.LikelyEditFiles))
@@ -693,46 +657,7 @@ func agentV1RecordLine(tag string, fields ...string) string {
 }
 
 func validateBrainBriefAgentV1PacketSchema(packet string) error {
-	if !strings.HasSuffix(packet, "\n") {
-		return fmt.Errorf("agent_v1 packet has no final newline")
-	}
-	lines := strings.Split(strings.TrimSuffix(packet, "\n"), "\n")
-	if len(lines) < 2 || lines[0] != brainBriefAgentV1Marker {
-		return fmt.Errorf("agent_v1 marker mismatch")
-	}
-	schemas := make(map[string]brainBriefAgentV1RecordSchema, len(brainBriefAgentV1RecordSchemas))
-	for _, schema := range brainBriefAgentV1RecordSchemas {
-		if _, duplicate := schemas[schema.tag]; duplicate {
-			return fmt.Errorf("agent_v1 duplicate record schema %q", schema.tag)
-		}
-		schemas[schema.tag] = schema
-	}
-	for _, line := range lines[1:] {
-		record, err := parseCompactV1RawRecord(line)
-		if err != nil {
-			return fmt.Errorf("agent_v1 record: %w", err)
-		}
-		schema, ok := schemas[record.tag]
-		if !ok {
-			return fmt.Errorf("agent_v1 has no schema for record %q", record.tag)
-		}
-		positions := make(map[string]int, len(schema.fields))
-		for position, field := range schema.fields {
-			positions[field] = position
-		}
-		last := -1
-		for _, field := range record.fields {
-			position, ok := positions[field.key]
-			if !ok {
-				return fmt.Errorf("agent_v1 %s has unknown field %q", record.tag, field.key)
-			}
-			if position <= last {
-				return fmt.Errorf("agent_v1 %s fields are not in schema order", record.tag)
-			}
-			last = position
-		}
-	}
-	return nil
+	return validateBrainBriefAgentPacketSchema("agent_v1", brainBriefAgentV1Marker, brainBriefAgentV1RecordSchemas, packet)
 }
 
 func validateBrainBriefAgentV1Integrity(packet string) error {
@@ -815,36 +740,15 @@ func validateBrainBriefAgentV1Integrity(packet string) error {
 }
 
 func agentV1RecordField(record compactV1RawRecord, key string) (string, error) {
-	for _, field := range record.fields {
-		if field.key == key {
-			return field.value, nil
-		}
-	}
-	return "", fmt.Errorf("agent_v1 %s.%s missing", record.tag, key)
+	return brainBriefAgentRecordField("agent_v1", record, key)
 }
 
 func agentV1RecordString(record compactV1RawRecord, key string) (string, error) {
-	raw, err := agentV1RecordField(record, key)
-	if err != nil {
-		return "", err
-	}
-	value, err := strconv.Unquote(raw)
-	if err != nil {
-		return "", fmt.Errorf("agent_v1 %s.%s: %w", record.tag, key, err)
-	}
-	return value, nil
+	return brainBriefAgentRecordString("agent_v1", record, key)
 }
 
 func agentV1RecordInt(record compactV1RawRecord, key string) (int, error) {
-	raw, err := agentV1RecordField(record, key)
-	if err != nil {
-		return 0, err
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("agent_v1 %s.%s: %w", record.tag, key, err)
-	}
-	return value, nil
+	return brainBriefAgentRecordInt("agent_v1", record, key)
 }
 
 func agentV1SafeStructuredField(value string) string {

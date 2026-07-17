@@ -274,14 +274,14 @@ func mcpToolDefinitions() []map[string]any {
 				"packet_format": map[string]any{
 					"type":        "string",
 					"title":       "packet_format",
-					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response. compact_v1 and compact_v2 are experimental representation-only packets. agent_v1 is an opt-in 32 KiB coding-agent projection with exact fact identity/order/text, structured trust state, stripped provenance, and a hashed config identity.",
-					"enum":        []string{"legacy_json", "compact_v1", "compact_v2", "agent_v1"},
+					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response. compact_v1 and compact_v2 are experimental representation-only packets. agent_v1 is an opt-in 32 KiB coding-agent projection with exact fact identity/order/text, structured trust state, stripped provenance, and a hashed config identity. agent_v2 is a separate opt-in candidate that adds typed semantic-relation and runtime-trace records without changing agent_v1.",
+					"enum":        []string{"legacy_json", "compact_v1", "compact_v2", "agent_v1", "agent_v2"},
 					"default":     "legacy_json",
 				},
 				"delivery_policy": map[string]any{
 					"type":        "string",
 					"title":       "delivery_policy",
-					"description": "Delivery control for agent_v1. Omit for always. shadow runs a diagnostic-only admission evaluator but still delivers bytes identical to always; it cannot suppress delivery and its artifact is never included in the agent packet.",
+					"description": "Delivery control for coding-agent packets. Omit for always. agent_v1 also supports shadow, which runs a diagnostic-only admission evaluator but still delivers bytes identical to always. agent_v2 is always-only and rejects shadow.",
 					"enum":        []string{"always", "shadow"},
 				},
 			}),
@@ -1008,8 +1008,10 @@ func mcpBrainBriefPacketFormat(args map[string]any) (brainBriefPacketFormat, err
 		return brainBriefPacketCompactV2, nil
 	case "agent_v1":
 		return brainBriefPacketAgentV1, nil
+	case "agent_v2":
+		return brainBriefPacketAgentV2, nil
 	default:
-		return "", fmt.Errorf("packet_format must be legacy_json, compact_v1, compact_v2, or agent_v1: %q", format)
+		return "", fmt.Errorf("packet_format must be legacy_json, compact_v1, compact_v2, agent_v1, or agent_v2: %q", format)
 	}
 }
 
@@ -1018,12 +1020,15 @@ func mcpBrainBriefDeliveryPolicy(args map[string]any, format brainBriefPacketFor
 	if !ok {
 		return brainBriefDeliveryAlways, nil
 	}
-	if format != brainBriefPacketAgentV1 {
-		return "", errors.New("delivery_policy is only valid with packet_format agent_v1")
+	if format != brainBriefPacketAgentV1 && format != brainBriefPacketAgentV2 {
+		return "", errors.New("delivery_policy is only valid with packet_format agent_v1 or agent_v2")
 	}
 	policy, ok := value.(string)
 	if !ok {
 		return "", errors.New("delivery_policy must be string")
+	}
+	if format == brainBriefPacketAgentV2 && policy != string(brainBriefDeliveryAlways) {
+		return "", fmt.Errorf("delivery_policy for agent_v2 must be always: %q", policy)
 	}
 	if policy != string(brainBriefDeliveryAlways) && policy != string(brainBriefDeliveryShadow) {
 		return "", fmt.Errorf("delivery_policy must be always or shadow: %q", policy)
