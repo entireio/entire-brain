@@ -886,6 +886,122 @@ func TestBrainBriefAddsSiblingTestFilesSkipsSymlinkedOutsideFile(t *testing.T) {
 	}
 }
 
+func TestBrainBriefActionTargetsRetainLiveDeletedAndIntendedCreateFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	for path, body := range map[string]string{
+		"packages/storage/src/index.ts":      "export class Store {}\n",
+		"packages/storage/src/index.test.ts": "test('store', () => {})\n",
+	} {
+		absolute := filepath.Join(repoDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	outsideSource := filepath.Join(t.TempDir(), "outside.ts")
+	if err := os.WriteFile(outsideSource, []byte("export const outside = true;\n"), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	symlinkPath := filepath.Join(repoDir, "packages", "storage", "src", "outside.ts")
+	if err := os.Symlink(outsideSource, symlinkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	report := brainBriefReport{
+		ActionChecklist: []brainBriefAction{
+			{File: "packages/storage/src/stale.ts", Action: "stale action"},
+			{File: "packages/storage/src/outside.ts", Action: "outside action"},
+			{File: "packages/storage/src/index.ts", Symbol: "listNodes", Action: "normalize the current limit"},
+		},
+		LikelyEditFiles: []string{
+			"packages/storage/src/deleted_cursor.ts",
+			"packages/storage/src/new_cursor.ts",
+			"packages/storage/src/index.ts",
+		},
+		LikelyTestFiles: []string{
+			"tests/distractor_1.test.ts", "tests/distractor_2.test.ts", "tests/distractor_3.test.ts",
+			"tests/distractor_4.test.ts", "tests/distractor_5.test.ts", "tests/distractor_6.test.ts",
+		},
+	}
+
+	brainBriefPrioritizeActionTargets(repoDir, &report)
+	wantEdits := []string{
+		"packages/storage/src/index.ts",
+		"packages/storage/src/deleted_cursor.ts",
+		"packages/storage/src/new_cursor.ts",
+	}
+	if !slices.Equal(report.LikelyEditFiles, wantEdits) {
+		t.Fatalf("action priority dropped or displaced live/history target: got %+v want %+v", report.LikelyEditFiles, wantEdits)
+	}
+	if len(report.LikelyTestFiles) != 6 || report.LikelyTestFiles[0] != "packages/storage/src/index.test.ts" {
+		t.Fatalf("action sibling test should rank first under the six-file cap: %+v", report.LikelyTestFiles)
+	}
+	if slices.Contains(report.LikelyEditFiles, "packages/storage/src/stale.ts") ||
+		slices.Contains(report.LikelyEditFiles, "packages/storage/src/outside.ts") {
+		t.Fatalf("stale or outside-symlink action path displaced current evidence: %+v", report.LikelyEditFiles)
+	}
+	if len(report.LikelyFiles) != 9 || report.LikelyFiles[0] != "packages/storage/src/index.ts" {
+		t.Fatalf("combined likely files lost deterministic action priority: %+v", report.LikelyFiles)
+	}
+}
+
+func TestBrainBriefActionTargetsNoActionIsByteIdentical(t *testing.T) {
+	report := brainBriefReport{
+		LikelyEditFiles: []string{"src/one.ts", "src/two.ts"},
+		LikelyTestFiles: []string{"src/one.test.ts"},
+		LikelyFiles:     []string{"src/one.ts", "src/two.ts", "src/one.test.ts"},
+	}
+	before, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+	brainBriefPrioritizeActionTargets(t.TempDir(), &report)
+	after, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("no-action packet changed\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+func TestBrainBriefActionTargetsKeepHardCapsAndDeduplicate(t *testing.T) {
+	repoDir := t.TempDir()
+	actionPath := filepath.Join(repoDir, "src", "target.ts")
+	if err := os.MkdirAll(filepath.Dir(actionPath), 0o700); err != nil {
+		t.Fatalf("mkdir action source: %v", err)
+	}
+	if err := os.WriteFile(actionPath, []byte("export function target() {}\n"), 0o600); err != nil {
+		t.Fatalf("write action source: %v", err)
+	}
+	report := brainBriefReport{
+		ActionChecklist: []brainBriefAction{{File: "src/target.ts", Symbol: "target", Action: "edit current target"}},
+		LikelyEditFiles: []string{
+			"src/one.ts", "src/two.ts", "src/three.ts", "src/four.ts", "src/five.ts",
+			"src/six.ts", "src/seven.ts", "src/target.ts", "src/eight.ts", "src/nine.ts",
+		},
+		LikelyTestFiles: []string{
+			"tests/one.test.ts", "tests/two.test.ts", "tests/three.test.ts", "tests/four.test.ts",
+			"tests/five.test.ts", "tests/six.test.ts", "tests/seven.test.ts",
+		},
+	}
+	brainBriefPrioritizeActionTargets(repoDir, &report)
+	if len(report.LikelyEditFiles) != 8 || report.LikelyEditFiles[0] != "src/target.ts" {
+		t.Fatalf("edit cap or action priority changed: %+v", report.LikelyEditFiles)
+	}
+	if slices.Contains(report.LikelyEditFiles[1:], "src/target.ts") {
+		t.Fatalf("action target was duplicated: %+v", report.LikelyEditFiles)
+	}
+	if len(report.LikelyTestFiles) != 6 {
+		t.Fatalf("test cap changed: %+v", report.LikelyTestFiles)
+	}
+	if len(report.LikelyFiles) != 12 {
+		t.Fatalf("combined packet cap changed: %+v", report.LikelyFiles)
+	}
+}
+
 func TestLoadBrainManifestMigratesLegacyFlatManifest(t *testing.T) {
 	outputDir := t.TempDir()
 	legacy := exportManifest{
