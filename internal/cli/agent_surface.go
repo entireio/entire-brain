@@ -1837,6 +1837,22 @@ func brainBriefNestedTestCandidates(file string) []string {
 		sourceRelative := filepath.FromSlash(strings.TrimPrefix(clean, "src/"))
 		testName := "test_" + strings.TrimSuffix(filepath.Base(sourceRelative), ext) + ext
 		return []string{filepath.ToSlash(filepath.Join("tests", filepath.Dir(sourceRelative), testName))}
+	case ".java":
+		clean, ok := cleanBrainBriefRepoRelativePath(file)
+		if !ok {
+			return nil
+		}
+		modulePrefix, sourceRelative, found := strings.Cut(clean, "src/main/java/")
+		if !found || (modulePrefix != "" && !strings.HasSuffix(modulePrefix, "/")) || sourceRelative == "" {
+			return nil
+		}
+		testName := strings.TrimSuffix(filepath.Base(sourceRelative), ext) + "Test" + ext
+		return []string{filepath.ToSlash(filepath.Join(
+			filepath.FromSlash(modulePrefix),
+			"src", "test", "java",
+			filepath.Dir(filepath.FromSlash(sourceRelative)),
+			testName,
+		))}
 	default:
 		return nil
 	}
