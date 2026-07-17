@@ -1999,7 +1999,7 @@ func rankedBrainBriefLikelyFiles(counts map[string]int, limit int) []string {
 // historyQueryStopword) because they are strong filename-match terms here, e.g.
 // a "fix the regression detector" task should still match regression.go.
 var brainBriefFileMatchStop = map[string]bool{
-	"these": true, "those": true, "after": true, "their": true, "your": true,
+	"these": true, "those": true, "after": true, "before": true, "their": true, "your": true,
 	"also": true, "was": true, "will": true, "had": true, "using": true,
 	"used": true, "add": true, "update": true, "change": true, "ensure": true,
 	"running": true, "set": true, "get": true,

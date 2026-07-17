@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestRankFactsFusedPublicOraclePreservesTargetAndHardDistractor(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
@@ -131,6 +134,31 @@ func TestRankFactsFusedTwoTimesDepthKeepsSemanticOnlyFactReachable(t *testing.T)
 	}
 	if rank := rankOfFactID(rankFactsFused(facts, query, 6, false, rr), target); rank == 0 {
 		t.Fatal("semantic-only calibration target absent from top 6")
+	}
+}
+
+func TestRankFactsFusedKeepsTemporalConstraintTerms(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
+	t.Setenv("ENTIRE_BRAIN_FACTS_BM25", "")
+	facts := loadFactsBM25PublicSnapshot(t)
+	rr := newSemanticReranker(defaultEmbedder())
+	if rr == nil {
+		t.Skip("bundled semantic backend unavailable")
+	}
+	const query = "validate the access credential recipient endpoint before transmitting the secret"
+	const target = "fact:c9b44a5e5e1678e0a21270d3"
+
+	// Unlike ordinary filler, "before" states an ordering constraint. Keeping it
+	// in the lexical arm gives the semantically-near invariant a second,
+	// independent retrieval signal instead of leaving it just outside the packet.
+	if terms := historyQueryTerms(query); !slices.Contains(terms, "before") {
+		t.Fatalf("temporal constraint term was discarded: %v", terms)
+	}
+	if rank := rankOfFactID(rankFacts(facts, query, len(facts), false), target); rank == 0 {
+		t.Fatal("temporal constraint fact remained lexically unreachable")
+	}
+	if rank := rankOfFactID(rankFactsFused(facts, query, 6, false, rr), target); rank != 4 {
+		t.Fatalf("temporal constraint fact rank=%d, want 4", rank)
 	}
 }
 
