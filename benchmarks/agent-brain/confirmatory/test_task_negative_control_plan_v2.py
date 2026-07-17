@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import pathlib
 import tempfile
@@ -484,6 +486,37 @@ class TaskNegativeControlPlanV2Test(unittest.TestCase):
             noncanonical.write_bytes(self.checked_raw + b"\n")
             value, raw = plan_v2._load_json(noncanonical)
             self.assertNotEqual(raw, plan_v2._render(value))
+            stderr = io.StringIO()
+            with (
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                plan_v2.main(
+                    [
+                        "check",
+                        str(noncanonical),
+                        "--contract",
+                        str(self.contract),
+                        "--eligibility-schema",
+                        str(self.eligibility_schema),
+                        *(
+                            argument
+                            for ledger in self.ledgers
+                            for argument in ("--ledger", str(ledger))
+                        ),
+                        "--plan-schema",
+                        str(self.plan_schema),
+                        "--registry",
+                        str(self.registry),
+                        "--registry-schema",
+                        str(self.registry_schema),
+                    ]
+                )
+            self.assertEqual(raised.exception.code, 2)
+            self.assertIn(
+                "run-plan artifact bytes are not canonical",
+                stderr.getvalue(),
+            )
 
     def test_public_plan_contains_no_host_path_or_secret_value(self) -> None:
         rendered = self.checked_raw.decode("utf-8")

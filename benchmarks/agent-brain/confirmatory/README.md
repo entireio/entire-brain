@@ -54,6 +54,11 @@ confirmatory analyzer is implemented and path-locked.
   `pending_owner_authorization`; its approval trust mechanism, offline cache seed, executor,
   classifier, private-log writer, and resource/cleanup attestation are explicitly absent. Building
   or checking it invokes no candidate process.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-GATE-PRIMITIVES-V1.md`,
+  `task_negative_control_gate_v1.py`, and the adjacent manifest/receipt schemas: pure fail-closed
+  cache-identity and injected resource-arithmetic primitives. They bind exact plan, toolchain,
+  implementation, schema, manifest, and receipt bytes, but explicitly do not verify an actual
+  archive, observe/reserve host disk, authorize execution, or expose an executor.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.

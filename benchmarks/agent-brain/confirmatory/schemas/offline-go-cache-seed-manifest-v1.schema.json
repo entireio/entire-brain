@@ -1,0 +1,220 @@
+{
+  "$defs": {
+    "sha256": {
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://entire.io/schemas/offline-go-cache-seed-manifest-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "archive": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_file": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[^/\\\\]+$",
+          "type": "string"
+        },
+        "byte_count": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": ["artifact_file", "byte_count", "sha256"],
+      "type": "object"
+    },
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "benchmark_execution": {
+          "const": "forbidden_pending_separate_owner_approval"
+        },
+        "candidate_execution": {
+          "const": "forbidden_plan_unexecutable"
+        },
+        "model_provider_execution": {
+          "const": "forbidden_not_authorized"
+        },
+        "paid_execution": {
+          "const": "forbidden_not_authorized"
+        },
+        "plan_status": {
+          "const": "pending_owner_authorization"
+        }
+      },
+      "required": [
+        "benchmark_execution",
+        "candidate_execution",
+        "model_provider_execution",
+        "paid_execution",
+        "plan_status"
+      ],
+      "type": "object"
+    },
+    "contents": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "byte_count": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "path": {
+                "maxLength": 1024,
+                "pattern": "^(gocache|gomodcache)/[^\\\\]+$",
+                "type": "string"
+              },
+              "repository_key": {
+                "enum": ["entire-brain", "entire-db", "entire-graph"]
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256"
+              }
+            },
+            "required": ["byte_count", "path", "repository_key", "sha256"],
+            "type": "object"
+          },
+          "minItems": 3,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "file_count": {
+          "minimum": 3,
+          "type": "integer"
+        },
+        "inventory_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "repository_file_counts": {
+          "additionalProperties": false,
+          "properties": {
+            "entire-brain": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "entire-db": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "entire-graph": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": ["entire-brain", "entire-db", "entire-graph"],
+          "type": "object"
+        },
+        "unpacked_byte_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "file_count",
+        "inventory_sha256",
+        "repository_file_counts",
+        "unpacked_byte_count"
+      ],
+      "type": "object"
+    },
+    "host_shared_cache_reuse": {
+      "const": "forbidden"
+    },
+    "implementation": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_render_profile": {
+          "const": "sorted_keys_indent_2_utf8_lf_v1"
+        },
+        "builder_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonical_json_profile": {
+          "const": "sorted_keys_compact_utf8_no_float_v1"
+        },
+        "manifest_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "run_plan_builder_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "schema_validator_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "artifact_render_profile",
+        "builder_sha256",
+        "canonical_json_profile",
+        "manifest_schema_sha256",
+        "run_plan_builder_sha256",
+        "schema_validator_sha256"
+      ],
+      "type": "object"
+    },
+    "manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "network_dependency_resolution": {
+      "const": "forbidden"
+    },
+    "profile": {
+      "const": "content_addressed_offline_go_cache_seed_manifest_v1"
+    },
+    "run_plan": {
+      "additionalProperties": false,
+      "properties": {
+        "plan_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile": {
+          "const": "agent_brain_development_task_negative_control_run_plan_v2"
+        },
+        "schema_version": {
+          "const": 2
+        },
+        "toolchain_bindings_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "plan_sha256",
+        "profile",
+        "schema_version",
+        "toolchain_bindings_sha256"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "status": {
+      "const": "external_input_identity_only_execution_forbidden"
+    }
+  },
+  "required": [
+    "archive",
+    "authority",
+    "contents",
+    "host_shared_cache_reuse",
+    "implementation",
+    "manifest_sha256",
+    "network_dependency_resolution",
+    "profile",
+    "run_plan",
+    "schema_version",
+    "status"
+  ],
+  "title": "Offline Go cache seed identity manifest",
+  "type": "object"
+}

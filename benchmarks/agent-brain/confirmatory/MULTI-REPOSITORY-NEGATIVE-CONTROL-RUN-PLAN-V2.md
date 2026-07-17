@@ -44,7 +44,10 @@ Execution must not begin unless a future preflight proves at least the 8 GiB fre
 the 8 GiB total staging ceiling. Additional exact ceilings are 1 GiB per worktree, 2 GiB per arm
 cache, 2 GiB for the cache seed, 16 MiB raw output per arm, 2 GiB total private raw logs, and 16 MiB
 total public receipts. These are plan limits, not claims that the current host passes preflight.
-The preflight, bounded executor, cleanup attestation, and interruption handling do not exist yet.
+A separate v1 primitive now checks this arithmetic from explicitly injected, unattested filesystem
+statistics, but it does not observe or reserve host capacity. The trusted host adapter/reservation,
+bounded executor, cleanup attestation, and interruption handling do not exist yet. See
+`MULTI-REPOSITORY-NEGATIVE-CONTROL-GATE-PRIMITIVES-V1.md`.
 
 ## Honest isolation and log boundary
 
@@ -54,11 +57,13 @@ arm/repetition from a fresh private copy of a verified offline cache seed. Reuse
 caches is forbidden.
 
 The required cache-seed manifest hash, archive hash, byte count, and source locator are all null;
-none was fabricated. The future raw-log root is likewise runtime-only and null in this host-free
-plan. Its required directory/file modes are `0700`/`0600`, raw logs are retained for seven days and
-addressed by exact-byte SHA-256, and public receipts may expose only each raw-log hash and byte count.
-Raw test output can contain secrets, so this plan makes no redaction claim and forbids putting raw
-output in a public plan or receipt. The private log writer and checker are still absent.
+none was fabricated. A schema-bound pure manifest/check primitive now exists, but no actual archive
+exists and an injected identity observation is explicitly not safe archive traversal/content
+verification. The future raw-log root is likewise runtime-only and null in this host-free plan. Its
+required directory/file modes are `0700`/`0600`, raw logs are retained for seven days and addressed
+by exact-byte SHA-256, and public receipts may expose only each raw-log hash and byte count. Raw test
+output can contain secrets, so this plan makes no redaction claim and forbids putting raw output in a
+public plan or receipt. The private log writer and checker are still absent.
 
 ## Remaining hard gates
 
@@ -66,11 +71,13 @@ All of the following must be implemented and independently reviewed before a sep
 could even represent authorization:
 
 - an owner execution-approval receipt plus an exact trust mechanism;
-- a bounded, content-addressed offline Go cache-seed manifest and archive;
+- a safely traversed/content-verified actual Go cache archive and manifest bound into an authorized
+  plan (the pure external-manifest primitive is not that binding);
 - the clean detached-worktree executor and first-parent-only source-reversal proof;
 - the full classification truth table and receipt checker;
 - the private content-addressed raw-log writer/checker; and
-- disk/resource preflight, fail-closed cleanup, and no-receipt-on-interruption attestation.
+- a trusted filesystem observer plus atomic resource reservation, fail-closed cleanup, and
+  no-receipt-on-interruption attestation.
 
 Calibration membership, confirmatory holdout membership, population assignment, model/provider
 execution, paid execution, candidate execution, and benchmark execution remain explicitly
@@ -107,4 +114,5 @@ python3 benchmarks/agent-brain/confirmatory/task_negative_control_plan_v2.py che
   --registry benchmarks/agent-brain/confirmatory/development-task-overlap-registry-v1.json \
   --registry-schema benchmarks/agent-brain/confirmatory/schemas/development-task-overlap-registry-v1.schema.json
 python3 -m unittest benchmarks/agent-brain/confirmatory/test_task_negative_control_plan_v2.py
+python3 -m unittest benchmarks/agent-brain/confirmatory/test_task_negative_control_gate_v1.py
 ```
