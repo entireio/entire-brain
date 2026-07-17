@@ -47,6 +47,7 @@ func TestBrainBriefActionTargetsAddRelevantGoPrefixTest(t *testing.T) {
 		t.Fatal("baseline unexpectedly contains the relevant prefixed Go test")
 	}
 
+	brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
 	brainBriefPrioritizeActionTargets(repoDir, &report)
 	wantTests := []string{
 		"internal/cli/history_cache_test.go",
@@ -78,6 +79,7 @@ func TestBrainBriefActionTargetsAddRelevantGoPrefixTest(t *testing.T) {
 	emptyBaseline.LikelyTestFiles = nil
 	emptyBaseline.LikelyFiles = brainBriefMergeLikelyFiles(emptyBaseline.LikelyEditFiles, nil)
 	emptyCandidate := emptyBaseline
+	brainBriefApplyLayoutGuidance(repoDir, emptyCandidate.Task, &emptyCandidate)
 	brainBriefPrioritizeActionTargets(repoDir, &emptyCandidate)
 	if !slices.Equal(emptyCandidate.LikelyTestFiles, []string{"internal/cli/history_cache_test.go"}) {
 		t.Fatalf("empty test section did not receive the relevant Go test: %+v", emptyCandidate.LikelyTestFiles)
@@ -96,7 +98,110 @@ func TestBrainBriefActionTargetsAddRelevantGoPrefixTest(t *testing.T) {
 	)
 }
 
-func TestBrainBriefGoPrefixTestRankingUsesTaskActionAndSymbolTerms(t *testing.T) {
+func TestBrainBriefLayoutGuidanceRunsWithoutActionChecklist(t *testing.T) {
+	tests := []struct {
+		name   string
+		task   string
+		source string
+		target string
+	}{
+		{
+			name:   "Go focused same-package test",
+			task:   "repair history cache reuse and invalidation",
+			source: "internal/cli/history.go",
+			target: "internal/cli/history_cache_test.go",
+		},
+		{
+			name:   "nested JavaScript test",
+			task:   "repair token validation",
+			source: "src/auth/token.ts",
+			target: "src/auth/__tests__/token.test.ts",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoDir := t.TempDir()
+			writeBrainBriefGoLayoutFile(t, repoDir, tt.source, "package fixture\n")
+			writeBrainBriefGoLayoutFile(t, repoDir, tt.target, "package fixture\n")
+
+			report := brainBriefReport{Task: tt.task}
+			report.Semantic.Context.Symbols = []semanticRecord{{FilePath: tt.source}}
+			for i := 1; i <= 6; i++ {
+				path := fmt.Sprintf("tests/distractor_%d_test.go", i)
+				writeBrainBriefGoLayoutFile(t, repoDir, path, "package tests\n")
+				report.Semantic.Tests.Roots = append(report.Semantic.Tests.Roots, semanticRecord{FilePath: path})
+			}
+
+			report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(repoDir, report, tt.task)
+			if !slices.Equal(report.LikelyEditFiles, []string{tt.source}) {
+				t.Fatalf("evidence did not produce the expected ranked edit: %+v", report.LikelyEditFiles)
+			}
+			if len(report.LikelyTestFiles) != 6 || slices.Contains(report.LikelyTestFiles, tt.target) {
+				t.Fatalf("saturated baseline should miss the exact layout test: %+v", report.LikelyTestFiles)
+			}
+			if actions := brainBriefActionChecklist(repoDir, report, tt.task); len(actions) != 0 {
+				t.Fatalf("fixture unexpectedly depends on an action scanner: %+v", actions)
+			}
+			if len(report.ActionChecklist) != 0 {
+				t.Fatalf("action checklist should still be empty before live layout synthesis: %+v", report.ActionChecklist)
+			}
+
+			baseline := report
+			brainBriefApplyLayoutGuidance(repoDir, tt.task, &report)
+			wantTests := append([]string{tt.target}, baseline.LikelyTestFiles[:5]...)
+			if !slices.Equal(report.LikelyTestFiles, wantTests) {
+				t.Fatalf("live exact layout test should rank first: got %+v want %+v", report.LikelyTestFiles, wantTests)
+			}
+			if len(report.ActionChecklist) != 0 {
+				t.Fatalf("layout synthesis manufactured an action checklist: %+v", report.ActionChecklist)
+			}
+			if len(report.LikelyFiles) != 7 || report.LikelyFiles[1] != tt.target {
+				t.Fatalf("combined likely files lost live layout priority: %+v", report.LikelyFiles)
+			}
+
+			baselinePacket := renderBrainBriefCompactV3ForTest(t, baseline)
+			candidatePacket := renderBrainBriefCompactV3ForTest(t, report)
+			t.Logf(
+				"live %s: recall@6 0->1, reciprocal-rank 0->1; compact_v3 bytes %d->%d (%+d), proxy %d->%d (%+d)",
+				tt.name,
+				len(baselinePacket), len(candidatePacket), len(candidatePacket)-len(baselinePacket),
+				compactPacketByteProxy(baselinePacket), compactPacketByteProxy(candidatePacket),
+				compactPacketByteProxy(candidatePacket)-compactPacketByteProxy(baselinePacket),
+			)
+		})
+	}
+}
+
+func TestBrainBriefLiveLayoutGuidanceEmitsOneExactTestPerSource(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, path := range []string{"src/auth/token.test.ts", "src/auth/token.spec.ts"} {
+		writeBrainBriefGoLayoutFile(t, repoDir, path, "test('token', () => {})\n")
+	}
+	report := brainBriefReport{Task: "repair token validation", LikelyEditFiles: []string{"src/auth/token.ts"}}
+	brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
+	want := []string{"src/auth/token.test.ts"}
+	if !slices.Equal(report.LikelyTestFiles, want) {
+		t.Fatalf("one source crowded the live packet with naming variants: got %+v want %+v", report.LikelyTestFiles, want)
+	}
+}
+
+func TestBrainBriefLiveLayoutGuidanceNonmatchIsByteIdentical(t *testing.T) {
+	repoDir := t.TempDir()
+	report := brainBriefReport{
+		Task:            "render dashboard summary",
+		LikelyEditFiles: []string{"internal/cli/history.go"},
+		LikelyTestFiles: []string{"tests/existing_test.go"},
+	}
+	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+	before := renderBrainBriefCompactV3ForTest(t, report)
+	brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
+	after := renderBrainBriefCompactV3ForTest(t, report)
+	if after != before {
+		t.Fatalf("nonmatching live layout changed the packet\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestBrainBriefGoPrefixTestRankingUsesTaskTerms(t *testing.T) {
 	repoDir := t.TempDir()
 	for _, path := range []string{
 		"internal/cli/history_cache_test.go",
@@ -108,43 +213,34 @@ func TestBrainBriefGoPrefixTestRankingUsesTaskActionAndSymbolTerms(t *testing.T)
 	}
 
 	tests := []struct {
-		name   string
-		task   string
-		symbol string
-		action string
-		want   string
+		name string
+		task string
+		want string
 	}{
 		{
-			name:   "task term outranks incidental symbol term",
-			task:   "repair history cache reuse",
-			symbol: "scanHistoryFile",
-			action: "keep the cached records stable",
-			want:   "internal/cli/history_cache_test.go",
+			name: "focused cache term",
+			task: "repair history cache reuse",
+			want: "internal/cli/history_cache_test.go",
 		},
 		{
-			name:   "specific multi-term variant wins",
-			task:   "preserve history single read rebuild",
-			symbol: "buildHistoryIndex",
-			action: "avoid reading a transcript twice",
-			want:   "internal/cli/history_single_read_test.go",
+			name: "specific multi-term variant wins",
+			task: "preserve history single read rebuild",
+			want: "internal/cli/history_single_read_test.go",
 		},
 		{
-			name:   "camel case action symbol contributes terms",
-			task:   "repair transcript behavior",
-			symbol: "loadHistoryCache",
-			action: "keep invalidation stable",
-			want:   "internal/cli/history_cache_test.go",
+			name: "alternate focused term",
+			task: "repair history scan behavior",
+			want: "internal/cli/history_scan_test.go",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			report := brainBriefReport{
-				Task: tt.task,
-				ActionChecklist: []brainBriefAction{{
-					File: "internal/cli/history.go", Symbol: tt.symbol, Action: tt.action,
-				}},
+				Task:            tt.task,
+				ActionChecklist: []brainBriefAction{{File: "internal/cli/history.go"}},
 				LikelyEditFiles: []string{"internal/cli/history.go"},
 			}
+			brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
 			brainBriefPrioritizeActionTargets(repoDir, &report)
 			if !slices.Equal(report.LikelyTestFiles, []string{tt.want}) {
 				t.Fatalf("ranked Go fallback mismatch: got %+v want %s", report.LikelyTestFiles, tt.want)
@@ -164,6 +260,7 @@ func TestBrainBriefGoPrefixTestFallbackStaysBoundedAndPreservesDirectSibling(t *
 			ActionChecklist: []brainBriefAction{{File: "internal/cli/history.go", Action: "repair cache reuse"}},
 			LikelyEditFiles: []string{"internal/cli/history.go"},
 		}
+		brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
 		brainBriefPrioritizeActionTargets(repoDir, &report)
 		if !slices.Equal(report.LikelyTestFiles, []string{"internal/cli/history_test.go"}) {
 			t.Fatalf("direct Go sibling lost precedence: %+v", report.LikelyTestFiles)
@@ -181,6 +278,7 @@ func TestBrainBriefGoPrefixTestFallbackStaysBoundedAndPreservesDirectSibling(t *
 			ActionChecklist: []brainBriefAction{{File: "internal/cli/history.go", Action: "repair cache reuse"}},
 			LikelyEditFiles: []string{"internal/cli/history.go"},
 		}
+		brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
 		brainBriefPrioritizeActionTargets(repoDir, &report)
 		if !slices.Equal(report.LikelyTestFiles, []string{"internal/cli/history_cache_test.go"}) {
 			t.Fatalf("distractor-heavy directory leaked prefix tests: %+v", report.LikelyTestFiles)
@@ -188,9 +286,9 @@ func TestBrainBriefGoPrefixTestFallbackStaysBoundedAndPreservesDirectSibling(t *
 	})
 
 	t.Run("candidate probes are hard capped", func(t *testing.T) {
-		suffixes := brainBriefGoActionTestSuffixes(
+		suffixes := brainBriefGoTaskTestSuffixes(
 			"alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango",
-			[]brainBriefAction{{File: "internal/cli/history.go", Action: "uniform victor whiskey xray yankee zulu"}},
+			[]string{"internal/cli/history.go"},
 		)["internal/cli/history.go"]
 		if len(suffixes) != brainBriefGoTestCandidateLimit {
 			t.Fatalf("candidate cap changed: got %d want %d (%+v)", len(suffixes), brainBriefGoTestCandidateLimit, suffixes)
@@ -205,21 +303,32 @@ func TestBrainBriefGoPrefixTestFallbackStaysBoundedAndPreservesDirectSibling(t *
 			}
 			seen[suffix] = true
 		}
-		unsafeInput := brainBriefGoActionTestSuffixes(
+		unsafeInput := brainBriefGoTaskTestSuffixes(
 			`../../cache ..\single/read`,
-			[]brainBriefAction{{File: "internal/cli/history.go", Action: `preserve ../../cache`}},
+			[]string{"internal/cli/history.go"},
 		)["internal/cli/history.go"]
 		for _, suffix := range unsafeInput {
 			if strings.ContainsAny(suffix, `/\.`) || strings.Contains(suffix, "..") {
 				t.Fatalf("untrusted context escaped the filename tokenizer: %q in %+v", suffix, unsafeInput)
 			}
 		}
-		tooLong := brainBriefGoActionTestSuffixes(
+		tooLong := brainBriefGoTaskTestSuffixes(
 			strings.Repeat("x", 81),
-			[]brainBriefAction{{File: "internal/cli/history.go"}},
+			[]string{"internal/cli/history.go"},
 		)["internal/cli/history.go"]
 		if len(tooLong) != 0 {
 			t.Fatalf("oversized filename suffix escaped the bound: %+v", tooLong)
+		}
+
+		repoDir := t.TempDir()
+		writeBrainBriefGoLayoutFile(t, repoDir, "internal/cli/other_alpha_bravo_test.go", "package cli\n")
+		report := brainBriefReport{
+			Task:            "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango",
+			LikelyEditFiles: []string{"internal/cli/history.go", "internal/cli/other.go"},
+		}
+		brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
+		if len(report.LikelyTestFiles) != 0 {
+			t.Fatalf("lower-ranked source escaped the global %d-probe budget: %+v", brainBriefGoTestCandidateLimit, report.LikelyTestFiles)
 		}
 	})
 }
@@ -313,7 +422,7 @@ func BenchmarkBrainBriefGoPrefixTestPostprocess(b *testing.B) {
 				repoDir,
 				actionFiles,
 				nil,
-				brainBriefGoActionTestSuffixes(report.Task, report.ActionChecklist),
+				brainBriefGoTaskTestSuffixes(report.Task, actionFiles),
 			)
 		}
 	})
@@ -329,7 +438,7 @@ func BenchmarkBrainBriefGoPrefixTestPostprocess(b *testing.B) {
 				repoDir,
 				actionFiles,
 				nil,
-				brainBriefGoActionTestSuffixes(firstMatch.Task, firstMatch.ActionChecklist),
+				brainBriefGoTaskTestSuffixes(firstMatch.Task, actionFiles),
 			)
 		}
 	})
@@ -339,7 +448,7 @@ func BenchmarkBrainBriefGoPrefixTestPostprocess(b *testing.B) {
 			File: "internal/cli/history.go", Action: "uniform victor whiskey xray yankee zulu",
 		}},
 	}
-	if got := len(brainBriefGoActionTestSuffixes(worstCase.Task, worstCase.ActionChecklist)["internal/cli/history.go"]); got != brainBriefGoTestCandidateLimit {
+	if got := len(brainBriefGoTaskTestSuffixes(worstCase.Task, actionFiles)["internal/cli/history.go"]); got != brainBriefGoTestCandidateLimit {
 		b.Fatalf("worst-case fixture produced %d candidates, want %d", got, brainBriefGoTestCandidateLimit)
 	}
 	b.Run("bounded_24_miss_worst_case", func(b *testing.B) {
@@ -349,9 +458,73 @@ func BenchmarkBrainBriefGoPrefixTestPostprocess(b *testing.B) {
 				repoDir,
 				actionFiles,
 				nil,
-				brainBriefGoActionTestSuffixes(worstCase.Task, worstCase.ActionChecklist),
+				brainBriefGoTaskTestSuffixes(worstCase.Task, actionFiles),
 			)
 		}
+	})
+}
+
+func BenchmarkBrainBriefLiveLayoutGuidance(b *testing.B) {
+	b.Run("nested_js_saturated", func(b *testing.B) {
+		repoDir := b.TempDir()
+		writeBrainBriefGoLayoutFile(b, repoDir, "src/auth/__tests__/token.test.ts", "test('token', () => {})\n")
+		report := brainBriefReport{Task: "repair token validation", LikelyEditFiles: []string{"src/auth/token.ts"}}
+		for i := 1; i <= 6; i++ {
+			report.LikelyTestFiles = append(report.LikelyTestFiles, fmt.Sprintf("tests/distractor_%d_test.go", i))
+		}
+		report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+
+		b.Run("append_only_baseline", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				candidate := report
+				candidate.LikelyTestFiles = brainBriefAddSiblingTestFiles(repoDir, candidate.LikelyEditFiles, candidate.LikelyTestFiles)
+				candidate.LikelyFiles = brainBriefMergeLikelyFiles(candidate.LikelyEditFiles, candidate.LikelyTestFiles)
+				benchmarkBrainBriefTestGuidanceFiles = candidate.LikelyTestFiles
+			}
+		})
+		b.Run("prioritized_live_candidate", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				candidate := report
+				brainBriefApplyLayoutGuidance(repoDir, candidate.Task, &candidate)
+				benchmarkBrainBriefTestGuidanceFiles = candidate.LikelyTestFiles
+			}
+		})
+	})
+
+	b.Run("eight_go_edits_no_match", func(b *testing.B) {
+		repoDir := b.TempDir()
+		report := brainBriefReport{
+			Task: "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango",
+		}
+		for i := 0; i < 8; i++ {
+			path := fmt.Sprintf("internal/cli/component_%d.go", i)
+			writeBrainBriefGoLayoutFile(b, repoDir, path, "package cli\n")
+			report.LikelyEditFiles = append(report.LikelyEditFiles, path)
+		}
+		for i := 1; i <= 6; i++ {
+			report.LikelyTestFiles = append(report.LikelyTestFiles, fmt.Sprintf("tests/distractor_%d_test.go", i))
+		}
+		report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+
+		b.Run("append_only_baseline", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				candidate := report
+				candidate.LikelyTestFiles = brainBriefAddSiblingTestFiles(repoDir, candidate.LikelyEditFiles, candidate.LikelyTestFiles)
+				candidate.LikelyFiles = brainBriefMergeLikelyFiles(candidate.LikelyEditFiles, candidate.LikelyTestFiles)
+				benchmarkBrainBriefTestGuidanceFiles = candidate.LikelyTestFiles
+			}
+		})
+		b.Run("prioritized_live_candidate", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				candidate := report
+				brainBriefApplyLayoutGuidance(repoDir, candidate.Task, &candidate)
+				benchmarkBrainBriefTestGuidanceFiles = candidate.LikelyTestFiles
+			}
+		})
 	})
 }
 
@@ -359,10 +532,9 @@ func assertNoBrainBriefGoPrefixTest(t *testing.T, repoDir, source string) {
 	t.Helper()
 	report := brainBriefReport{
 		Task:            "repair history cache",
-		ActionChecklist: []brainBriefAction{{File: source, Action: "repair cache reuse"}},
 		LikelyEditFiles: []string{source},
 	}
-	brainBriefPrioritizeActionTargets(repoDir, &report)
+	brainBriefApplyLayoutGuidance(repoDir, report.Task, &report)
 	if len(report.LikelyTestFiles) != 0 {
 		t.Fatalf("unsafe Go fallback surfaced a test: %+v", report.LikelyTestFiles)
 	}

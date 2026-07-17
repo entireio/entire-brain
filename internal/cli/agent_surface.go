@@ -1332,8 +1332,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		brainBriefCapSemantic(&report.Semantic, briefOpts.limit)
 	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
-	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
-	brainBriefAddCxxHeaderLayoutGuidance(status.Repo.Root, task, &report)
+	brainBriefApplyLayoutGuidance(status.Repo.Root, task, &report)
 	if profile != nil {
 		likelyInputs := len(report.Semantic.Context.Symbols) + len(report.Semantic.Context.Relations) + len(report.Semantic.RuntimeTraces) + len(report.Semantic.Tests.Suggestions) + len(report.History.Matches) + len(report.Facts)
 		profile.finishStage(&profile.Synthesis.LikelyFiles, likelyFilesStarted, likelyInputs, len(report.LikelyEditFiles)+len(report.LikelyTestFiles)+len(report.LikelyFiles), 0)
@@ -1787,6 +1786,7 @@ func brainBriefAddSiblingTestFilesWithGoSuffixes(
 	if !ok {
 		return out
 	}
+	goProbes := 0
 	for _, file := range editFiles {
 		directFound := false
 		for _, candidate := range brainBriefSiblingTestCandidates(file) {
@@ -1803,6 +1803,7 @@ func brainBriefAddSiblingTestFilesWithGoSuffixes(
 			if len(out) >= 6 {
 				return out
 			}
+			break
 		}
 		if directFound {
 			continue
@@ -1824,6 +1825,10 @@ func brainBriefAddSiblingTestFilesWithGoSuffixes(
 			break
 		}
 		for _, suffix := range goTestSuffixes[file] {
+			if goProbes >= brainBriefGoTestCandidateLimit {
+				break
+			}
+			goProbes++
 			candidate := strings.TrimSuffix(file, ".go") + "_" + suffix + "_test.go"
 			if _, ok := seen[candidate]; ok {
 				break
@@ -1840,6 +1845,20 @@ func brainBriefAddSiblingTestFilesWithGoSuffixes(
 		}
 	}
 	return out
+}
+
+// brainBriefApplyLayoutGuidance runs on every task brief, before optional action
+// scanners. Exact test layouts lead noisier retrieved tests but remain capped.
+func brainBriefApplyLayoutGuidance(repoRoot, task string, report *brainBriefReport) {
+	if report == nil {
+		return
+	}
+	if len(report.LikelyEditFiles) > 0 {
+		goSuffixes := brainBriefGoTaskTestSuffixes(task, report.LikelyEditFiles)
+		inferred := brainBriefAddSiblingTestFilesWithGoSuffixes(repoRoot, report.LikelyEditFiles, nil, goSuffixes)
+		report.LikelyTestFiles = brainBriefMergePrioritizedFiles(inferred, report.LikelyTestFiles, 6)
+	}
+	brainBriefAddCxxHeaderLayoutGuidance(repoRoot, task, report)
 }
 
 // brainBriefRepoFileChecker reuses the resolved repository root for one test-
@@ -1926,16 +1945,23 @@ func brainBriefNestedTestCandidates(file string) []string {
 
 const brainBriefGoTestCandidateLimit = 24
 
-var brainBriefGoIdentifierBoundary = regexp.MustCompile(`([\p{Ll}\p{N}])([\p{Lu}])`)
-
-// brainBriefGoActionTestSuffixes derives bounded focused Go test names: task,
-// action, then symbol terms, with adjacent pairs ahead of their singles.
-func brainBriefGoActionTestSuffixes(task string, actions []brainBriefAction) map[string][]string {
-	byFile := make(map[string][]string)
-	for _, action := range actions {
-		file, ok := cleanBrainBriefLikelyFile(action.File)
+// brainBriefGoTaskTestSuffixes derives bounded focused Go test names from the
+// task. Adjacent pairs lead their singles so "single read" selects single_read.
+func brainBriefGoTaskTestSuffixes(task string, editFiles []string) map[string][]string {
+	var byFile map[string][]string
+	var terms []string
+	remaining := brainBriefGoTestCandidateLimit
+	for _, editFile := range editFiles {
+		if remaining == 0 {
+			break
+		}
+		file, ok := cleanBrainBriefLikelyFile(editFile)
 		if !ok || filepath.Ext(file) != ".go" {
 			continue
+		}
+		if byFile == nil {
+			byFile = make(map[string][]string)
+			terms = brainBriefFileMatchTerms(task)
 		}
 		sourceTerms := make(map[string]bool)
 		for _, term := range brainBriefFileMatchTerms(strings.TrimSuffix(filepath.Base(file), ".go")) {
@@ -1946,25 +1972,23 @@ func brainBriefGoActionTestSuffixes(task string, actions []brainBriefAction) map
 			seen[suffix] = true
 		}
 		add := func(suffix string) {
-			if suffix != "" && len(suffix) <= 80 && !seen[suffix] && len(byFile[file]) < brainBriefGoTestCandidateLimit {
+			if suffix != "" && len(suffix) <= 80 && !seen[suffix] && remaining > 0 {
 				seen[suffix] = true
 				byFile[file] = append(byFile[file], suffix)
+				remaining--
 			}
 		}
-		for _, text := range []string{task, action.Action, brainBriefGoIdentifierBoundary.ReplaceAllString(action.Symbol, "$1 $2")} {
-			terms := brainBriefFileMatchTerms(text)
-			filtered := terms[:0]
-			for _, term := range terms {
-				if !sourceTerms[term] {
-					filtered = append(filtered, term)
-				}
+		filtered := make([]string, 0, len(terms))
+		for _, term := range terms {
+			if !sourceTerms[term] {
+				filtered = append(filtered, term)
 			}
-			for i := 0; i+1 < len(filtered); i++ {
-				add(filtered[i] + "_" + filtered[i+1])
-			}
-			for _, term := range filtered {
-				add(term)
-			}
+		}
+		for i := 0; i+1 < len(filtered); i++ {
+			add(filtered[i] + "_" + filtered[i+1])
+		}
+		for _, term := range filtered {
+			add(term)
 		}
 	}
 	return byFile
@@ -2136,12 +2160,7 @@ func brainBriefPrioritizeActionTargets(repoRoot string, report *brainBriefReport
 	}
 	actionFiles := brainBriefActionFiles(report.ActionChecklist, report.LikelyEditFiles)
 	report.LikelyEditFiles = brainBriefMergePrioritizedFiles(actionFiles, report.LikelyEditFiles, 8)
-	actionTests := brainBriefAddSiblingTestFilesWithGoSuffixes(
-		repoRoot,
-		actionFiles,
-		nil,
-		brainBriefGoActionTestSuffixes(report.Task, report.ActionChecklist),
-	)
+	actionTests := brainBriefAddSiblingTestFiles(repoRoot, actionFiles, nil)
 	report.LikelyTestFiles = brainBriefMergePrioritizedFiles(actionTests, report.LikelyTestFiles, 6)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 }
