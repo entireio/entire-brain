@@ -46,7 +46,14 @@ confirmatory analyzer is implemented and path-locked.
   test evidence are disjoint, single-parent and two-parent units are supported, fixture-only evidence
   binds its owning test package, and source/test/full stable patch IDs are recorded under one
   canonical identity profile shared with the 23 CLI v1 registry entries. All 62 are only
-  `structurally_ready_not_executed`; this slice has no negative-control result or run authority.
+  `structurally_ready_not_executed`; there is no negative-control result or run authority.
+- `MULTI-REPOSITORY-NEGATIVE-CONTROL-RUN-PLAN-V2.md`,
+  `development-task-negative-control-run-plan-v2.json`, `task_negative_control_plan_v2.py`, and
+  `schemas/development-task-negative-control-run-plan-v2.schema.json`: deterministic exact-input
+  plan/check lane for those 62 candidates. The checked plan is unexecutable
+  `pending_owner_authorization`; its approval trust mechanism, offline cache seed, executor,
+  classifier, private-log writer, and resource/cleanup attestation are explicitly absent. Building
+  or checking it invokes no candidate process.
 - `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
   contract; the adjacent relevance schemas cover reviewed labels, retained review evidence, the fact
   excerpt, and the complete source-membership contract.

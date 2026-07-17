@@ -65,8 +65,11 @@ exact duplicate groups across commit, tree, source/test/full diff, and source/te
 ID under one canonical full-index profile. CLI v1 legacy diff hashes remain labeled separately and
 are not used as cross-repository identity dimensions. Repeated path sets are diagnostic only and do
 not resolve semantic or family overlap. See
-`MULTI-REPOSITORY-DEVELOPMENT-INVENTORY-V2.md` for exact counts and reproduction commands. No v2
-negative control is implemented or executed by this slice.
+`MULTI-REPOSITORY-DEVELOPMENT-INVENTORY-V2.md` for exact counts and reproduction commands. The
+separate checked v2 negative-control plan binds all 62 candidates but is
+`pending_owner_authorization`: no approval trust mechanism, cache-seed manifest, executor,
+classifier, or private-log writer exists, and no v2 candidate has been executed. See
+`MULTI-REPOSITORY-NEGATIVE-CONTROL-RUN-PLAN-V2.md`.
 
 `task_negative_control.py` is the next development-only filter. For each statically screened
 candidate, it runs the packages containing changed Go tests from a clean detached candidate worktree,
@@ -194,6 +197,7 @@ The schemas are:
 - `confirmatory/schemas/development-task-eligibility-scan-v2.schema.json`
 - `confirmatory/schemas/development-task-overlap-registry-v1.schema.json`
 - `confirmatory/schemas/development-task-negative-control-v1.schema.json`
+- `confirmatory/schemas/development-task-negative-control-run-plan-v2.schema.json`
 - `confirmatory/schemas/development-task-symptom-review-v1.schema.json`
 - `schemas/task-review-ledger-v2.schema.json`
 

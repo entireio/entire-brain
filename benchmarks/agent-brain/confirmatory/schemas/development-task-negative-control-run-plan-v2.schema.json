@@ -1,0 +1,666 @@
+{
+  "$defs": {
+    "artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_file": {"pattern": "^[^/\\\\]+$", "type": "string"},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["artifact_file", "artifact_sha256"],
+      "type": "object"
+    },
+    "candidateOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_ref": {"$ref": "#/$defs/sha256"},
+        "first_parent_position": {"maximum": 31, "minimum": 1, "type": "integer"}
+      },
+      "required": ["candidate_ref", "first_parent_position"],
+      "type": "object"
+    },
+    "git": {
+      "additionalProperties": false,
+      "properties": {
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "version_output": {"pattern": "^git version .+$", "type": "string"}
+      },
+      "required": ["binary_sha256", "version_output"],
+      "type": "object"
+    },
+    "go": {
+      "additionalProperties": false,
+      "properties": {
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "cc": {"minLength": 1, "type": "string"},
+        "cgo_enabled": {"minLength": 1, "type": "string"},
+        "cxx": {"minLength": 1, "type": "string"},
+        "goarch": {"minLength": 1, "type": "string"},
+        "goos": {"minLength": 1, "type": "string"},
+        "version_output": {"pattern": "^go version go", "type": "string"}
+      },
+      "required": ["binary_sha256", "cc", "cgo_enabled", "cxx", "goarch", "goos", "version_output"],
+      "type": "object"
+    },
+    "native": {
+      "additionalProperties": false,
+      "properties": {
+        "cc_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "cxx_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "target": {"minLength": 1, "type": "string"},
+        "version_first_line": {"minLength": 1, "type": "string"}
+      },
+      "required": ["cc_binary_sha256", "cxx_binary_sha256", "target", "version_first_line"],
+      "type": "object"
+    },
+    "oid": {"pattern": "^(?!0{40}$)[0-9a-f]{40}$", "type": "string"},
+    "repository": {
+      "additionalProperties": false,
+      "properties": {
+        "base_oid": {"$ref": "#/$defs/oid"},
+        "candidate_count": {"minimum": 1, "type": "integer"},
+        "candidate_order": {
+          "items": {"$ref": "#/$defs/candidateOrder"},
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "candidate_order_sha256": {"$ref": "#/$defs/sha256"},
+        "head_oid": {"$ref": "#/$defs/oid"},
+        "key": {"enum": ["entire-brain", "entire-db", "entire-graph"]},
+        "ledger_file": {"pattern": "^[^/\\\\]+$", "type": "string"},
+        "ledger_file_sha256": {"$ref": "#/$defs/sha256"},
+        "ledger_sha256": {"$ref": "#/$defs/sha256"},
+        "repository_id": {"pattern": "^github\\.com/[^/]+/[^/]+$", "type": "string"},
+        "toolchain": {
+          "additionalProperties": false,
+          "properties": {
+            "git": {"$ref": "#/$defs/git"},
+            "go": {"$ref": "#/$defs/go"},
+            "native": {"$ref": "#/$defs/native"}
+          },
+          "required": ["git", "go", "native"],
+          "type": "object"
+        }
+      },
+      "required": [
+        "base_oid", "candidate_count", "candidate_order", "candidate_order_sha256", "head_oid",
+        "key", "ledger_file", "ledger_file_sha256", "ledger_sha256", "repository_id", "toolchain"
+      ],
+      "type": "object"
+    },
+    "sha256": {"pattern": "^(?!0{64}$)[0-9a-f]{64}$", "type": "string"}
+  },
+  "$id": "https://entire.io/schemas/agent-brain-development-task-negative-control-run-plan-v2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_receipt": {"const": "absent_not_implemented"},
+        "approval_receipt_sha256": {"type": "null"},
+        "approval_trust_mechanism": {"const": "absent_not_implemented"},
+        "approval_trust_root_sha256": {"type": "null"},
+        "benchmark_execution": {"const": "forbidden_pending_separate_owner_approval"},
+        "calibration_membership": {"const": "forbidden_permanent_development_exposure"},
+        "candidate_execution": {"const": "forbidden_plan_unexecutable"},
+        "confirmatory_holdout_membership": {"const": "forbidden_permanent_development_exposure"},
+        "model_provider_execution": {"const": "forbidden_not_authorized"},
+        "owner_key": {"const": "absent_not_fabricated"},
+        "paid_execution": {"const": "forbidden_not_authorized"},
+        "population_assignment": {"const": "absent_not_authorized"},
+        "source_session_identity": {"const": "unresolved_no_owner_source_session_receipt"}
+      },
+      "required": [
+        "approval_receipt", "approval_receipt_sha256", "approval_trust_mechanism",
+        "approval_trust_root_sha256", "benchmark_execution", "calibration_membership",
+        "candidate_execution", "confirmatory_holdout_membership", "model_provider_execution",
+        "owner_key", "paid_execution", "population_assignment", "source_session_identity"
+      ],
+      "type": "object"
+    },
+    "cache_seed": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_sha256": {"type": "null"},
+        "host_shared_cache_reuse": {"const": "forbidden"},
+        "manifest_profile": {"const": "content_addressed_offline_go_cache_seed_manifest_v1"},
+        "manifest_sha256": {"type": "null"},
+        "network_dependency_resolution": {"const": "forbidden"},
+        "per_arm_cache_policy": {"const": "fresh_private_copy_from_verified_seed_required"},
+        "source_locator": {"type": "null"},
+        "status": {"const": "pending_manifest_not_supplied"},
+        "unpacked_byte_count": {"type": "null"}
+      },
+      "required": [
+        "archive_sha256", "host_shared_cache_reuse", "manifest_profile", "manifest_sha256",
+        "network_dependency_resolution", "per_arm_cache_policy", "source_locator", "status",
+        "unpacked_byte_count"
+      ],
+      "type": "object"
+    },
+    "dependencies": {
+      "additionalProperties": false,
+      "properties": {
+        "eligibility_scanner": {"$ref": "#/$defs/artifact"},
+        "eligibility_schema": {"$ref": "#/$defs/artifact"},
+        "overlap_registry": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_file": {"pattern": "^[^/\\\\]+$", "type": "string"},
+                "artifact_sha256": {"$ref": "#/$defs/sha256"},
+                "builder_sha256": {"$ref": "#/$defs/sha256"},
+                "cli_scanner_sha256": {"$ref": "#/$defs/sha256"},
+                "cli_task_population_sha256": {"$ref": "#/$defs/sha256"},
+                "git_binary_sha256": {"$ref": "#/$defs/sha256"},
+                "git_version_output": {"pattern": "^git version .+$", "type": "string"},
+                "profile": {"const": "agent_brain_global_development_task_overlap_registry_v1"},
+                "registry_sha256": {"$ref": "#/$defs/sha256"},
+                "schema_file": {"pattern": "^[^/\\\\]+$", "type": "string"},
+                "schema_sha256": {"$ref": "#/$defs/sha256"},
+                "schema_version": {"const": 1}
+              },
+              "required": [
+                "artifact_file", "artifact_sha256", "builder_sha256", "cli_scanner_sha256",
+                "cli_task_population_sha256", "git_binary_sha256", "git_version_output", "profile",
+                "registry_sha256", "schema_file", "schema_sha256", "schema_version"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "repository_contract": {
+          "additionalProperties": false,
+          "properties": {
+            "artifact_file": {"pattern": "^[^/\\\\]+$", "type": "string"},
+            "artifact_sha256": {"$ref": "#/$defs/sha256"},
+            "profile": {"const": "agent_brain_development_repository_bindings_v2"},
+            "schema_version": {"const": 1}
+          },
+          "required": ["artifact_file", "artifact_sha256", "profile", "schema_version"],
+          "type": "object"
+        }
+      },
+      "required": ["eligibility_scanner", "eligibility_schema", "overlap_registry", "repository_contract"],
+      "type": "object"
+    },
+    "execution_protocol": {
+      "additionalProperties": false,
+      "properties": {
+        "arm_order": {"const": ["baseline", "first_parent_source_reversal"]},
+        "candidate_order": {"const": "repository_order_then_first_parent_position_serial_v1"},
+        "candidate_process_execution": {"const": "absent_not_implemented"},
+        "classifier": {"const": "absent_not_implemented"},
+        "go_test_internal_timeout": {"const": "disabled_outer_process_group_deadline_required"},
+        "max_concurrency": {"const": 1},
+        "max_total_wall_seconds": {"const": 28800},
+        "outer_timeout_seconds_per_arm": {"const": 600},
+        "private_log_writer": {"const": "absent_not_implemented"},
+        "repetitions_per_arm": {"const": 2},
+        "repository_order": {"const": ["entire-brain", "entire-db", "entire-graph"]},
+        "total_candidate_count": {"const": 62}
+      },
+      "required": [
+        "arm_order", "candidate_order", "candidate_process_execution", "classifier",
+        "go_test_internal_timeout", "max_concurrency", "max_total_wall_seconds",
+        "outer_timeout_seconds_per_arm", "private_log_writer", "repetitions_per_arm",
+        "repository_order", "total_candidate_count"
+      ],
+      "type": "object"
+    },
+    "exposure": {"const": "permanent_development_only_identity_inspected"},
+    "implementation": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_render_profile": {"const": "sorted_keys_indent_2_utf8_lf_v1"},
+        "builder_sha256": {"$ref": "#/$defs/sha256"},
+        "canonical_json_profile": {"const": "sorted_keys_compact_utf8_no_float_v1"},
+        "schema_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["artifact_render_profile", "builder_sha256", "canonical_json_profile", "schema_sha256"],
+      "type": "object"
+    },
+    "isolation": {
+      "additionalProperties": false,
+      "properties": {
+        "clean_detached_worktrees": {"const": "required_by_future_executor_not_implemented"},
+        "filesystem_os_enforcement": {"const": "not_enforced"},
+        "filesystem_sandbox_claim": {"const": "none"},
+        "fresh_arm_repetition_state": {"const": "required_by_future_executor_not_implemented"},
+        "network_os_enforcement": {"const": "not_enforced"},
+        "network_sandbox_claim": {"const": "none"},
+        "offline_dependency_policy": {"const": "required_verified_cache_seed_and_network_resolution_disabled"}
+      },
+      "required": [
+        "clean_detached_worktrees", "filesystem_os_enforcement", "filesystem_sandbox_claim",
+        "fresh_arm_repetition_state", "network_os_enforcement", "network_sandbox_claim",
+        "offline_dependency_policy"
+      ],
+      "type": "object"
+    },
+    "pending_gates": {
+      "const": [
+        "owner_execution_approval_receipt_and_trust_mechanism",
+        "offline_cache_seed_manifest_and_archive",
+        "negative_control_executor_and_reversal_proof",
+        "classification_truth_table_and_receipt_checker",
+        "private_content_addressed_log_writer_and_checker",
+        "resource_preflight_cleanup_and_interruption_attestation"
+      ]
+    },
+    "plan_sha256": {"$ref": "#/$defs/sha256"},
+    "private_log_policy": {
+      "additionalProperties": false,
+      "properties": {
+        "content_addressing": {"const": "sha256_exact_raw_bytes_required"},
+        "private_file_mode": {"const": "0600"},
+        "private_root_locator": {"type": "null"},
+        "private_root_mode": {"const": "0700"},
+        "public_receipt_fields": {"const": "raw_log_sha256_and_byte_count_only"},
+        "raw_log_retention_days": {"const": 7},
+        "raw_output_in_public_plan_or_receipt": {"const": false},
+        "secret_redaction_claim": {"const": "none_private_raw_logs_may_contain_test_output"},
+        "status": {"const": "policy_frozen_writer_and_checker_absent"}
+      },
+      "required": [
+        "content_addressing", "private_file_mode", "private_root_locator", "private_root_mode",
+        "public_receipt_fields", "raw_log_retention_days", "raw_output_in_public_plan_or_receipt",
+        "secret_redaction_claim", "status"
+      ],
+      "type": "object"
+    },
+    "profile": {"const": "agent_brain_development_task_negative_control_run_plan_v2"},
+    "repositories": {
+      "description": "Exact generated projection of the three frozen ledgers and all 62 ordered candidates.",
+      "const":
+      [
+        {
+          "base_oid": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+          "candidate_count": 18,
+          "candidate_order": [
+            {
+              "candidate_ref": "cc127c90ef845e15aeea70f527a646b7337556ac6b4e2635ea47d428bfbbf568",
+              "first_parent_position": 1
+            },
+            {
+              "candidate_ref": "59914e6d451eaafb732f118209f240b049eaa95b3f2faa23d16f5f0324bc5d7d",
+              "first_parent_position": 2
+            },
+            {
+              "candidate_ref": "fccedf2d7621fd51493f4e288affadc2f6b9ce06568f0c303d6573278867dcac",
+              "first_parent_position": 5
+            },
+            {
+              "candidate_ref": "5799175bf76b09012a1154b39b9ae51d7f8d3b9fbb57a96f56bcf0046f4734e8",
+              "first_parent_position": 9
+            },
+            {
+              "candidate_ref": "87503916c4a736f080189c650db2852b292c1d96b7fb6854ea69a0b77c39e6ed",
+              "first_parent_position": 10
+            },
+            {
+              "candidate_ref": "ecb9ad31fde6171e7df5a8c7556a1b4e048717625c5218f58c18949b9af59e83",
+              "first_parent_position": 14
+            },
+            {
+              "candidate_ref": "85f30173c78ff5a14c2f0ae485af418c4b348cbba350727d81732ba580fadd3c",
+              "first_parent_position": 15
+            },
+            {
+              "candidate_ref": "27729530d05aaee6eff8523f657fa3f0a67ad459ba34e24947de1be411e5774f",
+              "first_parent_position": 16
+            },
+            {
+              "candidate_ref": "70ed621e90ec13023626bd9bab5ca32ab995dade2b6545b3e45c88b4e6187077",
+              "first_parent_position": 20
+            },
+            {
+              "candidate_ref": "863c2fab075ee64da4fe9e56a567dc6dbfe900b0d70651373409f3c9c02f3247",
+              "first_parent_position": 21
+            },
+            {
+              "candidate_ref": "bcaf497f639777aac96726a294c393b85ebe9d9f1ae4215f6b8e8d39693e6d28",
+              "first_parent_position": 22
+            },
+            {
+              "candidate_ref": "3f9c556c66a8af1fb4962439a89edd02e2008b09ac6b924bdc31d0ecea7bade3",
+              "first_parent_position": 25
+            },
+            {
+              "candidate_ref": "e359b0c2929f1c8cbb79902e48859c5b2146b9ac0c2f1eba57f846c9d51b9855",
+              "first_parent_position": 26
+            },
+            {
+              "candidate_ref": "5e16947e42d97812adfdd10d437fea263aa1e01f650ab68b034073605d78ab6a",
+              "first_parent_position": 27
+            },
+            {
+              "candidate_ref": "6cb6763a4ca14c60d6bed42f74acec10637772e8409404e14fab12eb7773ece0",
+              "first_parent_position": 28
+            },
+            {
+              "candidate_ref": "94aa94f82b5945815071d3863a873a1e6cdacb330264fc9c6f26f17e9f2c1a05",
+              "first_parent_position": 29
+            },
+            {
+              "candidate_ref": "bb0f1b7429a89a2e6085703446ebeab085e4a62ef04afcdd372035b626fffc19",
+              "first_parent_position": 30
+            },
+            {
+              "candidate_ref": "1a927ffd0b0083ab7637c105002572968812abd3f9f58a958b2a14982c8af3b1",
+              "first_parent_position": 31
+            }
+          ],
+          "candidate_order_sha256": "22bdf1f7166f15c63e972c755712e31a9beafd914f5e9d020e23e34925234268",
+          "head_oid": "bc0203b761cbc500bfcb0acff723dad57ae37770",
+          "key": "entire-brain",
+          "ledger_file": "development-task-eligibility-entire-brain-v2.json",
+          "ledger_file_sha256": "1d02c61a6c813f563a021ff649a5787d8c79fb82ed137d8c1a3b4c2bf8ea6422",
+          "ledger_sha256": "d275b7bd53950c9dfe7716637ede63dafa618f61f59de6050de8ba8d0c641f0c",
+          "repository_id": "github.com/entireio/entire-brain",
+          "toolchain": {
+            "git": {
+              "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+              "version_output": "git version 2.53.0"
+            },
+            "go": {
+              "binary_sha256": "005640c7ff93028cb704283b0f737f2db3faf8b51b2561170c769b83905da646",
+              "cc": "clang",
+              "cgo_enabled": "1",
+              "cxx": "clang++",
+              "goarch": "arm64",
+              "goos": "darwin",
+              "version_output": "go version go1.26.2 darwin/arm64"
+            },
+            "native": {
+              "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+              "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+              "target": "arm64-apple-darwin25.5.0",
+              "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+            }
+          }
+        },
+        {
+          "base_oid": "4bde2fe4bc5bc913c35540e46cbb1d4f6fa131ab",
+          "candidate_count": 25,
+          "candidate_order": [
+            {
+              "candidate_ref": "7cdc83288b11aa916c4fa41de495d47c9ff1c6c8ca8df3abe986f53ae28146c5",
+              "first_parent_position": 1
+            },
+            {
+              "candidate_ref": "db4f1cc709ca39b0b3dc0660ec214a851e05e93ce0a09ac68e05a954d7746969",
+              "first_parent_position": 2
+            },
+            {
+              "candidate_ref": "f7ad228e017206f6126138a96021315262ae23be9ffa25e87b7a33776950c056",
+              "first_parent_position": 3
+            },
+            {
+              "candidate_ref": "b11f0e83a99e198b16f9968a6f0a76f185a56524ad836ec007101f1bfe3f9ca5",
+              "first_parent_position": 4
+            },
+            {
+              "candidate_ref": "cad70d37a7152c83e4b074faed933dc1cf7785c78fa477f0b41913969c556901",
+              "first_parent_position": 5
+            },
+            {
+              "candidate_ref": "19162ab4e863faf7d34f5b13cd722c33918cadfecfa0e5d2908dd1e8068878ba",
+              "first_parent_position": 6
+            },
+            {
+              "candidate_ref": "c738d56c905f054e0327e197567ea927d014c23434d0d83dee037e1487fe1449",
+              "first_parent_position": 8
+            },
+            {
+              "candidate_ref": "a7825cf80cd1421850cd1dc998def39b3baca3d59dff931707c4b6b22691e837",
+              "first_parent_position": 9
+            },
+            {
+              "candidate_ref": "7c33f4ede81afc28fa9c168b2290caf1ee7cecfc724884341a75a4c4cc456bab",
+              "first_parent_position": 10
+            },
+            {
+              "candidate_ref": "67c9295a3faf3783bed57ab4651ecedf62540329311cd170635014d5f29b1309",
+              "first_parent_position": 11
+            },
+            {
+              "candidate_ref": "5899ac640077f5d70bcbc849774c870c0e2a670bea4c0a6fe37602f05884b617",
+              "first_parent_position": 12
+            },
+            {
+              "candidate_ref": "e03a87ccf1dbe645d887d9a6f1ca29e238fca0132ee8159601310d0ae0327a18",
+              "first_parent_position": 13
+            },
+            {
+              "candidate_ref": "f0d0bcdadd247b0bd61d1a034cd0f8ec93925460c6af8c6e4cc31339dbe50998",
+              "first_parent_position": 14
+            },
+            {
+              "candidate_ref": "eed6b3647ff630ed90197b39f7f99e7aac4b68745ea36499970422eeaec9c75d",
+              "first_parent_position": 15
+            },
+            {
+              "candidate_ref": "58a4376e46a40a1ed24b3f01819dfaefb939cfca8fee52ed0ade28a7fba3a2c9",
+              "first_parent_position": 16
+            },
+            {
+              "candidate_ref": "8f0b09c29413ed83ec77729da7861198f285da0b08409c053ec5423c8943ddcc",
+              "first_parent_position": 20
+            },
+            {
+              "candidate_ref": "8096bf628a5f19b6950f32a74673c83db15e2b2412a8aeec9179af0584718949",
+              "first_parent_position": 22
+            },
+            {
+              "candidate_ref": "fa3d2458e4887b5d8e250a82f6410cde2a291d25bb1af0d38f3ccd1405fec9a5",
+              "first_parent_position": 23
+            },
+            {
+              "candidate_ref": "b0e2818cf99338ebc96513b89227bf134c4f8676c2f88e2924557b97da290be3",
+              "first_parent_position": 25
+            },
+            {
+              "candidate_ref": "7a927d95a2645fb1a48f3db9b202e17e060be724e53093f911b853a4dd84729d",
+              "first_parent_position": 26
+            },
+            {
+              "candidate_ref": "e658c439d102b96fe12c07f884090c873d361aab81e99fa4a575562d165cd51a",
+              "first_parent_position": 27
+            },
+            {
+              "candidate_ref": "84e57f2c1aec8c36167718a6eea06c7970a19652ac9330521f811e61350a1835",
+              "first_parent_position": 28
+            },
+            {
+              "candidate_ref": "d311ba0779faa57f8e697b8363ee886b03c79a25d240b54d413b42afa9ccb2a1",
+              "first_parent_position": 29
+            },
+            {
+              "candidate_ref": "a830d1eb19e408528f195d05bf502d56954cdc94d07a95c685e3d1b833b81226",
+              "first_parent_position": 30
+            },
+            {
+              "candidate_ref": "61f1625fb36a510a75f0e134f4694a30f793260acc1d9ac61f01540cbe134988",
+              "first_parent_position": 31
+            }
+          ],
+          "candidate_order_sha256": "838a4f7922d888d87ddf0e5205ff54c26a83066d110c9ddae950e17b3e2a1d7f",
+          "head_oid": "860769996e8741ff8a93cc955dadb4e7a81f4317",
+          "key": "entire-db",
+          "ledger_file": "development-task-eligibility-entire-db-v2.json",
+          "ledger_file_sha256": "eb0f91ed170e95332ca6b708fc043b27cb39d7197b1da477da829f9953ff32a1",
+          "ledger_sha256": "a62667269026e506c72156e3c2f25a3bc111f1b1df8ac30db9cbbe8d34312159",
+          "repository_id": "github.com/entirehq/entiredb",
+          "toolchain": {
+            "git": {
+              "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+              "version_output": "git version 2.53.0"
+            },
+            "go": {
+              "binary_sha256": "e61851b2c0cde9b9ac4ae044fcce6ba9d55cb15f98ded3964793acaa8632242f",
+              "cc": "clang",
+              "cgo_enabled": "1",
+              "cxx": "clang++",
+              "goarch": "arm64",
+              "goos": "darwin",
+              "version_output": "go version go1.26.4 darwin/arm64"
+            },
+            "native": {
+              "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+              "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+              "target": "arm64-apple-darwin25.5.0",
+              "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+            }
+          }
+        },
+        {
+          "base_oid": "d3271d235a2669da67d9f6924bb31cf6fd82349c",
+          "candidate_count": 19,
+          "candidate_order": [
+            {
+              "candidate_ref": "e0b36ace4b7e50a92617f3704a1eb915e2b68d6f5c3c6db1acb83638bf7ecd67",
+              "first_parent_position": 1
+            },
+            {
+              "candidate_ref": "3aab63bee0d8941176bd6263f3dc30cccce380e49aad13c68c76cb357b284827",
+              "first_parent_position": 4
+            },
+            {
+              "candidate_ref": "5ecc958def390ce050519b2e0e1401b6ffd33847f5a518205f36855b9ff33683",
+              "first_parent_position": 5
+            },
+            {
+              "candidate_ref": "3039a959d26e0dd50dad100431fd941849f9dff6cd5a07efc51ab208f9ba0258",
+              "first_parent_position": 6
+            },
+            {
+              "candidate_ref": "39fbe1a77640796ae35a32b5aac7d3fea56897c1e57befd888350f12a4c4f06a",
+              "first_parent_position": 7
+            },
+            {
+              "candidate_ref": "e61d03c15fe0fe31142bc123df3c49805ea64ab6da6bd0175fbdc8cda3ff7884",
+              "first_parent_position": 9
+            },
+            {
+              "candidate_ref": "f5e7152f5e8dc6af9f9e89720cb918f7f778dd3e253aeae284bd2025def5b47d",
+              "first_parent_position": 10
+            },
+            {
+              "candidate_ref": "9453d8b0a95687dfda6858bd3d8c679a5f274dcf918b9547ea202bee80bd54bc",
+              "first_parent_position": 11
+            },
+            {
+              "candidate_ref": "c0b249994f168d0521c04e55113519fafc3c75cb992678855ce5c33511993286",
+              "first_parent_position": 12
+            },
+            {
+              "candidate_ref": "9581e10ec5940cafdbd004bbdd71f217608d5f39cade150a135ab2d769653712",
+              "first_parent_position": 13
+            },
+            {
+              "candidate_ref": "d14085022026881af158697b7af9cb4ef9c6d766daedb4fc6f941f61cc8612b5",
+              "first_parent_position": 14
+            },
+            {
+              "candidate_ref": "8982c8045ed6bf4eb1322faef07a6b9f1704df66f60d96ad667a2c377bb802ff",
+              "first_parent_position": 15
+            },
+            {
+              "candidate_ref": "dd7480efaa0b0fa6e2c3ce1e6e842260ed228fb8d8abe119deed804239d9dbc1",
+              "first_parent_position": 18
+            },
+            {
+              "candidate_ref": "a7ce7c8b8b41f101707eb2f99a5ed8a3fcff80958a5dbac131c7c683db4fbbdd",
+              "first_parent_position": 19
+            },
+            {
+              "candidate_ref": "9796ac99a58842f57346fed5132519983d0d95e3ca2d67272bd456a8114cf936",
+              "first_parent_position": 20
+            },
+            {
+              "candidate_ref": "db0d9e9ef192aa72a4ee8934e8d89e48a56d6b93173e8fa3b4fd96b2e005cefb",
+              "first_parent_position": 22
+            },
+            {
+              "candidate_ref": "64cd96ed962b899eba0f71c859f0d9b43e169d686a1fe6786c25c76bbd88bc17",
+              "first_parent_position": 23
+            },
+            {
+              "candidate_ref": "cd8192008a0167e6b797eadcd723738b775e22013a577f1e653158cc3daa54d3",
+              "first_parent_position": 24
+            },
+            {
+              "candidate_ref": "34c32ff7115e361af6f2aea0e4035186dac66e82e24b8695663a4e8127fd59f9",
+              "first_parent_position": 25
+            }
+          ],
+          "candidate_order_sha256": "5ae110aa485aa914081875533e332ae76d081d420df168230fcd6437dff17916",
+          "head_oid": "fafe92878b5e920fe161d8078ee91762fe33e9b4",
+          "key": "entire-graph",
+          "ledger_file": "development-task-eligibility-entire-graph-v2.json",
+          "ledger_file_sha256": "f915995d69e340a783f8371857d1beb138db8e6edc24dff8d866b0a0585318ef",
+          "ledger_sha256": "0832fd47b94e33f2c609259090bebce637b158a765be80763b1fea53837d3e9d",
+          "repository_id": "github.com/entireio/entire-graph",
+          "toolchain": {
+            "git": {
+              "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+              "version_output": "git version 2.53.0"
+            },
+            "go": {
+              "binary_sha256": "c9507e881b743649af2b8d9edd8678433b999acfe4da2f9834a08a4fcebb1861",
+              "cc": "clang",
+              "cgo_enabled": "1",
+              "cxx": "clang++",
+              "goarch": "arm64",
+              "goos": "darwin",
+              "version_output": "go version go1.24.13 darwin/arm64"
+            },
+            "native": {
+              "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+              "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+              "target": "arm64-apple-darwin25.5.0",
+              "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+            }
+          }
+        }
+      ]
+    },
+    "resource_budget": {
+      "additionalProperties": false,
+      "properties": {
+        "disk_preflight": {"const": "require_free_bytes_at_least_reserve_plus_total_staging_before_execution"},
+        "max_cache_bytes_per_arm": {"const": 2147483648},
+        "max_cache_seed_bytes": {"const": 2147483648},
+        "max_private_raw_log_bytes_per_arm": {"const": 16777216},
+        "max_private_raw_log_bytes_total": {"const": 2147483648},
+        "max_public_receipt_bytes_total": {"const": 16777216},
+        "max_total_staging_bytes": {"const": 8589934592},
+        "max_worktree_bytes_per_arm": {"const": 1073741824},
+        "minimum_free_disk_before_staging_bytes": {"const": 17179869184},
+        "minimum_free_disk_reserve_bytes": {"const": 8589934592},
+        "resource_preflight": {"const": "absent_not_implemented"}
+      },
+      "required": [
+        "disk_preflight", "max_cache_bytes_per_arm", "max_cache_seed_bytes",
+        "max_private_raw_log_bytes_per_arm", "max_private_raw_log_bytes_total",
+        "max_public_receipt_bytes_total", "max_total_staging_bytes",
+        "max_worktree_bytes_per_arm", "minimum_free_disk_before_staging_bytes",
+        "minimum_free_disk_reserve_bytes", "resource_preflight"
+      ],
+      "type": "object"
+    },
+    "schema_version": {"const": 2},
+    "status": {"const": "pending_owner_authorization"}
+  },
+  "required": [
+    "authority", "cache_seed", "dependencies", "execution_protocol", "exposure",
+    "implementation", "isolation", "pending_gates", "plan_sha256", "private_log_policy",
+    "profile", "repositories", "resource_budget", "schema_version", "status"
+  ],
+  "title": "Pending development-only multi-repository negative-control run plan v2",
+  "type": "object"
+}

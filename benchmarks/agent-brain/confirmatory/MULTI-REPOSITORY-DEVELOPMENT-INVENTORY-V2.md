@@ -148,6 +148,8 @@ Run the structural tests from the confirmatory directory:
 python3 -m unittest test_task_eligibility_v2.py test_task_overlap_registry.py
 ```
 
-The negative-control runner is deliberately outside this commit. “Structurally ready” means only
-that a later isolated runner can reconstruct an exact module/package target and reversal set; it
-does not mean a baseline or reversal has run or passed.
+The separate v2 negative-control plan/check slice now freezes exact inputs and resource/isolation
+requirements, but the executor, classifier, approval trust mechanism, cache seed, and private-log
+writer remain absent. “Structurally ready” means only that a later isolated runner can reconstruct
+an exact module/package target and reversal set; it does not mean a baseline or reversal has run or
+passed. See `MULTI-REPOSITORY-NEGATIVE-CONTROL-RUN-PLAN-V2.md`.
