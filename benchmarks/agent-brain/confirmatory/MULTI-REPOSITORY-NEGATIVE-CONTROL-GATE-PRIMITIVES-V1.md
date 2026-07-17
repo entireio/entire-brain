@@ -100,6 +100,18 @@ depth/integer/no-float validator runs on every Python-constructed and API-valida
 receipt before self-hashing or schema validation. Consequently, any artifact successfully built and
 canonically rendered by the Python API is accepted by the CLI parser under the same JSON profile.
 
+Constructed inputs must also be JSON trees: every `dict`, `list`, or `tuple` identity may appear only
+once. Cycles and repeated container aliases are rejected before re-expansion; repeated immutable
+scalar values remain valid. The traversal charges one node for each container or scalar value (object
+keys are not value nodes) and freezes a 1,260,000-node ceiling:
+`250,000 entries * (one entry object + four scalar values) + 10,000 fixed-envelope nodes`. The
+10,000-node allowance conservatively covers the manifest's fixed metadata and provenance as well as
+the much smaller receipt, checked plan, and pinned schemas. Child counts are charged against the
+remaining budget before they are pushed, bounding the pending stack. The identity set and node
+counter therefore make traversal linear in the visited JSON tree and prevent an alias DAG from
+expanding exponentially. Parsed CLI JSON already has tree semantics, so valid file behavior is
+unchanged.
+
 ## Residual hard gates
 
 These primitives do not close:

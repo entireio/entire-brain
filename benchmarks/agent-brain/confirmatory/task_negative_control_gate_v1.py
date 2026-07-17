@@ -49,6 +49,12 @@ MAX_SCHEMA_RAW_BYTES = 4 * 1024 * 1024
 MAX_RECEIPT_RAW_BYTES = 4 * 1024 * 1024
 MAX_MANIFEST_RAW_BYTES = 128 * 1024 * 1024
 MAX_MANIFEST_FILE_COUNT = 250_000
+MAX_MANIFEST_ENTRY_JSON_NODES = 5
+MAX_JSON_FIXED_ENVELOPE_NODES = 10_000
+MAX_JSON_VISITED_NODES = (
+    MAX_MANIFEST_FILE_COUNT * MAX_MANIFEST_ENTRY_JSON_NODES
+    + MAX_JSON_FIXED_ENVELOPE_NODES
+)
 MAX_JSON_DEPTH = 64
 MAX_JSON_INTEGER_DIGITS = 64
 MAX_JSON_INTEGER_ABSOLUTE = 10**MAX_JSON_INTEGER_DIGITS - 1
@@ -89,10 +95,17 @@ def _sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _validate_json_profile(value: Any) -> None:
+def _validate_json_profile(value: Any) -> int:
     stack: list[tuple[Any, int]] = [(value, 1)]
+    seen_container_ids: set[int] = set()
+    visited_nodes = 0
     while stack:
         current, depth = stack.pop()
+        visited_nodes += 1
+        _require(
+            visited_nodes <= MAX_JSON_VISITED_NODES,
+            "JSON exceeds the visited-node ceiling",
+        )
         _require(depth <= MAX_JSON_DEPTH, "JSON exceeds the nesting-depth ceiling")
         if isinstance(current, float):
             raise GatePrimitiveError("canonical gate JSON forbids floating-point values")
@@ -103,14 +116,32 @@ def _validate_json_profile(value: Any) -> None:
                 <= MAX_JSON_INTEGER_ABSOLUTE,
                 "JSON integer exceeds the digit ceiling",
             )
+        if isinstance(current, (dict, list, tuple)):
+            identity = id(current)
+            _require(
+                identity not in seen_container_ids,
+                "JSON contains a cycle or repeated container alias",
+            )
+            seen_container_ids.add(identity)
         if isinstance(current, dict):
             _require(
                 all(isinstance(key, str) for key in current),
                 "canonical gate JSON requires string object keys",
             )
+            _require(
+                visited_nodes + len(stack) + len(current)
+                <= MAX_JSON_VISITED_NODES,
+                "JSON exceeds the visited-node ceiling",
+            )
             stack.extend((child, depth + 1) for child in current.values())
         elif isinstance(current, (list, tuple)):
+            _require(
+                visited_nodes + len(stack) + len(current)
+                <= MAX_JSON_VISITED_NODES,
+                "JSON exceeds the visited-node ceiling",
+            )
             stack.extend((child, depth + 1) for child in current)
+    return visited_nodes
 
 
 def _canonical_json_bytes(value: Any) -> bytes:
@@ -372,6 +403,7 @@ def _validate_manifest_profile_limits(
 
 
 def _pending_authority(plan: dict[str, Any]) -> dict[str, Any]:
+    _validate_json_profile(plan)
     try:
         run_plan_v2.validate_plan(plan)
     except run_plan_v2.RunPlanError as exc:
@@ -679,14 +711,27 @@ def validate_cache_seed_manifest(
     plan: dict[str, Any],
     manifest_schema_path: pathlib.Path,
 ) -> None:
-    _validate_json_profile(value)
-    authority = _pending_authority(plan)
     expected_root = {
         "archive", "authority", "contents", "host_shared_cache_reuse", "implementation",
         "manifest_sha256", "network_dependency_resolution", "profile", "run_plan",
         "schema_version", "status",
     }
     _require(isinstance(value, dict) and set(value) == expected_root, "manifest root fields differ")
+    contents = value["contents"]
+    _require(
+        isinstance(contents, dict)
+        and set(contents)
+        == {"entries", "file_count", "inventory_sha256", "repository_file_counts", "unpacked_byte_count"},
+        "manifest contents fields differ",
+    )
+    entries = contents["entries"]
+    _require(isinstance(entries, list) and bool(entries), "manifest entries must be a non-empty list")
+    _require(
+        3 <= len(entries) <= MAX_MANIFEST_FILE_COUNT,
+        "manifest file count exceeds the frozen profile ceiling",
+    )
+    _validate_json_profile(value)
+    authority = _pending_authority(plan)
     _require(value["profile"] == CACHE_MANIFEST_PROFILE and value["schema_version"] == 1, "manifest profile differs")
     _require(value["status"] == MANIFEST_STATUS, "manifest status differs")
     _require(value["authority"] == authority, "manifest authority boundary differs")
@@ -712,19 +757,6 @@ def validate_cache_seed_manifest(
     maximum_seed_bytes = _integer(plan["resource_budget"]["max_cache_seed_bytes"], "max_cache_seed_bytes", minimum=1)
     _require(archive_bytes <= maximum_seed_bytes, "cache archive exceeds the frozen byte ceiling")
 
-    contents = value["contents"]
-    _require(
-        isinstance(contents, dict)
-        and set(contents)
-        == {"entries", "file_count", "inventory_sha256", "repository_file_counts", "unpacked_byte_count"},
-        "manifest contents fields differ",
-    )
-    entries = contents["entries"]
-    _require(isinstance(entries, list) and bool(entries), "manifest entries must be a non-empty list")
-    _require(
-        3 <= len(entries) <= MAX_MANIFEST_FILE_COUNT,
-        "manifest file count exceeds the frozen profile ceiling",
-    )
     declared_file_count = _integer(contents["file_count"], "contents.file_count", minimum=3)
     _require(declared_file_count <= MAX_MANIFEST_FILE_COUNT, "manifest file count exceeds the frozen profile ceiling")
     _require(declared_file_count == len(entries), "manifest file count differs")
