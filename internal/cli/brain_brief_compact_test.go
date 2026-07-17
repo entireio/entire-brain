@@ -277,6 +277,39 @@ func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
 	}
 }
 
+func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
+	var brief map[string]any
+	for _, definition := range mcpToolDefinitions() {
+		if definition["name"] == "brain_brief" {
+			brief = definition
+			break
+		}
+	}
+	if brief == nil {
+		t.Fatal("brain_brief tool definition missing")
+	}
+	got, err := json.Marshal(brief)
+	if err != nil {
+		t.Fatalf("marshal brain_brief tool definition: %v", err)
+	}
+	want, err := os.ReadFile("testdata/mcp_brain_brief_tool.golden.json")
+	if err != nil {
+		t.Fatalf("read brain_brief tool definition golden: %v", err)
+	}
+	if !bytes.Equal(append(got, '\n'), want) {
+		t.Fatalf("brain_brief tool definition changed\n got: %s\nwant: %s", got, want)
+	}
+
+	// Exact local o200k_base evidence: this definition is 1,199 -> 747 bytes and
+	// 260 -> 162 tokens; the full tools/list result is 16,532 -> 16,080 bytes and
+	// 3,509 -> 3,411 tokens. The pinned tokenizer asset (SHA-256
+	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
+	// is deliberately not a production or test dependency.
+	if len(got) != 747 {
+		t.Fatalf("brain_brief tool definition bytes = %d, want 747", len(got))
+	}
+}
+
 func TestMCPBrainBriefDefaultLegacyAndVersionedCompactPackets(t *testing.T) {
 	fixture := newBrainBriefProfileFixture(t)
 	task := "ValidateToken PRIVATE_TASK_PAYLOAD"

@@ -274,7 +274,7 @@ func mcpToolDefinitions() []map[string]any {
 				"packet_format": map[string]any{
 					"type":        "string",
 					"title":       "packet_format",
-					"description": "Packet representation. Omit or use legacy_json for the existing pretty-JSON text response. compact_v1, compact_v2, and compact_v3 are experimental versioned agent packets. V2's hashed in-band legend defines ~=absent and ^=the previous record of the same opcode and column (interleaved other opcodes do not reset it); v3 preserves the exact projection, permits that exact-value reference in every column, uses the c3 marker, and encodes its SHA-256 footer as unpadded base64url. Each repeated family uses positional rows only when its canonical declaration plus rows are strictly smaller than keyed rows; ties stay keyed.",
+					"description": "Output format. Default: legacy_json (pretty JSON text). Use experimental compact_v3 for the smallest versioned agent packet; compact_v1 and compact_v2 remain supported.",
 					"enum":        []string{"legacy_json", "compact_v1", "compact_v2", "compact_v3"},
 					"default":     "legacy_json",
 				},
