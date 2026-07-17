@@ -69,6 +69,15 @@ func TestBrainManifestMigratesFlatExportAndPreservesSeed(t *testing.T) {
 
 func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	repoDir := t.TempDir()
+	for _, rel := range []string{"internal/auth/token.go", "internal/auth/token_test.go"} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir semantic fixture source: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("package auth\n"), 0o600); err != nil {
+			t.Fatalf("write semantic fixture source: %v", err)
+		}
+	}
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
