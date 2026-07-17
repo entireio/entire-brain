@@ -1332,6 +1332,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		brainBriefCapSemantic(&report.Semantic, briefOpts.limit)
 	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
+	brainBriefPromotePostIndexFiles(ctx, opts.Runner, status, task, &report)
 	brainBriefApplyLayoutGuidance(status.Repo.Root, task, &report)
 	if profile != nil {
 		likelyInputs := len(report.Semantic.Context.Symbols) + len(report.Semantic.Context.Relations) + len(report.Semantic.RuntimeTraces) + len(report.Semantic.Tests.Suggestions) + len(report.History.Matches) + len(report.Facts)
