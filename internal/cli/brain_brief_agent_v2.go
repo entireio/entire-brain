@@ -32,6 +32,7 @@ const (
 		"overflow=mandatory_error,optional_prefix_drop\n" +
 		"trust=locus_drift_marker_from_unfiltered_values,stale_locus_safe_values_only\n" +
 		"semantic_edges=typed_relation_and_runtime_trace_with_finite_confidence,relation_type_ascii_upper_identifier_max64,resolution_ascii_identifier_max64,edge_id_bounded_whitespace_free_stable_identifier_max1024,optional_observed_type_from_exact_generated_reason_prefix_using_relation_type_grammar,no_free_form_runtime_reason,no_span_provenance\n" +
+		"edge_id_privacy=pct_decode_once,backslash_as_slash,nested_pct_reject,decoded_grammar,ascii_casefold_components,absolute_slash_component_reject,drive=[A-Za-z]:/,home=..|~|$HOME|${HOME},schemes=file|http|https|mailto\n" +
 		"privacy=omit_structured_generated_at,host_roots,history_source_path,history_timestamp,session,checkpoint,transcript,provenance_anchor,raw_status_warnings,raw_live_warnings,raw_report_warnings_except_proposal_state_unavailable,free_form_runtime_reason;filter_new_edge_fields_symmetrically_for_paths,credentials,controls,unicode_whitespace,and_invalid_grammar;preserve_existing_v1_natural_language_verbatim\n"
 )
 
@@ -310,17 +311,12 @@ func brainBriefAgentV2SafeEdgeID(value string) string {
 		return ""
 	}
 	for index, ch := range value {
-		if index == 0 && ch != '_' && !unicode.IsLetter(ch) && !unicode.IsDigit(ch) {
+		if !brainBriefAgentV2EdgeIDRuneAllowed(ch, index == 0) {
 			return ""
 		}
-		if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
-			continue
-		}
-		switch ch {
-		case ':', '/', '.', '_', '-', '$', '#', '@', '+', '*', '=', '?', '!', '%', '&', '|', '^', '~', '(', ')', '[', ']', '{', '}', '<', '>', ',', '\'', '`':
-		default:
-			return ""
-		}
+	}
+	if !brainBriefAgentV2EdgeIDComponentsSafe(value) {
+		return ""
 	}
 	if !agentV1SafeStructuredValue(value) || sanitizeSemanticWarningText(value, "") == "<redacted>" {
 		return ""
@@ -332,6 +328,161 @@ func brainBriefAgentV2SafeEdgeID(value string) string {
 		return ""
 	}
 	return value
+}
+
+func brainBriefAgentV2EdgeIDRuneAllowed(ch rune, first bool) bool {
+	if first && ch != '_' && !unicode.IsLetter(ch) && !unicode.IsDigit(ch) {
+		return false
+	}
+	if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
+		return true
+	}
+	switch ch {
+	case ':', '/', '.', '_', '-', '$', '#', '@', '+', '*', '=', '?', '!', '%', '&', '|', '^', '~', '(', ')', '[', ']', '{', '}', '<', '>', ',', '\'', '`':
+		return true
+	default:
+		return false
+	}
+}
+
+// brainBriefAgentV2EdgeIDComponentsSafe inspects the decoded meaning of an
+// otherwise grammar-valid opaque edge ID. The original value remains the wire
+// value. One bounded percent-decoding pass prevents a harmless-looking prefix
+// from hiding a host path or URI, while a remaining escape after that pass
+// fails closed instead of allowing recursive encoding to bypass inspection.
+func brainBriefAgentV2EdgeIDComponentsSafe(value string) bool {
+	if len(value) == 0 || len(value) > brainBriefAgentV2MaxEdgeIDBytes {
+		return false
+	}
+	if strings.IndexByte(value, '%') < 0 && strings.IndexByte(value, '\\') < 0 {
+		return brainBriefAgentV2EdgeIDInspectionSafe(value)
+	}
+	var inspected [brainBriefAgentV2MaxEdgeIDBytes]byte
+	inspectedBytes := 0
+	for index := 0; index < len(value); {
+		decoded := value[index]
+		if decoded == '%' && index+2 < len(value) {
+			high, highOK := brainBriefAgentV2HexNibble(value[index+1])
+			low, lowOK := brainBriefAgentV2HexNibble(value[index+2])
+			if highOK && lowOK {
+				decoded = high<<4 | low
+				index += 3
+			} else {
+				index++
+			}
+		} else {
+			index++
+		}
+		if decoded == '\\' {
+			decoded = '/'
+		}
+		inspected[inspectedBytes] = decoded
+		inspectedBytes++
+	}
+
+	view := inspected[:inspectedBytes]
+	if !utf8.Valid(view) {
+		return false
+	}
+	for index := 0; index < len(view); {
+		if view[index] == '%' && index+2 < len(view) {
+			_, highOK := brainBriefAgentV2HexNibble(view[index+1])
+			_, lowOK := brainBriefAgentV2HexNibble(view[index+2])
+			if highOK && lowOK {
+				return false
+			}
+		}
+		ch, width := utf8.DecodeRune(view[index:])
+		if !brainBriefAgentV2EdgeIDRuneAllowed(ch, index == 0) {
+			return false
+		}
+		index += width
+	}
+
+	return brainBriefAgentV2EdgeIDInspectionSafe(view)
+}
+
+type brainBriefAgentV2EdgeIDView interface {
+	~string | ~[]byte
+}
+
+func brainBriefAgentV2EdgeIDInspectionSafe[T brainBriefAgentV2EdgeIDView](view T) bool {
+	for index := 0; index < len(view); index++ {
+		if !brainBriefAgentV2EdgeIDComponentStart(view, index) {
+			continue
+		}
+		if view[index] == '/' {
+			return false
+		}
+		if index+2 < len(view) && isASCIIAlpha(view[index]) && view[index+1] == ':' && view[index+2] == '/' {
+			return false
+		}
+		if brainBriefAgentV2FoldComponent(view, index, "..") ||
+			brainBriefAgentV2FoldComponent(view, index, "~") ||
+			brainBriefAgentV2FoldComponent(view, index, "$home") ||
+			brainBriefAgentV2FoldComponent(view, index, "${home}") {
+			return false
+		}
+		if brainBriefAgentV2FoldPrefix(view, index, "file:") ||
+			brainBriefAgentV2FoldPrefix(view, index, "http:") ||
+			brainBriefAgentV2FoldPrefix(view, index, "https:") ||
+			brainBriefAgentV2FoldPrefix(view, index, "mailto:") {
+			return false
+		}
+	}
+	return true
+}
+
+func brainBriefAgentV2HexNibble(value byte) (byte, bool) {
+	switch {
+	case value >= '0' && value <= '9':
+		return value - '0', true
+	case value >= 'a' && value <= 'f':
+		return value - 'a' + 10, true
+	case value >= 'A' && value <= 'F':
+		return value - 'A' + 10, true
+	default:
+		return 0, false
+	}
+}
+
+func brainBriefAgentV2EdgeIDComponentDelimiter(value byte) bool {
+	switch value {
+	case ':', '/', '$', '#', '@', '+', '*', '=', '?', '!', '%', '&', '|', '^', '~',
+		'(', ')', '[', ']', '{', '}', '<', '>', ',', '\'', '`':
+		return true
+	default:
+		return false
+	}
+}
+
+func brainBriefAgentV2EdgeIDComponentStart[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
+	return index == 0 || brainBriefAgentV2EdgeIDComponentDelimiter(value[index-1])
+}
+
+func brainBriefAgentV2EdgeIDComponentEnd[T brainBriefAgentV2EdgeIDView](value T, index int) bool {
+	return index == len(value) || brainBriefAgentV2EdgeIDComponentDelimiter(value[index])
+}
+
+func brainBriefAgentV2FoldPrefix[T brainBriefAgentV2EdgeIDView](value T, index int, prefix string) bool {
+	if index+len(prefix) > len(value) {
+		return false
+	}
+	for offset := 0; offset < len(prefix); offset++ {
+		got := value[index+offset]
+		if got >= 'A' && got <= 'Z' {
+			got += 'a' - 'A'
+		}
+		if got != prefix[offset] {
+			return false
+		}
+	}
+	return true
+}
+
+func brainBriefAgentV2FoldComponent[T brainBriefAgentV2EdgeIDView](value T, index int, component string) bool {
+	return brainBriefAgentV2FoldPrefix(value, index, component) &&
+		brainBriefAgentV2EdgeIDComponentEnd(value, index+len(component))
 }
 
 func finalizeBrainBriefAgentV2Body(bodyText string, bodyRecords int, emitted, available brainBriefAgentV2Counts) string {

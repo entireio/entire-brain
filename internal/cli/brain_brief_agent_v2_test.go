@@ -59,7 +59,7 @@ func TestBrainBriefAgentV2RetainsV1CoreAndAddsTypedEdges(t *testing.T) {
 }
 
 func TestBrainBriefAgentV2ConfigSchemaAndAlwaysOnlyPolicy(t *testing.T) {
-	const wantConfig = "sha256:d283ae61a8ad3ae34576b40124d8b2922aa5a12f7d5642a005ec83372d7d4511"
+	const wantConfig = "sha256:c501b81b4ac43eabf8859a4db3abf21ef1cc5a4a39c1c3a571b5ddd3a9cfaf80"
 	if got := brainBriefAgentV2ConfigIdentity(brainBriefDeliveryAlways, 8, 6); got != wantConfig {
 		t.Fatalf("agent_v2 config identity = %s, want frozen %s", got, wantConfig)
 	}
@@ -311,6 +311,162 @@ func TestBrainBriefAgentV2StructuredFieldCredentialLanguagesRemainRejected(t *te
 	}
 }
 
+func TestBrainBriefAgentV2EdgeIDComponentPrivacy(t *testing.T) {
+	boundaries := []struct {
+		label string
+		value string
+	}{
+		{label: "empty"},
+		{label: "oversized", value: strings.Repeat("a", brainBriefAgentV2MaxEdgeIDBytes+1)},
+	}
+	for _, boundary := range boundaries {
+		t.Run("reject_boundary_"+boundary.label, func(t *testing.T) {
+			if brainBriefAgentV2EdgeIDComponentsSafe(boundary.value) {
+				t.Errorf("decoded component inspection accepted %s input", boundary.label)
+			}
+		})
+	}
+	invalid := []string{
+		"sym:/Users/private/repo/file.go",
+		"sym:/home/private/repo/file.go",
+		"sym:/opt/private/repo/file.go",
+		"sym:/tmp/private/repo/file.go",
+		"sym:%2fvar/private/repo/file.go",
+		"sym:%5c%5cserver%5cprivate%5cfile.go",
+		"sym:C:/Users/private/repo/file.go",
+		"sym:../private/file.go",
+		"sym:~/private/file.go",
+		"sym:$HOME/private/file.go",
+		"sym:file:/Users/private/file.go",
+		"sym:mailto:user@example.com",
+		"sym:https:example.com/private",
+		"sym:https:%2F%2Fexample.com/private",
+		"sym:/uSeRs/private/file.go",
+		"sym:HtTpS:example.com/private",
+		"sym:mAiLtO:user@example.com",
+		`sym:c:\Users\private\file.go`,
+		"sym:%2fUsers/private/file.go",
+		"sym:%5CUsers%5cprivate%5cfile.go",
+		"sym:C:%5cUsers/private/file.go",
+		"sym:%2e%2e/private/file.go",
+		"sym:%7e/private/file.go",
+		"sym:%24HOME/private/file.go",
+		"sym:f%69le%3a%2fUsers/private/file.go",
+		"sym:%68%74%74%70%73%3A%2F%2Fexample.com/private",
+		"sym:https%3Aexample.com/private",
+		"sym:https:%5c%5cexample.com/private",
+		"sym:https:%252f%252fexample.com/private",
+		"sym:source%20prompt",
+		"sym:source%0aprompt",
+		"sym:source%E2%80%8Bprompt",
+		"sym:x@/Users/private/file.go",
+		"sym:x#https:example.com/private",
+	}
+	for _, value := range invalid {
+		t.Run("reject_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
+			if brainBriefAgentV2EdgeIDComponentsSafe(value) {
+				t.Errorf("decoded component inspection accepted %q", value)
+			}
+			if got := brainBriefAgentV2SafeEdgeID(value); got != "" {
+				t.Errorf("unsafe edge ID survived as %q", got)
+			}
+		})
+	}
+
+	valid := []string{
+		"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken",
+		"external:config:kubernetes/image/shared:latest",
+		"sym:source:003",
+		"repo:函数:验证",
+		"repo:Users/module",
+		"repo:home/module",
+		"repo:opt/module",
+		"repo:path/Users/module",
+		"repo:path/tmp/module",
+		"sym:auth..Validate",
+		"sym:~cache",
+		"sym:$HOMELESS",
+		"sym:fileHandler",
+		"sym:httpsClient",
+		"sym:mailtoParser",
+		"sym:C:version",
+		"sym:source%3A003",
+		"repo:%E5%87%BD%E6%95%B0",
+	}
+	for _, value := range valid {
+		t.Run("retain_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
+			if !brainBriefAgentV2EdgeIDComponentsSafe(value) {
+				t.Errorf("decoded component inspection rejected %q", value)
+			}
+			if got := brainBriefAgentV2SafeEdgeID(value); got != value {
+				t.Errorf("valid edge ID filtered to %q", got)
+			}
+		})
+	}
+	if allocations := testing.AllocsPerRun(1_000, func() {
+		_ = brainBriefAgentV2EdgeIDComponentsSafe(
+			"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken",
+		)
+	}); allocations != 0 {
+		t.Fatalf("plain edge-ID component inspection allocations = %.2f, want 0", allocations)
+	}
+	if allocations := testing.AllocsPerRun(1_000, func() {
+		_ = brainBriefAgentV2EdgeIDComponentsSafe("sym:source%3A003")
+	}); allocations != 0 {
+		t.Fatalf("percent-decoded edge-ID component inspection allocations = %.2f, want 0", allocations)
+	}
+}
+
+func TestBrainBriefAgentV2BuilderOmitsPrefixedPrivateEdgeIDs(t *testing.T) {
+	unsafe := []string{
+		"sym:/Users/private/repo/file.go",
+		"sym:/home/private/repo/file.go",
+		"sym:/opt/private/repo/file.go",
+		"sym:C:/Users/private/repo/file.go",
+		"sym:../private/file.go",
+		"sym:~/private/file.go",
+		"sym:$HOME/private/file.go",
+		"sym:file:/Users/private/file.go",
+		"sym:mailto:user@example.com",
+		"sym:https:example.com/private",
+		"sym:https:%2F%2Fexample.com/private",
+	}
+	report := newBrainBriefPacketMeasurementReport()
+	report.Semantic.Context.Relations = make([]semanticRecord, len(unsafe))
+	report.Semantic.RuntimeTraces = nil
+	for index, value := range unsafe {
+		report.Semantic.Context.Relations[index] = semanticRecord{
+			Type:       "CALLS",
+			FromID:     value,
+			ToID:       fmt.Sprintf("sym:safe:%02d", index),
+			Resolution: "exact",
+			Confidence: 0.5,
+		}
+	}
+	projection, err := buildBrainBriefAgentV2(report, brainBriefDeliveryAlways, 8)
+	if err != nil {
+		t.Fatalf("build agent_v2: %v", err)
+	}
+	if err := validateBrainBriefAgentV2Integrity(projection.packet); err != nil {
+		t.Fatalf("agent_v2 integrity: %v", err)
+	}
+	relations := agentV1RecordsByTag(parseAgentV2Records(t, projection.packet), "semantic_relation")
+	if len(relations) != len(unsafe) {
+		t.Fatalf("semantic relation records = %d, want %d", len(relations), len(unsafe))
+	}
+	for index, relation := range relations {
+		if agentV2HasField(relation, "from") {
+			t.Errorf("unsafe relation[%d].from survived", index)
+		}
+		if got := agentV2StringField(t, relation, "to"); got != fmt.Sprintf("sym:safe:%02d", index) {
+			t.Errorf("safe relation[%d].to = %q", index, got)
+		}
+		if strings.Contains(projection.packet, unsafe[index]) {
+			t.Errorf("packet leaked unsafe edge ID %q", unsafe[index])
+		}
+	}
+}
+
 func TestBrainBriefAgentV2RejectsNonFiniteNumbersBeforeWrite(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -554,6 +710,53 @@ func TestBrainBriefAgentV2IntegrityRejectsTamperingAndRecomputedInvalidConfig(t 
 	}
 }
 
+func TestBrainBriefAgentV2IntegrityRejectsRecomputedPrefixedPrivateEdgeIDs(t *testing.T) {
+	report := newBrainBriefPacketMeasurementReport()
+	projection, err := buildBrainBriefAgentV2(report, brainBriefDeliveryAlways, 8)
+	if err != nil {
+		t.Fatalf("build agent_v2: %v", err)
+	}
+	unsafe := []string{
+		"sym:/Users/private/repo/file.go",
+		"sym:/home/private/repo/file.go",
+		"sym:/opt/private/repo/file.go",
+		"sym:C:/Users/private/repo/file.go",
+		"sym:../private/file.go",
+		"sym:~/private/file.go",
+		"sym:$HOME/private/file.go",
+		"sym:file:/Users/private/file.go",
+		"sym:mailto:user@example.com",
+		"sym:https:example.com/private",
+		"sym:https:%2F%2Fexample.com/private",
+	}
+	for _, value := range unsafe {
+		t.Run("unsafe_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
+			tampered := rewriteAgentV2StringFieldForTest(
+				t, projection.packet, projection.counts, "semantic_relation", "from", value,
+			)
+			err := validateBrainBriefAgentV2Integrity(tampered)
+			if err == nil || !strings.Contains(err.Error(), "semantic_relation.from is unsafe") {
+				t.Fatalf("recomputed unsafe semantic_relation.from error = %v", err)
+			}
+		})
+	}
+	for _, value := range []string{
+		"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken",
+		"external:config:kubernetes/image/shared:latest",
+		"sym:source%3A003",
+		"repo:%E5%87%BD%E6%95%B0",
+	} {
+		t.Run("valid_"+strings.ReplaceAll(value, "/", "_"), func(t *testing.T) {
+			recomputed := rewriteAgentV2StringFieldForTest(
+				t, projection.packet, projection.counts, "semantic_relation", "from", value,
+			)
+			if err := validateBrainBriefAgentV2Integrity(recomputed); err != nil {
+				t.Fatalf("recomputed valid semantic_relation.from %q: %v", value, err)
+			}
+		})
+	}
+}
+
 func TestBrainBriefAgentV2SQLitePersistsResolutionAndEmitsTypedEvidence(t *testing.T) {
 	const (
 		runID       = "gh/example/repo:ts:flow.ts:function:run"
@@ -707,7 +910,7 @@ func TestBrainBriefAgentV2RichMeasurementAgainstFrozenSixArmBaseline(t *testing.
 	v2Utility := measureBrainBriefPacketUtility(v2.packet)
 	const wantUtility = "evidence_fidelity=10/10@3500bp;trust_signal_retention=4/7@2500bp;navigation_actionability=9/9@2500bp;task_current_state=3/3@1500bp;packet_utility_score_bp=8928"
 	wantMetrics := brainBriefPacketMeasurementMetrics{
-		SHA256: "sha256:42bf05fc7efa9b1bb1c6e1bd81dec232637da59d22d4aa2930795f32821d34ef", Bytes: 2866, UnicodeRunes: 2866, Lexemes: 584,
+		SHA256: "sha256:5014f74d305e45145e6469ef9ac86ddfc9c9b26b5dff552aa930e3c3f9558f47", Bytes: 2866, UnicodeRunes: 2866, Lexemes: 584,
 		LexemeMetric: brainBriefPacketMeasurementLexemeVersion,
 	}
 	if v2Metrics != wantMetrics {
