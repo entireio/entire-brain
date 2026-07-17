@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
@@ -21,15 +23,46 @@ func TestScanHistoryFileWithContentSHAMatchesHashThenScan(t *testing.T) {
   ]
 }`
 	cases := []struct {
-		name    string
-		ext     string
-		content string
+		name        string
+		ext         string
+		content     string
+		want        []historyRecord
+		wantScanErr bool
 	}{
-		{"jsonl", ".jsonl", `{"type":"agent_message","message":"Decision: retain JSONL parsing."}` + "\n"},
-		{"document", ".json", document},
-		{"markdown", ".md", "Decision: retain markdown parsing.\n"},
-		{"document-shaped fallback", ".md", "{\nDecision: retain bounded fallback parsing.\n"},
-		{"oversized line", ".txt", "Decision: " + strings.Repeat("x", historyMaxLineBytes+1) + "\n"},
+		{
+			name:    "jsonl",
+			ext:     ".jsonl",
+			content: `{"type":"agent_message","message":"Decision: retain JSONL parsing."}` + "\n",
+			want: []historyRecord{{
+				ID: "history:e79c56dc0ff031d309e52a67", Kind: "decision", Path: "session.jsonl", Line: 1,
+				Summary: "Decision: retain JSONL parsing.", Terms: []string{"decision"},
+			}},
+		},
+		{
+			name: "document", ext: ".json", content: document,
+			want: []historyRecord{{
+				ID: "history:3e8aa748e5177ac7374fab87", Kind: "decision", Path: "session.json", Line: 3,
+				Summary: "Decision: retain document parsing.", Terms: []string{"decision"},
+			}},
+		},
+		{
+			name: "raw markdown", ext: ".md", content: "Decision: retain markdown parsing.\n",
+			want: []historyRecord{{
+				ID: "history:182c14090a163962f4906bc0", Kind: "decision", Path: "session.md", Line: 1,
+				Summary: "Decision: retain markdown parsing.", Terms: []string{"decision"},
+			}},
+		},
+		{
+			name: "document-shaped fallback", ext: ".md", content: "{\nDecision: retain bounded fallback parsing.\n",
+			want: []historyRecord{{
+				ID: "history:68d9b55402aa6df95a7f8aac", Kind: "decision", Path: "session.md", Line: 2,
+				Summary: "Decision: retain bounded fallback parsing.", Terms: []string{"decision", "fallback"},
+			}},
+		},
+		{
+			name: "oversized line", ext: ".txt", content: "Decision: " + strings.Repeat("x", historyMaxLineBytes+1) + "\n",
+			wantScanErr: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -42,22 +75,59 @@ func TestScanHistoryFileWithContentSHAMatchesHashThenScan(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantSHA, err := historyTranscriptContentSHA(path, info, make([]byte, 64*1024))
-			if err != nil {
-				t.Fatalf("reference hash: %v", err)
-			}
-			wantRecords, wantErr := scanHistoryFileHashThenScanReference(dir, path)
 			gotRecords, gotSHA, gotErr := scanHistoryFileWithContentSHA(dir, path, info)
+			sum := sha256.Sum256([]byte(tc.content))
+			wantSHA := "sha256:" + hex.EncodeToString(sum[:])
 			if gotSHA != wantSHA {
 				t.Fatalf("SHA = %q, want %q", gotSHA, wantSHA)
 			}
-			if errorText(gotErr) != errorText(wantErr) {
-				t.Fatalf("scan error = %q, want %q", errorText(gotErr), errorText(wantErr))
+			if tc.wantScanErr {
+				if gotErr == nil || !strings.Contains(gotErr.Error(), "token too long") {
+					t.Fatalf("oversized scan error = %v, want token-too-long error", gotErr)
+				}
+			} else if gotErr != nil {
+				t.Fatalf("scan error: %v", gotErr)
 			}
-			if !reflect.DeepEqual(gotRecords, wantRecords) {
-				t.Fatalf("records changed\ngot:  %#v\nwant: %#v", gotRecords, wantRecords)
+			if !reflect.DeepEqual(gotRecords, tc.want) {
+				t.Fatalf("records changed\ngot:  %#v\nwant: %#v", gotRecords, tc.want)
 			}
 		})
+	}
+}
+
+func TestHistoryTranscriptAggregateFingerprintGolden(t *testing.T) {
+	dir := t.TempDir()
+	document := "{\n  \"messages\": [\n    {\"info\":{\"role\":\"assistant\"},\"parts\":[{\"type\":\"text\",\"text\":\"Decision: retain document parsing.\"}]}\n  ]\n}"
+	contents := map[string]string{
+		"a.jsonl": `{"type":"agent_message","message":"Decision: retain JSONL parsing."}` + "\n",
+		"b.json":  document,
+		"c.md":    "Decision: retain markdown parsing.\n",
+		"d.md":    "{\nDecision: retain bounded fallback parsing.\n",
+	}
+	for name, content := range contents {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var warnings []string
+	files, err := collectHistorySessionFiles(dir, &warnings)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("collect: warnings=%v err=%v", warnings, err)
+	}
+	for _, file := range files {
+		rel, err := filepath.Rel(dir, file.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256([]byte(contents[filepath.ToSlash(rel)]))
+		wantSHA := "sha256:" + hex.EncodeToString(sum[:])
+		if file.ContentSHA256 != wantSHA {
+			t.Fatalf("%s SHA = %q, want %q", rel, file.ContentSHA256, wantSHA)
+		}
+	}
+	const want = "sha256:c7154db7e49cc647a5253aae39dc8ee1c38c07c11e2aa8e8a9975e63dc097332"
+	if got := historyTranscriptFilesFingerprint(dir, files); got != want {
+		t.Fatalf("aggregate fingerprint = %q, want %q", got, want)
 	}
 }
 

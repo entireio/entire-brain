@@ -49,7 +49,10 @@ const (
 	// v5: bind cache reuse to transcript content, not only size/mtime. This keeps
 	// same-path rewrites (including restored mtimes) from resurrecting stale
 	// parsed records after freshness detection triggers a rebuild.
-	historyScanCacheVersion = 5
+	// v6: cache raw scanner records before branch inference. Branch is manifest
+	// context and must be re-applied on every build; v5 entries may already hold
+	// an inferred branch and cannot be distinguished from an explicit one.
+	historyScanCacheVersion = 6
 )
 
 type historySourceManifest struct {
@@ -298,7 +301,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			return index, nil, err
 		}
 	} else {
-		// Preserve v5's hash-only cache-hit path exactly. Content SHA remains the
+		// Preserve v6's hash-only cache-hit path exactly. Content SHA remains the
 		// authority, including for same-size/restored-mtime rewrites.
 		hashed, err := collectHistorySessionFiles(sessionsRoot, &index.Warnings)
 		if err != nil {
@@ -312,6 +315,11 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
 	manifest, _ := loadBrainManifest(outputDir)
 	branchByPath := historyBranchByTranscriptPath(manifest)
+	// On a cache-empty build, total is the metadata-eligible candidate set.
+	// Every candidate advances progress exactly once even when a later open or
+	// identity check fails. Only complete identity-stable reads are fingerprinted;
+	// only clean parses are cached and indexed. Walk warnings retain walk order,
+	// while per-file failures follow this recency-sorted scan order.
 	fingerprintedFiles := make([]historySessionFile, 0, len(files))
 
 	total := len(files)
@@ -333,8 +341,21 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			if hasCached && cached.ContentSHA256 != "" && cached.ContentSHA256 == file.ContentSHA256 {
 				records = cached.Records
 			} else {
-				scanned, scanErr := scanHistoryFile(outputDir, file.Path)
-				if scanErr != nil {
+				scanned, scannedSHA256, scanErr := scanHistoryFileWithContentSHA(outputDir, file.Path, nil)
+				switch {
+				case scannedSHA256 == "":
+					index.Warnings = append(index.Warnings, historyScanFingerprintError(file.Path, scanErr).Error())
+					if progress != nil {
+						progress(i+1, total)
+					}
+					continue
+				case scannedSHA256 != file.ContentSHA256:
+					index.Warnings = append(index.Warnings, fmt.Sprintf("history transcript changed between fingerprint and scan: %s", file.Path))
+					if progress != nil {
+						progress(i+1, total)
+					}
+					continue
+				case scanErr != nil:
 					index.Warnings = append(index.Warnings, scanErr.Error())
 					if progress != nil {
 						progress(i+1, total)
@@ -348,7 +369,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			// transcript through one bounded stream.
 			scanned, contentSHA256, scanErr := scanHistoryFileWithContentSHA(outputDir, file.Path, file.Info)
 			if contentSHA256 == "" {
-				index.Warnings = append(index.Warnings, scanErr.Error())
+				index.Warnings = append(index.Warnings, historyScanFingerprintError(file.Path, scanErr).Error())
 				if progress != nil {
 					progress(i+1, total)
 				}
@@ -367,13 +388,14 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			}
 			records = scanned
 		}
-		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		// Only files that scanned cleanly (or were reused) are cached; a file
-		// that errored is left out so the next refresh retries it.
+		// that errored is left out so the next refresh retries it. Branch is
+		// build context, so v6 stores the raw records and annotates a copy below.
 		newCache.Files[rel] = historyScanCacheEntry{
 			ContentSHA256: file.ContentSHA256,
 			Records:       records,
 		}
+		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 
 		for _, record := range records {
 			if record.Kind == "decision" {
@@ -423,6 +445,13 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		}
 	}
 	return index, source, nil
+}
+
+func historyScanFingerprintError(path string, err error) error {
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("history transcript scan returned no content fingerprint: %s", path)
 }
 
 func historyBranchByTranscriptPath(manifest *exportManifest) map[string]string {
