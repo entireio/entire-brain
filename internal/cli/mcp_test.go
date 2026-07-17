@@ -86,6 +86,39 @@ func TestMCPBrainReviewToolDefinitionGolden(t *testing.T) {
 	}
 }
 
+func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
+	var review map[string]any
+	for _, definition := range mcpToolDefinitions() {
+		if definition["name"] == "brain_workspace_review" {
+			review = definition
+			break
+		}
+	}
+	if review == nil {
+		t.Fatal("brain_workspace_review tool definition missing")
+	}
+	got, err := json.Marshal(review)
+	if err != nil {
+		t.Fatalf("marshal brain_workspace_review tool definition: %v", err)
+	}
+	want, err := os.ReadFile("testdata/mcp_brain_workspace_review_tool.golden.json")
+	if err != nil {
+		t.Fatalf("read brain_workspace_review tool definition golden: %v", err)
+	}
+	if !bytes.Equal(append(got, '\n'), want) {
+		t.Fatalf("brain_workspace_review tool definition changed\n got: %s\nwant: %s", got, want)
+	}
+
+	// Exact local o200k_base evidence: this definition is 1,060 -> 907 bytes
+	// and 226 -> 186 tokens; the full tools/list result is 15,864 -> 15,711
+	// bytes and 3,354 -> 3,314 tokens. The pinned tokenizer asset (SHA-256
+	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
+	// is deliberately not a production or test dependency.
+	if len(got) != 907 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 907", len(got))
+	}
+}
+
 func TestMCPToolsListIncludesQMDRetrievalSurface(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
