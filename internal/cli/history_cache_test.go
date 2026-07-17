@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestHistoryIndexReusesScanCache verifies v5 content-authorized reuse,
+// TestHistoryIndexReusesScanCache verifies v6 content-authorized reuse,
 // including files whose mtime changes without a content change.
 func TestHistoryIndexReusesScanCache(t *testing.T) {
 	repoDir := t.TempDir()
@@ -117,15 +117,19 @@ func cacheContainsRecordID(cache historyScanCache, id string) bool {
 	return false
 }
 
-// TestHistoryScanCacheVersionMismatchIgnored ensures a cache written by a
-// different extraction version is discarded rather than trusted.
-func TestHistoryScanCacheVersionMismatchIgnored(t *testing.T) {
+// TestHistoryScanCacheV5AnnotatedEntriesIgnored ensures old entries whose
+// Branch may already contain manifest inference cannot masquerade as v6 raw
+// scanner records.
+func TestHistoryScanCacheV5AnnotatedEntriesIgnored(t *testing.T) {
+	if historyScanCacheVersion != 6 {
+		t.Fatalf("test pins the v5 -> v6 raw-record migration; version = %d", historyScanCacheVersion)
+	}
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, historyDirName), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	stale := historyScanCache{Version: historyScanCacheVersion + 1, Files: map[string]historyScanCacheEntry{
-		"sessions/main/old.jsonl": {Records: []historyRecord{{ID: "stale"}}},
+	stale := historyScanCache{Version: 5, Files: map[string]historyScanCacheEntry{
+		"sessions/main/old.jsonl": {Records: []historyRecord{{ID: "stale", Branch: "main"}}},
 	}}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
