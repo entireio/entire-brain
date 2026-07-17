@@ -1049,7 +1049,16 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 	}
 }
 
+type brainBriefRawHistoryMatcher func(string, string, []brainTextMatch, int, *brainBriefProfileRawHistory) ([]brainTextMatch, error)
+
 func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefOpts brainBriefOptions, task string) error {
+	return runBrainBriefWithRawHistoryMatcher(ctx, cmd, opts, briefOpts, task, brainBriefRawHistoryMatchesObserved)
+}
+
+// runBrainBriefWithRawHistoryMatcher keeps the complete packet-building path
+// measurable against the retained multi-scan reference. Product callers use
+// runBrainBrief above, which always supplies the default matcher.
+func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command, opts Options, briefOpts brainBriefOptions, task string, rawHistoryMatcher brainBriefRawHistoryMatcher) error {
 	if briefOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
@@ -1235,7 +1244,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			if profile != nil {
 				rawProfile = &profile.History.RawFallback
 			}
-			rawMatches, rawErr := brainBriefRawHistoryMatchesObserved(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)
+			rawMatches, rawErr := rawHistoryMatcher(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)
 			if rawErr != nil {
 				report.Warnings = append(report.Warnings, "raw history fallback unavailable: "+rawErr.Error())
 			}
@@ -2702,6 +2711,17 @@ func brainBriefRawHistoryMatches(brainDir, task string, existing []brainTextMatc
 }
 
 func brainBriefRawHistoryMatchesObserved(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
+	if profile == nil {
+		return brainBriefRawHistoryMatchesSingleScan(brainDir, task, existing, limit)
+	}
+	return brainBriefRawHistoryMatchesMultiScan(brainDir, task, existing, limit, profile)
+}
+
+// brainBriefRawHistoryMatchesMultiScan preserves the observation contract for
+// opt-in profiling: each query has its own measured filesystem walk and byte
+// count. The default product path uses brainBriefRawHistoryMatchesSingleScan,
+// which produces the same ordered matches with one walk.
+func brainBriefRawHistoryMatchesMultiScan(brainDir, task string, existing []brainTextMatch, limit int, profile *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
 	var profileStarted time.Time
 	if profile != nil {
 		profile.Invoked = true
@@ -2783,6 +2803,156 @@ func brainBriefRawHistoryMatchesObserved(brainDir, task string, existing []brain
 		return matches, nil
 	}
 	return nil, firstErr
+}
+
+type brainBriefRawHistoryQuery struct {
+	original   string
+	lower      string
+	normalized string
+	matches    []brainTextMatch
+}
+
+// brainBriefRawHistoryMatchesSingleScan evaluates the same prioritized raw
+// history queries in a single deterministic WalkDir pass. The legacy path
+// walks the identical files up to eight times. Collecting the first limit hits
+// for every query is sufficient to replay its exact behavior afterward:
+// query n can request at most limit-len(matches) hits, and the legacy scanner
+// stops before deduplication at precisely that prefix length.
+func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []brainTextMatch, limit int) ([]brainTextMatch, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	matchCapacity := min(limit, brainInspectHistoryMaxHits)
+	queryStrings := brainBriefRawHistoryQueries(task)
+	if len(queryStrings) == 0 {
+		return nil, nil
+	}
+	queries := make([]brainBriefRawHistoryQuery, 0, len(queryStrings))
+	for _, query := range queryStrings {
+		lower := strings.ToLower(strings.TrimSpace(query))
+		if lower == "" {
+			continue
+		}
+		queries = append(queries, brainBriefRawHistoryQuery{
+			original:   query,
+			lower:      lower,
+			normalized: normalizeHistorySearchText(lower),
+			matches:    make([]brainTextMatch, 0, matchCapacity),
+		})
+	}
+	if len(queries) == 0 {
+		return nil, nil
+	}
+
+	fullQueries := 0
+	scannedFiles := 0
+	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name == semanticDirName || name == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if fullQueries == len(queries) {
+			return filepath.SkipAll
+		}
+		if scannedFiles >= brainInspectHistoryMaxFiles {
+			return filepath.SkipAll
+		}
+		ext := filepath.Ext(path)
+		if ext != ".md" && ext != ".json" && ext != ".jsonl" && ext != ".txt" {
+			return nil
+		}
+		rel, _ := filepath.Rel(brainDir, path)
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == historyIndexPath || relSlash == "manifest.json" || strings.HasPrefix(relSlash, "seed/") {
+			return nil
+		}
+		scannedFiles++
+		f, openErr := os.Open(path)
+		if openErr != nil {
+			return nil
+		}
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 0, 64*1024), brainInspectHistoryMaxLine)
+		lineNo := 0
+		for scanner.Scan() {
+			lineNo++
+			line := scanner.Text()
+			lowerLine := strings.ToLower(line)
+			normalizedLine := ""
+			normalized := false
+			for i := range queries {
+				query := &queries[i]
+				if len(query.matches) >= limit {
+					continue
+				}
+				matched := strings.Contains(lowerLine, query.lower)
+				if !matched && query.normalized != "" {
+					if !normalized {
+						normalizedLine = normalizeHistorySearchText(lowerLine)
+						normalized = true
+					}
+					matched = strings.Contains(normalizedLine, query.normalized)
+				}
+				if !matched {
+					continue
+				}
+				match := brainTextMatch{
+					Path:    relSlash,
+					Line:    lineNo,
+					Excerpt: historyRawLineExcerpt(line, query.original),
+				}
+				if ts, ok := historyRecordTimestamp(relSlash); ok {
+					match.Timestamp = ts.Format(time.RFC3339)
+				}
+				query.matches = append(query.matches, match)
+				if len(query.matches) == limit {
+					fullQueries++
+				}
+			}
+			if fullQueries == len(queries) {
+				break
+			}
+		}
+		_ = f.Close()
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{}, len(existing)+matchCapacity)
+	for _, match := range existing {
+		seen[brainBriefHistoryMatchKey(match)] = struct{}{}
+	}
+	matches := make([]brainTextMatch, 0, matchCapacity)
+	for _, query := range queries {
+		remaining := limit - len(matches)
+		if remaining <= 0 {
+			break
+		}
+		candidates := query.matches
+		if len(candidates) > remaining {
+			candidates = candidates[:remaining]
+		}
+		for _, match := range candidates {
+			key := brainBriefHistoryMatchKey(match)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			matches = append(matches, match)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	return matches, nil
 }
 
 func brainBriefRawHistoryQueries(task string) []string {
