@@ -1036,6 +1036,71 @@ func TestBrainBriefNestedJavaScriptTestsSkipSymlinkedDirectory(t *testing.T) {
 	}
 }
 
+func TestBrainBriefNestedJavaScriptTestsSkipInsideSymlinks(t *testing.T) {
+	repoDir := t.TempDir()
+	realDir := filepath.Join(repoDir, "src", "shared-tests")
+	realPath := filepath.Join(realDir, "token.test.ts")
+	if err := os.MkdirAll(realDir, 0o700); err != nil {
+		t.Fatalf("mkdir real test dir: %v", err)
+	}
+	if err := os.WriteFile(realPath, []byte("test('inside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write real test: %v", err)
+	}
+	linkDir := filepath.Join(repoDir, "src", "auth", "__tests__")
+	if err := os.MkdirAll(filepath.Dir(linkDir), 0o700); err != nil {
+		t.Fatalf("mkdir link parent: %v", err)
+	}
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil)
+	if len(tests) != 0 {
+		t.Fatalf("test under an inside symlinked directory should not be surfaced: %+v", tests)
+	}
+}
+
+func TestBrainBriefSiblingTestValidationDoesNotPersistAcrossCalls(t *testing.T) {
+	repoDir := t.TempDir()
+	testPath := filepath.Join(repoDir, "src", "auth", "token.test.ts")
+	if err := os.MkdirAll(filepath.Dir(testPath), 0o700); err != nil {
+		t.Fatalf("mkdir test dir: %v", err)
+	}
+	writeTest := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(testPath, []byte(body), 0o600); err != nil {
+			t.Fatalf("write test: %v", err)
+		}
+	}
+	want := []string{"src/auth/token.test.ts"}
+	writeTest("test('first', () => {})\n")
+	if got := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil); !slices.Equal(got, want) {
+		t.Fatalf("initial regular test mismatch: got %+v want %+v", got, want)
+	}
+
+	if err := os.Remove(testPath); err != nil {
+		t.Fatalf("remove regular test: %v", err)
+	}
+	outsidePath := filepath.Join(t.TempDir(), "token.test.ts")
+	if err := os.WriteFile(outsidePath, []byte("test('outside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write outside test: %v", err)
+	}
+	if err := os.Symlink(outsidePath, testPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if got := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil); len(got) != 0 {
+		t.Fatalf("replacement symlink reused a stale positive result: %+v", got)
+	}
+
+	if err := os.Remove(testPath); err != nil {
+		t.Fatalf("remove symlink: %v", err)
+	}
+	writeTest("test('restored', () => {})\n")
+	if got := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil); !slices.Equal(got, want) {
+		t.Fatalf("restored regular test reused a stale negative result: got %+v want %+v", got, want)
+	}
+}
+
 func TestBrainBriefAddSiblingTestFilesKeepsSixFileCap(t *testing.T) {
 	repoDir := t.TempDir()
 	testPath := filepath.Join(repoDir, "src", "target.test.ts")
