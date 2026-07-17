@@ -12,9 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestHistoryIndexReusesScanCache verifies the per-file scan cache is used on
-// the second build (so unchanged session files are not re-parsed) and is
-// invalidated when a file's size/mtime changes.
+// TestHistoryIndexReusesScanCache verifies v5 content-authorized reuse,
+// including files whose mtime changes without a content change.
 func TestHistoryIndexReusesScanCache(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -76,7 +75,21 @@ func TestHistoryIndexReusesScanCache(t *testing.T) {
 		t.Fatalf("second build did not reuse cache: %+v", reused.Files)
 	}
 
-	// Changing the file (size + mtime) must invalidate the entry and re-scan.
+	// An mtime-only change still has the same authoritative digest and must
+	// preserve cached records.
+	mtimeOnly := now.Add(30 * time.Minute)
+	if err := os.Chtimes(sessionPath, mtimeOnly, mtimeOnly); err != nil {
+		t.Fatalf("mtime-only change: %v", err)
+	}
+	if _, _, err := buildBrainHistoryIndex(storage.BrainDir, now, nil); err != nil {
+		t.Fatalf("mtime-only build: %v", err)
+	}
+	mtimeReused := loadHistoryScanCache(storage.BrainDir)
+	if !cacheContainsRecordID(mtimeReused, "sentinel") {
+		t.Fatalf("mtime-only change invalidated content cache: %+v", mtimeReused.Files)
+	}
+
+	// Changing the content (size + mtime) must invalidate the entry and re-scan.
 	if err := os.WriteFile(sessionPath, []byte(line+line), 0o600); err != nil {
 		t.Fatalf("rewrite session: %v", err)
 	}
