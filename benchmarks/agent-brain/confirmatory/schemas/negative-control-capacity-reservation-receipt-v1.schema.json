@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/negative-control-capacity-reservation-receipt-v1.json",
+  "title": "Pending non-authorizing negative-control APFS capacity-reservation receipt shape v1",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "utc_second": {
+      "type": "string",
+      "pattern": "^(?:[0-9]{4})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "authority",
+    "bindings",
+    "budget",
+    "observation",
+    "profile",
+    "receipt_sha256",
+    "reservation",
+    "schema_version",
+    "status"
+  ],
+  "properties": {
+    "authority": {
+      "const": {
+        "aggregate_receipt_authority": false,
+        "benchmark_execution": "not_authorized_by_this_receipt",
+        "candidate_execution": "not_authorized_by_this_receipt",
+        "execution_authority": false,
+        "model_provider_execution": "not_authorized_by_this_receipt",
+        "paid_execution": "not_authorized_by_this_receipt",
+        "reservation_authority": false
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "atomic_consumption_genesis_sha256",
+        "execution_contract_artifact_sha256",
+        "execution_contract_sha256",
+        "journal_head_sha256",
+        "run_id",
+        "run_identity_sha256",
+        "run_storage_contract_sha256"
+      ],
+      "properties": {
+        "atomic_consumption_genesis_sha256": {
+          "type": "null"
+        },
+        "execution_contract_artifact_sha256": {
+          "const": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e"
+        },
+        "execution_contract_sha256": {
+          "const": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef"
+        },
+        "journal_head_sha256": {
+          "type": "null"
+        },
+        "run_id": {
+          "type": "null"
+        },
+        "run_identity_sha256": {
+          "type": "null"
+        },
+        "run_storage_contract_sha256": {
+          "type": "null"
+        }
+      }
+    },
+    "budget": {
+      "const": {
+        "arithmetic": "minimum_free_disk_before_staging_bytes_equals_max_total_staging_bytes_plus_minimum_free_disk_reserve_bytes",
+        "max_total_staging_bytes": 8589934592,
+        "minimum_free_disk_before_staging_bytes": 17179869184,
+        "minimum_free_disk_reserve_bytes": 8589934592
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available_capacity_bytes",
+        "available_capacity_for_important_usage_bytes",
+        "capacity_observation_file_sha256",
+        "filesystem_type",
+        "observed_at",
+        "trusted_observer_attestation_sha256",
+        "volume_identity_sha256"
+      ],
+      "properties": {
+        "available_capacity_bytes": {
+          "type": "null"
+        },
+        "available_capacity_for_important_usage_bytes": {
+          "type": "null"
+        },
+        "capacity_observation_file_sha256": {
+          "type": "null"
+        },
+        "filesystem_type": {
+          "type": "null"
+        },
+        "observed_at": {
+          "type": "null"
+        },
+        "trusted_observer_attestation_sha256": {
+          "type": "null"
+        },
+        "volume_identity_sha256": {
+          "type": "null"
+        }
+      }
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_capacity_reservation_receipt_v1"
+    },
+    "receipt_sha256": {
+      "type": "null"
+    },
+    "reservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter_implementation_sha256",
+        "accounting_profile",
+        "created_at",
+        "ftruncate_only",
+        "independent_hold_requires_preflight_bytes",
+        "logical_length_only",
+        "mechanism_profile",
+        "physical_allocation_attestation_sha256",
+        "post_effect_free_bytes",
+        "reservation_remaining_bytes",
+        "reservation_id",
+        "staging_actual_bytes",
+        "state"
+      ],
+      "properties": {
+        "adapter_implementation_sha256": {
+          "type": "null"
+        },
+        "accounting_profile": {
+          "type": "null"
+        },
+        "created_at": {
+          "type": "null"
+        },
+        "ftruncate_only": {
+          "const": false
+        },
+        "independent_hold_requires_preflight_bytes": {
+          "const": 25769803776
+        },
+        "logical_length_only": {
+          "const": false
+        },
+        "mechanism_profile": {
+          "type": "null"
+        },
+        "physical_allocation_attestation_sha256": {
+          "type": "null"
+        },
+        "post_effect_free_bytes": {
+          "type": "null"
+        },
+        "reservation_id": {
+          "type": "null"
+        },
+        "reservation_remaining_bytes": {
+          "type": "null"
+        },
+        "staging_actual_bytes": {
+          "type": "null"
+        },
+        "state": {
+          "const": "absent_mechanism_unresolved"
+        }
+      }
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "status": {
+      "const": "capacity_reservation_receipt_shape_frozen_mechanism_unresolved_execution_forbidden"
+    }
+  }
+}

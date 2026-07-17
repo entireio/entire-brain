@@ -1,0 +1,592 @@
+{
+  "authority": {
+    "atomic_consumption": false,
+    "benchmark_execution": "forbidden",
+    "cache_staging": "forbidden",
+    "candidate_execution": "forbidden",
+    "capacity_reservation": "forbidden",
+    "cleanup": "forbidden",
+    "execution_authority": false,
+    "filesystem_mutation": "forbidden",
+    "journal_persistence": "forbidden",
+    "model_provider_execution": "forbidden",
+    "network_access": "forbidden",
+    "owner_approval": false,
+    "paid_execution": "forbidden",
+    "recovery": "forbidden",
+    "run_storage_mutation": "forbidden",
+    "worktree_creation": "forbidden"
+  },
+  "component_bindings": [
+    {
+      "artifact_file": "development-task-negative-control-execution-contract-v1.json",
+      "artifact_sha256": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e",
+      "role": "execution_contract"
+    },
+    {
+      "artifact_file": "negative_control_execution_contract_v1.py",
+      "artifact_sha256": "f3cfb82978b0ce98d17999ef4cb4f4089a425bb528ece4ff53b61a03a4344bcd",
+      "role": "execution_contract_builder"
+    },
+    {
+      "artifact_file": "negative-control-execution-contract-v1.schema.json",
+      "artifact_sha256": "dbcb95119feeda4c436e90d8162ac0498577454ca9ccaab7a8254d55d90359f9",
+      "role": "execution_contract_schema"
+    },
+    {
+      "artifact_file": "development-task-negative-control-run-plan-v2.json",
+      "artifact_sha256": "f55b6e22a25daf8016305304adf3b7ac8d31675281d97cfc9bb78cc76b619790",
+      "role": "run_plan"
+    },
+    {
+      "artifact_file": "task_negative_control_plan_v2.py",
+      "artifact_sha256": "23d08e9d3d23935cdc86b53780b609fb35f6b3020ede6b1360af288939e34715",
+      "role": "run_plan_builder"
+    },
+    {
+      "artifact_file": "development-task-negative-control-run-plan-v2.schema.json",
+      "artifact_sha256": "294f77f165676bec6053e9637578ca22f048a887d2a978bbf8b8e300f21a2dad",
+      "role": "run_plan_schema"
+    },
+    {
+      "artifact_file": "negative-control-cache-bundle-verifier-contract-v2.json",
+      "artifact_sha256": "29d66a79f4c3083e006c823b44a5aeacb50538d426f0186e05fffa77226760ee",
+      "role": "cache_bundle_verifier_contract"
+    },
+    {
+      "artifact_file": "negative_control_cache_bundle_v2.py",
+      "artifact_sha256": "1236f3244be5d25cb72b7937aab159903a20cb97c2ce057023e4c4694f248bfc",
+      "role": "cache_bundle_verifier_source"
+    },
+    {
+      "artifact_file": "negative-control-cache-bundle-verifier-contract-v2.schema.json",
+      "artifact_sha256": "eca24ad3f0a50f4a9dcbd9e106715db8fee449d4735eaeee87912a95e7c564bd",
+      "role": "cache_bundle_verifier_schema"
+    },
+    {
+      "artifact_file": "negative-control-cache-bundle-verification-report-v2.schema.json",
+      "artifact_sha256": "3afd8fec9da54a8b7358b497031633bfeaf8c5df1f595347424769d4a30ec4ad",
+      "role": "cache_bundle_report_schema"
+    },
+    {
+      "artifact_file": "negative-control-cache-bundle-format-v2.json",
+      "artifact_sha256": "970669197065a563fa0a09c281f671f5a3cd63061d6ff8f52da64926fa5ac406",
+      "role": "cache_bundle_format"
+    },
+    {
+      "artifact_file": "negative-control-cache-bundle-format-v2.schema.json",
+      "artifact_sha256": "95712ba76c36107f583a195167e6dea9d90ba81729fba10fa211096d277617d8",
+      "role": "cache_bundle_format_schema"
+    },
+    {
+      "artifact_file": "negative-control-cache-archive-material-v1.json",
+      "artifact_sha256": "7527cec7b2f1b47498845ae38710369997b7c82d2d0150761b23d2b594f68d93",
+      "role": "cache_material_declaration"
+    },
+    {
+      "artifact_file": "negative-control-cache-archive-material-v1.schema.json",
+      "artifact_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5",
+      "role": "cache_material_schema"
+    },
+    {
+      "artifact_file": "negative-control-owner-approval-verifier-contract-v1.json",
+      "artifact_sha256": "d19ec3df382070c743e2b466175c661d91d03001d15c0de561d9e700df6c5569",
+      "role": "owner_approval_verifier_contract"
+    },
+    {
+      "artifact_file": "negative_control_owner_approval_v1.py",
+      "artifact_sha256": "569045e1c15366f93500fa030c8fcb1214c7c6a6e912a8b5499a32690e484119",
+      "role": "owner_approval_verifier_source"
+    },
+    {
+      "artifact_file": "negative-control-owner-approval-verifier-contract-v1.schema.json",
+      "artifact_sha256": "e3b8e95e62cda252434e11bf190e4f248526486ba3c1f63415ce78d78f2b5707",
+      "role": "owner_approval_verifier_schema"
+    },
+    {
+      "artifact_file": "negative-control-owner-approval-trust-roots-v1.json",
+      "artifact_sha256": "07b515dddf74c53872c01f69cf2b1076820a10782dd9102cf235cf9691d89f1b",
+      "role": "owner_trust_roots"
+    },
+    {
+      "artifact_file": "negative-control-owner-approval-trust-roots-v1.schema.json",
+      "artifact_sha256": "54dd9ccd634863cfbc050221d2394b54326e03a6e465ebf807e358113f37158d",
+      "role": "owner_trust_roots_schema"
+    },
+    {
+      "artifact_file": "negative-control-owner-approval-envelope-v1.schema.json",
+      "artifact_sha256": "1300806efed4cedfccbbd68291676f71eabfc1296dbbf054a721e18a20a4d675",
+      "role": "owner_approval_envelope_schema"
+    },
+    {
+      "artifact_file": "negative-control-owner-approval-verification-report-v1.schema.json",
+      "artifact_sha256": "352ceeb16bc398c4241c0c3347b021a08c4ea16948f28d9d34e28965257e1594",
+      "role": "owner_approval_report_schema"
+    },
+    {
+      "artifact_file": "negative_control_darwin_capacity_v1.swift",
+      "artifact_sha256": "e1402fa9ef2b25d13dc125af6581f33c21a163c138accaee78fcbe6b51f619b6",
+      "role": "darwin_capacity_observer"
+    },
+    {
+      "artifact_file": "negative-control-darwin-capacity-observation-v1.schema.json",
+      "artifact_sha256": "1a2a529336258c9cb5c6da512d65981c03c2a9407934d5e699ce60a1b2a70086",
+      "role": "darwin_capacity_observation_schema"
+    },
+    {
+      "artifact_file": "task_negative_control_gate_v1.py",
+      "artifact_sha256": "f04b8634caf619cc17bb495975d2b5358164be6eae2a124ade84efebd60c51dd",
+      "role": "gate_primitive"
+    },
+    {
+      "artifact_file": "negative-control-gate-primitive-receipt-v1.schema.json",
+      "artifact_sha256": "7603f755dd8429ff8c0a17114a50cda0aa23ae99c07cf2cfff9856df00c0a8e0",
+      "role": "gate_receipt_schema"
+    },
+    {
+      "artifact_file": "negative_control_private_log.py",
+      "artifact_sha256": "2a88ef48cc52d52e477b145c06bd0a55d66cc487570aa766cb4da23897121216",
+      "role": "private_log_primitive"
+    },
+    {
+      "artifact_file": "negative-control-private-log-receipt-v1.schema.json",
+      "artifact_sha256": "6b3378bb3a2bf8a687459aafb3ceefac963995897bca1d4f97cb961fd7b9abf8",
+      "role": "private_log_receipt_schema"
+    },
+    {
+      "artifact_file": "task_negative_control_classification_v1.py",
+      "artifact_sha256": "5b8cad62c72e06e1cfae99630e98d06b1fe78b0660825f495085c6f89c5fd147",
+      "role": "attempt_classifier"
+    },
+    {
+      "artifact_file": "negative-control-attempt-observations-v1.schema.json",
+      "artifact_sha256": "d5a036e22ded76cc485fc62742a4f85d93ff6d228063ffc2c014fa13725b53ca",
+      "role": "attempt_observation_schema"
+    },
+    {
+      "artifact_file": "negative-control-classification-receipt-v1.schema.json",
+      "artifact_sha256": "c025b1fde9dba21b1b139aa7f9e5ae5f9bc1912aa61bf33921fe62c07aefcca0",
+      "role": "classification_receipt_schema"
+    },
+    {
+      "artifact_file": "draft202012.py",
+      "artifact_sha256": "8688b67468b096427f758163174432e221d8197c6b13870a6427939f6ea281eb",
+      "role": "draft202012_validator"
+    },
+    {
+      "artifact_file": "negative-control-run-journal-event-v1.schema.json",
+      "artifact_sha256": "8eceb818bb1bb6fedb7a3d0bc8f9911d1305c5f43dad5b02ea3b18f6d7f64d5f",
+      "role": "run_journal_event_schema"
+    },
+    {
+      "artifact_file": "negative-control-capacity-reservation-receipt-v1.schema.json",
+      "artifact_sha256": "fb0c5cba1f72184f1192bf17b115636259940fe573e02676b4d2e4598e6b9645",
+      "role": "capacity_reservation_receipt_schema"
+    },
+    {
+      "artifact_file": "negative-control-cleanup-attestation-v1.schema.json",
+      "artifact_sha256": "81ae0a8aa8ceb91d664c25117507150442bc4f9288bf17419286d49ac58f812a",
+      "role": "cleanup_attestation_schema"
+    }
+  ],
+  "contract_sha256": "a563d6f7ed1deaeb40676dd567f2d23fbd7f827ca2719aeb83f7e4973af4f852",
+  "cross_component_invariants": {
+    "approval_consumption": {
+      "cas_claim_is_journal_genesis": true,
+      "first_persistent_new_run_effect": "atomic_single_use_consumption_and_genesis_record",
+      "no_separate_cas_to_genesis_gap": true,
+      "owner_v1_binding_effect": "cannot_authorize_successor_storage_contract",
+      "pre_consumption_state": "logical_read_only_contract_checked_execution_forbidden",
+      "recovery_effect": "cleanup_release_and_no_receipt_only_never_resume_or_rerun",
+      "verified_owner_report_atomic_consumption": false
+    },
+    "cache": {
+      "bundle_contract_sha256": "98de7291aceb5a84ff03d1862e66550fb4d67a55796634eacc4e610856829bdd",
+      "bundle_status": "verifier_compiled_raw_material_source_review_pending_bundle_access_forbidden",
+      "format_contract_sha256": "e2231e7fae7dfdad054c770d928b549bb996b4c452169cb22abea7f8f6f0ee59",
+      "format_status": "wire_format_frozen_no_material_no_authority",
+      "material_declaration_sha256": "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852",
+      "material_status": "pending_source_review",
+      "shared_seed_semantics": "one_shared_union_seed_copied_unchanged_to_every_arm"
+    },
+    "capacity": {
+      "independent_hold_through_staging_claim": "forbidden_unsound_at_16_gib_preflight",
+      "max_total_staging_bytes": 8589934592,
+      "minimum_free_disk_before_staging_bytes": 17179869184,
+      "minimum_residual_free_bytes": 8589934592,
+      "physical_reservation_mechanism": null,
+      "proof_alternatives": [
+        "spendable_conversion_reservation_remaining_plus_staging_actual_equals_8_gib",
+        "independent_8_gib_hold_requires_24_gib_preflight"
+      ]
+    },
+    "execution_contract": {
+      "authority_sha256": "422d6742432af499f9aec5e6b7ecc9d86ac0cf901e2accd0fedb611c580176de",
+      "candidate_bindings_sha256": "4fbde9876d4c91e9cedcf994de9cecd5442beee928c1cadc505116a25c2bef60",
+      "contract_sha256": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef",
+      "enforcement_requirements_sha256": "c23f32b102077254ef4eae322faa12101e3e24d688808ebf6bca31cf128185e2",
+      "protocol_sha256": "3e5cef5c19836b61f5739347f4d0db25564b859cd26fc6c5761f81072b2f3f01",
+      "residual_gates_sha256": "650f570c5fe096626381171dd6d9d2f0ca77c4a6c13e6994c783ee3a82d5cb91",
+      "runtime_bindings_sha256": "938f7a76faf1d0a3490db06fbb5ac5b1100f2967a24b0bc846ce40c3c762b634",
+      "schedule_sha256": "c818e8ad87f4d6ff5fac8839f4296fd86da13eaf95dadf8b2c789c7254bfdbcd",
+      "state_machine_sha256": "31015d9150afaf6c73cbea84dc647039449cc5bfc498ac0efedddfabad271207",
+      "status": "contract_compiled_execution_forbidden",
+      "total_attempt_count": 248,
+      "total_candidate_count": 62
+    },
+    "legacy_schema_audit_boundary": {
+      "checked_draft_validator_unsupported_keyword": "prefixItems",
+      "exact_raw_bound_schemas": [
+        "negative-control-attempt-observations-v1.schema.json",
+        "negative-control-classification-receipt-v1.schema.json"
+      ],
+      "execution_effect": "forbidden_until_checked_prefix_items_auditor_exists",
+      "silent_meta_audit_skip": false
+    },
+    "owner_approval": {
+      "root_count": 0,
+      "trust_roots_sha256": "b3374aff490518f3f1eb142428810bb7791aeaf5a6a05cf16f63455d02908b37",
+      "trust_status": "pending_owner_authorization",
+      "verifier_contract_sha256": "ed22928cfe42e29ba57f3c58fab62eecebe9fd1bee010a2708fe02773ec35093",
+      "verifier_status": "verifier_compiled_trust_root_pending_execution_forbidden"
+    },
+    "run_plan": {
+      "plan_sha256": "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e",
+      "repository_order": [
+        "entire-brain",
+        "entire-db",
+        "entire-graph"
+      ],
+      "resource_budget_sha256": "ebd6d63bc9334270dbf0052e9c7477d1206973c678e7355ffa0b400d2d8ff512",
+      "status": "pending_owner_authorization",
+      "toolchain_bindings_sha256": "e8240c5af77530079643593a7484cb0062408829bab76690b7f55d12176fc87c"
+    },
+    "runtime_evidence": {
+      "all_bindings_null": true,
+      "future_schemas_non_authorizing": true,
+      "schemas_do_not_prove_implementation": true
+    }
+  },
+  "execution_status": "forbidden_contract_only_no_atomic_consumption_no_storage_adapter",
+  "implementation": {
+    "artifact_render_profile": "sorted_keys_indent_2_utf8_lf_v1",
+    "builder": {
+      "artifact_file": "negative_control_run_storage_contract_v1.py",
+      "artifact_sha256": "1d96885d0e9a7a2ce675fd29657fb300abf43b44e4c41d1e168d564ebd83aed6"
+    },
+    "canonical_json_profile": "sorted_keys_compact_utf8_no_float_v1",
+    "contract_schema": {
+      "artifact_file": "negative-control-run-storage-contract-v1.schema.json",
+      "artifact_sha256": "0036e470d0dcf5563877db9bed68a7d679e88dcc9169c016692b1f1d756f975e"
+    },
+    "draft202012_validator": {
+      "artifact_file": "draft202012.py",
+      "artifact_sha256": "8688b67468b096427f758163174432e221d8197c6b13870a6427939f6ea281eb"
+    },
+    "future_evidence_schemas": {
+      "capacity_reservation_receipt": {
+        "artifact_file": "negative-control-capacity-reservation-receipt-v1.schema.json",
+        "artifact_sha256": "fb0c5cba1f72184f1192bf17b115636259940fe573e02676b4d2e4598e6b9645"
+      },
+      "cleanup_attestation": {
+        "artifact_file": "negative-control-cleanup-attestation-v1.schema.json",
+        "artifact_sha256": "81ae0a8aa8ceb91d664c25117507150442bc4f9288bf17419286d49ac58f812a"
+      },
+      "run_journal_event": {
+        "artifact_file": "negative-control-run-journal-event-v1.schema.json",
+        "artifact_sha256": "8eceb818bb1bb6fedb7a3d0bc8f9911d1305c5f43dad5b02ea3b18f6d7f64d5f"
+      }
+    }
+  },
+  "profile": "agent_brain_negative_control_run_storage_contract_v1",
+  "residual_gates": [
+    "successor_owner_approval_and_trust_roots_binding_exact_storage_contract",
+    "actual_source_reviewed_bundle_and_successful_v2_content_report",
+    "atomic_single_use_consumption_record_that_is_also_journal_genesis",
+    "durable_bounded_journal_recovery_and_descriptor_safe_cleanup_adapter",
+    "trusted_apfs_capacity_reservation_release_and_accounting_mechanism",
+    "safe_third_pass_cache_stager_and_go_cache_behavior_validation",
+    "clean_detached_worktree_executor_and_first_parent_reversal_proof",
+    "attested_attempt_producer_and_classifier_integration",
+    "private_log_retention_inventory_and_aggregate_accounting",
+    "fail_closed_interruption_cleanup_release_and_no_receipt_attestation",
+    "checked_prefix_items_schema_auditor_for_attempt_and_classification_schemas"
+  ],
+  "runtime_bindings": {
+    "actual_bundle_sha256": null,
+    "actual_manifest_sha256": null,
+    "aggregate_receipt_sha256": null,
+    "approval_envelope_sha256": null,
+    "approval_verification_report_sha256": null,
+    "atomic_consumption_genesis_sha256": null,
+    "attempt_receipts_sha256": null,
+    "bundle_content_verification_report_sha256": null,
+    "bundle_raw_identity_report_sha256": null,
+    "capacity_observation_sha256": null,
+    "capacity_observer_attestation_sha256": null,
+    "capacity_reservation_receipt_sha256": null,
+    "classification_receipt_sha256": null,
+    "cleanup_attestation_sha256": null,
+    "control_root_device_id": null,
+    "control_root_fsid": null,
+    "control_root_inode": null,
+    "execution_host_identity_sha256": null,
+    "journal_head_sha256": null,
+    "private_log_inventory_sha256": null,
+    "private_log_root_inode": null,
+    "producer_attestation_key_sha256": null,
+    "recovery_report_sha256": null,
+    "run_identity_sha256": null,
+    "run_root_device_id": null,
+    "run_root_fsid": null,
+    "run_root_inode": null,
+    "signed_payload_sha256": null,
+    "staged_cache_tree_sha256": null,
+    "stager_behavior_report_sha256": null,
+    "worktree_inventory_sha256": null
+  },
+  "schema_version": 1,
+  "status": "run_storage_contract_compiled_runtime_unbound_execution_forbidden",
+  "storage_protocol": {
+    "approval_and_genesis": {
+      "atomic_record": "single_use_approval_cas_claim_is_same_durable_record_as_journal_genesis",
+      "binding": "approval_raw_self_payload_run_identity_exact_e0_and_exact_storage_contract",
+      "failure_rule": "adapter_forbidden_if_claim_and_genesis_payload_cannot_be_persisted_atomically",
+      "first_external_effect": "atomic_consumption_genesis_commit",
+      "pre_consumption_work": "read_only_in_memory_only_no_started_run"
+    },
+    "capacity": {
+      "important_usage_capacity": "observation_only_never_reservation",
+      "independent_hold_preflight_bytes": 25769803776,
+      "max_staging_bytes": 8589934592,
+      "minimum_preflight_bytes": 17179869184,
+      "minimum_residual_bytes": 8589934592,
+      "reservation_mechanism": null,
+      "status": "research_pending_no_reservation_claim"
+    },
+    "cleanup": {
+      "control_root_deleted_with_run_root": false,
+      "order": "descriptor_relative_postorder_descendants_only",
+      "reclaimed_apfs_blocks_claim": false,
+      "same_device_reverified_at_every_descent_and_before_delete": true,
+      "target": "disposable_run_root_descendants_never_control_root"
+    },
+    "durability": {
+      "effect_protocol": "prepared_record_durable_then_effect_then_verify_then_committed_record_durable",
+      "full_chain_recovery_validation": true,
+      "implementation_status": "absent_contract_only",
+      "journal_hash_chain": "immutable_canonical_o_excl_sha256",
+      "malformed_gap_tail_or_unknown_rule": "cleanup_failed_latched_never_receipt",
+      "max_record_bytes": 65536,
+      "max_record_count": 20000,
+      "max_total_journal_bytes": 67108864,
+      "publication_rule": "immutable_exclusive_create_no_replace",
+      "record_encoding": "canonical_bytes_only",
+      "record_ordinal": "contiguous_zero_based",
+      "stable_control_root": "0700_current_uid_nonsymlink_pinned_descriptor_outside_disposable_run_root",
+      "transition_rule": "durable_before_and_after_every_external_effect"
+    },
+    "e0_state_machine": {
+      "aggregate_accounting": {
+        "counters": [
+          "elapsed_wall_nanoseconds",
+          "staging_bytes",
+          "cache_bytes",
+          "private_log_bytes",
+          "public_receipt_bytes"
+        ],
+        "rule": "durably_update_before_advancing_schedule_cursor"
+      },
+      "attempt_journal": {
+        "allowed_transitions": [
+          {
+            "from": "attempt_bound",
+            "to": [
+              "attempt_staged",
+              "attempt_aborting"
+            ]
+          },
+          {
+            "from": "attempt_staged",
+            "to": [
+              "attempt_running",
+              "attempt_aborting"
+            ]
+          },
+          {
+            "from": "attempt_running",
+            "to": [
+              "attempt_result_private",
+              "attempt_aborting"
+            ]
+          },
+          {
+            "from": "attempt_result_private",
+            "to": [
+              "attempt_cleaning",
+              "attempt_aborting"
+            ]
+          },
+          {
+            "from": "attempt_cleaning",
+            "to": [
+              "attempt_cleanup_committed",
+              "cleanup_failed_latched"
+            ]
+          },
+          {
+            "from": "attempt_aborting",
+            "to": [
+              "attempt_cleaning",
+              "cleanup_failed_latched"
+            ]
+          }
+        ],
+        "binding_rule": "bind_exact_schedule_row_at_run_cursor_plus_one",
+        "initial_state": "attempt_bound",
+        "interruption_rule": "attempt_cleanup_or_post_cleanup_pre_cursor_interruption_recovers_under_the_irreversible_run_receipt_forbidden_latch_without_rerun_or_receipt",
+        "receipt_rule": "attempt_terminal_never_publishes_aggregate_receipt",
+        "success_terminal_state": "attempt_cleanup_committed"
+      },
+      "journal_rule": "durable_transition_before_and_after_each_external_effect",
+      "latched_cleanup_failure_rule": "blocks_every_future_run_until_independently_verified_remediation_and_reservation_release_evidence_without_ever_permitting_failed_run_receipt",
+      "restart_recovery_rule": "under_one_exclusive_run_lock_recover_nonterminal_journal_cleanup_and_reservation_release_before_new_run_or_receipt",
+      "run_journal": {
+        "abort_latch": "executor_staging_attestation_log_journal_cleanup_failure_or_external_interruption_detected_before_aggregate_receipt_commit_durably_sets_receipt_forbidden_latch_but_captured_test_exit_or_timeout_is_data",
+        "allowed_transitions": [
+          {
+            "from": "contract_checked_execution_forbidden",
+            "to": [
+              "authority_and_inputs_verified",
+              "run_aborting"
+            ]
+          },
+          {
+            "from": "authority_and_inputs_verified",
+            "to": [
+              "capacity_reserved",
+              "run_aborting"
+            ]
+          },
+          {
+            "from": "capacity_reserved",
+            "to": [
+              "attempts_active",
+              "run_aborting"
+            ]
+          },
+          {
+            "from": "attempts_active",
+            "to": [
+              "attempts_active",
+              "run_cleaning",
+              "run_aborting"
+            ]
+          },
+          {
+            "from": "run_cleaning",
+            "to": [
+              "reservation_released",
+              "run_cleaning_no_receipt",
+              "cleanup_failed_latched"
+            ]
+          },
+          {
+            "from": "reservation_released",
+            "to": [
+              "aggregate_receipt_committed",
+              "reservation_released_no_receipt"
+            ]
+          },
+          {
+            "from": "run_aborting",
+            "to": [
+              "run_cleaning_no_receipt",
+              "cleanup_failed_latched"
+            ]
+          },
+          {
+            "from": "run_cleaning_no_receipt",
+            "to": [
+              "reservation_released_no_receipt",
+              "cleanup_failed_latched"
+            ]
+          },
+          {
+            "from": "reservation_released_no_receipt",
+            "to": [
+              "cleaned_no_receipt"
+            ]
+          }
+        ],
+        "initial_state": "contract_checked_execution_forbidden",
+        "interruption_targets": {
+          "attempts_active": "run_aborting",
+          "authority_and_inputs_verified": "run_aborting",
+          "capacity_reserved": "run_aborting",
+          "contract_checked_execution_forbidden": "run_aborting",
+          "reservation_released": "reservation_released_no_receipt",
+          "run_cleaning": "run_cleaning_no_receipt"
+        },
+        "receipt_commit_boundary": "atomic_durable_aggregate_receipt_commit_is_the_success_boundary_and_has_no_outgoing_transition",
+        "receipt_forbidden_latch": "persistent_monotonic_false_to_true_on_any_pre_receipt_abort_or_interruption_and_true_forbids_aggregate_receipt_commit",
+        "restart_interruption_rule": "any_recovery_of_a_nonterminal_started_run_is_an_interruption_and_must_durably_set_receipt_forbidden_latch_before_recovery_effects",
+        "schedule_cursor_initial": 0,
+        "schedule_cursor_rule": "monotonic_plus_one_only_after_matching_attempt_cleanup_committed",
+        "success_guard": "run_cleaning_requires_schedule_cursor_248_all_aggregate_ceilings_passed_and_receipt_forbidden_latch_false",
+        "success_terminal_state": "aggregate_receipt_committed",
+        "terminal_states": [
+          "aggregate_receipt_committed",
+          "cleaned_no_receipt",
+          "cleanup_failed_latched"
+        ]
+      },
+      "scope": "run_journal_with_nested_per_schedule_row_attempt_journal_v1"
+    },
+    "e0_state_machine_sha256": "31015d9150afaf6c73cbea84dc647039449cc5bfc498ac0efedddfabad271207",
+    "lifecycle_overlay": {
+      "aggregate_receipt_guard": "cursor_248_ceilings_passed_run_cleanup_committed_reservation_release_committed_latch_false",
+      "cursor_rule": "plus_one_only_after_matching_attempt_cleanup_committed",
+      "initial_state_persistence": "logical_only_until_atomic_consumption_genesis",
+      "receipt_forbidden_latch": "persistent_monotonic_false_to_true",
+      "recovery_rule": "started_nonterminal_run_latches_no_receipt_before_cleanup_and_never_resumes",
+      "release_before_receipt": true
+    },
+    "path_policy": {
+      "boundaries": [
+        "approval_cas",
+        "cache",
+        "control_root",
+        "journal",
+        "lock",
+        "run_root",
+        "staging",
+        "cleanup",
+        "worktree",
+        "reversal",
+        "every_derived_path"
+      ],
+      "descriptor_relative_only": true,
+      "directory_mode": "0700",
+      "file_mode": "0600",
+      "forbidden": [
+        "absolute",
+        "empty",
+        "dot",
+        "dotdot",
+        "nul",
+        "backslash",
+        "unicode_control",
+        "non_nfc",
+        "casefold_dotdot_namedfork"
+      ],
+      "forbidden_component_casefold": "..namedfork",
+      "serialized_absolute_locator": false
+    },
+    "schema_artifacts": {
+      "cleanup_attestation": "shape_only_non_authorizing_no_reclaimed_block_claim",
+      "journal_event": "shape_only_non_authorizing_no_persistence_claim",
+      "reservation_receipt": "shape_only_non_authorizing_mechanism_pending"
+    }
+  }
+}
