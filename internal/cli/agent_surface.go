@@ -1136,7 +1136,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			profile.finishStage(&profile.Semantic.RuntimeTraces, runtimeStarted, semanticInputCount, len(runtimeTraces), runtimeErrors)
 		}
 		testsStarted := profile.start()
-		tests, testsErr := semanticTestFacts(status.Brain.Path, semanticSource, task, semanticLimit)
+		tests, testsErr := semanticTestFactsReservoir(status.Brain.Path, semanticSource, task, semanticLimit)
 		if testsErr != nil {
 			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
 		} else {
@@ -1339,7 +1339,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	brainBriefPromotePostIndexFiles(ctx, opts.Runner, status, task, &report)
 	brainBriefApplyLayoutGuidance(status.Repo.Root, task, &report)
 	if profile != nil {
-		likelyInputs := len(report.Semantic.Context.Symbols) + len(report.Semantic.Context.Relations) + len(report.Semantic.RuntimeTraces) + len(report.Semantic.Tests.Suggestions) + len(report.History.Matches) + len(report.Facts)
+		likelyInputs := len(report.Semantic.Context.Symbols) + len(report.Semantic.Context.Relations) + len(report.Semantic.RuntimeTraces) + len(semanticTestSuggestionsForSynthesis(report.Semantic.Tests)) + len(report.History.Matches) + len(report.Facts)
 		profile.finishStage(&profile.Synthesis.LikelyFiles, likelyFilesStarted, likelyInputs, len(report.LikelyEditFiles)+len(report.LikelyTestFiles)+len(report.LikelyFiles), 0)
 	}
 	actionStarted := profile.start()
@@ -1357,6 +1357,10 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if profile != nil {
 		profile.finishStage(&profile.Synthesis.ActionChecklist, actionStarted, actionInputs, len(report.ActionChecklist), 0)
 	}
+	// The private legacy stream preserves weak file/action evidence for synthesis.
+	// Weak rows in the ranked reservoir are not useful enough to spend packet
+	// tokens; strong late candidates already refilled it before this point.
+	report.Semantic.Tests.Suggestions = visibleSemanticTestSuggestions(report.Semantic.Tests.Suggestions, briefOpts.limit)
 	patternsStarted := profile.start()
 	views, _, perr := loadPatternViews(status.Brain.Path)
 	if perr == nil {
@@ -1556,7 +1560,7 @@ func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task s
 	for _, root := range report.Semantic.Tests.Roots {
 		add(root.FilePath, 6, true)
 	}
-	for _, suggestion := range report.Semantic.Tests.Suggestions {
+	for _, suggestion := range semanticTestSuggestionsForSynthesis(report.Semantic.Tests) {
 		add(suggestion.Symbol.FilePath, 9, true)
 	}
 	for _, changed := range report.Status.Live.ChangedFiles {
