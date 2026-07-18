@@ -3353,7 +3353,7 @@ func semanticTestFactsReservoir(brainDir string, source *semanticSourceManifest,
 	return semanticTestsResult{
 		Roots:                roots,
 		Suggestions:          rankSemanticTestSuggestions(symbolsByID, roots, relations, query, limit),
-		synthesisSuggestions: legacySemanticTestSuggestions(symbolsByID, roots, relations, limit),
+		synthesisSuggestions: nonNil(legacySemanticTestSuggestions(symbolsByID, roots, relations, limit)),
 	}, nil
 }
 

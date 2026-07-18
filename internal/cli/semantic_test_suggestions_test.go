@@ -180,6 +180,56 @@ func TestSemanticTestSuggestionFreshnessFilterRefillsBeforeCap(t *testing.T) {
 	}
 }
 
+func TestSemanticTestSuggestionEmptyLegacyStreamRemainsAuthoritative(t *testing.T) {
+	repoDir := t.TempDir()
+	currentPath := "src/processor.go"
+	for rel, content := range map[string]string{
+		currentPath: "package processor\n",
+		"semantic/snapshots/test/snapshot.ndjson": `{"schema_version":"1.1","provider":"entire-graph"}
+{"record_type":"symbol","id":"source:processor","kind":"function","name":"SourceProcessor","qualified_name":"processor.SourceProcessor","file_path":"src/processor.go","start_line":1,"end_line":8,"signature":"func SourceProcessor() // repair checksum","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"test:checksum","kind":"test","name":"TestRepairChecksum","qualified_name":"integration.TestRepairChecksum","file_path":"integration/checksum_test.go","start_line":1,"end_line":8,"signature":"func TestRepairChecksum()","language":"Go","stable_id_version":"1"}
+`,
+	} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	tests, err := semanticTestFactsReservoir(repoDir, &semanticSourceManifest{
+		SnapshotPath: "semantic/snapshots/test/snapshot.ndjson",
+	}, "repair checksum", 4)
+	if err != nil {
+		t.Fatalf("semantic test reservoir: %v", err)
+	}
+	if len(tests.Suggestions) != 1 || tests.Suggestions[0].Symbol.ID != "test:checksum" {
+		t.Fatalf("public suggestions = %+v, want ranked public-only candidate", tests.Suggestions)
+	}
+	if tests.synthesisSuggestions == nil || len(tests.synthesisSuggestions) != 0 {
+		t.Fatalf("private legacy stream = %#v, want authoritative present-empty stream", tests.synthesisSuggestions)
+	}
+	if got := semanticTestSuggestionsForSynthesis(tests); len(got) != 0 {
+		t.Fatalf("public-only candidate leaked into synthesis: %+v", got)
+	}
+
+	semantic := brainBriefSemantic{
+		RuntimeTraces: []semanticRecord{{
+			FromID: "test:checksum", ToID: "external:trace", FilePath: currentPath,
+		}},
+		Tests: tests,
+	}
+	brainBriefFilterDepartedSemantic(repoDir, brainLiveState{}, &semantic)
+	if len(semantic.Tests.Suggestions) != 0 {
+		t.Fatalf("departed public suggestion survived freshness: %+v", semantic.Tests.Suggestions)
+	}
+	if len(semantic.RuntimeTraces) != 1 {
+		t.Fatalf("public-only ID perturbed private-stream graph filtering: %+v", semantic.RuntimeTraces)
+	}
+}
+
 func TestSemanticTestSuggestionLegacyStreamOwnsFreshnessGraphFiltering(t *testing.T) {
 	repoDir := t.TempDir()
 	currentPath := "internal/auth/token.go"
