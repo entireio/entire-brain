@@ -1,8 +1,8 @@
-# P0 GA readiness — entire-graph + entire-brain + brain-bench
+# P0 GA readiness — entire-graph + entire-brain + GraphMark
 
 A single, cross-repo checklist for the P0 General Availability of the local brain:
 the semantic provider (`entire-graph`), the brain (`entire-brain`), and the eval
-harness (`brain-bench`). The standard here matches `docs/release-blockers.md` and
+harness (`GraphMark`). The standard here matches `docs/release-blockers.md` and
 `docs/release_readiness_audit.md`: explicit claims, exact evidence, no euphemism.
 
 ## GA gate — everything below must hold on one aligned release SHA
@@ -15,7 +15,7 @@ harness (`brain-bench`). The standard here matches `docs/release-blockers.md` an
 | 4 | Brain pins the provider at the live repo | ✅ done | `entire-plugin.yml` `repo_url` → `github.com/entireio/entire-graph` |
 | 5 | No-egress + deterministic golden coverage | ✅ exists | `doctor` `no_egress:true`; golden/provider/quality tests green (GA acceptance bar) |
 | 6 | `brain_*` MCP tool contract locked | ✅ exists | schemas `additionalProperties:false`, unknown-key rejection, named-tool auditability |
-| 7 | brain-bench wired as a regression gate | ✅ done | `brain-bench` CI: self-tests + significance no-drift; floor = 28/30 languages, 1148 vs 802 |
+| 7 | GraphMark wired as a regression gate | ✅ done | `GraphMark` CI: self-tests + significance no-drift; floor = 28/30 languages, 1148 vs 802 |
 | 8 | Phase-1 local-only boundary frozen as a guardrail | ✅ exists | stdio MCP only; `ENTIRE_BRAIN_NO_EGRESS` / `LOCAL_ONLY` documented |
 | 9 | Release blockers B1 + R1–R4 confirmed closed on RC SHA | ⏳ verify | re-run `mise run release:readiness` on the tagged SHA; see `docs/release-blockers.md` |
 | 10 | Tagged `main` on `entire-graph` **and** `entire-brain`, aligned | ⏳ partial | `entire-graph` `v0.1.0` cut; `entire-brain` tag pending (this SHA) |
@@ -27,14 +27,14 @@ harness (`brain-bench`). The standard here matches `docs/release-blockers.md` an
 |---|---|---|---|
 | `entire-graph` schema | `1.x` (ADR 0001) | `entire-brain` ingestion | accept any `1.x`, ignore unknown fields, warn on newer minor |
 | `entire-graph` provider | `provider_version` in manifest header | `entire-brain` refresh | recorded, not gated; used for provenance |
-| `brain-bench` harness | committed `*.score.json` + `stats_significance.py` | CI regression gate | significance report must regenerate byte-identical; corpus/harness changes must re-commit it |
+| `GraphMark` harness | committed `*.score.json` + `stats_significance.py` | CI regression gate | significance report must regenerate byte-identical; corpus/harness changes must re-commit it |
 
 Pinning guidance: brain consumers may pin the provider `>=1.0 <2.0`; a `2.0` is a
 breaking change with a migration note and is out of the P0 `1.x` line.
 
 ## Claim posture (honest — never overclaimed)
 
-- **Semantic usefulness — CLAIMABLE.** Backed by `brain-bench`: Entire beats the
+- **Semantic usefulness — CLAIMABLE.** Backed by `GraphMark`: Entire beats the
   comparison baseline on **28 of 30 top languages** at exact-McNemar p<0.05
   (C# p=0.07 and PHP p=0.18 lead on rate but sit just under significance — more
   scored repos, not a loss), overall **1,148 vs 802** correct (91% vs 64%,
@@ -79,4 +79,4 @@ evidence.
    deferred to the P2 unified-MCP-surface work — not a P0 blocker.
 
 **P0 GA status: gates 1–11 satisfied.** The local brain (entire-graph + entire-brain
-+ brain-bench) is at GA on the `v0.1.0` line.
++ GraphMark) is at GA on the `v0.1.0` line.
