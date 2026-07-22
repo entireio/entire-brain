@@ -1002,6 +1002,29 @@ func TestBrainBriefFilenameTermsDropGenericToolNameWords(t *testing.T) {
 	}
 }
 
+func TestBrainBriefFocusedFileFallbackSelectsTaskRelevantSymbolAndAction(t *testing.T) {
+	symbols := []semanticRecord{
+		{ID: "run", Kind: "function", Name: "runMCP", QualifiedName: "runMCP", FilePath: "internal/cli/mcp.go", StartLine: 62, EndLine: 99},
+		{ID: "projects", Kind: "function", Name: "runMCPListProjects", QualifiedName: "runMCPListProjects", FilePath: "internal/cli/mcp.go", StartLine: 844, EndLine: 889},
+		{ID: "params", Kind: "type", Name: "mcpToolCallParams", QualifiedName: "mcpToolCallParams", FilePath: "internal/cli/mcp.go", StartLine: 46, EndLine: 49},
+		{ID: "definitions-duplicate", Kind: "function", Name: "mcpToolDefinitions", QualifiedName: "mcpToolDefinitions", FilePath: "internal/cli/mcp.go", StartLine: 235, EndLine: 386},
+		{ID: "definitions", Kind: "function", Name: "mcpToolDefinitions", QualifiedName: "mcpToolDefinitions", FilePath: "internal/cli/mcp.go", StartLine: 235, EndLine: 386},
+		{ID: "test", Kind: "function", Name: "TestMCPToolsList", QualifiedName: "TestMCPToolsList", FilePath: "internal/cli/mcp.go", StartLine: 900, EndLine: 920},
+	}
+
+	focused := brainBriefSelectFocusedFileSymbols(symbols, "Fix the MCP public tool-list regression", 3)
+	if len(focused) == 0 || focused[0].Name != "mcpToolDefinitions" {
+		t.Fatalf("focused semantic fallback did not prioritize the task-relevant symbol: %+v", focused)
+	}
+	if len(focused) > 1 && focused[1].FilePath == focused[0].FilePath && focused[1].StartLine == focused[0].StartLine && focused[1].QualifiedName == focused[0].QualifiedName {
+		t.Fatalf("focused semantic fallback retained a duplicate symbol: %+v", focused)
+	}
+	actions := brainBriefFocusedFileActions(focused, "internal/cli/mcp.go")
+	if len(actions) != 1 || actions[0].File != "internal/cli/mcp.go" || actions[0].Symbol != "mcpToolDefinitions" || !strings.Contains(actions[0].Evidence, "235-386") {
+		t.Fatalf("focused semantic fallback action is not precise: %+v", actions)
+	}
+}
+
 func TestBrainBriefCurrentCodeFileCountsFindsProviderMetadataContractFile(t *testing.T) {
 	repoDir := t.TempDir()
 	target := filepath.Join(repoDir, "apps", "desktop", "src", "main", "agentic-decider.ts")
