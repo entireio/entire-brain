@@ -248,7 +248,7 @@ func TestBrainBriefHistoryRecoversExactFileAndAssignment(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(source, []byte("package cli\n"), 0o600); err != nil {
+	if err := os.WriteFile(source, []byte("package cli\n\nconst semanticParseErrorTolerance = 0.00\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	absHistorical := "/old/machine/entire-brain/internal/cli/semantic.go"
@@ -275,6 +275,13 @@ func TestBrainBriefHistoryRecoversExactFileAndAssignment(t *testing.T) {
 	files, _, _ := brainBriefLikelyFileGroups(repoRoot, brainBriefReport{History: brainBriefHistory{Matches: []brainTextMatch{match}}}, "semantic parse error tolerance")
 	if len(files) == 0 || files[0] != "internal/cli/semantic.go" {
 		t.Fatalf("historical edit site was not promoted: %v", files)
+	}
+	actions := brainBriefActionChecklist(repoRoot, brainBriefReport{
+		History:         brainBriefHistory{Matches: []brainTextMatch{match}},
+		LikelyEditFiles: files,
+	}, "semantic parse error tolerance")
+	if len(actions) == 0 || actions[0].File != "internal/cli/semantic.go" || !strings.Contains(actions[0].Action, "semanticParseErrorTolerance = 0.10") {
+		t.Fatalf("history-backed assignment action missing: %+v", actions)
 	}
 }
 

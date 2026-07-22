@@ -2808,7 +2808,7 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 	for _, match := range report.History.Matches {
 		context += "\n" + strings.ToLower(match.Excerpt)
 	}
-	var actions []brainBriefAction
+	actions := brainBriefHistoricalAssignmentActions(repoRoot, report)
 	limitIntent := strings.Contains(taskContext, "limit") ||
 		strings.Contains(taskContext, "pagination") ||
 		strings.Contains(taskContext, "page size") ||
@@ -2842,6 +2842,67 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)
+}
+
+var brainBriefHistoricalAssignmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func brainBriefHistoricalAssignmentActions(repoRoot string, report brainBriefReport) []brainBriefAction {
+	const marker = "Historical assignments:"
+	type historicalAssignment struct {
+		name  string
+		value string
+	}
+	var assignments []historicalAssignment
+	seen := map[string]struct{}{}
+	for _, match := range report.History.Matches {
+		at := strings.Index(match.Excerpt, marker)
+		if at < 0 {
+			continue
+		}
+		for _, item := range strings.Split(match.Excerpt[at+len(marker):], ";") {
+			parts := strings.SplitN(strings.TrimSpace(item), "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			name := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			if !brainBriefHistoricalAssignmentNamePattern.MatchString(name) || value == "" {
+				continue
+			}
+			key := name + "\x00" + value
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			assignments = append(assignments, historicalAssignment{name: name, value: value})
+		}
+	}
+	var actions []brainBriefAction
+	for _, rel := range report.LikelyEditFiles {
+		if !brainBriefSourceFile(rel) {
+			continue
+		}
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, assignment := range assignments {
+			for i, line := range lines {
+				if !strings.Contains(line, assignment.name) || !strings.Contains(line, "=") {
+					continue
+				}
+				actions = append(actions, brainBriefAction{
+					File:     rel,
+					Symbol:   assignment.name,
+					Action:   fmt.Sprintf("Restore the history-backed assignment `%s = %s`, then run the focused related test.", assignment.name, assignment.value),
+					Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(strings.TrimSpace(line), 180)),
+				})
+				break
+			}
+		}
+	}
+	return actions
 }
 
 func brainBriefLimitNormalizationActions(repoRoot string, likelyFiles []string) []brainBriefAction {
