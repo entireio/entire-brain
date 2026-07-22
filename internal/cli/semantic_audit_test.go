@@ -105,7 +105,32 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report := statusSemanticDetail(t, opts, repoDir)
+	compactOut, err := execute(t, NewRootCommand(opts), "status", "--json")
+	if err != nil {
+		t.Fatalf("compact status: %v\n%s", err, compactOut)
+	}
+	var compact brainStatusReport
+	if err := json.Unmarshal([]byte(compactOut), &compact); err != nil {
+		t.Fatalf("decode compact status: %v\n%s", err, compactOut)
+	}
+	if compact.Semantic == nil || compact.Semantic.Coverage == nil || compact.Semantic.Coverage.Files != 3 || compact.Semantic.Coverage.Symbols != 3 || compact.Semantic.Coverage.Relations != 2 {
+		t.Fatalf("compact status lost coverage totals: %+v", compact.Semantic)
+	}
+	if len(compact.Semantic.BlindSpots) != 1 || compact.Semantic.BlindSpots[0].Path != "src/broken.ts" || len(compact.Semantic.Coverage.WarningDetails) != 1 || len(compact.Semantic.Coverage.PartialFailureDetails) != 1 {
+		t.Fatalf("compact status lost warnings or blind spots: %+v", compact.Semantic)
+	}
+	if len(compact.Semantic.Coverage.FileLanguages) != 0 || len(compact.Semantic.Coverage.Languages) != 0 || len(compact.Semantic.Coverage.SymbolKinds) != 0 || len(compact.Semantic.Coverage.RelationTypes) != 0 {
+		t.Fatalf("compact status leaked coverage histograms: %+v", compact.Semantic.Coverage)
+	}
+
+	detailedOut, err := execute(t, NewRootCommand(opts), "status", "--json", "--details")
+	if err != nil {
+		t.Fatalf("detailed status: %v\n%s", err, detailedOut)
+	}
+	var report brainStatusReport
+	if err := json.Unmarshal([]byte(detailedOut), &report); err != nil {
+		t.Fatalf("decode detailed status: %v\n%s", err, detailedOut)
+	}
 	sem := report.Semantic
 	if sem == nil || sem.Coverage == nil {
 		t.Fatalf("semantic section missing from status report: %+v", report)
@@ -136,6 +161,45 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	}
 }
 
+func TestBrainStatusCompactReportPreservesTrustAndOmitsFollowUpDetail(t *testing.T) {
+	full := brainStatusReport{
+		Sources: brainStatusSources{Semantic: true},
+		Semantic: &brainStatusSemantic{
+			Coverage: &brainStatusSemanticCoverage{
+				Files: 3, Symbols: 4, Relations: 5, Warnings: 1,
+				WarningDetails: []semanticWarning{{Code: "W_TEST"}},
+				FileLanguages:  []semanticAuditCount{{Name: "Go", Count: 3}},
+				Languages:      []semanticAuditCount{{Name: "Go", Count: 4}},
+				SymbolKinds:    []semanticAuditCount{{Name: "function", Count: 4}},
+				RelationTypes:  []semanticAuditCount{{Name: "CALLS", Count: 5}},
+			},
+			Freshness:  &staleReport{Severity: "ok"},
+			BlindSpots: []brainBlindSpot{{Code: "W_TEST", Path: "partial.go"}},
+		},
+		Live: brainLiveState{
+			Dirty:              true,
+			Staged:             []string{"staged.go"},
+			Unstaged:           []string{"dirty.go"},
+			Untracked:          []string{"new.go"},
+			ChangedFiles:       []string{"dirty.go", "new.go"},
+			ChangedSymbolHints: []semanticRecord{{ID: "symbol:changed"}},
+		},
+	}
+	compact := brainStatusCompactReport(full)
+	if compact.Semantic == nil || compact.Semantic.Coverage == nil || compact.Semantic.Coverage.Files != 3 || compact.Semantic.Freshness.Severity != "ok" || len(compact.Semantic.BlindSpots) != 1 {
+		t.Fatalf("compact status lost trust-critical state: %+v", compact)
+	}
+	if len(compact.Semantic.Coverage.WarningDetails) != 1 || len(compact.Live.ChangedFiles) != 2 || !compact.Live.Dirty {
+		t.Fatalf("compact status lost warnings or live changed files: %+v", compact)
+	}
+	if len(compact.Semantic.Coverage.FileLanguages) != 0 || len(compact.Semantic.Coverage.Languages) != 0 || len(compact.Semantic.Coverage.SymbolKinds) != 0 || len(compact.Semantic.Coverage.RelationTypes) != 0 || len(compact.Live.Staged) != 0 || len(compact.Live.Unstaged) != 0 || len(compact.Live.Untracked) != 0 || len(compact.Live.ChangedSymbolHints) != 0 {
+		t.Fatalf("compact status retained opt-in detail: %+v", compact)
+	}
+	if len(full.Semantic.Coverage.FileLanguages) != 1 || len(full.Live.ChangedSymbolHints) != 1 {
+		t.Fatalf("compact projection mutated detailed report: %+v", full)
+	}
+}
+
 func TestValidateSemanticSQLiteStoreChecksFileCount(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), semanticSQLiteName)
 	db, err := sql.Open(sqliteDriverName, storePath)
@@ -154,6 +218,29 @@ func TestValidateSemanticSQLiteStoreChecksFileCount(t *testing.T) {
 	err = validateSemanticSQLiteStore(storePath, 2, 0, 0)
 	if err == nil || !strings.Contains(err.Error(), "file count 1 does not match manifest 2") {
 		t.Fatalf("expected file count mismatch, got %v", err)
+	}
+}
+
+func TestValidateSemanticSQLiteStoreInReadOnlyDirectory(t *testing.T) {
+	storeDir := t.TempDir()
+	storePath := filepath.Join(storeDir, semanticSQLiteName)
+	db, err := sql.Open(sqliteDriverName, storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSemanticSQLite(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(storeDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(storeDir, 0o700) })
+
+	if err := validateSemanticSQLiteStore(storePath, 0, 0, 0); err != nil {
+		t.Fatalf("validate immutable store in read-only directory: %v", err)
 	}
 }
 

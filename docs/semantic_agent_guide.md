@@ -6,6 +6,8 @@ of the answer, not as decoration.
 Recommended intake flow:
 
 1. Run `entire brain status --json` and check `semantic.freshness.severity`.
+   The default is the compact trust preflight; use `--details` only for
+   coverage histograms, staged-file classifications, or changed-symbol records.
 2. Use `entire brain inspect code <symbol> --json --limit 20 --offset 0` or
    `entire brain inspect search-graph <query> --json` to find candidate symbols
    and relation hits.

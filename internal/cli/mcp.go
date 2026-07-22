@@ -262,13 +262,13 @@ func mcpToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "brain_status",
-			"description": "Summarize the local brain: sources, durable-fact counts and verification, semantic provider/coverage/freshness/blind spots, and live workspace state.",
-			"inputSchema": objectSchema(nil, map[string]any{}),
+			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic provider/coverage totals/freshness/blind spots, and live workspace state. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
 		},
 		{
 			"name":        "brain_brief",
-			"description": "Build a bounded task packet from local brain context, live state, semantic context, and indexed history.",
-			"inputSchema": objectSchema([]string{"task"}, map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section")}),
+			"description": "Build a compact task packet from local brain context, live state, semantic context, and indexed history; use targeted follow-up tools when more detail is needed.",
+			"inputSchema": objectSchema([]string{"task"}, map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section (default 3)")}),
 		},
 		{
 			"name":        "brain_query",
@@ -317,8 +317,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_status",
-			"description": "Alias for brain_status focused on semantic index freshness, coverage, and counts.",
-			"inputSchema": objectSchema(nil, map[string]any{}),
+			"description": "Alias for brain_status focused on semantic index freshness, coverage, and counts. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
 		},
 		{
 			"name":        "brain_index_repository",
@@ -446,7 +446,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
 	cmd.SetContext(ctx)
-	limit, err := mcpPositiveInt(params.Arguments, "limit", 20)
+	defaultLimit := 20
+	if params.Name == "brain_brief" {
+		defaultLimit = brainBriefDefaultLimit
+	}
+	limit, err := mcpPositiveInt(params.Arguments, "limit", defaultLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -458,13 +462,17 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
+	details, err := mcpBool(params.Arguments, "details")
+	if err != nil {
+		return nil, err
+	}
 	switch params.Name {
 	case "brain_status", "brain_index_status":
 		target := "."
 		if opts.Env.RepoRoot != "" {
 			target = opts.Env.RepoRoot
 		}
-		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, failOn: semanticAuditFailOnNone}, target)
+		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, failOn: semanticAuditFailOnNone}, target)
 	case "brain_index_repository":
 		path, stringErr := mcpOptionalString(params.Arguments, "path")
 		if stringErr != nil {

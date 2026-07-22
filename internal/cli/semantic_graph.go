@@ -169,7 +169,7 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, storePath)
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 	if err != nil {
 		return err
 	}
@@ -419,7 +419,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, storePath)
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 	if err != nil {
 		return err
 	}
@@ -745,7 +745,7 @@ func runSemanticTracePath(cmd *cobra.Command, opts Options, traceOpts semanticTr
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, storePath)
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 	if err != nil {
 		return err
 	}
@@ -917,7 +917,7 @@ func runSemanticDeadCode(cmd *cobra.Command, opts Options, deadOpts semanticDead
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, storePath)
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 	if err != nil {
 		return err
 	}
@@ -1027,7 +1027,7 @@ func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUI
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, storePath)
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 	if err != nil {
 		return err
 	}

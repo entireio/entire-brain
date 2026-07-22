@@ -40,11 +40,12 @@ type docIndex struct {
 }
 
 type docRecord struct {
-	ID      string `json:"id"`
-	Path    string `json:"path"`    // brain-relative markdown path
-	Heading string `json:"heading"` // first markdown heading within the chunk, if any (empty when the chunk starts mid-section)
-	Line    int    `json:"line"`    // 1-based start line in the file
-	Text    string `json:"text"`
+	ID         string `json:"id"`
+	Path       string `json:"path"`    // brain-relative markdown path
+	Heading    string `json:"heading"` // first markdown heading within the chunk, if any (empty when the chunk starts mid-section)
+	Line       int    `json:"line"`    // 1-based start line in the file
+	Text       string `json:"text"`
+	Historical bool   `json:"historical,omitempty"` // explicitly superseded reference material; current docs rank first
 }
 
 func docRecordID(path string, line int, text string) string {
@@ -106,6 +107,7 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 			return nil
 		}
 		files++
+		historical := docFileHistorical(rel, string(data))
 		for _, c := range chunkLines(string(data), maxDocChunkBytes, false) {
 			if strings.TrimSpace(c.Text) == "" {
 				continue
@@ -115,16 +117,32 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 			// inside isn't corrupted (and the hashed id stays faithful to the source).
 			text := strings.TrimRight(c.Text, "\n")
 			records = append(records, docRecord{
-				ID:      docRecordID(rel, c.StartLine, text),
-				Path:    rel,
-				Heading: firstHeading(text),
-				Line:    c.StartLine,
-				Text:    text,
+				ID:         docRecordID(rel, c.StartLine, text),
+				Path:       rel,
+				Heading:    firstHeading(text),
+				Line:       c.StartLine,
+				Text:       text,
+				Historical: historical,
 			})
 		}
 		return nil
 	})
 	return records, files, warnings, err
+}
+
+func docFileHistorical(path, text string) bool {
+	lowerPath := "/" + strings.ToLower(filepath.ToSlash(path)) + "/"
+	for _, marker := range []string{"/archive/", "/historical/", "/outdated/", "/deprecated/"} {
+		if strings.Contains(lowerPath, marker) {
+			return true
+		}
+	}
+	markerText := strings.ToLower(text)
+	if len(markerText) > 2000 {
+		markerText = markerText[:2000]
+	}
+	return strings.Contains(markerText, "<!-- entire-brain-status: historical -->") ||
+		strings.Contains(markerText, "<!-- entire-brain-status: superseded -->")
 }
 
 // writeDocIndexAndSource builds and persists the doc index + manifest source from

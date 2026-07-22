@@ -183,7 +183,7 @@ func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
 	}
 }
 
-func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
+func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
@@ -191,7 +191,7 @@ func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_status", "semantic provider/coverage/freshness/blind spots"} {
+	for _, want := range []string{"brain_status", "coverage totals/freshness/blind spots", "details=true"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("tools/list missing %q: %s", want, data)
 		}
@@ -1277,15 +1277,23 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(oldWD) }()
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`)
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_status","arguments":{"details":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
-	data, _ := json.Marshal(responses[0]["result"])
-	if !strings.Contains(string(data), `"severity\": \"ok\"`) {
-		t.Fatalf("status result = %s", data)
+	if len(responses) != 2 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+	compact, _ := json.Marshal(mcpTextJSONPayload(t, responses[0]))
+	if !strings.Contains(string(compact), `"severity":"ok"`) || strings.Contains(string(compact), `"file_languages"`) || strings.Contains(string(compact), `"changed_symbol_hints"`) {
+		t.Fatalf("compact status result = %s", compact)
+	}
+	detailed, _ := json.Marshal(mcpTextJSONPayload(t, responses[1]))
+	if !strings.Contains(string(detailed), `"severity":"ok"`) || !strings.Contains(string(detailed), `"file_languages"`) {
+		t.Fatalf("detailed status result = %s", detailed)
 	}
 }
 

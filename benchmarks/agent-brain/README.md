@@ -3,6 +3,43 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+## Current-main-only policy
+
+Entire Brain has no released product baseline. Every `run`, `panel`, `prep`, and
+`check` invocation builds the Brain binary from this checkout and fails unless
+the checkout's `HEAD` contains the locally fetched `origin/main`. Fetch before a
+consequential run, then create or rebase the experiment branch from that mainline.
+
+All causal arms in a suite use that same freshly built Brain binary. Conditions
+may vary memory delivery (`no_brain`, raw history, facts, or retrieved memory),
+but must not substitute an older Entire Brain implementation as a control. A
+task repository may intentionally pin a historical commit to reproduce a known
+bug; that does not authorize an old Brain binary.
+
+The unmerged `wip/memory-lifecycle-plan-handoff-20260712` task corpus is retired:
+it was never run, its `mined-c0701` directories were not disjoint, and it is not
+an eligible source for development or holdout claims. Any successor population
+must be regenerated in GraphMark with unique task IDs and source commits across
+splits before it is referenced here.
+
+## Implementation canaries are real agent use
+
+Fast implementation canaries must exercise the installed current Brain through
+the same documented MCP or direct-CLI surface a normal coding agent uses, on a
+real repository and a real engineering task. Start with `brain_status`, then
+`brain_brief`, then only the smallest task-driven follow-up such as
+`brain_query`, `brain_code`, or `brain_tests`. Record freshness, usefulness,
+irrelevant context, output size, latency, and any fallback to direct inspection.
+
+Do not call internal retriever/ranker functions, invent synthetic caller
+adapters, or treat mocks and unit tests as canary evidence. Focused unit and
+integration tests should reproduce and protect a fix, but the canary is the
+agent-facing behavior that motivated it. Dogfood the active development task
+first; use a tiny additional development set only when one real task cannot
+separate the behavior under investigation. Do not start a long-running agent
+matrix or holdout run until repeated real-task use shows that the implementation
+and failure taxonomy are stable.
+
 ## Stable panel (`panel`) + the stability gate
 
 "Is benchmarking stable?" is answered with a **committed panel manifest** plus a **printed

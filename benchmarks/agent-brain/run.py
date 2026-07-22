@@ -604,7 +604,40 @@ def resolve_repo_path(raw: str) -> pathlib.Path:
     return path
 
 
+def require_current_brain_mainline(
+    repo: pathlib.Path = ROOT,
+    main_ref: str = "origin/main",
+) -> dict[str, str]:
+    """Refuse to build a benchmark Brain from a checkout behind main.
+
+    Entire Brain has no released product baseline. Development and evaluation
+    therefore use a feature branch whose history contains the locally fetched
+    mainline, never an older product checkout. The caller is responsible for
+    fetching before a consequential run; a stale local remote ref cannot be
+    detected without network access.
+    """
+    head = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo)
+    if head.returncode != 0 or not head.stdout.strip():
+        raise RuntimeError("benchmark refused: cannot resolve the Entire Brain checkout HEAD")
+
+    main = run_cmd(["git", "rev-parse", "--verify", f"{main_ref}^{{commit}}"], cwd=repo)
+    if main.returncode != 0 or not main.stdout.strip():
+        raise RuntimeError(
+            f"benchmark refused: {main_ref} is unavailable; fetch origin before building Entire Brain"
+        )
+
+    ancestor = run_cmd(["git", "merge-base", "--is-ancestor", main_ref, "HEAD"], cwd=repo)
+    if ancestor.returncode != 0:
+        raise RuntimeError(
+            "benchmark refused: Entire Brain HEAD is behind or diverged from "
+            f"{main_ref}; fetch origin and rebase or recreate the branch from current main"
+        )
+
+    return {"head": head.stdout.strip(), "main_ref": main_ref, "main_commit": main.stdout.strip()}
+
+
 def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
+    require_current_brain_mainline()
     bin_dir = run_root / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     brain_bin = bin_dir / "entire-brain"

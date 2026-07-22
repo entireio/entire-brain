@@ -55,6 +55,33 @@ func TestRankDocsLexicalFallbackScoresByTermOverlap(t *testing.T) {
 	}
 }
 
+func TestRankDocsLexicalPrefersCurrentOverHistorical(t *testing.T) {
+	index := docIndex{Records: []docRecord{
+		{ID: "old", Text: "agent benchmark workflow", Historical: true},
+		{ID: "current", Text: "agent benchmark workflow"},
+	}}
+	out := rankDocsLexical(index, "agent benchmark workflow", 2)
+	if len(out) != 2 || out[0].Record.ID != "current" || out[1].Record.ID != "old" {
+		t.Fatalf("current docs should rank before historical docs: %+v", out)
+	}
+	old := docToUnified(out[1].Record)
+	if !old.VerificationRequired || !hasRetrievalCaveat(old, retrievalCaveatHistoricalDocument) {
+		t.Fatalf("historical doc missing trust caveat: %+v", old)
+	}
+}
+
+func TestDocFileHistoricalUsesExplicitMarkers(t *testing.T) {
+	if !docFileHistorical("seed/docs/plan.md", "# Plan\n<!-- entire-brain-status: historical -->\n") {
+		t.Fatal("explicit historical marker was ignored")
+	}
+	if !docFileHistorical("seed/docs/archive/plan.md", "# Plan\n") {
+		t.Fatal("archive directory was not treated as historical")
+	}
+	if docFileHistorical("seed/docs/current-plan.md", "# Current plan\n") {
+		t.Fatal("an unmarked current plan was treated as historical")
+	}
+}
+
 // A run of blank lines in a doc must not grow a chunk past maxBytes — the blank
 // path is subject to the same size cap and flushes at the boundary.
 func TestChunkLinesDocsBlankRunRespectsMaxBytes(t *testing.T) {

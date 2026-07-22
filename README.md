@@ -31,6 +31,19 @@ and known failure modes instead of rediscovering them from scratch.
 The plugin binary is named `entire-brain` and is invoked through Entire as
 `entire brain`.
 
+## Development source of truth
+
+Entire Brain has no released product version. Development starts from the
+locally fetched current mainline; do not resume an old WIP/integration checkout
+or use an older Brain binary as a benchmark control. The Agent Brain harness
+builds from the active checkout and refuses to run unless `HEAD` contains local
+`origin/main`. All causal arms use that same binary and vary only memory
+delivery.
+
+GraphMark owns cross-product benchmark evidence and split integrity. See
+[`benchmarks/agent-brain/README.md`](benchmarks/agent-brain/README.md) for the
+enforced policy and retired-corpus notice.
+
 ## Install
 
 Prerequisites:
@@ -177,7 +190,9 @@ shelling out to the CLI. The normal first call is `brain_brief`, then targeted
 follow-ups:
 
 - `brain_brief` for task-shaped context, history hits, likely files, and tests
-- `brain_status` to check freshness, coverage, and blind spots
+- `brain_status` to check compact freshness, coverage totals, and blind spots;
+  request `details: true` only for coverage histograms, staged-file classes, or
+  changed-symbol records
 - retrieval tools such as `brain_query` and `brain_get` for facts, docs, history
 - semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
   `brain_tests` for code navigation and validation planning
@@ -222,6 +237,10 @@ entire brain inspect code "<symbol or concept>" --json
 entire brain inspect tests "<symbol-or-id>" --json
 entire brain inspect regressions "<task or invariant>" --location-only --json
 ```
+
+`status --json` is the compact agent preflight. Use `status --json --details`
+only when an audit or diagnosis needs language/kind/relation histograms,
+staged/unstaged/untracked classifications, or changed-symbol records.
 
 Prefer `query` for broad facts/history/docs, `search` for exact terms, semantic
 `inspect` subcommands for code-graph questions, and `get`/`multi-get` when a
@@ -417,15 +436,16 @@ entire brain facts eval-gen > facts-tasks.json
 entire brain facts eval --tasks facts-tasks.json --retriever facts --json > facts-eval.json
 entire brain facts eval-compare --a <before.json> --b <after.json>
 entire brain bench semantic .
-entire brain status --json
+entire brain status --json --details
 ```
 
 `facts eval-compare` runs a paired t-test with Holm correction and rejects
 non-proof or mismatched relevance sources unless `--allow-proxy-comparison` is
-explicit. Treat the `semantic` section of `status --json` as audit evidence for
-the reported provider output (`status --fail-on release` is the CI gate form),
-not a global coverage claim; public semantic claims should name the covered
-languages, relation types, freshness state, and benchmark records behind them.
+explicit. Treat the `semantic` section of `status --json --details` as audit
+evidence for the reported provider output (`status --fail-on release` is the
+compact CI gate form), not a global coverage claim; public semantic claims
+should name the covered languages, relation types, freshness state, and
+benchmark records behind them.
 
 ### Tune retrieval
 

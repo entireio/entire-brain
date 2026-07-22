@@ -10,6 +10,7 @@ import shlex
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 RUN_PATH = pathlib.Path(__file__).with_name("run.py")
@@ -77,6 +78,48 @@ TEMPORAL_REPORT_SPEC.loader.exec_module(temporal_report)
 
 
 class RunnerAndConditionTests(unittest.TestCase):
+    def test_benchmark_build_requires_current_brain_mainline(self):
+        completed = run.subprocess.CompletedProcess
+
+        def current(args, **_kwargs):
+            if args[:3] == ["git", "rev-parse", "HEAD"]:
+                return completed(args, 0, stdout="feature\n", stderr="")
+            if args[:3] == ["git", "rev-parse", "--verify"]:
+                return completed(args, 0, stdout="main\n", stderr="")
+            if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+                return completed(args, 0, stdout="", stderr="")
+            self.fail(f"unexpected command: {args}")
+
+        with mock.patch.object(run, "run_cmd", side_effect=current):
+            self.assertEqual(
+                run.require_current_brain_mainline(pathlib.Path("/repo")),
+                {"head": "feature", "main_ref": "origin/main", "main_commit": "main"},
+            )
+
+        def behind(args, **_kwargs):
+            proc = current(args, **_kwargs)
+            if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+                return completed(args, 1, stdout="", stderr="")
+            return proc
+
+        with mock.patch.object(run, "run_cmd", side_effect=behind):
+            with self.assertRaisesRegex(RuntimeError, "behind or diverged"):
+                run.require_current_brain_mainline(pathlib.Path("/repo"))
+
+    def test_benchmark_build_requires_fetched_origin_main(self):
+        completed = run.subprocess.CompletedProcess
+
+        def missing_main(args, **_kwargs):
+            if args[:3] == ["git", "rev-parse", "HEAD"]:
+                return completed(args, 0, stdout="feature\n", stderr="")
+            if args[:3] == ["git", "rev-parse", "--verify"]:
+                return completed(args, 128, stdout="", stderr="missing")
+            self.fail(f"unexpected command: {args}")
+
+        with mock.patch.object(run, "run_cmd", side_effect=missing_main):
+            with self.assertRaisesRegex(RuntimeError, "fetch origin"):
+                run.require_current_brain_mainline(pathlib.Path("/repo"))
+
     def test_retained_release_evidence_paths_fit_github_windows_checkout(self):
         evidence_dir = RUN_PATH.with_name("evidence")
         github_windows_prefix = "D:/a/entire-brain/entire-brain/"
@@ -6530,6 +6573,11 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             allowed_probe = run.run_cmd(
                 ["/usr/bin/sandbox-exec", "-p", profile, "/bin/cat", str(allowed)]
             )
+            if (
+                allowed_probe.returncode == 71
+                and "sandbox_apply: Operation not permitted" in allowed_probe.stderr
+            ):
+                self.skipTest("the host forbids nested macOS sandbox profiles")
             denied_probe = run.run_cmd(
                 ["/usr/bin/sandbox-exec", "-p", profile, "/bin/cat", str(denied)]
             )

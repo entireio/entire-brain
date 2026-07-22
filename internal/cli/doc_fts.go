@@ -171,6 +171,12 @@ func rankDocsLexical(index docIndex, query string, limit int) []scoredDocRecord 
 		}
 		return scored[a].rec.ID < scored[b].rec.ID
 	})
+	// Historical material remains searchable, but an explicitly current chunk
+	// wins the brief agent's attention even when the old plan has denser keyword
+	// overlap. Preserve relevance order within each trust class.
+	sort.SliceStable(scored, func(a, b int) bool {
+		return !scored[a].rec.Historical && scored[b].rec.Historical
+	})
 	out := make([]scoredDocRecord, 0, min(limit, len(scored)))
 	for _, s := range scored {
 		out = append(out, scoredDocRecord{Record: s.rec, Score: s.score})
@@ -199,7 +205,7 @@ func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([
 		return nil, false
 	}
 	defer rows.Close()
-	out := make([]scoredDocRecord, 0, limit)
+	out := make([]scoredDocRecord, 0, limit*4)
 	seen := map[string]struct{}{}
 	var topScore float64
 	for rows.Next() {
@@ -223,12 +229,18 @@ func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([
 		}
 		seen[rec.ID] = struct{}{}
 		out = append(out, scoredDocRecord{Record: rec, Score: int(score*1000 + 0.5)})
-		if len(out) >= limit {
+		if len(out) >= limit*4 {
 			break
 		}
 	}
 	if rows.Err() != nil {
 		return nil, false
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		return !out[a].Record.Historical && out[b].Record.Historical
+	})
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, true
 }

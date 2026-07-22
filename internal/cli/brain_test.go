@@ -123,11 +123,8 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if report.Status.Manifest != nil {
 		t.Fatalf("brief JSON should not emit full manifest: %+v", report.Status.Manifest)
 	}
-	if got := report.Status.Live.Unstaged; len(got) != 1 || got[0] != "internal/auth/token.go" {
-		t.Fatalf("unstaged = %+v", got)
-	}
-	if got := report.Status.Live.Untracked; len(got) != 1 || got[0] != "notes.md" {
-		t.Fatalf("untracked = %+v", got)
+	if got := report.Status.Live.ChangedFiles; len(got) != 2 || got[0] != "internal/auth/token.go" || got[1] != "notes.md" {
+		t.Fatalf("changed files = %+v", got)
 	}
 	if len(report.Semantic.Context.Symbols) == 0 || report.Semantic.Context.Symbols[0].Name != "ValidateToken" {
 		t.Fatalf("brief missing semantic context: %+v", report.Semantic.Context.Symbols)
@@ -162,6 +159,58 @@ func TestBrainBriefFactsCount(t *testing.T) {
 	for limit, want := range cases {
 		if got := brainBriefFactsCount(limit); got != want {
 			t.Errorf("brainBriefFactsCount(%d) = %d, want %d", limit, got, want)
+		}
+	}
+}
+
+func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.T) {
+	if brainBriefDefaultLimit != 3 {
+		t.Fatalf("brain brief default limit = %d, want 3", brainBriefDefaultLimit)
+	}
+	got := brainBriefSemanticQuery("Make brain brief compact for routine agent use")
+	for _, want := range []string{"brain_brief", "brainBrief", "runBrainBrief"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("semantic query %q missing public-surface identifier %q", got, want)
+		}
+	}
+	plain := "ValidateToken behavior"
+	if got := brainBriefSemanticQuery(plain); got != plain {
+		t.Fatalf("unrelated semantic query changed: %q", got)
+	}
+}
+
+func TestBrainBriefJSONProjectionOmitsFollowUpDetail(t *testing.T) {
+	status := brainBriefOutputStatus(brainStatusReport{
+		Facts: &brainStatusFacts{Verification: &verifySummary{}},
+		Semantic: &brainStatusSemantic{
+			Coverage: &brainStatusSemanticCoverage{Files: 99},
+		},
+		Live: brainLiveState{
+			ChangedFiles:       []string{"internal/cli/agent_surface.go"},
+			ChangedSymbolHints: []semanticRecord{{ID: "symbol:huge", Blob: strings.Repeat("x", 1000)}},
+		},
+	})
+	report := brainBriefReport{
+		Task:   "compact",
+		Status: status,
+		Semantic: brainBriefSemantic{Context: semanticContextResult{
+			Symbols: []semanticRecord{{ID: "symbol:brief", Name: "runBrainBrief", FilePath: "internal/cli/agent_surface.go", RecordType: "symbol", Blob: strings.Repeat("y", 1000)}},
+		}},
+		Facts: []factRecord{{ID: "fact:brief", Paths: []string{"product"}, Text: "Keep the packet compact.", Provenance: []factAnchor{{SessionID: "large-provenance"}}}},
+	}
+	data, err := json.Marshal(brainBriefJSONProjection(report))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonText := string(data)
+	for _, omitted := range []string{"changed_symbol_hints", "unstaged", "untracked", "coverage", "verification", "record_type", "provenance", "patterns", "consolidations", "themes", strings.Repeat("x", 100), strings.Repeat("y", 100)} {
+		if strings.Contains(jsonText, omitted) {
+			t.Fatalf("compact brief leaked follow-up detail %q: %s", omitted, jsonText)
+		}
+	}
+	for _, kept := range []string{"changed_files", "internal/cli/agent_surface.go", "runBrainBrief", "Keep the packet compact."} {
+		if !strings.Contains(jsonText, kept) {
+			t.Fatalf("compact brief lost useful field %q: %s", kept, jsonText)
 		}
 	}
 }

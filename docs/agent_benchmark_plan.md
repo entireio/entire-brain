@@ -1,5 +1,12 @@
 # Agent Brain Benchmark Plan
 
+<!-- entire-brain-status: historical -->
+
+> **Historical planning record.** This document describes pre-release benchmark
+> phases and must not be used to select an Entire Brain implementation or
+> benchmark an older checkout. The current operating policy and smallest
+> real-agent canary live in [`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md).
+
 ## Status addendum (2026-06-10)
 
 The per-phase "current status" notes below are dated ~2026-06-01 and predate the

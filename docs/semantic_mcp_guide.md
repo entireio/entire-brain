@@ -24,6 +24,9 @@ Available tools:
 
 The tool responses wrap the existing CLI `--json` output as text content. Treat
 the CLI JSON contracts as the source of truth for fields and freshness policy.
+`brain_status` and `brain_index_status` are compact by default; pass
+`details: true` only when coverage histograms, staged-file classifications, or
+changed-symbol records are required.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a

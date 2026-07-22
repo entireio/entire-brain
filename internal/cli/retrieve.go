@@ -381,6 +381,12 @@ func docsVectorRanked(
 		}
 		return index.Records[scored[a].i].ID < index.Records[scored[b].i].ID
 	})
+	// Keep old plans discoverable, but exhaust current material before returning
+	// explicitly historical chunks. Similarity order is preserved within each
+	// class, and historical results are labeled by docToUnified below.
+	sort.SliceStable(scored, func(a, b int) bool {
+		return !index.Records[scored[a].i].Historical && index.Records[scored[b].i].Historical
+	})
 	out := documentVectorRanks{
 		ranked:                 make([]unifiedResult, 0, min(limit, len(scored))),
 		calibratedSemanticOnly: make([]unifiedResult, 0),
@@ -422,7 +428,17 @@ func historyToUnified(scored []scoredHistoryRecord) []unifiedResult {
 }
 
 func docToUnified(r docRecord) unifiedResult {
-	return unifiedResult{Source: "doc", ID: "doc:" + r.ID, Path: r.Path, Line: r.Line, Heading: r.Heading, Text: r.Text}
+	result := unifiedResult{Source: "doc", ID: "doc:" + r.ID, Path: r.Path, Line: r.Line, Heading: r.Heading, Text: r.Text}
+	if r.Historical {
+		result.VerificationRequired = true
+		result.Caveats = []retrievalCaveat{{
+			Kind:    retrievalCaveatHistoricalDocument,
+			Message: "This document is explicitly historical or superseded; prefer current operational documentation.",
+			Paths:   []string{r.Path},
+			Action:  "Verify against the current README and active implementation before relying on it.",
+		}}
+	}
+	return result
 }
 
 func docsToUnified(scored []scoredDocRecord) []unifiedResult {

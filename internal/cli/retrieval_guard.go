@@ -13,6 +13,7 @@ const (
 	retrievalCaveatUnresolvedReview         = "unresolved_fact_proposal"
 	retrievalCaveatProposalStateUnavailable = "proposal_state_unavailable"
 	retrievalCaveatCurrentCodeUnavailable   = "current_code_unavailable"
+	retrievalCaveatHistoricalDocument       = "historical_document"
 )
 
 // retrievalCaveat is a machine-readable reason an agent must verify a memory
