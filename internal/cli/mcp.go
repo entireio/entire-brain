@@ -312,7 +312,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_changes",
-			"description": "Map local file changes to semantic symbols without writing Brain artifacts.",
+			"description": "Map local diff hunks to the indexed symbols they touch without writing Brain artifacts.",
 			"inputSchema": objectSchema(nil, map[string]any{"limit": integerArg("limit", "Maximum symbols")}),
 		},
 		{
@@ -377,7 +377,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_detect_changes",
-			"description": "Alias for brain_changes: map local file changes to semantic symbols without writing Brain artifacts.",
+			"description": "Alias for brain_changes: map local diff hunks to the indexed symbols they touch without writing Brain artifacts.",
 			"inputSchema": objectSchema(nil, map[string]any{"limit": integerArg("limit", "Maximum symbols")}),
 		},
 		{

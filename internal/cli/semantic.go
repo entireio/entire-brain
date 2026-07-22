@@ -2470,12 +2470,19 @@ type semanticChangesReport struct {
 	// map" from a broken command without inferring it from empty arrays; it is
 	// NOT a `git status`-clean signal (changes confined to ignored paths still
 	// report clean=true).
-	Clean   bool             `json:"clean"`
-	Files   []string         `json:"files"`
-	Symbols []semanticRecord `json:"symbols"`
+	Clean   bool                   `json:"clean"`
+	Files   []string               `json:"files"`
+	Ranges  []semanticChangedRange `json:"ranges,omitempty"`
+	Symbols []semanticRecord       `json:"symbols"`
 	// Facts are durable facts whose locus names a changed file/symbol — "what the
 	// brain already knows about the code you're touching". Omitted when none.
 	Facts []factRecord `json:"facts,omitempty"`
+}
+
+type semanticChangedRange struct {
+	File      string `json:"file"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
 }
 
 type semanticBoundaryOptions struct {
@@ -2765,14 +2772,19 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	symbols, err := semanticSymbolsForFiles(storage.BrainDir, manifest.Sources.Semantic, files, changesOpts.limit)
+	ranges, err := changedSemanticRanges(ctx, opts.Runner, repoDir, manifest.Sources.Semantic.WorktreeMode == "worktree")
+	if err != nil {
+		return err
+	}
+	ranges = semanticChangedRangesForFiles(ranges, files)
+	symbols, err := semanticSymbolsForChangedRanges(storage.BrainDir, manifest.Sources.Semantic, files, ranges, changesOpts.limit)
 	if err != nil {
 		return err
 	}
 	if files == nil {
 		files = []string{}
 	}
-	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Symbols: nonNil(symbols)}
+	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Ranges: ranges, Symbols: nonNil(symbols)}
 	// Surface durable facts about the code being touched. Best-effort: a missing
 	// facts source or a branch lookup failure simply yields no facts, never an
 	// error on the changes command. Skipped on a clean tree — no changed files
@@ -3247,6 +3259,59 @@ func semanticSymbolsForFiles(brainDir string, source *semanticSourceManifest, fi
 		return nil, err
 	}
 	return findSemanticSymbolsForFiles(filepath.Join(brainDir, snapshotPath), files, limit)
+}
+
+// semanticSymbolsForChangedRanges narrows a file-level candidate set to the
+// symbols whose indexed line spans overlap actual diff hunks. Files without a
+// parseable hunk deliberately retain whole-file behavior: pure renames,
+// binaries, and untracked files can still be semantically meaningful even
+// though `git diff --unified=0` has no usable line range for them.
+func semanticSymbolsForChangedRanges(brainDir string, source *semanticSourceManifest, files []string, ranges []semanticChangedRange, limit int) ([]semanticRecord, error) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+	candidateLimit := source.Symbols
+	if candidateLimit < limit {
+		candidateLimit = limit
+	}
+	if candidateLimit <= 0 {
+		candidateLimit = int(^uint(0) >> 1)
+	}
+	candidates, err := semanticSymbolsForFiles(brainDir, source, files, candidateLimit)
+	if err != nil {
+		return nil, err
+	}
+	byFile := make(map[string][]semanticChangedRange, len(files))
+	for _, file := range files {
+		byFile[file] = nil
+	}
+	for _, changed := range ranges {
+		if _, ok := byFile[changed.File]; ok {
+			byFile[changed.File] = append(byFile[changed.File], changed)
+		}
+	}
+	matched := make([]semanticRecord, 0, min(limit, len(candidates)))
+	for _, candidate := range candidates {
+		fileRanges, ok := byFile[candidate.FilePath]
+		if !ok {
+			continue
+		}
+		include := len(fileRanges) == 0
+		for _, changed := range fileRanges {
+			if candidate.StartLine <= changed.EndLine && candidate.EndLine >= changed.StartLine {
+				include = true
+				break
+			}
+		}
+		if !include {
+			continue
+		}
+		matched = append(matched, candidate)
+		if len(matched) >= limit {
+			break
+		}
+	}
+	return matched, nil
 }
 
 // externalBoundaryRecord turns an "external:<kind>:<value>" node id into a
@@ -4271,6 +4336,104 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func changedSemanticRanges(ctx context.Context, runner CommandRunner, repoDir string, indexedWorktree bool) ([]semanticChangedRange, error) {
+	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")
+	if err != nil {
+		return nil, fmt.Errorf("inspect changed lines: %w", err)
+	}
+	return parseSemanticChangedRanges(string(diffOutput), indexedWorktree), nil
+}
+
+func parseSemanticChangedRanges(diff string, indexedWorktree bool) []semanticChangedRange {
+	var oldFile, newFile string
+	var ranges []semanticChangedRange
+	readingFileHeaders := true
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			oldFile, newFile = "", ""
+			readingFileHeaders = true
+		case readingFileHeaders && strings.HasPrefix(line, "--- "):
+			oldFile = semanticDiffPath(strings.TrimPrefix(line, "--- "))
+		case readingFileHeaders && strings.HasPrefix(line, "+++ "):
+			newFile = semanticDiffPath(strings.TrimPrefix(line, "+++ "))
+			readingFileHeaders = false
+		case strings.HasPrefix(line, "@@ "):
+			fields := strings.Fields(line)
+			if len(fields) < 3 {
+				continue
+			}
+			oldStart, oldCount, oldOK := parseSemanticDiffSpan(fields[1], '-')
+			newStart, newCount, newOK := parseSemanticDiffSpan(fields[2], '+')
+			if !oldOK || !newOK {
+				continue
+			}
+			file, start, count := oldFile, oldStart, oldCount
+			if indexedWorktree {
+				file, start, count = newFile, newStart, newCount
+			}
+			if file == "" {
+				continue
+			}
+			// A zero-count side is an insertion/deletion boundary. Anchor it to
+			// the nearest indexed line so an enclosing symbol can still match.
+			if start < 1 {
+				start = 1
+			}
+			end := start
+			if count > 0 {
+				end = start + count - 1
+			}
+			ranges = append(ranges, semanticChangedRange{File: file, StartLine: start, EndLine: end})
+		}
+	}
+	return ranges
+}
+
+func semanticChangedRangesForFiles(ranges []semanticChangedRange, files []string) []semanticChangedRange {
+	allowed := make(map[string]struct{}, len(files))
+	for _, file := range files {
+		allowed[file] = struct{}{}
+	}
+	filtered := make([]semanticChangedRange, 0, len(ranges))
+	for _, changed := range ranges {
+		if _, ok := allowed[changed.File]; ok {
+			filtered = append(filtered, changed)
+		}
+	}
+	return filtered
+}
+
+func semanticDiffPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "/dev/null" {
+		return ""
+	}
+	return decodeGitPorcelainPath(value)
+}
+
+func parseSemanticDiffSpan(value string, prefix byte) (int, int, bool) {
+	if len(value) < 2 || value[0] != prefix {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(value[1:], ",", 2)
+	start, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	count := 1
+	if len(parts) == 2 {
+		count, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, 0, false
+		}
+	}
+	if start < 0 || count < 0 {
+		return 0, 0, false
+	}
+	return start, count, true
 }
 
 func changedPathsFromNameStatus(output string) []string {

@@ -2106,6 +2106,49 @@ func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	}
 }
 
+func TestSemanticChangesMapsDiffHunksInsteadOfFirstFileSymbols(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticChangesRangeFixtureSnapshot())
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
+	runner.responses[fakeCommandKey("git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")] = fakeCommandResponse{stdout: "diff --git internal/auth/token.go internal/auth/token.go\n--- internal/auth/token.go\n+++ internal/auth/token.go\n@@ -12 +12 @@\n-old\n+new\n"}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	changesCmd := &cobra.Command{Use: "changes"}
+	changesCmd.SetOut(&out)
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	var payload struct {
+		Changes semanticChangesReport `json:"changes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decode changes: %v\n%s", err, out.String())
+	}
+	if len(payload.Changes.Ranges) != 1 || payload.Changes.Ranges[0].StartLine != 12 || payload.Changes.Ranges[0].EndLine != 12 {
+		t.Fatalf("ranges = %+v", payload.Changes.Ranges)
+	}
+	if len(payload.Changes.Symbols) != 1 || payload.Changes.Symbols[0].Name != "ValidateToken" {
+		t.Fatalf("hunk symbols = %+v", payload.Changes.Symbols)
+	}
+}
+
+func TestParseSemanticChangedRangesUsesIndexedCoordinatePlane(t *testing.T) {
+	diff := "diff --git internal/auth/token.go internal/auth/token.go\n--- internal/auth/token.go\n+++ internal/auth/token.go\n@@ -10,2 +10,4 @@\n--- header-like deleted content\n+++ header-like added content\n@@ -20 +22 @@\n"
+	tracked := parseSemanticChangedRanges(diff, false)
+	if len(tracked) != 2 || tracked[0].StartLine != 10 || tracked[0].EndLine != 11 || tracked[1].File != "internal/auth/token.go" || tracked[1].StartLine != 20 {
+		t.Fatalf("tracked ranges = %+v", tracked)
+	}
+	worktree := parseSemanticChangedRanges(diff, true)
+	if len(worktree) != 2 || worktree[0].StartLine != 10 || worktree[0].EndLine != 13 || worktree[1].File != "internal/auth/token.go" || worktree[1].StartLine != 22 {
+		t.Fatalf("worktree ranges = %+v", worktree)
+	}
+}
+
 func TestSemanticChangesDefaultDoesNotAcquireIndexLock(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -4471,6 +4514,7 @@ func semanticFixtureRunner(repoDir, snapshot string) *fakeCommandRunner {
 		fakeCommandKey("git", "branch", "--show-current"):                                                                                                      {stdout: "feature\n"},
 		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):                                                                {stdout: "origin/main\n"},
 		fakeCommandKey("git", "status", "--porcelain"):                                                                                                         {stdout: ""},
+		fakeCommandKey("git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD"):                                                     {stdout: ""},
 		fakeCommandKey("entire", "graph", "doctor", "--json"):                                                                                                  {stdout: `{"no_egress":true}`},
 		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"):                                                 {stdout: snapshot},
 		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath):               {stdout: snapshot},
@@ -4513,6 +4557,13 @@ func semanticFixtureSnapshot(schema string) string {
 	return `{"schema_version":"` + schema + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+`
+}
+
+func semanticChangesRangeFixtureSnapshot() string {
+	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.PrepareToken","kind":"function","name":"PrepareToken","qualified_name":"auth.PrepareToken","file_path":"internal/auth/token.go","start_line":1,"end_line":5,"signature":"func PrepareToken()","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 `
 }
 

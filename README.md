@@ -359,7 +359,7 @@ entire brain inspect graph-ui semantic-graph.html        # local static graph ex
 entire brain inspect trace-path "<caller>" "<callee>" --json
 entire brain inspect dead-code --json
 entire brain inspect boundaries --kind tool --json
-entire brain inspect changes --json                      # read-only mapping of the working-tree diff to symbols
+entire brain inspect changes --json                      # read-only, diff-hunk-scoped symbol mapping
 # add --write-report only when semantic/changes/latest.json should be persisted
 ```
 
