@@ -1728,7 +1728,10 @@ func brainBriefRankSemanticSymbols(symbols, relations []semanticRecord, task str
 		name := strings.ToLower(symbol.Name + " " + symbol.QualifiedName)
 		path := strings.ToLower(symbol.FilePath)
 		base := strings.TrimSuffix(strings.ToLower(filepath.Base(path)), strings.ToLower(filepath.Ext(path)))
-		score := relationScores[symbol.ID]
+		// Preserve the bounded retriever's IDF relevance. The compact reranker
+		// adds task/path and graph evidence; it must not erase the signal that
+		// admitted a rare identifier-shaped match to the candidate set.
+		score := symbol.Score + relationScores[symbol.ID]
 		switch strings.ToLower(symbol.Kind) {
 		case "function", "method", "class", "type", "interface":
 			score += 5
@@ -1743,6 +1746,14 @@ func brainBriefRankSemanticSymbols(symbols, relations []semanticRecord, task str
 				score += max(1, weight/2)
 			}
 		}
+		// Prefer symbols whose identifier covers the task's whole concept tuple.
+		// IDF alone can rank mapRepoNamesToIDs above NormalizeRepoName because the
+		// former's signature spells the rarer word "repository". For localization,
+		// three concepts in the identifier (normalize + repo + name) are stronger
+		// evidence than two concepts spread across a signature. Squaring rewards
+		// coherent compound identifiers without making one generic name token win.
+		coverage := brainBriefIdentifierConceptCoverage(task, symbol.Name)
+		score += coverage * coverage * 25
 		score += brainBriefSemanticIntentBonus(task, name)
 		candidates[i] = candidate{record: symbol, score: score}
 	}
@@ -1754,6 +1765,40 @@ func brainBriefRankSemanticSymbols(symbols, relations []semanticRecord, task str
 		ranked[i] = candidate.record
 	}
 	return ranked
+}
+
+func brainBriefIdentifierConceptCoverage(task, identifier string) int {
+	canonical := func(term string) string {
+		term = strings.ToLower(strings.TrimSpace(term))
+		if variants := semanticQueryMorphologyVariants(term); len(variants) > 0 {
+			term = variants[0]
+		}
+		switch term {
+		case "repository", "repositories":
+			return "repo"
+		}
+		if strings.HasSuffix(term, "ies") && len(term) > 5 {
+			return strings.TrimSuffix(term, "ies") + "y"
+		}
+		if strings.HasSuffix(term, "s") && !strings.HasSuffix(term, "ss") && len(term) > 4 {
+			return strings.TrimSuffix(term, "s")
+		}
+		return term
+	}
+	taskConcepts := make(map[string]struct{})
+	for _, term := range brainBriefFileMatchTerms(task) {
+		if concept := canonical(term); concept != "" {
+			taskConcepts[concept] = struct{}{}
+		}
+	}
+	matched := make(map[string]struct{})
+	for _, term := range strings.Fields(normalizeHistorySearchText(identifier)) {
+		concept := canonical(term)
+		if _, ok := taskConcepts[concept]; ok {
+			matched[concept] = struct{}{}
+		}
+	}
+	return len(matched)
 }
 
 func brainBriefSemanticIntentBonus(task, symbolName string) int {
@@ -2534,6 +2579,12 @@ func brainBriefFileMatchTerms(task string) []string {
 		}
 		seen[word] = true
 		out = append(out, word)
+		for _, variant := range semanticQueryMorphologyVariants(word) {
+			if !brainBriefFileMatchTermStop(variant) && !seen[variant] {
+				seen[variant] = true
+				out = append(out, variant)
+			}
+		}
 	}
 	return out
 }

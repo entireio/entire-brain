@@ -213,6 +213,27 @@ func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *t
 	}
 }
 
+func TestBrainBriefSemanticContextPreservesRetrieverRelevanceAndMorphology(t *testing.T) {
+	target := semanticRecord{ID: "target", Kind: "function", Name: "NormalizeRepoName", FilePath: "pkg/cmd/repo/shared/repo.go", Score: 80}
+	generic := semanticRecord{ID: "generic", Kind: "function", Name: "mapRepoNamesToIDs", FilePath: "pkg/cmd/secret/set/set.go", Score: 130}
+	context := brainBriefSelectSemanticContext(
+		[]semanticRecord{generic, target}, nil, nil,
+		"fix repository name normalization", 1,
+	)
+	if len(context.Symbols) != 1 || context.Symbols[0].ID != "target" {
+		t.Fatalf("retriever's identifier-shaped match was erased by compact reranking: %+v", context.Symbols)
+	}
+	if terms := brainBriefFileMatchTerms("repository name normalization"); !slices.Contains(terms, "normalize") {
+		t.Fatalf("brief task terms did not bridge normalization to Normalize*: %v", terms)
+	}
+	if got := brainBriefIdentifierConceptCoverage("repository name normalization", "NormalizeRepoName"); got != 3 {
+		t.Fatalf("compound identifier concept coverage = %d, want 3", got)
+	}
+	if got := brainBriefIdentifierConceptCoverage("repository name normalization", "mapRepoNamesToIDs"); got != 2 {
+		t.Fatalf("generic mapping identifier concept coverage = %d, want 2", got)
+	}
+}
+
 func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
 	root := semanticRecord{ID: "context-command", Kind: "function", Name: "newInspectContextCommand", FilePath: "internal/cli/agent_surface.go"}
 	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticContext", FilePath: "internal/cli/semantic.go"}

@@ -99,7 +99,9 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertNotIn("GOROOT", env)
             self.assertEqual(env["GOTOOLCHAIN"], "auto")
             self.assertEqual(pathlib.Path(env["GOCACHE"]), worktree / ".benchmark" / "go-build-cache")
+            self.assertEqual(pathlib.Path(env["GOMODCACHE"]), run.BENCH_GO_MOD_CACHE)
             self.assertEqual(pathlib.Path(env["GOTMPDIR"]), worktree / ".benchmark" / "go-tmp")
+            self.assertTrue(pathlib.Path(env["GOMODCACHE"]).is_dir())
             self.assertTrue(pathlib.Path(env["GOCACHE"]).is_dir())
             self.assertTrue(pathlib.Path(env["GOTMPDIR"]).is_dir())
     def test_benchmark_build_requires_current_brain_mainline(self):
@@ -716,6 +718,8 @@ class RunnerAndConditionTests(unittest.TestCase):
             label = runner_spec or "generic"
             # prompt_for emits exactly the shell-quoted command...
             self.assertIn(expected_cmd, prompt, label)
+            self.assertIn(f"```sh\n{expected_cmd}\n```", prompt, label)
+            self.assertNotIn(f"`{expected_cmd}`", prompt, label)
             # ...and never the old unescaped double-quoted form.
             self.assertNotIn(f'brief "{expected_query}"', prompt, label)
             # the agent's shell would hand the brain the EXACT literal query (no substitution).

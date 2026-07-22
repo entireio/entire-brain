@@ -36,6 +36,12 @@ RESULT_DIR = BENCH_ROOT / "results"
 CACHE_DIR = BENCH_ROOT / "cache"
 VALIDATION_FIXTURE_DIR = BENCH_ROOT / "fixtures" / "validation"
 BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
+BENCH_GO_MOD_CACHE = pathlib.Path(
+    os.environ.get(
+        "ENTIRE_BENCH_GOMODCACHE",
+        str(pathlib.Path(tempfile.gettempdir()) / "entire-brain-agent-bench-go-mod-cache"),
+    )
+).resolve()
 
 ISOLATION = {
     "codex": {
@@ -642,13 +648,20 @@ def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
     bin_dir.mkdir(parents=True, exist_ok=True)
     go_cache = run_root / ".go-build-cache"
     go_cache.mkdir(parents=True, exist_ok=True)
+    BENCH_GO_MOD_CACHE.mkdir(parents=True, exist_ok=True)
     go_env = os.environ.copy()
     # A host-wide Go build cache can contain standard-library objects from a
     # different auto-selected patch toolchain. Isolate it per suite and never
     # carry an ambient GOROOT into builds from sibling repositories.
     go_env.pop("GOROOT", None)
     go_env.pop("GOTOOLDIR", None)
-    go_env.update({"GOCACHE": str(go_cache), "GOTOOLCHAIN": "auto"})
+    go_env.update(
+        {
+            "GOCACHE": str(go_cache),
+            "GOMODCACHE": str(BENCH_GO_MOD_CACHE),
+            "GOTOOLCHAIN": "auto",
+        }
+    )
     brain_bin = bin_dir / "entire-brain"
     graph_bin = bin_dir / "entire-graph"
     entire_wrapper = bin_dir / "entire"
@@ -2118,6 +2131,7 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
     go_tmp = worktree / ".benchmark" / "go-tmp"
     go_cache.mkdir(parents=True, exist_ok=True)
     go_tmp.mkdir(parents=True, exist_ok=True)
+    BENCH_GO_MOD_CACHE.mkdir(parents=True, exist_ok=True)
     env.pop("GOROOT", None)
     env.pop("GOTOOLDIR", None)
     env.update(
@@ -2129,11 +2143,38 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
             "ENTIRE_PLUGIN_STATE_DIR": str(plugin / "state"),
             "ENTIRE_PLUGIN_CACHE_DIR": str(plugin / "cache"),
             "GOCACHE": str(go_cache),
+            "GOMODCACHE": str(BENCH_GO_MOD_CACHE),
             "GOTMPDIR": str(go_tmp),
             "GOTOOLCHAIN": "auto",
         }
     )
     return env
+
+
+def prewarm_go_dependencies(worktree: pathlib.Path, env: dict[str, str]) -> dict[str, Any]:
+    """Resolve a task repository's declared Go toolchain and modules before timing.
+
+    Agents run sandboxed and should spend their budget on the task, not on repairing
+    host module-cache permissions or downloading an auto-selected patch toolchain.
+    This uses the exact agent environment and shared writable module cache, while the
+    per-worktree build cache remains cold for a fair branch/main comparison.
+    """
+    if not (worktree / "go.mod").is_file():
+        return {"ran": False, "reason": "no_go_mod"}
+    started = time.monotonic()
+    proc = run_cmd(["go", "mod", "download"], cwd=worktree, env=env, timeout=600)
+    result = {
+        "ran": True,
+        "ok": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "seconds": round(time.monotonic() - started, 3),
+    }
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "benchmark Go dependency prewarm failed before agent execution:\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    return result
 
 
 def apply_task_env(env: dict[str, str], task: dict[str, Any], frozen_bin: pathlib.Path | None = None) -> dict[str, str]:
@@ -4088,6 +4129,7 @@ def prompt_for(
     # a subprocess argv element (no shell) — so both channels deliver an identical query.
     brief_query_sh = shlex.quote(brief_query)
     brief_command = f'entire brain brief {brief_query_sh} --json{brief_limit}'
+    brief_command_block = f"```sh\n{brief_command}\n```"
     history_search_command = local_history_search_command(task) if task.get("require_local_brain_search") else ""
     memory_search_command = ""
     if is_temporal_memory_condition(condition):
@@ -4101,6 +4143,7 @@ def prompt_for(
     # opus_brief_command is emitted ONLY in the full_cli_compact + is_opus branch below, so the
     # limit is correctly pinned to that condition's policy (the literal is intentional, not drift).
     opus_brief_command = f'entire brain brief {brief_query_sh} --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
+    opus_brief_command_block = f"```sh\n{opus_brief_command}\n```"
     top_level_entire_guard = (
         "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
         "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive. "
@@ -4125,7 +4168,7 @@ def prompt_for(
         }[condition]
         policy = f"""Use the frozen temporal-memory channel before editing. Your first context command must be `{memory_search_command}` and you must run it exactly once. This condition contains {source_description}; semantic code context, seed context, docs, raw transcript files, and all other Brain sources are physically absent. Use only the returned `history` and/or `fact` records as hypotheses, verify them against the current code before editing, and prefer current code when memory conflicts. Do not run another Brain command and do not inspect `.entire`, `.benchmark`, checkpoint refs, or session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"} and semantic_available:
-        policy = f"""Use Entire Brain semantic context before editing. Your first context command must be `{brief_command}`. Then use likely_edit_files plus `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` for the task. Use likely_test_files for validation context only. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
+        policy = f"""Use Entire Brain semantic context before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nThen use likely_edit_files plus `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` for the task. Use likely_test_files for validation context only. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"}:
         policy = "Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not rely on semantic query commands."
     elif condition == "mcp_semantic" and semantic_available:
@@ -4173,11 +4216,11 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
         # right, verification reuses the same file-open the agent must do to edit (a code-path
         # argument — marginal reasoning tokens, not an extra round; not A/B-measured vs the old
         # policy); when wrong, it is the rescue that fixes the net-harmful history case.
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{opus_brief_command}` — a deliberately compact packet. Work in this order: (1) read the top session-history hits and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — open at most ONE additional `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. The history hits are the authority; `likely_edit_files` is a hint that can be wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches (at most ONE additional candidate opened). Your context window is a finite budget — stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command (it returns a deliberately compact packet):\n\n{opus_brief_command_block}\n\nWork in this order: (1) read the top session-history hits and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — open at most ONE additional `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. The history hits are the authority; `likely_edit_files` is a hint that can be wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches (at most ONE additional candidate opened). Your context window is a finite budget — stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. Work in this order: (1) read the top session-history hits in the JSON and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix and run one `likely_test_files` validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. The history hits are the authority; `likely_edit_files`/`action_checklist` are hints that can be lexically wrong. Hard caps (keep the discipline tight): at most ONE rescue `rg` in step (3), at most ONE additional `likely_edit_files` candidate opened, and at most 2 targeted `rg`/`grep`/`find` total — do not broaden into repo-wide search, do not re-run brief, and do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nWork in this order: (1) read the top session-history hits in the JSON and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix and run one `likely_test_files` validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. The history hits are the authority; `likely_edit_files`/`action_checklist` are hints that can be lexically wrong. Hard caps (keep the discipline tight): at most ONE rescue `rg` in step (3), at most ONE additional `likely_edit_files` candidate opened, and at most 2 targeted `rg`/`grep`/`find` total — do not broaden into repo-wide search, do not re-run brief, and do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, prefer `action_checklist`, `likely_edit_files`, `likely_test_files`, and compact history hits before broad text search. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough exact invariant or file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nIn the JSON, prefer `action_checklist`, `likely_edit_files`, `likely_test_files`, and compact history hits before broad text search. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough exact invariant or file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
     else:
         if task.get("require_local_brain_search"):
             policy = f"""Use the local Entire Brain before editing. Your first tool command must be exactly `{history_search_command}`. Use the returned local history as context for the repair. Do not substitute an installed skill, top-level `entire search`, top-level `entire explain`, git history, or ordinary repository search for this required Brain call. Semantic indexing is disabled for this condition, so focus on the local Brain's seed and session-history results. Useful history search terms: {queries}. {top_level_entire_guard}"""
@@ -5371,6 +5414,7 @@ def run_one(
                 f"Benchmark post-brain agent baseline for {task['id']}",
                 include_current_changes=True,
             )
+        record["go_dependency_prewarm"] = prewarm_go_dependencies(worktree, env)
         agent_visible_entire_removed = False
         if should_remove_agent_visible_entire_history(task, condition):
             agent_visible_entire_removed = remove_agent_visible_entire_history(worktree)
