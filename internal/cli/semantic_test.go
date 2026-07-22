@@ -1785,6 +1785,16 @@ func TestSemanticImpactTraversesRelations(t *testing.T) {
 	if !strings.Contains(out.String(), `"relations"`) || !strings.Contains(out.String(), `"CALLS"`) {
 		t.Fatalf("impact JSON missing relation:\n%s", out.String())
 	}
+	if strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("default impact JSON retained full provider records:\n%s", out.String())
+	}
+	out.Reset()
+	if err := runSemanticImpact(impactCmd.Context(), impactCmd, opts, semanticImpactOptions{limit: 10, depth: 1, json: true, details: true}, "ValidateToken"); err != nil {
+		t.Fatalf("detailed impact: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("detailed impact JSON omitted provider record fields:\n%s", out.String())
+	}
 }
 
 func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
@@ -2279,6 +2289,18 @@ func TestSemanticTestsSuggestsRelevantTests(t *testing.T) {
 	}
 	if !strings.Contains(out, `"TestValidateToken"`) || !strings.Contains(out, `"reason"`) {
 		t.Fatalf("tests output missing relevant suggestion:\n%s", out)
+	}
+	if strings.Contains(out, `"record_type"`) {
+		t.Fatalf("default tests JSON retained full provider records:\n%s", out)
+	}
+	detailed := &cobra.Command{Use: "tests"}
+	var detailedOut bytes.Buffer
+	detailed.SetOut(&detailedOut)
+	if err := runSemanticTests(detailed.Context(), detailed, Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}, semanticTestsOptions{limit: 5, json: true, details: true}, "ValidateToken"); err != nil {
+		t.Fatalf("detailed tests: %v", err)
+	}
+	if !strings.Contains(detailedOut.String(), `"record_type"`) {
+		t.Fatalf("detailed tests JSON omitted provider record fields:\n%s", detailedOut.String())
 	}
 }
 

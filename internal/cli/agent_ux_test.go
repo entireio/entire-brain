@@ -174,7 +174,7 @@ func TestSemanticQueryTokensDropsStopwordsAndShortTerms(t *testing.T) {
 }
 
 func TestSemanticTestRelevanceRejectsDirectoryNoiseAndKeepsNameEvidence(t *testing.T) {
-	rootNames := []string{"brainBriefJSONRecords"}
+	rootNames := []string{"brainBriefJSONReport"}
 	rootFiles := []string{"internal/cli/agent_surface.go"}
 	noise := semanticRecord{
 		ID:       "noise",
@@ -191,6 +191,23 @@ func TestSemanticTestRelevanceRejectsDirectoryNoiseAndKeepsNameEvidence(t *testi
 	}
 	if reason, score := semanticTestRelevance(target, nil, rootNames, rootFiles); reason != "name terms" || score <= 0 {
 		t.Fatalf("name-related test lost relevance: reason=%q score=%d", reason, score)
+	}
+}
+
+func TestSemanticAgentFollowUpsDefaultToCompactBudgets(t *testing.T) {
+	impact := newInspectImpactCommand(Options{})
+	if got := impact.Flags().Lookup("limit").DefValue; got != "20" {
+		t.Fatalf("impact default limit = %s, want 20", got)
+	}
+	if impact.Flags().Lookup("details") == nil {
+		t.Fatal("impact command missing --details")
+	}
+	tests := newInspectTestsCommand(Options{})
+	if got := tests.Flags().Lookup("limit").DefValue; got != "3" {
+		t.Fatalf("tests default limit = %s, want 3", got)
+	}
+	if tests.Flags().Lookup("details") == nil {
+		t.Fatal("tests command missing --details")
 	}
 }
 

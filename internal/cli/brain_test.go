@@ -185,7 +185,7 @@ func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.
 func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *testing.T) {
 	noiseTest := semanticRecord{ID: "noise-test", Kind: "function", Name: "test_history_prompt", FilePath: "benchmarks/agent-brain/run_test.py"}
 	implementation := semanticRecord{ID: "impl", Kind: "function", Name: "runBrainBrief", FilePath: "internal/cli/agent_surface.go"}
-	projection := semanticRecord{ID: "projection", Kind: "function", Name: "brainBriefJSONRecords", FilePath: "internal/cli/agent_surface.go"}
+	projection := semanticRecord{ID: "projection", Kind: "function", Name: "compactSemanticRecords", FilePath: "internal/cli/agent_surface.go"}
 	context := brainBriefSelectSemanticContext(
 		[]semanticRecord{noiseTest, implementation, projection}, nil, nil,
 		"Improve brain brief semantic relevance", 2,

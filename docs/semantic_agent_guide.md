@@ -30,7 +30,8 @@ Recommended intake flow:
    persisted dynamic trace facts; `brief`, `trace-path`, and graph
    schema/metrics also include the imported runtime trace edges.
 8. Use `entire brain inspect tests <symbol> --json` before choosing validation
-   commands for a changed symbol.
+   commands for a changed symbol. Impact and test JSON is compact by default;
+   use `--details` only when full provider records are required.
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
    `entire brain workspace inspect graph <workspace> --json` (per-repo graph
    metrics, shared external contracts, canonical route-template

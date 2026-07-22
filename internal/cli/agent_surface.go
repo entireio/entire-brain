@@ -203,28 +203,28 @@ type brainBriefJSONReport struct {
 }
 
 type brainBriefJSONSemantic struct {
-	Context       brainBriefJSONContext  `json:"context"`
-	RuntimeTraces []brainBriefJSONRecord `json:"runtime_traces,omitempty"`
-	Tests         brainBriefJSONTests    `json:"tests"`
+	Context       brainBriefJSONContext   `json:"context"`
+	RuntimeTraces []compactSemanticRecord `json:"runtime_traces,omitempty"`
+	Tests         brainBriefJSONTests     `json:"tests"`
 }
 
 type brainBriefJSONContext struct {
-	Symbols   []brainBriefJSONRecord `json:"symbols"`
-	Relations []brainBriefJSONRecord `json:"relations"`
-	Neighbors []brainBriefJSONRecord `json:"neighbors,omitempty"`
+	Symbols   []compactSemanticRecord `json:"symbols"`
+	Relations []compactSemanticRecord `json:"relations"`
+	Neighbors []compactSemanticRecord `json:"neighbors,omitempty"`
 }
 
 type brainBriefJSONTests struct {
-	Roots       []brainBriefJSONRecord         `json:"roots"`
-	Suggestions []brainBriefJSONTestSuggestion `json:"suggestions"`
+	Roots       []compactSemanticRecord         `json:"roots"`
+	Suggestions []compactSemanticTestSuggestion `json:"suggestions"`
 }
 
-type brainBriefJSONTestSuggestion struct {
-	Symbol brainBriefJSONRecord `json:"symbol"`
-	Reason string               `json:"reason"`
+type compactSemanticTestSuggestion struct {
+	Symbol compactSemanticRecord `json:"symbol"`
+	Reason string                `json:"reason"`
 }
 
-type brainBriefJSONRecord struct {
+type compactSemanticRecord struct {
 	ID            string   `json:"id,omitempty"`
 	Kind          string   `json:"kind,omitempty"`
 	Name          string   `json:"name,omitempty"`
@@ -867,7 +867,7 @@ func newInspectContextCommand(opts Options) *cobra.Command {
 }
 
 func newInspectImpactCommand(opts Options) *cobra.Command {
-	impactOpts := semanticImpactOptions{limit: 200, depth: 1}
+	impactOpts := semanticImpactOptions{limit: 20, depth: 1}
 	cmd := &cobra.Command{
 		Use:   "impact <symbol-or-text>",
 		Short: "Traverse semantic relations for an impact set",
@@ -876,12 +876,10 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 			return runSemanticImpact(cmd.Context(), cmd, opts, impactOpts, args[0])
 		},
 	}
-	// The impact set shares one budget with the matched roots, so a file query
-	// that resolves to many roots can fill the budget before any downstream
-	// neighbor is added. A generous default keeps room for the impacted set.
-	cmd.Flags().IntVar(&impactOpts.limit, "limit", 200, "Maximum symbols to include")
+	cmd.Flags().IntVar(&impactOpts.limit, "limit", 20, "Maximum symbols to include")
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
 	return cmd
 }
 
@@ -901,7 +899,7 @@ func newInspectChangesCommand(opts Options) *cobra.Command {
 }
 
 func newInspectTestsCommand(opts Options) *cobra.Command {
-	testsOpts := semanticTestsOptions{limit: 20}
+	testsOpts := semanticTestsOptions{limit: 3}
 	cmd := &cobra.Command{
 		Use:   "tests <symbol-or-text>",
 		Short: "Suggest tests relevant to a symbol or query",
@@ -910,8 +908,9 @@ func newInspectTestsCommand(opts Options) *cobra.Command {
 			return runSemanticTests(cmd.Context(), cmd, opts, testsOpts, args[0])
 		},
 	}
-	cmd.Flags().IntVar(&testsOpts.limit, "limit", 20, "Maximum test suggestions to include")
+	cmd.Flags().IntVar(&testsOpts.limit, "limit", 3, "Maximum test suggestions to include")
 	cmd.Flags().BoolVar(&testsOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&testsOpts.details, "details", false, "Include full semantic records with provider metadata")
 	return cmd
 }
 
@@ -1572,15 +1571,15 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 		Guidance:           report.Guidance,
 		Warnings:           report.Warnings,
 	}
-	out.Semantic.Context.Symbols = brainBriefJSONRecords(report.Semantic.Context.Symbols)
-	out.Semantic.Context.Relations = brainBriefJSONRecords(report.Semantic.Context.Relations)
-	out.Semantic.Context.Neighbors = brainBriefJSONRecords(report.Semantic.Context.Neighbors)
-	out.Semantic.RuntimeTraces = brainBriefJSONRecords(report.Semantic.RuntimeTraces)
-	out.Semantic.Tests.Roots = brainBriefJSONRecords(report.Semantic.Tests.Roots)
-	out.Semantic.Tests.Suggestions = make([]brainBriefJSONTestSuggestion, len(report.Semantic.Tests.Suggestions))
+	out.Semantic.Context.Symbols = compactSemanticRecords(report.Semantic.Context.Symbols)
+	out.Semantic.Context.Relations = compactSemanticRecords(report.Semantic.Context.Relations)
+	out.Semantic.Context.Neighbors = compactSemanticRecords(report.Semantic.Context.Neighbors)
+	out.Semantic.RuntimeTraces = compactSemanticRecords(report.Semantic.RuntimeTraces)
+	out.Semantic.Tests.Roots = compactSemanticRecords(report.Semantic.Tests.Roots)
+	out.Semantic.Tests.Suggestions = make([]compactSemanticTestSuggestion, len(report.Semantic.Tests.Suggestions))
 	for i, suggestion := range report.Semantic.Tests.Suggestions {
-		out.Semantic.Tests.Suggestions[i] = brainBriefJSONTestSuggestion{
-			Symbol: brainBriefJSONRecordFrom(suggestion.Symbol),
+		out.Semantic.Tests.Suggestions[i] = compactSemanticTestSuggestion{
+			Symbol: compactSemanticRecordFrom(suggestion.Symbol),
 			Reason: suggestion.Reason,
 		}
 	}
@@ -1593,19 +1592,19 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 	return out
 }
 
-func brainBriefJSONRecords(records []semanticRecord) []brainBriefJSONRecord {
+func compactSemanticRecords(records []semanticRecord) []compactSemanticRecord {
 	if records == nil {
-		return []brainBriefJSONRecord{}
+		return []compactSemanticRecord{}
 	}
-	out := make([]brainBriefJSONRecord, len(records))
+	out := make([]compactSemanticRecord, len(records))
 	for i, record := range records {
-		out[i] = brainBriefJSONRecordFrom(record)
+		out[i] = compactSemanticRecordFrom(record)
 	}
 	return out
 }
 
-func brainBriefJSONRecordFrom(record semanticRecord) brainBriefJSONRecord {
-	return brainBriefJSONRecord{
+func compactSemanticRecordFrom(record semanticRecord) compactSemanticRecord {
+	return compactSemanticRecord{
 		ID: record.ID, Kind: record.Kind, Name: record.Name, QualifiedName: record.QualifiedName,
 		FilePath: record.FilePath, StartLine: record.StartLine, EndLine: record.EndLine,
 		Path: record.Path, Signature: record.Signature, FromID: record.FromID, ToID: record.ToID,

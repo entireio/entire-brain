@@ -2442,9 +2442,10 @@ type semanticContent struct {
 }
 
 type semanticImpactOptions struct {
-	limit int
-	depth int
-	json  bool
+	limit   int
+	depth   int
+	json    bool
+	details bool
 }
 
 type semanticImpactResult struct {
@@ -2494,8 +2495,9 @@ type semanticBoundaryResult struct {
 }
 
 type semanticTestsOptions struct {
-	limit int
-	json  bool
+	limit   int
+	json    bool
+	details bool
 }
 
 type semanticTestSuggestion struct {
@@ -2683,10 +2685,22 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	}
 	result := semanticImpactResult{Roots: nonNil(roots), Symbols: nonNil(symbols), Relations: nonNil(relations)}
 	if impactOpts.json {
+		impact := any(result)
+		if !impactOpts.details {
+			impact = struct {
+				Roots     []compactSemanticRecord `json:"roots"`
+				Symbols   []compactSemanticRecord `json:"symbols"`
+				Relations []compactSemanticRecord `json:"relations"`
+			}{
+				Roots:     compactSemanticRecords(result.Roots),
+				Symbols:   compactSemanticRecords(result.Symbols),
+				Relations: compactSemanticRecords(result.Relations),
+			}
+		}
 		data, err := json.MarshalIndent(struct {
-			Freshness staleReport          `json:"freshness"`
-			Impact    semanticImpactResult `json:"impact"`
-		}{Freshness: freshness, Impact: result}, "", "  ")
+			Freshness staleReport `json:"freshness"`
+			Impact    any         `json:"impact"`
+		}{Freshness: freshness, Impact: impact}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2887,10 +2901,27 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 		result.Suggestions = []semanticTestSuggestion{}
 	}
 	if testsOpts.json {
+		tests := any(result)
+		if !testsOpts.details {
+			suggestions := make([]compactSemanticTestSuggestion, len(result.Suggestions))
+			for i, suggestion := range result.Suggestions {
+				suggestions[i] = compactSemanticTestSuggestion{
+					Symbol: compactSemanticRecordFrom(suggestion.Symbol),
+					Reason: suggestion.Reason,
+				}
+			}
+			tests = struct {
+				Roots       []compactSemanticRecord         `json:"roots"`
+				Suggestions []compactSemanticTestSuggestion `json:"suggestions"`
+			}{
+				Roots:       compactSemanticRecords(result.Roots),
+				Suggestions: suggestions,
+			}
+		}
 		data, err := json.MarshalIndent(struct {
-			Freshness staleReport         `json:"freshness"`
-			Tests     semanticTestsResult `json:"tests"`
-		}{Freshness: freshness, Tests: result}, "", "  ")
+			Freshness staleReport `json:"freshness"`
+			Tests     any         `json:"tests"`
+		}{Freshness: freshness, Tests: tests}, "", "  ")
 		if err != nil {
 			return err
 		}

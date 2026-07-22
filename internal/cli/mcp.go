@@ -302,8 +302,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_impact",
-			"description": "Traverse local semantic impact relations.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "depth": integerArg("depth", "Relation depth")}),
+			"description": "Traverse local semantic impact relations with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "depth": integerArg("depth", "Relation depth"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_changes",
@@ -387,8 +387,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_tests",
-			"description": "Suggest tests relevant to a symbol or query, derived from semantic relations.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions")}),
+			"description": "Suggest a compact set of tests relevant to a symbol or query. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_boundaries",
@@ -447,8 +447,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	cmd.SetErr(io.Discard)
 	cmd.SetContext(ctx)
 	defaultLimit := 20
-	if params.Name == "brain_brief" {
+	switch params.Name {
+	case "brain_brief":
 		defaultLimit = brainBriefDefaultLimit
+	case "brain_tests":
+		defaultLimit = 3
 	}
 	limit, err := mcpPositiveInt(params.Arguments, "limit", defaultLimit)
 	if err != nil {
@@ -573,7 +576,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			if depthErr != nil {
 				err = depthErr
 			} else {
-				err = runSemanticImpact(ctx, cmd, opts, semanticImpactOptions{limit: limit, depth: depth, json: true}, query)
+				err = runSemanticImpact(ctx, cmd, opts, semanticImpactOptions{limit: limit, depth: depth, json: true, details: details}, query)
 			}
 		}
 	case "brain_changes", "brain_detect_changes":
@@ -653,7 +656,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_tests":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runSemanticTests(ctx, cmd, opts, semanticTestsOptions{limit: limit, json: true}, query)
+			err = runSemanticTests(ctx, cmd, opts, semanticTestsOptions{limit: limit, json: true, details: details}, query)
 		}
 	case "brain_boundaries":
 		kind, stringErr := mcpOptionalString(params.Arguments, "kind")

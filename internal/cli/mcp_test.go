@@ -1028,13 +1028,14 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_context","arguments":{"query":"ValidateToken","limit":5}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_impact","arguments":{"query":"ValidateToken","depth":1,"limit":5}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_changes","arguments":{"limit":5}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_changes","arguments":{"limit":5}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_impact","arguments":{"query":"ValidateToken","depth":1,"limit":5,"details":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
-	if len(responses) != 3 {
+	if len(responses) != 4 {
 		t.Fatalf("responses = %d", len(responses))
 	}
 	for _, response := range responses {
@@ -1047,6 +1048,14 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("wrapper results missing %q: %s", want, data)
 		}
+	}
+	compactImpact, _ := json.Marshal(mcpTextJSONPayload(t, responses[1]))
+	detailedImpact, _ := json.Marshal(mcpTextJSONPayload(t, responses[3]))
+	if strings.Contains(string(compactImpact), `"record_type"`) {
+		t.Fatalf("compact MCP impact retained provider fields: %s", compactImpact)
+	}
+	if !strings.Contains(string(detailedImpact), `"record_type"`) {
+		t.Fatalf("detailed MCP impact omitted provider fields: %s", detailedImpact)
 	}
 }
 
