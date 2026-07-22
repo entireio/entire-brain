@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "436859c727f4",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-22T03:36:31.136505Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 10,
+  "files_touched": [
+    "README.md",
+    "internal/cli/mcp_test.go",
+    "internal/cli/path_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_test.go",
+    "internal/cli/seed.go",
+    "internal/cli/seed_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "60da2bdfdff8",
+  "checkpoint_transcript_start": 3582,
+  "transcript_lines_at_start": 3582,
+  "compact_transcript_start": 679,
+  "token_usage": {
+    "input_tokens": 124398,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6848768,
+    "output_tokens": 15145,
+    "api_call_count": 64
+  },
+  "session_metrics": {
+    "turn_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-22T03:36:30.832966Z",
+    "agent_lines": 111,
+    "agent_removed": 47,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 111,
+    "total_lines_changed": 158,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
