@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "54bcf1312c38",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json",
+    "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json",
+    "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/54/bcf1312c38/0/metadata.json",
+      "transcript": "/54/bcf1312c38/0/full.jsonl",
+      "compact_transcript": "/54/bcf1312c38/0/transcript.jsonl",
+      "content_hash": "/54/bcf1312c38/0/content_hash.txt",
+      "prompt": "/54/bcf1312c38/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 101749,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1836544,
+    "output_tokens": 7655,
+    "api_call_count": 31
+  }
+}
