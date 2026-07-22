@@ -297,7 +297,13 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatalf("mkdir %s: %v", rel, err)
 		}
-		if err := os.WriteFile(path, []byte("package cli\n"), 0o600); err != nil {
+		content := "package cli\n"
+		if rel == "internal/cli/semantic.go" {
+			content += "func ignored(path string) bool { return strings.HasPrefix(path, \".git\") }\n"
+		} else {
+			content += "func TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths(t *testing.T) {}\n"
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatalf("write %s: %v", rel, err)
 		}
 	}
@@ -305,12 +311,19 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 		Source: "history",
 		Text:   `internal/cli/semantic_test.go:760: t.Fatalf(".github symbol was unexpectedly ignored")`,
 	}}
-	editFiles, testFiles := retrievalLikelyFileGroups(repoDir, results, ".github symbol was unexpectedly ignored")
-	if len(editFiles) == 0 || editFiles[0] != "internal/cli/semantic.go" {
-		t.Fatalf("edit files = %v", editFiles)
+	hints := retrievalHintsForResults(repoDir, results, ".github symbol was unexpectedly ignored")
+	if len(hints.LikelyEditFiles) == 0 || hints.LikelyEditFiles[0] != "internal/cli/semantic.go" {
+		t.Fatalf("edit files = %v", hints.LikelyEditFiles)
 	}
-	if len(testFiles) == 0 || testFiles[0] != "internal/cli/semantic_test.go" {
-		t.Fatalf("test files = %v", testFiles)
+	if len(hints.LikelyTestFiles) == 0 || hints.LikelyTestFiles[0] != "internal/cli/semantic_test.go" {
+		t.Fatalf("test files = %v", hints.LikelyTestFiles)
+	}
+	if len(hints.ActionChecklist) != 1 ||
+		!strings.Contains(hints.ActionChecklist[0].Action, `path == ".git" || strings.HasPrefix(path, ".git/")`) ||
+		hints.ActionChecklist[0].Validation == nil ||
+		hints.ActionChecklist[0].Validation.Command != "go test ./internal/cli -run '^TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths$' -count=1" ||
+		!hints.ActionChecklist[0].Validation.CompleteOnPass {
+		t.Fatalf("action checklist = %+v", hints.ActionChecklist)
 	}
 }
 

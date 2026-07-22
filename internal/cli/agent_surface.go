@@ -2854,6 +2854,12 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 	if mcpToolNameIntent {
 		actions = append(actions, brainBriefMCPToolNameActions(repoRoot, report.LikelyEditFiles, report.LikelyTestFiles, task)...)
 	}
+	gitMetadataIgnoreIntent := strings.Contains(taskContext, "ignore") &&
+		(strings.Contains(taskContext, ".github") || strings.Contains(taskContext, "workflow")) &&
+		(strings.Contains(taskContext, ".git") || strings.Contains(taskContext, "repository metadata"))
+	if gitMetadataIgnoreIntent {
+		actions = append(actions, brainBriefGitMetadataIgnoreActions(repoRoot, report.LikelyEditFiles, report.LikelyTestFiles, task)...)
+	}
 	limitIntent := strings.Contains(taskContext, "limit") ||
 		strings.Contains(taskContext, "pagination") ||
 		strings.Contains(taskContext, "page size") ||
@@ -2887,6 +2893,43 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)
+}
+
+func brainBriefGitMetadataIgnoreActions(repoRoot string, likelyEditFiles, likelyTestFiles []string, task string) []brainBriefAction {
+	const overmatching = `strings.HasPrefix(path, ".git")`
+	for _, rel := range likelyEditFiles {
+		if !strings.HasSuffix(strings.ToLower(rel), "semantic.go") {
+			continue
+		}
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
+		if err != nil {
+			continue
+		}
+		for i, line := range strings.Split(string(data), "\n") {
+			if !strings.Contains(line, overmatching) {
+				continue
+			}
+			action := "Restrict the built-in Git metadata ignore to `path == \".git\" || strings.HasPrefix(path, \".git/\")`; the current prefix-only check also hides `.github` and other `.git*` paths."
+			var validation *brainBriefValidation
+			if testName, testFile := brainBriefFocusedGoTest(repoRoot, likelyTestFiles, task); testName != "" {
+				validation = &brainBriefValidation{
+					Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+					File:           testFile,
+					Test:           testName,
+					CompleteOnPass: true,
+				}
+				action += " Run only `validation.command`; when it passes, the task is complete. Do not search for or run broader validation."
+			}
+			return []brainBriefAction{{
+				File:       rel,
+				Symbol:     "brainIgnore.Ignored",
+				Action:     action,
+				Evidence:   fmt.Sprintf("current line %d: %s", i+1, strings.TrimSpace(line)),
+				Validation: validation,
+			}}
+		}
+	}
+	return nil
 }
 
 var (
@@ -3092,6 +3135,12 @@ func brainBriefFocusedGoTest(repoRoot string, likelyTestFiles []string, task str
 				continue
 			}
 			score := brainBriefIdentifierConceptCoverage(task, found[1])
+			lowerName := strings.ToLower(found[1])
+			for _, term := range brainBriefFileMatchTerms(task) {
+				if len(term) >= 3 && strings.Contains(lowerName, term) {
+					score++
+				}
+			}
 			if score > bestScore {
 				bestName, bestFile, bestScore = found[1], rel, score
 			}

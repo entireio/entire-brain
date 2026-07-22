@@ -29,6 +29,12 @@ type compactUnifiedResult struct {
 	RelatedIDs           []string          `json:"related_ids,omitempty"`
 }
 
+type retrievalTaskHints struct {
+	LikelyEditFiles []string
+	LikelyTestFiles []string
+	ActionChecklist []brainBriefAction
+}
+
 // retrieve_cmd.go wires the qmd-inspired verbs over the unified text index:
 // search (lexical), vsearch (vector), query (hybrid), and get/multi-get (fetch by
 // id). These verbs subsumed the old per-source inspect kinds (facts/docs/history
@@ -105,12 +111,15 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	}
 	if jsonOut {
 		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
-		likelyEditFiles, likelyTestFiles := retrievalLikelyFileGroups(repoDir, results, query)
-		if len(likelyEditFiles) > 0 {
-			out["likely_edit_files"] = likelyEditFiles
+		hints := retrievalHintsForResults(repoDir, results, query)
+		if len(hints.LikelyEditFiles) > 0 {
+			out["likely_edit_files"] = hints.LikelyEditFiles
 		}
-		if len(likelyTestFiles) > 0 {
-			out["likely_test_files"] = likelyTestFiles
+		if len(hints.LikelyTestFiles) > 0 {
+			out["likely_test_files"] = hints.LikelyTestFiles
+		}
+		if len(hints.ActionChecklist) > 0 {
+			out["action_checklist"] = hints.ActionChecklist
 		}
 		if len(related) > 0 {
 			out["related_patterns"] = related
@@ -136,12 +145,18 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 			}
 			// still show related pattern pointers if any
 		}
-		likelyEditFiles, likelyTestFiles := retrievalLikelyFileGroups(repoDir, results, query)
-		for _, file := range likelyEditFiles {
+		hints := retrievalHintsForResults(repoDir, results, query)
+		for _, file := range hints.LikelyEditFiles {
 			fmt.Fprintf(out, "edit_file %s\n", file)
 		}
-		for _, file := range likelyTestFiles {
+		for _, file := range hints.LikelyTestFiles {
 			fmt.Fprintf(out, "test_file %s\n", file)
+		}
+		for _, action := range hints.ActionChecklist {
+			fmt.Fprintf(out, "action %s %s: %s\n", action.File, action.Symbol, action.Action)
+			if action.Validation != nil {
+				fmt.Fprintf(out, "  validate: %s (complete_on_pass=%t)\n", action.Validation.Command, action.Validation.CompleteOnPass)
+			}
 		}
 		for _, r := range results {
 			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
@@ -168,7 +183,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	return nil
 }
 
-func retrievalLikelyFileGroups(repoRoot string, results []unifiedResult, query string) ([]string, []string) {
+func retrievalHintsForResults(repoRoot string, results []unifiedResult, query string) retrievalTaskHints {
 	report := brainBriefReport{}
 	for _, result := range results {
 		if result.Source != "history" && result.Source != "doc" {
@@ -198,7 +213,16 @@ func retrievalLikelyFileGroups(repoRoot string, results []unifiedResult, query s
 	if len(testFiles) > 3 {
 		testFiles = testFiles[:3]
 	}
-	return editFiles, testFiles
+	report.LikelyEditFiles = editFiles
+	report.LikelyTestFiles = testFiles
+	actions := brainBriefActionChecklist(repoRoot, report, query)
+	if len(actions) > 0 {
+		editFiles = brainBriefActionFiles(actions)
+		if actionTestFiles := brainBriefActionTestFiles(actions); len(actionTestFiles) > 0 {
+			testFiles = actionTestFiles
+		}
+	}
+	return retrievalTaskHints{LikelyEditFiles: editFiles, LikelyTestFiles: testFiles, ActionChecklist: actions}
 }
 
 func retrievalSiblingImplementationCandidates(testFile string) []string {
