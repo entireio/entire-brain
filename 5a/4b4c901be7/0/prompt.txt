@@ -1,0 +1,37 @@
+Commit, then next scenario. Keep that loop until you run out of scenarios to improve.
+
+---
+
+What’s the improvements you got?
+
+---
+
+No, I mean on token usage, quality, and speed?
+
+---
+
+In the last handover doc, you got a clear goal. What was that?
+
+---
+
+No. Read entire-plan again.
+
+---
+
+The entire-brain repo already contains benchmarks, right?
+
+---
+
+How many test scenarios are in the benchmark?
+
+---
+
+Pick 3 from the 9, don’t do repetitions, and compare your current branch / changes with main.
+
+---
+
+Yes
+
+---
+
+Run a loop to make the MCP tool name scenario a clear win for the branch.
