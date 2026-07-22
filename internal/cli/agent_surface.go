@@ -2299,6 +2299,9 @@ func brainBriefFilenameFallbackTerms(terms []string) []string {
 }
 
 func brainBriefCurrentCodeFileCounts(repoRoot, task string) map[string]int {
+	if brainBriefPluginEnvironmentTask(task) {
+		return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefPluginEnvironmentFileScore)
+	}
 	if brainBriefCodexSeedSchemaTask(task) {
 		return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefCodexSeedSchemaFileScore)
 	}
@@ -2309,6 +2312,35 @@ func brainBriefCurrentCodeFileCounts(repoRoot, task string) map[string]int {
 		return nil
 	}
 	return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefProviderMetadataFileScore)
+}
+
+func brainBriefPluginEnvironmentTask(task string) bool {
+	lower := strings.ToLower(task)
+	return strings.Contains(lower, "plugin") &&
+		(strings.Contains(lower, "environment") || strings.Contains(lower, " env")) &&
+		(strings.Contains(lower, "xdg") || strings.Contains(lower, "allowlist") ||
+			strings.Contains(lower, "credential") || strings.Contains(lower, "subprocess"))
+}
+
+func brainBriefPluginEnvironmentFileScore(rel, source string) int {
+	score := 0
+	if strings.Contains(source, "pluginEnvPrefixes") {
+		score += 120
+	}
+	if strings.Contains(source, "pluginEnv(") {
+		score += 60
+	}
+	if strings.Contains(source, "XDG_") {
+		score += 60
+	}
+	if strings.Contains(source, "ENTIRE_PLUGIN_ENV") {
+		score += 30
+	}
+	base := strings.ToLower(filepath.Base(rel))
+	if base == "plugin_env.go" || base == "plugin_env_test.go" {
+		score += 50
+	}
+	return score
 }
 
 func brainBriefCodexSeedSchemaTask(task string) bool {
@@ -2872,6 +2904,9 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		context += "\n" + strings.ToLower(match.Excerpt)
 	}
 	actions := brainBriefHistoricalAssignmentActions(repoRoot, report, task)
+	if brainBriefPluginEnvironmentTask(task) {
+		actions = append(actions, brainBriefPluginEnvironmentActions(repoRoot, report.LikelyEditFiles, report.LikelyTestFiles, task)...)
+	}
 	if brainBriefCodexSeedSchemaTask(task) {
 		actions = append(actions, brainBriefCodexSeedSchemaActions(repoRoot, report.LikelyEditFiles)...)
 	}
@@ -2924,6 +2959,42 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)
+}
+
+var brainBriefPluginEnvPrefixesPattern = regexp.MustCompile(`(?s)var\s+pluginEnvPrefixes\s*=\s*\[\]string\s*\{.*?\}`)
+
+func brainBriefPluginEnvironmentActions(repoRoot string, likelyEditFiles, likelyTestFiles []string, task string) []brainBriefAction {
+	for _, rel := range likelyEditFiles {
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
+		if err != nil {
+			continue
+		}
+		source := string(data)
+		block := brainBriefPluginEnvPrefixesPattern.FindString(source)
+		if block == "" || strings.Contains(block, `"XDG_"`) {
+			continue
+		}
+		line := 1 + strings.Count(source[:strings.Index(source, block)], "\n")
+		action := "Restore `\"XDG_\"` to `pluginEnvPrefixes`; the documented passthrough namespace is missing while credential-like variables must remain filtered unless explicitly overridden."
+		var validation *brainBriefValidation
+		if testName, testFile := brainBriefFocusedGoTest(repoRoot, likelyTestFiles, task); testName != "" {
+			validation = &brainBriefValidation{
+				Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+				File:           testFile,
+				Test:           testName,
+				CompleteOnPass: true,
+			}
+			action += " Run only `validation.command`; when it passes, the task is complete. Do not search for or run broader validation."
+		}
+		return []brainBriefAction{{
+			File:       rel,
+			Symbol:     "pluginEnvPrefixes",
+			Action:     action,
+			Evidence:   fmt.Sprintf("current line %d allowlist: %s", line, truncateString(strings.Join(strings.Fields(block), " "), 220)),
+			Validation: validation,
+		}}
+	}
+	return nil
 }
 
 func brainBriefCodexSeedSchemaActions(repoRoot string, likelyEditFiles []string) []brainBriefAction {

@@ -301,6 +301,55 @@ func TestBrainBriefHistoryRecoversExactFileAndAssignment(t *testing.T) {
 	}
 }
 
+func TestBrainBriefPluginEnvironmentActionOverridesMisleadingSemanticFile(t *testing.T) {
+	repoRoot := t.TempDir()
+	files := map[string]string{
+		"cmd/entire/cli/plugin_store.go": "package cli\nfunc installPlugin() {}\n",
+		"cmd/entire/cli/plugin_env.go": `package cli
+// pluginEnvPrefixes are long-standing passthrough conventions (LC_*, XDG_*).
+var pluginEnvPrefixes = []string{
+	"ENTIRE_",
+	"LC_",
+}
+func pluginEnv(parent []string) []string { return parent }
+const pluginEnvOverrideVar = "ENTIRE_PLUGIN_ENV"
+`,
+		"cmd/entire/cli/plugin_env_test.go": "package cli\nfunc TestPluginEnv(t *testing.T) {}\n",
+	}
+	for rel, content := range files {
+		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	task := "Fix the plugin environment regression: external plugins lost the XDG_* passthrough namespace while credential variables remain filtered"
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{{
+		ID: "store", Kind: "function", Name: "installPlugin", FilePath: "cmd/entire/cli/plugin_store.go",
+	}}}}}
+	editFiles, testFiles, _ := brainBriefLikelyFileGroups(repoRoot, report, task)
+	if !slices.Contains(editFiles, "cmd/entire/cli/plugin_env.go") {
+		t.Fatalf("plugin env implementation missing from candidates: %v", editFiles)
+	}
+	if !slices.Contains(testFiles, "cmd/entire/cli/plugin_env_test.go") {
+		t.Fatalf("plugin env test missing from candidates: %v", testFiles)
+	}
+	report.LikelyEditFiles = editFiles
+	report.LikelyTestFiles = testFiles
+	actions := brainBriefActionChecklist(repoRoot, report, task)
+	if len(actions) != 1 || actions[0].File != "cmd/entire/cli/plugin_env.go" ||
+		actions[0].Symbol != "pluginEnvPrefixes" ||
+		!strings.Contains(actions[0].Action, "Restore `\"XDG_\"` to `pluginEnvPrefixes`") ||
+		actions[0].Validation == nil ||
+		actions[0].Validation.Command != "go test ./cmd/entire/cli -run '^TestPluginEnv$' -count=1" ||
+		!actions[0].Validation.CompleteOnPass {
+		t.Fatalf("plugin environment action = %+v", actions)
+	}
+}
+
 func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
 	root := semanticRecord{ID: "context-command", Kind: "function", Name: "newInspectContextCommand", FilePath: "internal/cli/agent_surface.go"}
 	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticContext", FilePath: "internal/cli/semantic.go"}
