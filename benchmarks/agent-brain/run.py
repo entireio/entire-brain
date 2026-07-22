@@ -3417,8 +3417,12 @@ def brain_brief_query(task: dict[str, Any]) -> str:
     cannot drift."""
     base = task["prompt"].strip()
     queries = ", ".join(task.get("brain_queries", []))
-    query = f"{task['id']}: {base[:120]}"
-    full = f"{query} | {queries}" if queries else query
+    # A normal agent sends the task, not the benchmark fixture ID. Prefixing IDs
+    # such as `github-cli-repo-name-trims-dotgit:` spent semantic lookup's bounded
+    # leading-token reserve on corpus labels (`github`, `cli`) and displaced the
+    # actual identifier intent (`normalize`). Keep the full human task because
+    # chopping it at an arbitrary byte count also produced misleading fragments.
+    full = f"{base} | {queries}" if queries else base
     # Collapse all whitespace (incl. newlines/tabs) to single spaces so the shell-quoted command
     # the agent runs is always SINGLE-LINE. shlex.quote preserves a newline byte-for-byte inside
     # single quotes, but a multi-line backtick-wrapped command in the prompt can be mangled when an

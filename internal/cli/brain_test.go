@@ -187,6 +187,14 @@ func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.
 	if got := brainBriefSemanticQuery(plain); got != plain {
 		t.Fatalf("unrelated semantic query changed: %q", got)
 	}
+	labeled := "github-cli-repo-name-trims-dotgit: Fix repository name normalization"
+	if got := brainBriefSemanticQuery(labeled); got != "Fix repository name normalization" {
+		t.Fatalf("opaque task label consumed semantic query budget: %q", got)
+	}
+	prose := "HTTP error: preserve accepted OAuth scopes"
+	if got := brainBriefSemanticQuery(prose); got != prose {
+		t.Fatalf("meaningful prose label was stripped: %q", got)
+	}
 }
 
 func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *testing.T) {

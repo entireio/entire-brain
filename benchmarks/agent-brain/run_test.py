@@ -598,7 +598,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         prompt = run.prompt_for(task, "full_cli_original")
         # The query is shell-quoted (shlex.quote) — it has spaces so it is single-quoted, NOT the
         # old unescaped double-quoted form that let shell metacharacters corrupt the query.
-        self.assertIn("entire brain brief 'task: Fix the regression. | ExactSymbol, important invariant' --json", prompt)
+        self.assertIn("entire brain brief 'Fix the regression. | ExactSymbol, important invariant' --json", prompt)
+        self.assertNotIn("task: Fix the regression", prompt)
         self.assertIn("Your first context command must be", prompt)
         self.assertIn("prefer `action_checklist`", prompt)
         self.assertIn("Read `.benchmark/brain-history-excerpt.md` only if", prompt)
@@ -814,7 +815,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                         ["--limit", str(expected_limit_val)] if expected_limit_val is not None else [],
                         label,
                     )
-                    self.assertEqual(packet["query"], "t: Fix it. | q", label)
+                    self.assertEqual(packet["query"], "Fix it. | q", label)
                     self.assertEqual(args[2], packet["query"], label)
                     # MIRROR INVARIANT (the point of the shared helpers + shlex.quote): the command
                     # the agent is told to run must shell-quote back to the SAME query the diagnostic

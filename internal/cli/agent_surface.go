@@ -1494,6 +1494,16 @@ func brainBriefOutputStatus(status brainStatusReport) brainStatusReport {
 
 func brainBriefSemanticQuery(task string) string {
 	query := strings.TrimSpace(task)
+	// Some agent frameworks prefix an opaque task/fixture label before the real
+	// natural-language request. Do not spend the bounded semantic token reserve
+	// on that transport metadata. Restrict stripping to a single hyphenated token
+	// so meaningful prose such as "HTTP error: preserve scopes" remains intact.
+	if colon := strings.IndexByte(query, ':'); colon > 0 && colon < 128 {
+		label := strings.TrimSpace(query[:colon])
+		if strings.Contains(label, "-") && !strings.ContainsAny(label, " \t\r\n/\\") {
+			query = strings.TrimSpace(query[colon+1:])
+		}
+	}
 	lower := strings.ToLower(query)
 	if strings.Contains(lower, "brain brief") || strings.Contains(lower, "brain_brief") {
 		// Put the public-surface anchors first. Tokenized semantic lookup keeps a
