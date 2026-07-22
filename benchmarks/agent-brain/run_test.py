@@ -608,6 +608,23 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("Do not run top-level `entire doctor`", prompt)
         self.assertIn("Do not edit tests unless the task explicitly asks", prompt)
 
+    def test_semantic_brain_prompt_finishes_on_decisive_current_code_action(self):
+        task = {
+            "id": "task",
+            "prompt": "Fix the regression.",
+            "brain_queries": ["ExactSymbol"],
+            "expected_files": ["pkg/file.go"],
+            "validation": ["go test ./pkg"],
+            "prepare_semantic": True,
+        }
+        prompt = run.prompt_for(task, "semantic_brain")
+        self.assertIn("Read `action_checklist` first", prompt)
+        self.assertIn("current-code evidence", prompt)
+        self.assertIn("run only `validation.command`, and finish when it passes", prompt)
+        self.assertIn("takes precedence over the generic validation list below", prompt)
+        self.assertIn("Only when `action_checklist` is missing, ambiguous, or its validation fails", prompt)
+        self.assertIn("plus one targeted `search` or `inspect code`", prompt)
+
     def test_history_only_full_brain_prompt_requires_local_brain_search(self):
         task = {
             "id": "history-task",

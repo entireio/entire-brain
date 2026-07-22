@@ -395,6 +395,7 @@ func newRetrieveCommand() {
 		!strings.Contains(actions[0].Evidence, "retrievalDefaultLimit = 2") ||
 		actions[0].Validation == nil ||
 		actions[0].Validation.Command != "go test ./internal/cli -run '^TestRetrievalCommandsDefaultToFiveCompactLocators$' -count=1" ||
+		actions[0].Validation.File != "internal/cli/retrieve_test.go" ||
 		!actions[0].Validation.CompleteOnPass {
 		t.Fatalf("retrieval default action = %+v", actions)
 	}

@@ -3013,7 +3013,7 @@ func brainBriefRetrievalDefaultLimitActions(repoRoot string, likelyEditFiles, li
 		var validation *brainBriefValidation
 		for _, testFile := range likelyTestFiles {
 			testData, readErr := brainBriefReadRepoFile(repoRoot, testFile)
-			if readErr != nil || !strings.Contains(string(testData), "func "+testName+"(") {
+			if readErr != nil || !brainBriefSourceDefinesGoTest(string(testData), testName) {
 				continue
 			}
 			validation = &brainBriefValidation{
@@ -3046,6 +3046,15 @@ func brainBriefRetrievalDefaultLimitActions(repoRoot string, likelyEditFiles, li
 		}}
 	}
 	return nil
+}
+
+func brainBriefSourceDefinesGoTest(source, testName string) bool {
+	for _, found := range brainBriefGoTestFunctionPattern.FindAllStringSubmatch(source, -1) {
+		if len(found) == 2 && found[1] == testName {
+			return true
+		}
+	}
+	return false
 }
 
 var brainBriefPluginEnvPrefixesPattern = regexp.MustCompile(`(?s)var\s+pluginEnvPrefixes\s*=\s*\[\]string\s*\{.*?\}`)
