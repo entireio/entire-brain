@@ -3462,7 +3462,12 @@ def capture_brief_packet(
 
 def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict[str, pathlib.Path]) -> dict[str, Any]:
     state: dict[str, Any] = {}
-    path_proc = run_cmd([str(tools["brain"]), "path", str(worktree)], cwd=worktree, env=env, timeout=120)
+    path_proc = run_cmd(
+        [str(tools["entire"]), "brain", "path", str(worktree)],
+        cwd=worktree,
+        env=env,
+        timeout=120,
+    )
     state["path_command"] = {
         "returncode": path_proc.returncode,
         "stdout_tail": path_proc.stdout[-4000:],
@@ -3521,17 +3526,22 @@ def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict
             if metrics_path.exists():
                 state["semantic_metrics"] = read_json_file(metrics_path)
 
-    stale_proc = run_cmd([str(tools["brain"]), "stale", str(worktree), "--json"], cwd=worktree, env=env, timeout=120)
-    state["stale_command"] = {
-        "returncode": stale_proc.returncode,
-        "stdout_tail": stale_proc.stdout[-4000:],
-        "stderr_tail": stale_proc.stderr[-4000:],
+    status_proc = run_cmd(
+        [str(tools["entire"]), "brain", "status", str(worktree), "--json"],
+        cwd=worktree,
+        env=env,
+        timeout=120,
+    )
+    state["status_command"] = {
+        "returncode": status_proc.returncode,
+        "stdout_tail": status_proc.stdout[-4000:],
+        "stderr_tail": status_proc.stderr[-4000:],
     }
-    if stale_proc.returncode == 0 and stale_proc.stdout.strip():
+    if status_proc.returncode == 0 and status_proc.stdout.strip():
         try:
-            state["stale"] = json.loads(stale_proc.stdout)
+            state["status"] = json.loads(status_proc.stdout)
         except json.JSONDecodeError as exc:
-            state["stale_parse_error"] = str(exc)
+            state["status_parse_error"] = str(exc)
     return state
 
 

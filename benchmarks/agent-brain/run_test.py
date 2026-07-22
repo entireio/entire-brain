@@ -355,6 +355,42 @@ class RunnerAndConditionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "semantic source"):
             run.assert_brain_state_ready(task, "full_cli_compact", missing_semantic)
 
+    def test_collect_brain_state_uses_current_entire_brain_surface(self):
+        completed = run.subprocess.CompletedProcess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            worktree = root / "worktree"
+            brain_dir = root / "brain"
+            worktree.mkdir()
+            brain_dir.mkdir()
+            (brain_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 3,
+                        "repo_key": "gh/example/repo",
+                        "repo_root": str(worktree),
+                        "sources": {"seed": {"commit": "abc123"}},
+                    }
+                )
+            )
+            entire = root / "entire"
+            tools = {"entire": entire, "brain": root / "entire-brain", "graph": root / "entire-graph"}
+            status = {"semantic": {"freshness": {"severity": "ok"}}}
+
+            def command(args, **_kwargs):
+                if args == [str(entire), "brain", "path", str(worktree)]:
+                    return completed(args, 0, stdout=str(brain_dir) + "\n", stderr="")
+                if args == [str(entire), "brain", "status", str(worktree), "--json"]:
+                    return completed(args, 0, stdout=json.dumps(status), stderr="")
+                self.fail(f"unexpected command: {args}")
+
+            with mock.patch.object(run, "run_cmd", side_effect=command) as run_cmd:
+                state = run.collect_brain_state(worktree, os.environ.copy(), tools)
+
+            self.assertEqual(state["status"], status)
+            self.assertNotIn("stale_command", state)
+            self.assertEqual(run_cmd.call_count, 2)
+
     def test_mcp_history_audit_matches_compact_prompt_history_tool_requirement(self):
         # Compact-delivery models are told to call brain_brief ONCE and NOT brain_search;
         # the audit must not then fail them for skipping brain_search.
