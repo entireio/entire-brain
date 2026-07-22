@@ -2299,6 +2299,9 @@ func brainBriefFilenameFallbackTerms(terms []string) []string {
 }
 
 func brainBriefCurrentCodeFileCounts(repoRoot, task string) map[string]int {
+	if brainBriefCodexSeedSchemaTask(task) {
+		return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefCodexSeedSchemaFileScore)
+	}
 	if brainBriefPreviousResponseTask(task) {
 		return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefPreviousResponseFileScore)
 	}
@@ -2306,6 +2309,31 @@ func brainBriefCurrentCodeFileCounts(repoRoot, task string) map[string]int {
 		return nil
 	}
 	return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefProviderMetadataFileScore)
+}
+
+func brainBriefCodexSeedSchemaTask(task string) bool {
+	lower := strings.ToLower(task)
+	return strings.Contains(lower, "codex") &&
+		strings.Contains(lower, "seed") &&
+		(strings.Contains(lower, "invocation") || strings.Contains(lower, "command")) &&
+		(strings.Contains(lower, "compatibility") || strings.Contains(lower, "output-schema") || strings.Contains(lower, "schema"))
+}
+
+func brainBriefCodexSeedSchemaFileScore(rel, source string) int {
+	score := 0
+	if strings.Contains(source, "seedAgentCommandArgs") {
+		score += 80
+	}
+	if strings.Contains(source, `case "codex":`) {
+		score += 100
+	}
+	if strings.Contains(source, "TestSeedAgentCommandArgs") {
+		score += 80
+	}
+	if strings.HasSuffix(strings.ToLower(rel), "seed.go") || strings.HasSuffix(strings.ToLower(rel), "seed_test.go") {
+		score += 30
+	}
+	return score
 }
 
 func brainBriefCurrentCodeFileCountsByScore(repoRoot string, scoreFile func(string, string) int) map[string]int {
@@ -2844,6 +2872,9 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		context += "\n" + strings.ToLower(match.Excerpt)
 	}
 	actions := brainBriefHistoricalAssignmentActions(repoRoot, report, task)
+	if brainBriefCodexSeedSchemaTask(task) {
+		actions = append(actions, brainBriefCodexSeedSchemaActions(repoRoot, report.LikelyEditFiles)...)
+	}
 	mcpToolNameIntent := strings.Contains(taskContext, "mcp") &&
 		(strings.Contains(taskContext, "tool list") ||
 			strings.Contains(taskContext, "tools/list") ||
@@ -2893,6 +2924,53 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)
+}
+
+func brainBriefCodexSeedSchemaActions(repoRoot string, likelyEditFiles []string) []brainBriefAction {
+	const testFile = "internal/cli/seed_test.go"
+	const testName = "TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec"
+	for _, rel := range likelyEditFiles {
+		if !strings.HasSuffix(strings.ToLower(rel), "seed.go") {
+			continue
+		}
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			if !strings.Contains(line, `case "codex":`) {
+				continue
+			}
+			end := min(len(lines), i+4)
+			commandShape := strings.Join(lines[i:end], "\n")
+			if !strings.Contains(commandShape, `"--output-schema"`) {
+				continue
+			}
+			validation := &brainBriefValidation{
+				Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+				File:           testFile,
+				Test:           testName,
+				CompleteOnPass: true,
+			}
+			return []brainBriefAction{
+				{
+					File:       rel,
+					Symbol:     "seedAgentCommandArgs",
+					Action:     "Remove `--output-schema` and its schema-path argument from the Codex seed-agent command. Keep structured output enforced by the prompt and local validation. Run only `validation.command`; when it passes, the task is complete. Do not search for or run broader validation.",
+					Evidence:   fmt.Sprintf("current line %d Codex command: %s", i+1, truncateString(strings.Join(strings.Fields(commandShape), " "), 240)),
+					Validation: validation,
+				},
+				{
+					File:     testFile,
+					Symbol:   testName,
+					Action:   "Add focused command-shape coverage that keeps the required read-only Codex exec flags, rejects `--output-schema`, and confirms the final prompt requests raw JSON.",
+					Evidence: "checkpointed compatibility contract: Codex structured output is prompt-enforced and locally validated",
+				},
+			}
+		}
+	}
+	return nil
 }
 
 func brainBriefGitMetadataIgnoreActions(repoRoot string, likelyEditFiles, likelyTestFiles []string, task string) []brainBriefAction {

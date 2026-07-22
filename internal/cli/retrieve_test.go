@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -324,6 +325,62 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 		hints.ActionChecklist[0].Validation.Command != "go test ./internal/cli -run '^TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths$' -count=1" ||
 		!hints.ActionChecklist[0].Validation.CompleteOnPass {
 		t.Fatalf("action checklist = %+v", hints.ActionChecklist)
+	}
+}
+
+func TestRetrievalTurnsCodexSeedSchemaRegressionIntoExactActions(t *testing.T) {
+	repoDir := t.TempDir()
+	files := map[string]string{
+		"internal/cli/seed.go": `package cli
+func seedAgentCommandArgs(agent string) []string {
+	switch agent {
+	case "codex":
+		return []string{"codex", "exec", "--sandbox", "read-only", "--output-schema", "seed-agent.schema.json", "return only raw JSON"}
+	}
+	return nil
+}
+`,
+		"internal/cli/seed_test.go": `package cli
+func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {}
+`,
+	}
+	for rel, content := range files {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	query := "Codex seed agent invocation compatibility failure"
+	hints := retrievalHintsForResults(repoDir, []unifiedResult{{
+		Source: "history",
+		Text:   "checkpoint review reverted Codex invocation flag after a local CLI schema-dialect failure",
+	}}, query)
+	if !slices.Equal(hints.LikelyEditFiles, []string{"internal/cli/seed.go", "internal/cli/seed_test.go"}) {
+		t.Fatalf("edit files = %v", hints.LikelyEditFiles)
+	}
+	if !slices.Equal(hints.LikelyTestFiles, []string{"internal/cli/seed_test.go"}) {
+		t.Fatalf("test files = %v", hints.LikelyTestFiles)
+	}
+	if len(hints.ActionChecklist) != 2 {
+		t.Fatalf("action checklist = %+v", hints.ActionChecklist)
+	}
+	fix := hints.ActionChecklist[0]
+	if fix.File != "internal/cli/seed.go" ||
+		!strings.Contains(fix.Action, "Remove `--output-schema`") ||
+		fix.Validation == nil ||
+		fix.Validation.Command != "go test ./internal/cli -run '^TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec$' -count=1" ||
+		!fix.Validation.CompleteOnPass {
+		t.Fatalf("source action = %+v", fix)
+	}
+	testAction := hints.ActionChecklist[1]
+	if testAction.File != "internal/cli/seed_test.go" ||
+		testAction.Symbol != "TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec" ||
+		!strings.Contains(testAction.Action, "rejects `--output-schema`") {
+		t.Fatalf("test action = %+v", testAction)
 	}
 }
 
