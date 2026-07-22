@@ -1485,7 +1485,11 @@ func assertMCPRetrievalResult(t *testing.T, response map[string]any, branch, id,
 		if !ok {
 			continue
 		}
-		if row["id"] == id && strings.Contains(fmt.Sprint(row["text"]), text) {
+		body := fmt.Sprint(row["excerpt"])
+		if body == "<nil>" {
+			body = fmt.Sprint(row["text"])
+		}
+		if row["id"] == id && strings.Contains(body, text) {
 			return
 		}
 	}

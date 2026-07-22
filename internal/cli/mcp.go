@@ -272,17 +272,17 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_query",
-			"description": "Hybrid search (lexical + semantic, RRF) across the brain's facts, history, and docs. The default retrieval; results carry ids for brain_get.",
+			"description": "Hybrid search (lexical + semantic, RRF) across facts, history, and docs. Returns five compact excerpts by default; pass result ids to brain_get for full records.",
 			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
 		},
 		{
 			"name":        "brain_search",
-			"description": "Lexical keyword search across the brain's facts, history, and docs — precise keyword/identifier matching (BM25 for history and docs; token-overlap for facts).",
+			"description": "Lexical keyword search across facts, history, and docs. Returns five compact excerpts by default; pass result ids to brain_get for full records.",
 			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
 		},
 		{
 			"name":        "brain_vsearch",
-			"description": "Vector (semantic) search across the brain's facts and docs (and history when a Gemma-class embedder is configured) — conceptual/paraphrased queries.",
+			"description": "Vector search across facts and docs (plus configured semantic history). Returns five compact excerpts by default; pass result ids to brain_get for full records.",
 			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
 		},
 		{
@@ -450,6 +450,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	switch params.Name {
 	case "brain_brief":
 		defaultLimit = brainBriefDefaultLimit
+	case "brain_query", "brain_search", "brain_vsearch":
+		defaultLimit = retrievalDefaultLimit
 	case "brain_tests":
 		defaultLimit = 3
 	case "brain_context":

@@ -5,9 +5,28 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
+
+const (
+	retrievalDefaultLimit = 5
+	retrievalExcerptBytes = 600
+)
+
+type compactUnifiedResult struct {
+	Source               string            `json:"source"`
+	ID                   string            `json:"id"`
+	Path                 string            `json:"path,omitempty"`
+	Heading              string            `json:"heading,omitempty"`
+	Line                 int               `json:"line,omitempty"`
+	Excerpt              string            `json:"excerpt"`
+	Score                float64           `json:"score,omitempty"`
+	VerificationRequired bool              `json:"verification_required,omitempty"`
+	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
+	RelatedIDs           []string          `json:"related_ids,omitempty"`
+}
 
 // retrieve_cmd.go wires the qmd-inspired verbs over the unified text index:
 // search (lexical), vsearch (vector), query (hybrid), and get/multi-get (fetch by
@@ -46,8 +65,8 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
-	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
+	cmd.Flags().IntVar(&limit, "limit", retrievalDefaultLimit, "Maximum results")
+	cmd.Flags().IntVarP(&limit, "number", "n", retrievalDefaultLimit, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
@@ -84,7 +103,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		related = relatedPatternPointers(brainDir, query, patternPointerCap)
 	}
 	if jsonOut {
-		out := map[string]any{"query": query, "branch": resolvedBranch, "results": results}
+		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
 		if len(related) > 0 {
 			out["related_patterns"] = related
 		}
@@ -132,6 +151,74 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		recordReceipt()
 	}
 	return nil
+}
+
+func compactUnifiedResults(results []unifiedResult, query string) []compactUnifiedResult {
+	if results == nil {
+		return []compactUnifiedResult{}
+	}
+	out := make([]compactUnifiedResult, len(results))
+	for i, result := range results {
+		out[i] = compactUnifiedResult{
+			Source: result.Source, ID: result.ID, Path: result.Path, Heading: result.Heading, Line: result.Line,
+			Excerpt: retrievalResultExcerpt(result.Text, query, retrievalExcerptBytes), Score: result.Score,
+			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
+		}
+	}
+	return out
+}
+
+// retrievalResultExcerpt centers a compact result on the densest query-term
+// window. Ranked retrieval is a locator surface; get/multi-get own full bodies.
+func retrievalResultExcerpt(value, query string, maxBytes int) string {
+	text := strings.Join(strings.Fields(value), " ")
+	if maxBytes <= 0 || text == "" {
+		return ""
+	}
+	if len(text) <= maxBytes {
+		return text
+	}
+	lower := strings.ToLower(text)
+	terms := semanticQueryTokens(query)
+	bestStart, bestScore := 0, -1
+	for _, anchor := range terms {
+		for searchAt := 0; searchAt < len(lower); {
+			rel := strings.Index(lower[searchAt:], anchor)
+			if rel < 0 {
+				break
+			}
+			at := searchAt + rel
+			start := max(0, at-maxBytes/3)
+			end := min(len(lower), start+maxBytes)
+			window := lower[start:end]
+			score := 0
+			for _, term := range terms {
+				if strings.Contains(window, term) {
+					score += len(term)
+				}
+			}
+			if score > bestScore {
+				bestStart, bestScore = start, score
+			}
+			searchAt = at + len(anchor)
+		}
+	}
+	start := bestStart
+	end := min(len(text), start+maxBytes)
+	for start > 0 && !utf8.RuneStart(text[start]) {
+		start--
+	}
+	for end < len(text) && !utf8.RuneStart(text[end]) {
+		end++
+	}
+	excerpt := strings.TrimSpace(text[start:end])
+	if start > 0 {
+		excerpt = "..." + excerpt
+	}
+	if end < len(text) {
+		excerpt += "..."
+	}
+	return excerpt
 }
 
 func newGetCommand(opts Options) *cobra.Command {

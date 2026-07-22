@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
@@ -270,6 +271,36 @@ func TestQMDOutputFormatAlias(t *testing.T) {
 	}
 }
 
+func TestRetrievalResultExcerptCentersDenseQueryTerms(t *testing.T) {
+	text := strings.Repeat("irrelevant preface ", 50) +
+		"inspect code and inspect context JSON are compact by default; use get for full details " +
+		strings.Repeat("irrelevant suffix ", 50)
+	excerpt := retrievalResultExcerpt(text, "inspect context JSON compact full details", 180)
+	for _, want := range []string{"inspect context", "JSON", "compact", "full details"} {
+		if !strings.Contains(excerpt, want) {
+			t.Fatalf("query-centered excerpt missing %q: %q", want, excerpt)
+		}
+	}
+	if len(excerpt) > 186 { // bounded window plus leading/trailing ellipses
+		t.Fatalf("excerpt is not bounded: %d bytes: %q", len(excerpt), excerpt)
+	}
+	unicodeExcerpt := retrievalResultExcerpt(strings.Repeat("界", 300)+" compact context details", "compact context", 80)
+	if !utf8.ValidString(unicodeExcerpt) {
+		t.Fatalf("excerpt split UTF-8: %q", unicodeExcerpt)
+	}
+}
+
+func TestRetrievalCommandsDefaultToFiveCompactLocators(t *testing.T) {
+	for _, command := range []*cobra.Command{newSearchCommand(Options{}), newVsearchCommand(Options{}), newQueryCommand(Options{})} {
+		if got := command.Flags().Lookup("limit").DefValue; got != "5" {
+			t.Fatalf("%s --limit default = %s, want 5", command.Name(), got)
+		}
+		if got := command.Flags().Lookup("number").DefValue; got != "5" {
+			t.Fatalf("%s --number default = %s, want 5", command.Name(), got)
+		}
+	}
+}
+
 func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -317,6 +348,9 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 			if tc.wantResult && len(payload.Results) == 0 {
 				t.Fatalf("expected results for %s, got none", tc.name)
 			}
+			if tc.wantResult && (!strings.Contains(out, `"excerpt"`) || strings.Contains(out, `"text":`)) {
+				t.Fatalf("ranked retrieval must return compact excerpts, not full text:\n%s", out)
+			}
 			if tc.wantLimit && len(payload.Results) != 1 {
 				t.Fatalf("number alias should limit results to 1, got %d: %+v", len(payload.Results), payload.Results)
 			}
@@ -337,6 +371,9 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(getOut), &getPayload); err != nil {
 		t.Fatalf("decode get JSON: %v\n%s", err, getOut)
+	}
+	if !strings.Contains(getOut, `"text":`) || strings.Contains(getOut, `"excerpt"`) {
+		t.Fatalf("get must retain the full-record text contract:\n%s", getOut)
 	}
 	if len(getPayload.Results) != 1 || getPayload.Results[0].ID != facts[0].ID || len(getPayload.Missing) != 0 {
 		t.Fatalf("unexpected get payload: %+v", getPayload)
