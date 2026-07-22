@@ -1,0 +1,9 @@
+Time to validate across all 9 task definitions
+
+---
+
+Huh, we tested 2 times 3 task definitions. All 6 were wins before you did the full run. Where is the regression coming from now?
+
+---
+
+Ok, loop and improve entire-brain until all 9 are wins across all dimensions. In each loop, verify from the agent session log that it actually leverage entire-brain.
