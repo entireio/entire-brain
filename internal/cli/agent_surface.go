@@ -22,11 +22,12 @@ import (
 )
 
 const (
-	brainBriefDefaultLimit      = 3
-	brainBriefFactsLimit        = 6
-	brainInspectHistoryMaxFiles = 1000
-	brainInspectHistoryMaxBytes = 512 * 1024
-	brainInspectHistoryMaxHits  = 25
+	brainBriefDefaultLimit               = 3
+	brainBriefFactsLimit                 = 6
+	brainBriefContextCandidateMultiplier = 8
+	brainInspectHistoryMaxFiles          = 1000
+	brainInspectHistoryMaxBytes          = 512 * 1024
+	brainInspectHistoryMaxHits           = 25
 	// 4 MiB per line is far beyond any real history record while bounding the
 	// buffer a single crafted line can force (was 16 MiB).
 	brainInspectHistoryMaxLine = 4 * 1024 * 1024
@@ -1241,7 +1242,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	var receiptFactIDs []string
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
 		semanticQuery := brainBriefSemanticQuery(task)
-		contextCandidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, 4)
+		contextCandidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, brainBriefContextCandidateMultiplier)
 		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, semanticQuery, contextCandidateLimit, 0)
 		if contextErr != nil {
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())

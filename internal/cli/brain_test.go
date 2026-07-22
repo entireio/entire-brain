@@ -171,6 +171,9 @@ func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.
 	if brainBriefDefaultLimit != 3 {
 		t.Fatalf("brain brief default limit = %d, want 3", brainBriefDefaultLimit)
 	}
+	if got := brainBriefExpandedCandidateLimit(brainBriefDefaultLimit, brainBriefContextCandidateMultiplier); got != 24 {
+		t.Fatalf("brain brief context candidate limit = %d, want 24", got)
+	}
 	got := brainBriefSemanticQuery("Make brain brief compact for routine agent use")
 	for _, want := range []string{"brain_brief", "brainBrief", "runBrainBrief"} {
 		if !strings.Contains(got, want) {
