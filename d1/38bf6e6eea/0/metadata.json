@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "d138bf6e6eea",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-22T16:59:39.791648Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/tasks/entire-brain-semantic-completeness-tolerance.json",
+    "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json",
+    "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json",
+    "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "4c209b4a061c",
+  "checkpoint_transcript_start": 8852,
+  "transcript_lines_at_start": 8852,
+  "compact_transcript_start": 1694,
+  "token_usage": {
+    "input_tokens": 269398,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 38581760,
+    "output_tokens": 30080,
+    "api_call_count": 303
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-22T16:59:39.185923Z",
+    "agent_lines": 5,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 5,
+    "total_lines_changed": 8,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
