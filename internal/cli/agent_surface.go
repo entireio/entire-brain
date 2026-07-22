@@ -3115,7 +3115,7 @@ func brainBriefCodexSeedSchemaActions(repoRoot string, likelyEditFiles []string)
 				continue
 			}
 			validation := &brainBriefValidation{
-				Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+				Command:        brainBriefFocusedGoTestCommand(testName, testFile) + " && git diff --check",
 				File:           testFile,
 				Test:           testName,
 				CompleteOnPass: true,

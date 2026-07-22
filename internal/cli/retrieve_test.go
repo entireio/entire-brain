@@ -372,7 +372,7 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {}
 	if fix.File != "internal/cli/seed.go" ||
 		!strings.Contains(fix.Action, "Remove `--output-schema`") ||
 		fix.Validation == nil ||
-		fix.Validation.Command != "go test ./internal/cli -run '^TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec$' -count=1" ||
+		fix.Validation.Command != "go test ./internal/cli -run '^TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec$' -count=1 && git diff --check" ||
 		!fix.Validation.CompleteOnPass {
 		t.Fatalf("source action = %+v", fix)
 	}
