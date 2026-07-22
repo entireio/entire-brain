@@ -306,6 +306,79 @@ func TestStatusJSONIncludesSemanticSection(t *testing.T) {
 	}
 }
 
+func TestBuildBrainRetrievalStatus(t *testing.T) {
+	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: " M README.md\n"},
+		fakeCommandKey("git", "diff", "--binary", "HEAD"):                       {stdout: "diff --git a/README.md b/README.md\n"},
+		fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD"):           {},
+	}}
+	worktreeHash, err := worktreeFingerprint(context.Background(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("worktree fingerprint: %v", err)
+	}
+	manifest := func(commit, mode, hash string, seedAt, docsAt time.Time) *exportManifest {
+		return &exportManifest{Sources: &brainSources{
+			Seed: &seedSourceManifest{GeneratedAt: seedAt, Commit: commit, WorktreeMode: mode, WorktreeHash: hash},
+			Docs: &docSourceManifest{GeneratedAt: docsAt, Records: 7, Files: 3},
+		}}
+	}
+	tests := []struct {
+		name      string
+		manifest  *exportManifest
+		live      brainLiveState
+		severity  string
+		seedState string
+		docsState string
+	}{
+		{
+			name: "tracked current clean", manifest: manifest("headsha", "tracked", "", now, now),
+			live: brainLiveState{Head: "headsha"}, severity: "ok", seedState: "ok", docsState: "ok",
+		},
+		{
+			name: "tracked old commit", manifest: manifest("oldsha", "tracked", "", now, now),
+			live: brainLiveState{Head: "headsha"}, severity: "unsafe", seedState: "stale", docsState: "ok",
+		},
+		{
+			name: "tracked current dirty", manifest: manifest("headsha", "tracked", "", now, now),
+			live: brainLiveState{Head: "headsha", Dirty: true}, severity: "degraded", seedState: "dirty-unindexed", docsState: "ok",
+		},
+		{
+			name: "worktree snapshot current", manifest: manifest("headsha", "worktree", worktreeHash, now, now),
+			live: brainLiveState{Head: "headsha", Dirty: true}, severity: "ok", seedState: "dirty-indexed", docsState: "ok",
+		},
+		{
+			name: "docs predate seed", manifest: manifest("headsha", "tracked", "", now, now.Add(-time.Minute)),
+			live: brainLiveState{Head: "headsha"}, severity: "unsafe", seedState: "ok", docsState: "stale",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report := buildBrainRetrievalStatus(context.Background(), runner, repoDir, test.manifest, test.live)
+			if report.Freshness.Severity != test.severity {
+				t.Fatalf("severity = %q, want %q: %+v", report.Freshness.Severity, test.severity, report.Freshness.Axes)
+			}
+			if got := report.Freshness.Axes["seed"].State; got != test.seedState {
+				t.Fatalf("seed state = %q, want %q", got, test.seedState)
+			}
+			if got := report.Freshness.Axes["docs"].State; got != test.docsState {
+				t.Fatalf("docs state = %q, want %q", got, test.docsState)
+			}
+		})
+	}
+}
+
+func TestBrainStatusFreshnessSeverityIncludesRetrieval(t *testing.T) {
+	report := brainStatusReport{
+		Semantic:  &brainStatusSemantic{Freshness: &staleReport{Severity: "ok"}},
+		Retrieval: &brainStatusRetrieval{Freshness: &staleReport{Severity: "unsafe"}},
+	}
+	if got := brainStatusFreshnessSeverity(report); got != "unsafe" {
+		t.Fatalf("combined freshness = %q, want unsafe", got)
+	}
+}
+
 func TestStatusFailOnUnsafeAndReleaseEmitJSONBeforeError(t *testing.T) {
 	opts := statusGateFixtureOptions(t, t.TempDir(), nil)
 	for _, failOn := range []string{"unsafe", "release"} {

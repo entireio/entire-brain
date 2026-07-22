@@ -57,14 +57,15 @@ type brainShowOptions struct {
 // blind spots — the former `stale` and `semantic-audit` commands), and live
 // workspace state.
 type brainStatusReport struct {
-	GeneratedAt time.Time            `json:"generated_at"`
-	Repo        brainStatusRepo      `json:"repo"`
-	Brain       brainStatusBrain     `json:"brain"`
-	Sources     brainStatusSources   `json:"sources"`
-	Facts       *brainStatusFacts    `json:"facts,omitempty"`
-	Semantic    *brainStatusSemantic `json:"semantic,omitempty"`
-	Live        brainLiveState       `json:"live"`
-	Warnings    []string             `json:"warnings,omitempty"`
+	GeneratedAt time.Time             `json:"generated_at"`
+	Repo        brainStatusRepo       `json:"repo"`
+	Brain       brainStatusBrain      `json:"brain"`
+	Sources     brainStatusSources    `json:"sources"`
+	Facts       *brainStatusFacts     `json:"facts,omitempty"`
+	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
+	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
+	Live        brainLiveState        `json:"live"`
+	Warnings    []string              `json:"warnings,omitempty"`
 	// Manifest is for in-process consumers (brief, overview, regressions). It is
 	// deliberately not part of the JSON contract: it duplicates the structured
 	// sections above and its session list scales with brain size.
@@ -86,6 +87,15 @@ type brainStatusSemantic struct {
 	Coverage   *brainStatusSemanticCoverage `json:"coverage,omitempty"`
 	Freshness  *staleReport                 `json:"freshness,omitempty"`
 	BlindSpots []brainBlindSpot             `json:"blind_spots,omitempty"`
+}
+
+type brainStatusRetrieval struct {
+	SeedCommit      string       `json:"seed_commit,omitempty"`
+	SeedMode        string       `json:"seed_mode,omitempty"`
+	DocsGeneratedAt string       `json:"docs_generated_at,omitempty"`
+	DocsRecords     int          `json:"docs_records,omitempty"`
+	DocsFiles       int          `json:"docs_files,omitempty"`
+	Freshness       *staleReport `json:"freshness,omitempty"`
 }
 
 type brainStatusSemanticProvider struct {
@@ -128,6 +138,7 @@ type brainStatusSources struct {
 	Semantic bool `json:"semantic"`
 	History  bool `json:"history"`
 	Facts    bool `json:"facts"`
+	Docs     bool `json:"docs"`
 }
 
 type brainLiveState struct {
@@ -1059,10 +1070,22 @@ func brainStatusCompactReport(report brainStatusReport) brainStatusReport {
 }
 
 func brainStatusFreshnessSeverity(report brainStatusReport) string {
-	if report.Semantic == nil || report.Semantic.Freshness == nil {
-		return ""
+	severity := ""
+	if report.Semantic != nil && report.Semantic.Freshness != nil {
+		severity = report.Semantic.Freshness.Severity
 	}
-	return report.Semantic.Freshness.Severity
+	if report.Retrieval != nil && report.Retrieval.Freshness != nil {
+		severity = worseFreshnessSeverity(severity, report.Retrieval.Freshness.Severity)
+	}
+	return severity
+}
+
+func worseFreshnessSeverity(left, right string) string {
+	rank := map[string]int{"": 0, "ok": 1, "degraded": 2, "unsafe": 3}
+	if rank[right] > rank[left] {
+		return right
+	}
+	return left
 }
 
 func brainStatusBlindSpots(report brainStatusReport) []brainBlindSpot {
@@ -1080,8 +1103,8 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 	if report.Brain.GeneratedAt != "" {
 		fmt.Fprintf(out, "  generated: %s\n", report.Brain.GeneratedAt)
 	}
-	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t\n",
-		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts)
+	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t docs=%t\n",
+		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts, report.Sources.Docs)
 	if f := report.Facts; f != nil {
 		fmt.Fprintln(out, "\nFacts")
 		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
@@ -1150,6 +1173,19 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 					fmt.Fprintln(out)
 				}
 			}
+		}
+	}
+	if r := report.Retrieval; r != nil {
+		fmt.Fprintln(out, "\nRetrieval")
+		if r.SeedCommit != "" {
+			fmt.Fprintf(out, "  seed: %s (%s)\n", shortCommitHash(r.SeedCommit), valueOrUnset(r.SeedMode))
+		}
+		if r.DocsGeneratedAt != "" {
+			fmt.Fprintf(out, "  docs: %d records from %d files (generated %s)\n", r.DocsRecords, r.DocsFiles, r.DocsGeneratedAt)
+		}
+		if f := r.Freshness; f != nil {
+			fmt.Fprintf(out, "  freshness: %s\n", f.Severity)
+			renderFreshnessAxes(out, f.Axes)
 		}
 	}
 	fmt.Fprintln(out, "\nLive")
@@ -2805,12 +2841,16 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 				},
 			}
 		}
+		report.Sources.Docs = manifest.Sources.Docs != nil
 	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, manifest)
 	if liveErr != nil {
 		report.Warnings = append(report.Warnings, "live state unavailable: "+liveErr.Error())
 	} else {
 		report.Live = live
+	}
+	if manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
+		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, repoDir, manifest, report.Live)
 	}
 	if report.Semantic != nil {
 		freshness, freshnessErr := semanticStaleReport(ctx, opts, repoDir)
@@ -2821,6 +2861,76 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 		}
 	}
 	return report, nil
+}
+
+func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
+	report := &brainStatusRetrieval{}
+	axes := map[string]staleAxis{}
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
+		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run entire brain refresh --agent none"}
+	} else {
+		seed := manifest.Sources.Seed
+		report.SeedCommit = seed.Commit
+		report.SeedMode = seed.WorktreeMode
+		switch {
+		case live.Head == "":
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable", Indexed: seed.Commit}
+		case seed.Commit != live.Head:
+			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run entire brain refresh --agent none", Current: live.Head, Indexed: seed.Commit}
+		case seed.WorktreeMode != "worktree" && live.Dirty:
+			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD; refresh with --worktree to include current changes", Current: live.Head, Indexed: seed.Commit}
+		case seed.WorktreeMode != "worktree":
+			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
+		case seed.WorktreeHash == "":
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint; refresh again with --worktree", Current: live.Head, Indexed: seed.Commit}
+		case !live.Dirty:
+			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Current: live.Head, Indexed: seed.Commit}
+		default:
+			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
+			if err != nil {
+				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Current: live.Head, Indexed: seed.Commit}
+			} else if currentHash != seed.WorktreeHash {
+				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Current: currentHash, Indexed: seed.WorktreeHash}
+			} else {
+				axes["seed"] = staleAxis{State: "dirty-indexed", Detail: "seed and docs include the current dirty worktree", Current: currentHash, Indexed: seed.WorktreeHash}
+			}
+		}
+	}
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil {
+		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run entire brain refresh --agent none"}
+	} else {
+		docs := manifest.Sources.Docs
+		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
+		report.DocsRecords = docs.Records
+		report.DocsFiles = docs.Files
+		if docs.GeneratedAt.IsZero() {
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp"}
+		} else if manifest.Sources.Seed == nil {
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}
+		} else if docs.GeneratedAt.Before(manifest.Sources.Seed.GeneratedAt) {
+			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run entire brain refresh --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
+		} else {
+			axes["docs"] = staleAxis{State: "ok", Detail: "docs index was built from the current seed"}
+		}
+	}
+	report.Freshness = &staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes}
+	return report
+}
+
+func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
+	keys := make([]string, 0, len(axes))
+	for key := range axes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		axis := axes[key]
+		line := "    " + key + ": " + axis.State
+		if axis.Detail != "" {
+			line += " (" + axis.Detail + ")"
+		}
+		fmt.Fprintln(out, line)
+	}
 }
 
 func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest) (brainLiveState, error) {

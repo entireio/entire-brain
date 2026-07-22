@@ -262,7 +262,7 @@ func mcpToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "brain_status",
-			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic provider/coverage totals/freshness/blind spots, and live workspace state. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
+			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic and retrieval freshness, provider/coverage totals/blind spots, and live workspace state. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
 			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
 		},
 		{
@@ -317,7 +317,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_status",
-			"description": "Alias for brain_status focused on semantic index freshness, coverage, and counts. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
+			"description": "Alias for brain_status with semantic and retrieval freshness, coverage, and counts. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
 			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
 		},
 		{

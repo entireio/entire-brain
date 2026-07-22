@@ -5,7 +5,8 @@ of the answer, not as decoration.
 
 Recommended intake flow:
 
-1. Run `entire brain status --json` and check `semantic.freshness.severity`.
+1. Run `entire brain status --json`; check `semantic.freshness.severity` before
+   graph inspection and `retrieval.freshness.severity` before query/get.
    The default is the compact trust preflight; use `--details` only for
    coverage histograms, staged-file classifications, or changed-symbol records.
 2. Use `entire brain inspect code <symbol> --json` (10 results by default) or
@@ -51,10 +52,13 @@ Recommended intake flow:
    path hints.
 10. Use `entire brain mcp` only as a local stdio adapter when an agent needs MCP
    tool calls instead of direct CLI commands.
-11. Refresh with `entire brain refresh` when `status` reports unsafe semantic
-   data.
-12. Use `entire brain refresh index --worktree` only when uncommitted code is
-   intentionally part of the question.
+11. Refresh semantic data with `entire brain refresh index` when only
+   `semantic.freshness` is unsafe. Use `entire brain refresh --agent none` when
+   `retrieval.freshness` is unsafe because semantic-only refreshes do not
+   rebuild seed/docs.
+12. Add `--worktree` to either refresh only when uncommitted content is
+   intentionally part of the question; status verifies that exact dirty
+   snapshot and reports later drift.
 
 Do not publish semantic artifacts or send semantic context to remote services in
 phase 1.

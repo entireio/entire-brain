@@ -68,6 +68,7 @@ type seedSourceManifest struct {
 	GeneratedAt       time.Time            `json:"generated_at"`
 	Commit            string               `json:"commit,omitempty"`
 	WorktreeMode      string               `json:"worktree_mode"`
+	WorktreeHash      string               `json:"worktree_hash,omitempty"`
 	FileFingerprint   string               `json:"file_fingerprint"`
 	SummaryPath       string               `json:"summary_path"`
 	Documents         []seedDocument       `json:"documents,omitempty"`
@@ -278,6 +279,13 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if err != nil {
 		return err
 	}
+	worktreeHash := ""
+	if seedOpts.worktree {
+		worktreeHash, err = worktreeFingerprint(ctx, opts.Runner, repoDir)
+		if err != nil {
+			return fmt.Errorf("fingerprint worktree for seed: %w", err)
+		}
+	}
 
 	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts)
 	if err != nil {
@@ -297,6 +305,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			GeneratedAt:       opts.Now().UTC(),
 			Commit:            scan.Commit,
 			WorktreeMode:      seedWorktreeMode(seedOpts),
+			WorktreeHash:      worktreeHash,
 			FileFingerprint:   scan.Fingerprint,
 			SummaryPath:       filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")),
 			Documents:         scan.Docs,
@@ -318,6 +327,15 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			}
 			if agentManifest != nil {
 				seedManifest.Agent = agentManifest
+			}
+		}
+		if seedOpts.worktree {
+			currentHash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
+			if err != nil {
+				return fmt.Errorf("recheck worktree fingerprint for seed: %w", err)
+			}
+			if currentHash != worktreeHash {
+				return errors.New("worktree_changed: worktree content changed during seed refresh")
 			}
 		}
 

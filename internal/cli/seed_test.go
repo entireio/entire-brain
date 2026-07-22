@@ -371,6 +371,9 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "seed")
 	runner := seedFixtureRunner(repoDir)
 	runner.responses[fakeCommandKey("git", "ls-files", "--others", "--exclude-standard")] = fakeCommandResponse{stdout: "AGENTS.md\n.env.local\n"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: "?? AGENTS.md\n"}
+	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: runner})
 	if _, err := execute(t, cmd, "refresh", "seed", "--worktree", "--output", outputDir, repoDir); err != nil {
 		t.Fatalf("seed --worktree: %v", err)
@@ -385,6 +388,9 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	}
 	if manifest.Sources.Seed.WorktreeMode != "worktree" {
 		t.Fatalf("worktree mode = %q", manifest.Sources.Seed.WorktreeMode)
+	}
+	if manifest.Sources.Seed.WorktreeHash == "" {
+		t.Fatal("worktree seed is missing its verification hash")
 	}
 	if !hasSeedDocument(manifest.Sources.Seed.Documents, "AGENTS.md") {
 		t.Fatalf("AGENTS.md was not included: %+v", manifest.Sources.Seed.Documents)

@@ -238,8 +238,13 @@ entire brain inspect tests "<symbol-or-id>" --json
 entire brain inspect regressions "<task or invariant>" --location-only --json
 ```
 
-`status --json` is the compact agent preflight. Use `status --json --details`
-only when an audit or diagnosis needs language/kind/relation histograms,
+`status --json` is the compact agent preflight. Check
+`semantic.freshness.severity` before graph inspection and
+`retrieval.freshness.severity` before query/get. A semantic-only
+`refresh index` does not rebuild seed/docs: use `entire brain refresh --agent
+none` when retrieval is stale, adding `--worktree` only when current
+uncommitted content should be included. Use `status --json --details` only when
+an audit or diagnosis needs language/kind/relation histograms,
 staged/unstaged/untracked classifications, or changed-symbol records.
 `inspect code --json`, `inspect context --json`, `inspect impact --json`, and
 `inspect tests --json` likewise return compact semantic records by default; add
