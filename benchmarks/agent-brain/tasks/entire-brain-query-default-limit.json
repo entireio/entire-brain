@@ -8,21 +8,17 @@
   "setup_replacements": [
     {
       "path": "internal/cli/retrieve_cmd.go",
-      "old": "cmd.Flags().IntVar(&limit, \"limit\", 10, \"Maximum results\")",
-      "new": "cmd.Flags().IntVar(&limit, \"limit\", 2, \"Maximum results\")"
-    },
-    {
-      "path": "internal/cli/retrieve_cmd.go",
-      "old": "cmd.Flags().IntVarP(&limit, \"number\", \"n\", 10, \"Maximum results (QMD-style alias for --limit)\")",
-      "new": "cmd.Flags().IntVarP(&limit, \"number\", \"n\", 2, \"Maximum results (QMD-style alias for --limit)\")"
+      "old": "retrievalDefaultLimit = 5",
+      "new": "retrievalDefaultLimit = 2"
     }
   ],
   "validation": [
-    "test $(rg -n 'IntVar\\(&limit, \"limit\", 10' internal/cli/retrieve_cmd.go | wc -l | tr -d ' ') -eq 1",
-    "test $(rg -n 'IntVarP\\(&limit, \"number\", \"n\", 10' internal/cli/retrieve_cmd.go | wc -l | tr -d ' ') -eq 1",
-    "go test ./internal/cli -run 'TestQMDAliasesAcrossRetrievalVerbs|TestQMDOutputFormatAlias'"
+    "test $(rg -n 'retrievalDefaultLimit = 5' internal/cli/retrieve_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n 'IntVar\\(&limit, \"limit\", retrievalDefaultLimit' internal/cli/retrieve_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n 'IntVarP\\(&limit, \"number\", \"n\", retrievalDefaultLimit' internal/cli/retrieve_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestRetrievalCommandsDefaultToFiveCompactLocators|TestQMDAliasesAcrossRetrievalVerbs|TestQMDOutputFormatAlias'"
   ],
   "expected_files": ["internal/cli/retrieve_cmd.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["newQueryCommand", "newRetrieveCommand", "TestQMDAliasesAcrossRetrievalVerbs"]
+  "brain_queries": ["default result count for ranked retrieval", "ranked retrieval compact locators", "TestQMDAliasesAcrossRetrievalVerbs"]
 }
