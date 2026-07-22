@@ -242,6 +242,42 @@ func TestBrainBriefSemanticContextPreservesRetrieverRelevanceAndMorphology(t *te
 	}
 }
 
+func TestBrainBriefHistoryRecoversExactFileAndAssignment(t *testing.T) {
+	repoRoot := t.TempDir()
+	source := filepath.Join(repoRoot, "internal", "cli", "semantic.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("package cli\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	absHistorical := "/old/machine/entire-brain/internal/cli/semantic.go"
+	if got, ok := cleanBrainBriefHistoryFile(repoRoot, absHistorical); !ok || got != "internal/cli/semantic.go" {
+		t.Fatalf("historical path recovery = %q, %v", got, ok)
+	}
+
+	brainDir := t.TempDir()
+	recordPath := "sessions/main/example.jsonl"
+	full := filepath.Join(brainDir, filepath.FromSlash(recordPath))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"message":"Edit","new_string":"const semanticParseErrorCode = \"E_PARSE_ERROR\"\\nconst semanticParseErrorTolerance = 0.10\\n"}`
+	if err := os.WriteFile(full, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	match := brainBriefHistoryRecordTextMatch(brainDir, historyRecord{
+		Path: recordPath, Line: 1, Summary: `Edit {"file_path":"` + absHistorical + `","new_string":"const semanticParseError..."}`,
+	}, "restore semantic parse error tolerance")
+	if !strings.Contains(match.Excerpt, "semanticParseErrorTolerance = 0.10") {
+		t.Fatalf("historical assignment missing from compact match: %q", match.Excerpt)
+	}
+	files, _, _ := brainBriefLikelyFileGroups(repoRoot, brainBriefReport{History: brainBriefHistory{Matches: []brainTextMatch{match}}}, "semantic parse error tolerance")
+	if len(files) == 0 || files[0] != "internal/cli/semantic.go" {
+		t.Fatalf("historical edit site was not promoted: %v", files)
+	}
+}
+
 func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
 	root := semanticRecord{ID: "context-command", Kind: "function", Name: "newInspectContextCommand", FilePath: "internal/cli/agent_surface.go"}
 	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticContext", FilePath: "internal/cli/semantic.go"}

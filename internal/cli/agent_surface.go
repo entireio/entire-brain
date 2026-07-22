@@ -1287,11 +1287,11 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			// surface serves is exactly where fusion measured strongest.
 			if scored, ok := rankHistoryFused(status.Brain.Path, index, "history", task, briefOpts.limit, defaultEmbedder()); ok {
 				for _, s := range scored {
-					indexedMatches = append(indexedMatches, historyRecordTextMatch(s.Record))
+					indexedMatches = append(indexedMatches, brainBriefHistoryRecordTextMatch(status.Brain.Path, s.Record, task))
 				}
 			} else {
 				for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
-					indexedMatches = append(indexedMatches, historyRecordTextMatch(record))
+					indexedMatches = append(indexedMatches, brainBriefHistoryRecordTextMatch(status.Brain.Path, record, task))
 				}
 			}
 			rawMatches, rawErr := brainBriefRawHistoryMatches(status.Brain.Path, task, nil, briefOpts.limit)
@@ -2042,9 +2042,17 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 	for _, changed := range report.Status.Live.ChangedFiles {
 		add(changed, 3)
 	}
+	var historyEditFiles []string
 	for _, match := range report.History.Matches {
 		for _, path := range extractBrainBriefPaths(match.Excerpt) {
-			add(path, 5)
+			clean, ok := cleanBrainBriefHistoryFile(repoRoot, path)
+			if !ok {
+				continue
+			}
+			add(clean, 12)
+			if brainBriefSourceFile(clean) && !brainBriefLikelyTestFile(clean) && !slices.Contains(historyEditFiles, clean) {
+				historyEditFiles = append(historyEditFiles, clean)
+			}
 		}
 	}
 	// The compact brief can legitimately have no semantic symbol or usable path
@@ -2082,6 +2090,10 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 	// method above while telling the agent to edit an unrelated auth helper).
 	// Filename and history evidence still fill the remainder of the bounded list.
 	editFiles = brainBriefPromoteSemanticEditFiles(repoRoot, editFiles, report.Semantic.Context.Symbols, 8)
+	// An exact source path recovered from the top history evidence is stronger
+	// regression-localization evidence than a lexical semantic guess. Promote it
+	// after semantic ordering so the two sections cannot contradict each other.
+	editFiles = brainBriefPromoteHistoryEditFiles(editFiles, historyEditFiles, 8)
 	testFiles := rankedBrainBriefLikelyFiles(testCounts, 6)
 	all := append([]string{}, editFiles...)
 	for _, file := range testFiles {
@@ -2091,6 +2103,27 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 		all = append(all, file)
 	}
 	return editFiles, testFiles, all
+}
+
+func brainBriefPromoteHistoryEditFiles(files, historyFiles []string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, min(limit, len(files)))
+	for _, group := range [][]string{historyFiles, files} {
+		for _, file := range group {
+			if len(out) >= limit {
+				return out
+			}
+			if _, ok := seen[file]; ok || !slices.Contains(files, file) {
+				continue
+			}
+			seen[file] = struct{}{}
+			out = append(out, file)
+		}
+	}
+	return out
 }
 
 func brainBriefPromoteSemanticEditFiles(repoRoot string, files []string, symbols []semanticRecord, limit int) []string {
@@ -2708,6 +2741,33 @@ func cleanBrainBriefLikelyFile(path string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// cleanBrainBriefHistoryFile recovers a repository-relative source path from
+// historical transcripts recorded on another machine. It only accepts a suffix
+// that passes the normal path policy and exists in the current repository, so an
+// arbitrary absolute transcript path can never escape or invent a target.
+func cleanBrainBriefHistoryFile(repoRoot, path string) (string, bool) {
+	if clean, ok := cleanBrainBriefLikelyFile(path); ok {
+		return clean, true
+	}
+	slash := filepath.ToSlash(strings.TrimSpace(strings.Trim(path, "`'\".,;:)]}")))
+	if !filepath.IsAbs(filepath.FromSlash(slash)) {
+		return "", false
+	}
+	parts := strings.Split(strings.TrimPrefix(slash, "/"), "/")
+	for i := range parts {
+		candidate := strings.Join(parts[i:], "/")
+		clean, ok := cleanBrainBriefLikelyFile(candidate)
+		if !ok {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(clean)))
+		if err == nil && !info.IsDir() {
+			return clean, true
+		}
+	}
+	return "", false
 }
 
 func brainBriefLikelyPathRoot(path string) bool {
@@ -3644,6 +3704,97 @@ func historyRecordTextMatch(record historyRecord) brainTextMatch {
 		match.Timestamp = ts.Format(time.RFC3339)
 	}
 	return match
+}
+
+var brainBriefHistoricalAssignmentPattern = regexp.MustCompile(`(?m)\b(?:const|var|let)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\r\n]+)`)
+
+func brainBriefHistoryRecordTextMatch(brainDir string, record historyRecord, task string) brainTextMatch {
+	match := historyRecordTextMatch(record)
+	line, ok := brainBriefHistoryRawLine(brainDir, record.Path, record.Line)
+	if !ok {
+		return match
+	}
+	decoded := strings.ReplaceAll(line, `\n`, "\n")
+	decoded = strings.ReplaceAll(decoded, `\t`, "\t")
+	decoded = strings.ReplaceAll(decoded, `\"`, `"`)
+	taskTerms := make(map[string]struct{})
+	for _, term := range historyQueryTerms(task) {
+		taskTerms[term] = struct{}{}
+	}
+	type assignment struct {
+		text  string
+		score int
+	}
+	var assignments []assignment
+	seen := map[string]struct{}{}
+	for _, found := range brainBriefHistoricalAssignmentPattern.FindAllStringSubmatch(decoded, -1) {
+		if len(found) != 3 {
+			continue
+		}
+		name := found[1]
+		value := strings.TrimSpace(found[2])
+		if name == "" || value == "" || strings.Contains(strings.ToLower(match.Excerpt), strings.ToLower(name+" =")) {
+			continue
+		}
+		overlap := 0
+		for _, term := range strings.Fields(normalizeHistorySearchText(name)) {
+			if _, ok := taskTerms[term]; ok {
+				overlap++
+			}
+		}
+		if overlap == 0 {
+			continue
+		}
+		text := name + " = " + truncateString(value, 120)
+		if _, ok := seen[text]; ok {
+			continue
+		}
+		seen[text] = struct{}{}
+		assignments = append(assignments, assignment{text: text, score: overlap})
+	}
+	sort.SliceStable(assignments, func(i, j int) bool {
+		if assignments[i].score != assignments[j].score {
+			return assignments[i].score > assignments[j].score
+		}
+		return len(assignments[i].text) < len(assignments[j].text)
+	})
+	if len(assignments) > 3 {
+		assignments = assignments[:3]
+	}
+	if len(assignments) > 0 {
+		items := make([]string, len(assignments))
+		for i, item := range assignments {
+			items[i] = item.text
+		}
+		match.Excerpt = strings.TrimSpace(match.Excerpt) + " Historical assignments: " + strings.Join(items, "; ")
+	}
+	return match
+}
+
+func brainBriefHistoryRawLine(brainDir, recordPath string, lineNumber int) (string, bool) {
+	if lineNumber <= 0 {
+		return "", false
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(recordPath)))
+	if filepath.IsAbs(clean) || !strings.HasPrefix(clean, "sessions/") || strings.HasPrefix(clean, "../") {
+		return "", false
+	}
+	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+		return "", false
+	}
+	f, err := os.Open(filepath.Join(brainDir, filepath.FromSlash(clean)))
+	if err != nil {
+		return "", false
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), brainInspectHistoryMaxLine)
+	for current := 1; scanner.Scan(); current++ {
+		if current == lineNumber {
+			return scanner.Text(), true
+		}
+	}
+	return "", false
 }
 
 func historyInspectKinds(kind string) map[string]struct{} {
