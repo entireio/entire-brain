@@ -1,0 +1,5 @@
+Ok, do that and rerun this task
+
+---
+
+Pick the next 3 task definitions and loop again
