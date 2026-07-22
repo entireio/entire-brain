@@ -1736,6 +1736,71 @@ def temporal_memory_command_tokens(command: str) -> list[str] | None:
     return tokens
 
 
+def top_level_entire_subcommands(command: str) -> list[str]:
+    """Find actual top-level Entire invocations without mistaking command arguments for calls."""
+    tokens = temporal_memory_command_tokens(command)
+    if not tokens:
+        return []
+    findings: list[str] = []
+    command_start = True
+    operators = {"&&", "||", ";", "|"}
+    for index, token in enumerate(tokens):
+        if token in operators:
+            command_start = True
+            continue
+        if not command_start:
+            continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token):
+            continue
+        command_start = False
+        if pathlib.Path(token).name != "entire" or index + 1 >= len(tokens):
+            continue
+        subcommand = tokens[index + 1]
+        if subcommand in {"search", "explain"}:
+            findings.append(subcommand)
+    return findings
+
+
+def brain_cli_condition_audit(
+    condition: str,
+    agent_info: dict[str, Any],
+    task: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Keep Brain benchmark rows on the local Brain CLI surface."""
+    activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
+    findings: list[dict[str, Any]] = []
+    forbidden = sorted(set(activity.get("top_level_entire_commands") or []))
+    for command in forbidden:
+        findings.append({"kind": "forbidden_top_level_entire_command", "command": command})
+
+    requires_search = (
+        isinstance(task, dict)
+        and bool(task.get("require_local_brain_search"))
+        and condition_writes_history_excerpt(condition)
+    )
+    if requires_search:
+        expected = expected_local_history_search_command(task)
+        actual = activity.get("first_tool_command_tokens")
+        if actual != expected:
+            findings.append(
+                {
+                    "kind": "required_local_brain_search_was_not_first_tool",
+                    "expected": expected,
+                    "actual": actual,
+                }
+            )
+        if "search" not in set(activity.get("brain_commands") or []):
+            findings.append({"kind": "missing_required_local_brain_search"})
+
+    return {
+        "ok": not findings,
+        "required": requires_search or bool(forbidden),
+        "top_level_entire_commands": forbidden,
+        "first_tool_command_tokens": activity.get("first_tool_command_tokens"),
+        "findings": findings,
+    }
+
+
 def expected_temporal_memory_command(task: dict[str, Any]) -> list[str]:
     spec = temporal_memory_search_spec(task)
     return [
@@ -3302,6 +3367,21 @@ def brain_brief_query(task: dict[str, Any]) -> str:
     return " ".join(full.split())
 
 
+def expected_local_history_search_command(task: dict[str, Any]) -> list[str]:
+    """Return the exact local Brain history command required by strict history tasks."""
+    queries = [str(query).strip() for query in task.get("brain_queries", []) if str(query).strip()]
+    if not queries:
+        raise ValueError(f"task {task.get('id', '<unknown>')} requires a local Brain search but has no brain_queries")
+    limit = int(task.get("history_search_limit", 5))
+    if limit <= 0:
+        raise ValueError(f"task {task.get('id', '<unknown>')} history_search_limit must be positive")
+    return ["entire", "brain", "search", queries[0], "--json", "--limit", str(limit)]
+
+
+def local_history_search_command(task: dict[str, Any]) -> str:
+    return shlex.join(expected_local_history_search_command(task))
+
+
 def brain_brief_limit(condition: str, is_opus: bool) -> int | None:
     """Single source of truth for the brief `--limit` policy (shared by prompt_for + capture).
     Only the full_cli_compact CLI packet is limited: Opus gets the tiny top-2, others top-4."""
@@ -3595,6 +3675,10 @@ def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> di
 def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
     queries = [q for q in task.get("brain_queries", []) if q]
     if not queries:
+        if task.get("require_history_excerpt"):
+            raise RuntimeError(
+                f"task {task.get('id', '<unknown>')} requires a history excerpt but has no brain_queries"
+            )
         return
     limit = int(task.get("history_excerpt_lines", 60))
     candidates: list[tuple[int, str]] = []
@@ -3612,6 +3696,11 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
                     seen.add(key)
                     candidates.append((excerpt_score, f"## Query `{query}` ({rel}:{line_no})\n\n{excerpt}"))
     if not candidates:
+        if task.get("require_history_excerpt"):
+            raise RuntimeError(
+                f"task {task.get('id', '<unknown>')} requires a history excerpt, but its brain_queries "
+                "matched no prepared session/history records"
+            )
         return
     snippets = [text for _, text in sorted(candidates, key=lambda item: item[0], reverse=True)[:limit]]
     fact_summary = summarize_history_facts(snippets)
@@ -3624,7 +3713,7 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
         + ("\n\n".join(snippets) if task.get("history_include_raw_snippets", True) else "")
         + "\n"
     )
-    run_cmd(["git", "add", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
+    run_cmd(["git", "add", "-f", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
     run_cmd(
         [
             "git",
@@ -3644,10 +3733,10 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
 
 def history_excerpt_files(worktree: pathlib.Path) -> list[pathlib.Path]:
     files: list[pathlib.Path] = []
-    brain_root = run_plugin_dir(worktree) / "data" / "brain"
-    if brain_root.exists():
-        files.extend(sorted(brain_root.rglob("sessions/**/*.jsonl")))
-        files.extend(sorted(brain_root.rglob("history/index.json")))
+    repos_root = run_plugin_dir(worktree) / "data" / "repos"
+    if repos_root.exists():
+        files.extend(sorted(repos_root.rglob("sessions/**/*.jsonl")))
+        files.extend(sorted(repos_root.rglob("history/index.json")))
     checkpoint_root = worktree / "entire" / "checkpoints" / "v1"
     if checkpoint_root.exists():
         files.extend(sorted(checkpoint_root.rglob("*full.jsonl")))
@@ -3954,6 +4043,7 @@ def prompt_for(
     # a subprocess argv element (no shell) — so both channels deliver an identical query.
     brief_query_sh = shlex.quote(brief_query)
     brief_command = f'entire brain brief {brief_query_sh} --json{brief_limit}'
+    history_search_command = local_history_search_command(task) if task.get("require_local_brain_search") else ""
     memory_search_command = ""
     if is_temporal_memory_condition(condition):
         # Shared with harness_memory_delivery via temporal_memory_search_spec so the adherence
@@ -3968,7 +4058,9 @@ def prompt_for(
     opus_brief_command = f'entire brain brief {brief_query_sh} --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
     top_level_entire_guard = (
         "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
-        "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive."
+        "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive. "
+        "Do not run top-level `entire search` or `entire explain`; those belong to the hosted Entire "
+        "checkpoint service, not the local Entire Brain surface."
     )
     semantic_available = task.get("prepare_semantic", True)
     if condition == "no_brain":
@@ -4042,9 +4134,13 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
     elif semantic_available:
         policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, prefer `action_checklist`, `likely_edit_files`, `likely_test_files`, and compact history hits before broad text search. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough exact invariant or file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
     else:
-        policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so focus on seed context and task-relevant checkpoint/session history. Useful history search terms: {queries}."""
+        if task.get("require_local_brain_search"):
+            policy = f"""Use the local Entire Brain before editing. Your first tool command must be exactly `{history_search_command}`. Use the returned local history as context for the repair. Do not substitute an installed skill, top-level `entire search`, top-level `entire explain`, git history, or ordinary repository search for this required Brain call. Semantic indexing is disabled for this condition, so focus on the local Brain's seed and session-history results. Useful history search terms: {queries}. {top_level_entire_guard}"""
+        else:
+            policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so focus on seed context and task-relevant checkpoint/session history. Useful history search terms: {queries}. {top_level_entire_guard}"""
         if task.get("history_excerpt", True):
-            policy += " Read `.benchmark/brain-history-excerpt.md` first if it exists; it contains task-specific checkpoint hits retrieved from the brain. Treat matching checkpoint code/test names as authoritative when restoring removed coverage. When the excerpt names a historical failure mode, preserve that wording in regression-test failure text."
+            excerpt_order = "After that required Brain command, read" if task.get("require_local_brain_search") else "Read"
+            policy += f" {excerpt_order} `.benchmark/brain-history-excerpt.md` if it exists; it contains task-specific checkpoint hits retrieved from the brain. Treat matching checkpoint code/test names as authoritative when restoring removed coverage. When the excerpt names a historical failure mode, preserve that wording in regression-test failure text."
     parts = [
         base,
         f"Benchmark condition: {condition}",
@@ -4749,6 +4845,13 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         if isinstance(detail, dict) and re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(detail.get("name") or ""))
     ]
     direct_brain_cli_calls = len(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+[a-z][a-z-]*", command_lower))
+    top_level_entire_commands = sorted(
+        {
+            subcommand
+            for command in activity_source["commands"]
+            for subcommand in top_level_entire_subcommands(command)
+        }
+    )
     first_tool_name = activity_source["tool_names"][0] if activity_source["tool_names"] else None
     first_event_command = ""
     if activity_source.get("tool_details"):
@@ -4798,6 +4901,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         "structured_tool_event_count": activity_source.get("event_count", 0),
         "brain_commands": brain_commands,
         "direct_brain_cli_calls": direct_brain_cli_calls,
+        "top_level_entire_commands": top_level_entire_commands,
         "first_tool_name": first_tool_name,
         "first_tool_is_memory_search": first_tool_is_memory_search,
         "first_tool_command_tokens": first_tool_command_tokens,
@@ -5288,6 +5392,7 @@ def run_one(
             (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
         )
         mcp_audit = mcp_condition_audit(condition, agent_info, runner, task)
+        brain_cli_audit = brain_cli_condition_audit(condition, agent_info, task)
         temporal_audit = (
             temporal_memory_condition_audit(condition, agent_info, delivery_mode or "agent_tool", task)
             if task.get("memory_bundle")
@@ -5309,7 +5414,7 @@ def run_one(
         scoring = score(task, condition, agent_info, validation, files, diff)
         record.update(
             {
-                "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"] and temporal_audit["ok"],
+                "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"] and brain_cli_audit["ok"] and temporal_audit["ok"],
                 "worktree": provenance_path_reference(str(worktree), "agent_worktree"),
                 "brain_prep": prep,
                 "brain_state": brain_state,
@@ -5317,6 +5422,7 @@ def run_one(
                 "agent_visible_entire_history_removed": agent_visible_entire_removed,
                 "agent_leak_audit": leak_audit,
                 "mcp_condition_audit": mcp_audit,
+                "brain_cli_condition_audit": brain_cli_audit,
                 "temporal_memory_condition_audit": temporal_audit,
                 "agent_info": agent_info,
                 "changed_files": files,

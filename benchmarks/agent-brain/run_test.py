@@ -534,6 +534,92 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("Do not run top-level `entire doctor`", prompt)
         self.assertIn("Do not edit tests unless the task explicitly asks", prompt)
 
+    def test_history_only_full_brain_prompt_requires_local_brain_search(self):
+        task = {
+            "id": "history-task",
+            "prompt": "Restore the historical behavior.",
+            "brain_queries": [".github symbol was unexpectedly ignored"],
+            "expected_files": ["internal/cli/semantic.go"],
+            "validation": ["go test ./internal/cli"],
+            "prepare_semantic": False,
+            "require_local_brain_search": True,
+        }
+        prompt = run.prompt_for(task, "full_brain")
+        self.assertIn(
+            "Your first tool command must be exactly `entire brain search '.github symbol was unexpectedly ignored' --json --limit 5`",
+            prompt,
+        )
+        self.assertIn("Do not run top-level `entire search` or `entire explain`", prompt)
+        self.assertIn("Do not substitute an installed skill", prompt)
+
+    def test_required_history_excerpt_fails_when_queries_match_nothing(self):
+        task = {
+            "id": "history-task",
+            "brain_queries": ["no-match-anywhere"],
+            "require_history_excerpt": True,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RuntimeError, "requires a history excerpt"):
+                run.write_history_excerpt(task, pathlib.Path(tmp))
+
+    def test_history_excerpt_files_use_current_plugin_data_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = pathlib.Path(tmp)
+            current = (
+                worktree
+                / ".benchmark"
+                / "plugin"
+                / "data"
+                / "repos"
+                / "gh"
+                / "example"
+                / "repo"
+                / "sessions"
+                / "main"
+                / "session.jsonl"
+            )
+            current.parent.mkdir(parents=True)
+            current.write_text("{}\n")
+            legacy = worktree / ".benchmark" / "plugin" / "data" / "brain" / "sessions" / "legacy.jsonl"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("{}\n")
+
+            self.assertEqual(run.history_excerpt_files(worktree), [current])
+
+    def test_history_excerpt_force_adds_harness_owned_ignored_packet(self):
+        task = {
+            "id": "history-task",
+            "brain_queries": ["unexpectedly ignored"],
+            "require_history_excerpt": True,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = pathlib.Path(tmp)
+            session = (
+                worktree
+                / ".benchmark"
+                / "plugin"
+                / "data"
+                / "repos"
+                / "gh"
+                / "example"
+                / "repo"
+                / "sessions"
+                / "main"
+                / "session.jsonl"
+            )
+            session.parent.mkdir(parents=True)
+            session.write_text('{"text":".github symbol was unexpectedly ignored"}\n')
+
+            with mock.patch.object(run, "run_cmd") as run_cmd:
+                run.write_history_excerpt(task, worktree)
+
+            packet = worktree / ".benchmark" / "brain-history-excerpt.md"
+            self.assertIn("unexpectedly ignored", packet.read_text())
+            self.assertEqual(
+                run_cmd.call_args_list[0].args[0],
+                ["git", "add", "-f", ".benchmark/brain-history-excerpt.md"],
+            )
+
     def test_brief_command_shell_quotes_query_for_metachar_tasks(self):
         # Release blocker (query corruption): brief_command is run VERBATIM in the agent's shell.
         # Real task prompts/brain_queries contain backticks and double-quotes (e.g. `--format json`,
@@ -802,6 +888,59 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(activity["activity_source"], "protocol_json")
         self.assertEqual(activity["direct_brain_cli_calls"], 0)
         self.assertEqual(activity["mcp_tool_calls"], 0)
+
+    def test_top_level_entire_command_detection_distinguishes_brain_and_arguments(self):
+        self.assertEqual(
+            run.top_level_entire_subcommands("/bin/zsh -lc 'entire search history --json'"),
+            ["search"],
+        )
+        self.assertEqual(
+            run.top_level_entire_subcommands("cd repo && entire explain --checkpoint abc"),
+            ["explain"],
+        )
+        self.assertEqual(run.top_level_entire_subcommands("entire brain search history --json"), [])
+        self.assertEqual(run.top_level_entire_subcommands("rg 'entire search' README.md"), [])
+
+    def test_brain_cli_audit_requires_exact_first_local_search_and_rejects_hosted_search(self):
+        task = {
+            "id": "history-task",
+            "brain_queries": ["history symptom"],
+            "require_local_brain_search": True,
+        }
+        expected = run.expected_local_history_search_command(task)
+        clean = run.brain_cli_condition_audit(
+            "full_brain",
+            {
+                "activity": {
+                    "brain_commands": ["search"],
+                    "first_tool_command_tokens": expected,
+                    "top_level_entire_commands": [],
+                }
+            },
+            task,
+        )
+        self.assertTrue(clean["ok"], clean)
+
+        wrong_surface = run.brain_cli_condition_audit(
+            "full_brain",
+            {
+                "activity": {
+                    "brain_commands": [],
+                    "first_tool_command_tokens": None,
+                    "top_level_entire_commands": ["search"],
+                }
+            },
+            task,
+        )
+        self.assertFalse(wrong_surface["ok"])
+        self.assertEqual(
+            {finding["kind"] for finding in wrong_surface["findings"]},
+            {
+                "forbidden_top_level_entire_command",
+                "required_local_brain_search_was_not_first_tool",
+                "missing_required_local_brain_search",
+            },
+        )
 
     def test_activity_counts_mcp_and_shell_tool_events(self):
         stdout = "\n".join(

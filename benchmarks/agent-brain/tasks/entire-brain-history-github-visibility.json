@@ -5,6 +5,8 @@
   "conditions": ["no_brain", "full_brain"],
   "copy_checkpoint_ref_from_source": true,
   "prepare_semantic": false,
+  "require_history_excerpt": true,
+  "require_local_brain_search": true,
   "prompt": "A previous review found that one built-in ignore rule overmatched repository metadata and hid workflow/tooling files from semantic snapshots. A regression brought that overmatch back. Restore the intended default visibility from project history.",
   "setup_replacements": [
     {
@@ -26,5 +28,5 @@
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
   "leak_markers": ["release-history-github-visibility-canary-20260610T0018Z"],
-  "brain_queries": [".github visible default ignore", "git ignore matching too broad", "workflow files semantic snapshot"]
+  "brain_queries": [".github symbol was unexpectedly ignored", ".github visible default ignore", "git ignore matching too broad", "workflow files semantic snapshot"]
 }

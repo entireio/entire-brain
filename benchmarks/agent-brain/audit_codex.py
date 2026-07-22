@@ -868,6 +868,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         flags.append("E:agent_secret_preflight_failed")
     if get(rec, "agent_leak_audit", "ok") is False:
         flags.append("E:agent_leak_audit_failed")
+    if get(rec, "brain_cli_condition_audit", "ok") is False:
+        flags.append("E:brain_cli_condition_audit_failed")
     sh = get(rec, "brain_prep", "history_sanitization")
     if isinstance(sh, dict) and sh.get("ok") is False:
         flags.append("E:history_sanitization_failed")
