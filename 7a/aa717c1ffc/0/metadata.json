@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "7aaa717c1ffc",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-22T08:53:27.734464Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "84365864c6aa",
+  "checkpoint_transcript_start": 5682,
+  "transcript_lines_at_start": 5682,
+  "compact_transcript_start": 1067,
+  "token_usage": {
+    "input_tokens": 63957,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6847232,
+    "output_tokens": 14117,
+    "api_call_count": 42
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-22T08:53:27.312031Z",
+    "agent_lines": 100,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 100,
+    "total_lines_changed": 100,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
