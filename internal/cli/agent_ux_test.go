@@ -207,6 +207,20 @@ func TestSemanticTestRelevanceRejectsDirectoryNoiseAndKeepsNameEvidence(t *testi
 }
 
 func TestSemanticAgentFollowUpsDefaultToCompactBudgets(t *testing.T) {
+	code := newInspectCodeCommand(Options{})
+	if got := code.Flags().Lookup("limit").DefValue; got != "10" {
+		t.Fatalf("code default limit = %s, want 10", got)
+	}
+	if code.Flags().Lookup("details") == nil {
+		t.Fatal("code command missing --details")
+	}
+	context := newInspectContextCommand(Options{})
+	if got := context.Flags().Lookup("limit").DefValue; got != "5" {
+		t.Fatalf("context default limit = %s, want 5", got)
+	}
+	if context.Flags().Lookup("details") == nil {
+		t.Fatal("context command missing --details")
+	}
 	impact := newInspectImpactCommand(Options{})
 	if got := impact.Flags().Lookup("limit").DefValue; got != "20" {
 		t.Fatalf("impact default limit = %s, want 20", got)

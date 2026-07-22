@@ -297,8 +297,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_context",
-			"description": "Return relation-aware local semantic context.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols")}),
+			"description": "Return relation-aware local semantic context with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_impact",
@@ -312,8 +312,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_code",
-			"description": "Search semantic code facts (the symbol graph) by name or description — find where a symbol lives.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results")}),
+			"description": "Search semantic code facts (the symbol graph) by name or description with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_index_status",
@@ -337,8 +337,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_search_code",
-			"description": "Search indexed source symbols/snippets by name or text.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results")}),
+			"description": "Alias for brain_code; search indexed source symbols with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_search_graph",
@@ -452,6 +452,10 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		defaultLimit = brainBriefDefaultLimit
 	case "brain_tests":
 		defaultLimit = 3
+	case "brain_context":
+		defaultLimit = 5
+	case "brain_code", "brain_search_code":
+		defaultLimit = 10
 	}
 	limit, err := mcpPositiveInt(params.Arguments, "limit", defaultLimit)
 	if err != nil {
@@ -567,7 +571,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_context":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runSemanticContext(ctx, cmd, opts, semanticContextOptions{limit: limit, json: true}, query)
+			err = runSemanticContext(ctx, cmd, opts, semanticContextOptions{limit: limit, json: true, details: details}, query)
 		}
 	case "brain_impact":
 		err = requireMCPQuery(query)
@@ -584,7 +588,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_code", "brain_search_code":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runSemanticQuery(ctx, cmd, opts, semanticQueryOptions{limit: limit, json: true}, query)
+			err = runSemanticQuery(ctx, cmd, opts, semanticQueryOptions{limit: limit, json: true, details: details}, query)
 		}
 	case "brain_search_graph":
 		err = requireMCPQuery(query)

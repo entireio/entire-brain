@@ -1029,13 +1029,16 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_context","arguments":{"query":"ValidateToken","limit":5}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_impact","arguments":{"query":"ValidateToken","depth":1,"limit":5}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_changes","arguments":{"limit":5}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_impact","arguments":{"query":"ValidateToken","depth":1,"limit":5,"details":true}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_impact","arguments":{"query":"ValidateToken","depth":1,"limit":5,"details":true}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brain_context","arguments":{"query":"ValidateToken","limit":5,"details":true}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"brain_code","arguments":{"query":"ValidateToken","limit":5}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"brain_code","arguments":{"query":"ValidateToken","limit":5,"details":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
-	if len(responses) != 4 {
+	if len(responses) != 7 {
 		t.Fatalf("responses = %d", len(responses))
 	}
 	for _, response := range responses {
@@ -1056,6 +1059,20 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	}
 	if !strings.Contains(string(detailedImpact), `"record_type"`) {
 		t.Fatalf("detailed MCP impact omitted provider fields: %s", detailedImpact)
+	}
+	compactContext, _ := json.Marshal(mcpTextJSONPayload(t, responses[0]))
+	detailedContext, _ := json.Marshal(mcpTextJSONPayload(t, responses[4]))
+	compactCode, _ := json.Marshal(mcpTextJSONPayload(t, responses[5]))
+	detailedCode, _ := json.Marshal(mcpTextJSONPayload(t, responses[6]))
+	for name, payload := range map[string][]byte{"context": compactContext, "code": compactCode} {
+		if strings.Contains(string(payload), `"record_type"`) {
+			t.Fatalf("compact MCP %s retained provider fields: %s", name, payload)
+		}
+	}
+	for name, payload := range map[string][]byte{"context": detailedContext, "code": detailedCode} {
+		if !strings.Contains(string(payload), `"record_type"`) {
+			t.Fatalf("detailed MCP %s omitted provider fields: %s", name, payload)
+		}
 	}
 }
 

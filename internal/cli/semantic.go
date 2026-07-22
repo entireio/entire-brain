@@ -2403,9 +2403,10 @@ func aggregateStaleSeverity(axes map[string]staleAxis) string {
 }
 
 type semanticQueryOptions struct {
-	limit  int
-	offset int
-	json   bool
+	limit   int
+	offset  int
+	json    bool
+	details bool
 }
 
 type semanticContextOptions struct {
@@ -2413,6 +2414,7 @@ type semanticContextOptions struct {
 	offset         int
 	includeContent bool
 	json           bool
+	details        bool
 }
 
 type semanticContextResult struct {
@@ -2560,14 +2562,18 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		}
 	}
 	if queryOpts.json {
+		outputResults := any(nonNil(results))
+		if !queryOpts.details {
+			outputResults = compactSemanticRecords(results)
+		}
 		data, err := json.MarshalIndent(struct {
 			Freshness         staleReport       `json:"freshness"`
 			CompletenessLevel string            `json:"completeness_level,omitempty"`
 			Trust             string            `json:"trust,omitempty"`
 			LanguageTiers     map[string]string `json:"language_tiers,omitempty"`
 			Pagination        semanticPage      `json:"pagination"`
-			Results           []semanticRecord  `json:"results"`
-		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, LanguageTiers: manifest.Sources.Semantic.LanguageTiers, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNil(results)}, "", "  ")
+			Results           any               `json:"results"`
+		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, LanguageTiers: manifest.Sources.Semantic.LanguageTiers, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: outputResults}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2621,14 +2627,26 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 		result.Content = semanticContextContent(repoDir, symbols)
 	}
 	if contextOpts.json {
+		outputContext := any(result)
+		if !contextOpts.details {
+			outputContext = struct {
+				Symbols   []compactSemanticRecord `json:"symbols"`
+				Relations []compactSemanticRecord `json:"relations"`
+				Neighbors []compactSemanticRecord `json:"neighbors,omitempty"`
+				Content   []semanticContent       `json:"content,omitempty"`
+			}{
+				Symbols: compactSemanticRecords(result.Symbols), Relations: compactSemanticRecords(result.Relations),
+				Neighbors: compactSemanticRecords(result.Neighbors), Content: result.Content,
+			}
+		}
 		data, err := json.MarshalIndent(struct {
-			Freshness         staleReport           `json:"freshness"`
-			CompletenessLevel string                `json:"completeness_level,omitempty"`
-			Trust             string                `json:"trust,omitempty"`
-			LanguageTiers     map[string]string     `json:"language_tiers,omitempty"`
-			Pagination        semanticPage          `json:"pagination"`
-			Context           semanticContextResult `json:"context"`
-		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, LanguageTiers: manifest.Sources.Semantic.LanguageTiers, Pagination: semanticPage{Limit: contextOpts.limit, Offset: contextOpts.offset, Count: len(symbols)}, Context: result}, "", "  ")
+			Freshness         staleReport       `json:"freshness"`
+			CompletenessLevel string            `json:"completeness_level,omitempty"`
+			Trust             string            `json:"trust,omitempty"`
+			LanguageTiers     map[string]string `json:"language_tiers,omitempty"`
+			Pagination        semanticPage      `json:"pagination"`
+			Context           any               `json:"context"`
+		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, LanguageTiers: manifest.Sources.Semantic.LanguageTiers, Pagination: semanticPage{Limit: contextOpts.limit, Offset: contextOpts.offset, Count: len(symbols)}, Context: outputContext}, "", "  ")
 		if err != nil {
 			return err
 		}

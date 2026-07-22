@@ -834,7 +834,7 @@ func newInspectIngestTracesCommand(opts Options) *cobra.Command {
 }
 
 func newInspectCodeCommand(opts Options) *cobra.Command {
-	queryOpts := semanticQueryOptions{limit: 20}
+	queryOpts := semanticQueryOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   "code <query>",
 		Short: "Search semantic code facts",
@@ -843,14 +843,15 @@ func newInspectCodeCommand(opts Options) *cobra.Command {
 			return runSemanticQuery(cmd.Context(), cmd, opts, queryOpts, args[0])
 		},
 	}
-	cmd.Flags().IntVar(&queryOpts.limit, "limit", 20, "Maximum results to return")
+	cmd.Flags().IntVar(&queryOpts.limit, "limit", 10, "Maximum results to return")
 	cmd.Flags().IntVar(&queryOpts.offset, "offset", 0, "Results to skip before returning a page")
 	cmd.Flags().BoolVar(&queryOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&queryOpts.details, "details", false, "Include full semantic records with provider metadata")
 	return cmd
 }
 
 func newInspectContextCommand(opts Options) *cobra.Command {
-	contextOpts := semanticContextOptions{limit: 10}
+	contextOpts := semanticContextOptions{limit: 5}
 	cmd := &cobra.Command{
 		Use:   "context <symbol-or-text>",
 		Short: "Build semantic context for a symbol or query",
@@ -859,10 +860,11 @@ func newInspectContextCommand(opts Options) *cobra.Command {
 			return runSemanticContext(cmd.Context(), cmd, opts, contextOpts, args[0])
 		},
 	}
-	cmd.Flags().IntVar(&contextOpts.limit, "limit", 10, "Maximum symbols to include")
+	cmd.Flags().IntVar(&contextOpts.limit, "limit", 5, "Maximum symbols to include")
 	cmd.Flags().IntVar(&contextOpts.offset, "offset", 0, "Symbols to skip before returning a page")
 	cmd.Flags().BoolVar(&contextOpts.includeContent, "include-content", false, "Include local source snippets for matched symbols")
 	cmd.Flags().BoolVar(&contextOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&contextOpts.details, "details", false, "Include full semantic records with provider metadata")
 	return cmd
 }
 

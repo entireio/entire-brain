@@ -241,9 +241,10 @@ entire brain inspect regressions "<task or invariant>" --location-only --json
 `status --json` is the compact agent preflight. Use `status --json --details`
 only when an audit or diagnosis needs language/kind/relation histograms,
 staged/unstaged/untracked classifications, or changed-symbol records.
-`inspect impact --json` and `inspect tests --json` likewise return compact
-semantic records by default; add `--details` only when provider metadata is
-needed. Their defaults are 20 impact symbols and 3 test suggestions, and
+`inspect code --json`, `inspect context --json`, `inspect impact --json`, and
+`inspect tests --json` likewise return compact semantic records by default; add
+`--details` only when provider metadata is needed. Their defaults are 10 code
+results, 5 context symbols, 20 impact symbols, and 3 test suggestions;
 `--limit` remains available for deliberate expansion.
 
 Prefer `query` for broad facts/history/docs, `search` for exact terms, semantic
@@ -340,7 +341,7 @@ entire brain inspect code "ValidateToken" --json         # find a symbol in the 
 entire brain inspect context "ValidateToken" --json      # relation-aware context
 entire brain inspect impact "ValidateToken" --json       # impact set via typed relations
 entire brain inspect tests "ValidateToken" --json        # test suggestions
-# add --details to either command only for full provider records
+# add --details to any of the four commands only for full provider records
 entire brain inspect graph-schema --json                 # relation/schema inventory
 entire brain inspect graph-ui semantic-graph.html        # local static graph explorer
 entire brain inspect trace-path "<caller>" "<callee>" --json

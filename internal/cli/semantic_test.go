@@ -1722,6 +1722,16 @@ func TestSemanticQueryJSONIncludesPagination(t *testing.T) {
 	if !strings.Contains(out.String(), `"pagination"`) || !strings.Contains(out.String(), `"count": 1`) {
 		t.Fatalf("query JSON missing pagination:\n%s", out.String())
 	}
+	if strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("default code JSON retained full provider records:\n%s", out.String())
+	}
+	out.Reset()
+	if err := runSemanticQuery(queryCmd.Context(), queryCmd, opts, semanticQueryOptions{limit: 1, json: true, details: true}, "ValidateToken"); err != nil {
+		t.Fatalf("detailed query: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("detailed code JSON omitted provider fields:\n%s", out.String())
+	}
 }
 
 func TestSemanticContextJSONIncludesRelations(t *testing.T) {
@@ -1741,6 +1751,16 @@ func TestSemanticContextJSONIncludesRelations(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"relations"`) || !strings.Contains(out.String(), `"CALLS"`) {
 		t.Fatalf("context JSON missing relations:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("default context JSON retained full provider records:\n%s", out.String())
+	}
+	out.Reset()
+	if err := runSemanticContext(contextCmd.Context(), contextCmd, opts, semanticContextOptions{limit: 10, json: true, details: true}, "gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken"); err != nil {
+		t.Fatalf("detailed context: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("detailed context JSON omitted provider fields:\n%s", out.String())
 	}
 }
 
