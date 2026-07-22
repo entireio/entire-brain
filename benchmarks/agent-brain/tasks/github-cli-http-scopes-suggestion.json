@@ -18,7 +18,7 @@
     "go test ./api -run TestHTTPError_ScopesSuggestion"
   ],
   "leak_markers": [
-    "go test ./api -run TestHTTPError_ScopesSuggestion"
+    "full9-github-http-scopes-canary-20260722T1645Z"
   ],
   "expected_files": ["api/client.go"],
   "forbidden_files": ["go.mod", "go.sum"],

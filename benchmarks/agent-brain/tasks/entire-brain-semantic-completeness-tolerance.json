@@ -18,6 +18,8 @@
   ],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
+  "leak_markers": ["full9-semantic-completeness-canary-20260722T1645Z"],
   "expected_files": ["internal/cli/semantic.go"],
   "forbidden_files": ["go.mod", "go.sum"],
   "brain_queries": ["benign parse errors tolerated fraction", "completeness axis degraded partial failures", "tree-sitter grammar version parse failure threshold", "few unparseable files should not degrade the index"]

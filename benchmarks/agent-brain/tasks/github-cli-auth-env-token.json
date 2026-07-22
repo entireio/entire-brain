@@ -18,7 +18,7 @@
     "go test ./pkg/cmdutil -run Test_CheckAuth"
   ],
   "leak_markers": [
-    "go test ./pkg/cmdutil -run Test_CheckAuth"
+    "full9-github-auth-env-token-canary-20260722T1645Z"
   ],
   "expected_files": ["pkg/cmdutil/auth_check.go"],
   "forbidden_files": ["go.mod", "go.sum"],

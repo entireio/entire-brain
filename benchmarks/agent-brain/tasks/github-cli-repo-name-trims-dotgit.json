@@ -18,7 +18,7 @@
     "go test ./pkg/cmd/repo/shared -run TestNormalizeRepoName"
   ],
   "leak_markers": [
-    "go test ./pkg/cmd/repo/shared -run TestNormalizeRepoName"
+    "full9-github-repo-name-canary-20260722T1645Z"
   ],
   "expected_files": ["pkg/cmd/repo/shared/repo.go"],
   "forbidden_files": ["go.mod", "go.sum"],
