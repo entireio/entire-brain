@@ -268,10 +268,18 @@ type brainBriefHistory struct {
 }
 
 type brainBriefAction struct {
-	File     string `json:"file,omitempty"`
-	Symbol   string `json:"symbol,omitempty"`
-	Action   string `json:"action"`
-	Evidence string `json:"evidence,omitempty"`
+	File       string                `json:"file,omitempty"`
+	Symbol     string                `json:"symbol,omitempty"`
+	Action     string                `json:"action"`
+	Evidence   string                `json:"evidence,omitempty"`
+	Validation *brainBriefValidation `json:"validation,omitempty"`
+}
+
+type brainBriefValidation struct {
+	Command        string `json:"command"`
+	File           string `json:"file,omitempty"`
+	Test           string `json:"test,omitempty"`
+	CompleteOnPass bool   `json:"complete_on_pass,omitempty"`
 }
 
 type brainShowReport struct {
@@ -1366,7 +1374,11 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	if len(report.ActionChecklist) > 0 {
 		report.LikelyEditFiles = brainBriefActionFiles(report.ActionChecklist)
-		report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
+		if actionTestFiles := brainBriefActionTestFiles(report.ActionChecklist); len(actionTestFiles) > 0 {
+			report.LikelyTestFiles = actionTestFiles
+		} else {
+			report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
+		}
 		report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 		report.Guidance = append(report.Guidance, "Treat action_checklist as the first-pass current-code inventory; edit listed files first, and broaden only when the checklist is missing, ambiguous, or validation fails.")
 	}
@@ -1440,6 +1452,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			fmt.Fprintf(cmd.OutOrStdout(), "action %s: %s\n", location, item.Action)
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "action %s\n", item.Action)
+		}
+		if item.Validation != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "  validate: %s (complete_on_pass=%t)\n", item.Validation.Command, item.Validation.CompleteOnPass)
 		}
 	}
 	for _, c := range report.Consolidations {
@@ -2553,6 +2568,26 @@ func brainBriefActionFiles(actions []brainBriefAction) []string {
 	return files
 }
 
+func brainBriefActionTestFiles(actions []brainBriefAction) []string {
+	seen := map[string]struct{}{}
+	files := make([]string, 0, len(actions))
+	for _, action := range actions {
+		if action.Validation == nil {
+			continue
+		}
+		clean, ok := cleanBrainBriefLikelyFile(action.Validation.File)
+		if !ok || !strings.HasSuffix(strings.ToLower(clean), "_test.go") {
+			continue
+		}
+		if _, exists := seen[clean]; exists {
+			continue
+		}
+		seen[clean] = struct{}{}
+		files = append(files, clean)
+	}
+	return files
+}
+
 type rankedBrainBriefFile struct {
 	path  string
 	score int
@@ -2894,22 +2929,39 @@ func brainBriefHistoricalAssignmentActions(repoRoot string, report brainBriefRep
 					continue
 				}
 				action := fmt.Sprintf("Restore the history-backed assignment `%s = %s` at the cited line.", assignment.name, assignment.value)
+				var validation *brainBriefValidation
 				if testName != "" {
-					action += fmt.Sprintf(" Run `%s` from `%s` once, then finish unless it fails; do not broaden validation.", testName, testFile)
+					validation = &brainBriefValidation{
+						Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+						File:           testFile,
+						Test:           testName,
+						CompleteOnPass: true,
+					}
+					action += " Run only `validation.command`; when it passes, the task is complete. Do not search for or run broader validation."
 				} else {
 					action += " Run one focused related test, then finish unless it fails; do not broaden validation."
 				}
 				actions = append(actions, brainBriefAction{
-					File:     rel,
-					Symbol:   assignment.name,
-					Action:   action,
-					Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(strings.TrimSpace(line), 180)),
+					File:       rel,
+					Symbol:     assignment.name,
+					Action:     action,
+					Evidence:   fmt.Sprintf("current line %d: %s", i+1, truncateString(strings.TrimSpace(line), 180)),
+					Validation: validation,
 				})
 				break
 			}
 		}
 	}
 	return actions
+}
+
+func brainBriefFocusedGoTestCommand(testName, testFile string) string {
+	dir := filepath.ToSlash(filepath.Dir(testFile))
+	pkg := "."
+	if dir != "." {
+		pkg = "./" + strings.TrimPrefix(dir, "./")
+	}
+	return fmt.Sprintf("go test %s -run '^%s$' -count=1", pkg, testName)
 }
 
 var brainBriefGoTestFunctionPattern = regexp.MustCompile(`(?m)^func\s+(Test[A-Za-z0-9_]+)\s*\(`)

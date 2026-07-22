@@ -287,9 +287,17 @@ func TestBrainBriefHistoryRecoversExactFileAndAssignment(t *testing.T) {
 	}, "semantic parse error tolerance")
 	if len(actions) == 0 || actions[0].File != "internal/cli/semantic.go" ||
 		!strings.Contains(actions[0].Action, "semanticParseErrorTolerance = 0.10") ||
-		!strings.Contains(actions[0].Action, "TestSemanticCompletenessAxisToleratesFewParseErrors") ||
-		!strings.Contains(actions[0].Action, "do not broaden validation") {
+		!strings.Contains(actions[0].Action, "validation.command") ||
+		!strings.Contains(actions[0].Action, "Do not search for or run broader validation") ||
+		actions[0].Validation == nil ||
+		actions[0].Validation.Command != "go test ./internal/cli -run '^TestSemanticCompletenessAxisToleratesFewParseErrors$' -count=1" ||
+		actions[0].Validation.File != "internal/cli/semantic_completeness_test.go" ||
+		actions[0].Validation.Test != "TestSemanticCompletenessAxisToleratesFewParseErrors" ||
+		!actions[0].Validation.CompleteOnPass {
 		t.Fatalf("history-backed assignment action missing: %+v", actions)
+	}
+	if got := brainBriefActionTestFiles(actions); !slices.Equal(got, []string{"internal/cli/semantic_completeness_test.go"}) {
+		t.Fatalf("action test files = %v", got)
 	}
 }
 
