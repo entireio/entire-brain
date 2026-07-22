@@ -5,6 +5,7 @@
   "conditions": ["no_brain", "full_brain"],
   "copy_checkpoint_ref_from_source": true,
   "prepare_semantic": false,
+  "require_local_brain_search": true,
   "prompt": "A checkpoint-context review changed the Codex seed-agent invocation after a compatibility failure. A regression reintroduced the old approach. Restore the prior checkpointed decision and add focused coverage for the command shape.",
   "setup_replacements": [
     {

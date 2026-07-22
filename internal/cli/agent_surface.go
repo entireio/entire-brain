@@ -2964,7 +2964,7 @@ func brainBriefCodexSeedSchemaActions(repoRoot string, likelyEditFiles []string)
 				{
 					File:     testFile,
 					Symbol:   testName,
-					Action:   "Add focused command-shape coverage that keeps the required read-only Codex exec flags, rejects `--output-schema`, and confirms the final prompt requests raw JSON.",
+					Action:   "Add focused command-shape coverage that keeps the required read-only Codex exec flags, rejects `--output-schema` with `t.Fatalf(\"codex args should rely on prompt plus local validation, not --output-schema: %#v\", args)`, and confirms the final prompt requests raw JSON.",
 					Evidence: "checkpointed compatibility contract: Codex structured output is prompt-enforced and locally validated",
 				},
 			}

@@ -624,8 +624,11 @@ class RunnerAndConditionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn("you must run it exactly once", prompt)
-        self.assertIn("Use its `likely_edit_files`, `likely_test_files`", prompt)
-        self.assertIn("do not run another Brain command", prompt)
+        self.assertIn("Prefer its `action_checklist`", prompt)
+        self.assertIn("run `validation.command`, and finish when it passes", prompt)
+        self.assertIn("use `likely_edit_files`, `likely_test_files`", prompt)
+        self.assertIn("only when its `action_checklist` is missing or ambiguous", prompt)
+        self.assertIn("Do not run another Brain command", prompt)
         self.assertIn("Do not run top-level `entire search` or `entire explain`", prompt)
         self.assertIn("Do not substitute an installed skill", prompt)
 

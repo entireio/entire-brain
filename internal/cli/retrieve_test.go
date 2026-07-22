@@ -379,7 +379,8 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {}
 	testAction := hints.ActionChecklist[1]
 	if testAction.File != "internal/cli/seed_test.go" ||
 		testAction.Symbol != "TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec" ||
-		!strings.Contains(testAction.Action, "rejects `--output-schema`") {
+		!strings.Contains(testAction.Action, "rejects `--output-schema`") ||
+		!strings.Contains(testAction.Action, "should rely on prompt plus local validation, not --output-schema") {
 		t.Fatalf("test action = %+v", testAction)
 	}
 }
