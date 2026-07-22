@@ -1,0 +1,46 @@
+Review all entire-brain related information in ../entire-plan, ../graphmark, and in this repo.
+
+---
+
+Ugh, fix 1, 2, and 3. There is no released version of entire-brain, so we should never work or benchmark old code bases. Also clean up all broken references and dirfts.
+
+---
+
+Ugh, fix findings 1, 2, and 3. There is no released version of entire-brain, so we should never work or benchmark old code bases. Also clean up all broken references and drifts.
+
+---
+
+What do you recommend next?
+
+---
+
+On 1, enforcement of what?
+On 2, with what goal?
+On 3, how long will this take?
+On 4, what for?
+On 5, how do you scope this so you can iterate fast on Entire Brain? 
+I do not want long running benchmarks until you are sure we have the right implementation.
+
+---
+
+Ok, I like your recommendation. The one constraint should be to use Entire Brain like any agent would, not making up synthetic caller tests. Also, while we are at it, make sure you use Entire Brain yourself following the instructions in the Entire Brain README.
+
+---
+
+Now what?
+
+---
+
+Make it so
+
+---
+
+Is 3 records enough for more complex scenarios?
+
+---
+
+What’s the next real scenario to improve brain?
+
+---
+
+Go for it

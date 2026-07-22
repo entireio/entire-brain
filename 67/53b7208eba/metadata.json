@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "6753b7208eba",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 10,
+  "files_touched": [
+    ".gitignore",
+    "README.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/agent_benchmark_plan.md",
+    "docs/semantic_agent_guide.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/doc.go",
+    "internal/cli/doc_fts.go",
+    "internal/cli/doc_fts_test.go",
+    "internal/cli/doc_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/retrieval_guard.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_audit.go",
+    "internal/cli/semantic_audit_test.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/sqlite_read.go",
+    "internal/cli/workspace.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/67/53b7208eba/0/metadata.json",
+      "transcript": "/67/53b7208eba/0/full.jsonl",
+      "compact_transcript": "/67/53b7208eba/0/transcript.jsonl",
+      "content_hash": "/67/53b7208eba/0/content_hash.txt",
+      "prompt": "/67/53b7208eba/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1376427,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 46539520,
+    "output_tokens": 145772,
+    "api_call_count": 386
+  }
+}

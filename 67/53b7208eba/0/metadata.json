@@ -1,0 +1,134 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "6753b7208eba",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-22T02:13:33.576075Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 10,
+  "save_step_count": 9,
+  "files_touched": [
+    ".gitignore",
+    "README.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/agent_benchmark_plan.md",
+    "docs/semantic_agent_guide.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/doc.go",
+    "internal/cli/doc_fts.go",
+    "internal/cli/doc_fts_test.go",
+    "internal/cli/doc_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/retrieval_guard.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_audit.go",
+    "internal/cli/semantic_audit_test.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/sqlite_read.go",
+    "internal/cli/workspace.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "60da2bdfdff8",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1376427,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 46539520,
+    "output_tokens": 145772,
+    "api_call_count": 386
+  },
+  "session_metrics": {
+    "turn_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-22T02:13:33.390343Z",
+    "agent_lines": 4871,
+    "agent_removed": 1058,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4871,
+    "total_lines_changed": 5929,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 113,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 113,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 113,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 132,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 132,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 458,
+      "agent_lines_removed": 27
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 458,
+      "agent_lines_removed": 27
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 458,
+      "agent_lines_removed": 27
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 693,
+      "agent_lines_removed": 80
+    }
+  ]
+}
