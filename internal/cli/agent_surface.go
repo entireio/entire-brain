@@ -1208,6 +1208,15 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
 		} else {
 			report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, briefOpts.limit)
+			if len(report.Semantic.Context.Symbols) > 0 {
+				impactLimit := max(20, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
+				_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
+				if impactErr != nil {
+					report.Warnings = append(report.Warnings, "semantic impact context unavailable: "+impactErr.Error())
+				} else {
+					report.Semantic.Context = brainBriefMergeImpactContext(report.Semantic.Context, impactSymbols, impactRelations, task, briefOpts.limit)
+				}
+			}
 		}
 		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, status.Manifest.Sources.Semantic, semanticQuery, briefOpts.limit)
 		if runtimeErr != nil {
@@ -1453,17 +1462,26 @@ func brainBriefExpandedCandidateLimit(limit, multiplier int) int {
 
 func brainBriefSelectSemanticContext(symbols, relations, neighbors []semanticRecord, task string, limit int) semanticContextResult {
 	selected := make([]semanticRecord, 0, min(limit, len(symbols)))
-	if brainBriefTaskRequestsTests(task) {
+	if brainBriefTaskRequestsTests(task) || brainBriefTaskRequestsDocs(task) {
 		selected = append(selected, symbols[:min(limit, len(symbols))]...)
 	} else {
 		for _, symbol := range symbols {
-			if isSemanticTestSymbol(symbol) {
+			if !brainBriefImplementationRoot(symbol) {
 				continue
 			}
 			selected = append(selected, symbol)
 			if len(selected) >= limit {
 				break
 			}
+		}
+		for _, symbol := range symbols {
+			if len(selected) >= limit {
+				break
+			}
+			if isSemanticTestSymbol(symbol) || slices.ContainsFunc(selected, func(existing semanticRecord) bool { return existing.ID == symbol.ID }) {
+				continue
+			}
+			selected = append(selected, symbol)
 		}
 		for _, symbol := range symbols {
 			if len(selected) >= limit {
@@ -1516,6 +1534,18 @@ func brainBriefSelectSemanticContext(symbols, relations, neighbors []semanticRec
 	}
 }
 
+func brainBriefImplementationRoot(symbol semanticRecord) bool {
+	if isSemanticTestSymbol(symbol) || !brainBriefSourceFile(symbol.FilePath) {
+		return false
+	}
+	switch strings.ToLower(symbol.Kind) {
+	case "field", "property", "variable", "constant", "section", "heading":
+		return false
+	default:
+		return true
+	}
+}
+
 func brainBriefTaskRequestsTests(task string) bool {
 	lower := strings.ToLower(strings.TrimSpace(task))
 	for _, phrase := range []string{
@@ -1529,6 +1559,90 @@ func brainBriefTaskRequestsTests(task string) bool {
 		}
 	}
 	return strings.HasPrefix(lower, "test ") || strings.HasPrefix(lower, "tests ")
+}
+
+func brainBriefTaskRequestsDocs(task string) bool {
+	lower := strings.ToLower(task)
+	return strings.Contains(lower, "readme") ||
+		strings.Contains(lower, "documentation") ||
+		strings.Contains(lower, "docs/") ||
+		strings.Contains(lower, "doc guide") ||
+		strings.Contains(lower, "update the guide")
+}
+
+func brainBriefMergeImpactContext(context semanticContextResult, symbols, relations []semanticRecord, task string, limit int) semanticContextResult {
+	rootIDs := make(map[string]struct{}, len(context.Symbols))
+	for _, root := range context.Symbols {
+		rootIDs[root.ID] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(rootIDs)+limit)
+	for id := range rootIDs {
+		seen[id] = struct{}{}
+	}
+	neighbors := make([]semanticRecord, 0, limit)
+	for _, symbol := range symbols {
+		if _, ok := seen[symbol.ID]; ok {
+			continue
+		}
+		if !brainBriefImplementationRoot(symbol) && !(brainBriefTaskRequestsTests(task) && isSemanticTestSymbol(symbol)) {
+			continue
+		}
+		seen[symbol.ID] = struct{}{}
+		neighbors = append(neighbors, symbol)
+		if len(neighbors) >= limit {
+			break
+		}
+	}
+	relationCandidates := make([]semanticRecord, 0, len(relations))
+	seenRelations := make(map[string]struct{}, len(relations))
+	for _, relation := range relations {
+		_, from := seen[relation.FromID]
+		_, to := seen[relation.ToID]
+		if !from || !to {
+			continue
+		}
+		key := relation.FromID + "\x00" + relation.Type + "\x00" + relation.ToID
+		if _, duplicate := seenRelations[key]; duplicate {
+			continue
+		}
+		seenRelations[key] = struct{}{}
+		relationCandidates = append(relationCandidates, relation)
+	}
+	sort.SliceStable(relationCandidates, func(i, j int) bool {
+		left := brainBriefRelationPriority(relationCandidates[i].Type)
+		right := brainBriefRelationPriority(relationCandidates[j].Type)
+		if left != right {
+			return left > right
+		}
+		if relationCandidates[i].FromID != relationCandidates[j].FromID {
+			return relationCandidates[i].FromID < relationCandidates[j].FromID
+		}
+		return relationCandidates[i].ToID < relationCandidates[j].ToID
+	})
+	relationLimit := brainBriefExpandedCandidateLimit(limit, 4)
+	if len(relationCandidates) > relationLimit {
+		relationCandidates = relationCandidates[:relationLimit]
+	}
+	context.Neighbors = nonNil(neighbors)
+	context.Relations = nonNil(relationCandidates)
+	return context
+}
+
+func brainBriefRelationPriority(relationType string) int {
+	switch strings.ToUpper(strings.TrimSpace(relationType)) {
+	case "CALLS", "HANDLES_CLI", "HANDLES_TOOL", "HANDLES_ROUTE", "HANDLES_COMMAND", "HANDLES_WORKFLOW":
+		return 100
+	case "DATA_FLOWS", "READS_FROM", "WRITES_TO":
+		return 90
+	case "PARAM_TYPE", "RETURNS_TYPE", "USES_TYPE", "IMPLEMENTS", "EXTENDS":
+		return 80
+	case "CONTAINS":
+		return 20
+	case "DEFINES":
+		return 10
+	default:
+		return 50
+	}
 }
 
 func brainBriefSelectSemanticTests(tests semanticTestsResult, context semanticContextResult, limit int) semanticTestsResult {
@@ -1647,6 +1761,10 @@ func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task s
 	for _, symbol := range report.Semantic.Context.Symbols {
 		add(symbol.FilePath, 12)
 		add(symbol.Path, 4)
+	}
+	for _, neighbor := range report.Semantic.Context.Neighbors {
+		add(neighbor.FilePath, 8)
+		add(neighbor.Path, 3)
 	}
 	for _, relation := range report.Semantic.Context.Relations {
 		add(relation.FilePath, 4)

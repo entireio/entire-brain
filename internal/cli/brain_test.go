@@ -184,10 +184,12 @@ func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.
 
 func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *testing.T) {
 	noiseTest := semanticRecord{ID: "noise-test", Kind: "function", Name: "test_history_prompt", FilePath: "benchmarks/agent-brain/run_test.py"}
+	field := semanticRecord{ID: "field", Kind: "field", Name: "details", FilePath: "internal/cli/semantic.go"}
+	section := semanticRecord{ID: "section", Kind: "section", Name: "Compact semantic output", FilePath: "docs/semantic-memory.md"}
 	implementation := semanticRecord{ID: "impl", Kind: "function", Name: "runBrainBrief", FilePath: "internal/cli/agent_surface.go"}
 	projection := semanticRecord{ID: "projection", Kind: "function", Name: "compactSemanticRecords", FilePath: "internal/cli/agent_surface.go"}
 	context := brainBriefSelectSemanticContext(
-		[]semanticRecord{noiseTest, implementation, projection}, nil, nil,
+		[]semanticRecord{noiseTest, field, section, implementation, projection}, nil, nil,
 		"Improve brain brief semantic relevance", 2,
 	)
 	if len(context.Symbols) != 2 || context.Symbols[0].ID != "impl" || context.Symbols[1].ID != "projection" {
@@ -200,6 +202,59 @@ func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *t
 	selected := brainBriefSelectSemanticTests(tests, context, 2)
 	if len(selected.Suggestions) != 1 || selected.Suggestions[0].Symbol.ID != "target-test" {
 		t.Fatalf("test suggestions did not follow selected implementation roots: %+v", selected.Suggestions)
+	}
+}
+
+func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
+	root := semanticRecord{ID: "options", Kind: "type", Name: "semanticImpactOptions", FilePath: "internal/cli/semantic.go"}
+	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticImpact", FilePath: "internal/cli/semantic.go"}
+	field := semanticRecord{ID: "field", Kind: "field", Name: "details", FilePath: "internal/cli/semantic.go"}
+	command := semanticRecord{ID: "command", Kind: "function", Name: "newInspectImpactCommand", FilePath: "internal/cli/agent_surface.go"}
+	handler := semanticRecord{ID: "handler", Kind: "function", Name: "handleMCPToolCall", FilePath: "internal/cli/mcp.go"}
+	testSymbol := semanticRecord{ID: "test", Kind: "function", Name: "TestSemanticImpact", FilePath: "internal/cli/semantic_test.go"}
+	relations := []semanticRecord{
+		{RecordType: "relation", FromID: run.ID, ToID: root.ID, Type: "PARAM_TYPE"},
+		{RecordType: "relation", FromID: command.ID, ToID: run.ID, Type: "CALLS"},
+		{RecordType: "relation", FromID: handler.ID, ToID: run.ID, Type: "CALLS"},
+		{RecordType: "relation", FromID: handler.ID, ToID: run.ID, Type: "CALLS"},
+		{RecordType: "relation", FromID: root.ID, ToID: field.ID, Type: "CONTAINS"},
+	}
+
+	context := brainBriefMergeImpactContext(
+		semanticContextResult{Symbols: []semanticRecord{root}},
+		[]semanticRecord{root, run, field, command, handler, testSymbol},
+		relations,
+		"Review semantic impact plumbing", 3,
+	)
+	wantNeighbors := []string{"run", "command", "handler"}
+	if len(context.Neighbors) != len(wantNeighbors) {
+		t.Fatalf("impact neighbors = %+v, want %v", context.Neighbors, wantNeighbors)
+	}
+	if got := []string{context.Neighbors[0].ID, context.Neighbors[1].ID, context.Neighbors[2].ID}; !slices.Equal(got, wantNeighbors) {
+		t.Fatalf("impact neighbors = %v, want %v", got, wantNeighbors)
+	}
+	if len(context.Relations) != 3 {
+		t.Fatalf("impact relations = %+v, want the three implementation connections", context.Relations)
+	}
+	if context.Relations[0].Type != "CALLS" || context.Relations[1].Type != "CALLS" {
+		t.Fatalf("call relations should lead lower-signal type relations: %+v", context.Relations)
+	}
+}
+
+func TestBrainBriefLikelyFilesIncludeImpactNeighbors(t *testing.T) {
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{
+		Symbols: []semanticRecord{{ID: "root", Kind: "type", Name: "semanticImpactOptions", FilePath: "internal/cli/semantic.go"}},
+		Neighbors: []semanticRecord{
+			{ID: "command", Kind: "function", Name: "newInspectImpactCommand", FilePath: "internal/cli/agent_surface.go"},
+			{ID: "handler", Kind: "function", Name: "handleMCPToolCall", FilePath: "internal/cli/mcp.go"},
+		},
+	}}}
+
+	editFiles, _, _ := brainBriefLikelyFileGroups("", report, "semantic impact MCP details plumbing")
+	for _, want := range []string{"internal/cli/semantic.go", "internal/cli/agent_surface.go", "internal/cli/mcp.go"} {
+		if !slices.Contains(editFiles, want) {
+			t.Fatalf("likely edit files %v missing graph-neighbor file %q", editFiles, want)
+		}
 	}
 }
 
