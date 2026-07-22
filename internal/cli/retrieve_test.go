@@ -290,6 +290,30 @@ func TestRetrievalResultExcerptCentersDenseQueryTerms(t *testing.T) {
 	}
 }
 
+func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, rel := range []string{"internal/cli/semantic.go", "internal/cli/semantic_test.go"} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte("package cli\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	results := []unifiedResult{{
+		Source: "history",
+		Text:   `internal/cli/semantic_test.go:760: t.Fatalf(".github symbol was unexpectedly ignored")`,
+	}}
+	editFiles, testFiles := retrievalLikelyFileGroups(repoDir, results, ".github symbol was unexpectedly ignored")
+	if len(editFiles) == 0 || editFiles[0] != "internal/cli/semantic.go" {
+		t.Fatalf("edit files = %v", editFiles)
+	}
+	if len(testFiles) == 0 || testFiles[0] != "internal/cli/semantic_test.go" {
+		t.Fatalf("test files = %v", testFiles)
+	}
+}
+
 func TestRetrievalCommandsDefaultToFiveCompactLocators(t *testing.T) {
 	for _, command := range []*cobra.Command{newSearchCommand(Options{}), newVsearchCommand(Options{}), newQueryCommand(Options{})} {
 		if got := command.Flags().Lookup("limit").DefValue; got != "5" {

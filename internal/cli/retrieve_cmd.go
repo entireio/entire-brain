@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -104,6 +105,13 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	}
 	if jsonOut {
 		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
+		likelyEditFiles, likelyTestFiles := retrievalLikelyFileGroups(repoDir, results, query)
+		if len(likelyEditFiles) > 0 {
+			out["likely_edit_files"] = likelyEditFiles
+		}
+		if len(likelyTestFiles) > 0 {
+			out["likely_test_files"] = likelyTestFiles
+		}
 		if len(related) > 0 {
 			out["related_patterns"] = related
 		}
@@ -128,6 +136,13 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 			}
 			// still show related pattern pointers if any
 		}
+		likelyEditFiles, likelyTestFiles := retrievalLikelyFileGroups(repoDir, results, query)
+		for _, file := range likelyEditFiles {
+			fmt.Fprintf(out, "edit_file %s\n", file)
+		}
+		for _, file := range likelyTestFiles {
+			fmt.Fprintf(out, "test_file %s\n", file)
+		}
 		for _, r := range results {
 			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
 			loc := r.Path
@@ -151,6 +166,55 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		recordReceipt()
 	}
 	return nil
+}
+
+func retrievalLikelyFileGroups(repoRoot string, results []unifiedResult, query string) ([]string, []string) {
+	report := brainBriefReport{}
+	for _, result := range results {
+		if result.Source != "history" && result.Source != "doc" {
+			continue
+		}
+		report.History.Matches = append(report.History.Matches, brainTextMatch{Excerpt: result.Text})
+	}
+	editFiles, testFiles, _ := brainBriefLikelyFileGroups(repoRoot, report, query)
+	seen := make(map[string]struct{}, len(editFiles))
+	for _, file := range editFiles {
+		seen[file] = struct{}{}
+	}
+	var siblingImplementations []string
+	for _, testFile := range testFiles {
+		for _, candidate := range retrievalSiblingImplementationCandidates(testFile) {
+			if _, exists := seen[candidate]; exists || !brainBriefRepoFileExists(repoRoot, candidate) {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			siblingImplementations = append(siblingImplementations, candidate)
+		}
+	}
+	editFiles = append(siblingImplementations, editFiles...)
+	if len(editFiles) > 3 {
+		editFiles = editFiles[:3]
+	}
+	if len(testFiles) > 3 {
+		testFiles = testFiles[:3]
+	}
+	return editFiles, testFiles
+}
+
+func retrievalSiblingImplementationCandidates(testFile string) []string {
+	ext := filepath.Ext(testFile)
+	switch {
+	case strings.HasSuffix(testFile, "_test.go"):
+		return []string{strings.TrimSuffix(testFile, "_test.go") + ".go"}
+	case strings.HasSuffix(testFile, "_test.py"):
+		return []string{strings.TrimSuffix(testFile, "_test.py") + ".py"}
+	case strings.Contains(testFile, ".test"+ext):
+		return []string{strings.Replace(testFile, ".test"+ext, ext, 1)}
+	case strings.Contains(testFile, ".spec"+ext):
+		return []string{strings.Replace(testFile, ".spec"+ext, ext, 1)}
+	default:
+		return nil
+	}
 }
 
 func compactUnifiedResults(results []unifiedResult, query string) []compactUnifiedResult {

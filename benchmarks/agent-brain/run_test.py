@@ -623,6 +623,9 @@ class RunnerAndConditionTests(unittest.TestCase):
             "Your first tool command must be exactly `entire brain search '.github symbol was unexpectedly ignored' --json --limit 5`",
             prompt,
         )
+        self.assertIn("you must run it exactly once", prompt)
+        self.assertIn("Use its `likely_edit_files`, `likely_test_files`", prompt)
+        self.assertIn("do not run another Brain command", prompt)
         self.assertIn("Do not run top-level `entire search` or `entire explain`", prompt)
         self.assertIn("Do not substitute an installed skill", prompt)
 
@@ -693,6 +696,44 @@ class RunnerAndConditionTests(unittest.TestCase):
                 run_cmd.call_args_list[0].args[0],
                 ["git", "add", "-f", ".benchmark/brain-history-excerpt.md"],
             )
+
+    def test_history_excerpt_is_bounded_and_rejects_nested_search_output(self):
+        task = {
+            "id": "history-task",
+            "brain_queries": ["unexpectedly ignored"],
+            "require_history_excerpt": True,
+            "history_excerpt_lines": 20,
+            "history_excerpt_max_chars": 2_000,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = pathlib.Path(tmp)
+            session = (
+                worktree
+                / ".benchmark"
+                / "plugin"
+                / "data"
+                / "repos"
+                / "gh"
+                / "example"
+                / "repo"
+                / "sessions"
+                / "main"
+                / "session.jsonl"
+            )
+            session.parent.mkdir(parents=True)
+            lines = [
+                json.dumps({"text": f"internal/cli/semantic_test.go:{i}: unexpectedly ignored " + "x" * 700})
+                for i in range(20)
+            ]
+            lines.append(json.dumps({"query": "unexpectedly ignored", "results": [{"source": "history"}]}))
+            session.write_text("\n".join(lines) + "\n")
+
+            with mock.patch.object(run, "run_cmd"):
+                run.write_history_excerpt(task, worktree)
+
+            packet = (worktree / ".benchmark" / "brain-history-excerpt.md").read_text()
+            self.assertLessEqual(len(packet), 2_000)
+            self.assertNotIn('"results"', packet)
 
     def test_brief_command_shell_quotes_query_for_metachar_tasks(self):
         # Release blocker (query corruption): brief_command is run VERBATIM in the agent's shell.
