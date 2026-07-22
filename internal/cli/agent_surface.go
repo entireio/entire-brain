@@ -2808,7 +2808,7 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 	for _, match := range report.History.Matches {
 		context += "\n" + strings.ToLower(match.Excerpt)
 	}
-	actions := brainBriefHistoricalAssignmentActions(repoRoot, report)
+	actions := brainBriefHistoricalAssignmentActions(repoRoot, report, task)
 	limitIntent := strings.Contains(taskContext, "limit") ||
 		strings.Contains(taskContext, "pagination") ||
 		strings.Contains(taskContext, "page size") ||
@@ -2846,7 +2846,7 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 
 var brainBriefHistoricalAssignmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func brainBriefHistoricalAssignmentActions(repoRoot string, report brainBriefReport) []brainBriefAction {
+func brainBriefHistoricalAssignmentActions(repoRoot string, report brainBriefReport, task string) []brainBriefAction {
 	const marker = "Historical assignments:"
 	type historicalAssignment struct {
 		name  string
@@ -2888,14 +2888,21 @@ func brainBriefHistoricalAssignmentActions(repoRoot string, report brainBriefRep
 		}
 		lines := strings.Split(string(data), "\n")
 		for _, assignment := range assignments {
+			testName, testFile := brainBriefFocusedGoTest(repoRoot, report.LikelyTestFiles, task)
 			for i, line := range lines {
 				if !strings.Contains(line, assignment.name) || !strings.Contains(line, "=") {
 					continue
 				}
+				action := fmt.Sprintf("Restore the history-backed assignment `%s = %s` at the cited line.", assignment.name, assignment.value)
+				if testName != "" {
+					action += fmt.Sprintf(" Run `%s` from `%s` once, then finish unless it fails; do not broaden validation.", testName, testFile)
+				} else {
+					action += " Run one focused related test, then finish unless it fails; do not broaden validation."
+				}
 				actions = append(actions, brainBriefAction{
 					File:     rel,
 					Symbol:   assignment.name,
-					Action:   fmt.Sprintf("Restore the history-backed assignment `%s = %s`, then run the focused related test.", assignment.name, assignment.value),
+					Action:   action,
 					Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(strings.TrimSpace(line), 180)),
 				})
 				break
@@ -2903,6 +2910,31 @@ func brainBriefHistoricalAssignmentActions(repoRoot string, report brainBriefRep
 		}
 	}
 	return actions
+}
+
+var brainBriefGoTestFunctionPattern = regexp.MustCompile(`(?m)^func\s+(Test[A-Za-z0-9_]+)\s*\(`)
+
+func brainBriefFocusedGoTest(repoRoot string, likelyTestFiles []string, task string) (string, string) {
+	bestName, bestFile, bestScore := "", "", 0
+	for _, rel := range likelyTestFiles {
+		if !strings.HasSuffix(strings.ToLower(rel), "_test.go") {
+			continue
+		}
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
+		if err != nil {
+			continue
+		}
+		for _, found := range brainBriefGoTestFunctionPattern.FindAllStringSubmatch(string(data), -1) {
+			if len(found) != 2 {
+				continue
+			}
+			score := brainBriefIdentifierConceptCoverage(task, found[1])
+			if score > bestScore {
+				bestName, bestFile, bestScore = found[1], rel, score
+			}
+		}
+	}
+	return bestName, bestFile
 }
 
 func brainBriefLimitNormalizationActions(repoRoot string, likelyFiles []string) []brainBriefAction {

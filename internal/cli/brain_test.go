@@ -251,6 +251,10 @@ func TestBrainBriefHistoryRecoversExactFileAndAssignment(t *testing.T) {
 	if err := os.WriteFile(source, []byte("package cli\n\nconst semanticParseErrorTolerance = 0.00\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	testSource := filepath.Join(repoRoot, "internal", "cli", "semantic_completeness_test.go")
+	if err := os.WriteFile(testSource, []byte("package cli\n\nfunc TestSemanticCompletenessAxisToleratesFewParseErrors(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	absHistorical := "/old/machine/entire-brain/internal/cli/semantic.go"
 	if got, ok := cleanBrainBriefHistoryFile(repoRoot, absHistorical); !ok || got != "internal/cli/semantic.go" {
 		t.Fatalf("historical path recovery = %q, %v", got, ok)
@@ -279,8 +283,12 @@ func TestBrainBriefHistoryRecoversExactFileAndAssignment(t *testing.T) {
 	actions := brainBriefActionChecklist(repoRoot, brainBriefReport{
 		History:         brainBriefHistory{Matches: []brainTextMatch{match}},
 		LikelyEditFiles: files,
+		LikelyTestFiles: []string{"internal/cli/semantic_completeness_test.go"},
 	}, "semantic parse error tolerance")
-	if len(actions) == 0 || actions[0].File != "internal/cli/semantic.go" || !strings.Contains(actions[0].Action, "semanticParseErrorTolerance = 0.10") {
+	if len(actions) == 0 || actions[0].File != "internal/cli/semantic.go" ||
+		!strings.Contains(actions[0].Action, "semanticParseErrorTolerance = 0.10") ||
+		!strings.Contains(actions[0].Action, "TestSemanticCompletenessAxisToleratesFewParseErrors") ||
+		!strings.Contains(actions[0].Action, "do not broaden validation") {
 		t.Fatalf("history-backed assignment action missing: %+v", actions)
 	}
 }
