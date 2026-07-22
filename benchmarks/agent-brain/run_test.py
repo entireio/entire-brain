@@ -78,6 +78,30 @@ TEMPORAL_REPORT_SPEC.loader.exec_module(temporal_report)
 
 
 class RunnerAndConditionTests(unittest.TestCase):
+
+    def test_plugin_env_isolates_go_toolchain_state_per_worktree(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            tools = {"bin": root / "bin"}
+            worktree.mkdir()
+            old_goroot = os.environ.get("GOROOT")
+            os.environ["GOROOT"] = "/stale/go"
+            try:
+                env = run.plugin_env(run_dir, worktree, tools)
+            finally:
+                if old_goroot is None:
+                    os.environ.pop("GOROOT", None)
+                else:
+                    os.environ["GOROOT"] = old_goroot
+
+            self.assertNotIn("GOROOT", env)
+            self.assertEqual(env["GOTOOLCHAIN"], "auto")
+            self.assertEqual(pathlib.Path(env["GOCACHE"]), worktree / ".benchmark" / "go-build-cache")
+            self.assertEqual(pathlib.Path(env["GOTMPDIR"]), worktree / ".benchmark" / "go-tmp")
+            self.assertTrue(pathlib.Path(env["GOCACHE"]).is_dir())
+            self.assertTrue(pathlib.Path(env["GOTMPDIR"]).is_dir())
     def test_benchmark_build_requires_current_brain_mainline(self):
         completed = run.subprocess.CompletedProcess
 

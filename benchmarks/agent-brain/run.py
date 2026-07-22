@@ -640,14 +640,24 @@ def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
     require_current_brain_mainline()
     bin_dir = run_root / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
+    go_cache = run_root / ".go-build-cache"
+    go_cache.mkdir(parents=True, exist_ok=True)
+    go_env = os.environ.copy()
+    # A host-wide Go build cache can contain standard-library objects from a
+    # different auto-selected patch toolchain. Isolate it per suite and never
+    # carry an ambient GOROOT into builds from sibling repositories.
+    go_env.pop("GOROOT", None)
+    go_env.pop("GOTOOLDIR", None)
+    go_env.update({"GOCACHE": str(go_cache), "GOTOOLCHAIN": "auto"})
     brain_bin = bin_dir / "entire-brain"
     graph_bin = bin_dir / "entire-graph"
     entire_wrapper = bin_dir / "entire"
 
-    run_cmd(["go", "build", "-o", str(brain_bin), "./cmd/entire-brain"], cwd=ROOT, check=True)
+    run_cmd(["go", "build", "-o", str(brain_bin), "./cmd/entire-brain"], cwd=ROOT, env=go_env, check=True)
     run_cmd(
         ["go", "build", "-o", str(graph_bin), "./cmd/entire-graph"],
         cwd=ROOT.parent / "entire-graph",
+        env=go_env,
         check=True,
     )
 
@@ -2104,6 +2114,12 @@ def run_plugin_dir(worktree: pathlib.Path) -> pathlib.Path:
 def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, pathlib.Path]) -> dict[str, str]:
     env = os.environ.copy()
     plugin = run_plugin_dir(worktree)
+    go_cache = worktree / ".benchmark" / "go-build-cache"
+    go_tmp = worktree / ".benchmark" / "go-tmp"
+    go_cache.mkdir(parents=True, exist_ok=True)
+    go_tmp.mkdir(parents=True, exist_ok=True)
+    env.pop("GOROOT", None)
+    env.pop("GOTOOLDIR", None)
     env.update(
         {
             "PATH": f"{tools['bin']}:{env.get('PATH', '')}",
@@ -2112,6 +2128,9 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
             "ENTIRE_PLUGIN_DATA_DIR": str(plugin / "data"),
             "ENTIRE_PLUGIN_STATE_DIR": str(plugin / "state"),
             "ENTIRE_PLUGIN_CACHE_DIR": str(plugin / "cache"),
+            "GOCACHE": str(go_cache),
+            "GOTMPDIR": str(go_tmp),
+            "GOTOOLCHAIN": "auto",
         }
     )
     return env
