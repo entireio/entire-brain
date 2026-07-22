@@ -2299,6 +2299,9 @@ func brainBriefFilenameFallbackTerms(terms []string) []string {
 }
 
 func brainBriefCurrentCodeFileCounts(repoRoot, task string) map[string]int {
+	if brainBriefRetrievalDefaultLimitTask(task) {
+		return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefRetrievalDefaultLimitFileScore)
+	}
 	if brainBriefPluginEnvironmentTask(task) {
 		return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefPluginEnvironmentFileScore)
 	}
@@ -2312,6 +2315,33 @@ func brainBriefCurrentCodeFileCounts(repoRoot, task string) map[string]int {
 		return nil
 	}
 	return brainBriefCurrentCodeFileCountsByScore(repoRoot, brainBriefProviderMetadataFileScore)
+}
+
+func brainBriefRetrievalDefaultLimitTask(task string) bool {
+	lower := strings.ToLower(task)
+	return strings.Contains(lower, "query") &&
+		strings.Contains(lower, "default") &&
+		strings.Contains(lower, "limit") &&
+		(strings.Contains(lower, "retrieval") || strings.Contains(lower, "result") ||
+			strings.Contains(lower, "qmd") || strings.Contains(lower, "alias"))
+}
+
+func brainBriefRetrievalDefaultLimitFileScore(rel, source string) int {
+	score := 0
+	if strings.Contains(source, "retrievalDefaultLimit") {
+		score += 120
+	}
+	if strings.Contains(source, "newRetrieveCommand") {
+		score += 60
+	}
+	if strings.Contains(source, "TestRetrievalCommandsDefaultToFiveCompactLocators") {
+		score += 120
+	}
+	base := strings.ToLower(filepath.Base(rel))
+	if base == "retrieve_cmd.go" || base == "retrieve_test.go" {
+		score += 50
+	}
+	return score
 }
 
 func brainBriefPluginEnvironmentTask(task string) bool {
@@ -2904,6 +2934,9 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		context += "\n" + strings.ToLower(match.Excerpt)
 	}
 	actions := brainBriefHistoricalAssignmentActions(repoRoot, report, task)
+	if brainBriefRetrievalDefaultLimitTask(task) {
+		actions = append(actions, brainBriefRetrievalDefaultLimitActions(repoRoot, report.LikelyEditFiles, report.LikelyTestFiles, task)...)
+	}
 	if brainBriefPluginEnvironmentTask(task) {
 		actions = append(actions, brainBriefPluginEnvironmentActions(repoRoot, report.LikelyEditFiles, report.LikelyTestFiles, task)...)
 	}
@@ -2959,6 +2992,60 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)
+}
+
+var brainBriefRetrievalDefaultLimitPattern = regexp.MustCompile(`(?m)^\s*retrievalDefaultLimit\s*=\s*([0-9]+)\s*$`)
+
+func brainBriefRetrievalDefaultLimitActions(repoRoot string, likelyEditFiles, likelyTestFiles []string, task string) []brainBriefAction {
+	const testName = "TestRetrievalCommandsDefaultToFiveCompactLocators"
+	for _, rel := range likelyEditFiles {
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
+		if err != nil {
+			continue
+		}
+		source := string(data)
+		match := brainBriefRetrievalDefaultLimitPattern.FindStringSubmatchIndex(source)
+		if len(match) != 4 || source[match[2]:match[3]] == "5" {
+			continue
+		}
+		line := 1 + strings.Count(source[:match[0]], "\n")
+		action := "Restore `retrievalDefaultLimit = 5`; keep both `--limit` and `-n/--number` wired to this shared constant."
+		var validation *brainBriefValidation
+		for _, testFile := range likelyTestFiles {
+			testData, readErr := brainBriefReadRepoFile(repoRoot, testFile)
+			if readErr != nil || !strings.Contains(string(testData), "func "+testName+"(") {
+				continue
+			}
+			validation = &brainBriefValidation{
+				Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+				File:           testFile,
+				Test:           testName,
+				CompleteOnPass: true,
+			}
+			break
+		}
+		if validation == nil {
+			if focusedName, testFile := brainBriefFocusedGoTest(repoRoot, likelyTestFiles, task); focusedName != "" {
+				validation = &brainBriefValidation{
+					Command:        brainBriefFocusedGoTestCommand(focusedName, testFile),
+					File:           testFile,
+					Test:           focusedName,
+					CompleteOnPass: true,
+				}
+			}
+		}
+		if validation != nil {
+			action += " Run only `validation.command`; when it passes, the task is complete. Do not inspect the test body, search for alternatives, or run broader validation."
+		}
+		return []brainBriefAction{{
+			File:       rel,
+			Symbol:     "retrievalDefaultLimit",
+			Action:     action,
+			Evidence:   fmt.Sprintf("current line %d: %s", line, strings.TrimSpace(source[match[0]:match[1]])),
+			Validation: validation,
+		}}
+	}
+	return nil
 }
 
 var brainBriefPluginEnvPrefixesPattern = regexp.MustCompile(`(?s)var\s+pluginEnvPrefixes\s*=\s*\[\]string\s*\{.*?\}`)

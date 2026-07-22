@@ -350,6 +350,64 @@ const pluginEnvOverrideVar = "ENTIRE_PLUGIN_ENV"
 	}
 }
 
+func TestBrainBriefRetrievalDefaultLimitActionOverridesMisleadingSemanticFile(t *testing.T) {
+	repoRoot := t.TempDir()
+	files := map[string]string{
+		"internal/cli/query.go": "package cli\nfunc runQuery() {}\n",
+		"internal/cli/retrieve_cmd.go": `package cli
+const (
+	retrievalDefaultLimit = 2
+)
+func newRetrieveCommand() {
+	cmd.Flags().IntVar(&limit, "limit", retrievalDefaultLimit, "Maximum results")
+	cmd.Flags().IntVarP(&limit, "number", "n", retrievalDefaultLimit, "Maximum results")
+}
+`,
+		"internal/cli/retrieve_test.go": "package cli\nfunc TestRetrievalCommandsDefaultToFiveCompactLocators(t *testing.T) {}\n",
+	}
+	for rel, content := range files {
+		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	task := "Fix the unified query default-limit regression and keep the QMD-style -n alias"
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{{
+		ID: "query", Kind: "function", Name: "runQuery", FilePath: "internal/cli/query.go",
+	}}}}}
+	editFiles, testFiles, _ := brainBriefLikelyFileGroups(repoRoot, report, task)
+	if !slices.Contains(editFiles, "internal/cli/retrieve_cmd.go") {
+		t.Fatalf("retrieval implementation missing from candidates: %v", editFiles)
+	}
+	if !slices.Contains(testFiles, "internal/cli/retrieve_test.go") {
+		t.Fatalf("retrieval test missing from candidates: %v", testFiles)
+	}
+	report.LikelyEditFiles = editFiles
+	report.LikelyTestFiles = testFiles
+	actions := brainBriefActionChecklist(repoRoot, report, task)
+	if len(actions) != 1 || actions[0].File != "internal/cli/retrieve_cmd.go" ||
+		actions[0].Symbol != "retrievalDefaultLimit" ||
+		!strings.Contains(actions[0].Action, "Restore `retrievalDefaultLimit = 5`") ||
+		!strings.Contains(actions[0].Evidence, "retrievalDefaultLimit = 2") ||
+		actions[0].Validation == nil ||
+		actions[0].Validation.Command != "go test ./internal/cli -run '^TestRetrievalCommandsDefaultToFiveCompactLocators$' -count=1" ||
+		!actions[0].Validation.CompleteOnPass {
+		t.Fatalf("retrieval default action = %+v", actions)
+	}
+
+	clean := strings.Replace(files["internal/cli/retrieve_cmd.go"], "retrievalDefaultLimit = 2", "retrievalDefaultLimit = 5", 1)
+	if err := os.WriteFile(filepath.Join(repoRoot, "internal", "cli", "retrieve_cmd.go"), []byte(clean), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cleanActions := brainBriefActionChecklist(repoRoot, report, task); len(cleanActions) != 0 {
+		t.Fatalf("aligned retrieval default produced actions: %+v", cleanActions)
+	}
+}
+
 func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
 	root := semanticRecord{ID: "context-command", Kind: "function", Name: "newInspectContextCommand", FilePath: "internal/cli/agent_surface.go"}
 	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticContext", FilePath: "internal/cli/semantic.go"}
