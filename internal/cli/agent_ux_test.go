@@ -57,6 +57,16 @@ func leadingIntentRankingSnapshot() string {
 	return b.String()
 }
 
+func morphologyRankingSnapshot() string {
+	var b strings.Builder
+	b.WriteString(`{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}` + "\n")
+	b.WriteString(`{"record_type":"symbol","id":"normalize","kind":"function","name":"NormalizeRepositoryName","qualified_name":"repo.NormalizeRepositoryName","file_path":"pkg/repo/name.go","start_line":1,"end_line":2,"signature":"func NormalizeRepositoryName(name string) string","language":"Go","stable_id_version":"1"}` + "\n")
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&b, `{"record_type":"symbol","id":"repo-name-%d","kind":"function","name":"RepositoryNameHelper%d","qualified_name":"pkg.RepositoryNameHelper%d","file_path":"pkg/repo/helper%d.go","start_line":1,"end_line":2,"signature":"repository name helper","language":"Go","stable_id_version":"1"}`+"\n", i, i, i, i)
+	}
+	return b.String()
+}
+
 func TestTokenizedSearchRanksRareTokenAboveCommonTokens(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, idfRankingSnapshot())
 	// Multi-word query that matches no single symbol verbatim, so the tokenized
@@ -97,6 +107,23 @@ func TestTokenizedSearchKeepsLeadingTaskIntentAlongsideRareTailTerms(t *testing.
 	}
 	if len(results) == 0 || results[0].ID != "plugin-env" {
 		t.Fatalf("leading task intent did not survive rare-tail selection: %s", summarizeIDs(results))
+	}
+}
+
+func TestTokenizedSearchConnectsTaskNounsToIdentifierVerbs(t *testing.T) {
+	_, storePath, _ := indexFixtureBrain(t, morphologyRankingSnapshot())
+	results, err := findSemanticSymbolsInSQLite(storePath, "fix repository name normalization", 20, 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "normalize" {
+		t.Fatalf("normalization did not resolve NormalizeRepositoryName: %s", summarizeIDs(results))
+	}
+	tokens := semanticQueryTokens("normalization validation authentication")
+	for _, want := range []string{"normalize", "validate", "authenticate"} {
+		if !containsToken(tokens, want) {
+			t.Fatalf("derived identifier term %q missing from %v", want, tokens)
+		}
 	}
 }
 

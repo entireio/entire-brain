@@ -274,6 +274,25 @@ func TestBrainBriefLikelyFilesIncludeImpactNeighbors(t *testing.T) {
 	}
 }
 
+func TestBrainBriefLikelyFilesLeadWithSelectedSemanticRoot(t *testing.T) {
+	repoDir := t.TempDir()
+	path := filepath.Join(repoDir, "api", "client.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package api\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{
+		Symbols: []semanticRecord{{ID: "root", Kind: "method", Name: "ScopesSuggestion", FilePath: "api/client.go"}},
+	}}}
+
+	editFiles, _, _ := brainBriefLikelyFileGroupsForRepo(repoDir, "gh/example/cli", report, "restore the OAuth scopes suggestion from the authentication flow")
+	if len(editFiles) == 0 || editFiles[0] != "api/client.go" {
+		t.Fatalf("selected semantic root must lead likely edit files, got %v", editFiles)
+	}
+}
+
 func TestBrainBriefTestIntentRequiresAnActualTestTask(t *testing.T) {
 	for _, task := range []string{
 		"Fix the failing integration test for brain status",

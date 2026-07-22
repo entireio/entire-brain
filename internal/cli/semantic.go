@@ -3630,26 +3630,54 @@ const (
 func semanticQueryTokens(query string) []string {
 	seen := map[string]struct{}{}
 	var tokens []string
+	add := func(token string) bool {
+		if len(token) < 3 || historyQueryStopword(token) {
+			return true
+		}
+		if _, ok := seen[token]; ok {
+			return true
+		}
+		seen[token] = struct{}{}
+		tokens = append(tokens, token)
+		return len(tokens) < semanticQueryTokenCandidateLimit
+	}
 	for _, raw := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
 		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
 	}) {
 		raw = strings.Trim(raw, "_")
-		if len(raw) < 3 {
-			continue
-		}
-		if historyQueryStopword(raw) {
-			continue
-		}
-		if _, ok := seen[raw]; ok {
-			continue
-		}
-		seen[raw] = struct{}{}
-		tokens = append(tokens, raw)
-		if len(tokens) >= semanticQueryTokenCandidateLimit {
+		if !add(raw) {
 			break
+		}
+		for _, variant := range semanticQueryMorphologyVariants(raw) {
+			if !add(variant) {
+				return tokens
+			}
 		}
 	}
 	return tokens
+}
+
+// semanticQueryMorphologyVariants bridges common task nouns and past-tense
+// descriptions to identifier verbs without turning semantic lookup into an
+// unrestricted stemmer. Code commonly uses Normalize/Validate/Authenticate
+// while issue text says normalization/validation/authentication; these exact
+// derivations preserve meaning and give IDF ranking the identifier-shaped term.
+func semanticQueryMorphologyVariants(token string) []string {
+	for _, rule := range []struct {
+		suffix      string
+		replacement string
+	}{
+		{suffix: "ization", replacement: "ize"},
+		{suffix: "isation", replacement: "ise"},
+		{suffix: "ized", replacement: "ize"},
+		{suffix: "ised", replacement: "ise"},
+		{suffix: "ation", replacement: "ate"},
+	} {
+		if strings.HasSuffix(token, rule.suffix) && len(token) > len(rule.suffix)+2 {
+			return []string{strings.TrimSuffix(token, rule.suffix) + rule.replacement}
+		}
+	}
+	return nil
 }
 
 // tokenIDFWeight scores a token by inverse document frequency: a token matching

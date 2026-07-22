@@ -1952,30 +1952,37 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 		}
 		counts[clean] += weight + brainBriefLikelyFileBonus(clean) + brainBriefTaskTermBonus(clean, taskTerms)
 	}
+	addSemantic := func(path string, weight int) {
+		clean, ok := cleanBrainBriefSemanticFile(repoRoot, path)
+		if !ok {
+			return
+		}
+		counts[clean] += weight + brainBriefLikelyFileBonus(clean) + brainBriefTaskTermBonus(clean, taskTerms)
+	}
 	for _, symbol := range report.Semantic.Context.Symbols {
-		add(symbol.FilePath, 12)
-		add(symbol.Path, 4)
+		addSemantic(symbol.FilePath, 12)
+		addSemantic(symbol.Path, 4)
 	}
 	for _, neighbor := range report.Semantic.Context.Neighbors {
-		add(neighbor.FilePath, 8)
-		add(neighbor.Path, 3)
+		addSemantic(neighbor.FilePath, 8)
+		addSemantic(neighbor.Path, 3)
 	}
 	for _, relation := range report.Semantic.Context.Relations {
-		add(relation.FilePath, 4)
-		add(relation.Path, 2)
+		addSemantic(relation.FilePath, 4)
+		addSemantic(relation.Path, 2)
 	}
 	for _, trace := range report.Semantic.RuntimeTraces {
-		add(trace.FilePath, 7)
-		add(trace.Path, 3)
+		addSemantic(trace.FilePath, 7)
+		addSemantic(trace.Path, 3)
 		for _, evidence := range trace.Evidence {
-			add(evidence.FilePath, 2)
+			addSemantic(evidence.FilePath, 2)
 		}
 	}
 	for _, root := range report.Semantic.Tests.Roots {
-		add(root.FilePath, 6)
+		addSemantic(root.FilePath, 6)
 	}
 	for _, suggestion := range report.Semantic.Tests.Suggestions {
-		add(suggestion.Symbol.FilePath, 9)
+		addSemantic(suggestion.Symbol.FilePath, 9)
 	}
 	for _, changed := range report.Status.Live.ChangedFiles {
 		add(changed, 3)
@@ -2014,6 +2021,12 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 		}
 	}
 	editFiles := rankedBrainBriefLikelyFiles(editCounts, 8)
+	// The semantic context is the brief's strongest code-level evidence. Keep its
+	// selected implementation roots ahead of filename-only matches so the two
+	// sections cannot contradict each other (for example, naming an exact API
+	// method above while telling the agent to edit an unrelated auth helper).
+	// Filename and history evidence still fill the remainder of the bounded list.
+	editFiles = brainBriefPromoteSemanticEditFiles(repoRoot, editFiles, report.Semantic.Context.Symbols, 8)
 	testFiles := rankedBrainBriefLikelyFiles(testCounts, 6)
 	all := append([]string{}, editFiles...)
 	for _, file := range testFiles {
@@ -2023,6 +2036,59 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 		all = append(all, file)
 	}
 	return editFiles, testFiles, all
+}
+
+func brainBriefPromoteSemanticEditFiles(repoRoot string, files []string, symbols []semanticRecord, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, min(limit, len(files)))
+	add := func(path string) {
+		clean, ok := cleanBrainBriefSemanticFile(repoRoot, path)
+		if !ok || !brainBriefSourceFile(clean) || brainBriefLikelyTestFile(clean) {
+			return
+		}
+		if _, ok := seen[clean]; ok || !slices.Contains(files, clean) {
+			return
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	for _, symbol := range symbols {
+		if len(out) >= limit {
+			break
+		}
+		add(symbol.FilePath)
+	}
+	for _, file := range files {
+		if len(out) >= limit {
+			break
+		}
+		add(file)
+	}
+	return out
+}
+
+// cleanBrainBriefSemanticFile accepts any safe repository-relative source path
+// emitted by the local semantic index. Unlike history excerpts, semantic paths
+// are structured provider output and should not be constrained to a hard-coded
+// list of conventional top-level directories (real repositories commonly use
+// roots such as api/, acceptance/, or frontend/).
+func cleanBrainBriefSemanticFile(_ string, path string) (string, bool) {
+	path = strings.TrimSpace(path)
+	path = strings.TrimLeft(path, "`'\"")
+	path = strings.TrimRight(path, "`'\".,;:)]}")
+	path = strings.TrimPrefix(path, "./")
+	clean, ok := cleanBrainBriefRepoRelativePath(path)
+	if !ok || !brainBriefSourceFile(clean) {
+		return "", false
+	}
+	first, _, _ := strings.Cut(clean, "/")
+	if strings.HasPrefix(first, ".") || brainBriefSkipSourceDir(clean) {
+		return "", false
+	}
+	return clean, true
 }
 
 func brainBriefTaskFilenameCounts(repoRoot string, terms []string) map[string]int {
