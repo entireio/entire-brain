@@ -42,6 +42,21 @@ func idfRankingSnapshot() string {
 	return b.String()
 }
 
+func leadingIntentRankingSnapshot() string {
+	var b strings.Builder
+	b.WriteString(`{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}` + "\n")
+	b.WriteString(`{"record_type":"symbol","id":"plugin-env","kind":"function","name":"isPluginEnvAllowed","qualified_name":"cli.isPluginEnvAllowed","file_path":"cmd/entire/cli/plugin_env.go","start_line":1,"end_line":2,"signature":"plugin env xdg prefix","language":"Go","stable_id_version":"1"}` + "\n")
+	for _, term := range []string{"plugin", "env", "xdg", "prefix"} {
+		for i := 0; i < 4; i++ {
+			fmt.Fprintf(&b, `{"record_type":"symbol","id":"common-%s-%d","kind":"function","name":"Common%s%d","qualified_name":"pkg.Common%s%d","file_path":"pkg/common_%s_%d.go","start_line":1,"end_line":2,"signature":"%s helper","language":"Go","stable_id_version":"1"}`+"\n", term, i, term, i, term, i, term, i, term)
+		}
+	}
+	for _, term := range []string{"subprocess", "allowlist", "credential", "withheld", "namespace", "desktop", "directory", "forwarded"} {
+		fmt.Fprintf(&b, `{"record_type":"symbol","id":"rare-%s","kind":"function","name":"Rare%s","qualified_name":"pkg.Rare%s","file_path":"pkg/%s.go","start_line":1,"end_line":2,"signature":"%s unique","language":"Go","stable_id_version":"1"}`+"\n", term, term, term, term, term)
+	}
+	return b.String()
+}
+
 func TestTokenizedSearchRanksRareTokenAboveCommonTokens(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, idfRankingSnapshot())
 	// Multi-word query that matches no single symbol verbatim, so the tokenized
@@ -70,6 +85,18 @@ func TestTokenizedSearchUsesDiscriminatingTermAfterFirstEightCandidates(t *testi
 	}
 	if len(results) == 0 || results[0].ID != "rare-zebra" {
 		t.Fatalf("late rare term did not drive ranking: %s", summarizeIDs(results))
+	}
+}
+
+func TestTokenizedSearchKeepsLeadingTaskIntentAlongsideRareTailTerms(t *testing.T) {
+	_, storePath, _ := indexFixtureBrain(t, leadingIntentRankingSnapshot())
+	query := "plugin env xdg prefix subprocess allowlist credential withheld namespace desktop directory forwarded"
+	results, err := findSemanticSymbolsInSQLite(storePath, query, 20, 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "plugin-env" {
+		t.Fatalf("leading task intent did not survive rare-tail selection: %s", summarizeIDs(results))
 	}
 }
 

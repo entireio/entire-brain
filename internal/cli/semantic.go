@@ -17,6 +17,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -3623,6 +3624,7 @@ type semanticPage struct {
 const (
 	semanticQueryTokenCandidateLimit = 32
 	semanticQueryTokenSearchLimit    = 8
+	semanticQueryLeadingTokenReserve = 4
 )
 
 func semanticQueryTokens(query string) []string {
@@ -3699,21 +3701,31 @@ func findSemanticSymbolsTokenizedSQLite(db *sql.DB, tokens []string, limit, offs
 		}
 		weighted = append(weighted, weightedToken{value: token, weight: tokenIDFWeight(total, df), order: i})
 	}
+	// Keep the task's leading identifiers before filling the fixed search budget
+	// with rare terms. Pure IDF selection lets incidental rare words at the end
+	// of a long agent prompt displace its task ID and primary domain nouns.
+	selected := append([]weightedToken(nil), weighted[:min(semanticQueryLeadingTokenReserve, len(weighted))]...)
 	sort.SliceStable(weighted, func(i, j int) bool {
 		if weighted[i].weight != weighted[j].weight {
 			return weighted[i].weight > weighted[j].weight
 		}
 		return weighted[i].order < weighted[j].order
 	})
-	if len(weighted) > semanticQueryTokenSearchLimit {
-		weighted = weighted[:semanticQueryTokenSearchLimit]
+	for _, candidate := range weighted {
+		if len(selected) >= semanticQueryTokenSearchLimit {
+			break
+		}
+		if slices.ContainsFunc(selected, func(existing weightedToken) bool { return existing.order == candidate.order }) {
+			continue
+		}
+		selected = append(selected, candidate)
 	}
-	if len(weighted) == 0 {
+	if len(selected) == 0 {
 		return nil, nil
 	}
 	tokens = tokens[:0]
-	weights := make([]int, 0, len(weighted))
-	for _, candidate := range weighted {
+	weights := make([]int, 0, len(selected))
+	for _, candidate := range selected {
 		tokens = append(tokens, candidate.value)
 		weights = append(weights, candidate.weight)
 	}
