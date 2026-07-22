@@ -1211,7 +1211,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		} else {
 			report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, briefOpts.limit)
 			if len(report.Semantic.Context.Symbols) > 0 {
-				impactLimit := max(20, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
+				impactLimit := max(40, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
 				_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
 				if impactErr != nil {
 					report.Warnings = append(report.Warnings, "semantic impact context unavailable: "+impactErr.Error())
@@ -1467,7 +1467,8 @@ func brainBriefSelectSemanticContext(symbols, relations, neighbors []semanticRec
 	if brainBriefTaskRequestsTests(task) || brainBriefTaskRequestsDocs(task) {
 		selected = append(selected, symbols[:min(limit, len(symbols))]...)
 	} else {
-		for _, symbol := range symbols {
+		ranked := brainBriefRankSemanticSymbols(symbols, nil, task)
+		for _, symbol := range ranked {
 			if !brainBriefImplementationRoot(symbol) {
 				continue
 			}
@@ -1476,7 +1477,7 @@ func brainBriefSelectSemanticContext(symbols, relations, neighbors []semanticRec
 				break
 			}
 		}
-		for _, symbol := range symbols {
+		for _, symbol := range ranked {
 			if len(selected) >= limit {
 				break
 			}
@@ -1485,7 +1486,7 @@ func brainBriefSelectSemanticContext(symbols, relations, neighbors []semanticRec
 			}
 			selected = append(selected, symbol)
 		}
-		for _, symbol := range symbols {
+		for _, symbol := range ranked {
 			if len(selected) >= limit {
 				break
 			}
@@ -1582,7 +1583,7 @@ func brainBriefMergeImpactContext(context semanticContextResult, symbols, relati
 		seen[id] = struct{}{}
 	}
 	neighbors := make([]semanticRecord, 0, limit)
-	for _, symbol := range symbols {
+	for _, symbol := range brainBriefRankSemanticSymbols(symbols, relations, task) {
 		if _, ok := seen[symbol.ID]; ok {
 			continue
 		}
@@ -1628,6 +1629,78 @@ func brainBriefMergeImpactContext(context semanticContextResult, symbols, relati
 	context.Neighbors = nonNil(neighbors)
 	context.Relations = nonNil(relationCandidates)
 	return context
+}
+
+// brainBriefRankSemanticSymbols reranks a bounded semantic candidate set by
+// the task terms that discriminate within that set. This prevents traversal
+// order from spending the compact output budget on ubiquitous plumbing types
+// or sibling command constructors when rarer task anchors such as "mcp" or
+// "compact" identify the implementation path the agent actually needs.
+func brainBriefRankSemanticSymbols(symbols, relations []semanticRecord, task string) []semanticRecord {
+	if len(symbols) < 2 {
+		return append([]semanticRecord(nil), symbols...)
+	}
+	terms := brainBriefFileMatchTerms(task)
+	type candidate struct {
+		record semanticRecord
+		score  int
+	}
+	candidates := make([]candidate, len(symbols))
+	identities := make([]string, len(symbols))
+	for i, symbol := range symbols {
+		identities[i] = strings.ToLower(strings.Join([]string{symbol.Name, symbol.QualifiedName, symbol.FilePath}, " "))
+	}
+	weights := make(map[string]int, len(terms))
+	for _, term := range terms {
+		df := 0
+		for _, identity := range identities {
+			if strings.Contains(identity, term) {
+				df++
+			}
+		}
+		if df > 0 {
+			weights[term] = tokenIDFWeight(len(symbols), df)
+		}
+	}
+	relationScores := make(map[string]int)
+	for _, relation := range relations {
+		score := brainBriefRelationPriority(relation.Type) / 5
+		if score > relationScores[relation.FromID] {
+			relationScores[relation.FromID] = score
+		}
+		if score > relationScores[relation.ToID] {
+			relationScores[relation.ToID] = score
+		}
+	}
+	for i, symbol := range symbols {
+		name := strings.ToLower(symbol.Name + " " + symbol.QualifiedName)
+		path := strings.ToLower(symbol.FilePath)
+		base := strings.TrimSuffix(strings.ToLower(filepath.Base(path)), strings.ToLower(filepath.Ext(path)))
+		score := relationScores[symbol.ID]
+		switch strings.ToLower(symbol.Kind) {
+		case "function", "method", "class", "type", "interface":
+			score += 5
+		}
+		for term, weight := range weights {
+			switch {
+			case strings.Contains(name, term):
+				score += weight * 2
+			case strings.Contains(base, term):
+				score += weight
+			case strings.Contains(path, term):
+				score += max(1, weight/2)
+			}
+		}
+		candidates[i] = candidate{record: symbol, score: score}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+	ranked := make([]semanticRecord, len(candidates))
+	for i, candidate := range candidates {
+		ranked[i] = candidate.record
+	}
+	return ranked
 }
 
 func brainBriefRelationPriority(relationType string) int {

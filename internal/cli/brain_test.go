@@ -186,10 +186,11 @@ func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *t
 	noiseTest := semanticRecord{ID: "noise-test", Kind: "function", Name: "test_history_prompt", FilePath: "benchmarks/agent-brain/run_test.py"}
 	field := semanticRecord{ID: "field", Kind: "field", Name: "details", FilePath: "internal/cli/semantic.go"}
 	section := semanticRecord{ID: "section", Kind: "section", Name: "Compact semantic output", FilePath: "docs/semantic-memory.md"}
+	noiseCommand := semanticRecord{ID: "dash", Kind: "function", Name: "runDash", FilePath: "internal/cli/dash.go"}
 	implementation := semanticRecord{ID: "impl", Kind: "function", Name: "runBrainBrief", FilePath: "internal/cli/agent_surface.go"}
 	projection := semanticRecord{ID: "projection", Kind: "function", Name: "compactSemanticRecords", FilePath: "internal/cli/agent_surface.go"}
 	context := brainBriefSelectSemanticContext(
-		[]semanticRecord{noiseTest, field, section, implementation, projection}, nil, nil,
+		[]semanticRecord{noiseTest, field, section, noiseCommand, implementation, projection}, nil, nil,
 		"Improve brain brief semantic relevance", 2,
 	)
 	if len(context.Symbols) != 2 || context.Symbols[0].ID != "impl" || context.Symbols[1].ID != "projection" {
@@ -206,37 +207,45 @@ func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *t
 }
 
 func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
-	root := semanticRecord{ID: "options", Kind: "type", Name: "semanticImpactOptions", FilePath: "internal/cli/semantic.go"}
-	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticImpact", FilePath: "internal/cli/semantic.go"}
+	root := semanticRecord{ID: "context-command", Kind: "function", Name: "newInspectContextCommand", FilePath: "internal/cli/agent_surface.go"}
+	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticContext", FilePath: "internal/cli/semantic.go"}
 	field := semanticRecord{ID: "field", Kind: "field", Name: "details", FilePath: "internal/cli/semantic.go"}
-	command := semanticRecord{ID: "command", Kind: "function", Name: "newInspectImpactCommand", FilePath: "internal/cli/agent_surface.go"}
+	command := semanticRecord{ID: "command", Kind: "function", Name: "newBrainInspectCommand", FilePath: "internal/cli/agent_surface.go"}
 	handler := semanticRecord{ID: "handler", Kind: "function", Name: "handleMCPToolCall", FilePath: "internal/cli/mcp.go"}
+	projection := semanticRecord{ID: "projection", Kind: "function", Name: "compactSemanticRecords", FilePath: "internal/cli/agent_surface.go"}
+	options := semanticRecord{ID: "options", Kind: "type", Name: "Options", FilePath: "internal/cli/root.go"}
 	testSymbol := semanticRecord{ID: "test", Kind: "function", Name: "TestSemanticImpact", FilePath: "internal/cli/semantic_test.go"}
 	relations := []semanticRecord{
-		{RecordType: "relation", FromID: run.ID, ToID: root.ID, Type: "PARAM_TYPE"},
-		{RecordType: "relation", FromID: command.ID, ToID: run.ID, Type: "CALLS"},
+		{RecordType: "relation", FromID: command.ID, ToID: root.ID, Type: "CALLS"},
+		{RecordType: "relation", FromID: root.ID, ToID: run.ID, Type: "CALLS"},
 		{RecordType: "relation", FromID: handler.ID, ToID: run.ID, Type: "CALLS"},
 		{RecordType: "relation", FromID: handler.ID, ToID: run.ID, Type: "CALLS"},
-		{RecordType: "relation", FromID: root.ID, ToID: field.ID, Type: "CONTAINS"},
+		{RecordType: "relation", FromID: run.ID, ToID: projection.ID, Type: "CALLS"},
+		{RecordType: "relation", FromID: root.ID, ToID: options.ID, Type: "USES_TYPE"},
+		{RecordType: "relation", FromID: options.ID, ToID: field.ID, Type: "CONTAINS"},
 	}
 
 	context := brainBriefMergeImpactContext(
 		semanticContextResult{Symbols: []semanticRecord{root}},
-		[]semanticRecord{root, run, field, command, handler, testSymbol},
+		[]semanticRecord{root, command, options, field, run, handler, projection, testSymbol},
 		relations,
-		"Review semantic impact plumbing", 3,
+		"Make semantic context JSON compact with MCP plumbing", 3,
 	)
-	wantNeighbors := []string{"run", "command", "handler"}
+	wantNeighbors := []string{"projection", "run", "handler"}
 	if len(context.Neighbors) != len(wantNeighbors) {
 		t.Fatalf("impact neighbors = %+v, want %v", context.Neighbors, wantNeighbors)
 	}
-	if got := []string{context.Neighbors[0].ID, context.Neighbors[1].ID, context.Neighbors[2].ID}; !slices.Equal(got, wantNeighbors) {
-		t.Fatalf("impact neighbors = %v, want %v", got, wantNeighbors)
+	gotNeighbors := make([]string, 0, len(context.Neighbors))
+	for _, neighbor := range context.Neighbors {
+		gotNeighbors = append(gotNeighbors, neighbor.ID)
+	}
+	if !slices.Equal(gotNeighbors, wantNeighbors) {
+		t.Fatalf("impact neighbors = %v, want %v", gotNeighbors, wantNeighbors)
 	}
 	if len(context.Relations) != 3 {
-		t.Fatalf("impact relations = %+v, want the three implementation connections", context.Relations)
+		t.Fatalf("impact relations = %+v, want the three selected implementation connections", context.Relations)
 	}
-	if context.Relations[0].Type != "CALLS" || context.Relations[1].Type != "CALLS" {
+	if context.Relations[0].Type != "CALLS" || context.Relations[1].Type != "CALLS" || context.Relations[2].Type != "CALLS" {
 		t.Fatalf("call relations should lead lower-signal type relations: %+v", context.Relations)
 	}
 }
