@@ -191,6 +191,9 @@ func retrievalHintsForResults(repoRoot string, results []unifiedResult, query st
 		}
 		report.History.Matches = append(report.History.Matches, brainTextMatch{Excerpt: result.Text})
 	}
+	for path := range retrievalExactCodeFileCounts(repoRoot, query) {
+		report.History.Matches = append(report.History.Matches, brainTextMatch{Excerpt: path})
+	}
 	editFiles, testFiles, _ := brainBriefLikelyFileGroups(repoRoot, report, query)
 	seen := make(map[string]struct{}, len(editFiles))
 	for _, file := range editFiles {
@@ -223,6 +226,20 @@ func retrievalHintsForResults(repoRoot string, results []unifiedResult, query st
 		}
 	}
 	return retrievalTaskHints{LikelyEditFiles: editFiles, LikelyTestFiles: testFiles, ActionChecklist: actions}
+}
+
+func retrievalExactCodeFileCounts(repoRoot, query string) map[string]int {
+	needle := strings.ToLower(strings.Join(strings.Fields(query), " "))
+	if len(needle) < 8 {
+		return nil
+	}
+	return brainBriefCurrentCodeFileCountsByScore(repoRoot, func(_ string, source string) int {
+		haystack := strings.ToLower(strings.Join(strings.Fields(source), " "))
+		if strings.Contains(haystack, needle) {
+			return 200
+		}
+		return 0
+	})
 }
 
 func retrievalSiblingImplementationCandidates(testFile string) []string {

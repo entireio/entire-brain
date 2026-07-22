@@ -140,9 +140,17 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 			}
 			var lexicalHistoryIDs map[string]struct{}
 			if mode != modeVector {
-				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, candidateLimit)
+				historyCandidateLimit := candidateLimit * 3
+				if historyCandidateLimit < candidateLimit {
+					historyCandidateLimit = candidateLimit
+				}
+				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, historyCandidateLimit)
 				if !ok {
-					scored = rankHistoryRecordsScored(index, "history", query, candidateLimit, 0)
+					scored = rankHistoryRecordsScored(index, "history", query, historyCandidateLimit, 0)
+				}
+				scored = filterHistoryRetrievalSelfEchoes(scored, query)
+				if len(scored) > candidateLimit {
+					scored = scored[:candidateLimit]
 				}
 				if len(scored) > 0 {
 					lexicalHistoryIDs = make(map[string]struct{}, len(scored))
@@ -213,6 +221,29 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	}
 
 	return rrfMergeUnified(lists, limit), nil
+}
+
+func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string) []scoredHistoryRecord {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return scored
+	}
+	out := scored[:0]
+	for _, item := range scored {
+		kind := strings.ToLower(strings.TrimSpace(item.Record.Kind))
+		summary := strings.ToLower(item.Record.Summary)
+		brainInvocation := strings.Contains(summary, "entire brain search") ||
+			strings.Contains(summary, "entire brain query") ||
+			strings.Contains(summary, "entire brain brief") ||
+			strings.Contains(summary, "brain_search") ||
+			strings.Contains(summary, "brain_query") ||
+			strings.Contains(summary, "brain_brief")
+		if kind == "tool_call" && brainInvocation && strings.Contains(summary, needle) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // factsVectorRanked ranks active facts by cosine. facts is the full present set

@@ -301,7 +301,7 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 		if rel == "internal/cli/semantic.go" {
 			content += "func ignored(path string) bool { return strings.HasPrefix(path, \".git\") }\n"
 		} else {
-			content += "func TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths(t *testing.T) {}\n"
+			content += "func TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths(t *testing.T) { t.Fatalf(\".github symbol was unexpectedly ignored\") }\n"
 		}
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatalf("write %s: %v", rel, err)
@@ -309,7 +309,7 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 	}
 	results := []unifiedResult{{
 		Source: "history",
-		Text:   `internal/cli/semantic_test.go:760: t.Fatalf(".github symbol was unexpectedly ignored")`,
+		Text:   `+ t.Fatalf(".github symbol was unexpectedly ignored")`,
 	}}
 	hints := retrievalHintsForResults(repoDir, results, ".github symbol was unexpectedly ignored")
 	if len(hints.LikelyEditFiles) == 0 || hints.LikelyEditFiles[0] != "internal/cli/semantic.go" {
@@ -324,6 +324,18 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 		hints.ActionChecklist[0].Validation.Command != "go test ./internal/cli -run '^TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths$' -count=1" ||
 		!hints.ActionChecklist[0].Validation.CompleteOnPass {
 		t.Fatalf("action checklist = %+v", hints.ActionChecklist)
+	}
+}
+
+func TestFilterHistoryRetrievalSelfEchoesRefillsWithEvidence(t *testing.T) {
+	scored := []scoredHistoryRecord{
+		{Record: historyRecord{Kind: "tool_call", Summary: `entire brain search '.github symbol was unexpectedly ignored' --json`}},
+		{Record: historyRecord{Kind: "code_fact", Summary: `t.Fatalf(".github symbol was unexpectedly ignored")`}},
+		{Record: historyRecord{Kind: "tool_call", Summary: `go test ./internal/cli -run TestSemantic`}},
+	}
+	got := filterHistoryRetrievalSelfEchoes(scored, ".github symbol was unexpectedly ignored")
+	if len(got) != 2 || got[0].Record.Kind != "code_fact" || got[1].Record.Kind != "tool_call" {
+		t.Fatalf("filtered history = %+v", got)
 	}
 }
 
