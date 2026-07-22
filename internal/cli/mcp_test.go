@@ -125,7 +125,7 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	listData, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_index_repository", "brain_list_projects", "brain_delete_project"} {
+	for _, want := range []string{"brain_refresh", "brain_index_repository", "brain_list_projects", "brain_delete_project"} {
 		if !strings.Contains(string(listData), want) {
 			t.Fatalf("tools/list missing %q: %s", want, listData)
 		}
@@ -141,6 +141,40 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}
 	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
 		t.Fatalf("brain_delete_project did not remove %s: %v", brainDir, err)
+	}
+}
+
+func TestMCPBrainRefreshReturnsFreshStatus(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	runner := seedFixtureRunner(repoDir)
+	addRefreshSemanticFixture(runner, repoDir)
+	opts := Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) },
+	}
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_refresh","arguments":{}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	payload := mcpTextJSONPayload(t, responses[0])
+	data, _ := json.Marshal(payload)
+	for _, want := range []string{`"seed":true`, `"docs":true`, `"semantic":true`, `"retrieval"`, `"freshness"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("brain_refresh status missing %q: %s", want, data)
+		}
+	}
+	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+		t.Fatalf("brain_refresh did not rebuild the semantic source: %+v", runner.calls)
 	}
 }
 

@@ -194,6 +194,9 @@ follow-ups:
 - `brain_status` to check compact freshness, coverage totals, and blind spots;
   request `details: true` only for coverage histograms, staged-file classes, or
   changed-symbol records
+- `brain_refresh` to deterministically rebuild all local sources when status
+  reports unsafe retrieval freshness; set `worktree: true` only when current
+  uncommitted content belongs in the snapshot
 - retrieval tools such as `brain_query` and `brain_get` for facts, docs, history
 - semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
   `brain_tests` for code navigation and validation planning

@@ -32,26 +32,7 @@ type refreshCommandOptions struct {
 }
 
 func newRefreshCommand(opts Options) *cobra.Command {
-	refreshOpts := refreshCommandOptions{
-		checkpointLimit: 0,
-		entireBinary:    "entire",
-		graphBinary:     "entire",
-		scope:           exportScopeAll,
-		historyIndex:    true,
-		semantic:        true,
-		statusAfter:     true,
-		seed: seedCommandOptions{
-			includeTests:       true,
-			maxFileBytes:       defaultSeedMaxFileBytes,
-			maxFiles:           defaultSeedMaxFiles,
-			format:             "markdown+json",
-			agent:              "auto",
-			agentQuickTimeout:  2 * time.Minute,
-			agentDeepTimeout:   10 * time.Minute,
-			agentTimeoutAction: "keep-quick",
-			agentMaxInputBytes: defaultAgentMaxInput,
-		},
-	}
+	refreshOpts := defaultRefreshCommandOptions()
 	cmd := &cobra.Command{
 		Use:   "refresh",
 		Short: "Create or refresh the repository brain",
@@ -88,6 +69,29 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index: semantic symbol graph
 	cmd.AddCommand(newSeedCommand(opts))          // refresh seed
 	return cmd
+}
+
+func defaultRefreshCommandOptions() refreshCommandOptions {
+	return refreshCommandOptions{
+		checkpointLimit: 0,
+		entireBinary:    "entire",
+		graphBinary:     "entire",
+		scope:           exportScopeAll,
+		historyIndex:    true,
+		semantic:        true,
+		statusAfter:     true,
+		seed: seedCommandOptions{
+			includeTests:       true,
+			maxFileBytes:       defaultSeedMaxFileBytes,
+			maxFiles:           defaultSeedMaxFiles,
+			format:             "markdown+json",
+			agent:              "auto",
+			agentQuickTimeout:  2 * time.Minute,
+			agentDeepTimeout:   10 * time.Minute,
+			agentTimeoutAction: "keep-quick",
+			agentMaxInputBytes: defaultAgentMaxInput,
+		},
+	}
 }
 
 func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOpts refreshCommandOptions) error {

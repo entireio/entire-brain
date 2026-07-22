@@ -266,6 +266,11 @@ func mcpToolDefinitions() []map[string]any {
 			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
 		},
 		{
+			"name":        "brain_refresh",
+			"description": "Refresh all local Brain sources deterministically (sessions, seed, history, docs, semantic, facts, and patterns) and return compact status JSON. Use when retrieval freshness is unsafe; set worktree=true only to include current uncommitted content.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Refresh seed, docs, and semantic index from current uncommitted content"), "force": boolArg("force", "Rebuild sources even when current")}),
+		},
+		{
 			"name":        "brain_brief",
 			"description": "Build a compact task packet from local brain context, live state, semantic context, and indexed history; use targeted follow-up tools when more detail is needed.",
 			"inputSchema": objectSchema([]string{"task"}, map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section (default 3)")}),
@@ -482,6 +487,35 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			target = opts.Env.RepoRoot
 		}
 		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, failOn: semanticAuditFailOnNone}, target)
+	case "brain_refresh":
+		worktree, boolErr := mcpBool(params.Arguments, "worktree")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		force, boolErr := mcpBool(params.Arguments, "force")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		refreshOpts := defaultRefreshCommandOptions()
+		refreshOpts.force = force
+		refreshOpts.graphBinary = mcpGraphBinary()
+		refreshOpts.statusAfter = false
+		refreshOpts.seed.agent = "none"
+		refreshOpts.seed.worktree = worktree
+		refreshCmd := &cobra.Command{Use: "brain_refresh"}
+		refreshCmd.SetOut(io.Discard)
+		refreshCmd.SetErr(io.Discard)
+		refreshCmd.SetContext(ctx)
+		err = runRefresh(ctx, refreshCmd, opts, refreshOpts)
+		if err == nil {
+			target := "."
+			if opts.Env.RepoRoot != "" {
+				target = opts.Env.RepoRoot
+			}
+			err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, failOn: semanticAuditFailOnNone}, target)
+		}
 	case "brain_index_repository":
 		path, stringErr := mcpOptionalString(params.Arguments, "path")
 		if stringErr != nil {
