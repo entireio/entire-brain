@@ -22,6 +22,7 @@ type refreshCommandOptions struct {
 	rawTranscript    bool
 	scope            string
 	force            bool
+	skipSessions     bool
 	semantic         bool
 	allBranches      bool
 	forceAllBranches bool
@@ -136,21 +137,29 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if outputExplicit {
 		exportOpts.outputDir = refreshOpts.outputDir
 	}
-	exportTask := progress.Begin("export sessions")
-	exportOpts.progress = func(p exportProgress) {
-		exportTask.Update(refreshExportProgressLabel(p))
-	}
-	exportErr := runExport(ctx, exportCmd, opts, exportOpts)
-	exportTaskFinished := false
-	finishExportTask := func(err error) {
-		if exportTaskFinished {
-			return
+	var exportErr error
+	finishExportTask := func(error) {}
+	updateExportTask := func(string) {}
+	if !refreshOpts.skipSessions {
+		exportTask := progress.Begin("export sessions")
+		exportOpts.progress = func(p exportProgress) {
+			exportTask.Update(refreshExportProgressLabel(p))
 		}
-		exportTask.Finish(err)
-		exportTaskFinished = true
-	}
-	if exportErr == nil {
-		finishExportTask(nil)
+		exportErr = runExport(ctx, exportCmd, opts, exportOpts)
+		exportTaskFinished := false
+		finishExportTask = func(err error) {
+			if exportTaskFinished {
+				return
+			}
+			exportTask.Finish(err)
+			exportTaskFinished = true
+		}
+		updateExportTask = exportTask.Update
+		if exportErr == nil {
+			finishExportTask(nil)
+		}
+	} else {
+		progress.Skip("export sessions")
 	}
 
 	storageTask := progress.Begin("locate brain")
@@ -187,7 +196,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		return exportErr
 	}
 	if exportErr != nil {
-		exportTask.Update("export sessions: unavailable, using seed baseline")
+		updateExportTask("export sessions: unavailable, using seed baseline")
 	}
 	finishExportTask(nil)
 	if needSeed {
@@ -355,7 +364,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// token-free, so it is part of the normal refresh — the user never has to
 	// discover a second build command. Rebuilt when sessions changed or --force.
 	manifest, _ = loadBrainManifest(brainDir)
-	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
+	if !refreshOpts.skipSessions && manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishPatterns := progress.Step("pattern layer")
 		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
 			finishPatterns(err)

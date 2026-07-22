@@ -267,8 +267,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_refresh",
-			"description": "Refresh all local Brain sources deterministically (sessions, seed, history, docs, semantic, facts, and patterns) and return compact status JSON. Use when retrieval freshness is unsafe; set worktree=true only to include current uncommitted content.",
-			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Refresh seed, docs, and semantic index from current uncommitted content"), "force": boolArg("force", "Rebuild sources even when current")}),
+			"description": "Refresh code-derived local Brain sources deterministically (seed, docs, semantic, and fact classification) and return compact status JSON. Use when retrieval freshness is unsafe; set sessions=true only when checkpoint history also needs refresh.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Refresh seed, docs, and semantic index from current uncommitted content"), "sessions": boolArg("sessions", "Also export Entire sessions and rebuild history and patterns"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
 			"name":        "brain_brief",
@@ -498,9 +498,16 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = boolErr
 			break
 		}
+		sessions, boolErr := mcpBool(params.Arguments, "sessions")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
 		refreshOpts := defaultRefreshCommandOptions()
 		refreshOpts.force = force
 		refreshOpts.graphBinary = mcpGraphBinary()
+		refreshOpts.skipSessions = !sessions
+		refreshOpts.historyIndex = sessions
 		refreshOpts.statusAfter = false
 		refreshOpts.seed.agent = "none"
 		refreshOpts.seed.worktree = worktree

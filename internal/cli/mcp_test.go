@@ -176,6 +176,11 @@ func TestMCPBrainRefreshReturnsFreshStatus(t *testing.T) {
 	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
 		t.Fatalf("brain_refresh did not rebuild the semantic source: %+v", runner.calls)
 	}
+	for _, call := range runner.calls {
+		if call.name == "entire" && len(call.args) > 0 && call.args[0] == "checkpoint" {
+			t.Fatalf("default brain_refresh unexpectedly scanned sessions: %+v", runner.calls)
+		}
+	}
 }
 
 func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {

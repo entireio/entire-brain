@@ -72,13 +72,15 @@ relations, and persists them as queryable `RUNTIME_TRACE` graph facts that are
 also visible to graph schema/metrics, trace-path traversal, and `brain_brief`
 semantic context.
 
-`brain_refresh` is the deterministic local write tool for rebuilding every
-source when retrieval freshness is unsafe; it never runs seed agent synthesis
-and returns compact status JSON after completion. Set `worktree: true` only to
-include current uncommitted content. `brain_index_repository` is the narrower
-local write tool for building only the semantic index; neither tool publishes
-artifacts. `brain_delete_project` removes local generated brain data for the
-selected repo key.
+`brain_refresh` is the deterministic local write tool for rebuilding
+code-derived sources when retrieval freshness is unsafe; it never runs seed
+agent synthesis and returns compact status JSON after completion. Set
+`worktree: true` only to include current uncommitted content. By default it
+skips checkpoint export/history so code iteration stays fast; set `sessions:
+true` only when those sources and patterns also need refresh.
+`brain_index_repository` is the narrower local write tool for building only the
+semantic index; neither tool publishes artifacts. `brain_delete_project`
+removes local generated brain data for the selected repo key.
 
 `brain_patterns` and `brain_patterns_status` are read-only pattern-corpus
 inspection tools. Skill formation is intentionally not exposed as an MCP write
