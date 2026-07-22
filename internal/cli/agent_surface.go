@@ -908,6 +908,7 @@ func newInspectChangesCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&changesOpts.limit, "limit", 100, "Maximum symbols to include")
 	cmd.Flags().BoolVar(&changesOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&changesOpts.persist, "write-report", false, "Persist semantic/changes/latest.json")
 	return cmd
 }
 

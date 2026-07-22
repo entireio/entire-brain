@@ -2094,8 +2094,45 @@ func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	if !strings.Contains(out.String(), `"internal/auth/token.go"`) || !strings.Contains(out.String(), `"ValidateToken"`) {
 		t.Fatalf("changes JSON missing symbol:\n%s", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "changes", "latest.json")); err != nil {
-		t.Fatalf("changes report missing: %v", err)
+	reportPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "changes", "latest.json")
+	if _, err := os.Stat(reportPath); !os.IsNotExist(err) {
+		t.Fatalf("default changes unexpectedly wrote report: %v", err)
+	}
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true, persist: true}); err != nil {
+		t.Fatalf("changes with persisted report: %v", err)
+	}
+	if _, err := os.Stat(reportPath); err != nil {
+		t.Fatalf("persisted changes report missing: %v", err)
+	}
+}
+
+func TestSemanticChangesDefaultDoesNotAcquireIndexLock(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	lockDir := filepath.Join(brainDir, semanticLockDir)
+	if err := os.Remove(filepath.Join(lockDir, semanticIndexLockName)); err != nil {
+		t.Fatalf("remove index lock file: %v", err)
+	}
+	if err := os.Remove(lockDir); err != nil {
+		t.Fatalf("remove lock directory: %v", err)
+	}
+	if err := os.Symlink(t.TempDir(), lockDir); err != nil {
+		t.Fatalf("replace lock directory with symlink: %v", err)
+	}
+	changesCmd := &cobra.Command{Use: "changes"}
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("read-only changes should not inspect or acquire the index lock: %v", err)
+	}
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true, persist: true}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("persisted changes should validate the index lock path, got: %v", err)
 	}
 }
 

@@ -2457,8 +2457,9 @@ type semanticImpactResult struct {
 }
 
 type semanticChangesOptions struct {
-	limit int
-	json  bool
+	limit   int
+	json    bool
+	persist bool
 }
 
 type semanticChangesReport struct {
@@ -2749,11 +2750,6 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
 		return err
@@ -2788,8 +2784,16 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 			}
 		}
 	}
-	if err := writeSemanticChangesReport(storage.BrainDir, report); err != nil {
-		return err
+	if changesOpts.persist {
+		unlock, err := acquireSemanticIndexLock(storage.BrainDir)
+		if err != nil {
+			return err
+		}
+		writeErr := writeSemanticChangesReport(storage.BrainDir, report)
+		unlock()
+		if writeErr != nil {
+			return writeErr
+		}
 	}
 	if changesOpts.json {
 		data, err := json.MarshalIndent(struct {
