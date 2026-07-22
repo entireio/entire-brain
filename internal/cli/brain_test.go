@@ -173,9 +173,33 @@ func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.
 			t.Fatalf("semantic query %q missing public-surface identifier %q", got, want)
 		}
 	}
+	if !strings.HasPrefix(got, "brain_brief brainBrief runBrainBrief ") {
+		t.Fatalf("public-surface identifiers must lead the bounded semantic query: %q", got)
+	}
 	plain := "ValidateToken behavior"
 	if got := brainBriefSemanticQuery(plain); got != plain {
 		t.Fatalf("unrelated semantic query changed: %q", got)
+	}
+}
+
+func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *testing.T) {
+	noiseTest := semanticRecord{ID: "noise-test", Kind: "function", Name: "test_history_prompt", FilePath: "benchmarks/agent-brain/run_test.py"}
+	implementation := semanticRecord{ID: "impl", Kind: "function", Name: "runBrainBrief", FilePath: "internal/cli/agent_surface.go"}
+	projection := semanticRecord{ID: "projection", Kind: "function", Name: "brainBriefJSONRecords", FilePath: "internal/cli/agent_surface.go"}
+	context := brainBriefSelectSemanticContext(
+		[]semanticRecord{noiseTest, implementation, projection}, nil, nil,
+		"Improve brain brief semantic relevance", 2,
+	)
+	if len(context.Symbols) != 2 || context.Symbols[0].ID != "impl" || context.Symbols[1].ID != "projection" {
+		t.Fatalf("implementation roots were displaced by test noise: %+v", context.Symbols)
+	}
+	tests := semanticTestsResult{Suggestions: []semanticTestSuggestion{
+		{Symbol: noiseTest, Reason: "same directory"},
+		{Symbol: semanticRecord{ID: "target-test", Kind: "function", Name: "TestBrainBriefJSONProjection", FilePath: "internal/cli/brain_test.go"}, Reason: "name terms"},
+	}}
+	selected := brainBriefSelectSemanticTests(tests, context, 2)
+	if len(selected.Suggestions) != 1 || selected.Suggestions[0].Symbol.ID != "target-test" {
+		t.Fatalf("test suggestions did not follow selected implementation roots: %+v", selected.Suggestions)
 	}
 }
 
@@ -719,6 +743,27 @@ export class SqliteMemoryRepository {
   async listAutomationActions(sessionId: string, limit = 500) {
     return this.pool.query("SELECT * FROM automation_actions WHERE session_id = $1 LIMIT $2", [sessionId, limit]);
   }
+}
+
+func TestBrainBriefActionChecklistDoesNotLetUnrelatedHistoryInventTaskIntent(t *testing.T) {
+	repoDir := t.TempDir()
+	sourcePath := filepath.Join(repoDir, "internal", "cli", "semantic.go")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("func query(limit int) { _ = limit }\n"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	report := brainBriefReport{
+		History: brainBriefHistory{Matches: []brainTextMatch{{
+			Excerpt: "Use normalizeLimit and MAX_QUERY_LIMIT before every SQL LIMIT.",
+		}}},
+		LikelyEditFiles: []string{"internal/cli/semantic.go"},
+	}
+	actions := brainBriefActionChecklist(repoDir, report, "Improve brain brief semantic relevance for its default three records")
+	if len(actions) != 0 {
+		t.Fatalf("unrelated limit history invented checklist actions: %+v", actions)
+	}
 }
 `
 	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {

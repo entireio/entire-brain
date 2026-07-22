@@ -1203,15 +1203,12 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	var receiptFactIDs []string
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
 		semanticQuery := brainBriefSemanticQuery(task)
-		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, semanticQuery, briefOpts.limit, 0)
+		contextCandidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, 4)
+		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, semanticQuery, contextCandidateLimit, 0)
 		if contextErr != nil {
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
 		} else {
-			report.Semantic.Context = semanticContextResult{
-				Symbols:   nonNil(contextSymbols),
-				Relations: nonNil(contextRelations),
-				Neighbors: nonNil(contextNeighbors),
-			}
+			report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, briefOpts.limit)
 		}
 		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, status.Manifest.Sources.Semantic, semanticQuery, briefOpts.limit)
 		if runtimeErr != nil {
@@ -1219,11 +1216,12 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		} else {
 			report.Semantic.RuntimeTraces = runtimeTraces
 		}
-		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, semanticQuery, briefOpts.limit)
+		testCandidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, 10)
+		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, semanticQuery, testCandidateLimit)
 		if testsErr != nil {
 			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
 		} else {
-			report.Semantic.Tests = tests
+			report.Semantic.Tests = brainBriefSelectSemanticTests(tests, report.Semantic.Context, briefOpts.limit)
 		}
 	} else {
 		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh`")
@@ -1436,9 +1434,127 @@ func brainBriefSemanticQuery(task string) string {
 	query := strings.TrimSpace(task)
 	lower := strings.ToLower(query)
 	if strings.Contains(lower, "brain brief") || strings.Contains(lower, "brain_brief") {
-		query += " brain_brief brainBrief runBrainBrief"
+		// Put the public-surface anchors first. Tokenized semantic lookup keeps a
+		// bounded prefix, so appending them after a long natural-language task can
+		// silently discard the most precise identifiers and rank generic records.
+		query = "brain_brief brainBrief runBrainBrief " + query
 	}
 	return query
+}
+
+func brainBriefExpandedCandidateLimit(limit, multiplier int) int {
+	if limit <= 0 {
+		return 1
+	}
+	if multiplier <= 1 || limit > 1000/multiplier {
+		return limit
+	}
+	return limit * multiplier
+}
+
+func brainBriefSelectSemanticContext(symbols, relations, neighbors []semanticRecord, task string, limit int) semanticContextResult {
+	selected := make([]semanticRecord, 0, min(limit, len(symbols)))
+	if brainBriefTaskRequestsTests(task) {
+		selected = append(selected, symbols[:min(limit, len(symbols))]...)
+	} else {
+		for _, symbol := range symbols {
+			if isSemanticTestSymbol(symbol) {
+				continue
+			}
+			selected = append(selected, symbol)
+			if len(selected) >= limit {
+				break
+			}
+		}
+		for _, symbol := range symbols {
+			if len(selected) >= limit {
+				break
+			}
+			if !isSemanticTestSymbol(symbol) || slices.ContainsFunc(selected, func(existing semanticRecord) bool { return existing.ID == symbol.ID }) {
+				continue
+			}
+			selected = append(selected, symbol)
+		}
+	}
+
+	rootIDs := make(map[string]struct{}, len(selected))
+	for _, symbol := range selected {
+		rootIDs[symbol.ID] = struct{}{}
+	}
+	relationLimit := brainBriefExpandedCandidateLimit(limit, 4)
+	selectedRelations := make([]semanticRecord, 0, min(relationLimit, len(relations)))
+	relatedIDs := make(map[string]struct{}, len(selectedRelations)*2)
+	for _, relation := range relations {
+		_, fromRoot := rootIDs[relation.FromID]
+		_, toRoot := rootIDs[relation.ToID]
+		if !fromRoot && !toRoot {
+			continue
+		}
+		selectedRelations = append(selectedRelations, relation)
+		relatedIDs[relation.FromID] = struct{}{}
+		relatedIDs[relation.ToID] = struct{}{}
+		if len(selectedRelations) >= relationLimit {
+			break
+		}
+	}
+	selectedNeighbors := make([]semanticRecord, 0, min(limit, len(neighbors)))
+	for _, neighbor := range neighbors {
+		if _, root := rootIDs[neighbor.ID]; root {
+			continue
+		}
+		if _, related := relatedIDs[neighbor.ID]; !related {
+			continue
+		}
+		selectedNeighbors = append(selectedNeighbors, neighbor)
+		if len(selectedNeighbors) >= limit {
+			break
+		}
+	}
+	return semanticContextResult{
+		Symbols:   nonNil(selected),
+		Relations: nonNil(selectedRelations),
+		Neighbors: nonNil(selectedNeighbors),
+	}
+}
+
+func brainBriefTaskRequestsTests(task string) bool {
+	for _, term := range brainBriefFileMatchTerms(task) {
+		switch term {
+		case "test", "tests", "testing", "spec", "fixture", "coverage":
+			return true
+		}
+	}
+	return false
+}
+
+func brainBriefSelectSemanticTests(tests semanticTestsResult, context semanticContextResult, limit int) semanticTestsResult {
+	if len(context.Symbols) == 0 {
+		tests.Roots = nonNil(tests.Roots[:min(limit, len(tests.Roots))])
+		tests.Suggestions = nonNil(tests.Suggestions[:min(limit, len(tests.Suggestions))])
+		return tests
+	}
+	related := make(map[string]struct{}, len(context.Symbols)+len(context.Relations)*2)
+	rootNames := make([]string, 0, len(context.Symbols))
+	rootFiles := make([]string, 0, len(context.Symbols))
+	for _, root := range context.Symbols {
+		related[root.ID] = struct{}{}
+		rootNames = append(rootNames, root.Name)
+		if root.FilePath != "" {
+			rootFiles = append(rootFiles, root.FilePath)
+		}
+	}
+	for _, relation := range context.Relations {
+		related[relation.FromID] = struct{}{}
+		related[relation.ToID] = struct{}{}
+	}
+	candidates := make([]semanticRecord, 0, len(tests.Suggestions))
+	for _, suggestion := range tests.Suggestions {
+		candidates = append(candidates, suggestion.Symbol)
+	}
+	return semanticTestsResult{
+		Roots:       nonNil(append([]semanticRecord(nil), context.Symbols...)),
+		Suggestions: nonNil(rankSemanticTestSuggestions(candidates, related, rootNames, rootFiles, limit)),
+	}
 }
 
 func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
@@ -2055,28 +2171,42 @@ func brainBriefRootFile(path string) bool {
 }
 
 func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task string) []brainBriefAction {
-	context := strings.ToLower(task)
+	taskContext := strings.ToLower(task)
+	context := taskContext
 	for _, match := range report.History.Matches {
 		context += "\n" + strings.ToLower(match.Excerpt)
 	}
 	var actions []brainBriefAction
-	if strings.Contains(context, "normalizelimit") ||
+	limitIntent := strings.Contains(taskContext, "limit") ||
+		strings.Contains(taskContext, "pagination") ||
+		strings.Contains(taskContext, "page size") ||
+		strings.Contains(taskContext, "result cap")
+	if limitIntent && (strings.Contains(context, "normalizelimit") ||
 		strings.Contains(context, "max_query_limit") ||
 		(strings.Contains(context, "query limit") && strings.Contains(context, "limit normalization")) ||
 		(strings.Contains(context, "normalize") && strings.Contains(context, "limit")) ||
-		(strings.Contains(context, "oversized") && strings.Contains(context, "limit")) {
+		(strings.Contains(context, "oversized") && strings.Contains(context, "limit"))) {
 		actions = append(actions, brainBriefLimitNormalizationActions(repoRoot, report.LikelyEditFiles)...)
 	}
-	if strings.Contains(context, "metadata.step") ||
+	metadataIntent := strings.Contains(taskContext, "metadata") ||
+		strings.Contains(taskContext, "responses api") ||
+		strings.Contains(taskContext, "invalid_type") ||
+		strings.Contains(taskContext, "provider contract") ||
+		strings.Contains(taskContext, "agentic decider") ||
+		strings.Contains(taskContext, "browser decider")
+	if metadataIntent && (strings.Contains(context, "metadata.step") ||
 		strings.Contains(context, "metadata values must be strings") ||
 		strings.Contains(context, "invalid_type") ||
-		(strings.Contains(context, "metadata") && strings.Contains(context, "responses api")) {
+		(strings.Contains(context, "metadata") && strings.Contains(context, "responses api"))) {
 		actions = append(actions, brainBriefMetadataStringActions(repoRoot, report.LikelyEditFiles)...)
 	}
-	if strings.Contains(context, "previousresponseid") ||
+	previousResponseIntent := brainBriefPreviousResponseTask(taskContext) ||
+		strings.Contains(taskContext, "previousresponseid") ||
+		strings.Contains(taskContext, "previous_response_id")
+	if previousResponseIntent && (strings.Contains(context, "previousresponseid") ||
 		strings.Contains(context, "previous_response_id") ||
 		(strings.Contains(context, "self-contained") && strings.Contains(context, "perception")) ||
-		(strings.Contains(context, "stale") && strings.Contains(context, "model state")) {
+		(strings.Contains(context, "stale") && strings.Contains(context, "model state"))) {
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)

@@ -173,6 +173,27 @@ func TestSemanticQueryTokensDropsStopwordsAndShortTerms(t *testing.T) {
 	}
 }
 
+func TestSemanticTestRelevanceRejectsDirectoryNoiseAndKeepsNameEvidence(t *testing.T) {
+	rootNames := []string{"brainBriefJSONRecords"}
+	rootFiles := []string{"internal/cli/agent_surface.go"}
+	noise := semanticRecord{
+		ID:       "noise",
+		Name:     "recordingRunner",
+		FilePath: "internal/cli/add_test.go",
+	}
+	if reason, score := semanticTestRelevance(noise, nil, rootNames, rootFiles); reason != "" || score != 0 {
+		t.Fatalf("same-directory noise received relevance: reason=%q score=%d", reason, score)
+	}
+	target := semanticRecord{
+		ID:       "target",
+		Name:     "TestBrainBriefJSONProjectionOmitsFollowUpDetail",
+		FilePath: "internal/cli/brain_test.go",
+	}
+	if reason, score := semanticTestRelevance(target, nil, rootNames, rootFiles); reason != "name terms" || score <= 0 {
+		t.Fatalf("name-related test lost relevance: reason=%q score=%d", reason, score)
+	}
+}
+
 // TestQueryStopwordRegimesShareGenericBase locks in the reconciliation of the
 // two token regimes: history/semantic search (historyQueryStopword) and
 // brain-brief filename matching (brainBriefFileMatchTermStop) consult ONE shared

@@ -3341,37 +3341,67 @@ func semanticTestFacts(brainDir string, source *semanticSourceManifest, query st
 			related[relation.FromID] = struct{}{}
 		}
 	}
-	rootDirs := map[string]struct{}{}
 	rootNames := make([]string, 0, len(roots))
+	rootFiles := make([]string, 0, len(roots))
 	for _, root := range roots {
 		if root.FilePath != "" {
-			rootDirs[pathDirSlash(root.FilePath)] = struct{}{}
+			rootFiles = append(rootFiles, root.FilePath)
 		}
-		name := strings.ToLower(root.Name)
+		name := strings.TrimSpace(root.Name)
 		if name != "" {
 			rootNames = append(rootNames, name)
 		}
 	}
 	result := semanticTestsResult{Roots: roots}
+	result.Suggestions = rankSemanticTestSuggestions(sortedSemanticSymbols(symbolsByID), related, rootNames, rootFiles, limit)
+	return result, nil
+}
+
+func rankSemanticTestSuggestions(symbols []semanticRecord, related map[string]struct{}, rootNames, rootFiles []string, limit int) []semanticTestSuggestion {
 	seen := map[string]struct{}{}
-	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
+	type candidate struct {
+		suggestion semanticTestSuggestion
+		score      int
+	}
+	var candidates []candidate
+	for _, symbol := range symbols {
 		if !isSemanticTestSymbol(symbol) {
 			continue
 		}
-		reason := semanticTestReason(symbol, related, rootDirs, rootNames)
-		if reason == "" {
+		reason, score := semanticTestRelevance(symbol, related, rootNames, rootFiles)
+		if score == 0 {
 			continue
 		}
 		if _, ok := seen[symbol.ID]; ok {
 			continue
 		}
 		seen[symbol.ID] = struct{}{}
-		result.Suggestions = append(result.Suggestions, semanticTestSuggestion{Symbol: symbol, Reason: reason})
-		if len(result.Suggestions) >= limit {
+		candidates = append(candidates, candidate{
+			suggestion: semanticTestSuggestion{Symbol: symbol, Reason: reason},
+			score:      score,
+		})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		a, b := candidates[i].suggestion.Symbol, candidates[j].suggestion.Symbol
+		if a.FilePath != b.FilePath {
+			return a.FilePath < b.FilePath
+		}
+		if a.StartLine != b.StartLine {
+			return a.StartLine < b.StartLine
+		}
+		return a.ID < b.ID
+	})
+	var suggestions []semanticTestSuggestion
+	for _, candidate := range candidates {
+		suggestions = append(suggestions, candidate.suggestion)
+		if len(suggestions) >= limit {
 			break
 		}
 	}
-	return result, nil
+	return suggestions
 }
 
 func semanticGraphFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, map[string]semanticRecord, error) {
@@ -4405,20 +4435,48 @@ func isSemanticTestSymbol(symbol semanticRecord) bool {
 		strings.HasPrefix(name, "test")
 }
 
-func semanticTestReason(symbol semanticRecord, related map[string]struct{}, rootDirs map[string]struct{}, rootNames []string) string {
+func semanticTestRelevance(symbol semanticRecord, related map[string]struct{}, rootNames, rootFiles []string) (string, int) {
 	if _, ok := related[symbol.ID]; ok {
-		return "semantic relation"
-	}
-	if _, ok := rootDirs[pathDirSlash(symbol.FilePath)]; ok {
-		return "same directory"
+		return "semantic relation", 1000
 	}
 	lowerName := strings.ToLower(symbol.Name)
 	for _, rootName := range rootNames {
-		if rootName != "" && strings.Contains(lowerName, rootName) {
-			return "name match"
+		if rootName != "" && strings.Contains(lowerName, strings.ToLower(rootName)) {
+			return "name match", 800
 		}
 	}
-	return ""
+	testTerms := lowerStringSet(historyQueryTerms(symbol.Name))
+	bestOverlap := 0
+	for _, rootName := range rootNames {
+		overlap := 0
+		for _, term := range historyQueryTerms(rootName) {
+			if _, ok := testTerms[term]; ok {
+				overlap++
+			}
+		}
+		if overlap > bestOverlap {
+			bestOverlap = overlap
+		}
+	}
+	if bestOverlap >= 2 {
+		return "name terms", 100 + bestOverlap*10
+	}
+	lowerTestPath := strings.ToLower(filepath.ToSlash(symbol.FilePath))
+	for _, rootFile := range rootFiles {
+		stem := strings.TrimSuffix(strings.ToLower(filepath.Base(rootFile)), strings.ToLower(filepath.Ext(rootFile)))
+		if len(stem) >= 3 && strings.Contains(filepath.Base(lowerTestPath), stem) {
+			return "file match", 50
+		}
+	}
+	return "", 0
+}
+
+func lowerStringSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[strings.ToLower(value)] = struct{}{}
+	}
+	return set
 }
 
 func pathDirSlash(path string) string {
