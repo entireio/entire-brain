@@ -61,6 +61,18 @@ func TestTokenizedSearchRanksRareTokenAboveCommonTokens(t *testing.T) {
 	}
 }
 
+func TestTokenizedSearchUsesDiscriminatingTermAfterFirstEightCandidates(t *testing.T) {
+	_, storePath, _ := indexFixtureBrain(t, idfRankingSnapshot())
+	query := "alpha beta gamma delta epsilon theta lambda omega zebra"
+	results, err := findSemanticSymbolsInSQLite(storePath, query, 20, 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "rare-zebra" {
+		t.Fatalf("late rare term did not drive ranking: %s", summarizeIDs(results))
+	}
+}
+
 func TestSearchResolvesByExactRecordID(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, semanticFixtureSnapshot("1.0"))
 	id := "gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken"

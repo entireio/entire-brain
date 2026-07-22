@@ -3533,6 +3533,11 @@ type semanticPage struct {
 // tokens worth searching the symbol index for. It powers the tokenized fallback
 // so a natural-language task ("change how feeds are refreshed") matches symbols
 // on its content words instead of only as a verbatim substring.
+const (
+	semanticQueryTokenCandidateLimit = 32
+	semanticQueryTokenSearchLimit    = 8
+)
+
 func semanticQueryTokens(query string) []string {
 	seen := map[string]struct{}{}
 	var tokens []string
@@ -3551,7 +3556,7 @@ func semanticQueryTokens(query string) []string {
 		}
 		seen[raw] = struct{}{}
 		tokens = append(tokens, raw)
-		if len(tokens) >= 8 {
+		if len(tokens) >= semanticQueryTokenCandidateLimit {
 			break
 		}
 	}
@@ -3591,13 +3596,39 @@ func findSemanticSymbolsTokenizedSQLite(db *sql.DB, tokens []string, limit, offs
 	if err := db.QueryRow(`SELECT count(*) FROM symbols`).Scan(&total); err != nil {
 		return nil, err
 	}
-	weights := make([]int, len(tokens))
+	type weightedToken struct {
+		value  string
+		weight int
+		order  int
+	}
+	weighted := make([]weightedToken, 0, len(tokens))
 	for i, token := range tokens {
 		var df int
 		if err := db.QueryRow(`SELECT count(*) FROM symbol_fts WHERE instr(lower(text), ?) > 0`, token).Scan(&df); err != nil {
 			return nil, err
 		}
-		weights[i] = tokenIDFWeight(total, df)
+		if df == 0 {
+			continue
+		}
+		weighted = append(weighted, weightedToken{value: token, weight: tokenIDFWeight(total, df), order: i})
+	}
+	sort.SliceStable(weighted, func(i, j int) bool {
+		if weighted[i].weight != weighted[j].weight {
+			return weighted[i].weight > weighted[j].weight
+		}
+		return weighted[i].order < weighted[j].order
+	})
+	if len(weighted) > semanticQueryTokenSearchLimit {
+		weighted = weighted[:semanticQueryTokenSearchLimit]
+	}
+	if len(weighted) == 0 {
+		return nil, nil
+	}
+	tokens = tokens[:0]
+	weights := make([]int, 0, len(weighted))
+	for _, candidate := range weighted {
+		tokens = append(tokens, candidate.value)
+		weights = append(weights, candidate.weight)
 	}
 	var conds, score strings.Builder
 	args := make([]any, 0, len(tokens)*2+2)
