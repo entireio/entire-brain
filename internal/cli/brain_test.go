@@ -940,6 +940,68 @@ func TestBrainBriefTaskTermBonusFavorsBasenameMatch(t *testing.T) {
 	}
 }
 
+func TestBrainBriefTaskFilenameFallbackFindsComponentAndSiblingTest(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, rel := range []string{
+		"internal/cli/mcp.go",
+		"internal/cli/mcp_test.go",
+		"internal/cli/brain.go",
+		"internal/cli/regression.go",
+		"internal/factsync/httpserver.go",
+		"internal/cli/unrelated.go",
+		"benchmarks/agent-brain/mcp_probe.py",
+	} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte("package fixture\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	editFiles, testFiles, _ := brainBriefLikelyFileGroupsForRepo(repoDir, "gh/example/entire-brain", brainBriefReport{}, "entire-brain-mcp-tool-name: Fix the MCP tool-list regression and keep the public name stable on the local server")
+	if len(editFiles) == 0 || editFiles[0] != "internal/cli/mcp.go" {
+		t.Fatalf("filename fallback did not prioritize the MCP implementation: %v", editFiles)
+	}
+	testFiles = brainBriefAddSiblingTestFiles(repoDir, editFiles, testFiles)
+	if !slices.Contains(testFiles, "internal/cli/mcp_test.go") {
+		t.Fatalf("filename fallback did not identify the sibling MCP test: %v", testFiles)
+	}
+}
+
+func TestBrainBriefTaskFilenameFallbackSkipsGeneratedBenchmarkTrees(t *testing.T) {
+	for _, rel := range []string{
+		"benchmarks/agent-brain/results",
+		"benchmarks/agent-brain/results/suite/worktree",
+		"benchmarks/agent-brain/cache",
+		"benchmarks/agent-brain/discovery",
+		"benchmarks/agent-brain/tasks",
+	} {
+		if !brainBriefSkipSourceDir(rel) {
+			t.Errorf("generated benchmark tree should be skipped: %s", rel)
+		}
+	}
+	if brainBriefSkipSourceDir("benchmarks/agent-brain") || brainBriefSkipSourceDir("benchmarks/agent-brain/evidence") {
+		t.Fatal("benchmark implementation and retained evidence must remain eligible")
+	}
+	if !brainBriefSkipSourceDir("scripts/bench/node_modules/node-llama-cpp") {
+		t.Fatal("nested dependency trees must not consume the filename fallback budget")
+	}
+}
+
+func TestBrainBriefFilenameTermsDropGenericToolNameWords(t *testing.T) {
+	terms := brainBriefFilenameFallbackTerms(brainBriefFileMatchTerms("Keep the public MCP tool names stable after a tool-list regression"))
+	if !slices.Contains(terms, "mcp") {
+		t.Fatalf("component term missing: %v", terms)
+	}
+	for _, generic := range []string{"tool", "tools", "name", "names"} {
+		if slices.Contains(terms, generic) {
+			t.Fatalf("generic filename term %q leaked into %v", generic, terms)
+		}
+	}
+}
+
 func TestBrainBriefCurrentCodeFileCountsFindsProviderMetadataContractFile(t *testing.T) {
 	repoDir := t.TempDir()
 	target := filepath.Join(repoDir, "apps", "desktop", "src", "main", "agentic-decider.ts")

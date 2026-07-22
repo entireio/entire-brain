@@ -1345,7 +1345,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		}
 	}
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
-	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
+	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroupsForRepo(status.Repo.Root, status.Repo.Key, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 	report.ActionChecklist = brainBriefActionChecklist(status.Repo.Root, report, task)
@@ -1861,8 +1861,12 @@ func brainBriefFactsCount(limit int) int {
 }
 
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
+	return brainBriefLikelyFileGroupsForRepo(repoRoot, "", report, task)
+}
+
+func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBriefReport, task string) ([]string, []string, []string) {
 	counts := map[string]int{}
-	taskTerms := brainBriefFileMatchTerms(task)
+	taskTerms := brainBriefRepoSpecificFileMatchTerms(brainBriefFileMatchTerms(task), repoKey)
 	add := func(path string, weight int) {
 		clean, ok := cleanBrainBriefLikelyFile(path)
 		if !ok {
@@ -1903,6 +1907,22 @@ func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task s
 			add(path, 5)
 		}
 	}
+	// The compact brief can legitimately have no semantic symbol or usable path
+	// in its top history hits. Keep a cheap repository-local fallback so task
+	// terms that directly name a component (for example "MCP" or "refresh")
+	// can still point the agent at the implementation without forcing a broad
+	// shell search. This considers filenames only; it does not read source
+	// contents or expand the public record budget.
+	for path, score := range brainBriefTaskFilenameCounts(repoRoot, brainBriefFilenameFallbackTerms(taskTerms)) {
+		clean, ok := cleanBrainBriefLikelyFile(path)
+		if !ok {
+			continue
+		}
+		// The filename fallback score already includes a rarity-weighted task
+		// match. Do not add the flat task-term bonus again: doing so lets
+		// ubiquitous project words swamp the discriminating component name.
+		counts[clean] += score + brainBriefLikelyFileBonus(clean)
+	}
 	for path, score := range brainBriefCurrentCodeFileCounts(repoRoot, task) {
 		add(path, score)
 	}
@@ -1925,6 +1945,110 @@ func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task s
 		all = append(all, file)
 	}
 	return editFiles, testFiles, all
+}
+
+func brainBriefTaskFilenameCounts(repoRoot string, terms []string) map[string]int {
+	if repoRoot == "" || len(terms) == 0 {
+		return nil
+	}
+	var paths []string
+	walked := 0
+	_ = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if path == repoRoot {
+			return nil
+		}
+		rel, relErr := filepath.Rel(repoRoot, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if brainBriefSkipSourceDir(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if walked >= 2500 || !brainBriefSourceFile(rel) {
+			return nil
+		}
+		walked++
+		paths = append(paths, rel)
+		return nil
+	})
+	frequencies := map[string]int{}
+	for _, rel := range paths {
+		lower := strings.ToLower(rel)
+		base := strings.TrimSuffix(strings.ToLower(filepath.Base(rel)), strings.ToLower(filepath.Ext(rel)))
+		for _, term := range terms {
+			if strings.Contains(base, term) || strings.Contains(lower, term) {
+				frequencies[term]++
+			}
+		}
+	}
+	counts := map[string]int{}
+	for _, rel := range paths {
+		lower := strings.ToLower(rel)
+		base := strings.TrimSuffix(strings.ToLower(filepath.Base(rel)), strings.ToLower(filepath.Ext(rel)))
+		score := 0
+		for _, term := range terms {
+			frequency := frequencies[term]
+			if frequency == 0 {
+				continue
+			}
+			weight := min(12, max(1, 24/frequency))
+			switch {
+			case strings.Contains(base, term):
+				score += 10 * weight
+			case strings.Contains(lower, term):
+				score += 3 * weight
+			}
+		}
+		if score > 0 {
+			counts[rel] = score
+		}
+	}
+	return counts
+}
+
+func brainBriefRepoSpecificFileMatchTerms(terms []string, repoKey string) []string {
+	repoName := filepath.Base(filepath.ToSlash(strings.TrimSpace(repoKey)))
+	if repoName == "." || repoName == "" {
+		return terms
+	}
+	repoTerms := map[string]struct{}{}
+	for _, term := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(repoName), -1) {
+		repoTerms[term] = struct{}{}
+	}
+	out := make([]string, 0, len(terms))
+	for _, term := range terms {
+		if _, generic := repoTerms[term]; generic {
+			continue
+		}
+		out = append(out, term)
+	}
+	return out
+}
+
+func brainBriefFilenameFallbackTerms(terms []string) []string {
+	generic := map[string]bool{
+		"regression": true,
+		"list":       true,
+		"server":     true,
+		"tool":       true,
+		"tools":      true,
+		"name":       true,
+		"names":      true,
+	}
+	out := make([]string, 0, len(terms))
+	for _, term := range terms {
+		if !generic[term] {
+			out = append(out, term)
+		}
+	}
+	return out
 }
 
 func brainBriefCurrentCodeFileCounts(repoRoot, task string) map[string]int {
@@ -2015,8 +2139,13 @@ func cleanBrainBriefRepoRelativePath(rel string) (string, bool) {
 
 func brainBriefSkipSourceDir(rel string) bool {
 	lower := strings.ToLower(filepath.ToSlash(rel))
+	segmented := "/" + strings.Trim(lower, "/") + "/"
+	if strings.Contains(segmented, "/node_modules/") || strings.Contains(segmented, "/.next/") || strings.Contains(segmented, "/.turbo/") {
+		return true
+	}
 	switch lower {
-	case ".git", ".benchmark", ".entire", ".codex", "node_modules", "dist", "build", "coverage", ".next", ".turbo":
+	case ".git", ".benchmark", ".entire", ".codex", "node_modules", "dist", "build", "coverage", ".next", ".turbo",
+		"benchmarks/agent-brain/results", "benchmarks/agent-brain/cache", "benchmarks/agent-brain/discovery", "benchmarks/agent-brain/tasks":
 		return true
 	}
 	return strings.HasPrefix(lower, ".git/") ||
@@ -2025,7 +2154,11 @@ func brainBriefSkipSourceDir(rel string) bool {
 		strings.HasPrefix(lower, "node_modules/") ||
 		strings.HasPrefix(lower, "dist/") ||
 		strings.HasPrefix(lower, "build/") ||
-		strings.HasPrefix(lower, "coverage/")
+		strings.HasPrefix(lower, "coverage/") ||
+		strings.HasPrefix(lower, "benchmarks/agent-brain/results/") ||
+		strings.HasPrefix(lower, "benchmarks/agent-brain/cache/") ||
+		strings.HasPrefix(lower, "benchmarks/agent-brain/discovery/") ||
+		strings.HasPrefix(lower, "benchmarks/agent-brain/tasks/")
 }
 
 func brainBriefProviderMetadataTask(task string) bool {
