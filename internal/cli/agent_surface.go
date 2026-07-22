@@ -3017,7 +3017,7 @@ func brainBriefRetrievalDefaultLimitActions(repoRoot string, likelyEditFiles, li
 				continue
 			}
 			validation = &brainBriefValidation{
-				Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+				Command:        brainBriefFocusedGoTestCommand(testName, testFile) + " && git diff --check",
 				File:           testFile,
 				Test:           testName,
 				CompleteOnPass: true,
@@ -3027,7 +3027,7 @@ func brainBriefRetrievalDefaultLimitActions(repoRoot string, likelyEditFiles, li
 		if validation == nil {
 			if focusedName, testFile := brainBriefFocusedGoTest(repoRoot, likelyTestFiles, task); focusedName != "" {
 				validation = &brainBriefValidation{
-					Command:        brainBriefFocusedGoTestCommand(focusedName, testFile),
+					Command:        brainBriefFocusedGoTestCommand(focusedName, testFile) + " && git diff --check",
 					File:           testFile,
 					Test:           focusedName,
 					CompleteOnPass: true,
