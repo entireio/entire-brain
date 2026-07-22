@@ -38,3 +38,19 @@ func TestProgressSkipNonTTYKeepsPrefixForm(t *testing.T) {
 		t.Fatalf("non-TTY skip = %q", got)
 	}
 }
+
+func TestProgressThrottlesExportSessionCountChangesNonTTY(t *testing.T) {
+	var buf bytes.Buffer
+	task := newProgress(&buf, "refresh").Begin("export sessions")
+	task.Update("export sessions: reading checkpoint metadata: 10/100 metadata files, 1 session")
+	task.Update("export sessions: reading checkpoint metadata: 11/100 metadata files, 2 sessions")
+	task.Update("export sessions: reading checkpoint metadata: 12/100 metadata files, 3 sessions")
+
+	out := buf.String()
+	if got := strings.Count(out, "reading checkpoint metadata"); got != 1 {
+		t.Fatalf("rapid count-only updates emitted %d lines, want 1:\n%s", got, out)
+	}
+	if !strings.Contains(out, "10/100 metadata files, 1 session") {
+		t.Fatalf("first phase update was not emitted:\n%s", out)
+	}
+}

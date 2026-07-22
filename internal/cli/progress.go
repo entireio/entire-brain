@@ -11,7 +11,10 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
-var progressCountPattern = regexp.MustCompile(`: \d+/\d+ [^,]+`)
+var (
+	progressCountPattern        = regexp.MustCompile(`: \d+/\d+ [^,]+`)
+	progressSessionCountPattern = regexp.MustCompile(`, \d+ sessions?$`)
+)
 
 const clearTerminalLine = "\r\033[2K"
 
@@ -174,5 +177,6 @@ func spinnerLine(frame rune, label string) string {
 }
 
 func progressStatusKey(label string) string {
-	return progressCountPattern.ReplaceAllString(label, "")
+	label = progressCountPattern.ReplaceAllString(label, "")
+	return progressSessionCountPattern.ReplaceAllString(label, "")
 }
