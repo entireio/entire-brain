@@ -1232,7 +1232,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		Status:      brainBriefOutputStatus(status),
 		Guidance: []string{
 			"Treat the brain as an indexed snapshot, not live memory.",
-			"Use likely_edit_files and history matches before broad text search; use likely_test_files for validation context.",
+			"Use likely_edit_files and history matches before text search; if search is still needed, scope it to likely_files and specific identifiers. Use likely_test_files for validation context.",
 			"Use the live-state overlay before trusting semantic results for files changed in this session.",
 			"Inspect full diffs or source files when the task intersects dirty files or when confidence is low.",
 		},

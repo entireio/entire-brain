@@ -148,8 +148,12 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if !foundLikelyFile {
 		t.Fatalf("brief missing likely edit file hint: %+v", report.LikelyEditFiles)
 	}
-	if len(report.Guidance) == 0 || !strings.Contains(strings.Join(report.Guidance, "\n"), "indexed snapshot") {
+	joinedGuidance := strings.Join(report.Guidance, "\n")
+	if len(report.Guidance) == 0 || !strings.Contains(joinedGuidance, "indexed snapshot") {
 		t.Fatalf("brief missing snapshot guidance: %+v", report.Guidance)
+	}
+	if !strings.Contains(joinedGuidance, "scope it to likely_files and specific identifiers") {
+		t.Fatalf("brief missing bounded-search guidance: %+v", report.Guidance)
 	}
 }
 
