@@ -900,7 +900,7 @@ func newInspectChangesCommand(opts Options) *cobra.Command {
 	changesOpts := semanticChangesOptions{limit: 100}
 	cmd := &cobra.Command{
 		Use:   "changes",
-		Short: "Map local changes to semantic symbols",
+		Short: "Map local diff hunks to semantic symbols",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticChanges(cmd.Context(), cmd, opts, changesOpts)
