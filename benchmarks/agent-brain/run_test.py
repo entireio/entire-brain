@@ -391,6 +391,17 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertNotIn("stale_command", state)
             self.assertEqual(run_cmd.call_count, 2)
 
+    def test_brain_status_freshness_reports_the_worst_current_axis(self):
+        status = {
+            "semantic": {"freshness": {"severity": "ok"}},
+            "retrieval": {"freshness": {"severity": "unsafe"}},
+        }
+        self.assertEqual(run.brain_status_freshness_severity(status), "unsafe")
+        self.assertIn(
+            "freshness=unsafe",
+            run.prep_record_summary({"ok": True, "brain_state": {"status": status}}),
+        )
+
     def test_mcp_history_audit_matches_compact_prompt_history_tool_requirement(self):
         # Compact-delivery models are told to call brain_brief ONCE and NOT brain_search;
         # the audit must not then fail them for skipping brain_search.

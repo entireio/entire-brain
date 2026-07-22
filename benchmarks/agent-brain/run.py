@@ -3545,6 +3545,20 @@ def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict
     return state
 
 
+def brain_status_freshness_severity(status: dict[str, Any]) -> str | None:
+    severities: list[str] = []
+    for source_name in ("semantic", "retrieval"):
+        source = status.get(source_name)
+        freshness = source.get("freshness") if isinstance(source, dict) else None
+        severity = freshness.get("severity") if isinstance(freshness, dict) else None
+        if isinstance(severity, str) and severity:
+            severities.append(severity)
+    if not severities:
+        return None
+    rank = {"ok": 0, "current": 0, "degraded": 1, "stale": 2, "unsafe": 3}
+    return max(severities, key=lambda severity: rank.get(severity, 1))
+
+
 def prep_record_summary(record: dict[str, Any]) -> str:
     prep = record.get("brain_prep", {})
     cache = prep.get("cache", {}) if isinstance(prep, dict) else {}
@@ -3555,7 +3569,8 @@ def prep_record_summary(record: dict[str, Any]) -> str:
     )
     state = record.get("brain_state", {})
     semantic = state.get("semantic", {}) if isinstance(state, dict) else {}
-    stale = state.get("stale", {}) if isinstance(state, dict) else {}
+    status = state.get("status", {}) if isinstance(state, dict) else {}
+    freshness = brain_status_freshness_severity(status) if isinstance(status, dict) else None
     parts = [f"ok={record.get('ok')}"]
     if cache:
         parts.append(f"cache_hit={cache.get('hit')}")
@@ -3565,8 +3580,8 @@ def prep_record_summary(record: dict[str, Any]) -> str:
         parts.append(f"files={semantic.get('files')}")
         parts.append(f"symbols={semantic.get('symbols')}")
         parts.append(f"relations={semantic.get('relations')}")
-    if stale:
-        parts.append(f"stale={stale.get('severity')}")
+    if freshness:
+        parts.append(f"freshness={freshness}")
     return " ".join(parts)
 
 
@@ -3646,7 +3661,8 @@ def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> di
         state = record.get("brain_state", {})
         semantic = state.get("semantic", {}) if isinstance(state, dict) else {}
         metrics = state.get("semantic_metrics", {}) if isinstance(state, dict) else {}
-        stale = state.get("stale", {}) if isinstance(state, dict) else {}
+        status = state.get("status", {}) if isinstance(state, dict) else {}
+        freshness = brain_status_freshness_severity(status) if isinstance(status, dict) else None
         prep = record.get("brain_prep", {})
         commands = prep.get("commands", []) if isinstance(prep, dict) else []
         summary_records.append(
@@ -3668,7 +3684,7 @@ def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> di
                 "semantic_partial_failures": metrics.get("partial_failures"),
                 "semantic_build_millis": metrics.get("build_millis"),
                 "semantic_store_bytes": metrics.get("store_bytes"),
-                "stale_severity": stale.get("severity"),
+                "freshness_severity": freshness,
             }
         )
     summary = {
