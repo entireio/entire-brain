@@ -963,6 +963,7 @@ func TestBrainBriefActionChecklistDoesNotLetUnrelatedHistoryInventTaskIntent(t *
 		t.Fatalf("unrelated limit history invented checklist actions: %+v", actions)
 	}
 }
+
 `
 	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -989,6 +990,59 @@ func TestBrainBriefActionChecklistDoesNotLetUnrelatedHistoryInventTaskIntent(t *
 	}
 	if !strings.Contains(joined, "listAutomationActions") || !strings.Contains(joined, "raw limit query argument") {
 		t.Fatalf("missing raw array limit action: %+v", actions)
+	}
+}
+
+func TestBrainBriefActionChecklistFindsAdvertisedMCPToolWithoutDispatcher(t *testing.T) {
+	repoDir := t.TempDir()
+	mcpPath := filepath.Join(repoDir, "internal", "cli", "mcp.go")
+	if err := os.MkdirAll(filepath.Dir(mcpPath), 0o700); err != nil {
+		t.Fatalf("mkdir mcp dir: %v", err)
+	}
+	source := `package cli
+
+func mcpToolDefinitions() []map[string]any {
+	return []map[string]any{
+		{"name": "brain_status"},
+		{"name": "brain_ctx"},
+	}
+}
+
+func handle(name string) {
+	switch name {
+	case "brain_status":
+	case "brain_context":
+	}
+}
+`
+	if err := os.WriteFile(mcpPath, []byte(source), 0o600); err != nil {
+		t.Fatalf("write mcp source: %v", err)
+	}
+	testPath := filepath.Join(repoDir, "internal", "cli", "mcp_test.go")
+	if err := os.WriteFile(testPath, []byte("package cli\n\nfunc TestMCPInitializeAndToolsList(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatalf("write mcp test: %v", err)
+	}
+	actions := brainBriefActionChecklist(repoDir, brainBriefReport{
+		LikelyEditFiles: []string{"internal/cli/mcp.go"},
+		LikelyTestFiles: []string{"internal/cli/mcp_test.go"},
+	}, "Fix the MCP tool-list regression and keep public MCP tool names stable")
+	if len(actions) != 1 || actions[0].File != "internal/cli/mcp.go" ||
+		!strings.Contains(actions[0].Action, "`brain_ctx` to the callable dispatcher name `brain_context`") ||
+		!strings.Contains(actions[0].Evidence, `advertises "brain_ctx"`) ||
+		actions[0].Validation == nil ||
+		actions[0].Validation.Command != "go test ./internal/cli -run '^TestMCPInitializeAndToolsList$' -count=1" ||
+		!actions[0].Validation.CompleteOnPass {
+		t.Fatalf("MCP name action = %+v", actions)
+	}
+	cleanSource := strings.Replace(source, `"brain_ctx"`, `"brain_context"`, 1)
+	if err := os.WriteFile(mcpPath, []byte(cleanSource), 0o600); err != nil {
+		t.Fatalf("write aligned mcp source: %v", err)
+	}
+	if cleanActions := brainBriefActionChecklist(repoDir, brainBriefReport{
+		LikelyEditFiles: []string{"internal/cli/mcp.go"},
+		LikelyTestFiles: []string{"internal/cli/mcp_test.go"},
+	}, "Fix the MCP tool-list regression and keep public MCP tool names stable"); len(cleanActions) != 0 {
+		t.Fatalf("aligned MCP names produced actions: %+v", cleanActions)
 	}
 }
 

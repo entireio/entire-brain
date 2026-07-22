@@ -2844,6 +2844,16 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		context += "\n" + strings.ToLower(match.Excerpt)
 	}
 	actions := brainBriefHistoricalAssignmentActions(repoRoot, report, task)
+	mcpToolNameIntent := strings.Contains(taskContext, "mcp") &&
+		(strings.Contains(taskContext, "tool list") ||
+			strings.Contains(taskContext, "tools/list") ||
+			strings.Contains(taskContext, "tool name") ||
+			strings.Contains(taskContext, "public") ||
+			strings.Contains(taskContext, "advertis") ||
+			strings.Contains(taskContext, "stable"))
+	if mcpToolNameIntent {
+		actions = append(actions, brainBriefMCPToolNameActions(repoRoot, report.LikelyEditFiles, report.LikelyTestFiles, task)...)
+	}
 	limitIntent := strings.Contains(taskContext, "limit") ||
 		strings.Contains(taskContext, "pagination") ||
 		strings.Contains(taskContext, "page size") ||
@@ -2877,6 +2887,107 @@ func brainBriefActionChecklist(repoRoot string, report brainBriefReport, task st
 		actions = append(actions, brainBriefPreviousResponseActions(repoRoot, report.LikelyEditFiles)...)
 	}
 	return dedupeBrainBriefActions(actions, 20)
+}
+
+var (
+	brainBriefMCPToolDefinitionPattern = regexp.MustCompile(`(?m)^\s*(?:\{\s*)?"name"\s*:\s*"([A-Za-z0-9_]+)"`)
+	brainBriefMCPToolCasePattern       = regexp.MustCompile(`(?m)^\s*case\s+((?:"[A-Za-z0-9_]+"\s*,?\s*)+):`)
+	brainBriefQuotedIdentifierPattern  = regexp.MustCompile(`"([A-Za-z0-9_]+)"`)
+)
+
+func brainBriefMCPToolNameActions(repoRoot string, likelyEditFiles, likelyTestFiles []string, task string) []brainBriefAction {
+	for _, rel := range likelyEditFiles {
+		if !strings.HasSuffix(strings.ToLower(rel), "mcp.go") {
+			continue
+		}
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
+		if err != nil {
+			continue
+		}
+		source := string(data)
+		listed := make(map[string]int)
+		for _, match := range brainBriefMCPToolDefinitionPattern.FindAllStringSubmatchIndex(source, -1) {
+			if len(match) != 4 {
+				continue
+			}
+			name := source[match[2]:match[3]]
+			if strings.HasPrefix(name, "brain_") {
+				listed[name] = 1 + strings.Count(source[:match[2]], "\n")
+			}
+		}
+		dispatched := make(map[string]struct{})
+		for _, caseMatch := range brainBriefMCPToolCasePattern.FindAllStringSubmatch(source, -1) {
+			if len(caseMatch) != 2 {
+				continue
+			}
+			for _, nameMatch := range brainBriefQuotedIdentifierPattern.FindAllStringSubmatch(caseMatch[1], -1) {
+				if len(nameMatch) == 2 && strings.HasPrefix(nameMatch[1], "brain_") {
+					dispatched[nameMatch[1]] = struct{}{}
+				}
+			}
+		}
+		for advertised, line := range listed {
+			if _, ok := dispatched[advertised]; ok {
+				continue
+			}
+			callable := ""
+			for candidate := range dispatched {
+				if _, alreadyListed := listed[candidate]; alreadyListed {
+					continue
+				}
+				if brainBriefMCPExpandedNameMatch(advertised, candidate) {
+					callable = candidate
+					break
+				}
+			}
+			if callable == "" {
+				continue
+			}
+			action := fmt.Sprintf("Restore the advertised MCP tool name from `%s` to the callable dispatcher name `%s`; tools/list currently exposes a name that tools/call cannot dispatch.", advertised, callable)
+			var validation *brainBriefValidation
+			if testName, testFile := brainBriefFocusedGoTest(repoRoot, likelyTestFiles, task); testName != "" {
+				validation = &brainBriefValidation{
+					Command:        brainBriefFocusedGoTestCommand(testName, testFile),
+					File:           testFile,
+					Test:           testName,
+					CompleteOnPass: true,
+				}
+				action += " Run only `validation.command`; when it passes, the task is complete. Do not search for or run broader validation."
+			}
+			return []brainBriefAction{{
+				File:       rel,
+				Symbol:     "mcpToolDefinitions",
+				Action:     action,
+				Evidence:   fmt.Sprintf("current line %d advertises %q; dispatcher contains case %q", line, advertised, callable),
+				Validation: validation,
+			}}
+		}
+	}
+	return nil
+}
+
+func brainBriefMCPExpandedNameMatch(advertised, callable string) bool {
+	shortParts := strings.Split(advertised, "_")
+	longParts := strings.Split(callable, "_")
+	if len(shortParts) != len(longParts) || len(shortParts) < 2 {
+		return false
+	}
+	for i := 0; i < len(shortParts)-1; i++ {
+		if shortParts[i] != longParts[i] {
+			return false
+		}
+	}
+	short, long := shortParts[len(shortParts)-1], longParts[len(longParts)-1]
+	if len(short) < 2 || len(short) >= len(long) {
+		return false
+	}
+	next := 0
+	for i := 0; i < len(long) && next < len(short); i++ {
+		if long[i] == short[next] {
+			next++
+		}
+	}
+	return next == len(short)
 }
 
 var brainBriefHistoricalAssignmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
