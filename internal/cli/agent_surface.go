@@ -1517,13 +1517,18 @@ func brainBriefSelectSemanticContext(symbols, relations, neighbors []semanticRec
 }
 
 func brainBriefTaskRequestsTests(task string) bool {
-	for _, term := range brainBriefFileMatchTerms(task) {
-		switch term {
-		case "test", "tests", "testing", "spec", "fixture", "coverage":
+	lower := strings.ToLower(strings.TrimSpace(task))
+	for _, phrase := range []string{
+		"add test", "add a test", "write test", "write a test", "create test", "create a test",
+		"fix test", "fix the test", "failing test", "test failure", "tests fail", "tests are failing",
+		"unit test", "integration test", "test coverage", "test fixture", "test suite",
+		"which test", "what test", "tests for ", "tests cover ",
+	} {
+		if strings.Contains(lower, phrase) {
 			return true
 		}
 	}
-	return false
+	return strings.HasPrefix(lower, "test ") || strings.HasPrefix(lower, "tests ")
 }
 
 func brainBriefSelectSemanticTests(tests semanticTestsResult, context semanticContextResult, limit int) semanticTestsResult {

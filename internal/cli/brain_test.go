@@ -203,6 +203,26 @@ func TestBrainBriefSemanticContextPrefersImplementationRootsAndReranksTests(t *t
 	}
 }
 
+func TestBrainBriefTestIntentRequiresAnActualTestTask(t *testing.T) {
+	for _, task := range []string{
+		"Fix the failing integration test for brain status",
+		"Which tests cover runSemanticImpact?",
+		"Add a test fixture for semantic context",
+	} {
+		if !brainBriefTaskRequestsTests(task) {
+			t.Errorf("test task was not recognized: %q", task)
+		}
+	}
+	for _, task := range []string{
+		"Review the compact semantic impact and test guidance change for code-level correctness",
+		"Refactor the test suggestion implementation",
+	} {
+		if brainBriefTaskRequestsTests(task) {
+			t.Errorf("implementation task was mistaken for test authoring: %q", task)
+		}
+	}
+}
+
 func TestBrainBriefJSONProjectionOmitsFollowUpDetail(t *testing.T) {
 	status := brainBriefOutputStatus(brainStatusReport{
 		Facts: &brainStatusFacts{Verification: &verifySummary{}},
