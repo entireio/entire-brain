@@ -191,7 +191,7 @@ func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_status", "coverage totals/freshness/blind spots", "details=true"} {
+	for _, want := range []string{"brain_status", "semantic and retrieval freshness", "coverage totals/blind spots", "details=true"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("tools/list missing %q: %s", want, data)
 		}

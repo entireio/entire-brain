@@ -128,7 +128,7 @@ func TestRefreshHelpShowsSimplifiedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh help: %v", err)
 	}
-	for _, want := range []string{"--agent", "--force", "--output"} {
+	for _, want := range []string{"--agent", "--force", "--output", "--worktree"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("refresh help missing %q:\n%s", want, out)
 		}
@@ -274,19 +274,20 @@ func TestRefreshAllBranchesRequiresSemanticBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestRefreshSemanticWorktreePassesWorktreeToIndex(t *testing.T) {
+func TestRefreshWorktreePassesWorktreeToSeedAndSemanticIndex(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	runner := seedFixtureRunner(repoDir)
 	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "aaa111\n"}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/cli/semantic.go\n"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M internal/cli/semantic.go\n"}
 	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
 	runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
 	runner.responses[fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
 
-	cmd := NewRootCommand(Options{
+	cmdOpts := Options{
 		Version: "test-version",
 		Env: EntireEnv{
 			RepoRoot:        repoDir,
@@ -297,45 +298,59 @@ func TestRefreshSemanticWorktreePassesWorktreeToIndex(t *testing.T) {
 		},
 		Runner: runner,
 		Now:    time.Now,
-	})
-	if _, err := execute(t, cmd, "refresh", "--semantic", "--semantic-worktree"); err != nil {
-		t.Fatalf("refresh --semantic --semantic-worktree: %v", err)
+	}
+	cmd := NewRootCommand(cmdOpts)
+	if _, err := execute(t, cmd, "refresh", "--worktree"); err != nil {
+		t.Fatalf("refresh --worktree: %v", err)
 	}
 	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
 		t.Fatalf("semantic snapshot was not called with --worktree: %+v", runner.calls)
 	}
+	storage, err := repoStoragePaths(context.Background(), runner, cmdOpts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage paths: %v", err)
+	}
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Seed == nil || manifest.Sources.Seed.WorktreeMode != "worktree" || manifest.Sources.Seed.WorktreeHash == "" {
+		t.Fatalf("seed was not refreshed from a verifiable worktree snapshot: %+v", manifest.Sources)
+	}
 }
 
-func TestRefreshSeedWorktreeDoesNotPassSemanticWorktree(t *testing.T) {
-	repoDir := seedFixtureRepo(t)
-	dataDir := filepath.Join(t.TempDir(), "data")
-	runner := seedFixtureRunner(repoDir)
-	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "aaa111\n"}
-	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: ""}
-	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
-	runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
-	runner.responses[fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
-
-	cmd := NewRootCommand(Options{
-		Version: "test-version",
-		Env: EntireEnv{
-			RepoRoot:        repoDir,
-			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
-			PluginDataDir:   dataDir,
-			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
-			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
-		},
-		Runner: runner,
-		Now:    time.Now,
-	})
-	if _, err := execute(t, cmd, "refresh", "--semantic", "--worktree"); err != nil {
-		t.Fatalf("refresh --semantic --worktree: %v", err)
+func TestSeedRefreshNeededUsesRequestedSnapshotMode(t *testing.T) {
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "headsha\n"},
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: " M README.md\n"},
+		fakeCommandKey("git", "diff", "--binary", "HEAD"):                       {stdout: "diff --git a/README.md b/README.md\n"},
+		fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD"):           {},
+	}}
+	opts := Options{Runner: runner}
+	manifest := &exportManifest{Sources: &brainSources{
+		Seed:     &seedSourceManifest{Commit: "headsha", WorktreeMode: "tracked"},
+		Sessions: &sessionSourceManifest{Sessions: []exportSession{{}}},
+	}}
+	needed, err := seedRefreshNeeded(context.Background(), opts, repoDir, manifest, true)
+	if err != nil {
+		t.Fatalf("worktree freshness check: %v", err)
 	}
-	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
-		t.Fatalf("semantic snapshot was not called without --worktree: %+v", runner.calls)
+	if !needed {
+		t.Fatal("an existing tracked seed must be rebuilt for a requested worktree snapshot")
 	}
-	if fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
-		t.Fatalf("seed --worktree leaked into semantic snapshot: %+v", runner.calls)
+	hash, err := worktreeFingerprint(context.Background(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("worktree fingerprint: %v", err)
+	}
+	manifest.Sources.Seed.WorktreeMode = "worktree"
+	manifest.Sources.Seed.WorktreeHash = hash
+	needed, err = seedRefreshNeeded(context.Background(), opts, repoDir, manifest, true)
+	if err != nil {
+		t.Fatalf("current worktree freshness check: %v", err)
+	}
+	if needed {
+		t.Fatal("the exact current worktree seed should not be rebuilt")
 	}
 }
 

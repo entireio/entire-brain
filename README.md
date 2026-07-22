@@ -115,10 +115,11 @@ entire brain refresh --agent none
 entire brain status
 ```
 
-The semantic refresh refuses a dirty worktree by default. Run it on a clean
-checkout, or use the advanced `entire brain refresh index --worktree` path only
-when you intentionally want the current uncommitted state indexed. Worktree-
-backed semantic indexes are rejected by bundle export.
+Refresh refuses a dirty worktree by default. Run it on a clean checkout, or use
+`entire brain refresh --worktree` only when you intentionally want seed/docs and
+the semantic index to include the same current uncommitted state. Use the
+advanced `refresh index --worktree` path when only the semantic layer needs
+updating. Worktree-backed semantic indexes are rejected by bundle export.
 
 `--agent none` keeps the first build deterministic and token-free, with no
 hosted-model calls. Refresh exports captured sessions, builds the local

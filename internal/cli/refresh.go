@@ -23,7 +23,6 @@ type refreshCommandOptions struct {
 	scope            string
 	force            bool
 	semantic         bool
-	semanticWorktree bool
 	allBranches      bool
 	forceAllBranches bool
 	historyIndex     bool
@@ -69,17 +68,16 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Include selected untracked instruction/docs files in seed")
+	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh seed, docs, and semantic index from the current worktree")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Allow semantic indexing of the current dirty worktree")
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
-	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
+	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}
 	// Individual refresh stages, runnable on their own: `refresh` does all of
@@ -170,7 +168,13 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		finishOutput(nil)
 	}
 	manifest, _ := loadBrainManifest(brainDir)
-	needSeed := outputExplicit || refreshOpts.seed.force || seedNeededForBrain(manifest)
+	needSeed := outputExplicit || refreshOpts.seed.force
+	if !needSeed {
+		needSeed, err = seedRefreshNeeded(ctx, opts, repoDir, manifest, refreshOpts.seed.worktree)
+		if err != nil {
+			return err
+		}
+	}
 	if exportErr != nil && (manifest == nil || manifest.Sources == nil) {
 		needSeed = true
 	}
@@ -290,7 +294,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
-		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, refreshOpts.semanticWorktree)
+		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, refreshOpts.seed.worktree)
 		if err != nil {
 			semanticCheckTask.Finish(err)
 			return err
@@ -310,7 +314,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			semanticProgress := func(phase string) {
 				semanticTask.Update("semantic index: " + phase)
 			}
-			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
+			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: refreshOpts.seed.worktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
 				semanticTask.Finish(err)
 				return err
 			}
@@ -677,4 +681,26 @@ func seedNeededForBrain(manifest *exportManifest) bool {
 		return false
 	}
 	return false
+}
+
+func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manifest *exportManifest, worktree bool) (bool, error) {
+	if seedNeededForBrain(manifest) {
+		return true, nil
+	}
+	seed := manifest.Sources.Seed
+	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("resolve HEAD for seed refresh: %w", err)
+	}
+	if seed.Commit != head {
+		return true, nil
+	}
+	if worktree {
+		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
+		if err != nil {
+			return false, fmt.Errorf("fingerprint worktree for seed refresh: %w", err)
+		}
+		return seed.WorktreeMode != "worktree" || seed.WorktreeHash != hash, nil
+	}
+	return seed.WorktreeMode == "worktree", nil
 }

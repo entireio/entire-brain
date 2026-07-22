@@ -397,6 +397,17 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	}
 }
 
+func TestSeedRejectsDirtyWorktreeWithoutWorktreeFlag(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M README.md\n"}
+	cmd := NewRootCommand(Options{Version: "test-version", Runner: runner})
+	_, err := execute(t, cmd, "refresh", "seed", "--output", filepath.Join(t.TempDir(), "seed"), repoDir)
+	if err == nil || !strings.Contains(err.Error(), "dirty_worktree") {
+		t.Fatalf("dirty seed refresh err = %v, want dirty_worktree", err)
+	}
+}
+
 func TestSeedAgentCommandQuickAndDeep(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture uses sh")
@@ -578,6 +589,7 @@ func seedFixtureRunner(repoDir string) *fakeCommandRunner {
 		fakeCommandKey("git", "rev-parse", "HEAD"): {
 			stdout: "abc123\n",
 		},
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {},
 		fakeCommandKey("git", "log", "--reverse", "--format=%aI", "--max-count=1"): {
 			stdout: "2025-01-01T00:00:00Z\n",
 		},
