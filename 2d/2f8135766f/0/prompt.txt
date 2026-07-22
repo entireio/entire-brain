@@ -1,9 +1,1 @@
-Any update?
-
----
-
-Explain the two rows were branch performs worse than main on tokens and/or speed.
-
----
-
 We can ignore the GitHub speed loss. The XDG token loss seems to indicate a problem with the changes you made in this branch. Investigate and test solutions.
