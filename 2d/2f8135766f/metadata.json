@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "2d2f8135766f",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/agent_ux_test.go",
+    "internal/cli/semantic.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2d/2f8135766f/0/metadata.json",
+      "transcript": "/2d/2f8135766f/0/full.jsonl",
+      "compact_transcript": "/2d/2f8135766f/0/transcript.jsonl",
+      "content_hash": "/2d/2f8135766f/0/content_hash.txt",
+      "prompt": "/2d/2f8135766f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 235850,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 9057792,
+    "output_tokens": 23053,
+    "api_call_count": 64
+  }
+}
