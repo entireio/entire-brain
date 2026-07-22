@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "5fece5f024ae",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 10,
+  "files_touched": [
+    "README.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/refresh.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5f/ece5f024ae/0/metadata.json",
+      "transcript": "/5f/ece5f024ae/0/full.jsonl",
+      "compact_transcript": "/5f/ece5f024ae/0/transcript.jsonl",
+      "content_hash": "/5f/ece5f024ae/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 61568,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 8210944,
+    "output_tokens": 13641,
+    "api_call_count": 42
+  }
+}
