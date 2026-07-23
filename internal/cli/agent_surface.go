@@ -1356,17 +1356,11 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		// most three likely implementation files, then recompute the file list
 		// from that stronger structured evidence.
 		candidateFiles := report.LikelyEditFiles[:min(3, len(report.LikelyEditFiles))]
-		candidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, 80)
-		var candidates []semanticRecord
-		var focusedErr error
-		for _, file := range candidateFiles {
-			var fileCandidates []semanticRecord
-			fileCandidates, focusedErr = semanticSymbolsForFiles(status.Brain.Path, status.Manifest.Sources.Semantic, []string{file}, candidateLimit)
-			if focusedErr != nil {
-				break
-			}
-			candidates = append(candidates, fileCandidates...)
+		candidateLimit := status.Manifest.Sources.Semantic.Symbols
+		if candidateLimit <= 0 {
+			candidateLimit = brainBriefExpandedCandidateLimit(briefOpts.limit, 80)
 		}
+		candidates, focusedErr := semanticSymbolsForFiles(status.Brain.Path, status.Manifest.Sources.Semantic, candidateFiles, candidateLimit)
 		if focusedErr != nil {
 			report.Warnings = append(report.Warnings, "focused semantic file context unavailable: "+focusedErr.Error())
 		} else {
@@ -1407,6 +1401,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		report.Guidance = append(report.Guidance,
 			"Run a structured test action before broad inspection when present; treat its result as diagnostic evidence, not as completion.",
 			"Treat inspect actions as structured symbols to verify, not as verified edits or completion decisions.",
+			"When the diagnostic test and inspect action agree, make the minimal edit, rerun the diagnostic plus one broader focused validation, then finish unless current evidence shows broader impact.",
 		)
 	}
 	if views, _, perr := loadPatternViews(status.Brain.Path); perr == nil {
