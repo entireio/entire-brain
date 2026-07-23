@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "2a7a9f378c26",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json",
+    "benchmarks/agent-brain/tasks/entire-cli-external-command-env-filter.json",
+    "benchmarks/agent-brain/tasks/entire-cli-manual-commit-attribution-base.json",
+    "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-provenance-strip.json",
+    "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-manual-commit-attribution-base.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json",
+    "internal/cli/retrieve_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2a/7a9f378c26/0/metadata.json",
+      "transcript": "/2a/7a9f378c26/0/full.jsonl",
+      "compact_transcript": "/2a/7a9f378c26/0/transcript.jsonl",
+      "content_hash": "/2a/7a9f378c26/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 162084,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 14571008,
+    "output_tokens": 13946,
+    "api_call_count": 84
+  }
+}

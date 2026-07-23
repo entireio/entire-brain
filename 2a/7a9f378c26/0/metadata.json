@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "2a7a9f378c26",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-23T03:05:51.392737Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json",
+    "benchmarks/agent-brain/tasks/entire-cli-external-command-env-filter.json",
+    "benchmarks/agent-brain/tasks/entire-cli-manual-commit-attribution-base.json",
+    "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-provenance-strip.json",
+    "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-manual-commit-attribution-base.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json",
+    "internal/cli/retrieve_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "8b2393bf54f0",
+  "checkpoint_transcript_start": 16919,
+  "transcript_lines_at_start": 16919,
+  "compact_transcript_start": 3422,
+  "token_usage": {
+    "input_tokens": 162084,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 14571008,
+    "output_tokens": 13946,
+    "api_call_count": 84
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-23T03:05:50.41586Z",
+    "agent_lines": 31,
+    "agent_removed": 17,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 31,
+    "total_lines_changed": 48,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
