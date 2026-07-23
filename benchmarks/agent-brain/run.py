@@ -1119,25 +1119,45 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
     base = task.get("_resolved_base_commit") or task.get("base_commit") or git_head(source)
     worktree = run_dir / "worktree"
     private_paths = filtered_agent_history_paths(task)
-    history_repo = filtered_agent_history_repo(source, str(base), private_paths)
-    run_cmd(
-        [
-            "git",
-            "clone",
-            "--no-local",
-            "--no-tags",
-            "--single-branch",
-            "--branch",
-            "baseline",
-            str(history_repo),
-            str(worktree),
-        ],
-        cwd=run_dir,
+    source_commit = run_cmd(
+        ["git", "rev-parse", "--verify", f"{base}^{{commit}}"],
+        cwd=source,
         check=True,
-    )
-    run_cmd(["git", "checkout", "--detach"], cwd=worktree, check=True)
-    run_cmd(["git", "update-ref", "-d", "refs/remotes/origin/baseline"], cwd=worktree, check=True)
-    copy_origin_remote(source, worktree)
+    ).stdout.strip()
+    paths_present = private_paths_present_in_history(source, source_commit, private_paths)
+    if not paths_present:
+        # A direct detached worktree preserves partial-clone/promisor behavior and is
+        # safe when no benchmark/Entire-private path exists in the reachable history.
+        run_cmd(
+            ["git", "worktree", "add", "--detach", str(worktree), source_commit],
+            cwd=source,
+            check=True,
+        )
+    else:
+        history_repo = filtered_agent_history_repo(
+            source,
+            source_commit,
+            private_paths,
+            paths_present=paths_present,
+        )
+        run_cmd(
+            [
+                "git",
+                "clone",
+                "--no-local",
+                "--no-tags",
+                "--single-branch",
+                "--branch",
+                "baseline",
+                str(history_repo),
+                str(worktree),
+            ],
+            cwd=run_dir,
+            check=True,
+        )
+        run_cmd(["git", "checkout", "--detach"], cwd=worktree, check=True)
+        run_cmd(["git", "update-ref", "-d", "refs/remotes/origin/baseline"], cwd=worktree, check=True)
+        copy_origin_remote(source, worktree)
     ignore_benchmark_plugin(worktree)
     patch = task.get("setup_patch", "")
     if patch:
@@ -1181,6 +1201,8 @@ def filtered_agent_history_repo(
     source: pathlib.Path,
     base: str,
     private_paths: list[str],
+    *,
+    paths_present: list[str] | None = None,
 ) -> pathlib.Path:
     """Cache ordinary source history with benchmark/Entire-private paths removed."""
     source_commit = run_cmd(
@@ -1212,92 +1234,63 @@ def filtered_agent_history_repo(
     staging_repo = staging / "repo.git"
     export_ref = f"refs/entire-benchmark/export-{os.getpid()}-{key}"
     run_cmd(["git", "init", "--bare", str(staging_repo)], cwd=staging, check=True)
-    paths_present = [
-        path
-        for path in private_paths
-        if run_cmd(
-            ["git", "rev-list", "--objects", source_commit, "--", path],
-            cwd=source,
-            check=True,
-        ).stdout.strip()
-    ]
+    paths_present = paths_present or private_paths_present_in_history(
+        source,
+        source_commit,
+        private_paths,
+    )
     if not paths_present:
-        # Avoid rewriting a long history when there is nothing private to remove.
-        # An object alternate lets the bare harness cache expose exactly one baseline
-        # ref without rewriting the source. Each later --no-local agent clone receives
-        # a self-contained copy of only the objects reachable from that ref.
-        common_dir_raw = run_cmd(
-            ["git", "rev-parse", "--git-common-dir"],
-            cwd=source,
-            check=True,
-        ).stdout.strip()
-        common_dir = pathlib.Path(common_dir_raw)
-        if not common_dir.is_absolute():
-            common_dir = (source / common_dir).resolve()
-        alternates = staging_repo / "objects" / "info" / "alternates"
-        alternates.parent.mkdir(parents=True, exist_ok=True)
-        alternates.write_text(str((common_dir / "objects").resolve()) + "\n")
-        run_cmd(
-            ["git", "update-ref", "refs/heads/baseline", source_commit],
-            cwd=staging_repo,
-            check=True,
-        )
-        run_cmd(
-            ["git", "cat-file", "-e", "refs/heads/baseline^{commit}"],
-            cwd=staging_repo,
-            check=True,
-        )
-    else:
-        run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
-        try:
-            export_command = [
-                "git",
-                "fast-export",
-                "--use-done-feature",
-                export_ref,
-                "--",
-                ".",
-                *[f":(exclude){path}" for path in private_paths],
-            ]
-            with tempfile.TemporaryFile() as export_stderr:
-                exporter = subprocess.Popen(
-                    export_command,
-                    cwd=source,
-                    stdout=subprocess.PIPE,
-                    stderr=export_stderr,
-                )
-                assert exporter.stdout is not None
-                importer = subprocess.run(
-                    ["git", "fast-import", "--quiet"],
-                    cwd=staging_repo,
-                    stdin=exporter.stdout,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                exporter.stdout.close()
-                export_returncode = exporter.wait()
-                export_stderr.seek(0)
-                export_error = export_stderr.read().decode(errors="replace")
-            if export_returncode != 0 or importer.returncode != 0:
-                raise RuntimeError(
-                    "failed to build filtered source history:\n"
-                    f"fast-export ({export_returncode}): {export_error}\n"
-                    f"fast-import ({importer.returncode}): {importer.stderr.decode(errors='replace')}"
-                )
-        finally:
-            run_cmd(["git", "update-ref", "-d", export_ref], cwd=source)
+        raise RuntimeError("filtered history requested without a private path to remove")
+    run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
+    try:
+        export_command = [
+            "git",
+            "fast-export",
+            "--use-done-feature",
+            export_ref,
+            "--",
+            ".",
+            *[f":(exclude){path}" for path in private_paths],
+        ]
+        with tempfile.TemporaryFile() as export_stderr:
+            exporter = subprocess.Popen(
+                export_command,
+                cwd=source,
+                stdout=subprocess.PIPE,
+                stderr=export_stderr,
+            )
+            assert exporter.stdout is not None
+            importer = subprocess.run(
+                ["git", "fast-import", "--quiet"],
+                cwd=staging_repo,
+                stdin=exporter.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            exporter.stdout.close()
+            export_returncode = exporter.wait()
+            export_stderr.seek(0)
+            export_error = export_stderr.read().decode(errors="replace")
+        if export_returncode != 0 or importer.returncode != 0:
+            raise RuntimeError(
+                "failed to build filtered source history:\n"
+                f"fast-export ({export_returncode}): {export_error}\n"
+                f"fast-import ({importer.returncode}): {importer.stderr.decode(errors='replace')}"
+            )
+    finally:
+        run_cmd(["git", "update-ref", "-d", export_ref], cwd=source)
 
-        filtered_tip = run_cmd(
-            ["git", "rev-parse", "--verify", export_ref],
-            cwd=staging_repo,
-            check=True,
-        ).stdout.strip()
-        run_cmd(
-            ["git", "update-ref", "refs/heads/baseline", filtered_tip],
-            cwd=staging_repo,
-            check=True,
-        )
-        run_cmd(["git", "update-ref", "-d", export_ref], cwd=staging_repo, check=True)
+    filtered_tip = run_cmd(
+        ["git", "rev-parse", "--verify", export_ref],
+        cwd=staging_repo,
+        check=True,
+    ).stdout.strip()
+    run_cmd(
+        ["git", "update-ref", "refs/heads/baseline", filtered_tip],
+        cwd=staging_repo,
+        check=True,
+    )
+    run_cmd(["git", "update-ref", "-d", export_ref], cwd=staging_repo, check=True)
     run_cmd(["git", "symbolic-ref", "HEAD", "refs/heads/baseline"], cwd=staging_repo, check=True)
     for path in private_paths:
         leaked = run_cmd(
@@ -1314,6 +1307,22 @@ def filtered_agent_history_repo(
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return cache_repo
+
+
+def private_paths_present_in_history(
+    source: pathlib.Path,
+    source_commit: str,
+    private_paths: list[str],
+) -> list[str]:
+    return [
+        path
+        for path in private_paths
+        if run_cmd(
+            ["git", "rev-list", "--objects", source_commit, "--", path],
+            cwd=source,
+            check=True,
+        ).stdout.strip()
+    ]
 
 
 def commit_agent_baseline(
