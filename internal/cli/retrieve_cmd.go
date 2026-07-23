@@ -11,10 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	retrievalDefaultLimit = 5
-	retrievalExcerptBytes = 600
-)
+const retrievalExcerptBytes = 600
 
 type compactUnifiedResult struct {
 	Source               string            `json:"source"`
@@ -72,8 +69,8 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().IntVar(&limit, "limit", retrievalDefaultLimit, "Maximum results")
-	cmd.Flags().IntVarP(&limit, "number", "n", retrievalDefaultLimit, "Maximum results (QMD-style alias for --limit)")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
+	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
@@ -154,9 +151,6 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		}
 		for _, action := range hints.ActionChecklist {
 			fmt.Fprintf(out, "action %s %s: %s\n", action.File, action.Symbol, action.Action)
-			if action.Validation != nil {
-				fmt.Fprintf(out, "  validate: %s (complete_on_pass=%t)\n", action.Validation.Command, action.Validation.CompleteOnPass)
-			}
 		}
 		for _, r := range results {
 			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
@@ -184,21 +178,37 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 }
 
 func retrievalHintsForResults(repoRoot string, results []unifiedResult, query string) retrievalTaskHints {
-	report := brainBriefReport{}
+	_ = query
+	seen := map[string]struct{}{}
+	var editFiles, testFiles []string
+	addPath := func(path string) {
+		clean, ok := cleanBrainBriefHistoryFile(repoRoot, path)
+		if !ok || !brainBriefRepoFileExists(repoRoot, clean) {
+			return
+		}
+		if _, ok := seen[clean]; ok {
+			return
+		}
+		seen[clean] = struct{}{}
+		if brainBriefLikelyTestFile(clean) {
+			testFiles = append(testFiles, clean)
+		} else {
+			editFiles = append(editFiles, clean)
+		}
+	}
 	for _, result := range results {
 		if result.Source != "history" && result.Source != "doc" {
 			continue
 		}
-		report.History.Matches = append(report.History.Matches, brainTextMatch{Excerpt: result.Text})
+		addPath(result.Path)
+		for _, path := range extractBrainBriefPaths(result.Text) {
+			addPath(path)
+		}
 	}
-	for path := range retrievalExactCodeFileCounts(repoRoot, query) {
-		report.History.Matches = append(report.History.Matches, brainTextMatch{Excerpt: path})
-	}
-	editFiles, testFiles, _ := brainBriefLikelyFileGroups(repoRoot, report, query)
-	seen := make(map[string]struct{}, len(editFiles))
-	for _, file := range editFiles {
-		seen[file] = struct{}{}
-	}
+
+	// Pair an indexed test locator with its conventional implementation path.
+	// This uses only the paths contained in indexed results plus bounded stat
+	// calls; ordinary retrieval never scans or reads the live source tree.
 	var siblingImplementations []string
 	for _, testFile := range testFiles {
 		for _, candidate := range retrievalSiblingImplementationCandidates(testFile) {
@@ -216,30 +226,7 @@ func retrievalHintsForResults(repoRoot string, results []unifiedResult, query st
 	if len(testFiles) > 3 {
 		testFiles = testFiles[:3]
 	}
-	report.LikelyEditFiles = editFiles
-	report.LikelyTestFiles = testFiles
-	actions := brainBriefActionChecklist(repoRoot, report, query)
-	if len(actions) > 0 {
-		editFiles = brainBriefActionFiles(actions)
-		if actionTestFiles := brainBriefActionTestFiles(actions); len(actionTestFiles) > 0 {
-			testFiles = actionTestFiles
-		}
-	}
-	return retrievalTaskHints{LikelyEditFiles: editFiles, LikelyTestFiles: testFiles, ActionChecklist: actions}
-}
-
-func retrievalExactCodeFileCounts(repoRoot, query string) map[string]int {
-	needle := strings.ToLower(strings.Join(strings.Fields(query), " "))
-	if len(needle) < 8 {
-		return nil
-	}
-	return brainBriefCurrentCodeFileCountsByScore(repoRoot, func(_ string, source string) int {
-		haystack := strings.ToLower(strings.Join(strings.Fields(source), " "))
-		if strings.Contains(haystack, needle) {
-			return 200
-		}
-		return 0
-	})
+	return retrievalTaskHints{LikelyEditFiles: editFiles, LikelyTestFiles: testFiles}
 }
 
 func retrievalSiblingImplementationCandidates(testFile string) []string {

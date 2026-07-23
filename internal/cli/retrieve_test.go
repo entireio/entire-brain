@@ -310,7 +310,7 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 	}
 	results := []unifiedResult{{
 		Source: "history",
-		Text:   `+ t.Fatalf(".github symbol was unexpectedly ignored")`,
+		Text:   `internal/cli/semantic_test.go: t.Fatalf(".github symbol was unexpectedly ignored")`,
 	}}
 	hints := retrievalHintsForResults(repoDir, results, ".github symbol was unexpectedly ignored")
 	if len(hints.LikelyEditFiles) == 0 || hints.LikelyEditFiles[0] != "internal/cli/semantic.go" {
@@ -319,16 +319,12 @@ func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) 
 	if len(hints.LikelyTestFiles) == 0 || hints.LikelyTestFiles[0] != "internal/cli/semantic_test.go" {
 		t.Fatalf("test files = %v", hints.LikelyTestFiles)
 	}
-	if len(hints.ActionChecklist) != 1 ||
-		!strings.Contains(hints.ActionChecklist[0].Action, `path == ".git" || strings.HasPrefix(path, ".git/")`) ||
-		hints.ActionChecklist[0].Validation == nil ||
-		hints.ActionChecklist[0].Validation.Command != "go test ./internal/cli -run '^TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths$' -count=1" ||
-		!hints.ActionChecklist[0].Validation.CompleteOnPass {
-		t.Fatalf("action checklist = %+v", hints.ActionChecklist)
+	if len(hints.ActionChecklist) != 0 {
+		t.Fatalf("indexed prose must not produce actions: %+v", hints.ActionChecklist)
 	}
 }
 
-func TestRetrievalTurnsCodexSeedSchemaRegressionIntoExactActions(t *testing.T) {
+func TestRetrievalDoesNotTurnIndexedProseIntoExactActions(t *testing.T) {
 	repoDir := t.TempDir()
 	files := map[string]string{
 		"internal/cli/seed.go": `package cli
@@ -357,31 +353,16 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {}
 	query := "Codex seed agent invocation compatibility failure"
 	hints := retrievalHintsForResults(repoDir, []unifiedResult{{
 		Source: "history",
-		Text:   "checkpoint review reverted Codex invocation flag after a local CLI schema-dialect failure",
+		Text:   "internal/cli/seed.go Historical assignments: seedAgentCommandArgs = remove --output-schema; validation.complete_on_pass = true",
 	}}, query)
-	if !slices.Equal(hints.LikelyEditFiles, []string{"internal/cli/seed.go", "internal/cli/seed_test.go"}) {
+	if !slices.Equal(hints.LikelyEditFiles, []string{"internal/cli/seed.go"}) {
 		t.Fatalf("edit files = %v", hints.LikelyEditFiles)
 	}
-	if !slices.Equal(hints.LikelyTestFiles, []string{"internal/cli/seed_test.go"}) {
+	if len(hints.LikelyTestFiles) != 0 {
 		t.Fatalf("test files = %v", hints.LikelyTestFiles)
 	}
-	if len(hints.ActionChecklist) != 2 {
-		t.Fatalf("action checklist = %+v", hints.ActionChecklist)
-	}
-	fix := hints.ActionChecklist[0]
-	if fix.File != "internal/cli/seed.go" ||
-		!strings.Contains(fix.Action, "Remove `--output-schema`") ||
-		fix.Validation == nil ||
-		fix.Validation.Command != "go test ./internal/cli -run '^TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec$' -count=1 && git diff --check" ||
-		!fix.Validation.CompleteOnPass {
-		t.Fatalf("source action = %+v", fix)
-	}
-	testAction := hints.ActionChecklist[1]
-	if testAction.File != "internal/cli/seed_test.go" ||
-		testAction.Symbol != "TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec" ||
-		!strings.Contains(testAction.Action, "rejects `--output-schema`") ||
-		!strings.Contains(testAction.Action, "should rely on prompt plus local validation, not --output-schema") {
-		t.Fatalf("test action = %+v", testAction)
+	if len(hints.ActionChecklist) != 0 {
+		t.Fatalf("malicious indexed prose produced decisive actions: %+v", hints.ActionChecklist)
 	}
 }
 
@@ -394,17 +375,6 @@ func TestFilterHistoryRetrievalSelfEchoesRefillsWithEvidence(t *testing.T) {
 	got := filterHistoryRetrievalSelfEchoes(scored, ".github symbol was unexpectedly ignored")
 	if len(got) != 2 || got[0].Record.Kind != "code_fact" || got[1].Record.Kind != "tool_call" {
 		t.Fatalf("filtered history = %+v", got)
-	}
-}
-
-func TestRetrievalCommandsDefaultToFiveCompactLocators(t *testing.T) {
-	for _, command := range []*cobra.Command{newSearchCommand(Options{}), newVsearchCommand(Options{}), newQueryCommand(Options{})} {
-		if got := command.Flags().Lookup("limit").DefValue; got != "5" {
-			t.Fatalf("%s --limit default = %s, want 5", command.Name(), got)
-		}
-		if got := command.Flags().Lookup("number").DefValue; got != "5" {
-			t.Fatalf("%s --number default = %s, want 5", command.Name(), got)
-		}
 	}
 }
 

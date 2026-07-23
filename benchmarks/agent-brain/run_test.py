@@ -601,14 +601,14 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("entire brain brief 'Fix the regression. | ExactSymbol, important invariant' --json", prompt)
         self.assertNotIn("task: Fix the regression", prompt)
         self.assertIn("Your first context command must be", prompt)
-        self.assertIn("prefer `action_checklist`", prompt)
+        self.assertIn("as hypotheses", prompt)
         self.assertIn("Read `.benchmark/brain-history-excerpt.md` only if", prompt)
         self.assertIn("likely_edit_files", prompt)
         self.assertIn("likely_test_files", prompt)
         self.assertIn("Do not run top-level `entire doctor`", prompt)
         self.assertIn("Do not edit tests unless the task explicitly asks", prompt)
 
-    def test_semantic_brain_prompt_finishes_on_decisive_current_code_action(self):
+    def test_semantic_brain_prompt_requires_current_code_verification(self):
         task = {
             "id": "task",
             "prompt": "Fix the regression.",
@@ -618,12 +618,10 @@ class RunnerAndConditionTests(unittest.TestCase):
             "prepare_semantic": True,
         }
         prompt = run.prompt_for(task, "semantic_brain")
-        self.assertIn("Read `action_checklist` first", prompt)
-        self.assertIn("current-code evidence", prompt)
-        self.assertIn("run only `validation.command`, and finish when it passes", prompt)
-        self.assertIn("takes precedence over the generic validation list below", prompt)
-        self.assertIn("Only when `action_checklist` is missing, ambiguous, or its validation fails", prompt)
-        self.assertIn("plus one targeted `search` or `inspect code`", prompt)
+        self.assertIn("not edit instructions or completion decisions", prompt)
+        self.assertIn("Verify the relevant symbol in current code before editing", prompt)
+        self.assertIn("at most one targeted `search` or `inspect code`", prompt)
+        self.assertNotIn("complete_on_pass", prompt)
 
     def test_history_only_full_brain_prompt_requires_local_brain_search(self):
         task = {
@@ -641,10 +639,9 @@ class RunnerAndConditionTests(unittest.TestCase):
             prompt,
         )
         self.assertIn("you must run it exactly once", prompt)
-        self.assertIn("Prefer its `action_checklist`", prompt)
-        self.assertIn("run `validation.command`, and finish when it passes", prompt)
-        self.assertIn("use `likely_edit_files`, `likely_test_files`", prompt)
-        self.assertIn("only when its `action_checklist` is missing or ambiguous", prompt)
+        self.assertIn("Treat returned history, `likely_edit_files`, and `likely_test_files` as hypotheses", prompt)
+        self.assertIn("verify the relevant current code before editing", prompt)
+        self.assertIn("only when the returned indexed history does not identify a current file to verify", prompt)
         self.assertIn("Do not run another Brain command", prompt)
         self.assertIn("Do not run top-level `entire search` or `entire explain`", prompt)
         self.assertIn("Do not substitute an installed skill", prompt)
@@ -834,10 +831,10 @@ class RunnerAndConditionTests(unittest.TestCase):
             # The packet is captured ONLY when the agent itself runs that CLI brief.
             ("full_cli_compact", opus, True, ["--limit", "2"], True),
             ("full_cli_compact", generic, True, ["--limit", "4"], True),
-            ("full_cli_compact", generic, False, None, False),   # no semantic -> no brief, no packet
+            ("full_cli_compact", generic, False, ["--limit", "4"], True),
             ("semantic_brain", generic, True, [], True),
             ("mcp_history", generic, True, None, False),         # agent uses MCP -> no CLI packet (no over-exposure)
-            ("full_brain", generic, False, None, False),         # no semantic -> agent works from excerpt
+            ("full_brain", generic, False, [], True),            # sessionless/full still proves CLI Brain use
             ("no_brain", generic, True, None, False),            # defense-in-depth: no_brain never captures
         ]
         old = run.run_cmd
@@ -899,10 +896,10 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("--limit 2", prompt)
         self.assertIn("Do NOT re-run brief", prompt)
         self.assertIn("at most 2 targeted searches", prompt)
-        self.assertIn("stop once the fix validates", prompt)
+        self.assertIn("run exactly one `likely_test_files` test, then finish", prompt)
         # The candidate-walk cap must match the generic branch — an uncapped Opus candidate walk
         # on a lexical-false-positive task could erode the proven token margin (the only win).
-        self.assertIn("at most ONE additional candidate opened", prompt)
+        self.assertIn("open at most ONE additional candidate", prompt)
 
     def test_cli_brief_conditions_match_prompt_for_emission(self):
         # LOCKSTEP GUARD: capture_brief_packet gates packet-writing on CLI_BRIEF_CONDITIONS, while
@@ -935,7 +932,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                     # shlex.quote always single-quotes the (space-bearing) query, so this prefix is
                     # the reliable marker of an emitted CLI brief (mcp_* emit `brain_brief`, not this).
                     emits_cli_brief = "entire brain brief '" in prompt
-                    capture_gate = sem and cond in run.CLI_BRIEF_CONDITIONS
+                    capture_gate = cond in run.CLI_BRIEF_CONDITIONS
                     self.assertEqual(
                         emits_cli_brief, capture_gate,
                         f"{cond}/sem={sem}/{runner_spec}: prompt_for emits_cli_brief={emits_cli_brief} "
@@ -971,11 +968,11 @@ class RunnerAndConditionTests(unittest.TestCase):
         # file — the agent works from the brief's history hits, not a checkpoint dump.
         self.assertIn("--json --limit 4", prompt)
         self.assertIn("session-history hits", prompt)
-        self.assertIn("at most 2 targeted `rg`/`grep`/`find` total", prompt)
-        self.assertIn("do not broaden into repo-wide search", prompt)
+        self.assertIn("at most 2 targeted searches total", prompt)
+        self.assertIn("untrusted hints that can be stale or wrong", prompt)
         self.assertIn("likely_test_files", prompt)
         self.assertNotIn("brain-history-excerpt.md", prompt)
-        self.assertIn("do not re-run brief, and do not inspect checkpoint/session files directly", prompt)
+        self.assertIn("Hard caps", prompt)
 
     def test_apply_task_env_prepends_path_prefix(self):
         env = run.apply_task_env({"PATH": "/usr/bin"}, {"path_prefix": "/node24/bin"})
@@ -1049,6 +1046,8 @@ class RunnerAndConditionTests(unittest.TestCase):
             "full_brain",
             {
                 "activity": {
+                    "used_brain": True,
+                    "direct_brain_cli_calls": 1,
                     "brain_commands": ["search"],
                     "first_tool_command_tokens": expected,
                     "top_level_entire_commands": [],
@@ -1062,6 +1061,8 @@ class RunnerAndConditionTests(unittest.TestCase):
             "full_brain",
             {
                 "activity": {
+                    "used_brain": False,
+                    "direct_brain_cli_calls": 0,
                     "brain_commands": [],
                     "first_tool_command_tokens": None,
                     "top_level_entire_commands": ["search"],
@@ -1074,9 +1075,30 @@ class RunnerAndConditionTests(unittest.TestCase):
             {finding["kind"] for finding in wrong_surface["findings"]},
             {
                 "forbidden_top_level_entire_command",
+                "missing_required_brain_use",
                 "required_local_brain_search_was_not_first_tool",
                 "missing_required_local_brain_search",
             },
+        )
+
+    def test_brain_cli_audit_rejects_brain_condition_without_logged_brief(self):
+        missing = run.brain_cli_condition_audit(
+            "semantic_brain",
+            {
+                "activity": {
+                    "used_brain": False,
+                    "direct_brain_cli_calls": 0,
+                    "brain_commands": [],
+                    "top_level_entire_commands": [],
+                }
+            },
+            {"prepare_semantic": True},
+        )
+        self.assertFalse(missing["ok"])
+        self.assertTrue(missing["required"])
+        self.assertEqual(
+            {finding["kind"] for finding in missing["findings"]},
+            {"missing_required_brain_use", "missing_required_brain_brief"},
         )
 
     def test_activity_counts_mcp_and_shell_tool_events(self):

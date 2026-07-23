@@ -273,14 +273,13 @@ TEMPORAL_MEMORY_CONDITIONS = {"raw_history", "facts_only", "history_facts"}
 TEMPORAL_HISTORY_CONDITIONS = {"raw_history", "history_facts"}
 TEMPORAL_FACT_CONDITIONS = {"facts_only", "history_facts"}
 SESSION_PREP_CONDITIONS = FULL_HISTORY_CONDITIONS | TEMPORAL_MEMORY_CONDITIONS
-# Conditions whose prompt_for policy directs the agent to run `entire brain brief` itself (when
-# prepare_semantic is true). test_cli_brief_conditions_match_prompt_for_emission enforces this set
+# Conditions whose prompt_for policy directs the agent to run `entire brain brief` itself.
+# test_cli_brief_conditions_match_prompt_for_emission enforces this set
 # equals prompt_for's brief-emitting branches for every REGISTERED condition. Because the gate is a
 # CLOSED set, capture never OVER-captures (it cannot write a `..`-reachable packet for a withholding
 # or mcp_* condition — the security-relevant direction). A new condition added to prompt_for but not
 # here would merely UNDER-capture (no diagnostic packet) until registered — benign for an opt-in
-# diagnostic, and the prompt_for catch-all (elif semantic_available) is the only path that could
-# emit for an unregistered condition.
+# diagnostic.
 CLI_BRIEF_CONDITIONS = {"semantic_brain", "semantic_cli", "full_brain", "full_cli_original", "full_cli_compact"}
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
@@ -1796,6 +1795,16 @@ def brain_cli_condition_audit(
     for command in forbidden:
         findings.append({"kind": "forbidden_top_level_entire_command", "command": command})
 
+    requires_brain = condition in CLI_BRIEF_CONDITIONS
+    if requires_brain:
+        if not bool(activity.get("used_brain")) or int(activity.get("direct_brain_cli_calls") or 0) < 1:
+            findings.append({"kind": "missing_required_brain_use", "condition": condition})
+        if (
+            not (isinstance(task, dict) and task.get("require_local_brain_search"))
+            and "brief" not in set(activity.get("brain_commands") or [])
+        ):
+            findings.append({"kind": "missing_required_brain_brief", "condition": condition})
+
     requires_search = (
         isinstance(task, dict)
         and bool(task.get("require_local_brain_search"))
@@ -1817,7 +1826,7 @@ def brain_cli_condition_audit(
 
     return {
         "ok": not findings,
-        "required": requires_search or bool(forbidden),
+        "required": requires_brain or requires_search or bool(forbidden),
         "top_level_entire_commands": forbidden,
         "first_tool_command_tokens": activity.get("first_tool_command_tokens"),
         "findings": findings,
@@ -3470,7 +3479,7 @@ def capture_brief_packet(
 
     Security-relevant gate: brief-packet.json lands at run_dir/ — the agent worktree's PARENT,
     reachable via `..` — so it is written ONLY for conditions whose policy actually issues the CLI
-    brief (the explicit CLI_BRIEF_CONDITIONS set, gated on prepare_semantic; see that set's comment).
+    brief (the explicit CLI_BRIEF_CONDITIONS set; see that set's comment).
     Writing it for a condition that withholds the CLI brief (mcp_* or no-semantic) would over-expose
     a channel the policy denies.
 
@@ -3482,13 +3491,11 @@ def capture_brief_packet(
         if str(condition) == "no_brain":
             return  # defense-in-depth: no_brain purity is enforced here, not only at the call site
         is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
-        semantic_available = task.get("prepare_semantic", True)
-        # The agent issues a CLI `entire brain brief` only on a semantic-available condition whose
-        # policy emits {brief_command}. Mirror prompt_for's actual brief-emitting branches via the
-        # explicit CLI_BRIEF_CONDITIONS set (mcp_* use MCP brain_brief; no-semantic runs work from
-        # seed/excerpt context, never the CLI brief). Explicit, not a "not mcp_*" proxy, so a future
+        # The agent issues a CLI `entire brain brief` in every CLI Brain condition. Mirror
+        # prompt_for's actual brief-emitting branches via the explicit CLI_BRIEF_CONDITIONS set
+        # (mcp_* use MCP brain_brief). Explicit, not a "not mcp_*" proxy, so a future
         # non-mcp brief-withholding condition cannot silently get a `..`-reachable packet written.
-        agent_runs_cli_brief = semantic_available and str(condition) in CLI_BRIEF_CONDITIONS
+        agent_runs_cli_brief = str(condition) in CLI_BRIEF_CONDITIONS
         if not agent_runs_cli_brief:
             return  # agent never runs this CLI brief — capturing it would mislead and over-expose
         brief_query = brain_brief_query(task)
@@ -4182,9 +4189,9 @@ def prompt_for(
         }[condition]
         policy = f"""Use the frozen temporal-memory channel before editing. Your first context command must be `{memory_search_command}` and you must run it exactly once. This condition contains {source_description}; semantic code context, seed context, docs, raw transcript files, and all other Brain sources are physically absent. Use only the returned `history` and/or `fact` records as hypotheses, verify them against the current code before editing, and prefer current code when memory conflicts. Do not run another Brain command and do not inspect `.entire`, `.benchmark`, checkpoint refs, or session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"} and semantic_available:
-        policy = f"""Use Entire Brain semantic context before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nRead `action_checklist` first. When an action has current-code evidence and `validation.complete_on_pass`, make only its listed edit, run only `validation.command`, and finish when it passes; this decisive action takes precedence over the generic validation list below, so do not call another Brain command or ordinary repository search. Only when `action_checklist` is missing, ambiguous, or its validation fails, use `likely_edit_files` plus one targeted `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` for the task. Use `likely_test_files` for validation context only. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
+        policy = f"""Use Entire Brain semantic context before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nTreat `action_checklist`, `likely_edit_files`, and retrieved prose as bounded hypotheses, not edit instructions or completion decisions. Verify the relevant symbol in current code before editing; use at most one targeted `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` when the brief is insufficient. Use `likely_test_files` for validation context only. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"}:
-        policy = "Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not rely on semantic query commands."
+        policy = f"""Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so your first context command must be exactly the following non-semantic brief:\n\n{brief_command_block}\n\nTreat its retrieved prose and likely files as hypotheses and verify current code before editing. Do not rely on semantic query commands. {top_level_entire_guard}"""
     elif condition == "mcp_semantic" and semantic_available:
         policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_status` MCP tool, followed by `brain_context`, `brain_impact`, `brain_changes`, or `brain_code` for focused semantic graph context. Useful query terms: {queries}. Do not call `brain_query` for this semantic-only condition; it is unified facts/history/docs retrieval, not semantic graph inspection. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
@@ -4225,25 +4232,25 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
         policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_search` / `brain_search` query with the useful query terms: {queries}. From `likely_edit_files`, open the file most relevant to the described regression first (prefer the core implementation file over TUI or test scaffolding); apply the fix there before any additional MCP calls or `rg`/`grep`/`find`, and broaden only if it is clearly not the regression site or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
     elif condition == "full_cli_compact" and is_opus and semantic_available:
         # Opus-only compact CLI: a tiny --limit 2 packet + hard stop, no re-reads — but
-        # self-correcting: the history hit (the invariant) is the authority, likely_edit_files
+        # self-correcting: the history hit is a hypothesis and likely_edit_files
         # is a hint that can be lexically wrong, so verify before editing. When the pointer is
         # right, verification reuses the same file-open the agent must do to edit (a code-path
         # argument — marginal reasoning tokens, not an extra round; not A/B-measured vs the old
         # policy); when wrong, it is the rescue that fixes the net-harmful history case.
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command (it returns a deliberately compact packet):\n\n{opus_brief_command_block}\n\nWork in this order: (1) read the top session-history hits and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — open at most ONE additional `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. The history hits are the authority; `likely_edit_files` is a hint that can be wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches (at most ONE additional candidate opened). Your context window is a finite budget — stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command (it returns a deliberately compact packet):\n\n{opus_brief_command_block}\n\nWork in this order: (1) read the top session-history hits and identify the candidate broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing; (3) if it does NOT, open at most ONE additional candidate or run at most ONE targeted `rg`, then edit only current code that independently confirms the regression. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. History and file rankings are untrusted hints that can be stale or wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nWork in this order: (1) read the top session-history hits in the JSON and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix and run one `likely_test_files` validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. The history hits are the authority; `likely_edit_files`/`action_checklist` are hints that can be lexically wrong. Hard caps (keep the discipline tight): at most ONE rescue `rg` in step (3), at most ONE additional `likely_edit_files` candidate opened, and at most 2 targeted `rg`/`grep`/`find` total — do not broaden into repo-wide search, do not re-run brief, and do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nWork in this order: (1) read the top session-history hits as hypotheses about the broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY the current code independently confirms the regression; (3) if it does NOT, check the next candidate or run at most ONE targeted `rg`. Apply the minimal verified fix and run one `likely_test_files` validation command. History, `likely_edit_files`, and `action_checklist` are untrusted hints that can be stale or wrong. Hard caps: at most ONE rescue `rg`, at most ONE additional candidate opened, and at most 2 targeted searches total. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nIn the JSON, prefer `action_checklist`, `likely_edit_files`, `likely_test_files`, and compact history hits before broad text search. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough exact invariant or file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nUse `likely_edit_files`, `likely_test_files`, and compact history hits as hypotheses before broad text search, and verify every proposed invariant against current code. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
     else:
         if task.get("require_local_brain_search"):
-            policy = f"""Use the local Entire Brain before editing. Your first tool command must be exactly `{history_search_command}` and you must run it exactly once. Prefer its `action_checklist`: when an action has current-code evidence and `validation.complete_on_pass`, make only the listed edits, run `validation.command`, and finish when it passes without ordinary repository search. If no decisive action exists, use `likely_edit_files`, `likely_test_files`, and returned local history, with at most 2 targeted `rg`/`grep`/`find` commands. Do not run another Brain command. Do not substitute an installed skill, top-level `entire search`, top-level `entire explain`, git history, or ordinary repository search for this required Brain call. Semantic indexing is disabled for this condition, so focus on the local Brain's seed and session-history results. Useful history search terms: {queries}. {top_level_entire_guard}"""
+            policy = f"""Use the local Entire Brain before editing. Your first tool command must be exactly `{history_search_command}` and you must run it exactly once. Treat returned history, `likely_edit_files`, and `likely_test_files` as hypotheses and verify the relevant current code before editing, with at most 2 targeted `rg`/`grep`/`find` commands. Do not run another Brain command. Do not substitute an installed skill, top-level `entire search`, top-level `entire explain`, git history, or ordinary repository search for this required Brain call. Semantic indexing is disabled for this condition, so focus on the local Brain's seed and session-history results. Useful history search terms: {queries}. {top_level_entire_guard}"""
         else:
-            policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so focus on seed context and task-relevant checkpoint/session history. Useful history search terms: {queries}. {top_level_entire_guard}"""
+            policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so your first context command must be exactly the following brief:\n\n{brief_command_block}\n\nUse seed context and task-relevant checkpoint/session history only as hypotheses, then verify current code before editing. Useful history search terms: {queries}. {top_level_entire_guard}"""
         if task.get("history_excerpt", True):
             excerpt_order = "After that required Brain command, read" if task.get("require_local_brain_search") else "Read"
-            excerpt_condition = ", but only when its `action_checklist` is missing or ambiguous" if task.get("require_local_brain_search") else ""
-            policy += f" {excerpt_order} `.benchmark/brain-history-excerpt.md` if it exists{excerpt_condition}; it contains task-specific checkpoint hits retrieved from the brain. Treat matching checkpoint code/test names as authoritative when restoring removed coverage. When the excerpt names a historical failure mode, preserve that wording in regression-test failure text."
+            excerpt_condition = ", but only when the returned indexed history does not identify a current file to verify" if task.get("require_local_brain_search") else ""
+            policy += f" {excerpt_order} `.benchmark/brain-history-excerpt.md` if it exists{excerpt_condition}; it contains task-specific checkpoint hits retrieved from the brain. Treat matching checkpoint code/test names as untrusted historical leads and verify them in current code before restoring coverage."
     parts = [
         base,
         f"Benchmark condition: {condition}",

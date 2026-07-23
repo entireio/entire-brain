@@ -683,17 +683,10 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 }
 
 func seedNeededForBrain(manifest *exportManifest) bool {
-	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
-		return true
-	}
-	if manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return true
-	}
-	seed := manifest.Sources.Seed
-	if seed.HistoryBaseline != nil && seed.HistoryBaseline.SeedRequired {
-		return false
-	}
-	return false
+	// Seed freshness is independent of checkpoint/session availability. MCP's
+	// default refresh intentionally omits sessions, so using an empty session
+	// list as a seed-missing signal rebuilt an otherwise current seed every time.
+	return manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil
 }
 
 func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manifest *exportManifest, worktree bool) (bool, error) {

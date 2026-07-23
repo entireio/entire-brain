@@ -35,8 +35,8 @@ impact symbols, and 3 test suggestions.
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a
 Gemma-class embedder is configured and `refresh` has built history vectors).
-All three return five compact excerpts by default and ids you can pass to
-`brain_get`/`brain_multi_get` for full records. (The earlier `brain_history` tool was
+All three return ids you can pass to `brain_get`/`brain_multi_get` for full
+records. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
 
 Workspace symbol traversal and unified retrieval currently live in the CLI

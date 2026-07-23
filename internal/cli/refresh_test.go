@@ -98,6 +98,7 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
 	}
 	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--limit", "10000")] = fakeCommandResponse{stdout: "[]\n"}
 	addRefreshSemanticFixture(runner, repoDir)
 	opts := Options{
 		Version: "test-version",
@@ -329,10 +330,16 @@ func TestSeedRefreshNeededUsesRequestedSnapshotMode(t *testing.T) {
 	}}
 	opts := Options{Runner: runner}
 	manifest := &exportManifest{Sources: &brainSources{
-		Seed:     &seedSourceManifest{Commit: "headsha", WorktreeMode: "tracked"},
-		Sessions: &sessionSourceManifest{Sessions: []exportSession{{}}},
+		Seed: &seedSourceManifest{Commit: "headsha", WorktreeMode: "tracked"},
 	}}
-	needed, err := seedRefreshNeeded(context.Background(), opts, repoDir, manifest, true)
+	needed, err := seedRefreshNeeded(context.Background(), opts, repoDir, manifest, false)
+	if err != nil {
+		t.Fatalf("sessionless tracked freshness check: %v", err)
+	}
+	if needed {
+		t.Fatal("a current tracked seed must not be rebuilt merely because the manifest has no sessions")
+	}
+	needed, err = seedRefreshNeeded(context.Background(), opts, repoDir, manifest, true)
 	if err != nil {
 		t.Fatalf("worktree freshness check: %v", err)
 	}

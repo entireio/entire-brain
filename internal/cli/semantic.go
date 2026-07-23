@@ -3808,7 +3808,17 @@ LIMIT ? OFFSET ?`
 // token "file" and report a bogus blast radius for a path that does not exist.
 func semanticQueryLooksLikePath(query string) bool {
 	query = strings.TrimSpace(query)
-	if strings.ContainsAny(query, "/\\") {
+	if query == "" {
+		return false
+	}
+	// A slash alone is not enough: natural-language concepts, URLs, and prose
+	// commonly contain one. Only explicit relative/absolute paths or values with
+	// a recognized source extension suppress semantic token fallback.
+	if strings.Contains(query, "://") || strings.ContainsAny(query, " \t\r\n") {
+		return false
+	}
+	if strings.HasPrefix(query, "./") || strings.HasPrefix(query, "../") ||
+		strings.HasPrefix(query, "/") || strings.HasPrefix(query, `\\`) {
 		return true
 	}
 	switch strings.ToLower(filepath.Ext(query)) {
