@@ -370,6 +370,9 @@ func TestBrainBriefLikelyFilesLeadWithPublicContractDefinition(t *testing.T) {
 	if len(editFiles) == 0 || editFiles[0] != "server/tools.go" {
 		t.Fatalf("public contract definition must lead callers, got %v", editFiles)
 	}
+	if len(editFiles) != 1 {
+		t.Fatalf("public contract definition should exclude caller files from edit candidates, got %v", editFiles)
+	}
 }
 
 func TestBrainBriefTestIntentRequiresAnActualTestTask(t *testing.T) {
@@ -1060,6 +1063,44 @@ func TestBrainBriefFocusedFileFallbackSelectsTaskRelevantSymbolAndAction(t *test
 	}
 }
 
+func TestBrainBriefFocusedSemanticRefinementFindsContractRegistry(t *testing.T) {
+	current := []semanticRecord{
+		{ID: "client-list", Kind: "method", Name: "ListTools", QualifiedName: "Client.ListTools", FilePath: "internal/hostedbrain/client.go", StartLine: 100, EndLine: 120},
+		{ID: "project-list", Kind: "function", Name: "runMCPListProjects", QualifiedName: "runMCPListProjects", FilePath: "internal/cli/mcp.go", StartLine: 800, EndLine: 840},
+	}
+	candidates := []semanticRecord{
+		{ID: "definitions", Kind: "function", Name: "mcpToolDefinitions", QualifiedName: "mcpToolDefinitions", FilePath: "internal/cli/mcp.go", StartLine: 235, EndLine: 386},
+		{ID: "call", Kind: "method", Name: "CallTool", QualifiedName: "Client.CallTool", FilePath: "internal/hostedbrain/client.go", StartLine: 121, EndLine: 145},
+	}
+
+	refined := brainBriefRefineSemanticSymbols(current, candidates, "Keep the public MCP tool names stable after a tool-list regression", 3)
+	if len(refined) == 0 || refined[0].Name != "mcpToolDefinitions" {
+		t.Fatalf("contract registry did not lead refined semantic context: %+v", refined)
+	}
+}
+
+func TestBrainBriefFocusedSemanticSelectionPromotesContractAfterTruncation(t *testing.T) {
+	symbols := []semanticRecord{
+		{ID: "list", Kind: "method", Name: "ListTools", QualifiedName: "Client.ListTools", FilePath: "client.go", StartLine: 10, EndLine: 20},
+		{ID: "projects", Kind: "function", Name: "runMCPListProjects", QualifiedName: "runMCPListProjects", FilePath: "mcp.go", StartLine: 800, EndLine: 840},
+		{ID: "definitions", Kind: "function", Name: "mcpToolDefinitions", QualifiedName: "mcpToolDefinitions", FilePath: "mcp.go", StartLine: 235, EndLine: 386},
+	}
+	focused := brainBriefSelectFocusedFileSymbols(symbols, "Keep the public MCP tool names stable after a tool-list regression", 3)
+	if len(focused) == 0 || focused[0].Name != "mcpToolDefinitions" {
+		t.Fatalf("contract definition was not promoted after focused selection: %+v", focused)
+	}
+}
+
+func TestBrainBriefHighConfidencePrimarySymbolRequiresCoherentConcepts(t *testing.T) {
+	task := "Restore semantic completeness tolerance for parse errors"
+	if !brainBriefHighConfidencePrimarySymbol(task, "semanticCompletenessAxis") {
+		t.Fatal("coherent semantic completeness symbol should be high confidence")
+	}
+	if brainBriefHighConfidencePrimarySymbol(task, "semanticIndexOptions") {
+		t.Fatal("one generic shared concept should not be high confidence")
+	}
+}
+
 func TestBrainBriefAddsSiblingTestFiles(t *testing.T) {
 	repoDir := t.TempDir()
 	testPath := filepath.Join(repoDir, "packages", "storage", "src", "index.test.ts")
@@ -1072,6 +1113,16 @@ func TestBrainBriefAddsSiblingTestFiles(t *testing.T) {
 	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"packages/storage/src/index.ts"}, nil)
 	if !slices.Contains(tests, "packages/storage/src/index.test.ts") {
 		t.Fatalf("expected sibling test file, got %+v", tests)
+	}
+}
+
+func TestBrainBriefLikelyFileSectionsHonorLimit(t *testing.T) {
+	files := []string{"one.go", "two.go", "three.go", "four.go"}
+	if got := brainBriefLimitFiles(files, 2); !slices.Equal(got, []string{"one.go", "two.go"}) {
+		t.Fatalf("limited files = %v", got)
+	}
+	if got := brainBriefLimitFiles(files, 0); got != nil {
+		t.Fatalf("zero limit should produce no files, got %v", got)
 	}
 }
 

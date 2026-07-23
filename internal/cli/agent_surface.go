@@ -1347,25 +1347,54 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroupsForRepo(status.Repo.Root, status.Repo.Key, report, task)
-	focusedFileFallback := false
-	if len(report.Semantic.Context.Symbols) == 0 && len(report.LikelyEditFiles) > 0 && status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
-		candidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, 40)
-		candidates, focusedErr := semanticSymbolsForFiles(status.Brain.Path, status.Manifest.Sources.Semantic, report.LikelyEditFiles[:1], candidateLimit)
+	focusedSemanticContext := false
+	if len(report.LikelyEditFiles) > 0 && status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
+		// Query ranking gets us into the right neighborhood, but a public API
+		// task can still rank a call site above the authoritative registry in
+		// the same small candidate set. Refine against the indexed symbols in at
+		// most three likely implementation files, then recompute the file list
+		// from that stronger structured evidence.
+		candidateFiles := report.LikelyEditFiles[:min(3, len(report.LikelyEditFiles))]
+		candidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, 80)
+		var candidates []semanticRecord
+		var focusedErr error
+		for _, file := range candidateFiles {
+			var fileCandidates []semanticRecord
+			fileCandidates, focusedErr = semanticSymbolsForFiles(status.Brain.Path, status.Manifest.Sources.Semantic, []string{file}, candidateLimit)
+			if focusedErr != nil {
+				break
+			}
+			candidates = append(candidates, fileCandidates...)
+		}
 		if focusedErr != nil {
 			report.Warnings = append(report.Warnings, "focused semantic file context unavailable: "+focusedErr.Error())
 		} else {
-			report.Semantic.Context.Symbols = brainBriefSelectFocusedFileSymbols(candidates, task, briefOpts.limit)
-			focusedFileFallback = len(report.Semantic.Context.Symbols) > 0
+			refined := brainBriefRefineSemanticSymbols(report.Semantic.Context.Symbols, candidates, task, briefOpts.limit)
+			if len(refined) > 0 {
+				report.Semantic.Context.Symbols = refined
+				focusedSemanticContext = true
+				report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroupsForRepo(status.Repo.Root, status.Repo.Key, report, task)
+			}
 		}
 	}
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
+	report.LikelyEditFiles = brainBriefLimitFiles(report.LikelyEditFiles, briefOpts.limit)
+	report.LikelyTestFiles = brainBriefLimitFiles(report.LikelyTestFiles, briefOpts.limit)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 	// Only structured semantic records may produce an action hint. Retrieved
 	// history and documents are evidence to inspect, not trusted instructions:
 	// letting their prose become edits or completion criteria crosses the
 	// retrieval trust boundary and makes stale or malicious text executable.
-	if focusedFileFallback {
+	if focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
 		report.ActionChecklist = brainBriefFocusedFileActions(report.Semantic.Context.Symbols, report.LikelyEditFiles[0])
+	}
+	if len(report.ActionChecklist) > 0 && len(report.Semantic.Context.Symbols) > 0 {
+		primary := report.Semantic.Context.Symbols[0]
+		if primary.FilePath == report.ActionChecklist[0].File && brainBriefHighConfidencePrimarySymbol(task, primary.Name) {
+			report.LikelyEditFiles = []string{report.ActionChecklist[0].File}
+			report.LikelyTestFiles = brainBriefLimitFiles(report.LikelyTestFiles, 1)
+			report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+		}
 	}
 	if len(report.ActionChecklist) > 0 {
 		report.Guidance = append(report.Guidance, "Treat action_checklist as a structured symbol to inspect, not as a verified edit or completion decision.")
@@ -1881,7 +1910,7 @@ func brainBriefSelectFocusedFileSymbols(symbols []semanticRecord, task string, l
 	if limit <= 0 {
 		return nil
 	}
-	ranked := brainBriefRankSemanticSymbols(symbols, nil, task)
+	ranked := brainBriefPromoteContractSemanticSymbols(brainBriefRankSemanticSymbols(symbols, nil, task), task)
 	out := make([]semanticRecord, 0, min(limit, len(ranked)))
 	seen := map[string]struct{}{}
 	for _, symbol := range ranked {
@@ -1901,6 +1930,38 @@ func brainBriefSelectFocusedFileSymbols(symbols []semanticRecord, task string, l
 	return out
 }
 
+func brainBriefPromoteContractSemanticSymbols(symbols []semanticRecord, task string) []semanticRecord {
+	var contract []semanticRecord
+	var other []semanticRecord
+	for _, symbol := range symbols {
+		if brainBriefSemanticIntentBonus(task, symbol.Name) > 0 {
+			contract = append(contract, symbol)
+		} else {
+			other = append(other, symbol)
+		}
+	}
+	if len(contract) == 0 {
+		return symbols
+	}
+	return append(contract, other...)
+}
+
+func brainBriefRefineSemanticSymbols(current, candidates []semanticRecord, task string, limit int) []semanticRecord {
+	combined := make([]semanticRecord, 0, len(current)+len(candidates))
+	combined = append(combined, current...)
+	combined = append(combined, candidates...)
+	refined := brainBriefSelectFocusedFileSymbols(combined, task, limit)
+	if len(refined) == 0 {
+		return current
+	}
+	return refined
+}
+
+func brainBriefHighConfidencePrimarySymbol(task, symbolName string) bool {
+	return brainBriefSemanticIntentBonus(task, symbolName) > 0 ||
+		brainBriefIdentifierConceptCoverage(task, symbolName) >= 2
+}
+
 func brainBriefFocusedFileActions(symbols []semanticRecord, topFile string) []brainBriefAction {
 	for _, symbol := range symbols {
 		if symbol.FilePath != topFile || symbol.StartLine <= 0 {
@@ -1914,7 +1975,7 @@ func brainBriefFocusedFileActions(symbols []semanticRecord, topFile string) []br
 			File:     topFile,
 			Symbol:   displaySymbolName(symbol),
 			Action:   "Inspect this task-relevant symbol first; broaden only if it does not contain the described behavior.",
-			Evidence: fmt.Sprintf("semantic filename fallback at lines %d-%d", symbol.StartLine, endLine),
+			Evidence: fmt.Sprintf("semantic candidate refinement at lines %d-%d", symbol.StartLine, endLine),
 		}}
 	}
 	return nil
@@ -2127,6 +2188,9 @@ func brainBriefPromoteContractSemanticEditFiles(repoRoot string, files []string,
 			continue
 		}
 		contractFiles = append(contractFiles, clean)
+	}
+	if len(contractFiles) > 0 {
+		return contractFiles[:min(limit, len(contractFiles))]
 	}
 	seen := map[string]struct{}{}
 	out := make([]string, 0, min(limit, len(files)))
@@ -2447,6 +2511,13 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 		}
 	}
 	return out
+}
+
+func brainBriefLimitFiles(files []string, limit int) []string {
+	if limit <= 0 || len(files) == 0 {
+		return nil
+	}
+	return append([]string(nil), files[:min(limit, len(files))]...)
 }
 
 func brainBriefSiblingTestCandidates(file string) []string {
