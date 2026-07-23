@@ -1884,6 +1884,14 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertEqual(sanitized_manifest["sources"]["history"]["records"], 1)
             self.assertRegex(summary["session_corpus_sha256"], r"^[0-9a-f]{64}$")
             self.assertRegex(summary["history_index_sha256"], r"^[0-9a-f]{64}$")
+            index_path = history_dir / "index.json"
+            index_payload = json.loads(index_path.read_text())
+            index_payload["generated_at"] = "2099-01-01T00:00:00Z"
+            index_path.write_text(json.dumps(index_payload))
+            self.assertEqual(
+                summary["history_index_sha256"],
+                run.sha256_history_record_corpus(plugin, [index_path]),
+            )
 
     def test_agent_output_leak_audit_flags_hidden_validation_text(self):
         task = {

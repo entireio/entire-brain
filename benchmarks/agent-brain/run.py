@@ -1389,6 +1389,24 @@ def sha256_file_corpus(root: pathlib.Path, paths: Iterable[pathlib.Path]) -> str
     return digest.hexdigest()
 
 
+def sha256_history_record_corpus(root: pathlib.Path, paths: Iterable[pathlib.Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(set(paths)):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            records = payload.get("records") if isinstance(payload, dict) else None
+            rel = path.relative_to(root).as_posix()
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(records, list):
+            continue
+        digest.update(rel.encode())
+        digest.update(b"\0")
+        digest.update(json.dumps(records, sort_keys=True, separators=(",", ":")).encode())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def sanitize_repo_session_corpus(repo_root: pathlib.Path) -> dict[str, Any]:
     manifest_path = repo_root / "manifest.json"
     history_path = repo_root / "history" / "index.json"
@@ -1595,7 +1613,7 @@ def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
         "contaminated_sessions_removed": contaminated_sessions_removed,
         "history_records_removed": history_records_removed,
         "session_corpus_sha256": sha256_file_corpus(plugin, session_files),
-        "history_index_sha256": sha256_file_corpus(plugin, history_indexes),
+        "history_index_sha256": sha256_history_record_corpus(plugin, history_indexes),
     }
 
 
