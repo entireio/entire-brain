@@ -1209,52 +1209,99 @@ def filtered_agent_history_repo(
     staging_repo = staging / "repo.git"
     export_ref = f"refs/entire-benchmark/export-{os.getpid()}-{key}"
     run_cmd(["git", "init", "--bare", str(staging_repo)], cwd=staging, check=True)
-    run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
-    try:
-        export_command = [
-            "git",
-            "fast-export",
-            "--use-done-feature",
-            export_ref,
-            "--",
-            ".",
-            *[f":(exclude){path}" for path in private_paths],
-        ]
-        with tempfile.TemporaryFile() as export_stderr:
-            exporter = subprocess.Popen(
-                export_command,
-                cwd=source,
-                stdout=subprocess.PIPE,
-                stderr=export_stderr,
-            )
-            assert exporter.stdout is not None
-            importer = subprocess.run(
-                ["git", "fast-import", "--quiet"],
+    paths_present = [
+        path
+        for path in private_paths
+        if run_cmd(
+            ["git", "rev-list", "--objects", source_commit, "--", path],
+            cwd=source,
+            check=True,
+        ).stdout.strip()
+    ]
+    if not paths_present:
+        # Avoid rewriting a long history when there is nothing private to remove.
+        # A temporary object alternate lets us create one baseline ref, then repack
+        # only its reachable objects into a self-contained bare cache.
+        common_dir_raw = run_cmd(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=source,
+            check=True,
+        ).stdout.strip()
+        common_dir = pathlib.Path(common_dir_raw)
+        if not common_dir.is_absolute():
+            common_dir = (source / common_dir).resolve()
+        alternates = staging_repo / "objects" / "info" / "alternates"
+        alternates.parent.mkdir(parents=True, exist_ok=True)
+        alternates.write_text(str((common_dir / "objects").resolve()) + "\n")
+        try:
+            run_cmd(
+                ["git", "update-ref", "refs/heads/baseline", source_commit],
                 cwd=staging_repo,
-                stdin=exporter.stdout,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                check=True,
             )
-            exporter.stdout.close()
-            export_returncode = exporter.wait()
-            export_stderr.seek(0)
-            export_error = export_stderr.read().decode(errors="replace")
-        if export_returncode != 0 or importer.returncode != 0:
-            raise RuntimeError(
-                "failed to build filtered source history:\n"
-                f"fast-export ({export_returncode}): {export_error}\n"
-                f"fast-import ({importer.returncode}): {importer.stderr.decode(errors='replace')}"
+            run_cmd(
+                ["git", "repack", "-a", "-d", "--no-write-bitmap-index"],
+                cwd=staging_repo,
+                check=True,
             )
-    finally:
-        run_cmd(["git", "update-ref", "-d", export_ref], cwd=source)
+        finally:
+            alternates.unlink(missing_ok=True)
+        run_cmd(
+            ["git", "cat-file", "-e", "refs/heads/baseline^{commit}"],
+            cwd=staging_repo,
+            check=True,
+        )
+    else:
+        run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
+        try:
+            export_command = [
+                "git",
+                "fast-export",
+                "--use-done-feature",
+                export_ref,
+                "--",
+                ".",
+                *[f":(exclude){path}" for path in private_paths],
+            ]
+            with tempfile.TemporaryFile() as export_stderr:
+                exporter = subprocess.Popen(
+                    export_command,
+                    cwd=source,
+                    stdout=subprocess.PIPE,
+                    stderr=export_stderr,
+                )
+                assert exporter.stdout is not None
+                importer = subprocess.run(
+                    ["git", "fast-import", "--quiet"],
+                    cwd=staging_repo,
+                    stdin=exporter.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                exporter.stdout.close()
+                export_returncode = exporter.wait()
+                export_stderr.seek(0)
+                export_error = export_stderr.read().decode(errors="replace")
+            if export_returncode != 0 or importer.returncode != 0:
+                raise RuntimeError(
+                    "failed to build filtered source history:\n"
+                    f"fast-export ({export_returncode}): {export_error}\n"
+                    f"fast-import ({importer.returncode}): {importer.stderr.decode(errors='replace')}"
+                )
+        finally:
+            run_cmd(["git", "update-ref", "-d", export_ref], cwd=source)
 
-    filtered_tip = run_cmd(
-        ["git", "rev-parse", "--verify", export_ref],
-        cwd=staging_repo,
-        check=True,
-    ).stdout.strip()
-    run_cmd(["git", "update-ref", "refs/heads/baseline", filtered_tip], cwd=staging_repo, check=True)
-    run_cmd(["git", "update-ref", "-d", export_ref], cwd=staging_repo, check=True)
+        filtered_tip = run_cmd(
+            ["git", "rev-parse", "--verify", export_ref],
+            cwd=staging_repo,
+            check=True,
+        ).stdout.strip()
+        run_cmd(
+            ["git", "update-ref", "refs/heads/baseline", filtered_tip],
+            cwd=staging_repo,
+            check=True,
+        )
+        run_cmd(["git", "update-ref", "-d", export_ref], cwd=staging_repo, check=True)
     run_cmd(["git", "symbolic-ref", "HEAD", "refs/heads/baseline"], cwd=staging_repo, check=True)
     for path in private_paths:
         leaked = run_cmd(
