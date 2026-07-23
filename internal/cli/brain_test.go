@@ -946,6 +946,36 @@ func TestBrainBriefTaskFilenameFallbackFindsComponentAndSiblingTest(t *testing.T
 	}
 }
 
+func TestBrainBriefTaskFilenameFallbackPromotesCompoundBasenameOverSemanticNoise(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, rel := range []string{
+		"cmd/entire/cli/plugin_env.go",
+		"cmd/entire/cli/plugin_env_test.go",
+		"cmd/entire/cli/settings/settings.go",
+		"cmd/entire/cli/plugin_store.go",
+	} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte("package fixture\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{
+		{ID: "settings", Kind: "type", Name: "EntireSettings", FilePath: "cmd/entire/cli/settings/settings.go"},
+	}}}}
+	editFiles, testFiles, _ := brainBriefLikelyFileGroupsForRepo(repoDir, "gh/entireio/cli", report,
+		"Fix the Entire plugin command environment allowlist for external subprocesses")
+	if len(editFiles) == 0 || editFiles[0] != "cmd/entire/cli/plugin_env.go" {
+		t.Fatalf("compound filename did not outrank generic semantic noise: %v", editFiles)
+	}
+	testFiles = brainBriefAddSiblingTestFiles(repoDir, editFiles, testFiles)
+	if !slices.Contains(testFiles, "cmd/entire/cli/plugin_env_test.go") {
+		t.Fatalf("compound filename lost its sibling test: %v", testFiles)
+	}
+}
+
 func TestBrainBriefTaskFilenameFallbackSkipsGeneratedBenchmarkTrees(t *testing.T) {
 	for _, rel := range []string{
 		"benchmarks/agent-brain/results",

@@ -3663,6 +3663,14 @@ func semanticQueryTokens(query string) []string {
 // while issue text says normalization/validation/authentication; these exact
 // derivations preserve meaning and give IDF ranking the identifier-shaped term.
 func semanticQueryMorphologyVariants(token string) []string {
+	switch token {
+	case "environment", "environments", "environmental":
+		// Environment is almost universally shortened to env in identifiers and
+		// filenames (pluginEnv, cmd.Env, plugin_env.go). Preserve the full noun
+		// and add its conventional code form so natural-language tasks can find
+		// those symbols without requiring callers to guess the abbreviation.
+		return []string{"env"}
+	}
 	for _, rule := range []struct {
 		suffix      string
 		replacement string

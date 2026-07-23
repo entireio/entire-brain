@@ -2081,12 +2081,19 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 		}
 	}
 	editFiles := rankedBrainBriefLikelyFiles(editCounts, 8)
+	filenameRankedEditFiles := append([]string(nil), editFiles...)
 	// The semantic context is the brief's strongest code-level evidence. Keep its
 	// selected implementation roots ahead of filename-only matches so the two
 	// sections cannot contradict each other (for example, naming an exact API
 	// method above while telling the agent to edit an unrelated auth helper).
 	// Filename and history evidence still fill the remainder of the bounded list.
 	editFiles = brainBriefPromoteSemanticEditFiles(repoRoot, editFiles, report.Semantic.Context.Symbols, 8)
+	// A filename that combines multiple task nouns is stronger localization
+	// evidence than a semantic candidate matching one generic word. Restore that
+	// compound anchor after semantic promotion so names such as plugin_env.go or
+	// review_context.go are not buried by individually relevant but unrelated
+	// settings/helpers.
+	editFiles = brainBriefPromoteCompoundFilenameEditFiles(editFiles, filenameRankedEditFiles, taskTerms, 8)
 	// An exact source path recovered from the top history evidence is stronger
 	// regression-localization evidence than a lexical semantic guess. Promote it
 	// after semantic ordering so the two sections cannot contradict each other.
@@ -2119,6 +2126,45 @@ func brainBriefPromoteHistoryEditFiles(files, historyFiles []string, limit int) 
 			seen[file] = struct{}{}
 			out = append(out, file)
 		}
+	}
+	return out
+}
+
+func brainBriefPromoteCompoundFilenameEditFiles(files, filenameRankedFiles, terms []string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	isCompound := func(file string) bool {
+		base := strings.TrimSuffix(strings.ToLower(filepath.Base(file)), strings.ToLower(filepath.Ext(file)))
+		hits := 0
+		for _, term := range terms {
+			if strings.Contains(base, term) {
+				hits++
+			}
+		}
+		return hits >= 2
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, min(limit, len(files)))
+	for _, file := range filenameRankedFiles {
+		if len(out) >= limit {
+			return out
+		}
+		if !isCompound(file) || !slices.Contains(files, file) {
+			continue
+		}
+		seen[file] = struct{}{}
+		out = append(out, file)
+	}
+	for _, file := range files {
+		if len(out) >= limit {
+			break
+		}
+		if _, ok := seen[file]; ok {
+			continue
+		}
+		seen[file] = struct{}{}
+		out = append(out, file)
 	}
 	return out
 }
@@ -2222,6 +2268,7 @@ func brainBriefTaskFilenameCounts(repoRoot string, terms []string) map[string]in
 		lower := strings.ToLower(rel)
 		base := strings.TrimSuffix(strings.ToLower(filepath.Base(rel)), strings.ToLower(filepath.Ext(rel)))
 		score := 0
+		baseHits := 0
 		for _, term := range terms {
 			frequency := frequencies[term]
 			if frequency == 0 {
@@ -2231,9 +2278,13 @@ func brainBriefTaskFilenameCounts(repoRoot string, terms []string) map[string]in
 			switch {
 			case strings.Contains(base, term):
 				score += 10 * weight
+				baseHits++
 			case strings.Contains(lower, term):
 				score += 3 * weight
 			}
+		}
+		if baseHits >= 2 {
+			score += 80 * baseHits * baseHits
 		}
 		if score > 0 {
 			counts[rel] = score
@@ -2243,13 +2294,21 @@ func brainBriefTaskFilenameCounts(repoRoot string, terms []string) map[string]in
 }
 
 func brainBriefRepoSpecificFileMatchTerms(terms []string, repoKey string) []string {
-	repoName := filepath.Base(filepath.ToSlash(strings.TrimSpace(repoKey)))
-	if repoName == "." || repoName == "" {
+	repoKey = filepath.ToSlash(strings.TrimSpace(repoKey))
+	if repoKey == "." || repoKey == "" {
 		return terms
 	}
 	repoTerms := map[string]struct{}{}
-	for _, term := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(repoName), -1) {
-		repoTerms[term] = struct{}{}
+	for _, segment := range strings.Split(strings.ToLower(repoKey), "/") {
+		for _, term := range brainBriefTaskWordPattern.FindAllString(segment, -1) {
+			repoTerms[term] = struct{}{}
+			for _, suffix := range []string{"io", "hq", "inc", "org", "labs"} {
+				stem := strings.TrimSuffix(term, suffix)
+				if stem != term && len(stem) >= 3 {
+					repoTerms[stem] = struct{}{}
+				}
+			}
+		}
 	}
 	out := make([]string, 0, len(terms))
 	for _, term := range terms {

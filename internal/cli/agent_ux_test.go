@@ -119,8 +119,8 @@ func TestTokenizedSearchConnectsTaskNounsToIdentifierVerbs(t *testing.T) {
 	if len(results) == 0 || results[0].ID != "normalize" {
 		t.Fatalf("normalization did not resolve NormalizeRepositoryName: %s", summarizeIDs(results))
 	}
-	tokens := semanticQueryTokens("normalization validation authentication")
-	for _, want := range []string{"normalize", "validate", "authenticate"} {
+	tokens := semanticQueryTokens("normalization validation authentication environment")
+	for _, want := range []string{"normalize", "validate", "authenticate", "env"} {
 		if !containsToken(tokens, want) {
 			t.Fatalf("derived identifier term %q missing from %v", want, tokens)
 		}
