@@ -26,5 +26,6 @@
   ],
   "expected_files": ["internal/cli/retrieve_cmd.go"],
   "forbidden_files": ["go.mod", "go.sum"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
   "brain_queries": ["newQueryCommand", "newRetrieveCommand", "QMD number alias"]
 }

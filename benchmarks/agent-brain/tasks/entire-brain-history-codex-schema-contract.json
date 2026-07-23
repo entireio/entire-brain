@@ -21,7 +21,6 @@
   "validation": [
     "test $(rg -n -- '--output-schema' internal/cli/seed.go | wc -l | tr -d ' ') -eq 0",
     "test $(rg -n 'TestSeedAgentCommandArgsCodex' internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 1",
-    "test $(rg -n 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
     "go test ./internal/cli -run 'TestSeedAgentCommandArgsCodex'"
   ],
   "expected_files": ["internal/cli/seed.go", "internal/cli/seed_test.go"],

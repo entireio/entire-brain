@@ -2228,19 +2228,31 @@ class PanelAndStabilityTests(unittest.TestCase):
         self.assertIn("has no local history source", " | ".join(errors))
 
     def test_release_panel_preflight_requires_harness_hygiene(self):
-        errors = run.panel_preflight(
-            {
-                "name": "release-missing-hygiene",
-                "runners": ["codex:gpt-test:low"],
-                "tasks": ["entire-brain-query-default-limit.json"],
+        task_path = run.TASK_DIR / "release-hygiene-fixture.json"
+        try:
+            task_path.write_text(json.dumps({
+                "id": "release-hygiene-fixture",
+                "repo": "entire-brain",
+                "repo_path": "entire-brain",
                 "conditions": ["no_brain", "semantic_brain"],
-                "repetitions": 4,
-            }
-        )
+                "prompt": "Fix the regression.",
+                "hide_validation_from_agent": True,
+                "validation": ["go test ./internal/cli -run TestHiddenReleaseFixture"],
+            }))
+            errors = run.panel_preflight(
+                {
+                    "name": "release-missing-hygiene",
+                    "runners": ["codex:gpt-test:low"],
+                    "tasks": [task_path.name],
+                    "conditions": ["no_brain", "semantic_brain"],
+                    "repetitions": 4,
+                }
+            )
+        finally:
+            task_path.unlink(missing_ok=True)
         joined = " | ".join(errors)
         self.assertIn("must hide benchmarks/agent-brain", joined)
 
-        task_path = run.TASK_DIR / "release-hygiene-fixture.json"
         try:
             task_path.write_text(json.dumps({
                 "id": "release-hygiene-fixture",
