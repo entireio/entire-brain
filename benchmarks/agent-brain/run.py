@@ -1200,7 +1200,10 @@ def filtered_agent_history_repo(
     cache_root.mkdir(parents=True, exist_ok=True)
     cache_repo = cache_root / f"{key}.git"
     if cache_repo.exists():
-        check = run_cmd(["git", "rev-parse", "--verify", "refs/heads/baseline"], cwd=cache_repo)
+        check = run_cmd(
+            ["git", "cat-file", "-e", "refs/heads/baseline^{commit}"],
+            cwd=cache_repo,
+        )
         if check.returncode == 0:
             return cache_repo
         shutil.rmtree(cache_repo)
@@ -1220,8 +1223,9 @@ def filtered_agent_history_repo(
     ]
     if not paths_present:
         # Avoid rewriting a long history when there is nothing private to remove.
-        # A temporary object alternate lets us create one baseline ref, then repack
-        # only its reachable objects into a self-contained bare cache.
+        # An object alternate lets the bare harness cache expose exactly one baseline
+        # ref without rewriting the source. Each later --no-local agent clone receives
+        # a self-contained copy of only the objects reachable from that ref.
         common_dir_raw = run_cmd(
             ["git", "rev-parse", "--git-common-dir"],
             cwd=source,
@@ -1233,19 +1237,11 @@ def filtered_agent_history_repo(
         alternates = staging_repo / "objects" / "info" / "alternates"
         alternates.parent.mkdir(parents=True, exist_ok=True)
         alternates.write_text(str((common_dir / "objects").resolve()) + "\n")
-        try:
-            run_cmd(
-                ["git", "update-ref", "refs/heads/baseline", source_commit],
-                cwd=staging_repo,
-                check=True,
-            )
-            run_cmd(
-                ["git", "repack", "-a", "-d", "--no-write-bitmap-index"],
-                cwd=staging_repo,
-                check=True,
-            )
-        finally:
-            alternates.unlink(missing_ok=True)
+        run_cmd(
+            ["git", "update-ref", "refs/heads/baseline", source_commit],
+            cwd=staging_repo,
+            check=True,
+        )
         run_cmd(
             ["git", "cat-file", "-e", "refs/heads/baseline^{commit}"],
             cwd=staging_repo,
