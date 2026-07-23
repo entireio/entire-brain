@@ -1058,7 +1058,7 @@ func TestBrainBriefFocusedFileFallbackSelectsTaskRelevantSymbolAndAction(t *test
 		t.Fatalf("focused semantic fallback retained a duplicate symbol: %+v", focused)
 	}
 	actions := brainBriefFocusedFileActions(focused, "internal/cli/mcp.go")
-	if len(actions) != 1 || actions[0].File != "internal/cli/mcp.go" || actions[0].Symbol != "mcpToolDefinitions" || !strings.Contains(actions[0].Evidence, "235-386") {
+	if len(actions) != 1 || actions[0].Kind != "inspect" || actions[0].File != "internal/cli/mcp.go" || actions[0].Symbol != "mcpToolDefinitions" || !strings.Contains(actions[0].Evidence, "235-386") {
 		t.Fatalf("focused semantic fallback action is not precise: %+v", actions)
 	}
 }
@@ -1098,6 +1098,23 @@ func TestBrainBriefHighConfidencePrimarySymbolRequiresCoherentConcepts(t *testin
 	}
 	if brainBriefHighConfidencePrimarySymbol(task, "semanticIndexOptions") {
 		t.Fatal("one generic shared concept should not be high confidence")
+	}
+}
+
+func TestBrainBriefFocusedTestActionIsDiagnosticNotCompletion(t *testing.T) {
+	suggestions := []semanticTestSuggestion{{
+		Symbol: semanticRecord{
+			Kind: "function", Name: "TestMCPInitializeAndToolsList", QualifiedName: "TestMCPInitializeAndToolsList",
+			FilePath: "internal/cli/mcp_test.go", StartLine: 20, EndLine: 38,
+		},
+		Reason: "name terms",
+	}}
+	actions := brainBriefFocusedTestActions(suggestions)
+	if len(actions) != 1 || actions[0].Kind != "test" || actions[0].Symbol != "TestMCPInitializeAndToolsList" {
+		t.Fatalf("focused semantic test action is not precise: %+v", actions)
+	}
+	if !strings.Contains(actions[0].Action, "diagnostic evidence") || strings.Contains(actions[0].Action, "complete_on_pass") {
+		t.Fatalf("test action crossed the completion trust boundary: %+v", actions[0])
 	}
 }
 

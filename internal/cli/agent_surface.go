@@ -268,6 +268,7 @@ type brainBriefHistory struct {
 }
 
 type brainBriefAction struct {
+	Kind     string `json:"kind,omitempty"`
 	File     string `json:"file,omitempty"`
 	Symbol   string `json:"symbol,omitempty"`
 	Action   string `json:"action"`
@@ -1386,18 +1387,27 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	// letting their prose become edits or completion criteria crosses the
 	// retrieval trust boundary and makes stale or malicious text executable.
 	if focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
-		report.ActionChecklist = brainBriefFocusedFileActions(report.Semantic.Context.Symbols, report.LikelyEditFiles[0])
+		report.ActionChecklist = append(
+			brainBriefFocusedTestActions(report.Semantic.Tests.Suggestions),
+			brainBriefFocusedFileActions(report.Semantic.Context.Symbols, report.LikelyEditFiles[0])...,
+		)
 	}
 	if len(report.ActionChecklist) > 0 && len(report.Semantic.Context.Symbols) > 0 {
 		primary := report.Semantic.Context.Symbols[0]
-		if primary.FilePath == report.ActionChecklist[0].File && brainBriefHighConfidencePrimarySymbol(task, primary.Name) {
-			report.LikelyEditFiles = []string{report.ActionChecklist[0].File}
-			report.LikelyTestFiles = brainBriefLimitFiles(report.LikelyTestFiles, 1)
-			report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+		for _, action := range report.ActionChecklist {
+			if action.Kind == "inspect" && primary.FilePath == action.File && brainBriefHighConfidencePrimarySymbol(task, primary.Name) {
+				report.LikelyEditFiles = []string{action.File}
+				report.LikelyTestFiles = brainBriefLimitFiles(report.LikelyTestFiles, 1)
+				report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+				break
+			}
 		}
 	}
 	if len(report.ActionChecklist) > 0 {
-		report.Guidance = append(report.Guidance, "Treat action_checklist as a structured symbol to inspect, not as a verified edit or completion decision.")
+		report.Guidance = append(report.Guidance,
+			"Run a structured test action before broad inspection when present; treat its result as diagnostic evidence, not as completion.",
+			"Treat inspect actions as structured symbols to verify, not as verified edits or completion decisions.",
+		)
 	}
 	if views, _, perr := loadPatternViews(status.Brain.Path); perr == nil {
 		report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
@@ -1466,9 +1476,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			location = strings.TrimSpace(location + " " + item.Symbol)
 		}
 		if location != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "action %s: %s\n", location, item.Action)
+			fmt.Fprintf(cmd.OutOrStdout(), "action %s %s: %s\n", item.Kind, location, item.Action)
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "action %s\n", item.Action)
+			fmt.Fprintf(cmd.OutOrStdout(), "action %s %s\n", item.Kind, item.Action)
 		}
 	}
 	for _, c := range report.Consolidations {
@@ -1972,10 +1982,32 @@ func brainBriefFocusedFileActions(symbols []semanticRecord, topFile string) []br
 			endLine = symbol.StartLine
 		}
 		return []brainBriefAction{{
+			Kind:     "inspect",
 			File:     topFile,
 			Symbol:   displaySymbolName(symbol),
 			Action:   "Inspect this task-relevant symbol first; broaden only if it does not contain the described behavior.",
 			Evidence: fmt.Sprintf("semantic candidate refinement at lines %d-%d", symbol.StartLine, endLine),
+		}}
+	}
+	return nil
+}
+
+func brainBriefFocusedTestActions(suggestions []semanticTestSuggestion) []brainBriefAction {
+	for _, suggestion := range suggestions {
+		symbol := suggestion.Symbol
+		if !isSemanticTestSymbol(symbol) || symbol.FilePath == "" || symbol.StartLine <= 0 {
+			continue
+		}
+		endLine := symbol.EndLine
+		if endLine < symbol.StartLine {
+			endLine = symbol.StartLine
+		}
+		return []brainBriefAction{{
+			Kind:     "test",
+			File:     symbol.FilePath,
+			Symbol:   displaySymbolName(symbol),
+			Action:   "Run this focused test first to observe the current failure; use the result as diagnostic evidence, not as completion.",
+			Evidence: fmt.Sprintf("semantic test suggestion at lines %d-%d (%s)", symbol.StartLine, endLine, suggestion.Reason),
 		}}
 	}
 	return nil
