@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "27114a0a00fb",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-history-claude-bare-auth.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-claude-seed-agent.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-bare-auth.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-seed-agent.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json",
+    "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json",
+    "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json",
+    "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/27/114a0a00fb/0/metadata.json",
+      "transcript": "/27/114a0a00fb/0/full.jsonl",
+      "compact_transcript": "/27/114a0a00fb/0/transcript.jsonl",
+      "content_hash": "/27/114a0a00fb/0/content_hash.txt",
+      "prompt": "/27/114a0a00fb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9012152,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 628273152,
+    "output_tokens": 1044582,
+    "api_call_count": 4284
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "27114a0a00fb",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-23T17:41:36.620687Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-history-claude-bare-auth.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-claude-seed-agent.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-bare-auth.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-seed-agent.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json",
+    "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json",
+    "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json",
+    "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "f5a341dcad8a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 9012152,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 628273152,
+    "output_tokens": 1044582,
+    "api_call_count": 4284
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-23T17:41:35.128545Z",
+    "agent_lines": 0,
+    "agent_removed": 61,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 420,
+    "total_committed": 148,
+    "total_lines_changed": 481,
+    "agent_percentage": 12.681912681912683,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 402,
+      "user_lines_removed": 420,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "benchmarks/agent-brain/run.py": 226,
+        "benchmarks/agent-brain/run_test.py": 111,
+        "internal/cli/agent_surface.go": 36,
+        "internal/cli/brain_test.go": 29
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/run.py": 305,
+        "benchmarks/agent-brain/run_test.py": 115
+      }
+    }
+  ]
+}
