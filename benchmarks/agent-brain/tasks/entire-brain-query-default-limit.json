@@ -20,8 +20,7 @@
     }
   ],
   "validation": [
-    "test $(rg -n 'IntVar\\(&limit, \"limit\", 10' internal/cli/retrieve_cmd.go | wc -l | tr -d ' ') -eq 1",
-    "test $(rg -n 'IntVarP\\(&limit, \"number\", \"n\", 10' internal/cli/retrieve_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "test $(go run ./cmd/entire-brain query --help | rg -c 'default 10') -eq 2",
     "go test ./internal/cli -run 'TestQMDAliasesAcrossRetrievalVerbs|TestQMDOutputFormatAlias'"
   ],
   "expected_files": ["internal/cli/retrieve_cmd.go"],

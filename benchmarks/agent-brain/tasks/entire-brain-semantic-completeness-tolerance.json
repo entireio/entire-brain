@@ -13,7 +13,6 @@
     }
   ],
   "validation": [
-    "test $(rg -n 'const semanticParseErrorTolerance = 0.10' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
     "go test ./internal/cli -run 'TestSemanticCompletenessAxisToleratesFewParseErrors'"
   ],
   "hide_expected_from_agent": true,

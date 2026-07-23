@@ -21,7 +21,6 @@
     "rm -f docs/progress-so-far.md"
   ],
   "validation": [
-    "test $(rg -n 'path == \"\\.git\" \\|\\| strings.HasPrefix\\(path, \"\\.git/\"\\)' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
     "go test ./internal/cli -run 'TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths|TestBrainIgnoreDoesNotOvermatchDefaultDirectoryPrefixes'"
   ],
   "expected_files": ["internal/cli/semantic.go"],

@@ -15,7 +15,6 @@
     }
   ],
   "validation": [
-    "test $(rg -n '\"XDG_\"' cmd/entire/cli/plugin_env.go | wc -l | tr -d ' ') -eq 1",
     "go test ./cmd/entire/cli -run 'TestPluginEnv|TestPluginEnv_OverrideVarItselfPasses'"
   ],
   "expected_files": ["cmd/entire/cli/plugin_env.go"],

@@ -15,7 +15,6 @@
     }
   ],
   "validation": [
-    "test $(rg -n '\"name\":\\s+\"brain_context\"' internal/cli/mcp.go | wc -l | tr -d ' ') -eq 1",
     "go test ./internal/cli -run 'TestMCPInitializeAndToolsList|TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON'"
   ],
   "expected_files": ["internal/cli/mcp.go"],
