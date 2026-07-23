@@ -115,6 +115,20 @@ func TestUnifiedIDsNotDoublePrefixed(t *testing.T) {
 	}
 }
 
+func TestUnifiedRetrievalCommandDefaultsMatchDocumentedContract(t *testing.T) {
+	for _, command := range []*cobra.Command{
+		newQueryCommand(Options{}),
+		newSearchCommand(Options{}),
+		newVsearchCommand(Options{}),
+	} {
+		for _, flag := range []string{"limit", "number"} {
+			if got := command.Flags().Lookup(flag).DefValue; got != "10" {
+				t.Errorf("%s --%s default = %s, want 10", command.Name(), flag, got)
+			}
+		}
+	}
+}
+
 func TestRRFMergeUnifiedFavorsCrossListMatches(t *testing.T) {
 	lists := [][]unifiedResult{
 		{{ID: "a"}, {ID: "b"}},

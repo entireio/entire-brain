@@ -1,7 +1,7 @@
 {
   "id": "swe-style-entire-cli-transcript-reresolve",
   "repo": "entire-cli",
-  "repo_path": "cli",
+  "repo_path": "entire-cli",
   "source": "swe-bench-style-local",
   "suite_tags": ["swe-style", "entire-cli", "transcript"],
   "conditions": ["no_brain", "semantic_brain", "full_brain"],

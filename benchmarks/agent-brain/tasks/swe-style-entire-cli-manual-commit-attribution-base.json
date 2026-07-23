@@ -1,7 +1,7 @@
 {
   "id": "swe-style-entire-cli-manual-commit-attribution-base",
   "repo": "entire-cli",
-  "repo_path": "cli",
+  "repo_path": "entire-cli",
   "source": "swe-bench-style-local",
   "suite_tags": ["swe-style", "entire-cli", "manual-commit", "attribution"],
   "conditions": ["no_brain", "full_brain"],

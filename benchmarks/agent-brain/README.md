@@ -78,7 +78,7 @@ hard-coded home paths:
 - `~` and `$VARS`/`${VARS}` are expanded.
 - A **relative** `repo_path` is resolved against `$AGENT_BENCH_REPO_ROOT`
   (default: the parent directory of this repo). The bundled tasks assume a
-  sibling layout: e.g. `repo_path: "cli"` → `<repos>/cli`, `repo_path: "../Ultron"`
+  sibling layout: e.g. `repo_path: "entire-cli"` → `<repos>/entire-cli`, `repo_path: "../Ultron"`
   → `<repos>/../Ultron`. Set `AGENT_BENCH_REPO_ROOT=/path/to/your/repos` to point
   elsewhere, or use an absolute `repo_path`.
 - `path_prefix: "auto"` resolves to the directory of the host `node` (so the

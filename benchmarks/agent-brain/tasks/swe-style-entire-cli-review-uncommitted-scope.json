@@ -1,7 +1,7 @@
 {
   "id": "swe-style-entire-cli-review-uncommitted-scope",
   "repo": "entire-cli",
-  "repo_path": "cli",
+  "repo_path": "entire-cli",
   "source": "swe-bench-style-local",
   "suite_tags": ["swe-style", "entire-cli", "review"],
   "conditions": ["no_brain", "semantic_brain", "full_brain"],

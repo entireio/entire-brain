@@ -120,7 +120,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "entire-cli",
-        "repo_path": "cli",
+        "repo_path": "entire-cli",
         "area": "review provenance env filtering",
         "queries": ["AppendReviewEnv", "provenance.IsEntry", "ENTIRE_INVESTIGATE"],
         "brain_source": "hybrid",
@@ -128,7 +128,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "entire-cli",
-        "repo_path": "cli",
+        "repo_path": "entire-cli",
         "area": "manual commit hooks",
         "queries": ["manual_commit_hooks", "hook lifecycle", "checkpoint committed"],
         "brain_source": "hybrid",
@@ -136,7 +136,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "entire-cli",
-        "repo_path": "cli",
+        "repo_path": "entire-cli",
         "area": "transcript path re-resolution",
         "queries": ["resolveTranscriptPath", "transcript re-resolution", "updates state"],
         "brain_source": "history",
@@ -594,7 +594,7 @@ def resolve_repo_path(raw: str) -> pathlib.Path:
     machine (no hard-coded home paths). Order: expand `~` and `$VARS`/`${VARS}`,
     then if the result is relative, resolve it against `$AGENT_BENCH_REPO_ROOT`
     (default: the parent directory of this repo). Absolute paths pass through.
-    Example: repo_path `"cli"` -> `<repo-root>/../cli`; `"../Ultron"` -> sibling.
+    Example: repo_path `"entire-cli"` -> `<repo-root>/../entire-cli`; `"../Ultron"` -> sibling.
     Set AGENT_BENCH_REPO_ROOT (or use absolute paths / `$VARS`) to point elsewhere."""
     expanded = os.path.expanduser(os.path.expandvars(str(raw)))
     if "$" in expanded:

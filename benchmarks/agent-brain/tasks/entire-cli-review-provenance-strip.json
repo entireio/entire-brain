@@ -1,7 +1,7 @@
 {
   "id": "entire-cli-review-provenance-strip",
   "repo": "entire-cli",
-  "repo_path": "cli",
+  "repo_path": "entire-cli",
   "conditions": ["no_brain", "full_brain"],
   "prepare_semantic": false,
   "prompt": "Fix the review-session provenance regression. `entire review` must strip stale Entire provenance inherited from parent review or investigate sessions before appending fresh ENTIRE_REVIEW_* values, while preserving unrelated environment entries. Keep the stable env-var names unchanged.",

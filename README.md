@@ -259,7 +259,7 @@ results, 5 context symbols, 20 impact symbols, and 3 test suggestions;
 
 Prefer `query` for broad facts/history/docs, `search` for exact terms, semantic
 `inspect` subcommands for code-graph questions, and `get`/`multi-get` when a
-prior result returned an id. Retrieval returns five bounded excerpts by default;
+prior result returned an id. Retrieval returns ten bounded excerpts by default;
 raise `--limit` deliberately instead of treating ranked search as a full-record
 dump. Don't broaden into repo-wide text search until the brain's targeted
 context has been used.
