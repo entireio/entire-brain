@@ -1,0 +1,56 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "b9040de5cec3",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-23T02:20:49.775447Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/agent_ux_test.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_test.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/semantic.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "8b2393bf54f0",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 7696282,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 503227392,
+    "output_tokens": 894623,
+    "api_call_count": 3569
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-23T02:20:48.754624Z",
+    "agent_lines": 180,
+    "agent_removed": 1756,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 180,
+    "total_lines_changed": 1936,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

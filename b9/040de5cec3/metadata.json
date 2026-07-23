@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "b9040de5cec3",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/agent_ux_test.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_test.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/semantic.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b9/040de5cec3/0/metadata.json",
+      "transcript": "/b9/040de5cec3/0/full.jsonl",
+      "compact_transcript": "/b9/040de5cec3/0/transcript.jsonl",
+      "content_hash": "/b9/040de5cec3/0/content_hash.txt",
+      "prompt": "/b9/040de5cec3/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7696282,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 503227392,
+    "output_tokens": 894623,
+    "api_call_count": 3569
+  }
+}
