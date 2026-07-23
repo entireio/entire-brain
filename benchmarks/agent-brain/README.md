@@ -3,6 +3,14 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+## Benchmark condition contract
+
+[`CONDITIONS.md`](CONDITIONS.md) is the normative contract for what no-Brain and
+Brain agents may use, what both must avoid, how Git history is treated, how
+candidate-versus-main runs stay comparable, and which raw-session checks make a
+row valid. Read it before authoring a task, changing the harness, or running a
+comparison.
+
 ## Current-main-only policy
 
 Entire Brain has no released product baseline. Every `run`, `panel`, `prep`, and
@@ -66,7 +74,7 @@ The **stability gate** (in `summarize`, so `run`/`panel`/`report` all show it) t
 Each comparison also carries the coefficient of variation for tokens and score, for **both** the
 condition and the baseline arm (`..._condition` / `..._baseline`). **Honesty note:** agent
 sampling is inherently non-deterministic; the harness-controllable variance (base commit, setup commit,
-semantic cache, parentless baseline) is already pinned, so stability comes from **repetitions + CV +
+semantic cache, filtered source-history baseline) is already pinned, so stability comes from **repetitions + CV +
 drop-one**, not a fake seed. The gate can only *downgrade* a result to saturated/noisy — it never
 manufactures significance — and the headline stays validation pass-rate + measured tokens.
 
@@ -149,10 +157,11 @@ Use the same `--source-root` for every compared Brain ref. Task worktrees are
 always created from those current source repositories; the Brain binary is the
 only intended branch/main difference.
 
-The no-Brain condition permits normal agent tools but rejects use of `entire`,
-`entire-graph`, `entire-brain`, Brain MCP tools, and benchmark-private artifacts.
-Brain conditions add the Entire tool family, require logged Brain use, and
-retain the same prohibition on information from previous benchmark runs.
+The short version is: no-Brain retains every normal coding tool, including
+ordinary Git history, but has no Entire-family tools or Entire-managed memory.
+Brain adds the condition's Entire Brain surface. Neither may access information
+from previous benchmark runs. See [`CONDITIONS.md`](CONDITIONS.md) for the full
+enforced contract.
 
 MCP-specific conditions are separate from CLI delivery:
 

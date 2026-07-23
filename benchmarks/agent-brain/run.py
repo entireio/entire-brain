@@ -35,6 +35,7 @@ RESULT_DIR = BENCH_ROOT / "results"
 CACHE_DIR = BENCH_ROOT / "cache"
 VALIDATION_FIXTURE_DIR = BENCH_ROOT / "fixtures" / "validation"
 BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
+FILTERED_HISTORY_CACHE_SCHEMA = 1
 BENCH_GO_MOD_CACHE = pathlib.Path(
     os.environ.get(
         "ENTIRE_BENCH_GOMODCACHE",
@@ -290,6 +291,12 @@ SAFE_MCP_ARGUMENT_KEYS = SAFE_MCP_BOOL_ARGUMENT_KEYS | SAFE_MCP_STRING_ARGUMENT_
 BENCHMARK_PRIVATE_PREFIXES = (".benchmark/", ".entire/", ".codex/")
 HARNESS_SCAFFOLD_PATHS = (
     "benchmarks/agent-brain",
+)
+AGENT_HISTORY_PRIVATE_PATHS = (
+    *HARNESS_SCAFFOLD_PATHS,
+    ".benchmark",
+    ".codex",
+    ".entire",
 )
 AGENT_VISIBLE_SECRET_PATTERNS = (
     '"validation"',
@@ -1111,12 +1118,25 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
     source = resolve_repo_path(task["repo_path"])
     base = task.get("_resolved_base_commit") or task.get("base_commit") or git_head(source)
     worktree = run_dir / "worktree"
-    worktree.mkdir(parents=True, exist_ok=False)
-    archive = run_dir / "source.tar"
-    run_cmd(["git", "archive", "--format=tar", "-o", str(archive), base], cwd=source, check=True)
-    run_cmd(["tar", "-xf", str(archive), "-C", str(worktree)], cwd=run_dir, check=True)
-    archive.unlink(missing_ok=True)
-    run_cmd(["git", "init"], cwd=worktree, check=True)
+    private_paths = filtered_agent_history_paths(task)
+    history_repo = filtered_agent_history_repo(source, str(base), private_paths)
+    run_cmd(
+        [
+            "git",
+            "clone",
+            "--no-local",
+            "--no-tags",
+            "--single-branch",
+            "--branch",
+            "baseline",
+            str(history_repo),
+            str(worktree),
+        ],
+        cwd=run_dir,
+        check=True,
+    )
+    run_cmd(["git", "checkout", "--detach"], cwd=worktree, check=True)
+    run_cmd(["git", "update-ref", "-d", "refs/remotes/origin/baseline"], cwd=worktree, check=True)
     copy_origin_remote(source, worktree)
     ignore_benchmark_plugin(worktree)
     patch = task.get("setup_patch", "")
@@ -1132,7 +1152,12 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
                 f"setup command failed ({proc.returncode}): {command}\n"
                 f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
             )
-    reset_agent_history_to_root(worktree, f"Benchmark agent baseline for {task['id']}", include_current_changes=True)
+    commit_agent_baseline(
+        worktree,
+        f"Benchmark agent baseline for {task['id']}",
+        include_current_changes=True,
+        private_paths=private_paths,
+    )
     return worktree
 
 
@@ -1140,22 +1165,129 @@ def copy_origin_remote(source: pathlib.Path, worktree: pathlib.Path) -> None:
     remote = run_cmd(["git", "remote", "get-url", "origin"], cwd=source)
     url = remote.stdout.strip()
     if remote.returncode == 0 and url:
-        run_cmd(["git", "remote", "add", "origin", url], cwd=worktree, check=True)
+        existing = run_cmd(["git", "remote", "get-url", "origin"], cwd=worktree)
+        command = ["git", "remote", "set-url" if existing.returncode == 0 else "add", "origin", url]
+        run_cmd(command, cwd=worktree, check=True)
 
 
-def reset_agent_history_to_root(
+def filtered_agent_history_paths(task: dict[str, Any] | None = None) -> list[str]:
+    return sorted(
+        dict.fromkeys([*AGENT_HISTORY_PRIVATE_PATHS, *agent_hidden_paths(task)]),
+        key=lambda item: (item.count("/"), item),
+    )
+
+
+def filtered_agent_history_repo(
+    source: pathlib.Path,
+    base: str,
+    private_paths: list[str],
+) -> pathlib.Path:
+    """Cache ordinary source history with benchmark/Entire-private paths removed."""
+    source_commit = run_cmd(
+        ["git", "rev-parse", "--verify", f"{base}^{{commit}}"],
+        cwd=source,
+        check=True,
+    ).stdout.strip()
+    key_payload = {
+        "schema": FILTERED_HISTORY_CACHE_SCHEMA,
+        "source_commit": source_commit,
+        "private_paths": private_paths,
+    }
+    key = hashlib.sha256(
+        json.dumps(key_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()[:24]
+    cache_root = CACHE_DIR / "source-history"
+    cache_root.mkdir(parents=True, exist_ok=True)
+    cache_repo = cache_root / f"{key}.git"
+    if cache_repo.exists():
+        check = run_cmd(["git", "rev-parse", "--verify", "refs/heads/baseline"], cwd=cache_repo)
+        if check.returncode == 0:
+            return cache_repo
+        shutil.rmtree(cache_repo)
+
+    staging = pathlib.Path(tempfile.mkdtemp(prefix=f".{key}.", dir=cache_root))
+    staging_repo = staging / "repo.git"
+    export_ref = f"refs/entire-benchmark/export-{os.getpid()}-{key}"
+    run_cmd(["git", "init", "--bare", str(staging_repo)], cwd=staging, check=True)
+    run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
+    try:
+        export_command = [
+            "git",
+            "fast-export",
+            "--use-done-feature",
+            export_ref,
+            "--",
+            ".",
+            *[f":(exclude){path}" for path in private_paths],
+        ]
+        with tempfile.TemporaryFile() as export_stderr:
+            exporter = subprocess.Popen(
+                export_command,
+                cwd=source,
+                stdout=subprocess.PIPE,
+                stderr=export_stderr,
+            )
+            assert exporter.stdout is not None
+            importer = subprocess.run(
+                ["git", "fast-import", "--quiet"],
+                cwd=staging_repo,
+                stdin=exporter.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            exporter.stdout.close()
+            export_returncode = exporter.wait()
+            export_stderr.seek(0)
+            export_error = export_stderr.read().decode(errors="replace")
+        if export_returncode != 0 or importer.returncode != 0:
+            raise RuntimeError(
+                "failed to build filtered source history:\n"
+                f"fast-export ({export_returncode}): {export_error}\n"
+                f"fast-import ({importer.returncode}): {importer.stderr.decode(errors='replace')}"
+            )
+    finally:
+        run_cmd(["git", "update-ref", "-d", export_ref], cwd=source)
+
+    filtered_tip = run_cmd(
+        ["git", "rev-parse", "--verify", export_ref],
+        cwd=staging_repo,
+        check=True,
+    ).stdout.strip()
+    run_cmd(["git", "update-ref", "refs/heads/baseline", filtered_tip], cwd=staging_repo, check=True)
+    run_cmd(["git", "update-ref", "-d", export_ref], cwd=staging_repo, check=True)
+    run_cmd(["git", "symbolic-ref", "HEAD", "refs/heads/baseline"], cwd=staging_repo, check=True)
+    for path in private_paths:
+        leaked = run_cmd(
+            ["git", "rev-list", "--objects", "--all", "--", path],
+            cwd=staging_repo,
+            check=True,
+        ).stdout.strip()
+        if leaked:
+            raise RuntimeError(f"filtered source history still contains private path {path}")
+    try:
+        os.replace(staging_repo, cache_repo)
+    except FileExistsError:
+        pass
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return cache_repo
+
+
+def commit_agent_baseline(
     worktree: pathlib.Path,
     message: str,
     *,
     include_current_changes: bool = False,
+    private_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Make the current tree the visible baseline without exposing setup diffs."""
+    """Commit the current task state while retaining filtered ordinary Git history."""
     if include_current_changes:
         run_cmd(["git", "add", "-A"], cwd=worktree, check=True)
     status = run_cmd(["git", "status", "--porcelain"], cwd=worktree, check=True).stdout.strip()
     if status and not include_current_changes:
-        raise RuntimeError(f"cannot reset benchmark history with dirty worktree:\n{status}")
+        raise RuntimeError(f"cannot commit benchmark baseline with dirty worktree:\n{status}")
     tree = run_cmd(["git", "write-tree"], cwd=worktree, check=True).stdout.strip()
+    parent = run_cmd(["git", "rev-parse", "HEAD"], cwd=worktree, check=True).stdout.strip()
     commit = run_cmd(
         [
             "git",
@@ -1165,6 +1297,8 @@ def reset_agent_history_to_root(
             "user.email=benchmark@example.invalid",
             "commit-tree",
             tree,
+            "-p",
+            parent,
             "-m",
             message,
         ],
@@ -1173,11 +1307,39 @@ def reset_agent_history_to_root(
         check=True,
     ).stdout.strip()
     run_cmd(["git", "reset", "--hard", commit], cwd=worktree, check=True)
-    run_cmd(["git", "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"], cwd=worktree, check=True)
-    run_cmd(["git", "prune", "--expire=now"], cwd=worktree, check=True)
-    head_line = run_cmd(["git", "rev-list", "--parents", "-n", "1", "HEAD"], cwd=worktree, check=True).stdout.strip()
+    return agent_history_attestation(worktree, private_paths)
+
+
+def agent_history_attestation(
+    worktree: pathlib.Path,
+    private_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    head_line = run_cmd(
+        ["git", "rev-list", "--parents", "-n", "1", "HEAD"],
+        cwd=worktree,
+        check=True,
+    ).stdout.strip()
     parent_count = max(0, len(head_line.split()) - 1)
-    return {"root_commit": commit, "parent_count": parent_count}
+    commit_count = int(
+        run_cmd(["git", "rev-list", "--count", "HEAD"], cwd=worktree, check=True).stdout.strip()
+    )
+    private_findings: list[str] = []
+    for path in private_paths or list(AGENT_HISTORY_PRIVATE_PATHS):
+        if run_cmd(
+            ["git", "rev-list", "--objects", "HEAD", "--", path],
+            cwd=worktree,
+            check=True,
+        ).stdout.strip():
+            private_findings.append(path)
+    return {
+        "head_commit": head_line.split()[0],
+        "parent_count": parent_count,
+        "commit_count": commit_count,
+        "source_history_available": commit_count > 1,
+        "private_paths_filtered": not private_findings,
+        "private_path_findings": private_findings,
+        "mode": "filtered_source_history",
+    }
 
 
 def copy_entire_history(source: pathlib.Path, worktree: pathlib.Path) -> None:
@@ -1271,7 +1433,12 @@ def sanitize_agent_worktree(worktree: pathlib.Path, task: dict[str, Any] | None 
         removed.append(rel)
     if not removed:
         return {"removed_paths": [], "committed": False}
-    reset_agent_history_to_root(worktree, "Benchmark sanitized agent baseline", include_current_changes=True)
+    commit_agent_baseline(
+        worktree,
+        "Benchmark sanitized agent baseline",
+        include_current_changes=True,
+        private_paths=filtered_agent_history_paths(task),
+    )
     return {"removed_paths": removed, "committed": True}
 
 
@@ -5385,9 +5552,9 @@ def run_one(
         worktree = create_worktree(task, run_dir)
         worktree_sanitization = sanitize_agent_worktree(worktree, task)
         record["agent_worktree_sanitization"] = worktree_sanitization
-        record["agent_baseline_history_reset"] = reset_agent_history_to_root(
+        record["agent_baseline_history"] = agent_history_attestation(
             worktree,
-            f"Benchmark agent baseline for {task['id']}",
+            filtered_agent_history_paths(task),
         )
         prepare_condition_history(task, condition, worktree)
         env, prep = prepare_brain(
@@ -5405,10 +5572,11 @@ def run_one(
             assert_brain_state_ready(task, condition, brain_state)
         post_brain_changed = apply_post_brain_setup(task, worktree)
         if post_brain_changed:
-            record["post_brain_baseline_history_reset"] = reset_agent_history_to_root(
+            record["post_brain_baseline_history"] = commit_agent_baseline(
                 worktree,
                 f"Benchmark post-brain agent baseline for {task['id']}",
                 include_current_changes=True,
+                private_paths=filtered_agent_history_paths(task),
             )
         record["go_dependency_prewarm"] = prewarm_go_dependencies(worktree, env)
         agent_visible_entire_removed = False
@@ -6758,9 +6926,9 @@ def cmd_prep(args: argparse.Namespace) -> int:
                 worktree = create_worktree(task, run_dir)
                 worktree_sanitization = sanitize_agent_worktree(worktree, task)
                 record["agent_worktree_sanitization"] = worktree_sanitization
-                record["agent_baseline_history_reset"] = reset_agent_history_to_root(
+                record["agent_baseline_history"] = agent_history_attestation(
                     worktree,
-                    f"Benchmark agent baseline for {task['id']}",
+                    filtered_agent_history_paths(task),
                 )
                 prepare_condition_history(task, condition, worktree)
                 env, prep = prepare_brain(

@@ -41,8 +41,10 @@ builds from the active checkout and refuses to run unless `HEAD` contains local
 delivery.
 
 GraphMark owns cross-product benchmark evidence and split integrity. See
-[`benchmarks/agent-brain/README.md`](benchmarks/agent-brain/README.md) for the
-enforced policy and retired-corpus notice.
+[`benchmarks/agent-brain/CONDITIONS.md`](benchmarks/agent-brain/CONDITIONS.md)
+for the normative condition and comparison contract, and
+[`benchmarks/agent-brain/README.md`](benchmarks/agent-brain/README.md) for
+harness operation and the retired-corpus notice.
 
 ## Install
 

@@ -14,7 +14,7 @@ Checks per record:
   B. mcp authenticity     - mcp_* runs must have real mcp tool calls backed by
                             the server log's tools/call count and, for new logs,
                             server-side tool names.
-  C. fairness baseline    - agent baseline commit is parentless (no history leak).
+  C. fairness baseline    - ordinary Git history is available with private paths filtered.
   D. score integrity      - stored score.total == clamp(sum(components)).
   E. leakage audits       - secret preflight / leak audit / history sanitization ok.
   F. validation present   - the run actually ran the task's validation (non-empty).
@@ -844,16 +844,43 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         if slog == 0 and mcp_calls <= 0:
             pass  # consistent honest failure
 
-    # C. fairness baseline. create_worktree() applies a parentless reset for ALL runs;
-    # only flag an ACTUAL non-zero parent. Missing in-record attestation -> note only.
-    pc = get(rec, "agent_baseline_history_reset", "parent_count", default=None)
-    if pc is None:
-        notes.append("C:fairness_not_attested_in_record")
-    elif pc != 0:
-        flags.append(f"C:baseline_not_parentless({pc})")
-    post = rec.get("post_brain_baseline_history_reset")
-    if isinstance(post, dict) and post.get("parent_count") not in (0, None):
-        flags.append(f"C:post_brain_baseline_not_parentless({post.get('parent_count')})")
+    # C. fairness baseline. New runs retain ordinary source Git history after filtering
+    # benchmark/Entire-private paths from every visible revision. Historical evidence used
+    # a parentless baseline; keep it auditable as legacy evidence without treating it as a
+    # compliant run under the current contract.
+    history = rec.get("agent_baseline_history")
+    pc = None
+    history_compliant = False
+    if isinstance(history, dict):
+        pc = history.get("parent_count")
+        if history.get("mode") != "filtered_source_history":
+            flags.append(f"C:unexpected_history_mode({history.get('mode')})")
+        if history.get("source_history_available") is not True:
+            flags.append("C:source_history_unavailable")
+        if history.get("private_paths_filtered") is not True:
+            flags.append("C:private_history_paths_visible")
+        if int(history.get("parent_count") or 0) < 1:
+            flags.append(f"C:baseline_has_no_parent({history.get('parent_count')})")
+        history_compliant = (
+            history.get("mode") == "filtered_source_history"
+            and history.get("source_history_available") is True
+            and history.get("private_paths_filtered") is True
+            and int(history.get("parent_count") or 0) >= 1
+        )
+    else:
+        legacy = rec.get("agent_baseline_history_reset")
+        pc = legacy.get("parent_count") if isinstance(legacy, dict) else None
+        if isinstance(legacy, dict) and legacy.get("parent_count") == 0:
+            notes.append("C:legacy_parentless_baseline")
+            history_compliant = True
+        else:
+            notes.append("C:fairness_not_attested_in_record")
+    post = rec.get("post_brain_baseline_history")
+    if isinstance(post, dict):
+        if post.get("source_history_available") is not True:
+            flags.append("C:post_brain_source_history_unavailable")
+        if post.get("private_paths_filtered") is not True:
+            flags.append("C:post_brain_private_history_paths_visible")
 
     # D. score integrity (HARD: stored total must equal recomputed clamp(sum(components)))
     if isinstance(score, dict) and "total" in score:
@@ -933,7 +960,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     # Classify a record as an integrity-verified MCP proof datapoint
     mcp_verified = (
         cond in MCP_CONDITIONS and mcp_calls > 0 and bool(get(rec, "mcp_condition_audit", "ok"))
-        and pc == 0 and slog is not None and slog > 0 and int(slog_responses or 0) >= int(slog or 0)
+        and history_compliant and slog is not None and slog > 0 and int(slog_responses or 0) >= int(slog or 0)
         and not flags
         and not (slog_names and not {bare_mcp_tool_name(n) for n in activity.get("mcp_tool_names") or []}.issubset(set(slog_names)))
     )
@@ -1443,7 +1470,7 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
           f"- Suites audited: **{report['totals']['suites']}**",
           f"- Agent records audited (prep excluded): **{total_records}**",
           f"- **Hard integrity flags: {total_flags}**",
-          f"- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **{mcp_verified_count}**",
+          f"- Integrity-verified MCP datapoints (real calls + isolated Git baseline + server-log backed): **{mcp_verified_count}**",
           f"- Named-tool MCP datapoints (server log names the required brain tool): **{mcp_named_tool_verified_count}**",
           f"- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **{mcp_named_tool_completed_count}**",
           f"- Records with required provenance (source base/head + harness/config/tool hashes): **{provenance_ok_count}/{total_records}**",

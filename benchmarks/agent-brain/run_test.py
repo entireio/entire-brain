@@ -1713,7 +1713,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run.agent_hidden_paths({"agent_hidden_paths": ["../outside"]})
 
-    def test_reset_agent_history_to_root_hides_setup_commit_and_preserves_diff(self):
+    def test_commit_agent_baseline_retains_source_history_and_preserves_agent_diff(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = pathlib.Path(tmp)
             run.run_cmd(["git", "init"], cwd=repo, check=True)
@@ -1749,24 +1749,23 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertIn("-fixed behavior", setup_patch)
             self.assertIn("+regressed behavior", setup_patch)
 
-            reset = run.reset_agent_history_to_root(repo, "Benchmark agent baseline")
-            self.assertEqual(reset["parent_count"], 0)
+            baseline = run.commit_agent_baseline(repo, "Benchmark agent baseline")
+            self.assertEqual(baseline["parent_count"], 1)
+            self.assertTrue(baseline["source_history_available"])
             parents = run.run_cmd(["git", "show", "--format=%P", "--no-patch", "HEAD"], cwd=repo, check=True).stdout.strip()
-            self.assertEqual(parents, "")
+            self.assertEqual(parents, setup_commit)
             baseline_patch = run.run_cmd(["git", "show", "--format=", "HEAD"], cwd=repo, check=True).stdout
             self.assertNotIn("-fixed behavior", baseline_patch)
-            self.assertIn("+regressed behavior", baseline_patch)
-            reflog = run.run_cmd(["git", "reflog"], cwd=repo, check=True).stdout
-            self.assertNotIn("Benchmark setup", reflog)
+            self.assertNotIn("+regressed behavior", baseline_patch)
             old_commit = run.run_cmd(["git", "cat-file", "-e", f"{setup_commit}^{{commit}}"], cwd=repo)
-            self.assertNotEqual(old_commit.returncode, 0)
+            self.assertEqual(old_commit.returncode, 0)
 
             target.write_text("agent repair\n")
             diff = run.run_cmd(["git", "diff", "--", "target.txt"], cwd=repo, check=True).stdout
             self.assertIn("-regressed behavior", diff)
             self.assertIn("+agent repair", diff)
 
-    def test_create_worktree_uses_synthetic_repo_without_source_history(self):
+    def test_create_worktree_retains_filtered_source_history(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = pathlib.Path(tmp) / "source"
             source.mkdir()
@@ -1774,7 +1773,11 @@ class RunnerAndConditionTests(unittest.TestCase):
             run.run_cmd(["git", "remote", "add", "origin", "https://github.com/example/source.git"], cwd=source, check=True)
             target = source / "target.txt"
             target.write_text("fixed behavior\n")
+            private = source / "benchmarks" / "agent-brain"
+            private.mkdir(parents=True)
+            (private / "answer.txt").write_text("private benchmark answer\n")
             run.run_cmd(["git", "add", "target.txt"], cwd=source, check=True)
+            run.run_cmd(["git", "add", "benchmarks/agent-brain/answer.txt"], cwd=source, check=True)
             run.run_cmd(
                 ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "real fix"],
                 cwd=source,
@@ -1794,12 +1797,24 @@ class RunnerAndConditionTests(unittest.TestCase):
 
             worktree = run.create_worktree(task, run_dir)
             parents = run.run_cmd(["git", "show", "--format=%P", "--no-patch", "HEAD"], cwd=worktree, check=True).stdout.strip()
-            self.assertEqual(parents, "")
+            self.assertNotEqual(parents, "")
             setup_patch = run.run_cmd(["git", "show", "--format=", "HEAD", "--", "target.txt"], cwd=worktree, check=True).stdout
-            self.assertNotIn("-fixed behavior", setup_patch)
+            self.assertIn("-fixed behavior", setup_patch)
             self.assertIn("+regressed behavior", setup_patch)
             remote = run.run_cmd(["git", "remote", "get-url", "origin"], cwd=worktree, check=True).stdout.strip()
             self.assertEqual(remote, "https://github.com/example/source.git")
+            history = run.agent_history_attestation(worktree)
+            self.assertTrue(history["source_history_available"])
+            self.assertTrue(history["private_paths_filtered"])
+            self.assertFalse((worktree / "benchmarks" / "agent-brain").exists())
+            private_history = run.run_cmd(
+                ["git", "rev-list", "--objects", "--all", "--", "benchmarks/agent-brain"],
+                cwd=worktree,
+                check=True,
+            ).stdout.strip()
+            self.assertEqual(private_history, "")
+            log = run.run_cmd(["git", "log", "--format=%s"], cwd=worktree, check=True).stdout
+            self.assertIn("real fix", log)
             source_commit = run.run_cmd(["git", "cat-file", "-e", f"{source_head}^{{commit}}"], cwd=worktree)
             self.assertNotEqual(source_commit.returncode, 0)
 
@@ -3116,7 +3131,14 @@ class CodexAuditScriptTests(unittest.TestCase):
                 "direct_brain_cli_calls": 0,
                 "search_calls": 0,
             }},
-            "agent_baseline_history_reset": {"parent_count": 0},
+            "agent_baseline_history": {
+                "mode": "filtered_source_history",
+                "parent_count": 1,
+                "commit_count": 2,
+                "source_history_available": True,
+                "private_paths_filtered": True,
+                "private_path_findings": [],
+            },
             "agent_secret_preflight": {"ok": True},
             "agent_leak_audit": {"ok": True},
             "brain_prep": {"condition": condition},
