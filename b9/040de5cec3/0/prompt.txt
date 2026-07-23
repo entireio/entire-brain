@@ -1,11 +1,3 @@
-Ok, loop and improve entire-brain until all 9 are wins across all dimensions. In each loop, verify from the agent session log that it actually leverage entire-brain.
-
----
-
-Do an adversarial review all of changes in the branch
-
----
-
 # Diff comments:
 
 ## Comment 1
