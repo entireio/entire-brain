@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "4ed93327f1cc",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json",
+    "benchmarks/agent-brain/tasks/entire-brain-mcp-tool-name.json",
+    "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json",
+    "benchmarks/agent-brain/tasks/entire-brain-semantic-completeness-tolerance.json",
+    "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4e/d93327f1cc/0/metadata.json",
+      "transcript": "/4e/d93327f1cc/0/full.jsonl",
+      "compact_transcript": "/4e/d93327f1cc/0/transcript.jsonl",
+      "content_hash": "/4e/d93327f1cc/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 29696,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6994176,
+    "output_tokens": 4616,
+    "api_call_count": 31
+  }
+}
