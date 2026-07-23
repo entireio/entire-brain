@@ -29,6 +29,5 @@
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
   "leak_markers": ["release-history-codex-schema-contract-canary-20260610T0018Z"],
-  "brain_queries": ["Codex seed agent invocation compatibility failure", "checkpoint review reverted Codex invocation flag", "local CLI dialect compatibility failure", "seed agent structured output enforced by prompt checks"],
-  "history_excerpt_lines": 24
+  "brain_queries": ["Codex seed agent invocation compatibility failure", "checkpoint review reverted Codex invocation flag", "local CLI dialect compatibility failure", "seed agent structured output enforced by prompt checks"]
 }

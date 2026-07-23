@@ -2098,6 +2098,10 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 	// regression-localization evidence than a lexical semantic guess. Promote it
 	// after semantic ordering so the two sections cannot contradict each other.
 	editFiles = brainBriefPromoteHistoryEditFiles(editFiles, historyEditFiles, 8)
+	// Public-contract tasks are best localized at the selected definition or
+	// registry symbol, not at a caller that happens to mention the same nouns.
+	// Structured semantic evidence wins this final tie-break over prose history.
+	editFiles = brainBriefPromoteContractSemanticEditFiles(repoRoot, editFiles, report.Semantic.Context.Symbols, task, 8)
 	testFiles := rankedBrainBriefLikelyFiles(testCounts, 6)
 	all := append([]string{}, editFiles...)
 	for _, file := range testFiles {
@@ -2107,6 +2111,38 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 		all = append(all, file)
 	}
 	return editFiles, testFiles, all
+}
+
+func brainBriefPromoteContractSemanticEditFiles(repoRoot string, files []string, symbols []semanticRecord, task string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	var contractFiles []string
+	for _, symbol := range symbols {
+		if brainBriefSemanticIntentBonus(task, symbol.Name) <= 0 {
+			continue
+		}
+		clean, ok := cleanBrainBriefSemanticFile(repoRoot, symbol.FilePath)
+		if !ok || brainBriefLikelyTestFile(clean) || slices.Contains(contractFiles, clean) {
+			continue
+		}
+		contractFiles = append(contractFiles, clean)
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, min(limit, len(files)))
+	for _, group := range [][]string{contractFiles, files} {
+		for _, file := range group {
+			if len(out) >= limit {
+				return out
+			}
+			if _, ok := seen[file]; ok || !slices.Contains(files, file) {
+				continue
+			}
+			seen[file] = struct{}{}
+			out = append(out, file)
+		}
+	}
+	return out
 }
 
 func brainBriefPromoteHistoryEditFiles(files, historyFiles []string, limit int) []string {

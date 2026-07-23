@@ -27,6 +27,5 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": ["claude code seed agent local authentication failure", "checkpoint review reverted seed agent invocation flag", "synthesis isolated from local agent configuration", "flag bypassed signed-in claude credentials"],
-  "history_excerpt_lines": 24
+  "brain_queries": ["claude code seed agent local authentication failure", "checkpoint review reverted seed agent invocation flag", "synthesis isolated from local agent configuration", "flag bypassed signed-in claude credentials"]
 }

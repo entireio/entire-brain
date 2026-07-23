@@ -60,6 +60,5 @@
   ],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": ["Claude Code seed synthesis mode", "seed agent intake template", "run seed agent without local project configuration", "restore agent mode in docs and tests"],
-  "history_excerpt_lines": 40
+  "brain_queries": ["Claude Code seed synthesis mode", "seed agent intake template", "run seed agent without local project configuration", "restore agent mode in docs and tests"]
 }

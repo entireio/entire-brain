@@ -42,6 +42,5 @@
   ],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": ["claude seed agent fails for signed-in users", "command invocation regressed to compatibility mode", "flag that skips local login credentials", "coverage for seed agent command arguments"],
-  "history_excerpt_lines": 24
+  "brain_queries": ["claude seed agent fails for signed-in users", "command invocation regressed to compatibility mode", "flag that skips local login credentials", "coverage for seed agent command arguments"]
 }

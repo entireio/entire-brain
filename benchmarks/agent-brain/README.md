@@ -140,25 +140,34 @@ python3 benchmarks/agent-brain/run.py run \
   --tasks entire-brain-mcp-tool-name.json \
   --agents codex \
   --conditions no_brain,semantic_brain,full_brain \
+  --source-root .. \
   --repetitions 3 \
   --suite-name codex-mcp-smoke
 ```
 
-MCP-specific conditions are separate from CLI/context-file delivery:
+Use the same `--source-root` for every compared Brain ref. Task worktrees are
+always created from those current source repositories; the Brain binary is the
+only intended branch/main difference.
+
+The no-Brain condition permits normal agent tools but rejects use of `entire`,
+`entire-graph`, `entire-brain`, Brain MCP tools, and benchmark-private artifacts.
+Brain conditions add the Entire tool family, require logged Brain use, and
+retain the same prohibition on information from previous benchmark runs.
+
+MCP-specific conditions are separate from CLI delivery:
 
 - `semantic_cli`: CLI-delivered semantic brain, equivalent to the original
   `semantic_brain` condition.
-- `full_cli_original`: original full-brain delivery with the generated
-  `.benchmark/brain-history-excerpt.md` file.
+- `full_cli_original`: original full-brain CLI policy, delivered through the
+  indexed Brain itself.
 - `full_cli_compact`: full Brain prep delivered through `brain brief` only:
-  compact history hits, likely files/tests, and action checklist; no raw
-  history excerpt file.
+  compact history hits, likely files/tests, and action checklist.
 - `mcp_semantic`: local `entire brain mcp` semantic graph tools only
   (`brain_status`, `brain_context`, `brain_impact`, `brain_changes`,
   `brain_code`); unified `brain_query` retrieval is intentionally excluded from
   this condition.
 - `mcp_history`: local `entire brain mcp` with `brain_brief` and indexed-history
-  retrieval; no history excerpt file is provided as a shortcut.
+  retrieval.
   > Note: this condition uses `brain_brief` plus unified `brain_search` /
   > `brain_query` retrieval. The old dedicated `brain_history` tool was removed;
   > history is now one source within the unified retrieval verbs.

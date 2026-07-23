@@ -343,6 +343,35 @@ func TestBrainBriefLikelyFilesLeadWithSelectedSemanticRoot(t *testing.T) {
 	}
 }
 
+func TestBrainBriefLikelyFilesLeadWithPublicContractDefinition(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, rel := range []string{"client/capabilities.go", "server/tools.go"} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{
+		Symbols: []semanticRecord{
+			{ID: "caller", Kind: "method", Name: "ListCapabilities", FilePath: "client/capabilities.go"},
+			{ID: "definitions", Kind: "function", Name: "publicToolDefinitions", FilePath: "server/tools.go"},
+		},
+	}}}
+
+	editFiles, _, _ := brainBriefLikelyFileGroupsForRepo(
+		repoDir,
+		"gh/example/service",
+		report,
+		"keep the advertised public tool contract stable",
+	)
+	if len(editFiles) == 0 || editFiles[0] != "server/tools.go" {
+		t.Fatalf("public contract definition must lead callers, got %v", editFiles)
+	}
+}
+
 func TestBrainBriefTestIntentRequiresAnActualTestTask(t *testing.T) {
 	for _, task := range []string{
 		"Fix the failing integration test for brain status",

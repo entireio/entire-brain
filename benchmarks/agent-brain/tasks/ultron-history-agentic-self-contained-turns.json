@@ -50,6 +50,5 @@
     "agentic Chrome rebuild robustness self-contained",
     "browser decision turns recent history screenshot page text",
     "stale turn reference poisons the browser loop"
-  ],
-  "history_excerpt_lines": 32
+  ]
 }

@@ -37,6 +37,5 @@
     "browser decisions failing invalid_type metadata",
     "agentic decider provider contract",
     "request metadata step compatibility"
-  ],
-  "history_excerpt_lines": 24
+  ]
 }

@@ -172,16 +172,11 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(run.condition_prep_kind("mcp_history"), "full_brain")
         self.assertEqual(run.condition_prep_kind("mcp_workspace_radar"), "full_brain")
         self.assertEqual(run.condition_prep_kind("mcp_semantic"), "semantic_brain")
-        self.assertTrue(run.condition_writes_history_excerpt("full_cli_original"))
-        self.assertFalse(run.condition_writes_history_excerpt("full_cli_compact"))
-        self.assertFalse(run.condition_writes_history_excerpt("mcp_history"))
-        self.assertFalse(run.condition_writes_history_excerpt("mcp_workspace_radar"))
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
         self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
         self.assertTrue(run.condition_copies_entire_history("mcp_workspace_radar"))
         self.assertTrue(run.condition_copies_entire_history("raw_history"))
         self.assertTrue(run.condition_copies_entire_history("facts_only"))
-        self.assertFalse(run.condition_writes_history_excerpt("history_facts"))
 
     def test_temporal_memory_commands_pin_channel_and_distillation(self):
         task = {
@@ -528,7 +523,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn('mcp_servers.entire_brain.env.ENTIRE_REPO_ROOT="/repo"', joined)
         self.assertIn('mcp_servers.entire_brain.env.ENTIRE_BRAIN_MCP_DEBUG_LOG="/tmp/mcp.log"', joined)
 
-    def test_mcp_history_prompt_requires_mcp_and_avoids_excerpt_shortcut(self):
+    def test_mcp_history_prompt_requires_mcp_and_private_artifact_isolation(self):
         task = {
             "id": "task",
             "prompt": "Fix the regression.",
@@ -545,7 +540,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("apply the fix there before any additional MCP calls", prompt)
         self.assertIn("MCP_TOOLS_MISSING", prompt)
         self.assertIn("Do not run the `entire brain` CLI", prompt)
-        self.assertIn("do not read `.benchmark/brain-history-excerpt.md`", prompt)
+        self.assertIn("Do not inspect `.benchmark`, `.entire`, or raw session/checkpoint artifacts", prompt)
 
     def test_mcp_history_disciplined_delivery_for_gpt5x(self):
         # gpt-5.5 under-contexts on MCP (brief names the file but not the invariant, and the old
@@ -602,10 +597,10 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertNotIn("task: Fix the regression", prompt)
         self.assertIn("Your first context command must be", prompt)
         self.assertIn("as hypotheses", prompt)
-        self.assertIn("Read `.benchmark/brain-history-excerpt.md` only if", prompt)
+        self.assertNotIn("brain-history-excerpt.md", prompt)
         self.assertIn("likely_edit_files", prompt)
         self.assertIn("likely_test_files", prompt)
-        self.assertIn("Do not run top-level `entire doctor`", prompt)
+        self.assertIn("Entire, Entire Graph, and Entire Brain tools are available", prompt)
         self.assertIn("Do not edit tests unless the task explicitly asks", prompt)
 
     def test_semantic_brain_prompt_requires_current_code_verification(self):
@@ -641,116 +636,10 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("you must run it exactly once", prompt)
         self.assertIn("Treat returned history, `likely_edit_files`, and `likely_test_files` as hypotheses", prompt)
         self.assertIn("verify the relevant current code before editing", prompt)
-        self.assertIn("only when the returned indexed history does not identify a current file to verify", prompt)
+        self.assertNotIn("brain-history-excerpt.md", prompt)
         self.assertIn("Do not run another Brain command", prompt)
-        self.assertIn("Do not run top-level `entire search` or `entire explain`", prompt)
+        self.assertIn("Do not substitute an installed skill, top-level `entire search`", prompt)
         self.assertIn("Do not substitute an installed skill", prompt)
-
-    def test_required_history_excerpt_fails_when_queries_match_nothing(self):
-        task = {
-            "id": "history-task",
-            "brain_queries": ["no-match-anywhere"],
-            "require_history_excerpt": True,
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(RuntimeError, "requires a history excerpt"):
-                run.write_history_excerpt(task, pathlib.Path(tmp))
-
-    def test_history_excerpt_files_use_current_plugin_data_layout(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            worktree = pathlib.Path(tmp)
-            current = (
-                worktree
-                / ".benchmark"
-                / "plugin"
-                / "data"
-                / "repos"
-                / "gh"
-                / "example"
-                / "repo"
-                / "sessions"
-                / "main"
-                / "session.jsonl"
-            )
-            current.parent.mkdir(parents=True)
-            current.write_text("{}\n")
-            legacy = worktree / ".benchmark" / "plugin" / "data" / "brain" / "sessions" / "legacy.jsonl"
-            legacy.parent.mkdir(parents=True)
-            legacy.write_text("{}\n")
-
-            self.assertEqual(run.history_excerpt_files(worktree), [current])
-
-    def test_history_excerpt_force_adds_harness_owned_ignored_packet(self):
-        task = {
-            "id": "history-task",
-            "brain_queries": ["unexpectedly ignored"],
-            "require_history_excerpt": True,
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            worktree = pathlib.Path(tmp)
-            session = (
-                worktree
-                / ".benchmark"
-                / "plugin"
-                / "data"
-                / "repos"
-                / "gh"
-                / "example"
-                / "repo"
-                / "sessions"
-                / "main"
-                / "session.jsonl"
-            )
-            session.parent.mkdir(parents=True)
-            session.write_text('{"text":".github symbol was unexpectedly ignored"}\n')
-
-            with mock.patch.object(run, "run_cmd") as run_cmd:
-                run.write_history_excerpt(task, worktree)
-
-            packet = worktree / ".benchmark" / "brain-history-excerpt.md"
-            self.assertIn("unexpectedly ignored", packet.read_text())
-            self.assertEqual(
-                run_cmd.call_args_list[0].args[0],
-                ["git", "add", "-f", ".benchmark/brain-history-excerpt.md"],
-            )
-
-    def test_history_excerpt_is_bounded_and_rejects_nested_search_output(self):
-        task = {
-            "id": "history-task",
-            "brain_queries": ["unexpectedly ignored"],
-            "require_history_excerpt": True,
-            "history_excerpt_lines": 20,
-            "history_excerpt_max_chars": 2_000,
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            worktree = pathlib.Path(tmp)
-            session = (
-                worktree
-                / ".benchmark"
-                / "plugin"
-                / "data"
-                / "repos"
-                / "gh"
-                / "example"
-                / "repo"
-                / "sessions"
-                / "main"
-                / "session.jsonl"
-            )
-            session.parent.mkdir(parents=True)
-            lines = [
-                json.dumps({"text": f"internal/cli/semantic_test.go:{i}: unexpectedly ignored " + "x" * 700})
-                for i in range(20)
-            ]
-            lines.append(json.dumps({"query": "unexpectedly ignored", "results": [{"source": "history"}]}))
-            session.write_text("\n".join(lines) + "\n")
-
-            with mock.patch.object(run, "run_cmd"):
-                run.write_history_excerpt(task, worktree)
-
-            packet = (worktree / ".benchmark" / "brain-history-excerpt.md").read_text()
-            self.assertLessEqual(len(packet), 2_000)
-            self.assertNotIn('"results"', packet)
 
     def test_brief_command_shell_quotes_query_for_metachar_tasks(self):
         # Release blocker (query corruption): brief_command is run VERBATIM in the agent's shell.
@@ -1023,6 +912,24 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(activity["direct_brain_cli_calls"], 0)
         self.assertEqual(activity["mcp_tool_calls"], 0)
 
+    def test_codex_usage_reports_cached_input_without_double_counting_it(self):
+        stdout = json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 1000,
+                    "cached_input_tokens": 600,
+                    "output_tokens": 100,
+                },
+            }
+        )
+        usage = run.extract_usage("codex", stdout, "")
+        self.assertEqual(usage["turns"], 1)
+        self.assertEqual(usage["input_tokens"], 1000)
+        self.assertEqual(usage["cache_read_tokens"], 600)
+        self.assertEqual(usage["output_tokens"], 100)
+        self.assertEqual(usage["total_tokens"], 1100)
+
     def test_top_level_entire_command_detection_distinguishes_brain_and_arguments(self):
         self.assertEqual(
             run.top_level_entire_subcommands("/bin/zsh -lc 'entire search history --json'"),
@@ -1034,8 +941,15 @@ class RunnerAndConditionTests(unittest.TestCase):
         )
         self.assertEqual(run.top_level_entire_subcommands("entire brain search history --json"), [])
         self.assertEqual(run.top_level_entire_subcommands("rg 'entire search' README.md"), [])
+        self.assertEqual(
+            run.entire_family_invocations(
+                "git log -p && entire search history && entire-graph query symbol | entire-brain brief"
+            ),
+            ["entire", "entire-graph", "entire-brain"],
+        )
+        self.assertEqual(run.entire_family_invocations("git log -p -- README.md"), [])
 
-    def test_brain_cli_audit_requires_exact_first_local_search_and_rejects_hosted_search(self):
+    def test_brain_cli_audit_requires_exact_first_local_search(self):
         task = {
             "id": "history-task",
             "brain_queries": ["history symptom"],
@@ -1074,7 +988,6 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(
             {finding["kind"] for finding in wrong_surface["findings"]},
             {
-                "forbidden_top_level_entire_command",
                 "missing_required_brain_use",
                 "required_local_brain_search_was_not_first_tool",
                 "missing_required_local_brain_search",
@@ -1100,6 +1013,50 @@ class RunnerAndConditionTests(unittest.TestCase):
             {finding["kind"] for finding in missing["findings"]},
             {"missing_required_brain_use", "missing_required_brain_brief"},
         )
+
+    def test_brain_cli_audit_rejects_private_artifact_access(self):
+        audit = run.brain_cli_condition_audit(
+            "semantic_brain",
+            {
+                "activity": {
+                    "used_brain": True,
+                    "direct_brain_cli_calls": 1,
+                    "brain_commands": ["brief"],
+                    "top_level_entire_commands": [],
+                    "forbidden_memory_artifact_access": True,
+                }
+            },
+            {"prepare_semantic": True},
+        )
+        self.assertFalse(audit["ok"])
+        self.assertIn("forbidden_memory_artifact_access", {finding["kind"] for finding in audit["findings"]})
+
+    def test_no_brain_audit_rejects_entire_family_tools_but_allows_git_history(self):
+        forbidden = run.brain_cli_condition_audit(
+            "no_brain",
+            {
+                "activity": {
+                    "entire_family_tools": ["entire", "entire-brain", "entire-graph"],
+                    "mcp_tool_calls": 0,
+                }
+            },
+        )
+        self.assertFalse(forbidden["ok"])
+        self.assertEqual(
+            {finding.get("tool") for finding in forbidden["findings"]},
+            {"entire", "entire-brain", "entire-graph"},
+        )
+        allowed = run.brain_cli_condition_audit(
+            "no_brain",
+            {
+                "activity": {
+                    "entire_family_tools": [],
+                    "mcp_tool_calls": 0,
+                    "forbidden_memory_artifact_access": False,
+                }
+            },
+        )
+        self.assertTrue(allowed["ok"])
 
     def test_activity_counts_mcp_and_shell_tool_events(self):
         stdout = "\n".join(
@@ -1496,6 +1453,9 @@ class RunnerAndConditionTests(unittest.TestCase):
         ))
         self.assertTrue(run.command_accesses_forbidden_memory_artifact("cat .benchmark/plugin/data/brain/history/index.json"))
         self.assertTrue(run.command_accesses_forbidden_memory_artifact(
+            "git log -p -- benchmarks/agent-brain/results"
+        ))
+        self.assertTrue(run.command_accesses_forbidden_memory_artifact(
             'find . -maxdepth 1 -iname "*.entire*" -o -iname "*brain*"'
         ))
 
@@ -1504,6 +1464,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             ("Read", {"file_path": ".benchmark/plugin/data/brain/history/index.json"}),
             ("Glob", {"pattern": "**/.entire/**"}),
             ("Read", {"file_path": "refs/heads/entire/checkpoints/v1"}),
+            ("Read", {"file_path": "benchmarks/agent-brain/evidence/run.json"}),
             ("Read", {"paths": ["safe.txt", ".benchmark/private.json"]}),
             ("Read", {"options": {"file_paths": [".entire/session.json"]}}),
         ):
@@ -1573,6 +1534,23 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
         )
         self.assertTrue(ok["ok"])
+        private_access = copy.deepcopy(
+            {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 2,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_brief", "mcp__entire_brain__brain_search"],
+                    "direct_brain_cli_calls": 0,
+                    "forbidden_memory_artifact_access": True,
+                },
+            }
+        )
+        private_audit = run.mcp_condition_audit("mcp_history", private_access)
+        self.assertFalse(private_audit["ok"])
+        self.assertIn(
+            "forbidden_memory_artifact_access",
+            {finding["kind"] for finding in private_audit["findings"]},
+        )
         semantic_ok = run.mcp_condition_audit(
             "mcp_semantic",
             {
@@ -1851,6 +1829,61 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertNotIn("benchmarks/agent-brain/tasks", current_session.read_text())
             self.assertIn("[redacted benchmark scaffold]", index.read_text())
             self.assertIn("[redacted benchmark scaffold]", current_index.read_text())
+
+    def test_sanitize_brain_history_removes_contaminated_sessions_as_whole_units(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = pathlib.Path(tmp) / "plugin"
+            repo = plugin / "data" / "repos" / "gh" / "example" / "repo"
+            sessions = repo / "sessions" / "main"
+            history_dir = repo / "history"
+            sessions.mkdir(parents=True)
+            history_dir.mkdir()
+            contaminated_rel = "sessions/main/contaminated.jsonl"
+            clean_rel = "sessions/main/clean.jsonl"
+            (repo / contaminated_rel).write_text(
+                '{"message":"benchmark discussion"}\n'
+                '{"message":"benchmarks/agent-brain/results/run/record.json"}\n'
+                '{"message":"plausible but contaminated code guidance"}\n'
+            )
+            (repo / clean_rel).write_text('{"message":"useful project history"}\n')
+            session_items = [
+                {"branch": "main", "created_at": "2026-01-01T00:00:00Z", "transcript_path": contaminated_rel},
+                {"branch": "main", "created_at": "2026-01-02T00:00:00Z", "transcript_path": clean_rel},
+            ]
+            manifest = {
+                "sessions": session_items,
+                "sources": {
+                    "sessions": {
+                        "sessions": session_items,
+                        "branches": [{"branch": "main", "session_count": 2}],
+                    },
+                    "history": {"records": 2, "code_facts": 2, "sessions_fingerprint": "old"},
+                },
+            }
+            (repo / "manifest.json").write_text(json.dumps(manifest))
+            (history_dir / "index.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {"kind": "code_fact", "path": contaminated_rel, "summary": "apparently useful"},
+                            {"kind": "code_fact", "path": clean_rel, "summary": "useful project history"},
+                        ]
+                    }
+                )
+            )
+
+            summary = run.sanitize_brain_history(plugin)
+
+            self.assertEqual(summary["contaminated_sessions_removed"], 1)
+            self.assertEqual(summary["history_records_removed"], 1)
+            self.assertFalse((repo / contaminated_rel).exists())
+            self.assertTrue((repo / clean_rel).exists())
+            sanitized_manifest = json.loads((repo / "manifest.json").read_text())
+            self.assertEqual(len(sanitized_manifest["sessions"]), 1)
+            self.assertEqual(sanitized_manifest["sources"]["sessions"]["branches"][0]["session_count"], 1)
+            self.assertEqual(sanitized_manifest["sources"]["history"]["records"], 1)
+            self.assertRegex(summary["session_corpus_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(summary["history_index_sha256"], r"^[0-9a-f]{64}$")
 
     def test_agent_output_leak_audit_flags_hidden_validation_text(self):
         task = {
@@ -2251,7 +2284,8 @@ class PanelAndStabilityTests(unittest.TestCase):
         finally:
             task_path.unlink(missing_ok=True)
         joined = " | ".join(errors)
-        self.assertIn("must hide benchmarks/agent-brain", joined)
+        self.assertNotIn("must hide benchmarks/agent-brain", joined)
+        self.assertIn("has no explicit leak_markers canary", joined)
 
         try:
             task_path.write_text(json.dumps({
