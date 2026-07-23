@@ -1,0 +1,9 @@
+The no-brain variant can use all tools except entire, entire-graph, or entire-brain, or any information from previous benchmark runs. The brain variant adds these tools, but is also forbidden from accessing information from previous benchmark runs.
+
+---
+
+Write a doc that clearly describes the benchmark conditions, like what to use and to avoid, so we can use it as instructions for future benchmarks. Then run the full benchmark, not just 3 task definitions.
+
+---
+
+Stream got disconnected. Pls continue now.
