@@ -4807,6 +4807,10 @@ def command_accesses_forbidden_memory_artifact(command: str) -> bool:
         tokens = shlex.split(command)
     except ValueError:
         tokens = command.split()
+    if tokens and pathlib.Path(tokens[0]).name in {"sh", "bash", "dash", "ksh", "zsh"}:
+        for index, token in enumerate(tokens[1:], start=1):
+            if token.startswith("-") and "c" in token[1:] and index + 1 < len(tokens):
+                return command_accesses_forbidden_memory_artifact(tokens[index + 1])
     for index, token in enumerate(tokens):
         normalized = token.lower().replace(r"\.", ".")
         if not re.search(

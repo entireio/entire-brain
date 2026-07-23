@@ -1451,7 +1451,13 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertFalse(run.command_accesses_forbidden_memory_artifact(
             'find . -path "./.benchmark" -prune -o -path "./.entire" -prune -o -type f -print'
         ))
+        self.assertFalse(run.command_accesses_forbidden_memory_artifact(
+            """/bin/zsh -lc "rg --files --glob '!.entire/**' --glob '!.benchmark/**' --glob '!benchmarks/agent-brain/**'\""""
+        ))
         self.assertTrue(run.command_accesses_forbidden_memory_artifact("cat .benchmark/plugin/data/brain/history/index.json"))
+        self.assertTrue(run.command_accesses_forbidden_memory_artifact(
+            """/bin/zsh -lc "cat .benchmark/plugin/data/brain/history/index.json\""""
+        ))
         self.assertTrue(run.command_accesses_forbidden_memory_artifact(
             "git log -p -- benchmarks/agent-brain/results"
         ))
