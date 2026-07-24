@@ -25,6 +25,7 @@ const (
 	brainBriefDefaultLimit               = 3
 	brainBriefFactsLimit                 = 6
 	brainBriefContextCandidateMultiplier = 8
+	envBrainActionChecklist              = "ENTIRE_BRAIN_ACTION_CHECKLIST"
 	brainInspectHistoryMaxFiles          = 1000
 	brainInspectHistoryMaxBytes          = 512 * 1024
 	brainInspectHistoryMaxHits           = 25
@@ -1380,7 +1381,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	// history and documents are evidence to inspect, not trusted instructions:
 	// letting their prose become edits or completion criteria crosses the
 	// retrieval trust boundary and makes stale or malicious text executable.
-	if focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
+	if brainBriefActionChecklistEnabled() && focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
 		report.ActionChecklist = append(
 			brainBriefFocusedTestActions(report.Semantic.Tests.Suggestions),
 			brainBriefFocusedFileActions(report.Semantic.Context.Symbols, report.LikelyEditFiles[0])...,
@@ -1985,6 +1986,17 @@ func brainBriefFocusedFileActions(symbols []semanticRecord, topFile string) []br
 		}}
 	}
 	return nil
+}
+
+func brainBriefActionChecklistEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(envBrainActionChecklist))) {
+	case "0", "false", "no", "off", "disable", "disabled":
+		return false
+	default:
+		// Preserve the shipped behavior for an unset flag and for unrecognized
+		// values. The ablation is deliberately opt-out, not a silent rollout.
+		return true
+	}
 }
 
 func brainBriefFocusedTestActions(suggestions []semanticTestSuggestion) []brainBriefAction {

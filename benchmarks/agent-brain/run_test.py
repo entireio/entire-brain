@@ -2485,6 +2485,40 @@ class PanelAndStabilityTests(unittest.TestCase):
             )
             self.assertNotEqual(payload["fingerprint"], changed["fingerprint"])
 
+    def test_run_config_provenance_records_action_checklist_ablation(self):
+        args = argparse.Namespace(
+            tasks=["t"],
+            agents="",
+            runners="codex:gpt-test:low",
+            conditions="semantic_brain",
+            repetitions=1,
+            checkpoint_limit=200,
+            no_brain_cache=False,
+            refresh_brain_cache=False,
+            timeout=120,
+            claude_budget=None,
+            stop_after_no_brain_score=None,
+            pricing_file=None,
+            pricing_json=None,
+        )
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ,
+            {"ENTIRE_BRAIN_ACTION_CHECKLIST": "0"},
+            clear=False,
+        ):
+            payload = run.run_config_provenance(
+                "run",
+                run.parse_runner_spec("codex:gpt-test:low"),
+                "semantic_brain",
+                1,
+                pathlib.Path(tmp) / "suite",
+                args,
+            )
+        self.assertEqual(
+            payload["env_flags"]["ENTIRE_BRAIN_ACTION_CHECKLIST"],
+            "0",
+        )
+
     def test_redaction_covers_normalized_and_resolved_path_variants(self):
         # Subprocesses report symlink-resolved (e.g. /var vs /private/var) and
         # normalized (a/../b -> a/b) forms of registered private roots.

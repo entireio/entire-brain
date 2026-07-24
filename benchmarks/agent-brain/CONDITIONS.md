@@ -161,7 +161,7 @@ input.
 
 ## Fair branch-versus-main implementation comparisons
 
-There are two different comparisons:
+There are three different comparisons:
 
 1. **Condition ablation within one implementation.** no-Brain and Brain use the
    same freshly built Brain implementation; only Brain availability changes.
@@ -169,6 +169,12 @@ There are two different comparisons:
    harness revision, task JSON, source-root snapshot, setup mutation, runner,
    model, effort, condition, repetition count, timeout, and validation. The
    Brain implementation is the only intended difference.
+3. **Feature ablation within one implementation.** Both arms use the same
+   Brain binary, Brain condition, prepared index, source snapshot, task,
+   runner, model, effort, timeout, and validation. Exactly one recorded feature
+   flag differs. For the action-checklist ablation, set
+   `ENTIRE_BRAIN_ACTION_CHECKLIST=1` or `0` explicitly in both arms and require
+   that value in `provenance.run_config.env_flags`.
 
 For candidate-versus-main runs:
 

@@ -1118,6 +1118,31 @@ func TestBrainBriefFocusedTestActionIsDiagnosticNotCompletion(t *testing.T) {
 	}
 }
 
+func TestBrainBriefActionChecklistFeatureFlagDefaultsOn(t *testing.T) {
+	t.Setenv(envBrainActionChecklist, "")
+	if !brainBriefActionChecklistEnabled() {
+		t.Fatal("action checklist must remain enabled by default")
+	}
+
+	for _, value := range []string{"0", "false", "no", "off", "disable", "disabled"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv(envBrainActionChecklist, value)
+			if brainBriefActionChecklistEnabled() {
+				t.Fatalf("action checklist enabled for explicit opt-out %q", value)
+			}
+		})
+	}
+
+	for _, value := range []string{"1", "true", "yes", "on", "unexpected"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv(envBrainActionChecklist, value)
+			if !brainBriefActionChecklistEnabled() {
+				t.Fatalf("action checklist disabled for default-on value %q", value)
+			}
+		})
+	}
+}
+
 func TestBrainBriefAddsSiblingTestFiles(t *testing.T) {
 	repoDir := t.TempDir()
 	testPath := filepath.Join(repoDir, "packages", "storage", "src", "index.test.ts")

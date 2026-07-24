@@ -541,8 +541,8 @@ Repo keys are derived from the repository origin. For example,
 
 ### Environment toggles
 
-Optional `ENTIRE_BRAIN_*` variables tune retrieval and diagnostics. All are
-off/default unless set; none are required for normal use.
+Optional `ENTIRE_BRAIN_*` variables tune retrieval and diagnostics. None are
+required for normal use.
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -550,6 +550,7 @@ off/default unless set; none are required for normal use.
 | `ENTIRE_BRAIN_OLLAMA_MODEL` | `embeddinggemma` | Model requested from the embed server when `ENTIRE_BRAIN_EMBEDDER=ollama`. |
 | `ENTIRE_BRAIN_EMBED_URL` | `http://localhost:11434/api/embed` | Embed endpoint (Ollama, or qmd's node-llama-cpp server). Must accept `{"model","input"}` and return `{"embeddings":[[…]]}`. |
 | `ENTIRE_BRAIN_FACTS_BM25` | (unset → token-overlap) | `1`/`true`/`yes`/`on` switches the facts lexical arm to FTS5 BM25. Experimental; measured at parity, kept for A/B'ing the lexical engine. |
+| `ENTIRE_BRAIN_ACTION_CHECKLIST` | enabled | Set to `0`/`false`/`no`/`off` to omit `brief.action_checklist` and its action-driven file narrowing while retaining ranked semantic, history, and likely-file evidence. Intended for controlled agent ablations. |
 | `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 

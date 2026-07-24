@@ -1016,6 +1016,7 @@ def run_config_provenance(
         "env_flags": {
             "BENCH_REGRESSION_RADAR": os.environ.get("BENCH_REGRESSION_RADAR"),
             "BENCH_RADAR_LOCATION_ONLY": os.environ.get("BENCH_RADAR_LOCATION_ONLY"),
+            "ENTIRE_BRAIN_ACTION_CHECKLIST": os.environ.get("ENTIRE_BRAIN_ACTION_CHECKLIST"),
             # Recorded so a captured run (which runs an extra diagnostic brief subprocess) is
             # distinguishable from an un-instrumented one in records.ndjson provenance.
             "ENTIRE_BENCH_CAPTURE_BRIEF": os.environ.get("ENTIRE_BENCH_CAPTURE_BRIEF"),
@@ -4451,6 +4452,7 @@ def mcp_server_env(env: dict[str, str]) -> dict[str, str]:
         "ENTIRE_PLUGIN_DATA_DIR",
         "ENTIRE_PLUGIN_STATE_DIR",
         "ENTIRE_PLUGIN_CACHE_DIR",
+        "ENTIRE_BRAIN_ACTION_CHECKLIST",
         "ENTIRE_BRAIN_MCP_DEBUG_LOG",
     ]
     server_env = {key: env[key] for key in keys if key in env}
