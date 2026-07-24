@@ -1,0 +1,33 @@
+Stream got disconnected. Pls continue now.
+
+---
+
+So positive deltas mean branch was better than main, i.e. used less tokens and was faster?
+
+---
+
+Ok, so what's with the super high negative deltas then?
+
+---
+
+But we fixed those two before, no?
+
+---
+
+How likely is this breaking other scenarios?
+
+---
+
+No, not just the other seven, but agentic coding scenarios in general
+
+---
+
+Ok, so what do we do?
+
+---
+
+And you sure that this actually leads to better quality, token use, and speed for brain?
+
+---
+
+Ok. Don't remove the action_checklist, just feature flag it. Then run the small ablation.

@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "187274df91c1",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "README.md",
+    "benchmarks/agent-brain/CONDITIONS.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/18/7274df91c1/0/metadata.json",
+      "transcript": "/18/7274df91c1/0/full.jsonl",
+      "compact_transcript": "/18/7274df91c1/0/transcript.jsonl",
+      "content_hash": "/18/7274df91c1/0/content_hash.txt",
+      "prompt": "/18/7274df91c1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 223610,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6405376,
+    "output_tokens": 18606,
+    "api_call_count": 44
+  }
+}
