@@ -1398,31 +1398,27 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				if focusedTestsErr != nil {
 					report.Warnings = append(report.Warnings, "focused semantic test context unavailable: "+focusedTestsErr.Error())
 				} else {
-					trustedTests = brainBriefTrustedTestSuggestions(primary, focusedTests.Suggestions, briefOpts.limit)
+					// One directly associated test is enough to establish the
+					// first validation step. More names invite agents to read and
+					// run a suite before they have verified the edit locus.
+					trustedTests = brainBriefTrustedTestSuggestions(task, primary, focusedTests.Suggestions, 1)
 				}
 			}
 
-			// Exact source-test associations improve the ranked validation
-			// evidence in both feature-flag arms. The flag controls only the
-			// checklist and its production-file narrowing, keeping ablations
-			// isolated from the underlying semantic packet.
+			// A verified primary symbol is evidence ranking, not an instruction,
+			// so it narrows the packet in both feature-flag arms. The flag controls
+			// only whether the same evidence is rendered as an action checklist.
+			report.LikelyEditFiles = []string{inspectActions[0].File}
 			if len(trustedTests) > 0 {
 				hasTrustedValidation = true
-				report.Semantic.Tests.Suggestions = brainBriefMergeTestSuggestions(
-					trustedTests,
-					report.Semantic.Tests.Suggestions,
-					briefOpts.limit,
-				)
+				report.Semantic.Tests.Suggestions = trustedTests
 				report.LikelyTestFiles = brainBriefPromoteSuggestedTestFiles(
-					report.LikelyTestFiles,
+					nil,
 					trustedTests,
-					briefOpts.limit,
+					1,
 				)
 			}
 			if brainBriefActionChecklistEnabled() {
-				// Production narrowing is justified solely by the verified
-				// primary symbol. Test ranking must never select the edit locus.
-				report.LikelyEditFiles = []string{inspectActions[0].File}
 				report.ActionChecklist = inspectActions
 			}
 			report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
@@ -1831,7 +1827,7 @@ func brainBriefRankSemanticSymbols(symbols, relations []semanticRecord, task str
 		// three concepts in the identifier (normalize + repo + name) are stronger
 		// evidence than two concepts spread across a signature. Squaring rewards
 		// coherent compound identifiers without making one generic name token win.
-		coverage := brainBriefIdentifierConceptCoverage(task, symbol.Name)
+		coverage := brainBriefImplementationIdentifierConceptCoverage(task, symbol.Name)
 		score += coverage * coverage * 25
 		score += brainBriefSemanticIntentBonus(task, name)
 		candidates[i] = candidate{record: symbol, score: score}
@@ -1878,6 +1874,22 @@ func brainBriefIdentifierConceptCoverage(task, identifier string) int {
 		}
 	}
 	return len(matched)
+}
+
+func brainBriefImplementationIdentifierConceptCoverage(task, identifier string) int {
+	// Validation instructions are routinely appended to coding tasks. They must
+	// not make generic runners such as runSemanticTests look like edit loci.
+	validationWorkflow := map[string]bool{
+		"test": true, "tests": true, "testing": true, "run": true, "running": true,
+		"focused": true, "finish": true, "finishing": true, "before": true,
+	}
+	var concepts []string
+	for _, term := range brainBriefFileMatchTerms(task) {
+		if !validationWorkflow[term] {
+			concepts = append(concepts, term)
+		}
+	}
+	return brainBriefIdentifierConceptCoverage(strings.Join(concepts, " "), identifier)
 }
 
 func brainBriefSemanticIntentBonus(task, symbolName string) int {
@@ -1950,7 +1962,9 @@ func brainBriefSelectFocusedFileSymbols(symbols []semanticRecord, task string, l
 	if limit <= 0 {
 		return nil
 	}
-	ranked := brainBriefPromoteContractSemanticSymbols(brainBriefRankSemanticSymbols(symbols, nil, task), task)
+	ranked := brainBriefRankSemanticSymbols(symbols, nil, task)
+	ranked = brainBriefPromoteFocusedIdentifierDensity(ranked, task)
+	ranked = brainBriefPromoteContractSemanticSymbols(ranked, task)
 	out := make([]semanticRecord, 0, min(limit, len(ranked)))
 	seen := map[string]struct{}{}
 	for _, symbol := range ranked {
@@ -1968,6 +1982,48 @@ func brainBriefSelectFocusedFileSymbols(symbols []semanticRecord, task string, l
 		}
 	}
 	return out
+}
+
+func brainBriefPromoteFocusedIdentifierDensity(symbols []semanticRecord, task string) []semanticRecord {
+	ranked := append([]semanticRecord(nil), symbols...)
+	sort.SliceStable(ranked, func(i, j int) bool {
+		leftCoverage := brainBriefImplementationIdentifierConceptCoverage(task, ranked[i].Name)
+		rightCoverage := brainBriefImplementationIdentifierConceptCoverage(task, ranked[j].Name)
+		if leftCoverage != rightCoverage {
+			return leftCoverage > rightCoverage
+		}
+		if leftCoverage == 0 {
+			return false
+		}
+		leftActionable := brainBriefActionablePrimaryKind(task, ranked[i].Kind)
+		rightActionable := brainBriefActionablePrimaryKind(task, ranked[j].Kind)
+		if leftActionable != rightActionable {
+			return leftActionable
+		}
+		leftOrchestrator := brainBriefBroadOrchestrationSymbol(ranked[i].Name)
+		rightOrchestrator := brainBriefBroadOrchestrationSymbol(ranked[j].Name)
+		if leftOrchestrator != rightOrchestrator {
+			return !leftOrchestrator
+		}
+		leftTerms := max(1, len(historyQueryTerms(ranked[i].Name)))
+		rightTerms := max(1, len(historyQueryTerms(ranked[j].Name)))
+		// Compare coverage density without floating point.
+		return leftCoverage*rightTerms > rightCoverage*leftTerms
+	})
+	return ranked
+}
+
+func brainBriefBroadOrchestrationSymbol(name string) bool {
+	terms := strings.Fields(normalizeHistorySearchText(name))
+	if len(terms) == 0 {
+		return false
+	}
+	switch terms[0] {
+	case "run", "new", "build", "create", "load", "write", "handle":
+		return true
+	default:
+		return false
+	}
 }
 
 func brainBriefPromoteContractSemanticSymbols(symbols []semanticRecord, task string) []semanticRecord {
@@ -1988,10 +2044,19 @@ func brainBriefPromoteContractSemanticSymbols(symbols []semanticRecord, task str
 
 func brainBriefRefineSemanticSymbols(current, candidates []semanticRecord, task string, limit int) []semanticRecord {
 	combined := make([]semanticRecord, 0, len(current)+len(candidates))
-	combined = append(combined, current...)
-	combined = append(combined, candidates...)
+	for _, group := range [][]semanticRecord{current, candidates} {
+		for _, symbol := range group {
+			// Once file-level evidence has bounded the candidate set, the broad
+			// query score is no longer comparable: it rewards incidental terms
+			// from the whole task and can overwhelm an exact compound identifier
+			// found in the selected files. Re-rank this small set from structured
+			// symbol/task agreement instead.
+			symbol.Score = 0
+			combined = append(combined, symbol)
+		}
+	}
 	refined := brainBriefSelectFocusedFileSymbols(combined, task, limit)
-	if len(refined) == 0 {
+	if len(refined) == 0 || !brainBriefHighConfidencePrimarySymbol(task, refined[0].Name) {
 		return current
 	}
 	return refined
@@ -1999,7 +2064,7 @@ func brainBriefRefineSemanticSymbols(current, candidates []semanticRecord, task 
 
 func brainBriefHighConfidencePrimarySymbol(task, symbolName string) bool {
 	return brainBriefSemanticIntentBonus(task, symbolName) > 0 ||
-		brainBriefIdentifierConceptCoverage(task, symbolName) >= 2
+		brainBriefImplementationIdentifierConceptCoverage(task, symbolName) >= 2
 }
 
 func brainBriefFocusedFileActions(symbols []semanticRecord, topFile string) []brainBriefAction {
@@ -2063,12 +2128,17 @@ func brainBriefActionChecklistEnabled() bool {
 	}
 }
 
-func brainBriefTrustedTestSuggestions(primary semanticRecord, suggestions []semanticTestSuggestion, limit int) []semanticTestSuggestion {
+func brainBriefTrustedTestSuggestions(task string, primary semanticRecord, suggestions []semanticTestSuggestion, limit int) []semanticTestSuggestion {
 	if limit <= 0 {
 		return nil
 	}
 	primaryTerms := historyQueryTerms(primary.Name)
-	out := make([]semanticTestSuggestion, 0, min(limit, len(suggestions)))
+	type candidate struct {
+		suggestion semanticTestSuggestion
+		exact      bool
+		coverage   int
+	}
+	candidates := make([]candidate, 0, len(suggestions))
 	seen := map[string]struct{}{}
 	for _, suggestion := range suggestions {
 		symbol := suggestion.Symbol
@@ -2083,49 +2153,64 @@ func brainBriefTrustedTestSuggestions(primary semanticRecord, suggestions []sema
 				break
 			}
 		}
-		if !exactIdentifierAssociation {
+		coverage := brainBriefTestTaskConceptCoverage(task, symbol.Name)
+		samePackage := filepath.ToSlash(filepath.Dir(symbol.FilePath)) == filepath.ToSlash(filepath.Dir(primary.FilePath))
+		structurallyRelated := suggestion.Reason == "semantic relation"
+		if !exactIdentifierAssociation && (coverage < 2 || (!samePackage && !structurallyRelated)) {
 			continue
 		}
-		key := symbol.ID
-		if key == "" {
-			key = fmt.Sprintf("%s:%d:%s", symbol.FilePath, symbol.StartLine, symbol.QualifiedName)
-		}
+		// Providers can expose the same test as both a language function and a
+		// higher-level tool record. They are one validation target.
+		key := fmt.Sprintf("%s:%d:%s", symbol.FilePath, symbol.StartLine, symbol.Name)
 		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, suggestion)
-		if len(out) >= limit {
-			break
+		candidates = append(candidates, candidate{
+			suggestion: suggestion,
+			exact:      exactIdentifierAssociation,
+			coverage:   coverage,
+		})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].exact != candidates[j].exact {
+			return candidates[i].exact
 		}
+		if candidates[i].coverage != candidates[j].coverage {
+			return candidates[i].coverage > candidates[j].coverage
+		}
+		left, right := candidates[i].suggestion.Symbol, candidates[j].suggestion.Symbol
+		if left.FilePath != right.FilePath {
+			return left.FilePath < right.FilePath
+		}
+		if left.StartLine != right.StartLine {
+			return left.StartLine < right.StartLine
+		}
+		return left.Name < right.Name
+	})
+	out := make([]semanticTestSuggestion, 0, min(limit, len(candidates)))
+	for _, item := range candidates[:min(limit, len(candidates))] {
+		out = append(out, item.suggestion)
 	}
 	return nonNil(out)
 }
 
-func brainBriefMergeTestSuggestions(preferred, existing []semanticTestSuggestion, limit int) []semanticTestSuggestion {
-	if limit <= 0 {
-		return nil
+func brainBriefTestTaskConceptCoverage(task, identifier string) int {
+	// Workflow words describe the benchmark/request, not the behavior under
+	// test. Excluding them keeps "Test...Regression" from outranking a direct
+	// protocol or behavior test merely because the prompt says "fix regression".
+	generic := map[string]bool{
+		"fix": true, "failing": true, "failure": true, "regression": true,
+		"restore": true, "keep": true, "run": true, "focused": true,
+		"test": true, "tests": true, "before": true, "finish": true,
 	}
-	out := make([]semanticTestSuggestion, 0, min(limit, len(preferred)+len(existing)))
-	seen := map[string]struct{}{}
-	for _, group := range [][]semanticTestSuggestion{preferred, existing} {
-		for _, suggestion := range group {
-			symbol := suggestion.Symbol
-			key := symbol.ID
-			if key == "" {
-				key = fmt.Sprintf("%s:%d:%s", symbol.FilePath, symbol.StartLine, symbol.QualifiedName)
-			}
-			if _, duplicate := seen[key]; duplicate {
-				continue
-			}
-			seen[key] = struct{}{}
-			out = append(out, suggestion)
-			if len(out) >= limit {
-				return nonNil(out)
-			}
+	var concepts []string
+	for _, term := range brainBriefFileMatchTerms(task) {
+		if !generic[term] {
+			concepts = append(concepts, term)
 		}
 	}
-	return nonNil(out)
+	return brainBriefIdentifierConceptCoverage(strings.Join(concepts, " "), identifier)
 }
 
 func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semanticTestSuggestion, limit int) []string {
@@ -2135,7 +2220,10 @@ func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semantic
 	out := make([]string, 0, min(limit, len(existing)+len(preferred)))
 	seen := map[string]struct{}{}
 	add := func(path string) {
-		clean, ok := cleanBrainBriefLikelyFile(path)
+		// Test suggestions are structured semantic-provider paths, so accept the
+		// same safe repository-relative roots as semantic edit files (including
+		// common top-level packages such as api/ and acceptance/).
+		clean, ok := cleanBrainBriefSemanticFile("", path)
 		if !ok || !brainBriefLikelyTestFile(clean) {
 			return
 		}
@@ -2342,6 +2430,10 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 	// registry symbol, not at a caller that happens to mention the same nouns.
 	// Structured semantic evidence wins this final tie-break over prose history.
 	editFiles = brainBriefPromoteContractSemanticEditFiles(repoRoot, editFiles, report.Semantic.Context.Symbols, task, 8)
+	// A coherent executable primary symbol is stronger than filename and prose
+	// matches for every task shape, not only public-contract tasks. Promote it
+	// last so likely_edit_files cannot contradict the semantic section.
+	editFiles = brainBriefPromoteTrustedSemanticEditFile(repoRoot, editFiles, report.Semantic.Context.Symbols, task, 8)
 	testFiles := rankedBrainBriefLikelyFiles(testCounts, 6)
 	all := append([]string{}, editFiles...)
 	for _, file := range testFiles {
@@ -2351,6 +2443,31 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 		all = append(all, file)
 	}
 	return editFiles, testFiles, all
+}
+
+func brainBriefPromoteTrustedSemanticEditFile(repoRoot string, files []string, symbols []semanticRecord, task string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	if len(symbols) == 0 {
+		return brainBriefLimitFiles(files, limit)
+	}
+	primaryFile, ok := cleanBrainBriefSemanticFile(repoRoot, symbols[0].FilePath)
+	if !ok || !slices.Contains(files, primaryFile) ||
+		len(brainBriefTrustedFocusedFileActions(task, symbols, primaryFile)) == 0 {
+		return brainBriefLimitFiles(files, limit)
+	}
+	out := make([]string, 0, min(limit, len(files)))
+	out = append(out, primaryFile)
+	for _, file := range files {
+		if len(out) >= limit {
+			break
+		}
+		if file != primaryFile {
+			out = append(out, file)
+		}
+	}
+	return out
 }
 
 func brainBriefPromoteContractSemanticEditFiles(repoRoot string, files []string, symbols []semanticRecord, task string, limit int) []string {
@@ -2767,7 +2884,7 @@ var brainBriefFileMatchStop = map[string]bool{
 	"running": true, "set": true, "get": true,
 	// Common 3-char fillers (matched now that the floor is 3, so that strong
 	// 3-char identifiers like "api"/"cli" are kept while filler is dropped).
-	"all": true, "any": true, "one": true, "two": true, "old": true,
+	"all": true, "any": true, "one": true, "two": true, "old": true, "non": true,
 	"per": true, "off": true, "out": true, "now": true, "yet": true,
 	"way": true, "see": true, "let": true, "may": true, "you": true,
 }

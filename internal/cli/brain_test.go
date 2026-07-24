@@ -1160,30 +1160,130 @@ func TestBrainBriefTrustedTestSuggestionsRequirePrimaryAssociation(t *testing.T)
 		},
 		Reason: "name terms",
 	}
-	selected := brainBriefTrustedTestSuggestions(primary, []semanticTestSuggestion{loose, exact}, 3)
+	selected := brainBriefTrustedTestSuggestions(
+		"Restore semantic completeness tolerance for parse errors",
+		primary,
+		[]semanticTestSuggestion{loose, exact},
+		3,
+	)
 	if len(selected) != 1 || selected[0].Symbol.ID != exact.Symbol.ID {
 		t.Fatalf("trusted tests did not reject the loose name-term suggestion: %+v", selected)
 	}
 }
 
-func TestBrainBriefTrustedTestsLeadRenderedSuggestionsAndLikelyFiles(t *testing.T) {
+func TestBrainBriefTrustedTestSuggestionsPreferTaskBehaviorWithinSourcePackage(t *testing.T) {
+	primary := semanticRecord{
+		ID: "definitions", Kind: "function", Name: "mcpToolDefinitions",
+		FilePath: "internal/cli/mcp.go", StartLine: 235, EndLine: 434,
+	}
+	schema := semanticTestSuggestion{
+		Symbol: semanticRecord{
+			ID: "schema", Kind: "function", Name: "TestMCPToolSchemasRejectAdditionalProperties",
+			FilePath: "internal/cli/mcp_test.go", StartLine: 201, EndLine: 211,
+		},
+		Reason: "semantic relation",
+	}
+	toolList := semanticTestSuggestion{
+		Symbol: semanticRecord{
+			ID: "tool-list", Kind: "function", Name: "TestMCPInitializeAndToolsList",
+			FilePath: "internal/cli/mcp_test.go", StartLine: 20, EndLine: 50,
+		},
+		Reason: "file match",
+	}
+	benchmarkNoise := semanticTestSuggestion{
+		Symbol: semanticRecord{
+			ID: "noise", Kind: "method", Name: "test_text_fallback_counts_current_mcp_tool_names",
+			FilePath: "benchmarks/agent-brain/run_test.py", StartLine: 1337, EndLine: 1352,
+		},
+		Reason: "name terms",
+	}
+	selected := brainBriefTrustedTestSuggestions(
+		"Fix the failing MCP tool-list regression. Keep the public MCP tool names stable.",
+		primary,
+		[]semanticTestSuggestion{schema, benchmarkNoise, toolList},
+		1,
+	)
+	if len(selected) != 1 || selected[0].Symbol.ID != toolList.Symbol.ID {
+		t.Fatalf("task behavior test did not outrank schema and cross-package noise: %+v", selected)
+	}
+}
+
+func TestBrainBriefRefineSemanticSymbolsUsesFocusedIdentifierAgreement(t *testing.T) {
+	broad := semanticRecord{
+		ID: "generic", Kind: "function", Name: "semanticFirstNonEmpty",
+		FilePath: "internal/cli/semantic.go", StartLine: 3143, EndLine: 3150, Score: 500,
+	}
+	axis := semanticRecord{
+		ID: "axis", Kind: "function", Name: "semanticCompletenessAxis",
+		FilePath: "internal/cli/semantic.go", StartLine: 2374, EndLine: 2390,
+	}
+	parseCache := semanticRecord{
+		ID: "parse-cache", Kind: "function", Name: "writeSemanticParseCacheArtifact",
+		FilePath: "internal/cli/semantic.go", StartLine: 1535, EndLine: 1560,
+	}
+	testRunner := semanticRecord{
+		ID: "test-runner", Kind: "function", Name: "runSemanticTests",
+		FilePath: "internal/cli/semantic.go", StartLine: 3446, EndLine: 3477,
+	}
+	indexRunner := semanticRecord{
+		ID: "index-runner", Kind: "function", Name: "runSemanticIndex",
+		FilePath: "internal/cli/semantic.go", StartLine: 700, EndLine: 900,
+	}
+	indexOptions := semanticRecord{
+		ID: "index-options", Kind: "type", Name: "semanticIndexOptions",
+		FilePath: "internal/cli/semantic.go", StartLine: 250, EndLine: 275,
+	}
+	refined := brainBriefRefineSemanticSymbols(
+		[]semanticRecord{broad},
+		[]semanticRecord{broad, parseCache, testRunner, indexRunner, indexOptions, axis},
+		"Restore semantic freshness completeness tolerance for parse errors while larger failures degrade the semantic index. Run the focused tests before finishing.",
+		3,
+	)
+	if len(refined) == 0 || refined[0].ID != axis.ID {
+		t.Fatalf("broad retrieval score overrode focused identifier agreement: %+v", refined)
+	}
+	if brainBriefHighConfidencePrimarySymbol(
+		"Restore semantic freshness while non-parse failures still degrade",
+		"semanticFirstNonEmpty",
+	) {
+		t.Fatal("generic non- modifier made an unrelated helper high confidence")
+	}
+}
+
+func TestBrainBriefPromotesTrustedSemanticEditFileAfterFilenameMatches(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, path := range []string{"api/client.go", "pkg/cmd/auth/shared/oauth_scopes.go"} {
+		full := filepath.Join(repoDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("package test\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	primary := semanticRecord{
+		ID: "scopes", Kind: "method", Name: "ScopesSuggestion",
+		FilePath: "api/client.go", StartLine: 51, EndLine: 56,
+	}
+	got := brainBriefPromoteTrustedSemanticEditFile(
+		repoDir,
+		[]string{"pkg/cmd/auth/shared/oauth_scopes.go", "api/client.go"},
+		[]semanticRecord{primary},
+		"Keep the refresh scope suggestion on HTTP errors",
+		2,
+	)
+	if len(got) != 2 || got[0] != primary.FilePath {
+		t.Fatalf("trusted semantic file did not outrank compound filename: %v", got)
+	}
+}
+
+func TestBrainBriefTrustedTestsLeadLikelyFiles(t *testing.T) {
 	trusted := semanticTestSuggestion{
 		Symbol: semanticRecord{
 			ID: "trusted", Kind: "function", Name: "TestSemanticCompletenessAxisToleratesFewParseErrors",
 			FilePath: "internal/cli/semantic_completeness_test.go", StartLine: 5, EndLine: 46,
 		},
 		Reason: "semantic relation",
-	}
-	loose := semanticTestSuggestion{
-		Symbol: semanticRecord{
-			ID: "loose", Kind: "function", Name: "TestWorkspaceRefreshReportsRepoSemanticFreshness",
-			FilePath: "internal/cli/workspace_test.go", StartLine: 155, EndLine: 188,
-		},
-		Reason: "name terms",
-	}
-	merged := brainBriefMergeTestSuggestions([]semanticTestSuggestion{trusted}, []semanticTestSuggestion{loose}, 2)
-	if len(merged) != 2 || merged[0].Symbol.ID != trusted.Symbol.ID {
-		t.Fatalf("trusted test did not lead rendered suggestions: %+v", merged)
 	}
 	files := brainBriefPromoteSuggestedTestFiles(
 		[]string{"internal/cli/workspace_test.go"},
