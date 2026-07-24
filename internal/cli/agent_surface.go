@@ -1382,20 +1382,46 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	// letting their prose become edits or completion criteria crosses the
 	// retrieval trust boundary and makes stale or malicious text executable.
 	if brainBriefActionChecklistEnabled() && focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
-		report.ActionChecklist = append(
-			brainBriefFocusedTestActions(report.Semantic.Tests.Suggestions),
-			brainBriefFocusedFileActions(report.Semantic.Context.Symbols, report.LikelyEditFiles[0])...,
-		)
-	}
-	if len(report.ActionChecklist) > 0 && len(report.Semantic.Context.Symbols) > 0 {
-		primary := report.Semantic.Context.Symbols[0]
-		for _, action := range report.ActionChecklist {
-			if action.Kind == "inspect" && primary.FilePath == action.File && brainBriefHighConfidencePrimarySymbol(task, primary.Name) {
-				report.LikelyEditFiles = []string{action.File}
-				report.LikelyTestFiles = brainBriefLimitFiles(report.LikelyTestFiles, 1)
-				report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
-				break
+		inspectActions := brainBriefTrustedFocusedFileActions(task, report.Semantic.Context.Symbols, report.LikelyEditFiles[0])
+		if len(inspectActions) > 0 {
+			primary := report.Semantic.Context.Symbols[0]
+			var trustedTests []semanticTestSuggestion
+			if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
+				testCandidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, 10)
+				focusedTests, focusedTestsErr := semanticTestFacts(
+					status.Brain.Path,
+					status.Manifest.Sources.Semantic,
+					primary.ID,
+					testCandidateLimit,
+				)
+				if focusedTestsErr != nil {
+					report.Warnings = append(report.Warnings, "focused semantic test context unavailable: "+focusedTestsErr.Error())
+				} else {
+					trustedTests = brainBriefTrustedTestSuggestions(task, primary, focusedTests.Suggestions, briefOpts.limit)
+				}
 			}
+
+			// Production narrowing is justified solely by the verified primary
+			// symbol. A test may improve validation guidance, but an unrelated
+			// or missing test suggestion must never select the edit locus.
+			report.LikelyEditFiles = []string{inspectActions[0].File}
+			if len(trustedTests) > 0 {
+				report.Semantic.Tests.Suggestions = brainBriefMergeTestSuggestions(
+					trustedTests,
+					report.Semantic.Tests.Suggestions,
+					briefOpts.limit,
+				)
+				report.LikelyTestFiles = brainBriefPromoteSuggestedTestFiles(
+					report.LikelyTestFiles,
+					trustedTests,
+					briefOpts.limit,
+				)
+			}
+			report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+			report.ActionChecklist = append(
+				brainBriefFocusedTestActions(trustedTests),
+				inspectActions...,
+			)
 		}
 	}
 	if len(report.ActionChecklist) > 0 {
@@ -1988,6 +2014,34 @@ func brainBriefFocusedFileActions(symbols []semanticRecord, topFile string) []br
 	return nil
 }
 
+func brainBriefTrustedFocusedFileActions(task string, symbols []semanticRecord, topFile string) []brainBriefAction {
+	if len(symbols) == 0 {
+		return nil
+	}
+	primary := symbols[0]
+	if primary.FilePath != topFile ||
+		!brainBriefHighConfidencePrimarySymbol(task, primary.Name) ||
+		!brainBriefActionablePrimaryKind(task, primary.Kind) {
+		return nil
+	}
+	return brainBriefFocusedFileActions(symbols[:1], topFile)
+}
+
+func brainBriefActionablePrimaryKind(task, kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "function", "method", "constructor":
+		return true
+	case "class", "type", "interface", "struct":
+		lowerTask := strings.ToLower(task)
+		for _, term := range []string{" class", " type", " interface", " struct", " schema", " definition", " registry", " contract"} {
+			if strings.Contains(" "+lowerTask, term) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func brainBriefActionChecklistEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(envBrainActionChecklist))) {
 	case "0", "false", "no", "off", "disable", "disabled":
@@ -1997,6 +2051,105 @@ func brainBriefActionChecklistEnabled() bool {
 		// values. The ablation is deliberately opt-out, not a silent rollout.
 		return true
 	}
+}
+
+func brainBriefTrustedTestSuggestions(task string, primary semanticRecord, suggestions []semanticTestSuggestion, limit int) []semanticTestSuggestion {
+	if limit <= 0 {
+		return nil
+	}
+	primaryTerms := historyQueryTerms(primary.Name)
+	out := make([]semanticTestSuggestion, 0, min(limit, len(suggestions)))
+	seen := map[string]struct{}{}
+	for _, suggestion := range suggestions {
+		symbol := suggestion.Symbol
+		if !isSemanticTestSymbol(symbol) || symbol.FilePath == "" || symbol.StartLine <= 0 {
+			continue
+		}
+		testTerms := lowerStringSet(historyQueryTerms(symbol.Name))
+		exactIdentifierAssociation := len(primaryTerms) >= 2
+		for _, term := range primaryTerms {
+			if _, ok := testTerms[strings.ToLower(term)]; !ok {
+				exactIdentifierAssociation = false
+				break
+			}
+		}
+		structuredTaskAssociation := suggestion.Reason == "semantic relation" &&
+			brainBriefIdentifierConceptCoverage(task, symbol.Name) >= 2
+		if !exactIdentifierAssociation && !structuredTaskAssociation {
+			continue
+		}
+		key := symbol.ID
+		if key == "" {
+			key = fmt.Sprintf("%s:%d:%s", symbol.FilePath, symbol.StartLine, symbol.QualifiedName)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, suggestion)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return nonNil(out)
+}
+
+func brainBriefMergeTestSuggestions(preferred, existing []semanticTestSuggestion, limit int) []semanticTestSuggestion {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]semanticTestSuggestion, 0, min(limit, len(preferred)+len(existing)))
+	seen := map[string]struct{}{}
+	for _, group := range [][]semanticTestSuggestion{preferred, existing} {
+		for _, suggestion := range group {
+			symbol := suggestion.Symbol
+			key := symbol.ID
+			if key == "" {
+				key = fmt.Sprintf("%s:%d:%s", symbol.FilePath, symbol.StartLine, symbol.QualifiedName)
+			}
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, suggestion)
+			if len(out) >= limit {
+				return nonNil(out)
+			}
+		}
+	}
+	return nonNil(out)
+}
+
+func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semanticTestSuggestion, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	out := make([]string, 0, min(limit, len(existing)+len(preferred)))
+	seen := map[string]struct{}{}
+	add := func(path string) {
+		clean, ok := cleanBrainBriefLikelyFile(path)
+		if !ok || !brainBriefLikelyTestFile(clean) {
+			return
+		}
+		if _, duplicate := seen[clean]; duplicate {
+			return
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	for _, suggestion := range preferred {
+		if len(out) >= limit {
+			break
+		}
+		add(suggestion.Symbol.FilePath)
+	}
+	for _, path := range existing {
+		if len(out) >= limit {
+			break
+		}
+		add(path)
+	}
+	return nonNil(out)
 }
 
 func brainBriefFocusedTestActions(suggestions []semanticTestSuggestion) []brainBriefAction {

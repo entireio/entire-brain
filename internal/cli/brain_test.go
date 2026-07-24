@@ -1101,6 +1101,101 @@ func TestBrainBriefHighConfidencePrimarySymbolRequiresCoherentConcepts(t *testin
 	}
 }
 
+func TestBrainBriefTrustedFocusedFileActionRequiresBehavioralPrimaryAgreement(t *testing.T) {
+	task := "Restore semantic freshness completeness tolerance for parse errors"
+	semanticAxis := semanticRecord{
+		ID: "axis", Kind: "function", Name: "semanticCompletenessAxis",
+		FilePath: "internal/cli/semantic.go", StartLine: 2374, EndLine: 2390,
+	}
+	actions := brainBriefTrustedFocusedFileActions(task, []semanticRecord{semanticAxis}, semanticAxis.FilePath)
+	if len(actions) != 1 || actions[0].Symbol != "semanticCompletenessAxis" {
+		t.Fatalf("behavioral primary symbol was not trusted: %+v", actions)
+	}
+
+	wrongTop := semanticRecord{
+		ID: "auth-client", Kind: "method", Name: "AuthenticatedCommand",
+		FilePath: "git/client.go", StartLine: 142, EndLine: 180,
+	}
+	checkAuth := semanticRecord{
+		ID: "check-auth", Kind: "function", Name: "CheckAuth",
+		FilePath: "pkg/cmdutil/auth_check.go", StartLine: 29, EndLine: 39,
+	}
+	if got := brainBriefTrustedFocusedFileActions(
+		"Fix the auth check regression for environment tokens",
+		[]semanticRecord{wrongTop, checkAuth},
+		checkAuth.FilePath,
+	); len(got) != 0 {
+		t.Fatalf("non-primary top-file symbol became a decisive inspection: %+v", got)
+	}
+
+	thematicType := semanticRecord{
+		ID: "missing-scopes", Kind: "type", Name: "MissingScopesError",
+		FilePath: "pkg/cmd/auth/shared/oauth_scopes.go", StartLine: 13, EndLine: 15,
+	}
+	if got := brainBriefTrustedFocusedFileActions(
+		"Fix the HTTP error regression so a missing OAuth scope keeps its refresh suggestion",
+		[]semanticRecord{thematicType},
+		thematicType.FilePath,
+	); len(got) != 0 {
+		t.Fatalf("behavioral task trusted a thematic type as its edit locus: %+v", got)
+	}
+}
+
+func TestBrainBriefTrustedTestSuggestionsRequirePrimaryAssociation(t *testing.T) {
+	task := "Restore semantic freshness completeness tolerance for parse errors"
+	primary := semanticRecord{
+		ID: "axis", Kind: "function", Name: "semanticCompletenessAxis",
+		FilePath: "internal/cli/semantic.go", StartLine: 2374, EndLine: 2390,
+	}
+	exact := semanticTestSuggestion{
+		Symbol: semanticRecord{
+			ID: "axis-test", Kind: "function", Name: "TestSemanticCompletenessAxisToleratesFewParseErrors",
+			FilePath: "internal/cli/semantic_completeness_test.go", StartLine: 5, EndLine: 46,
+		},
+		Reason: "semantic relation",
+	}
+	loose := semanticTestSuggestion{
+		Symbol: semanticRecord{
+			ID: "workspace-test", Kind: "function", Name: "TestWorkspaceRefreshReportsRepoSemanticFreshness",
+			FilePath: "internal/cli/workspace_test.go", StartLine: 155, EndLine: 188,
+		},
+		Reason: "name terms",
+	}
+	selected := brainBriefTrustedTestSuggestions(task, primary, []semanticTestSuggestion{loose, exact}, 3)
+	if len(selected) != 1 || selected[0].Symbol.ID != exact.Symbol.ID {
+		t.Fatalf("trusted tests did not reject the loose name-term suggestion: %+v", selected)
+	}
+}
+
+func TestBrainBriefTrustedTestsLeadRenderedSuggestionsAndLikelyFiles(t *testing.T) {
+	trusted := semanticTestSuggestion{
+		Symbol: semanticRecord{
+			ID: "trusted", Kind: "function", Name: "TestSemanticCompletenessAxisToleratesFewParseErrors",
+			FilePath: "internal/cli/semantic_completeness_test.go", StartLine: 5, EndLine: 46,
+		},
+		Reason: "semantic relation",
+	}
+	loose := semanticTestSuggestion{
+		Symbol: semanticRecord{
+			ID: "loose", Kind: "function", Name: "TestWorkspaceRefreshReportsRepoSemanticFreshness",
+			FilePath: "internal/cli/workspace_test.go", StartLine: 155, EndLine: 188,
+		},
+		Reason: "name terms",
+	}
+	merged := brainBriefMergeTestSuggestions([]semanticTestSuggestion{trusted}, []semanticTestSuggestion{loose}, 2)
+	if len(merged) != 2 || merged[0].Symbol.ID != trusted.Symbol.ID {
+		t.Fatalf("trusted test did not lead rendered suggestions: %+v", merged)
+	}
+	files := brainBriefPromoteSuggestedTestFiles(
+		[]string{"internal/cli/workspace_test.go"},
+		[]semanticTestSuggestion{trusted},
+		2,
+	)
+	if len(files) != 2 || files[0] != trusted.Symbol.FilePath {
+		t.Fatalf("trusted test did not lead likely test files: %v", files)
+	}
+}
+
 func TestBrainBriefFocusedTestActionIsDiagnosticNotCompletion(t *testing.T) {
 	suggestions := []semanticTestSuggestion{{
 		Symbol: semanticRecord{
