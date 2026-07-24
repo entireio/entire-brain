@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "799acadd7347",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "README.md",
+    "benchmarks/agent-brain/CONDITIONS.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/panels/full.json",
+    "benchmarks/agent-brain/panels/release-entire-brain-history.json",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/semantic_audit_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/79/9acadd7347/0/metadata.json",
+      "transcript": "/79/9acadd7347/0/full.jsonl",
+      "compact_transcript": "/79/9acadd7347/0/transcript.jsonl",
+      "content_hash": "/79/9acadd7347/0/content_hash.txt",
+      "prompt": "/79/9acadd7347/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 869815,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 30997504,
+    "output_tokens": 63292,
+    "api_call_count": 208
+  }
+}

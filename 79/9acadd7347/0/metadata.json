@@ -1,0 +1,67 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "799acadd7347",
+  "session_id": "019f8699-0371-7851-a1ea-91e735789006",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-24T17:50:29.049168Z",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "README.md",
+    "benchmarks/agent-brain/CONDITIONS.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/panels/full.json",
+    "benchmarks/agent-brain/panels/release-entire-brain-history.json",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/semantic_audit_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "5b454d7883fc",
+  "checkpoint_transcript_start": 26406,
+  "transcript_lines_at_start": 26406,
+  "compact_transcript_start": 5260,
+  "token_usage": {
+    "input_tokens": 869815,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 30997504,
+    "output_tokens": 63292,
+    "api_call_count": 208
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-24T17:50:26.776614Z",
+    "agent_lines": 715,
+    "agent_removed": 472,
+    "human_added": 33,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 748,
+    "total_lines_changed": 1253,
+    "agent_percentage": 94.73264166001596,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
