@@ -270,17 +270,17 @@ func TestBrainBriefFocusedHistoryUsesPrimarySymbol(t *testing.T) {
 		Records: []historyRecord{
 			{
 				ID:      "noise",
-				Kind:    "validation",
+				Kind:    "tool_call",
 				Path:    "sessions/main/noise.jsonl",
 				Line:    1,
-				Summary: "The configuration tests passed after a general schema cleanup.",
+				Summary: `Bash {"command":"grep -n resolveConfig config.go"}`,
 			},
 			{
 				ID:      "contract",
-				Kind:    "decision",
+				Kind:    "tool_call",
 				Path:    "sessions/main/contract.jsonl",
 				Line:    2,
-				Summary: "resolveConfig preserves the public strict_mode key for existing clients.",
+				Summary: "apply_patch documented that resolveConfig preserves the public strict_mode key for existing clients.",
 			},
 		},
 	}

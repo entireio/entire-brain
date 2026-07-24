@@ -1462,7 +1462,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	if hasTrustedLocus {
 		report.Guidance = append(report.Guidance,
-			"Inspect the single likely_edit_files symbol first; broaden only if current code contradicts the task or the focused test fails.",
+			"Inspect only the reported primary symbol line range first; broaden beyond the single likely edit file only if that range has no task-relevant mismatch or a direct dependency cannot be verified there.",
+			"Treat symbol-focused history as a candidate contract or rationale. Verify any conflicting identifier against the primary symbol and its direct dispatch or call site; do not enumerate adjacent APIs.",
 		)
 	}
 	if hasTrustedValidation {
@@ -3719,19 +3720,59 @@ func brainBriefFocusedHistoryMatches(brainDir string, index historyIndex, primar
 	if query == "" {
 		return nil
 	}
+	candidateLimit := brainBriefExpandedCandidateLimit(limit, 3)
 	var records []historyRecord
-	if scored, ok := rankHistoryFused(brainDir, index, "history", query, limit, defaultEmbedder()); ok {
+	if scored, ok := rankHistoryFused(brainDir, index, "history", query, candidateLimit, defaultEmbedder()); ok {
 		for _, item := range scored {
 			records = append(records, item.Record)
 		}
 	} else {
-		records = rankHistoryRecords(index, "history", query, limit)
+		records = rankHistoryRecords(index, "history", query, candidateLimit)
 	}
-	matches := make([]brainTextMatch, 0, len(records))
+	// A command that merely searched for a symbol is weaker evidence than the
+	// decision, patch, or documentation it was searching for. Keep the retriever
+	// order within each evidence tier, but prevent shell-observation records from
+	// displacing actual contract/rationale records in the compact packet.
+	sort.SliceStable(records, func(i, j int) bool {
+		return brainBriefFocusedHistoryEvidenceQuality(records[i]) >
+			brainBriefFocusedHistoryEvidenceQuality(records[j])
+	})
+	matches := make([]brainTextMatch, 0, min(limit, len(records)))
 	for _, record := range records {
 		matches = append(matches, brainBriefHistoryRecordTextMatch(brainDir, record, query))
+		if len(matches) >= limit {
+			break
+		}
 	}
 	return matches
+}
+
+func brainBriefFocusedHistoryEvidenceQuality(record historyRecord) int {
+	summary := strings.ToLower(strings.TrimSpace(record.Summary))
+	score := 0
+	switch record.Kind {
+	case "decision", "architecture", "learning", "code_fact":
+		score += 30
+	case "validation":
+		score += 10
+	}
+	for _, phrase := range []string{"public ", "contract", "source of truth", "preserv", "compatib", "available "} {
+		if strings.Contains(summary, phrase) {
+			score += 8
+		}
+	}
+	if strings.HasPrefix(summary, "apply_patch") ||
+		strings.HasPrefix(summary, "edit ") ||
+		strings.HasPrefix(summary, "write ") {
+		score += 20
+	}
+	if strings.HasPrefix(summary, "bash ") ||
+		strings.HasPrefix(summary, "exec_command ") ||
+		strings.HasPrefix(summary, "grep ") ||
+		strings.HasPrefix(summary, "rg ") {
+		score -= 40
+	}
+	return score
 }
 
 func brainBriefHistoryRecordTextMatch(_ string, record historyRecord, _ string) brainTextMatch {
