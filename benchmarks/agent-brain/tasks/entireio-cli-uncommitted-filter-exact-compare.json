@@ -3,7 +3,7 @@
   "repo": "entire-cli",
   "repo_path": "cli-bench",
   "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
-  "conditions": ["no_brain", "full_cli_compact", "mcp_history"],
+  "conditions": ["no_brain", "semantic_history_cli_compact", "mcp_history"],
   "prompt": "Entire's checkpointing misattributes one specific kind of edit: when the only change a session makes to a tracked file is rewriting its line endings (same text, different separators), the file silently disappears from the checkpoint's record of which files the session touched, even though git itself still reports the file as modified. A contributor's cleanup session that only converted line endings produced a checkpoint claiming nothing was touched. Find the root cause and fix it. Hard constraint: files an agent committed mid-turn and did not modify afterward must remain excluded from that record, including on machines where text files are checked out with platform-specific line endings; do not reintroduce false positives there.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

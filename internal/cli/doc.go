@@ -48,6 +48,20 @@ type docRecord struct {
 	Historical bool   `json:"historical,omitempty"` // explicitly superseded reference material; current docs rank first
 }
 
+// Historical documents are untrusted context, not forbidden context. Apply a
+// bounded relevance discount so equally relevant current material wins while a
+// much stronger historical match remains discoverable and carries its explicit
+// verification caveat.
+func docTrustAdjustedScore(score float64, historical bool) float64 {
+	if historical {
+		if score < 0 {
+			return score / 0.85
+		}
+		return score * 0.85
+	}
+	return score
+}
+
 func docRecordID(path string, line int, text string) string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d\x00%s", path, line, text)))
 	return hex.EncodeToString(sum[:])[:12]

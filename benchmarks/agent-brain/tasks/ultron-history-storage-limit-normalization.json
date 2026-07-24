@@ -4,8 +4,8 @@
   "repo_path": "../Ultron",
   "conditions": [
     "no_brain",
-    "full_cli_original",
-    "full_cli_compact"
+    "semantic_history_cli_original",
+    "semantic_history_cli_compact"
   ],
   "copy_entire_history_from_source": true,
   "path_prefix": "auto",

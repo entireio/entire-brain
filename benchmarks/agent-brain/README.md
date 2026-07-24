@@ -142,6 +142,13 @@ Each `record.json` includes:
 - `agent_info.usage` for turns, tokens, cache tokens, and cost when the agent
   output exposes those fields.
 
+Token accounting is versioned. Version 3 records the last cumulative structured
+protocol usage snapshot rather than summing snapshots, counts Claude cache
+reads/creation as processed input, and records `accounting_source` plus
+`total_input_tokens`. Token comparisons are emitted only within the same runner,
+accounting version, and source base commit; different providers remain
+side-by-side observations rather than a pooled token metric.
+
 Example:
 
 ```sh
@@ -168,11 +175,12 @@ MCP-specific conditions are separate from CLI delivery:
 
 - `semantic_cli`: CLI-delivered semantic brain, equivalent to the original
   `semantic_brain` condition.
-- `full_cli_original`: original semantic-and-indexed-history CLI policy,
+- `semantic_history_cli_original`: original semantic-and-indexed-history CLI policy,
   delivered through the indexed Brain itself.
-- `full_cli_compact`: the same semantic-and-indexed-history prep delivered
-  through `brain brief` only:
-  compact history hits, likely files/tests, and action checklist.
+- `semantic_history_cli_compact`: the same semantic-and-indexed-history prep delivered
+  through `brain brief` only: compact history hits and likely files/tests. The
+  optional action checklist is product-feature-flagged and off by default;
+  enable it only in a preregistered feature ablation.
 - `mcp_semantic`: local `entire brain mcp` semantic graph tools only
   (`brain_status`, `brain_context`, `brain_impact`, `brain_changes`,
   `brain_code`); unified `brain_query` retrieval is intentionally excluded from

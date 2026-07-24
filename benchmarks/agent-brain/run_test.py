@@ -79,6 +79,10 @@ TEMPORAL_REPORT_SPEC.loader.exec_module(temporal_report)
 
 class RunnerAndConditionTests(unittest.TestCase):
 
+    def test_load_tasks_rejects_non_matching_explicit_patterns(self):
+        with self.assertRaisesRegex(ValueError, "no benchmark tasks matched"):
+            run.load_tasks(["definitely-not-a-task"])
+
     def test_plugin_env_isolates_go_toolchain_state_per_worktree(self):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
@@ -108,6 +112,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         completed = run.subprocess.CompletedProcess
 
         def current(args, **_kwargs):
+            if args[:3] == ["git", "fetch", "--quiet"]:
+                return completed(args, 0, stdout="", stderr="")
             if args[:3] == ["git", "rev-parse", "HEAD"]:
                 return completed(args, 0, stdout="feature\n", stderr="")
             if args[:3] == ["git", "rev-parse", "--verify"]:
@@ -136,6 +142,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         completed = run.subprocess.CompletedProcess
 
         def missing_main(args, **_kwargs):
+            if args[:3] == ["git", "fetch", "--quiet"]:
+                return completed(args, 1, stdout="", stderr="offline")
             if args[:3] == ["git", "rev-parse", "HEAD"]:
                 return completed(args, 0, stdout="feature\n", stderr="")
             if args[:3] == ["git", "rev-parse", "--verify"]:
@@ -143,7 +151,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.fail(f"unexpected command: {args}")
 
         with mock.patch.object(run, "run_cmd", side_effect=missing_main):
-            with self.assertRaisesRegex(RuntimeError, "fetch origin"):
+            with self.assertRaisesRegex(RuntimeError, "could not fetch current origin/main"):
                 run.require_current_brain_mainline(pathlib.Path("/repo"))
 
     def test_retained_release_evidence_paths_fit_github_windows_checkout(self):
@@ -167,14 +175,14 @@ class RunnerAndConditionTests(unittest.TestCase):
             run.parse_runner_spec("gemini:gemini-3-flash-preview:max")
 
     def test_condition_prep_kind_separates_delivery_from_brain_artifacts(self):
-        self.assertEqual(run.condition_prep_kind("full_cli_original"), "semantic_history_brain")
-        self.assertEqual(run.condition_prep_kind("full_cli_compact"), "semantic_history_brain")
+        self.assertEqual(run.condition_prep_kind("semantic_history_cli_original"), "semantic_history_brain")
+        self.assertEqual(run.condition_prep_kind("semantic_history_cli_compact"), "semantic_history_brain")
         self.assertEqual(run.condition_prep_kind("mcp_history"), "semantic_history_brain")
         self.assertEqual(run.condition_prep_kind("mcp_workspace_radar"), "semantic_history_brain")
         self.assertEqual(run.condition_prep_kind("full_brain"), "full_brain")
         self.assertEqual(run.condition_prep_kind("mcp_semantic"), "semantic_brain")
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
-        self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
+        self.assertTrue(run.condition_copies_entire_history("semantic_history_cli_compact"))
         self.assertTrue(run.condition_copies_entire_history("mcp_workspace_radar"))
         self.assertTrue(run.condition_copies_entire_history("raw_history"))
         self.assertTrue(run.condition_copies_entire_history("facts_only"))
@@ -373,21 +381,23 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "history_records": 5,
             }
         }
-        run.assert_brain_state_ready(task, "full_cli_compact", ready)
+        run.assert_brain_state_ready(task, "semantic_history_cli_compact", ready)
         run.assert_brain_state_ready(task, "semantic_history_brain", ready)
         with self.assertRaisesRegex(RuntimeError, "requires at least one distilled durable fact"):
             run.assert_brain_state_ready(task, "full_brain", ready)
         facts_ready = copy.deepcopy(ready)
         facts_ready["manifest"].update({"has_facts": True, "fact_count": 1})
         run.assert_brain_state_ready(task, "full_brain", facts_ready)
+        with self.assertRaisesRegex(RuntimeError, "without distilled facts"):
+            run.assert_brain_state_ready(task, "semantic_history_brain", facts_ready)
 
         missing_history = {"manifest": {"has_semantic": True, "session_count": 2, "history_records": 0}}
         with self.assertRaisesRegex(RuntimeError, "no history index records"):
-            run.assert_brain_state_ready(task, "full_cli_compact", missing_history)
+            run.assert_brain_state_ready(task, "semantic_history_cli_compact", missing_history)
 
         missing_semantic = {"manifest": {"has_semantic": False, "session_count": 2, "history_records": 5}}
         with self.assertRaisesRegex(RuntimeError, "semantic source"):
-            run.assert_brain_state_ready(task, "full_cli_compact", missing_semantic)
+            run.assert_brain_state_ready(task, "semantic_history_cli_compact", missing_semantic)
 
     def test_collect_brain_state_uses_current_entire_brain_surface(self):
         completed = run.subprocess.CompletedProcess
@@ -436,20 +446,16 @@ class RunnerAndConditionTests(unittest.TestCase):
             run.prep_record_summary({"ok": True, "brain_state": {"status": status}}),
         )
 
-    def test_mcp_history_audit_matches_compact_prompt_history_tool_requirement(self):
-        # Compact-delivery models are told to call brain_brief ONCE and NOT brain_search;
-        # the audit must not then fail them for skipping brain_search.
+    def test_mcp_history_audit_has_runner_independent_brief_floor(self):
         self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="o", agent="claude", model="opus")), ("brain_brief",))
         self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="g", agent="codex", model="gpt-5.5")), ("brain_brief",))
-        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="s", agent="claude", model="sonnet")), ("brain_brief", "brain_search"))
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="s", agent="claude", model="sonnet")), ("brain_brief",))
         brief_only = {"mcp": {"enabled": True}, "activity": {"mcp_tool_calls": 1, "mcp_tool_names": ["mcp__entire_brain__brain_brief"]}}
-        # Opus (compact): brief-only is a clean pass.
+        # The task-shaped brief is the runner-independent treatment floor.
         opus_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="o", agent="claude", model="opus"))
         self.assertTrue(opus_audit["ok"], opus_audit)
-        # Sonnet (non-compact): brief-only must still be flagged for missing brain_search.
         sonnet_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="s", agent="claude", model="sonnet"))
-        self.assertFalse(sonnet_audit["ok"])
-        self.assertIn("brain_search", [f.get("tool") for f in sonnet_audit["findings"]])
+        self.assertTrue(sonnet_audit["ok"], sonnet_audit)
 
     def test_validate_fails_tasks_with_no_validation_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -548,18 +554,12 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("brain_brief", prompt)
         self.assertIn("brain_search", prompt)
         self.assertIn("mcp__entire_brain__brain_brief", prompt)
-        self.assertIn("before any shell search or file reads", prompt)
-        self.assertIn("run exactly one `mcp__entire_brain__brain_search`", prompt)
-        self.assertIn("apply the fix there before any additional MCP calls", prompt)
-        self.assertIn("MCP_TOOLS_MISSING", prompt)
-        self.assertIn("Do not run the `entire brain` CLI", prompt)
+        self.assertIn("before editing", prompt)
+        self.assertIn("choose one focused `brain_search` query yourself", prompt)
+        self.assertNotIn("history term", prompt)
         self.assertIn("Do not inspect `.benchmark`, `.entire`, or raw session/checkpoint artifacts", prompt)
 
-    def test_mcp_history_disciplined_delivery_for_gpt5x(self):
-        # gpt-5.5 under-contexts on MCP (brief names the file but not the invariant, and the old
-        # brief-only prompt banned brain_search). It now gets the "disciplined MCP" delivery:
-        # brief once + ONE targeted brain_search for the invariant + hard stop. Validated to lift
-        # gpt-5.5 mcp_history pass-rate 88%->100% with no score regression.
+    def test_mcp_history_delivery_is_runner_independent(self):
         task = {
             "id": "task",
             "prompt": "Fix the regression.",
@@ -567,32 +567,21 @@ class RunnerAndConditionTests(unittest.TestCase):
             "expected_files": ["pkg/file.ts"],
             "validation": ["npm test"],
         }
-        prompt = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.5:medium"))
-        self.assertIn("Step 1", prompt)
-        self.assertIn("brain_brief", prompt)
-        self.assertIn("Step 2", prompt)
-        self.assertIn("brain_search", prompt)  # the invariant lookup, restored (not banned)
-        self.assertIn("Hard stop", prompt)
-        self.assertIn("MCP_TOOLS_MISSING", prompt)
-        self.assertNotIn("do NOT need a separate `brain_search` call", prompt)  # old brief-only is gone
-        # A model NOT in the disciplined/compact set keeps the generic history delivery.
-        guided = run.prompt_for(task, "mcp_history", run.parse_runner_spec("claude:sonnet:medium"))
-        self.assertIn("run exactly one `mcp__entire_brain__brain_search`", guided)
-        self.assertNotIn("Hard stop", guided)
+        codex = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.5:medium"))
+        claude = run.prompt_for(task, "mcp_history", run.parse_runner_spec("claude:sonnet:medium"))
+        self.assertEqual(codex, claude)
+        self.assertIn("brain_brief", codex)
+        self.assertIn("brain_search", codex)
+        self.assertNotIn("Hard stop", codex)
+        self.assertNotIn("EXACTLY ONCE", codex)
 
-    def test_disciplined_mcp_is_effort_aware_for_mini(self):
-        # gpt-5.4-mini gets the generic delivery at low/medium (it wins there) but the disciplined
-        # hard-stop at high/xhigh, where it spirals (token bloat). Validated: -32% tokens pooled,
-        # no validation regression.
+    def test_mcp_history_delivery_is_effort_independent(self):
         task = {"id": "t", "prompt": "Fix.", "brain_queries": ["q"], "expected_files": ["f.go"], "validation": ["go test ./..."]}
         low = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:low"))
         high = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:high"))
         xhigh = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:xhigh"))
-        self.assertNotIn("Hard stop", low)   # generic at low effort
-        self.assertIn("Hard stop", high)     # disciplined at high
-        self.assertIn("Hard stop", xhigh)    # disciplined at xhigh
-        self.assertTrue(run.wants_disciplined_mcp(run.parse_runner_spec("codex:gpt-5.4-mini:high")))
-        self.assertFalse(run.wants_disciplined_mcp(run.parse_runner_spec("codex:gpt-5.4-mini:medium")))
+        self.assertEqual(low, high)
+        self.assertEqual(low, xhigh)
 
     def test_full_brain_prompt_uses_query_terms_in_initial_brief(self):
         task = {
@@ -603,7 +592,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             "validation": ["npm test"],
             "prepare_semantic": True,
         }
-        prompt = run.prompt_for(task, "full_cli_original")
+        prompt = run.prompt_for(task, "semantic_history_cli_original")
         # The query is shell-quoted (shlex.quote) — it has spaces so it is single-quoted, NOT the
         # old unescaped double-quoted form that let shell metacharacters corrupt the query.
         self.assertIn("entire brain brief 'Fix the regression.' --json", prompt)
@@ -645,7 +634,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         prompt = run.prompt_for(task, "semantic_history_brain")
         self.assertIn("entire brain brief 'Restore the historical behavior.' --json", prompt)
         self.assertIn("Choose any follow-up query yourself", prompt)
-        self.assertIn("`brain_queries` are hints, never a harness-mandated retrieval", prompt)
+        self.assertNotIn(".github symbol was unexpectedly ignored", prompt)
         self.assertNotIn("brain-history-excerpt.md", prompt)
         self.assertNotIn("Your first tool command must be exactly `entire brain search", prompt)
 
@@ -667,9 +656,9 @@ class RunnerAndConditionTests(unittest.TestCase):
         expected_query = run.brain_brief_query(task)
         self.assertIn("`", expected_query)  # the query genuinely contains shell metacharacters
         self.assertIn('"', expected_query)
-        for runner_spec, exp_limit in ((None, 4), ("claude:claude-opus-4-8:high", 2)):
+        for runner_spec, exp_limit in ((None, 4), ("claude:claude-opus-4-8:high", 4)):
             runner = run.parse_runner_spec(runner_spec) if runner_spec else None
-            prompt = run.prompt_for(task, "full_cli_compact", runner)
+            prompt = run.prompt_for(task, "semantic_history_cli_compact", runner)
             expected_cmd = f"entire brain brief {shlex.quote(expected_query)} --json --limit {exp_limit}"
             label = runner_spec or "generic"
             # prompt_for emits exactly the shell-quoted command...
@@ -681,12 +670,12 @@ class RunnerAndConditionTests(unittest.TestCase):
             # the agent's shell would hand the brain the EXACT literal query (no substitution).
             self.assertEqual(shlex.split(expected_cmd)[3], expected_query, label)
 
-    def test_full_cli_compact_is_self_correcting_not_blind_trust(self):
-        # Release blocker (history delivery): the compact CLI packet must make the agent VERIFY
+    def test_semantic_history_cli_compact_is_self_correcting_not_blind_trust(self):
+        # Release blocker (history delivery): the compact CLI packet must make the agent verify
         # the likely_edit_files pointer against the broken invariant, and must NOT force blind
         # trust ("do not broaden") — that turned a lexically-wrong pointer into a guaranteed
         # wrong edit (condense task: pickLatestVersion false positive). Applies to both the
-        # generic compact path and the Opus --limit 2 path.
+        # same condition-level path for every runner.
         task = {
             "id": "task",
             "prompt": "Fix the regression.",
@@ -699,9 +688,9 @@ class RunnerAndConditionTests(unittest.TestCase):
         }
         for runner_spec in (None, "claude:claude-opus-4-8:high"):
             runner = run.parse_runner_spec(runner_spec) if runner_spec else None
-            prompt = run.prompt_for(task, "full_cli_compact", runner)
+            prompt = run.prompt_for(task, "semantic_history_cli_compact", runner)
             label = runner_spec or "generic"
-            self.assertIn("VERIFY", prompt, label)
+            self.assertIn("Verify", prompt, label)
             self.assertIn("invariant", prompt, label)
             self.assertIn("likely_edit_files", prompt, label)
             # the blind-trust phrasings that caused the net-harmful result must be gone
@@ -726,9 +715,9 @@ class RunnerAndConditionTests(unittest.TestCase):
         cases = [
             # (condition, runner, prepare_semantic) -> (expected_limit, packet_written)
             # The packet is captured ONLY when the agent itself runs that CLI brief.
-            ("full_cli_compact", opus, True, ["--limit", "2"], True),
-            ("full_cli_compact", generic, True, ["--limit", "4"], True),
-            ("full_cli_compact", generic, False, ["--limit", "4"], True),
+            ("semantic_history_cli_compact", opus, True, ["--limit", "4"], True),
+            ("semantic_history_cli_compact", generic, True, ["--limit", "4"], True),
+            ("semantic_history_cli_compact", generic, False, ["--limit", "4"], True),
             ("semantic_brain", generic, True, [], True),
             ("mcp_history", generic, True, None, False),         # agent uses MCP -> no CLI packet (no over-exposure)
             ("full_brain", generic, False, [], True),            # sessionless/full still proves CLI Brain use
@@ -764,7 +753,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                     args = captured["args"]
                     limit_pair = args[args.index("--limit"):args.index("--limit") + 2] if "--limit" in args else []
                     self.assertEqual(limit_pair, exp_limit, label)
-                    expected_limit_val = run.brain_brief_limit(cond, runner.model in run.OPUS_COMPACT_MODELS)
+                    expected_limit_val = run.brain_brief_limit(cond)
                     self.assertEqual(
                         limit_pair,
                         ["--limit", str(expected_limit_val)] if expected_limit_val is not None else [],
@@ -780,23 +769,17 @@ class RunnerAndConditionTests(unittest.TestCase):
         finally:
             run.run_cmd = old
 
-    def test_opus_cli_compact_pins_token_discipline(self):
-        # The opus full_cli_compact CLI path's anti-spiral strings are the mechanism behind the
-        # proven efficiency win; pin them so a future edit can't silently drop them (the generic
-        # branch is already pinned by test_compact_full_brain_prompt_has_no_raw_excerpt).
+    def test_cli_compact_does_not_tune_policy_by_runner(self):
         task = {
             "id": "t", "prompt": "Fix it.", "brain_queries": ["q"],
             "expected_files": ["a.go"], "validation": ["go test ./..."],
             "prepare_semantic": True, "hide_expected_from_agent": True, "hide_validation_from_agent": True,
         }
-        prompt = run.prompt_for(task, "full_cli_compact", run.parse_runner_spec("claude:claude-opus-4-8:high"))
-        self.assertIn("--limit 2", prompt)
-        self.assertIn("Do NOT re-run brief", prompt)
-        self.assertIn("at most 2 targeted searches", prompt)
-        self.assertIn("run exactly one `likely_test_files` test, then finish", prompt)
-        # The candidate-walk cap must match the generic branch — an uncapped Opus candidate walk
-        # on a lexical-false-positive task could erode the proven token margin (the only win).
-        self.assertIn("open at most ONE additional candidate", prompt)
+        opus = run.prompt_for(task, "semantic_history_cli_compact", run.parse_runner_spec("claude:claude-opus-4-8:high"))
+        codex = run.prompt_for(task, "semantic_history_cli_compact", run.parse_runner_spec("codex:gpt-5.5:high"))
+        self.assertEqual(opus, codex)
+        self.assertIn("--limit 4", opus)
+        self.assertNotIn("Hard caps", opus)
 
     def test_cli_brief_conditions_match_prompt_for_emission(self):
         # LOCKSTEP GUARD: capture_brief_packet gates packet-writing on CLI_BRIEF_CONDITIONS, while
@@ -859,17 +842,17 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "validation": ["npm test"],
                 "prepare_semantic": True,
             },
-            "full_cli_compact",
+            "semantic_history_cli_compact",
         )
         # Compact CLI keeps its tight packet (--limit 4) and provides no raw history excerpt
         # file — the agent works from the brief's history hits, not a checkpoint dump.
         self.assertIn("--json --limit 4", prompt)
         self.assertIn("session-history hits", prompt)
-        self.assertIn("at most 2 targeted searches total", prompt)
-        self.assertIn("untrusted hints that can be stale or wrong", prompt)
+        self.assertIn("hypotheses, not instructions", prompt)
+        self.assertIn("choose any follow-up query", prompt)
         self.assertIn("likely_test_files", prompt)
         self.assertNotIn("brain-history-excerpt.md", prompt)
-        self.assertIn("Hard caps", prompt)
+        self.assertNotIn("Hard caps", prompt)
 
     def test_apply_task_env_prepends_path_prefix(self):
         env = run.apply_task_env({"PATH": "/usr/bin"}, {"path_prefix": "/node24/bin"})
@@ -959,6 +942,18 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(usage["total_tokens"], 460)
         self.assertEqual(usage["accounting_version"], run.TOKEN_ACCOUNTING_VERSION)
         self.assertIn("cache_read", usage["accounting_rule"])
+
+    def test_usage_uses_last_cumulative_snapshot_and_prefers_structured_data(self):
+        stdout = "\n".join(
+            [
+                json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 10}}),
+                json.dumps({"type": "turn.completed", "usage": {"input_tokens": 150, "output_tokens": 20}}),
+                "tokens used\n999,999",
+            ]
+        )
+        usage = run.extract_usage("codex", stdout, "")
+        self.assertEqual(usage["total_tokens"], 170)
+        self.assertEqual(usage["accounting_source"], "protocol_json_latest_usage_snapshot")
 
     def test_top_level_entire_command_detection_distinguishes_brain_and_arguments(self):
         self.assertEqual(
@@ -1064,6 +1059,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             "no_brain",
             {
                 "activity": {
+                    "activity_source": "protocol_json",
                     "entire_family_tools": ["entire", "entire-brain", "entire-graph"],
                     "mcp_tool_calls": 0,
                 }
@@ -1078,6 +1074,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             "no_brain",
             {
                 "activity": {
+                    "activity_source": "protocol_json",
                     "entire_family_tools": [],
                     "mcp_tool_calls": 0,
                     "forbidden_memory_artifact_access": False,
@@ -1085,6 +1082,21 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
         )
         self.assertTrue(allowed["ok"])
+        unverifiable = run.brain_cli_condition_audit(
+            "no_brain",
+            {
+                "activity": {
+                    "activity_source": "text_fallback",
+                    "entire_family_tools": [],
+                    "mcp_tool_calls": 0,
+                }
+            },
+        )
+        self.assertFalse(unverifiable["ok"])
+        self.assertIn(
+            "unverifiable_no_brain_activity",
+            {finding["kind"] for finding in unverifiable["findings"]},
+        )
 
     def test_activity_counts_mcp_and_shell_tool_events(self):
         stdout = "\n".join(
@@ -1370,11 +1382,29 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertTrue(run.baseline_history_audit(ordinary, [attestation])["ok"])
         for command in [
             "git diff HEAD^2 HEAD",
+            "git diff @^2 HEAD",
+            "git rev-parse HEAD^@",
+            "git show HEAD^@",
+            "git diff ORIG_HEAD",
+            "git diff HEAD@{1}",
+            "git reflog -p",
+            "git log -g -p",
+            "git show --format=%P --no-patch HEAD",
+            "git cat-file -p HEAD",
             "git show -m HEAD",
             f"git diff {'a' * 40} HEAD",
         ]:
             audit = run.baseline_history_audit({"activity": {"commands": [command]}}, [attestation])
             self.assertFalse(audit["ok"], command)
+        historical = {
+            "activity": {
+                "commands": [
+                    f"git diff {'a' * 40}~2 {'a' * 40}~1",
+                    f"git show {'a' * 40}~3",
+                ]
+            }
+        }
+        self.assertTrue(run.baseline_history_audit(historical, [attestation])["ok"])
 
     def test_temporal_memory_audit_enforces_first_single_search(self):
         task = _harness_task(memory_delivery="agent_tool")
@@ -1691,8 +1721,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                 },
             },
         )
-        self.assertFalse(missing_history["ok"])
-        self.assertIn("missing_required_mcp_tool", {finding["kind"] for finding in missing_history["findings"]})
+        self.assertTrue(missing_history["ok"])
 
     def test_text_activity_is_marked_as_fallback(self):
         activity = run.extract_agent_activity("I would run rg needle and entire brain brief.", "")
@@ -1786,6 +1815,20 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertEqual(old_commit.returncode, 0)
             subject = run.run_cmd(["git", "log", "-1", "--format=%s"], cwd=repo, check=True).stdout
             self.assertNotIn("ignored task-specific message", subject)
+            self.assertEqual(
+                run.run_cmd(["git", "reflog", "show", "--all"], cwd=repo, check=True).stdout,
+                "",
+            )
+            git_dir = pathlib.Path(
+                run.run_cmd(
+                    ["git", "rev-parse", "--absolute-git-dir"],
+                    cwd=repo,
+                    check=True,
+                ).stdout.strip()
+            )
+            self.assertFalse((git_dir / "ORIG_HEAD").exists())
+            self.assertFalse(baseline["orig_head_exists"])
+            self.assertEqual(baseline["visible_reflog_entries"], 0)
 
             target.write_text("agent repair\n")
             diff = run.run_cmd(["git", "diff", "--", "target.txt"], cwd=repo, check=True).stdout
@@ -1833,10 +1876,16 @@ class RunnerAndConditionTests(unittest.TestCase):
             setup_patch = run.run_cmd(["git", "show", "--format=", "HEAD", "--", "target.txt"], cwd=worktree, check=True).stdout
             self.assertEqual(setup_patch, "")
             self.assertEqual(run.run_cmd(["git", "remote"], cwd=worktree, check=True).stdout.strip(), "")
+            self.assertEqual(
+                run.run_cmd(["git", "reflog", "show", "--all"], cwd=worktree, check=True).stdout,
+                "",
+            )
             history = run.agent_history_attestation(worktree)
             self.assertTrue(history["source_history_available"])
             self.assertTrue(history["private_paths_filtered"])
             self.assertTrue(history["repository_isolated"])
+            self.assertFalse(history["orig_head_exists"])
+            self.assertEqual(history["visible_reflog_entries"], 0)
             self.assertFalse((worktree / "benchmarks" / "agent-brain").exists())
             private_history = run.run_cmd(
                 ["git", "rev-list", "--objects", "--all", "--", "benchmarks/agent-brain"],
@@ -2041,23 +2090,23 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertFalse(audit["ok"])
         self.assertEqual(audit["findings"][0]["kind"], "hidden_validation_marker_in_output")
 
-    def test_agent_output_leak_audit_uses_explicit_canaries_when_present(self):
+    def test_agent_output_leak_audit_explicit_canaries_supplement_validator_markers(self):
         task = {
             "hide_validation_from_agent": True,
             "leak_markers": ["release-canary-hidden-validation-12345"],
             "validation": ["go test ./internal/cli -run 'TestDiscoveredByAgent'"],
         }
-        clean = run.agent_output_leak_audit(
+        validator_leak = run.agent_output_leak_audit(
             task,
             "I ran go test ./internal/cli -run 'TestDiscoveredByAgent'",
             "",
         )
-        self.assertTrue(clean["ok"])
+        self.assertFalse(validator_leak["ok"])
         leaked = run.agent_output_leak_audit(task, "release-canary-hidden-validation-12345", "")
         self.assertFalse(leaked["ok"])
         self.assertEqual(leaked["findings"][0]["kind"], "hidden_validation_marker_in_output")
 
-    def test_agent_output_leak_audit_explicit_canaries_ignore_generic_task_paths(self):
+    def test_agent_output_leak_audit_explicit_canaries_do_not_disable_generic_patterns(self):
         task = {
             "hide_validation_from_agent": True,
             "leak_markers": ["release-canary-hidden-validation-12345"],
@@ -2068,7 +2117,8 @@ class RunnerAndConditionTests(unittest.TestCase):
             "diagnostic path benchmarks/agent-brain/tasks/task.json appeared in a tool transcript",
             "",
         )
-        self.assertTrue(audit["ok"])
+        self.assertFalse(audit["ok"])
+        self.assertEqual(audit["findings"][0]["kind"], "benchmark_secret_pattern_in_output")
 
     def test_agent_output_leak_audit_allows_result_paths_and_setup_text(self):
         task = {
@@ -2189,26 +2239,23 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("brain_validation_not_clean", verdict["verdict_reasons"])
 
 
-class OpusCompactModeTests(unittest.TestCase):
+class RunnerIndependentPromptTests(unittest.TestCase):
     TASK = {"id": "t", "prompt": "Fix it.", "brain_queries": ["X"], "expected_files": ["a.go"], "validation": ["go test ./..."]}
 
-    def test_opus_mcp_is_compact_and_bounded(self):
+    def test_mcp_history_prompt_is_runner_independent(self):
         p = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:opus:high"))
-        self.assertIn("limit: 3", p)                       # tiny brief
-        self.assertIn("do NOT call `brain_search`", p)     # no forced search call
-        self.assertIn("finite budget", p)
-        # other Claude models keep the standard MCP delivery (forced brain_search)
         son = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:sonnet:high"))
-        self.assertIn("run exactly one `mcp__entire_brain__brain_search`", son)
-        self.assertNotIn("limit: 3", son)
+        self.assertEqual(p, son)
+        self.assertIn("brain_brief", p)
+        self.assertIn("brain_search", p)
+        self.assertNotIn("limit: 3", p)
 
-    def test_opus_cli_uses_tiny_limit(self):
-        p = run.prompt_for(self.TASK, "full_cli_compact", run.parse_runner_spec("claude:opus:high"))
-        self.assertIn("--limit 2", p)
-        # haiku keeps the standard --limit 4 CLI delivery
-        hai = run.prompt_for(self.TASK, "full_cli_compact", run.parse_runner_spec("claude:haiku:high"))
+    def test_cli_history_prompt_is_runner_independent(self):
+        p = run.prompt_for(self.TASK, "semantic_history_cli_compact", run.parse_runner_spec("claude:opus:high"))
+        hai = run.prompt_for(self.TASK, "semantic_history_cli_compact", run.parse_runner_spec("claude:haiku:high"))
+        self.assertEqual(p, hai)
+        self.assertIn("--limit 4", p)
         self.assertIn("--limit 4", hai)
-        self.assertNotIn("--limit 2", hai)
 
 
 class StatsAndAttributionTests(unittest.TestCase):
@@ -2481,8 +2528,7 @@ class PanelAndStabilityTests(unittest.TestCase):
         finally:
             task_path.unlink(missing_ok=True)
         joined = " | ".join(errors)
-        self.assertIn("answer-bearing content", joined)
-        self.assertIn("hidden_test_name", joined)
+        self.assertNotIn("answer-bearing content", joined)
 
     def test_committed_release_panels_pass_preflight(self):
         for path in sorted((run.BENCH_ROOT / "panels").glob("release-*.json")):
@@ -3067,7 +3113,7 @@ class BrainQueryLeakAuditTests(unittest.TestCase):
         task_with_fix_leak = dict(task, setup_replacements=[{"path": "x.go", "old": "Test_CheckAuth helper", "new": ""}])
         self.assertFalse(run.brain_query_leak_audit(task_with_fix_leak)["ok"])
 
-    def test_panel_preflight_reports_confounded_queries(self) -> None:
+    def test_panel_preflight_ignores_non_delivered_query_metadata(self) -> None:
         confounded = {
             "id": "confounded-task",
             "repo": "github-cli",
@@ -3093,7 +3139,7 @@ class BrainQueryLeakAuditTests(unittest.TestCase):
             errors = run.panel_preflight(panel)
         finally:
             run.load_tasks = old_loader
-        self.assertTrue(any("answer-bearing" in error for error in errors), errors)
+        self.assertFalse(any("answer-bearing" in error for error in errors), errors)
 
 
 class LayerBScenarioGenerationTests(unittest.TestCase):
@@ -3282,13 +3328,34 @@ class CodexAuditScriptTests(unittest.TestCase):
                 "search_calls": 0,
             }},
             "agent_baseline_history": {
-                "mode": "filtered_source_history",
+                "mode": "isolated_filtered_source_history",
                 "parent_count": 1,
                 "commit_count": 2,
                 "source_history_available": True,
                 "private_paths_filtered": True,
                 "private_path_findings": [],
+                "repository_isolated": True,
+                "visible_refs": [],
+                "visible_remotes": [],
+                "shared_object_store": False,
+                "visible_reflog_entries": 0,
+                "orig_head_exists": False,
             },
+            "agent_runtime_history": {
+                "mode": "isolated_filtered_source_history",
+                "parent_count": 1,
+                "commit_count": 2,
+                "source_history_available": True,
+                "private_paths_filtered": True,
+                "private_path_findings": [],
+                "repository_isolated": True,
+                "visible_refs": [],
+                "visible_remotes": [],
+                "shared_object_store": False,
+                "visible_reflog_entries": 0,
+                "orig_head_exists": False,
+            },
+            "baseline_history_audit": {"ok": True, "required": True, "findings": []},
             "agent_secret_preflight": {"ok": True},
             "agent_leak_audit": {"ok": True},
             "brain_prep": {"condition": condition},
@@ -3635,7 +3702,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertFalse(release_report["suites"][suite]["records"][1]["release_hygiene"]["host_path_clean"])
             self.assertEqual(release_report["release_manifest"]["path"], "[external]/manifest.json")
 
-    def test_audit_codex_flags_answer_bearing_brain_queries_in_hidden_validation(self):
+    def test_audit_codex_treats_non_delivered_brain_queries_as_inert_metadata(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out, tempfile.TemporaryDirectory(dir=run.BENCH_ROOT) as task_dir:
             results_dir = pathlib.Path(results)
             out_dir = pathlib.Path(out)
@@ -3681,41 +3748,18 @@ class CodexAuditScriptTests(unittest.TestCase):
             brain_record = report["suites"][suite]["records"][1]
             base_record = report["suites"][suite]["records"][0]
             self.assertTrue(base_record["pass"], base_record)
-            self.assertFalse(brain_record["pass"], brain_record)
-            self.assertTrue(any(flag.startswith("J:answer_bearing_brain_queries") for flag in brain_record["flags"]))
-            self.assertIn("answer_bearing_brain_queries", brain_record["task_hygiene"])
-            self.assertEqual(report["totals"]["proof_ready_comparisons"], 0)
-            self.assertIn("G:proof_ready_without_matching_records", report["suites"][suite]["comparisons"][0]["flags"])
+            self.assertTrue(brain_record["pass"], brain_record)
+            self.assertFalse(any(flag.startswith("J:answer_bearing_brain_queries") for flag in brain_record["flags"]))
+            self.assertFalse(brain_record["task_hygiene"]["brain_queries_agent_visible"])
+            self.assertEqual(report["totals"]["proof_ready_comparisons"], 1)
 
             manifest = self._write_release_manifest(out_dir)
             self.assertEqual(
                 audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
-                1,
-            )
-            gated = json.loads((out_dir / "codex-audit-report.json").read_text())
-            self.assertGreater(gated["totals"]["hard_flags"], 0)
-
-            manifest_data = json.loads(manifest.read_text())
-            manifest_data["claim_policy"] = "no_release_claim"
-            manifest_data["minimums"]["proof_ready_comparisons"] = 0
-            manifest_data["minimums"]["mcp_verified_records"] = 0
-            manifest_data["minimums"]["mcp_named_tool_verified_records"] = 0
-            manifest_data["require_proof_ready_per_suite"] = False
-            manifest_data["required_proof_scopes"] = []
-            manifest_data["required_named_tool_proof_scopes"] = []
-            manifest_data["allowed_no_claim_flag_kinds"] = [
-                "J:answer_bearing_brain_queries",
-                "G:proof_ready_without_matching_records",
-            ]
-            manifest.write_text(json.dumps(manifest_data))
-            self.assertEqual(
-                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
                 0,
             )
-            no_claim = json.loads((out_dir / "codex-audit-report.json").read_text())
-            self.assertEqual(no_claim["gate_status"]["claim_policy"], "no_release_claim")
-            self.assertFalse(no_claim["gate_status"]["release_evidence"])
-            self.assertIn("PASS (NO RELEASE CLAIM)", (out_dir / "codex-audit-report.md").read_text())
+            gated = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(gated["totals"]["hard_flags"], 0)
 
     def test_audit_codex_flags_task_config_hash_drift(self):
         with tempfile.TemporaryDirectory() as results:
@@ -7333,6 +7377,26 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(by_mode["harness"]["mean_total_tokens_baseline"], 825.0)
         self.assertEqual(by_mode["agent_tool"]["n_baseline"], 2)
         self.assertEqual(by_mode["agent_tool"]["mean_total_tokens_baseline"], 925.0)
+
+    def test_summarize_never_compares_different_source_bases_or_accounting_sources(self):
+        baseline = _rec(900)
+        baseline["condition"] = "no_brain"
+        baseline["provenance"] = {"source": {"base": {"commit": "a" * 40}}}
+        baseline["agent_info"]["usage"].update(
+            {"accounting_version": run.TOKEN_ACCOUNTING_VERSION, "accounting_source": "structured"}
+        )
+
+        different_base = copy.deepcopy(baseline)
+        different_base["condition"] = "semantic_brain"
+        different_base["provenance"]["source"]["base"]["commit"] = "b" * 40
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(run.summarize([baseline, different_base], pathlib.Path(d))["comparisons"], [])
+
+        different_source = copy.deepcopy(baseline)
+        different_source["condition"] = "semantic_brain"
+        different_source["agent_info"]["usage"]["accounting_source"] = "text_fallback"
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(run.summarize([baseline, different_source], pathlib.Path(d))["comparisons"], [])
 
     def test_summarize_excludes_infrastructure_failures_from_arm_means(self):
         # F2: an INFRASTRUCTURE non-outcome (harness delivery/isolation failed, the

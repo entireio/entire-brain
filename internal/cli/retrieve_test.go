@@ -303,6 +303,13 @@ func TestRetrievalResultExcerptCentersDenseQueryTerms(t *testing.T) {
 	if !utf8.ValidString(unicodeExcerpt) {
 		t.Fatalf("excerpt split UTF-8: %q", unicodeExcerpt)
 	}
+	// Unicode lowercase can change byte length (K is three UTF-8 bytes but
+	// lowercases to one-byte k). Search offsets must still point into the
+	// original string and center the actual match.
+	foldedExcerpt := retrievalResultExcerpt(strings.Repeat("K", 100)+" TARGET context details", "target context", 64)
+	if !utf8.ValidString(foldedExcerpt) || !strings.Contains(foldedExcerpt, "TARGET context") {
+		t.Fatalf("case-folded Unicode offset missed the query window: %q", foldedExcerpt)
+	}
 }
 
 func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) {

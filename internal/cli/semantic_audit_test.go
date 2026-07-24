@@ -379,6 +379,19 @@ func TestBrainStatusFreshnessSeverityIncludesRetrieval(t *testing.T) {
 	}
 }
 
+func TestBrainStatusReleaseFreshnessRequiresSemanticAssessment(t *testing.T) {
+	report := brainStatusReport{
+		Retrieval: &brainStatusRetrieval{Freshness: &staleReport{Severity: "ok"}},
+	}
+	if got := brainStatusFreshnessSeverity(report); got != "" {
+		t.Fatalf("retrieval-only status passed as release-ready: %q", got)
+	}
+	report.Semantic = &brainStatusSemantic{}
+	if got := brainStatusFreshnessSeverity(report); got != "" {
+		t.Fatalf("semantic status without freshness passed as release-ready: %q", got)
+	}
+}
+
 func TestStatusFailOnUnsafeAndReleaseEmitJSONBeforeError(t *testing.T) {
 	opts := statusGateFixtureOptions(t, t.TempDir(), nil)
 	for _, failOn := range []string{"unsafe", "release"} {

@@ -6,17 +6,12 @@
   "copy_checkpoint_ref_from_source": true,
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "prompt": "Fix the unified query default-limit regression. The query command should keep its documented default result limit and its QMD-style -n alias. Run the focused retrieval alias tests before finishing.",
+  "prompt": "Fix the query result-limit alias compatibility regression. The --limit and QMD-style -n flags should preserve equivalent defaults. Run the focused retrieval alias tests before finishing.",
   "setup_replacements": [
     {
       "path": "internal/cli/retrieve_cmd.go",
       "old": "cmd.Flags().IntVar(&limit, \"limit\", 10, \"Maximum results\")",
       "new": "cmd.Flags().IntVar(&limit, \"limit\", 2, \"Maximum results\")"
-    },
-    {
-      "path": "internal/cli/retrieve_cmd.go",
-      "old": "cmd.Flags().IntVarP(&limit, \"number\", \"n\", 10, \"Maximum results (QMD-style alias for --limit)\")",
-      "new": "cmd.Flags().IntVarP(&limit, \"number\", \"n\", 2, \"Maximum results (QMD-style alias for --limit)\")"
     }
   ],
   "validation": [
@@ -26,5 +21,6 @@
   "expected_files": ["internal/cli/retrieve_cmd.go"],
   "forbidden_files": ["go.mod", "go.sum"],
   "agent_hidden_paths": ["benchmarks/agent-brain"],
+  "leak_markers": ["EB_BENCH_CANARY_QUERY_LIMIT_91D2"],
   "brain_queries": ["newQueryCommand", "newRetrieveCommand", "QMD number alias"]
 }

@@ -22,6 +22,8 @@ import (
 
 const maxMCPFrameBytes = 4 * 1024 * 1024
 
+var mcpRefreshTimeout = 60 * time.Second
+
 type mcpFrameMode string
 
 const (
@@ -267,8 +269,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_refresh",
-			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed/docs refresh by default. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Set sessions=true only when checkpoint history also needs refresh.",
-			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Refresh selected sources from current uncommitted content"), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call (prefer brain_index_repository for large repositories)"), "sessions": boolArg("sessions", "Also export Entire sessions and rebuild history and patterns"), "force": boolArg("force", "Rebuild selected sources even when current")}),
+			"description": "Refresh bounded code-derived Brain sources and return status JSON. Includes current worktree content by default and never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content (default true; set false for committed HEAD only)"), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call (prefer brain_index_repository for large repositories)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
 			"name":        "brain_brief",
@@ -439,6 +441,9 @@ func mcpToolDefinitions() []map[string]any {
 }
 
 func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (map[string]any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var params mcpToolCallParams
 	if err := json.Unmarshal(raw, &params); err != nil {
 		return nil, err
@@ -486,17 +491,14 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, compact: true, failOn: semanticAuditFailOnNone}, target)
 	case "brain_refresh":
-		worktree, boolErr := mcpBool(params.Arguments, "worktree")
-		if boolErr != nil {
-			err = boolErr
-			break
+		worktree := true
+		if _, provided := params.Arguments["worktree"]; provided {
+			worktree, err = mcpBool(params.Arguments, "worktree")
+			if err != nil {
+				break
+			}
 		}
 		force, boolErr := mcpBool(params.Arguments, "force")
-		if boolErr != nil {
-			err = boolErr
-			break
-		}
-		sessions, boolErr := mcpBool(params.Arguments, "sessions")
 		if boolErr != nil {
 			err = boolErr
 			break
@@ -508,9 +510,10 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 		refreshOpts := defaultRefreshCommandOptions()
 		refreshOpts.force = force
+		refreshOpts.seed.force = force
 		refreshOpts.graphBinary = mcpGraphBinary()
-		refreshOpts.skipSessions = !sessions
-		refreshOpts.historyIndex = sessions
+		refreshOpts.skipSessions = true
+		refreshOpts.historyIndex = false
 		refreshOpts.semantic = semantic
 		refreshOpts.statusAfter = false
 		refreshOpts.seed.agent = "none"
@@ -518,8 +521,16 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		refreshCmd := &cobra.Command{Use: "brain_refresh"}
 		refreshCmd.SetOut(io.Discard)
 		refreshCmd.SetErr(io.Discard)
-		refreshCmd.SetContext(ctx)
-		err = runRefresh(ctx, refreshCmd, opts, refreshOpts)
+		refreshCtx, cancelRefresh := context.WithTimeout(ctx, mcpRefreshTimeout)
+		defer cancelRefresh()
+		refreshCmd.SetContext(refreshCtx)
+		err = runRefresh(refreshCtx, refreshCmd, opts, refreshOpts)
+		if errors.Is(refreshCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf(
+				"brain_refresh exceeded the %s MCP limit; use the dedicated CLI refresh/index command",
+				mcpRefreshTimeout,
+			)
+		}
 		if err == nil {
 			target := "."
 			if opts.Env.RepoRoot != "" {

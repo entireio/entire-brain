@@ -40,7 +40,18 @@ DEFAULT_PROOF_MIN_REPETITIONS = 4
 
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
-HISTORY_CONDITIONS = {"full_brain", "semantic_history_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
+# The full_cli_* names occur only in archived records. Keeping them readable
+# here does not make them aliases for current comparisons: comparison keys use
+# the literal condition name.
+LEGACY_HISTORY_CONDITIONS = {"full_cli_original", "full_cli_compact"}
+HISTORY_CONDITIONS = {
+    "full_brain",
+    "semantic_history_brain",
+    "semantic_history_cli_original",
+    "semantic_history_cli_compact",
+    "mcp_history",
+    "mcp_workspace_radar",
+} | LEGACY_HISTORY_CONDITIONS
 BRAIN_CONDITIONS = SEMANTIC_CONDITIONS | HISTORY_CONDITIONS
 MCP_NAMED_TOOL_REQUIRED_SCOPES = {
     "mcp_radar_location_only",
@@ -685,12 +696,6 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     slog_tool_calls = server_log_tool_call_records(run_dir)
     slog_unsafe_args = server_log_unsafe_tool_args(slog_tool_calls)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
-    # Compact-delivery models are instructed to call brain_brief ONCE and NOT
-    # brain_search (the compact brief already carries the top history hits).
-    # Mirrored here independently so a correct compact run is not flagged for a
-    # "missing" tool it was explicitly told not to call.
-    model = (get(rec, "runner", "model") or rec.get("agent") or "").lower()
-    compact = model in {"gpt-5.5", "gpt-5", "opus", "claude-opus-4-8"}
     env_flags = record_env_flags(rec)
     delivery_scope = delivery_scope_for_record(str(cond), env_flags)
     required_logged_tools = required_server_tool_names(str(cond), delivery_scope)
@@ -756,10 +761,9 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         if mcp_calls > 0 and not real:
             flags.append("B:mcp_calls_without_real_brain_names")
         if cond == "mcp_history" and mcp_calls > 0:
-            # Required tools are model-aware: compact-delivery models (Opus/gpt-5.5)
-            # are told to call brain_brief only, so brief-only is COMPLETE for them,
-            # not a partial. Other models are expected to also call brain_search.
-            required = ("brain_brief",) if compact else ("brain_brief", "brain_search")
+            # The treatment floor is runner-independent: a normal agent must
+            # use the task-shaped brief, then may choose follow-up retrieval.
+            required = ("brain_brief",)
             for req in required:
                 if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                     notes.append(f"B:mcp_history_partial_missing_{req}")
@@ -853,18 +857,36 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     history_compliant = False
     if isinstance(history, dict):
         pc = history.get("parent_count")
-        if history.get("mode") != "filtered_source_history":
+        if history.get("mode") != "isolated_filtered_source_history":
             flags.append(f"C:unexpected_history_mode({history.get('mode')})")
         if history.get("source_history_available") is not True:
             flags.append("C:source_history_unavailable")
         if history.get("private_paths_filtered") is not True:
             flags.append("C:private_history_paths_visible")
+        if history.get("repository_isolated") is not True:
+            flags.append("C:baseline_repository_not_isolated")
+        if history.get("visible_refs"):
+            flags.append("C:baseline_visible_refs")
+        if history.get("visible_remotes"):
+            flags.append("C:baseline_visible_remotes")
+        if history.get("shared_object_store") is not False:
+            flags.append("C:baseline_shared_object_store")
+        if int(history.get("visible_reflog_entries") or 0) != 0:
+            flags.append("C:baseline_visible_reflog")
+        if history.get("orig_head_exists") is not False:
+            flags.append("C:baseline_orig_head_visible")
         if int(history.get("parent_count") or 0) < 1:
             flags.append(f"C:baseline_has_no_parent({history.get('parent_count')})")
         history_compliant = (
-            history.get("mode") == "filtered_source_history"
+            history.get("mode") == "isolated_filtered_source_history"
             and history.get("source_history_available") is True
             and history.get("private_paths_filtered") is True
+            and history.get("repository_isolated") is True
+            and not history.get("visible_refs")
+            and not history.get("visible_remotes")
+            and history.get("shared_object_store") is False
+            and int(history.get("visible_reflog_entries") or 0) == 0
+            and history.get("orig_head_exists") is False
             and int(history.get("parent_count") or 0) >= 1
         )
     else:
@@ -881,6 +903,28 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             flags.append("C:post_brain_source_history_unavailable")
         if post.get("private_paths_filtered") is not True:
             flags.append("C:post_brain_private_history_paths_visible")
+    runtime_history = rec.get("agent_runtime_history")
+    if isinstance(runtime_history, dict):
+        if runtime_history.get("repository_isolated") is not True:
+            flags.append("C:runtime_repository_not_isolated")
+        if runtime_history.get("visible_refs"):
+            flags.append("C:runtime_visible_refs")
+        if runtime_history.get("visible_remotes"):
+            flags.append("C:runtime_visible_remotes")
+        if runtime_history.get("shared_object_store") is not False:
+            flags.append("C:runtime_shared_object_store")
+        if int(runtime_history.get("visible_reflog_entries") or 0) != 0:
+            flags.append("C:runtime_visible_reflog")
+        if runtime_history.get("orig_head_exists") is not False:
+            flags.append("C:runtime_orig_head_visible")
+    elif isinstance(history, dict) and history.get("mode") == "isolated_filtered_source_history":
+        flags.append("C:runtime_history_attestation_missing")
+    baseline_audit = rec.get("baseline_history_audit")
+    if isinstance(baseline_audit, dict):
+        if baseline_audit.get("ok") is not True:
+            flags.append("C:baseline_history_audit_failed")
+    elif isinstance(history, dict) and history.get("mode") == "isolated_filtered_source_history":
+        flags.append("C:baseline_history_audit_missing")
 
     # D. score integrity (HARD: stored total must equal recomputed clamp(sum(components)))
     if isinstance(score, dict) and "total" in score:
@@ -897,6 +941,10 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         flags.append("E:agent_leak_audit_failed")
     if get(rec, "brain_cli_condition_audit", "ok") is False:
         flags.append("E:brain_cli_condition_audit_failed")
+    if rec.get("adherence_ok") is False:
+        flags.append("E:condition_adherence_failed")
+    if rec.get("integrity_ok") is False:
+        flags.append("E:record_integrity_failed")
     sh = get(rec, "brain_prep", "history_sanitization")
     if isinstance(sh, dict) and sh.get("ok") is False:
         flags.append("E:history_sanitization_failed")
@@ -909,10 +957,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         })
         flags.append("E:mcp_server_log_unsafe_tool_args(" + ",".join(unsafe_keys) + ")")
     if cond in BRAIN_CONDITIONS and isinstance(task_data, dict):
-        query_leaks = brain_query_leak_findings(task_data)
-        if query_leaks:
-            flags.append(f"J:answer_bearing_brain_queries(count={len(query_leaks)})")
-            task_hygiene["answer_bearing_brain_queries"] = redact_leak_findings(query_leaks)
+        # `brain_queries` is retained only as scenario-discovery metadata. The
+        # agent prompt now carries the task-shaped brief and requires agents to
+        # derive any follow-up query themselves, so these strings are not an
+        # asymmetric delivery channel.
+        task_hygiene["brain_queries_agent_visible"] = False
 
     # F. validation present
     vres = get(rec, "validation", "results", default=None)
@@ -989,6 +1038,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "mcp_named_tool_result_verified": mcp_named_tool_result_verified,
         "required_server_tool_names": sorted(required_logged_tools),
         "provenance": provenance_summary,
+        "token_accounting_version": get(rec, "agent_info", "usage", "accounting_version"),
+        "token_accounting_source": get(rec, "agent_info", "usage", "accounting_source"),
         "flags": flags,
         "notes": notes,
         "pass": not flags,
@@ -1035,6 +1086,9 @@ def audit_summary(suite_dir: pathlib.Path, *, min_repetitions_per_side: int = DE
             "runner": comp.get("runner"),
             "condition": comp.get("condition"),
             "delivery_scope": comp.get("delivery_scope"),
+            "source_base_commit": comp.get("source_base_commit"),
+            "token_accounting_version": comp.get("token_accounting_version"),
+            "token_accounting_source": comp.get("token_accounting_source"),
             "env_flags": comp.get("env_flags"),
             "verdict": verdict,
             "proof_ready": comp.get("proof_ready"),
@@ -1057,6 +1111,9 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     required_baseline = int(comp.get("n_baseline") or 0)
     condition_requires_mcp_verified = condition in MCP_CONDITIONS
     condition_requires_mcp_named_tool_verified = delivery_scope in MCP_NAMED_TOOL_REQUIRED_SCOPES
+    required_source_base = comp.get("source_base_commit")
+    required_accounting_version = comp.get("token_accounting_version")
+    required_accounting_source = comp.get("token_accounting_source")
 
     def matches(record: dict[str, Any], cond: str, *, require_success: bool) -> bool:
         if not (
@@ -1068,6 +1125,12 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
         ):
             return False
         if cond != "no_brain" and delivery_scope and record.get("delivery_scope") != delivery_scope:
+            return False
+        if required_source_base and get(record, "provenance", "source_base") != required_source_base:
+            return False
+        if required_accounting_version is not None and record.get("token_accounting_version") != required_accounting_version:
+            return False
+        if required_accounting_source and record.get("token_accounting_source") != required_accounting_source:
             return False
         if require_success:
             return record.get("ok") is True and record.get("valid") is True

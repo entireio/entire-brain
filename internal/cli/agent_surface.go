@@ -902,7 +902,7 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 }
 
 func newInspectChangesCommand(opts Options) *cobra.Command {
-	changesOpts := semanticChangesOptions{limit: 100}
+	changesOpts := semanticChangesOptions{limit: 100, persist: true}
 	cmd := &cobra.Command{
 		Use:   "changes",
 		Short: "Map local diff hunks to semantic symbols",
@@ -913,7 +913,7 @@ func newInspectChangesCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&changesOpts.limit, "limit", 100, "Maximum symbols to include")
 	cmd.Flags().BoolVar(&changesOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&changesOpts.persist, "write-report", false, "Persist semantic/changes/latest.json")
+	cmd.Flags().BoolVar(&changesOpts.persist, "write-report", true, "Persist semantic/changes/latest.json")
 	return cmd
 }
 
@@ -1078,10 +1078,13 @@ func brainStatusCompactReport(report brainStatusReport) brainStatusReport {
 }
 
 func brainStatusFreshnessSeverity(report brainStatusReport) string {
-	severity := ""
-	if report.Semantic != nil && report.Semantic.Freshness != nil {
-		severity = report.Semantic.Freshness.Severity
+	// A release gate cannot pass unless semantic indexing produced a freshness
+	// assessment. Retrieval freshness is additive; it is not a substitute for
+	// the semantic source the gate is intended to protect.
+	if report.Semantic == nil || report.Semantic.Freshness == nil {
+		return ""
 	}
+	severity := report.Semantic.Freshness.Severity
 	if report.Retrieval != nil && report.Retrieval.Freshness != nil {
 		severity = worseFreshnessSeverity(severity, report.Retrieval.Freshness.Severity)
 	}
@@ -1354,7 +1357,18 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		}
 	}
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
-	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroupsForRepo(status.Repo.Root, status.Repo.Key, report, task)
+	briefTaskTerms := brainBriefRepoSpecificFileMatchTerms(
+		brainBriefFileMatchTerms(task),
+		status.Repo.Key,
+	)
+	briefFilenameCounts := brainBriefTaskFilenameCounts(status.Repo.Root, briefTaskTerms)
+	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroupsForRepoAndFilenameCounts(
+		status.Repo.Root,
+		report,
+		task,
+		briefTaskTerms,
+		briefFilenameCounts,
+	)
 	focusedSemanticContext := false
 	if len(report.LikelyEditFiles) > 0 && status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
 		// Query ranking gets us into the right neighborhood, but a public API
@@ -1375,7 +1389,13 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			if len(refined) > 0 {
 				report.Semantic.Context.Symbols = refined
 				focusedSemanticContext = true
-				report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroupsForRepo(status.Repo.Root, status.Repo.Key, report, task)
+				report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroupsForRepoAndFilenameCounts(
+					status.Repo.Root,
+					report,
+					task,
+					briefTaskTerms,
+					briefFilenameCounts,
+				)
 			}
 		}
 	}
@@ -1389,7 +1409,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	// retrieval trust boundary and makes stale or malicious text executable.
 	hasTrustedValidation := false
 	hasTrustedLocus := false
-	if focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
+	if brainBriefActionChecklistEnabled() && focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
 		inspectActions := brainBriefTrustedFocusedFileActions(task, report.Semantic.Context.Symbols, report.LikelyEditFiles[0])
 		if len(inspectActions) > 0 {
 			primary := report.Semantic.Context.Symbols[0]
@@ -1431,28 +1451,25 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 					report.History.Matches,
 				)
 			}
-			if brainBriefActionChecklistEnabled() {
-				// Aggressive single-locus delivery is experimental. Without the
-				// flag, keep the bounded multi-candidate semantic context,
-				// relations, neighbors, and test suggestions so one imperfect
-				// refinement cannot erase the evidence an agent needs to recover.
-				report.LikelyEditFiles = []string{inspectActions[0].File}
-				report.Semantic.Context.Symbols = []semanticRecord{primary}
-				report.Semantic.Context.Relations = []semanticRecord{}
-				report.Semantic.Context.Neighbors = []semanticRecord{}
-				report.Semantic.Tests.Roots = []semanticRecord{primary}
-				if len(trustedTests) > 0 {
-					hasTrustedValidation = true
-					report.Semantic.Tests.Suggestions = trustedTests
-					report.LikelyTestFiles = brainBriefPromoteSuggestedTestFiles(
-						nil,
-						trustedTests,
-						1,
-					)
-				}
-				hasTrustedLocus = true
-				report.ActionChecklist = inspectActions
+			// Aggressive single-locus delivery is experimental. Without the
+			// flag, keep task-ranked history, the bounded multi-candidate
+			// semantic context, relations, neighbors, and test suggestions.
+			report.LikelyEditFiles = []string{inspectActions[0].File}
+			report.Semantic.Context.Symbols = []semanticRecord{primary}
+			report.Semantic.Context.Relations = []semanticRecord{}
+			report.Semantic.Context.Neighbors = []semanticRecord{}
+			report.Semantic.Tests.Roots = []semanticRecord{primary}
+			if len(trustedTests) > 0 {
+				hasTrustedValidation = true
+				report.Semantic.Tests.Suggestions = trustedTests
+				report.LikelyTestFiles = brainBriefPromoteSuggestedTestFiles(
+					nil,
+					trustedTests,
+					1,
+				)
 			}
+			hasTrustedLocus = true
+			report.ActionChecklist = inspectActions
 			report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 		}
 	}
@@ -1595,18 +1612,11 @@ func brainBriefOutputStatus(status brainStatusReport) brainStatusReport {
 }
 
 func brainBriefSemanticQuery(task string) string {
-	query := strings.TrimSpace(task)
-	// Some agent frameworks prefix an opaque task/fixture label before the real
-	// natural-language request. Do not spend the bounded semantic token reserve
-	// on that transport metadata. Restrict stripping to a single hyphenated token
-	// so meaningful prose such as "HTTP error: preserve scopes" remains intact.
-	if colon := strings.IndexByte(query, ':'); colon > 0 && colon < 128 {
-		label := strings.TrimSpace(query[:colon])
-		if strings.Contains(label, "-") && !strings.ContainsAny(label, " \t\r\n/\\") {
-			query = strings.TrimSpace(query[colon+1:])
-		}
-	}
-	return query
+	// Product retrieval must preserve caller intent verbatim apart from outer
+	// whitespace. Transport- or benchmark-specific labels are the caller's
+	// responsibility; guessing that a colon-delimited concept is metadata drops
+	// meaningful scopes such as "auth-service:" from ordinary coding tasks.
+	return strings.TrimSpace(task)
 }
 
 func brainBriefExpandedCandidateLimit(limit, multiplier int) int {
@@ -1735,11 +1745,18 @@ func brainBriefMergeImpactContext(context semanticContextResult, symbols, relati
 	for _, root := range context.Symbols {
 		rootIDs[root.ID] = struct{}{}
 	}
-	seen := make(map[string]struct{}, len(rootIDs)+limit)
+	seen := make(map[string]struct{}, len(rootIDs)+len(context.Neighbors)+limit)
 	for id := range rootIDs {
 		seen[id] = struct{}{}
 	}
-	neighbors := make([]semanticRecord, 0, limit)
+	neighbors := make([]semanticRecord, 0, len(context.Neighbors)+limit)
+	for _, neighbor := range context.Neighbors {
+		if _, duplicate := seen[neighbor.ID]; duplicate {
+			continue
+		}
+		seen[neighbor.ID] = struct{}{}
+		neighbors = append(neighbors, neighbor)
+	}
 	for _, symbol := range brainBriefRankSemanticSymbols(symbols, relations, task) {
 		if _, ok := seen[symbol.ID]; ok {
 			continue
@@ -1753,9 +1770,10 @@ func brainBriefMergeImpactContext(context semanticContextResult, symbols, relati
 			break
 		}
 	}
-	relationCandidates := make([]semanticRecord, 0, len(relations))
-	seenRelations := make(map[string]struct{}, len(relations))
-	for _, relation := range relations {
+	allRelations := append(append([]semanticRecord(nil), context.Relations...), relations...)
+	relationCandidates := make([]semanticRecord, 0, len(allRelations))
+	seenRelations := make(map[string]struct{}, len(allRelations))
+	for _, relation := range allRelations {
 		_, from := seen[relation.FromID]
 		_, to := seen[relation.ToID]
 		if !from || !to {
@@ -1877,10 +1895,6 @@ func brainBriefIdentifierConceptCoverage(task, identifier string) int {
 		if variants := semanticQueryMorphologyVariants(term); len(variants) > 0 {
 			term = variants[0]
 		}
-		switch term {
-		case "repository", "repositories":
-			return "repo"
-		}
 		if strings.HasSuffix(term, "ies") && len(term) > 5 {
 			return strings.TrimSuffix(term, "ies") + "y"
 		}
@@ -1898,27 +1912,26 @@ func brainBriefIdentifierConceptCoverage(task, identifier string) int {
 	matched := make(map[string]struct{})
 	for _, term := range strings.Fields(normalizeHistorySearchText(identifier)) {
 		concept := canonical(term)
-		if _, ok := taskConcepts[concept]; ok {
-			matched[concept] = struct{}{}
+		for taskConcept := range taskConcepts {
+			// Identifier abbreviations are common across codebases (repo /
+			// repository, auth / authentication, config / configuration). Treat
+			// a four-character-or-longer prefix as generic lexical agreement
+			// instead of maintaining task-specific synonym tables.
+			if concept == taskConcept ||
+				(len(concept) >= 4 && len(taskConcept) >= 4 &&
+					(strings.HasPrefix(concept, taskConcept) || strings.HasPrefix(taskConcept, concept))) {
+				matched[taskConcept] = struct{}{}
+			}
 		}
 	}
 	return len(matched)
 }
 
 func brainBriefImplementationIdentifierConceptCoverage(task, identifier string) int {
-	// Validation instructions are routinely appended to coding tasks. They must
-	// not make generic runners such as runSemanticTests look like edit loci.
-	validationWorkflow := map[string]bool{
-		"test": true, "tests": true, "testing": true, "run": true, "running": true,
-		"focused": true, "finish": true, "finishing": true, "before": true,
-	}
-	var concepts []string
-	for _, term := range brainBriefFileMatchTerms(task) {
-		if !validationWorkflow[term] {
-			concepts = append(concepts, term)
-		}
-	}
-	return brainBriefIdentifierConceptCoverage(strings.Join(concepts, " "), identifier)
+	return brainBriefIdentifierConceptCoverage(
+		strings.Join(brainBriefFileMatchTerms(task), " "),
+		identifier,
+	)
 }
 
 func brainBriefRelationPriority(relationType string) int {
@@ -2188,21 +2201,10 @@ func brainBriefTrustedTestSuggestions(task string, primary semanticRecord, sugge
 }
 
 func brainBriefTestTaskConceptCoverage(task, identifier string) int {
-	// Workflow words describe the benchmark/request, not the behavior under
-	// test. Excluding them keeps "Test...Regression" from outranking a direct
-	// protocol or behavior test merely because the prompt says "fix regression".
-	generic := map[string]bool{
-		"fix": true, "failing": true, "failure": true, "regression": true,
-		"restore": true, "keep": true, "run": true, "focused": true,
-		"test": true, "tests": true, "before": true, "finish": true,
-	}
-	var concepts []string
-	for _, term := range brainBriefFileMatchTerms(task) {
-		if !generic[term] {
-			concepts = append(concepts, term)
-		}
-	}
-	return brainBriefIdentifierConceptCoverage(strings.Join(concepts, " "), identifier)
+	return brainBriefIdentifierConceptCoverage(
+		strings.Join(brainBriefFileMatchTerms(task), " "),
+		identifier,
+	)
 }
 
 func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semanticTestSuggestion, limit int) []string {
@@ -2318,8 +2320,24 @@ func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task s
 }
 
 func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBriefReport, task string) ([]string, []string, []string) {
-	counts := map[string]int{}
 	taskTerms := brainBriefRepoSpecificFileMatchTerms(brainBriefFileMatchTerms(task), repoKey)
+	return brainBriefLikelyFileGroupsForRepoAndFilenameCounts(
+		repoRoot,
+		report,
+		task,
+		taskTerms,
+		brainBriefTaskFilenameCounts(repoRoot, taskTerms),
+	)
+}
+
+func brainBriefLikelyFileGroupsForRepoAndFilenameCounts(
+	repoRoot string,
+	report brainBriefReport,
+	task string,
+	taskTerms []string,
+	filenameCounts map[string]int,
+) ([]string, []string, []string) {
+	counts := map[string]int{}
 	add := func(path string, weight int) {
 		clean, ok := cleanBrainBriefLikelyFile(path)
 		if !ok {
@@ -2381,7 +2399,7 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 	// can still point the agent at the implementation without forcing a broad
 	// shell search. This considers filenames only; it does not read source
 	// contents or expand the public record budget.
-	for path, score := range brainBriefTaskFilenameCounts(repoRoot, taskTerms) {
+	for path, score := range filenameCounts {
 		clean, ok := cleanBrainBriefLikelyFile(path)
 		if !ok {
 			continue
@@ -2436,6 +2454,9 @@ func brainBriefLikelyFileGroupsForRepo(repoRoot, repoKey string, report brainBri
 func brainBriefPromoteTrustedSemanticEditFile(repoRoot string, files []string, symbols []semanticRecord, task string, limit int) []string {
 	if limit <= 0 {
 		return nil
+	}
+	if !brainBriefActionChecklistEnabled() {
+		return brainBriefLimitFiles(files, limit)
 	}
 	if len(symbols) == 0 {
 		return brainBriefLimitFiles(files, limit)
@@ -2577,12 +2598,17 @@ func brainBriefTaskFilenameCounts(repoRoot string, terms []string) map[string]in
 	}
 	var paths []string
 	walked := 0
+	entries := 0
 	_ = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if path == repoRoot {
 			return nil
+		}
+		entries++
+		if entries > 10000 {
+			return fs.SkipAll
 		}
 		rel, relErr := filepath.Rel(repoRoot, path)
 		if relErr != nil {
@@ -2595,7 +2621,10 @@ func brainBriefTaskFilenameCounts(repoRoot string, terms []string) map[string]in
 			}
 			return nil
 		}
-		if walked >= 2500 || !brainBriefSourceFile(rel) {
+		if walked >= 2500 {
+			return fs.SkipAll
+		}
+		if !brainBriefSourceFile(rel) {
 			return nil
 		}
 		walked++
@@ -2698,12 +2727,11 @@ func brainBriefSkipSourceDir(rel string) bool {
 		return true
 	}
 	switch lower {
-	case ".git", ".benchmark", ".entire", ".codex", "node_modules", "dist", "build", "coverage", ".next", ".turbo",
+	case ".git", ".entire", "node_modules", "dist", "build", "coverage", ".next", ".turbo",
 		"vendor":
 		return true
 	}
 	return strings.HasPrefix(lower, ".git/") ||
-		strings.HasPrefix(lower, ".benchmark/") ||
 		strings.HasPrefix(lower, ".entire/") ||
 		strings.HasPrefix(lower, "node_modules/") ||
 		strings.HasPrefix(lower, "dist/") ||

@@ -1,11 +1,14 @@
 #!/bin/bash
-# Opus-4.8 compact-mode validation matrix: both cli tasks x all 4 efforts x
-# {no_brain, full_cli_compact(CLI), mcp_history(MCP)} x n=3. Opus only.
+# Historical Opus-4.8 diagnostic matrix. The current harness gives every model
+# the same runner-independent prompt; this script only selects archived
+# condition/effort combinations for comparison.
+# Both cli tasks x all 4 efforts x
+# {no_brain, semantic_history_cli_compact(CLI), mcp_history(MCP)} x n=3. Opus only.
 # Idempotent (skip suites already at >=9 clean records); parallel (maxjobs).
 set -u
 cd "$(dirname "$0")"
 MAXJOBS="${1:-5}"
-CONDS="no_brain,full_cli_compact,mcp_history"; REPS=3; CKPT=200; CBUDGET=25; EXPECTED=9
+CONDS="no_brain,semantic_history_cli_compact,mcp_history"; REPS=3; CKPT=200; CBUDGET=25; EXPECTED=9
 EFFORTS=(low medium high xhigh)
 TASKS=(entireio-cli-transcript-reresolve entireio-cli-review-base-flag-scope)
 shorttask(){ case "$1" in *transcript*) echo tr;; *review*) echo rv;; esac; }

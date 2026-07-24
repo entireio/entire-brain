@@ -37,7 +37,7 @@ CACHE_DIR = BENCH_ROOT / "cache"
 VALIDATION_FIXTURE_DIR = BENCH_ROOT / "fixtures" / "validation"
 BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
 FILTERED_HISTORY_CACHE_SCHEMA = 2
-TOKEN_ACCOUNTING_VERSION = 2
+TOKEN_ACCOUNTING_VERSION = 3
 BENCH_GO_MOD_CACHE = pathlib.Path(
     os.environ.get(
         "ENTIRE_BENCH_GOMODCACHE",
@@ -273,8 +273,8 @@ SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 FULL_HISTORY_CONDITIONS = {
     "full_brain",
     "semantic_history_brain",
-    "full_cli_original",
-    "full_cli_compact",
+    "semantic_history_cli_original",
+    "semantic_history_cli_compact",
     "mcp_history",
     "mcp_workspace_radar",
 }
@@ -294,8 +294,8 @@ CLI_BRIEF_CONDITIONS = {
     "semantic_cli",
     "full_brain",
     "semantic_history_brain",
-    "full_cli_original",
-    "full_cli_compact",
+    "semantic_history_cli_original",
+    "semantic_history_cli_compact",
 }
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
@@ -483,6 +483,12 @@ def assert_brain_state_ready(task: dict[str, Any], condition: str, state: dict[s
             raise RuntimeError(f"{condition} brain prep produced no exported sessions")
         if history_records <= 0:
             raise RuntimeError(f"{condition} brain prep produced no history index records")
+    if condition_prep_kind(condition) == "semantic_history_brain":
+        if manifest.get("has_facts") or int(manifest.get("fact_count") or 0) > 0:
+            raise RuntimeError(
+                f"{condition} is defined as semantic plus indexed history without "
+                "distilled facts; use full_brain for a fact-backed treatment"
+            )
     if condition == "full_brain":
         if not manifest.get("has_facts") or int(manifest.get("fact_count") or 0) <= 0:
             raise RuntimeError(
@@ -606,6 +612,8 @@ def load_tasks(patterns: list[str]) -> list[dict[str, Any]]:
         else:
             paths.extend(pathlib.Path(p) for p in glob.glob(str(TASK_DIR / pattern)))
     if not paths:
+        if patterns:
+            raise ValueError(f"no benchmark tasks matched: {', '.join(patterns)}")
         paths = sorted(TASK_DIR.glob("*.json"))
     tasks = []
     for path in sorted(set(paths)):
@@ -643,11 +651,31 @@ def require_current_brain_mainline(
     """Refuse to build a benchmark Brain from a checkout behind main.
 
     Entire Brain has no released product baseline. Development and evaluation
-    therefore use a feature branch whose history contains the locally fetched
-    mainline, never an older product checkout. The caller is responsible for
-    fetching before a consequential run; a stale local remote ref cannot be
-    detected without network access.
+    therefore use a feature branch whose history contains the freshly fetched
+    mainline, never an older product checkout.
     """
+    remote_match = re.fullmatch(r"([^/]+)/(.+)", main_ref)
+    if remote_match is None:
+        raise RuntimeError(
+            f"benchmark refused: mainline ref must name a remote branch, got {main_ref}"
+        )
+    remote, branch = remote_match.groups()
+    fetched = run_cmd(
+        [
+            "git",
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            remote,
+            f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}",
+        ],
+        cwd=repo,
+    )
+    if fetched.returncode != 0:
+        raise RuntimeError(
+            f"benchmark refused: could not fetch current {main_ref}; "
+            "a consequential run must not rely on a stale local mainline ref"
+        )
     head = run_cmd(["git", "rev-parse", "HEAD"], cwd=repo)
     if head.returncode != 0 or not head.stdout.strip():
         raise RuntimeError("benchmark refused: cannot resolve the Entire Brain checkout HEAD")
@@ -1427,6 +1455,24 @@ def commit_agent_baseline(
         check=True,
     ).stdout.strip()
     run_cmd(["git", "reset", "--hard", commit], cwd=worktree, check=True)
+    # `reset --hard` records the pre-setup source tip in ORIG_HEAD and the HEAD
+    # reflog. Either is a one-command reconstruction of the injected task
+    # mutation (`git diff ORIG_HEAD` / `git diff HEAD@{1}`). The checkout is
+    # disposable, so remove both navigation aids after publishing the synthetic
+    # baseline while retaining ordinary source ancestry through HEAD^2.
+    run_cmd(
+        ["git", "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
+        cwd=worktree,
+        check=True,
+    )
+    git_dir = pathlib.Path(
+        run_cmd(
+            ["git", "rev-parse", "--absolute-git-dir"],
+            cwd=worktree,
+            check=True,
+        ).stdout.strip()
+    )
+    (git_dir / "ORIG_HEAD").unlink(missing_ok=True)
     return agent_history_attestation(worktree, private_paths)
 
 
@@ -1457,7 +1503,19 @@ def agent_history_attestation(
     git_dir_raw = run_cmd(["git", "rev-parse", "--absolute-git-dir"], cwd=worktree, check=True).stdout.strip()
     git_dir = pathlib.Path(git_dir_raw)
     alternates = git_dir / "objects" / "info" / "alternates"
-    isolation_ok = not refs and not remotes and not alternates.exists()
+    reflog_entries = run_cmd(
+        ["git", "reflog", "show", "--all"],
+        cwd=worktree,
+        check=True,
+    ).stdout.splitlines()
+    orig_head_exists = (git_dir / "ORIG_HEAD").exists()
+    isolation_ok = (
+        not refs
+        and not remotes
+        and not alternates.exists()
+        and not reflog_entries
+        and not orig_head_exists
+    )
     return {
         "head_commit": head_line.split()[0],
         "parent_count": parent_count,
@@ -1470,6 +1528,8 @@ def agent_history_attestation(
         "visible_refs": refs,
         "visible_remotes": remotes,
         "shared_object_store": alternates.exists(),
+        "visible_reflog_entries": len(reflog_entries),
+        "orig_head_exists": orig_head_exists,
         "repository_isolated": isolation_ok,
         "mode": "isolated_filtered_source_history",
     }
@@ -1921,13 +1981,9 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
     if not task.get("hide_validation_from_agent"):
         return []
     markers: list[str] = []
-    explicit_markers = task.get("leak_markers")
-    if explicit_markers is not None:
-        if isinstance(explicit_markers, list):
-            markers.extend(str(marker) for marker in explicit_markers if marker)
-        elif explicit_markers:
-            markers.append(str(explicit_markers))
-        return [marker for marker in markers if len(marker.strip()) >= 12]
+    # Explicit canaries supplement the real hidden validator material; they
+    # must never replace it or a task can make leak detection impossible merely
+    # by naming a marker that exists nowhere in the agent-visible environment.
     markers.extend(entry["command"] for entry in validation_commands(task))
     for entry in task.get("validation_files", []):
         if not isinstance(entry, dict):
@@ -1935,16 +1991,21 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
         markers.append(str(entry.get("path", "")))
         markers.append(str(entry.get("fixture", "")))
         markers.append(str(entry.get("content", "")))
-    return [marker for marker in markers if len(marker.strip()) >= 12]
+    explicit_markers = task.get("leak_markers")
+    if explicit_markers is not None:
+        if isinstance(explicit_markers, list):
+            markers.extend(str(marker) for marker in explicit_markers if marker)
+        elif explicit_markers:
+            markers.append(str(explicit_markers))
+    return list(dict.fromkeys(marker for marker in markers if len(marker.strip()) >= 12))
 
 
 def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> dict[str, Any]:
 	text = stdout + "\n" + stderr
 	findings: list[dict[str, Any]] = []
-	if not task.get("leak_markers"):
-		pattern_hits = secret_pattern_hits(text, AGENT_OUTPUT_SECRET_PATTERNS)
-		if pattern_hits:
-			findings.append({"kind": "benchmark_secret_pattern_in_output", "patterns": pattern_hits})
+	pattern_hits = secret_pattern_hits(text, AGENT_OUTPUT_SECRET_PATTERNS)
+	if pattern_hits:
+		findings.append({"kind": "benchmark_secret_pattern_in_output", "patterns": pattern_hits})
 	marker_hits = []
 	for marker in hidden_validation_markers(task):
 		if marker in text:
@@ -1955,11 +2016,11 @@ def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> d
 
 
 def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
-    """The hidden, answer-bearing texts a brain_queries hint must not overlap (release blocker B1):
-    the fix itself (setup replacements, including WHERE it lives) is always hidden from the agent,
-    as are expected_files when the task hides them; validation commands, expected-string greps,
-    hidden test names, and validation fixtures (including fixture file CONTENTS) count only when
-    the task hides validation, because visible validation reaches both arms and is not an asymmetry."""
+    """Collect hidden answer text for auditing archived task metadata.
+
+    Current agents never receive ``brain_queries``. This remains useful when
+    diagnosing archived manifests created when those hints were delivered.
+    """
     texts: list[tuple[str, str]] = []
     for replacement in task.get("setup_replacements", []) + task.get("post_brain_replacements", []):
         texts.append(("fix_text", str(replacement.get("old", ""))))
@@ -2039,9 +2100,10 @@ def brain_query_hidden_identifier_folds(text: str) -> set[str]:
 
 
 def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
-    """Release blocker B1: `Useful query terms: {brain_queries}` reaches the brain arm only, so any
-    query content that also appears in the hidden fix or hidden validation hands that arm the
-    answer and confounds the comparison. Flags (1) identifier-shaped query tokens found
+    """Legacy task-metadata audit retained for diagnosing archived manifests.
+
+    Current prompts never deliver ``brain_queries`` to agents, so these fields
+    cannot create a condition asymmetry. The audit flags (1) identifier-shaped query tokens found
     case-insensitively inside any hidden answer text (retrieval and agents fold case, so a
     lowercased identifier is exactly as answer-bearing), (2) query tokens or 2-4 word runs whose
     casefolded concatenation equals an identifier from a hidden text (lowercased or split
@@ -2101,20 +2163,17 @@ def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
 
 
 def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
-    """Tools the mcp_history condition must call (a floor, not a ceiling). Opus's brief-only
-    delivery is told NOT to call brain_search, and the gpt-5.x disciplined delivery DOES call
-    brain_search but can also fix correctly from the brief alone — in both cases requiring
-    brain_search would mis-flag a correct run as a failure (the under-reporting bug). So these
-    models only require brain_brief; all other models still require both.
+    """Tools the mcp_history condition must call (a floor, not a ceiling).
 
-    Radar deliveries (location-only / answer-assisted) reshape the mcp_history condition: the
+    A normal agent starts with the task-shaped brief and decides whether a
+    follow-up search is useful; benchmark validity therefore requires the brief,
+    not a model-specific call sequence. Radar deliveries reshape the condition:
     policy tells the agent to call brain_regressions instead of brain_brief/brain_search, so
     brain_regressions is the required floor there (requiring brain_brief would mis-flag a correct
     radar run — the bug that made every radar arm look like it bypassed the brain)."""
     if wants_radar_location_only(runner) or wants_regression_radar(runner):
         return ("brain_regressions",)
-    compact = runner is not None and runner.model in (OPUS_COMPACT_MODELS | COMPACT_STRICT_MODELS)
-    return ("brain_brief",) if compact else ("brain_brief", "brain_search")
+    return ("brain_brief",)
 
 
 def mcp_required_tools(condition: str, runner: "RunnerSpec | None") -> tuple[str, ...]:
@@ -2325,6 +2384,13 @@ def brain_cli_condition_audit(
         findings.append({"kind": "forbidden_memory_artifact_access"})
 
     if condition == "no_brain":
+        if activity.get("activity_source") != "protocol_json":
+            findings.append(
+                {
+                    "kind": "unverifiable_no_brain_activity",
+                    "activity_source": activity.get("activity_source", "unknown"),
+                }
+            )
         for tool in sorted(set(activity.get("entire_family_tools") or [])):
             findings.append({"kind": "entire_tool_used_in_no_brain_condition", "tool": tool})
         if int(activity.get("mcp_tool_calls") or 0) > 0:
@@ -2374,15 +2440,46 @@ def baseline_history_audit(
         if "git" not in {pathlib.Path(token).name.lower() for token in tokens}:
             continue
         joined = " ".join(lowered)
-        explicit_second_parent = bool(re.search(r"\bhead(?:[~^][0-9]+)*\^2\b", joined))
+        explicit_second_parent = bool(
+            re.search(r"(?:\bhead(?:[~^][0-9]+)*|(?<![\w])@)\^2\b", joined)
+        )
+        parent_set_expansion = bool(
+            re.search(r"(?:\bhead(?:[~^][0-9]+)*|(?<![\w])@)\^@", joined)
+        )
+        discarded_navigation = bool(
+            re.search(r"\borig_head\b|\bhead@\{\d+\}|(?<!\w)@\{\d+\}", joined)
+            or re.search(r"\bgit\s+reflog\b", joined)
+            or (
+                re.search(r"\bgit\s+log\b", joined)
+                and any(token in {"-g", "--walk-reflogs"} for token in lowered)
+            )
+        )
         merge_patch = bool(
             re.search(r"\bgit\s+(?:show|log)\b", joined)
             and any(token in {"-m", "--cc", "-c", "--combined"} for token in lowered)
             and re.search(r"\bhead\b", joined)
         )
+        parent_discovery = bool(
+            (
+                re.search(r"\bgit\s+(?:show|log|rev-list)\b", joined)
+                and re.search(r"(?:--parents|--format=(?:format:)?%p|--pretty=(?:format:)?%p)", joined)
+                and re.search(r"\bhead\b", joined)
+            )
+            or re.search(r"\bgit\s+cat-file\s+-p\s+head\b", joined)
+        )
+        exact_boundary_ref = False
+        for token in lowered:
+            for revision in re.split(r"\.{2,3}", token):
+                if not re.fullmatch(r"[0-9a-f]{7,40}", revision):
+                    continue
+                if any(commit.lower().startswith(revision) for commit in boundary_commits):
+                    exact_boundary_ref = True
+                    break
+            if exact_boundary_ref:
+                break
         boundary_diff = bool(
             re.search(r"\bgit\s+diff\b", joined)
-            and any(commit.lower()[:7] in joined for commit in boundary_commits)
+            and exact_boundary_ref
         )
         derived_boundary_diff = bool(
             re.search(r"\bgit\s+diff\b", joined)
@@ -2391,7 +2488,15 @@ def baseline_history_audit(
                 or "head^2" in joined
             )
         )
-        if explicit_second_parent or merge_patch or boundary_diff or derived_boundary_diff:
+        if (
+            explicit_second_parent
+            or parent_set_expansion
+            or discarded_navigation
+            or merge_patch
+            or parent_discovery
+            or boundary_diff
+            or derived_boundary_diff
+        ):
             findings.append(
                 {
                     "kind": "benchmark_baseline_boundary_inspection",
@@ -4030,8 +4135,9 @@ def brain_brief_query(task: dict[str, Any]) -> str:
     # such as `github-cli-repo-name-trims-dotgit:` spent semantic lookup's bounded
     # leading-token reserve on corpus labels (`github`, `cli`) and displaced the
     # actual identifier intent (`normalize`). The initial brief must also not
-    # append curated `brain_queries`: those are optional follow-up hints, and a
-    # normal agent would not synthesize them into the caller task. Appending them
+    # append curated `brain_queries`: those are retained as diagnostic task
+    # metadata but are never delivered to the agent. A normal agent would not
+    # synthesize them into the caller task. Appending them
     # changes product ranking and makes the benchmark test a synthetic query
     # expansion rather than ordinary agent use.
     full = task["prompt"].strip()
@@ -4043,12 +4149,13 @@ def brain_brief_query(task: dict[str, Any]) -> str:
     return " ".join(full.split())
 
 
-def brain_brief_limit(condition: str, is_opus: bool) -> int | None:
+def brain_brief_limit(condition: str) -> int | None:
     """Single source of truth for the brief `--limit` policy (shared by prompt_for + capture).
-    Only the full_cli_compact CLI packet is limited: Opus gets the tiny top-2, others top-4."""
-    if condition != "full_cli_compact":
+    The policy is condition-level and identical across agents; model-specific prompt tuning would
+    make the benchmark measure a synthetic caller rather than the product."""
+    if condition != "semantic_history_cli_compact":
         return None
-    return 2 if is_opus else 4
+    return 4
 
 
 def capture_brief_packet(
@@ -4078,7 +4185,6 @@ def capture_brief_packet(
     try:
         if str(condition) == "no_brain":
             return  # defense-in-depth: no_brain purity is enforced here, not only at the call site
-        is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
         # The agent issues a CLI `entire brain brief` in every CLI Brain condition. Mirror
         # prompt_for's actual brief-emitting branches via the explicit CLI_BRIEF_CONDITIONS set
         # (mcp_* use MCP brain_brief). Explicit, not a "not mcp_*" proxy, so a future
@@ -4088,11 +4194,11 @@ def capture_brief_packet(
             return  # agent never runs this CLI brief — capturing it would mislead and over-expose
         brief_query = brain_brief_query(task)
         args = [str(tools["brain"]), "brief", brief_query, "--json"]
-        limit = brain_brief_limit(condition, is_opus)
+        limit = brain_brief_limit(condition)
         if limit is not None:
             args += ["--limit", str(limit)]
         proc = run_cmd(args, cwd=worktree, env=env, timeout=180)
-        # Bound stdout symmetrically with stderr (an unlimited full_brain/full_cli_original brief can
+        # Bound stdout symmetrically with stderr (an unlimited full_brain/semantic_history_cli_original brief can
         # be hundreds of KB); keep the head (the JSON is most useful from the top) and flag truncation.
         stdout_cap = 200_000
         stdout = proc.stdout[:stdout_cap]
@@ -4357,56 +4463,10 @@ def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> di
     return summary
 
 
-# GPT-5.x models that over-explore the full MCP history blob (spiral into extra searches/tokens).
-# On MCP they now get the "disciplined MCP" delivery (see wants_disciplined_mcp below): brief once
-# + ONE targeted brain_search for the invariant + hard stop. On the CLI path they still get the
-# generic compact brief. (This set also keeps the audit's required-tools floor at brain_brief.)
-COMPACT_STRICT_MODELS = {"gpt-5.5", "gpt-5"}
-
-# Opus is already correctness-saturated but over-READS the brief's history blob
-# (MCP brain_brief defaults to limit=20 -> ~8KB of history dominates the packet,
-# inflating tokens +15-69% on MCP). Opus gets its own compact, bounded delivery:
-# a small-limit brief (top high-signal history only), no forced second history
-# call, hard stop, finite-context framing. Goal: keep Opus's review discipline
-# (score) while cutting tokens + time on BOTH MCP and CLI. Other models unchanged.
-OPUS_COMPACT_MODELS = {"opus", "claude-opus-4-8"}
-# gpt-5.5 was A/B-tested for this Opus-style trim (matched n=3, both cli tasks, 0 hard flags,
-# MCP server-log-verified): it HELPED on the CLI path (−35% cost / −36% tok, no quality loss)
-# but STARVED quality on MCP (−9.5 composite, 5/6 → 4/6 valid, with no token savings) — the
-# tiny limit:3 brief drops the one history hit it needs on the harder review task. gpt-5.5's
-# failure mode is under-context, not over-reading, so it is NOT added here. Its MCP fix is the
-# opposite of a trim — the "disciplined MCP" delivery below (one targeted brain_search for the
-# invariant + hard stop), which lifted gpt-5.5 mcp_history pass-rate 88%->100%.
-
-
-# The "disciplined MCP" delivery — brief ONCE, then ONE targeted brain_search for the exact
-# invariant, open likely_edit_files[0], apply, one test, hard stop. Diagnosed root cause on the
-# review task: brain_brief ranks the true fix file #1 but its compound-query history section
-# misses the precise invariant (scopeBaseRef..HEAD), while a focused brain_search call surfaces
-# it cleanly — yet gpt-5.5's old COMPACT_STRICT prompt BANNED brain_search, starving it (it then
-# edited a plausible-wrong file). This delivery restores the one history call + a hard stop. It
-# also gives gpt-5.4-mini the anti-spiral discipline it lacks at high/xhigh. General principle,
-# not a per-model hack: smallest packet that carries BOTH the right file and the exact invariant,
-# then stop. ADOPTED after a matched, integrity-audited A/B (0 hard flags, MCP server-log-verified):
-#   - gpt-5.5 mcp_history: pass-rate 88%->100% (review 4/5->5/5), no score regression, transcript
-#     also -36% time / -46% cost.  (Fixes "the brain hurts gpt-5.5 quality on MCP".)
-#   - gpt-5.4-mini high/xhigh mcp_history: validation already saturated on these tasks (no quality
-#     gap), but the hard stop cuts the spiral's token bloat -32% pooled (review/high 1462k->695k),
-#     12/12 valid, no regression.
-def wants_disciplined_mcp(runner: "RunnerSpec | None") -> bool:
-    if runner is None:
-        return False
-    if runner.model in COMPACT_STRICT_MODELS:  # gpt-5.5, gpt-5: under-context on MCP
-        return True
-    if runner.model == "gpt-5.4-mini" and runner.effort in ("high", "xhigh"):  # spirals at high effort
-        return True
-    return False
-
-
 # Experimental, env-gated A/B (default OFF): the "regression radar" delivery — the agent calls the
 # new brain_regressions MCP tool, which pre-computes the suspected regressed line + expected value,
 # and just restores it. Measures whether handing the agent the bug (vs making it hunt) lifts the
-# review pass-rate over the shipped disciplined delivery.
+# review pass-rate over ordinary mcp_history delivery.
 def wants_regression_radar(runner: "RunnerSpec | None") -> bool:
     return os.environ.get("BENCH_REGRESSION_RADAR") == "1"
 
@@ -4436,19 +4496,17 @@ def prompt_for(
     base = task["prompt"].strip()
     validation = "\n".join(f"- `{entry['command']}`" for entry in validation_commands(task))
     expected = ", ".join(task.get("expected_files", []))
-    queries = ", ".join(task.get("brain_queries", []))
     brief_query = brain_brief_query(task)
     radar_arg_hint = "`location_only: true`"
     if task.get("radar_include_deletions"):
         radar_arg_hint = "`location_only: true` and `include_deletions: true`"
     radar_shape_note = " It should also flag deleted assignments for this task." if task.get("radar_include_deletions") else ""
-    is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
-    # Shared limit policy (brain_brief_limit) so the agent's command and the diagnostic packet
-    # never drift. Generic CLI gets top-4 on full_cli_compact; Opus gets the tiny top-2 packet.
-    _generic_limit = brain_brief_limit(condition, is_opus=False)
+    # Shared condition-level limit policy so every runner receives the same
+    # caller contract and the diagnostic packet never drifts from it.
+    _generic_limit = brain_brief_limit(condition)
     brief_limit = f" --limit {_generic_limit}" if _generic_limit is not None else ""
     # The agent runs brief_command verbatim in its OWN shell, so the query MUST be shell-quoted.
-    # Task prompts/brain_queries contain backticks, `$`, and `"` (e.g. `--format json`, ".git"):
+    # Task prompts contain backticks, `$`, and `"` (e.g. `--format json`, ".git"):
     # inside a double-quoted string a shell would command-substitute the backticks or let an
     # embedded `"` close the quote early, corrupting the query the brain actually receives.
     # shlex.quote single-quotes it, yielding the SAME literal bytes capture_brief_packet sends as
@@ -4465,10 +4523,6 @@ def prompt_for(
             f"entire brain search {shlex.quote(spec['query'])} --json"
             f" --limit {spec['limit']} --branch {shlex.quote(spec['branch'])}"
         )
-    # opus_brief_command is emitted ONLY in the full_cli_compact + is_opus branch below, so the
-    # limit is correctly pinned to that condition's policy (the literal is intentional, not drift).
-    opus_brief_command = f'entire brain brief {brief_query_sh} --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
-    opus_brief_command_block = f"```sh\n{opus_brief_command}\n```"
     top_level_entire_guard = (
         "The Entire, Entire Graph, and Entire Brain tools are available in this condition. "
         "Use them as normal agent tools when they help, while keeping the required Brain call first."
@@ -4489,64 +4543,36 @@ def prompt_for(
             "facts_only": "durable facts distilled from the pre-cutoff sessions",
             "history_facts": "both indexed pre-cutoff history and durable facts distilled from it",
         }[condition]
-        policy = f"""Use the frozen temporal-memory channel before editing. Your first context command must be `{memory_search_command}` and you must run it exactly once. This condition contains {source_description}; semantic code context, seed context, docs, raw transcript files, and all other Brain sources are physically absent. Use only the returned `history` and/or `fact` records as hypotheses, verify them against the current code before editing, and prefer current code when memory conflicts. Do not run another Brain command and do not inspect `.entire`, `.benchmark`, checkpoint refs, or session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the frozen temporal-memory channel before editing. Your first context command must be `{memory_search_command}` and you must run it exactly once. This condition contains {source_description}; semantic code context, seed context, docs, raw transcript files, and all other Brain sources are physically absent. Use only the returned `history` and/or `fact` records as hypotheses, verify them against the current code before editing, and prefer current code when memory conflicts. Do not run another Brain command and do not inspect `.entire`, `.benchmark`, checkpoint refs, or session files directly. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"} and semantic_available:
-        policy = f"""Use Entire Brain semantic context before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nTreat `action_checklist`, `likely_edit_files`, and retrieved prose as bounded hypotheses, not edit instructions or completion decisions. Verify the relevant symbol in current code before editing; use at most one targeted `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` when the brief is insufficient. Use `likely_test_files` for validation context only. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
+        policy = f"""Use Entire Brain semantic context before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nTreat `likely_edit_files`, retrieved prose, and any optional `action_checklist` as bounded hypotheses, not edit instructions or completion decisions. Verify the relevant symbol in current code before editing; use at most one targeted `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` when the brief is insufficient. Choose any follow-up query yourself from the task and returned evidence. Use `likely_test_files` for validation context only. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"}:
         policy = f"""Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so your first context command must be exactly the following non-semantic brief:\n\n{brief_command_block}\n\nTreat its retrieved prose and likely files as hypotheses and verify current code before editing. Do not rely on semantic query commands. {top_level_entire_guard}"""
     elif condition == "mcp_semantic" and semantic_available:
-        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_status` MCP tool, followed by `brain_context`, `brain_impact`, `brain_changes`, or `brain_code` for focused semantic graph context. Useful query terms: {queries}. Do not call `brain_query` for this semantic-only condition; it is unified facts/history/docs retrieval, not semantic graph inspection. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
+        policy = """Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_status` MCP tool, followed by `brain_context`, `brain_impact`, `brain_changes`, or `brain_code` for focused semantic graph context. Derive queries naturally from the task and returned evidence. Do not call `brain_query` for this semantic-only condition; it is unified facts/history/docs retrieval, not semantic graph inspection. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
     elif condition == "mcp_workspace_radar":
         workspace = benchmark_workspace_name(task)
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a WORKSPACE REGRESSION. Call `mcp__entire_brain__brain_workspace_regressions` / `brain_workspace_regressions` EXACTLY ONCE with `workspace: "{workspace}"`, query terms `{queries}`, and {radar_arg_hint}.{radar_shape_note} It returns the suspected workspace repo plus `file` and `line` of the regression but NOT the fix. Treat any `symbol` and `related_locations` fields as location-only hints: inspect the enclosing symbol and every related same-file location before editing. Inspect every top anomaly that shares the top anomaly's repo/file/kind before editing; when the top results list multiple line numbers in the same file, open each listed line and fix the shared invariant at all affected sites. Work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, stop immediately and report `WORKSPACE_RADAR_NO_FINDINGS`. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a WORKSPACE REGRESSION. Call `mcp__entire_brain__brain_workspace_regressions` / `brain_workspace_regressions` EXACTLY ONCE with `workspace: "{workspace}"`, the task description as its query, and {radar_arg_hint}.{radar_shape_note} It returns the suspected workspace repo plus `file` and `line` of the regression but NOT the fix. Treat any `symbol` and `related_locations` fields as location-only hints: inspect the enclosing symbol and every related same-file location before editing. Inspect every top anomaly that shares the top anomaly's repo/file/kind before editing; when the top results list multiple line numbers in the same file, open each listed line and fix the shared invariant at all affected sites. Work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, stop immediately and report `WORKSPACE_RADAR_NO_FINDINGS`. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_radar_location_only(runner):
         # FAIR radar arm: brain_regressions(location_only) hands the suspected file:line but NOT the
         # fix — the agent must determine and apply the change itself (de-leaked detection test).
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with {radar_arg_hint} and these failing terms: `{queries}`.{radar_shape_note} It returns the suspected `file` and `line` of the regression but NOT the fix. Treat any `symbol` and `related_locations` fields as location-only hints: inspect the enclosing symbol and every related same-file location before editing. Inspect every top anomaly that shares the top anomaly's file/kind before editing; when the top results list multiple line numbers in the same file, open each listed line and fix the shared invariant at all affected sites. Work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with the task description as its query and {radar_arg_hint}.{radar_shape_note} It returns the suspected `file` and `line` of the regression but NOT the fix. Treat any `symbol` and `related_locations` fields as location-only hints: inspect the enclosing symbol and every related same-file location before editing. Inspect every top anomaly that shares the top anomaly's file/kind before editing; when the top results list multiple line numbers in the same file, open each listed line and fix the shared invariant at all affected sites. Work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_regression_radar(runner):
         # ANSWER-ASSISTED radar arm (UPPER BOUND, not a fair detection measure): brain_regressions
         # hands file/line/expected/current and the agent pastes `expected`. Useful only to bound the
         # ceiling; the detector's real marginal value is the location-only arm vs the history control.
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with these failing terms: `{queries}` and {"`include_deletions: true`" if task.get("radar_include_deletions") else "no extra deletion flag"}.{radar_shape_note} It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
-    elif condition == "mcp_history" and wants_disciplined_mcp(runner):
-        # Disciplined MCP (gpt-5.5 all efforts; gpt-5.4-mini high/xhigh): brief once + ONE
-        # targeted brain_search for the exact invariant + open likely_edit_files[0] + one
-        # test + hard stop. Fixes under-context (brief names the file, history names the change)
-        # while bounding exploration (the spiral that motivated the brief-only delivery).
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server.
-Step 1 — call `mcp__entire_brain__brain_brief` / `brain_brief` for this task EXACTLY ONCE. Note `likely_edit_files[0]` (the single most likely fix site) and `likely_test_files`.
-Step 2 — call `mcp__entire_brain__brain_search` / `brain_search` EXACTLY ONCE with the focused query terms ({queries}). The brief names the FILE; brain_search names the exact INVARIANT — the precise expression/value/behavior this regression broke. Read only the top 1–2 hits.
-Step 3 — open `likely_edit_files[0]` (prefer the core implementation file over TUI or test scaffolding) and restore the exact invariant from the brain_search hit there.
-Step 4 — run exactly one `likely_test_files` test, then FINISH.
-Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_context` or any other MCP tool, do NOT re-read the packet, do NOT open unrelated files, and do NOT broaden into repo-wide search. Keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Apply → validate once → stop. Useful query terms: {queries}. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
-    elif condition == "mcp_history" and is_opus:
-        # Opus-only compact MCP: tiny brief (limit 3), no forced history blob, hard stop.
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` EXACTLY ONCE, passing a small limit (`limit: 3`) so the packet stays compact — it returns `likely_edit_files`, `likely_test_files`, and the top high-signal history hits, which is all the context you need. From `likely_edit_files`, open the single most relevant implementation file (not TUI or test scaffolding) and apply the fix, using the history hits for the exact invariant. Treat that one packet as sufficient: do NOT re-call `brain_brief`, do NOT call `brain_search`/`brain_query` or any other MCP tool, and do not re-read the packet. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
-    elif condition == "mcp_history" and runner is not None and runner.model in COMPACT_STRICT_MODELS:
-        # Compact strict delivery: one brain_brief, no forced history blob, hard stop.
-        # NOTE: superseded for current COMPACT_STRICT models — wants_disciplined_mcp() catches
-        # them first (the brief-only variant STARVED gpt-5.5 on the review task). Kept as a
-        # fallback for any compact model deliberately excluded from the disciplined delivery.
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` for this task EXACTLY ONCE — it already includes the relevant `likely_edit_files`, `likely_test_files`, and compact session-history hits, so you do NOT need a separate `brain_search` call. From `likely_edit_files`, open the single file most relevant to the described regression (prefer the core implementation file over TUI or test scaffolding) and make the fix there, using the history hits to get the exact invariant right. Verify with a few targeted searches inside that file if needed, then run one `likely_test_files` test and finish. Do NOT re-call `brain_brief` and do NOT call `brain_search`/`brain_query` or any other MCP tool; do not open unrelated files or spiral into broad repo-wide search (keep `rg`/`grep`/`find` to at most 5 targeted searches). Useful query terms: {queries}. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with the task description as its query and {"`include_deletions: true`" if task.get("radar_include_deletions") else "no extra deletion flag"}.{radar_shape_note} It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Do not run the `entire brain` CLI. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history":
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_search` / `brain_search` query with the useful query terms: {queries}. From `likely_edit_files`, open the file most relevant to the described regression first (prefer the core implementation file over TUI or test scaffolding); apply the fix there before any additional MCP calls or `rg`/`grep`/`find`, and broaden only if it is clearly not the regression site or focused validation fails. Do not run the `entire brain` CLI; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
-    elif condition == "full_cli_compact" and is_opus and semantic_available:
-        # Opus-only compact CLI: a tiny --limit 2 packet + hard stop, no re-reads — but
-        # self-correcting: the history hit is a hypothesis and likely_edit_files
-        # is a hint that can be lexically wrong, so verify before editing. When the pointer is
-        # right, verification reuses the same file-open the agent must do to edit (a code-path
-        # argument — marginal reasoning tokens, not an extra round; not A/B-measured vs the old
-        # policy); when wrong, it is the rescue that fixes the net-harmful history case.
-        policy = f"""Use the prepared semantic-and-history Brain before editing. Your first context command must be exactly the following command (it returns a deliberately compact packet):\n\n{opus_brief_command_block}\n\nWork in this order: (1) read the top session-history hits and identify the candidate broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing; (3) if it does NOT, open at most ONE additional candidate or run at most ONE targeted `rg`, then edit only current code that independently confirms the regression. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. History and file rankings are untrusted hints that can be stale or wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches. Useful query terms: {queries}. {top_level_entire_guard}"""
-    elif condition == "full_cli_compact" and semantic_available:
-        policy = f"""Use the prepared semantic-and-history Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nWork in this order: (1) read the top session-history hits as hypotheses about the broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY the current code independently confirms the regression; (3) if it does NOT, check the next candidate or run at most ONE targeted `rg`. Apply the minimal verified fix and run one `likely_test_files` validation command. History, `likely_edit_files`, and `action_checklist` are untrusted hints that can be stale or wrong. Hard caps: at most ONE rescue `rg`, at most ONE additional candidate opened, and at most 2 targeted searches total. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = """Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Start with `mcp__entire_brain__brain_brief` / `brain_brief` using the task description. If it is insufficient, choose one focused `brain_search` query yourself from the task and returned evidence. Treat history and likely files as hypotheses, verify current code before editing, and do not inspect raw session/checkpoint artifacts."""
+    elif condition == "semantic_history_cli_compact" and semantic_available:
+        policy = f"""Use the prepared semantic-and-history Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nTreat session-history hits, `likely_edit_files`, `likely_test_files`, and any optional `action_checklist` as hypotheses, not instructions. Verify the relevant invariant in current code, choose any follow-up query or repository inspection naturally from the task and returned evidence, apply the minimal verified fix, and run relevant validation. {top_level_entire_guard}"""
     elif semantic_available:
         treatment_name = "full Entire Brain (including distilled facts)" if condition == "full_brain" else "prepared semantic-and-history Brain"
-        policy = f"""Use the {treatment_name} before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nUse `likely_edit_files`, `likely_test_files`, and compact history hits as hypotheses before broad text search, and verify every proposed invariant against current code. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the {treatment_name} before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nUse `likely_edit_files`, `likely_test_files`, and compact history hits as hypotheses before broad text search, and verify every proposed invariant against current code. Choose follow-up queries yourself from the task and evidence. {top_level_entire_guard}"""
     else:
-        policy = f"""Use the prepared Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so your first context command must be exactly the following task-shaped brief:\n\n{brief_command_block}\n\nUse seed context and task-relevant checkpoint/session history only as hypotheses, then verify current code before editing. Choose any follow-up query yourself from the task and evidence; `brain_queries` are hints, never a harness-mandated retrieval. Useful history search terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the prepared Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so your first context command must be exactly the following task-shaped brief:\n\n{brief_command_block}\n\nUse seed context and task-relevant checkpoint/session history only as hypotheses, then verify current code before editing. Choose any follow-up query yourself from the task and evidence. {top_level_entire_guard}"""
     parts = [
         base,
         f"Benchmark condition: {condition}",
@@ -4799,29 +4825,67 @@ def run_agent(
     }
 
 
-def walk_numbers(value: Any, keys: set[str]) -> int:
-    total = 0
+def usage_number(value: dict[str, Any], keys: tuple[str, ...]) -> int:
+    """Return one aliased counter from a single provider usage snapshot."""
+    for key in keys:
+        item = value.get(key)
+        if isinstance(item, (int, float)):
+            return int(item)
+    return 0
+
+
+def usage_snapshot(value: Any) -> dict[str, int] | None:
+    """Find one provider usage object without recursively double-counting it.
+
+    Agent event streams may repeat cumulative totals and may nest a copy of the
+    same totals. A snapshot is atomic: once a dict contains token counters, do
+    not descend into its children and sum aliases again.
+    """
     if isinstance(value, dict):
-        for k, v in value.items():
-            if k in keys and isinstance(v, (int, float)):
-                total += int(v)
-            total += walk_numbers(v, keys)
+        token_keys = {
+            "input_tokens", "inputTokens",
+            "output_tokens", "outputTokens",
+            "cache_read_tokens", "cacheReadInputTokens", "cached_input_tokens",
+            "cache_creation_tokens", "cacheCreationInputTokens",
+        }
+        if token_keys.intersection(value):
+            return {
+                "input_tokens": usage_number(value, ("input_tokens", "inputTokens")),
+                "output_tokens": usage_number(value, ("output_tokens", "outputTokens")),
+                "cache_read_tokens": usage_number(
+                    value,
+                    ("cache_read_tokens", "cacheReadInputTokens", "cached_input_tokens"),
+                ),
+                "cache_creation_tokens": usage_number(
+                    value,
+                    ("cache_creation_tokens", "cacheCreationInputTokens"),
+                ),
+            }
+        for item in value.values():
+            found = usage_snapshot(item)
+            if found is not None:
+                return found
     elif isinstance(value, list):
         for item in value:
-            total += walk_numbers(item, keys)
-    return total
+            found = usage_snapshot(item)
+            if found is not None:
+                return found
+    return None
 
 
 def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
     usage: dict[str, Any] = {
         "accounting_version": TOKEN_ACCOUNTING_VERSION,
         "accounting_rule": (
-            "claude_input_plus_output_plus_cache_read_plus_cache_creation"
+            "total_input_includes_uncached_plus_cache_read_plus_cache_creation; total_tokens=total_input_plus_output"
             if agent == "claude"
-            else "openai_input_plus_output_cache_read_is_input_subset"
+            else "total_input_is_provider_input_with_cached_input_as_subset; total_tokens=total_input_plus_output"
         ),
+        "accounting_source": None,
+        "cross_runner_definition": "provider_total_input_processed_plus_output; compare only within the same runner, accounting_version, and accounting_source",
         "turns": None,
         "input_tokens": None,
+        "total_input_tokens": None,
         "output_tokens": None,
         "total_tokens": None,
         "cache_read_tokens": None,
@@ -4850,14 +4914,13 @@ def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
                 usage["output_tokens"] = output_tokens
                 usage["cache_read_tokens"] = cache_read
                 usage["cache_creation_tokens"] = cache_create
-                usage["total_tokens"] = input_tokens + output_tokens + cache_read + cache_create
+                usage["total_input_tokens"] = input_tokens + cache_read + cache_create
+                usage["total_tokens"] = usage["total_input_tokens"] + output_tokens
+                usage["accounting_source"] = "claude_model_usage"
             return usage
 
-    token_match = re.search(r"tokens used\s*\n\s*([0-9,]+)", stdout + "\n" + stderr, re.IGNORECASE)
-    if token_match:
-        usage["total_tokens"] = int(token_match.group(1).replace(",", ""))
-
     turns = 0
+    snapshots: list[dict[str, int]] = []
     for line in stdout.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -4868,29 +4931,38 @@ def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
             continue
         if payload.get("type") in {"agent_message", "assistant_message", "turn_end", "turn.completed"}:
             turns += 1
-        usage["input_tokens"] = (usage["input_tokens"] or 0) + walk_numbers(payload, {"input_tokens", "inputTokens"})
-        usage["output_tokens"] = (usage["output_tokens"] or 0) + walk_numbers(payload, {"output_tokens", "outputTokens"})
-        usage["cache_read_tokens"] = (usage["cache_read_tokens"] or 0) + walk_numbers(
-            payload,
-            {"cache_read_tokens", "cacheReadInputTokens", "cached_input_tokens"},
-        )
-        usage["cache_creation_tokens"] = (usage["cache_creation_tokens"] or 0) + walk_numbers(payload, {"cache_creation_tokens", "cacheCreationInputTokens"})
+        snapshot = usage_snapshot(payload.get("usage")) or usage_snapshot(payload)
+        if snapshot is not None:
+            snapshots.append(snapshot)
         reported_cost = payload.get("total_cost_usd") or payload.get("totalCostUsd") or payload.get("cost_usd")
         if isinstance(reported_cost, (int, float)):
             usage["cost_usd"] = float(reported_cost)
     if turns:
         usage["turns"] = turns
-    if usage["total_tokens"] is None:
-        if usage["input_tokens"] is not None or usage["output_tokens"] is not None:
-            usage["total_tokens"] = int(usage["input_tokens"] or 0) + int(usage["output_tokens"] or 0)
-            if agent == "claude":
-                # Claude reports cache reads/creation outside input_tokens.
-                usage["total_tokens"] += int(usage["cache_read_tokens"] or 0)
-                usage["total_tokens"] += int(usage["cache_creation_tokens"] or 0)
-        elif usage["cache_read_tokens"] is not None or usage["cache_creation_tokens"] is not None:
-            usage["total_tokens"] = int(usage["cache_read_tokens"] or 0) + int(
-                usage["cache_creation_tokens"] or 0
+    if snapshots:
+        # Provider event streams publish cumulative snapshots. The last snapshot
+        # is authoritative; summing every event can inflate a run by 2x or more.
+        latest = snapshots[-1]
+        usage.update(latest)
+        if agent == "claude":
+            usage["total_input_tokens"] = (
+                latest["input_tokens"]
+                + latest["cache_read_tokens"]
+                + latest["cache_creation_tokens"]
             )
+        else:
+            usage["total_input_tokens"] = latest["input_tokens"]
+        usage["total_tokens"] = usage["total_input_tokens"] + latest["output_tokens"]
+        usage["accounting_source"] = "protocol_json_latest_usage_snapshot"
+    else:
+        token_match = re.search(
+            r"tokens used\s*\n\s*([0-9,]+)",
+            stdout + "\n" + stderr,
+            re.IGNORECASE,
+        )
+        if token_match:
+            usage["total_tokens"] = int(token_match.group(1).replace(",", ""))
+            usage["accounting_source"] = "text_tokens_used_fallback"
     return usage
 
 
@@ -5788,6 +5860,15 @@ def run_one(
         agent_visible_entire_removed = False
         if should_remove_agent_visible_entire_history(task, condition):
             agent_visible_entire_removed = remove_agent_visible_entire_history(worktree)
+        record["agent_runtime_history"] = agent_history_attestation(
+            worktree,
+            filtered_agent_history_paths(task),
+        )
+        if not record["agent_runtime_history"]["repository_isolated"]:
+            raise RuntimeError(
+                "agent runtime repository isolation failed: "
+                f"{record['agent_runtime_history']}"
+            )
         secret_preflight = agent_secret_preflight(worktree)
         record["agent_secret_preflight"] = secret_preflight
         if not secret_preflight["ok"]:
@@ -6253,26 +6334,52 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
     # compare against a harness-delivered no_brain baseline, and adherence-lane (agent_tool) rows
     # only against an agent_tool baseline. Mixing lanes would fold tool-adherence failures into
     # the causal treatment estimate.
-    groups: dict[tuple[str, str, str, str, str], list[float]] = {}
-    metrics: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
+    groups: dict[tuple[str, str, str, str, str, int, str, str], list[float]] = {}
+    metrics: dict[tuple[str, str, str, str, str, int, str, str], list[dict[str, Any]]] = {}
     # Infrastructure non-outcomes (harness delivery/isolation failed, agent never
     # produced a real score) are tallied but kept OUT of groups/metrics so their
     # synthetic zeros never enter arm means, deltas, or p-values. The per-cell
     # count is surfaced on each comparison for transparency (F2).
-    excluded: dict[tuple[str, str, str, str, str], int] = {}
+    excluded: dict[tuple[str, str, str, str, str, int, str, str], int] = {}
     # Protocol-adherence non-outcomes: the agent ran but violated the condition's
     # required audit (e.g. did not issue the prescribed first `entire brain search`,
     # probed forbidden .entire/checkpoint artifacts, or used Brain in the harness
     # lane). Such a row is not a valid measurement of the condition, so it is kept
     # OUT of arm means/deltas/p-values and counted separately. The audit only sets
     # ok=False when it was required, so `ok is False` is an exact, lane-agnostic gate.
-    adherence_excluded: dict[tuple[str, str, str, str, str], int] = {}
-    integrity_excluded: dict[tuple[str, str, str, str, str], int] = {}
+    adherence_excluded: dict[tuple[str, str, str, str, str, int, str, str], int] = {}
+    integrity_excluded: dict[tuple[str, str, str, str, str, int, str, str], int] = {}
     for rec in records:
         runner_id = rec.get("runner", {}).get("id") if isinstance(rec.get("runner"), dict) else None
         runner_id = runner_id or rec["agent"]
         mode = rec.get("delivery_mode") or "agent_tool"
-        key = (rec["task_id"], rec["agent"], runner_id, mode, rec["condition"])
+        provenance = rec.get("provenance") if isinstance(rec.get("provenance"), dict) else {}
+        task_provenance = provenance.get("task") if isinstance(provenance.get("task"), dict) else {}
+        source_provenance = provenance.get("source") if isinstance(provenance.get("source"), dict) else {}
+        source_base_meta = (
+            source_provenance.get("base")
+            if isinstance(source_provenance.get("base"), dict)
+            else {}
+        )
+        source_base = str(
+            task_provenance.get("base_commit")
+            or source_base_meta.get("commit")
+            or "unattested"
+        )
+        agent_info = rec.get("agent_info") if isinstance(rec.get("agent_info"), dict) else {}
+        usage = agent_info.get("usage") if isinstance(agent_info.get("usage"), dict) else {}
+        accounting_version = int(usage.get("accounting_version") or 1)
+        accounting_source = str(usage.get("accounting_source") or "unattested")
+        key = (
+            rec["task_id"],
+            rec["agent"],
+            runner_id,
+            mode,
+            source_base,
+            accounting_version,
+            accounting_source,
+            rec["condition"],
+        )
         if rec.get("analysis_excluded"):
             excluded[key] = excluded.get(key, 0) + 1
             continue
@@ -6292,12 +6399,41 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
 
     comparisons = []
     stability_inputs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
-    for (task_id, agent, runner_id, mode, condition), values in groups.items():
+    for (
+        task_id,
+        agent,
+        runner_id,
+        mode,
+        source_base,
+        accounting_version,
+        accounting_source,
+        condition,
+    ), values in groups.items():
         if condition == "no_brain":
             continue
-        base = groups.get((task_id, agent, runner_id, mode, "no_brain"), [])
-        base_records = metrics.get((task_id, agent, runner_id, mode, "no_brain"), [])
-        condition_records = metrics.get((task_id, agent, runner_id, mode, condition), [])
+        base_key = (
+            task_id,
+            agent,
+            runner_id,
+            mode,
+            source_base,
+            accounting_version,
+            accounting_source,
+            "no_brain",
+        )
+        condition_key = (
+            task_id,
+            agent,
+            runner_id,
+            mode,
+            source_base,
+            accounting_version,
+            accounting_source,
+            condition,
+        )
+        base = groups.get(base_key, [])
+        base_records = metrics.get(base_key, [])
+        condition_records = metrics.get(condition_key, [])
         if not base:
             continue
         def mean_field(recs: list[dict[str, Any]], path: list[str]) -> float | None:
@@ -6375,28 +6511,31 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "runner": runner_id,
             "condition": condition,
             "delivery_mode": mode,
+            "source_base_commit": None if source_base == "unattested" else source_base,
+            "token_accounting_version": accounting_version,
+            "token_accounting_source": None if accounting_source == "unattested" else accounting_source,
             "delivery_scope": delivery_scope(condition, env_flags),
             "env_flags": env_flags,
             "baseline": "no_brain",
             "n_condition": len(values),
             "n_baseline": len(base),
             "n_infrastructure_excluded_condition": excluded.get(
-                (task_id, agent, runner_id, mode, condition), 0
+                condition_key, 0
             ),
             "n_infrastructure_excluded_baseline": excluded.get(
-                (task_id, agent, runner_id, mode, "no_brain"), 0
+                base_key, 0
             ),
             "n_adherence_excluded_condition": adherence_excluded.get(
-                (task_id, agent, runner_id, mode, condition), 0
+                condition_key, 0
             ),
             "n_adherence_excluded_baseline": adherence_excluded.get(
-                (task_id, agent, runner_id, mode, "no_brain"), 0
+                base_key, 0
             ),
             "n_integrity_excluded_condition": integrity_excluded.get(
-                (task_id, agent, runner_id, mode, condition), 0
+                condition_key, 0
             ),
             "n_integrity_excluded_baseline": integrity_excluded.get(
-                (task_id, agent, runner_id, mode, "no_brain"), 0
+                base_key, 0
             ),
             "mean_condition": sum(values) / len(values),
             "mean_baseline": sum(base) / len(base),
@@ -7024,7 +7163,8 @@ def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) 
             errors.append(f"panel tasks are not loadable: {exc}")
             tasks = []
         panel_conditions = set(panel.get("conditions", []))
-        release_panel = str(panel.get("name") or "").startswith("release-")
+        panel_name = str(panel.get("name") or "")
+        proof_hygiene_panel = panel_name == "full" or panel_name.startswith("release-")
         for task in tasks:
             task_conditions = panel_conditions & set(task.get("conditions", []))
             try:
@@ -7035,25 +7175,16 @@ def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) 
                 temporal_delivery_mode(task)
             except ValueError as exc:
                 errors.append(f"task {task.get('id', '<unknown>')} has invalid memory_delivery: {exc}")
-            if release_panel:
+            if proof_hygiene_panel:
                 if "benchmarks/agent-brain" not in agent_hidden_paths(task):
                     errors.append(
-                        f"release panel task {task.get('id', '<unknown>')} must hide "
+                        f"proof panel task {task.get('id', '<unknown>')} must hide "
                         "benchmarks/agent-brain from agent worktrees"
                     )
                 if task.get("hide_validation_from_agent") and not task.get("leak_markers"):
                     errors.append(
-                        f"release panel task {task.get('id', '<unknown>')} hides validation "
+                        f"proof panel task {task.get('id', '<unknown>')} hides validation "
                         "but has no explicit leak_markers canary"
-                    )
-            query_audit = brain_query_leak_audit(task)
-            if not query_audit["ok"]:
-                for finding in query_audit["findings"]:
-                    leaked = finding.get("token") or finding.get("phrase")
-                    errors.append(
-                        f"task {task.get('id', '<unknown>')} brain_queries hand the brain arm "
-                        f"answer-bearing content: {leaked!r} appears in {finding['where']} "
-                        "(release blocker B1 — strip it or give both arms identical hints)"
                     )
             if any(condition_prepares_history(condition) for condition in task_conditions):
                 if not task.get("copy_entire_history_from_source") and not task.get("copy_checkpoint_ref_from_source"):

@@ -17,6 +17,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
+
+func (f commandRunnerFunc) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	return f(ctx, dir, name, args...)
+}
+
 func TestMCPInitializeAndToolsList(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
@@ -180,6 +186,61 @@ func TestMCPBrainRefreshReturnsFreshStatus(t *testing.T) {
 		if call.name == "entire" && len(call.args) > 0 && call.args[0] == "checkpoint" {
 			t.Fatalf("default brain_refresh unexpectedly scanned sessions: %+v", runner.calls)
 		}
+	}
+	brainDir, err := brainDirForKey(opts.Env, "gh/example/repo")
+	if err != nil {
+		t.Fatalf("brain dir: %v", err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Seed == nil ||
+		manifest.Sources.Seed.WorktreeMode != "worktree" || manifest.Sources.Seed.WorktreeHash == "" {
+		t.Fatalf("default brain_refresh did not index the current worktree: %+v", manifest.Sources)
+	}
+
+	// A forced refresh must propagate force into the seed stage even when the
+	// current worktree fingerprint is already indexed.
+	runner.calls = nil
+	forceInput := frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_refresh","arguments":{"force":true}}}`)
+	out.Reset()
+	if err := runMCP(context.Background(), strings.NewReader(forceInput), &out, opts); err != nil {
+		t.Fatalf("forced mcp refresh: %v", err)
+	}
+	if !fakeRunnerCalled(runner, "git", "ls-files") {
+		t.Fatalf("force did not rebuild seed sources: %+v", runner.calls)
+	}
+}
+
+func TestMCPBrainRefreshRejectsSessionsAndHonorsTimeout(t *testing.T) {
+	var out bytes.Buffer
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_refresh","arguments":{"sessions":true}}}`)
+	if err := runMCP(context.Background(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	errObj, ok := responses[0]["error"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "unknown argument for brain_refresh: sessions") {
+		t.Fatalf("sessions argument was not rejected: %+v", responses[0])
+	}
+
+	oldTimeout := mcpRefreshTimeout
+	mcpRefreshTimeout = time.Millisecond
+	t.Cleanup(func() { mcpRefreshTimeout = oldTimeout })
+	blocking := commandRunnerFunc(func(ctx context.Context, _ string, _ string, _ ...string) ([]byte, []byte, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	})
+	out.Reset()
+	timeoutInput := frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_refresh","arguments":{}}}`)
+	if err := runMCP(context.Background(), strings.NewReader(timeoutInput), &out, Options{Version: "test-version", Runner: blocking}); err != nil {
+		t.Fatalf("mcp timeout: %v", err)
+	}
+	responses = readMCPResponses(t, out.String())
+	errObj, ok = responses[0]["error"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "exceeded the 1ms MCP limit") {
+		t.Fatalf("timeout was not surfaced: %+v", responses[0])
 	}
 }
 

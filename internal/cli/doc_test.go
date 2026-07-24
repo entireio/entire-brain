@@ -70,6 +70,28 @@ func TestRankDocsLexicalPrefersCurrentOverHistorical(t *testing.T) {
 	}
 }
 
+func TestRankDocsLexicalAllowsMuchStrongerHistoricalMatch(t *testing.T) {
+	index := docIndex{Records: []docRecord{
+		{ID: "old", Text: "refresh semantic freshness contract", Historical: true},
+		{ID: "current", Text: "refresh overview"},
+	}}
+	out := rankDocsLexical(index, "refresh semantic freshness", 2)
+	if len(out) != 2 || out[0].Record.ID != "old" {
+		t.Fatalf("trust discount became an absolute historical ban: %+v", out)
+	}
+	if result := docToUnified(out[0].Record); !result.VerificationRequired {
+		t.Fatalf("historical winner lost verification caveat: %+v", result)
+	}
+}
+
+func TestDocTrustAdjustedScorePenalizesNegativeHistoricalScore(t *testing.T) {
+	current := docTrustAdjustedScore(-0.5, false)
+	historical := docTrustAdjustedScore(-0.5, true)
+	if historical >= current {
+		t.Fatalf("historical negative score should be penalized: current=%v historical=%v", current, historical)
+	}
+}
+
 func TestDocFileHistoricalUsesExplicitMarkers(t *testing.T) {
 	if !docFileHistorical("seed/docs/plan.md", "# Plan\n<!-- entire-brain-status: historical -->\n") {
 		t.Fatal("explicit historical marker was ignored")

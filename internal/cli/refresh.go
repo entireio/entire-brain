@@ -40,6 +40,14 @@ func newRefreshCommand(opts Options) *cobra.Command {
 		Short: "Create or refresh the repository brain",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --worktree belongs to seed/docs. A dirty semantic snapshot must be
+			// an explicit `brain index --worktree` operation (or the deprecated
+			// --semantic-worktree compatibility flag), so the ordinary
+			// `refresh --worktree` path must not accidentally attempt and fail a
+			// committed-tree semantic rebuild.
+			if refreshOpts.seed.worktree && !refreshOpts.semanticWorktree && !cmd.Flags().Changed("semantic") {
+				refreshOpts.semantic = false
+			}
 			return runRefresh(cmd.Context(), cmd, opts, refreshOpts)
 		},
 	}
@@ -51,13 +59,13 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh seed, docs, and semantic index from the current worktree")
+	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh seed and docs from the current worktree")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated alias: allow semantic indexing of the current dirty worktree")
-	_ = cmd.Flags().MarkDeprecated("semantic-worktree", "use --worktree")
+	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: allow semantic indexing of the current dirty worktree")
+	_ = cmd.Flags().MarkDeprecated("semantic-worktree", "use `entire brain index --worktree` for an explicit semantic worktree snapshot")
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
@@ -310,7 +318,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
-		semanticWorktree := refreshOpts.seed.worktree || refreshOpts.semanticWorktree
+		semanticWorktree := refreshOpts.semanticWorktree
 		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, semanticWorktree)
 		if err != nil {
 			semanticCheckTask.Finish(err)

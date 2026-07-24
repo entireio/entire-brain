@@ -94,7 +94,7 @@ For direct-CLI product conditions, the agent uses the documented JSON surface:
 
 - `semantic_brain` / `semantic_cli`: begin with `entire brain brief ... --json`
   and use semantic follow-ups only when the task needs them;
-- `semantic_history_brain`, `full_cli_original`, and `full_cli_compact`: begin
+- `semantic_history_brain`, `semantic_history_cli_original`, and `semantic_history_cli_compact`: begin
   with `entire brain brief ... --json`; these conditions contain semantic/seed
   context plus indexed session history, but intentionally contain no distilled
   facts;
@@ -104,9 +104,10 @@ For direct-CLI product conditions, the agent uses the documented JSON surface:
   surface.
 
 The required initial `brief` receives the task prompt exactly as the agent
-received it. Task `brain_queries` are optional follow-up hints only; the harness
-must not append them to the brief query, mandate one as an exact search, or
-otherwise turn normal Brain use into a synthetic caller expansion.
+received it. Task `brain_queries` are retained only as historical scenario
+metadata and are never delivered to the agent. Follow-up queries must be chosen
+naturally by the agent from the task and what it learns, rather than prescribed
+by the harness.
 
 For MCP conditions, use the configured local `entire brain mcp` tools:
 
@@ -223,6 +224,12 @@ accepted only when all applicable checks pass:
 - the agent inspected its diff and ran proportionate tests;
 - token and duration metrics came from the agent protocol record;
 - infrastructure failures are excluded rather than scored as agent failures.
+
+Token totals are comparable only when runner, model, accounting version, and
+source base commit match. The current accounting contract uses the last
+cumulative structured protocol snapshot, never sums cumulative snapshots, and
+counts provider-reported cached input as processed input. Cross-provider token
+totals may be reported separately but must not be pooled into a treatment delta.
 
 Report per-task rows. Do not hide a regression inside an aggregate.
 

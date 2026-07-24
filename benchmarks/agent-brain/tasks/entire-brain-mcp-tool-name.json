@@ -4,7 +4,7 @@
   "repo_path": "entire-brain",
   "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "copy_checkpoint_ref_from_source": true,
-  "prompt": "Fix the failing MCP tool-list regression. Keep the public MCP tool names stable and run the focused MCP tests before finishing.",
+  "prompt": "Fix the MCP initialize/tool-dispatch compatibility regression. Clients can no longer invoke one advertised semantic tool after tools/list. Preserve the public protocol and run the focused MCP tests before finishing.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
   "setup_replacements": [
@@ -21,5 +21,6 @@
   "expected_files": ["internal/cli/mcp.go"],
   "forbidden_files": ["go.mod", "go.sum"],
   "agent_hidden_paths": ["benchmarks/agent-brain"],
+  "leak_markers": ["EB_BENCH_CANARY_MCP_TOOL_NAME_7F3C"],
   "brain_queries": ["MCP tool list regression", "renamed brain tool breaks tools/list", "public MCP tool name stability", "local brain tools MCP stdio server"]
 }

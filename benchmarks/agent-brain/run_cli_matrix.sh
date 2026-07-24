@@ -1,14 +1,14 @@
 #!/bin/bash
 # Idempotent driver for the entireio/cli brain-vs-no-brain matrix.
 # Usage: run_cli_matrix.sh <codex|claude>
-# Runs one suite per (runner,task): conditions no_brain/full_cli_compact/mcp_history, n=3.
+# Runs one suite per (runner,task): conditions no_brain/semantic_history_cli_compact/mcp_history, n=3.
 # A (runner,task) suite is SKIPPED if it already has >= EXPECTED records with returncode 0
 # (i.e. ran without infra failure). Incomplete suites are rebuilt from scratch (no dup inflation).
 set -u
 cd "$(dirname "$0")"
 
 AGENT="${1:?usage: run_cli_matrix.sh <codex|claude>}"
-CONDS="no_brain,full_cli_compact,mcp_history"
+CONDS="no_brain,semantic_history_cli_compact,mcp_history"
 REPS=3
 CKPT=200
 CBUDGET=25

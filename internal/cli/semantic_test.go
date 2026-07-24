@@ -2075,6 +2075,14 @@ func TestSemanticImpactFallsBackToSnapshot(t *testing.T) {
 	}
 }
 
+func TestInspectChangesPersistsLatestReportByDefault(t *testing.T) {
+	cmd := newInspectChangesCommand(Options{})
+	flag := cmd.Flags().Lookup("write-report")
+	if flag == nil || flag.DefValue != "true" {
+		t.Fatalf("write-report default = %v, want true", flag)
+	}
+}
+
 func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

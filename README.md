@@ -196,11 +196,11 @@ follow-ups:
 - `brain_status` for a compact freshness/coverage preflight; set
   `details: true` for the full status JSON contract
 - `brain_refresh` for a bounded seed/docs refresh when retrieval freshness is
-  unsafe; set `semantic: true` only for small repositories and use
+  unsafe. It includes the current worktree by default, never exports checkpoint
+  sessions, and is capped at 60 seconds; set `semantic: true` only for small repositories and use
   `brain_index_repository` as the separate long-running semantic step for large
-  repositories. Set `worktree: true` only when current uncommitted content
-  belongs in the snapshot, and `sessions: true` only when checkpoint history
-  also needs refresh
+  repositories. Set `worktree: false` only when the snapshot must be committed
+  HEAD; use `entire brain refresh sessions` from the CLI for checkpoint history
 - retrieval tools such as `brain_query` and `brain_get` for facts, docs, history
 - semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
   `brain_tests` for code navigation and validation planning

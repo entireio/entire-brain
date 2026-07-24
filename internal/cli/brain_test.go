@@ -183,8 +183,8 @@ func TestBrainBriefDefaultsToCompactPacketAndPreservesTaskShapedQuery(t *testing
 		t.Fatalf("unrelated semantic query changed: %q", got)
 	}
 	labeled := "github-cli-repo-name-trims-dotgit: Fix repository name normalization"
-	if got := brainBriefSemanticQuery(labeled); got != "Fix repository name normalization" {
-		t.Fatalf("opaque task label consumed semantic query budget: %q", got)
+	if got := brainBriefSemanticQuery(labeled); got != labeled {
+		t.Fatalf("caller-provided semantic scope was stripped: %q", got)
 	}
 	prose := "HTTP error: preserve accepted OAuth scopes"
 	if got := brainBriefSemanticQuery(prose); got != prose {
@@ -331,6 +331,29 @@ func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
 	}
 	if context.Relations[0].Type != "CALLS" || context.Relations[1].Type != "CALLS" || context.Relations[2].Type != "CALLS" {
 		t.Fatalf("call relations should lead lower-signal type relations: %+v", context.Relations)
+	}
+}
+
+func TestBrainBriefImpactMergePreservesExistingContextWhenTraversalIsEmpty(t *testing.T) {
+	root := semanticRecord{ID: "root", Kind: "function", Name: "Handle", FilePath: "handler.go"}
+	neighbor := semanticRecord{ID: "neighbor", Kind: "function", Name: "Validate", FilePath: "validate.go"}
+	relation := semanticRecord{RecordType: "relation", FromID: root.ID, ToID: neighbor.ID, Type: "CALLS"}
+	context := brainBriefMergeImpactContext(
+		semanticContextResult{
+			Symbols:   []semanticRecord{root},
+			Neighbors: []semanticRecord{neighbor},
+			Relations: []semanticRecord{relation},
+		},
+		nil,
+		nil,
+		"validate handler",
+		3,
+	)
+	if len(context.Neighbors) != 1 || context.Neighbors[0].ID != neighbor.ID {
+		t.Fatalf("empty traversal erased existing neighbors: %+v", context.Neighbors)
+	}
+	if len(context.Relations) != 1 || context.Relations[0].FromID != root.ID {
+		t.Fatalf("empty traversal erased existing relations: %+v", context.Relations)
 	}
 }
 
@@ -1051,6 +1074,9 @@ func TestBrainBriefTaskFilenameFallbackDoesNotKnowBenchmarkLayout(t *testing.T) 
 	if brainBriefSkipSourceDir("benchmarks/agent-brain") || brainBriefSkipSourceDir("benchmarks/agent-brain/evidence") {
 		t.Fatal("benchmark implementation and retained evidence must remain eligible")
 	}
+	if brainBriefSkipSourceDir(".benchmark/custom-source") || brainBriefSkipSourceDir(".codex/skills") {
+		t.Fatal("product fallback must not special-case harness or agent configuration paths")
+	}
 	if !brainBriefSkipSourceDir("scripts/bench/node_modules/node-llama-cpp") {
 		t.Fatal("nested dependency trees must not consume the filename fallback budget")
 	}
@@ -1283,6 +1309,7 @@ func TestBrainBriefRefineSemanticSymbolsUsesFocusedIdentifierAgreement(t *testin
 }
 
 func TestBrainBriefPromotesTrustedSemanticEditFileAfterFilenameMatches(t *testing.T) {
+	t.Setenv(envBrainActionChecklist, "1")
 	repoDir := t.TempDir()
 	for _, path := range []string{"api/client.go", "pkg/cmd/auth/shared/oauth_scopes.go"} {
 		full := filepath.Join(repoDir, filepath.FromSlash(path))

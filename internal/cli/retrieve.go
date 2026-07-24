@@ -407,16 +407,12 @@ func docsVectorRanked(
 		scored[i].keep = mask[i]
 	}
 	sort.Slice(scored, func(a, b int) bool {
-		if scored[a].cos != scored[b].cos {
-			return scored[a].cos > scored[b].cos
+		left := docTrustAdjustedScore(scored[a].cos, index.Records[scored[a].i].Historical)
+		right := docTrustAdjustedScore(scored[b].cos, index.Records[scored[b].i].Historical)
+		if left != right {
+			return left > right
 		}
 		return index.Records[scored[a].i].ID < index.Records[scored[b].i].ID
-	})
-	// Keep old plans discoverable, but exhaust current material before returning
-	// explicitly historical chunks. Similarity order is preserved within each
-	// class, and historical results are labeled by docToUnified below.
-	sort.SliceStable(scored, func(a, b int) bool {
-		return !index.Records[scored[a].i].Historical && index.Records[scored[b].i].Historical
 	})
 	out := documentVectorRanks{
 		ranked:                 make([]unifiedResult, 0, min(limit, len(scored))),

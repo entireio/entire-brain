@@ -21,7 +21,7 @@ type compactUnifiedResult struct {
 	Line    int    `json:"line,omitempty"`
 	// Text is retained for JSON compatibility. Excerpt is the bounded locator
 	// projection newer agents may prefer before calling get/multi-get.
-	Text                 string            `json:"text,omitempty"`
+	Text                 string            `json:"text"`
 	Excerpt              string            `json:"excerpt"`
 	Score                float64           `json:"score,omitempty"`
 	VerificationRequired bool              `json:"verification_required,omitempty"`
@@ -110,11 +110,10 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		related = relatedPatternPointers(brainDir, query, patternPointerCap)
 	}
 	if jsonOut {
-		// Preserve the established CLI JSON `text` field. MCP is the compact
-		// agent transport and can omit the duplicate full body; callers fetch it
-		// explicitly with brain_get when the excerpt is insufficient.
-		includeText := !strings.HasPrefix(surface, "mcp:")
-		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query, includeText)}
+		// Preserve the established JSON `text` field on both CLI and MCP
+		// surfaces. Excerpt is additive; existing consumers must not be forced to
+		// switch to a second brain_get round trip.
+		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
 		hints := retrievalHintsForResults(repoDir, results, query)
 		if len(hints.LikelyEditFiles) > 0 {
 			out["likely_edit_files"] = hints.LikelyEditFiles
@@ -252,7 +251,7 @@ func retrievalSiblingImplementationCandidates(testFile string) []string {
 	}
 }
 
-func compactUnifiedResults(results []unifiedResult, query string, includeText bool) []compactUnifiedResult {
+func compactUnifiedResults(results []unifiedResult, query string) []compactUnifiedResult {
 	if results == nil {
 		return []compactUnifiedResult{}
 	}
@@ -260,11 +259,8 @@ func compactUnifiedResults(results []unifiedResult, query string, includeText bo
 	for i, result := range results {
 		out[i] = compactUnifiedResult{
 			Source: result.Source, ID: result.ID, Path: result.Path, Heading: result.Heading, Line: result.Line,
-			Excerpt: retrievalResultExcerpt(result.Text, query, retrievalExcerptBytes), Score: result.Score,
+			Text: result.Text, Excerpt: retrievalResultExcerpt(result.Text, query, retrievalExcerptBytes), Score: result.Score,
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
-		}
-		if includeText {
-			out[i].Text = result.Text
 		}
 	}
 	return out
@@ -280,7 +276,7 @@ func retrievalResultExcerpt(value, query string, maxBytes int) string {
 	if len(text) <= maxBytes {
 		return text
 	}
-	lower := strings.ToLower(text)
+	lower, originalOffsets := foldedTextOffsets(text)
 	terms := semanticQueryTokens(query)
 	bestStart, bestScore := 0, -1
 	for _, anchor := range terms {
@@ -290,9 +286,16 @@ func retrievalResultExcerpt(value, query string, maxBytes int) string {
 				break
 			}
 			at := searchAt + rel
-			start := max(0, at-maxBytes/3)
-			end := min(len(lower), start+maxBytes)
-			window := lower[start:end]
+			originalAt := originalOffsets[min(at, len(originalOffsets)-1)]
+			start := max(0, originalAt-maxBytes/3)
+			end := min(len(text), start+maxBytes)
+			for start > 0 && !utf8.RuneStart(text[start]) {
+				start--
+			}
+			for end < len(text) && !utf8.RuneStart(text[end]) {
+				end++
+			}
+			window := strings.ToLower(text[start:end])
 			score := 0
 			for _, term := range terms {
 				if strings.Contains(window, term) {
@@ -321,6 +324,24 @@ func retrievalResultExcerpt(value, query string, maxBytes int) string {
 		excerpt += "..."
 	}
 	return excerpt
+}
+
+// foldedTextOffsets returns a lowercase search string plus a byte-offset map
+// back to the original UTF-8 text. Unicode case folding can change byte length
+// (for example, K -> k), so offsets into strings.ToLower(text) must never be
+// applied directly to text.
+func foldedTextOffsets(text string) (string, []int) {
+	var folded strings.Builder
+	offsets := make([]int, 0, len(text)+1)
+	for originalAt, r := range text {
+		lowerRune := strings.ToLower(string(r))
+		folded.WriteString(lowerRune)
+		for range []byte(lowerRune) {
+			offsets = append(offsets, originalAt)
+		}
+	}
+	offsets = append(offsets, len(text))
+	return folded.String(), offsets
 }
 
 func newGetCommand(opts Options) *cobra.Command {
