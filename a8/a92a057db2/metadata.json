@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "a8a92a057db2",
+  "strategy": "manual-commit",
+  "branch": "codex/current-main-source-of-truth",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "README.md",
+    "benchmarks/agent-brain/CONDITIONS.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/opus_report.py",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_opus_matrix.sh",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-mcp-tool-name.json",
+    "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json",
+    "benchmarks/agent-brain/tasks/entire-brain-stale-query-default-limit.json",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/doc.go",
+    "internal/cli/doc_fts.go",
+    "internal/cli/doc_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_test.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
+    "internal/cli/semantic_audit_test.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a8/a92a057db2/0/metadata.json",
+      "transcript": "/a8/a92a057db2/0/full.jsonl",
+      "compact_transcript": "/a8/a92a057db2/0/transcript.jsonl",
+      "content_hash": "/a8/a92a057db2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 943619,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 44056576,
+    "output_tokens": 92953,
+    "api_call_count": 361
+  }
+}
