@@ -1243,6 +1243,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	var receiptBranch, receiptSurface string
 	var receiptFactIDs []string
+	var briefHistoryIndex *historyIndex
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
 		semanticQuery := brainBriefSemanticQuery(task)
 		contextCandidateLimit := brainBriefExpandedCandidateLimit(briefOpts.limit, brainBriefContextCandidateMultiplier)
@@ -1282,6 +1283,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
+			briefHistoryIndex = &index
 			var indexedMatches []brainTextMatch
 			// rankHistoryFused is rankHistoryViaFTS unless the history fusion
 			// gate is open (fusion-eligible embedder + refresh-built vec0
@@ -1426,6 +1428,25 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 					nil,
 					trustedTests,
 					1,
+				)
+			}
+			if briefHistoryIndex != nil {
+				// Once semantic evidence identifies the implementation symbol,
+				// use that stable identifier to focus history. Task prose is
+				// intentionally broad; a symbol-anchored lookup is much more
+				// likely to recover the contract or rationale for the exact
+				// code under inspection without turning retrieved prose into
+				// an action.
+				focusedHistory := brainBriefFocusedHistoryMatches(
+					status.Brain.Path,
+					*briefHistoryIndex,
+					primary,
+					briefOpts.limit,
+				)
+				report.History.Matches = mergeBrainBriefHistoryMatches(
+					briefOpts.limit,
+					focusedHistory,
+					report.History.Matches,
 				)
 			}
 			if brainBriefActionChecklistEnabled() {
@@ -3685,6 +3706,32 @@ func historyRecordTextMatch(record historyRecord) brainTextMatch {
 		match.Timestamp = ts.Format(time.RFC3339)
 	}
 	return match
+}
+
+func brainBriefFocusedHistoryMatches(brainDir string, index historyIndex, primary semanticRecord, limit int) []brainTextMatch {
+	if limit <= 0 {
+		return nil
+	}
+	query := strings.TrimSpace(primary.QualifiedName)
+	if query == "" {
+		query = strings.TrimSpace(primary.Name)
+	}
+	if query == "" {
+		return nil
+	}
+	var records []historyRecord
+	if scored, ok := rankHistoryFused(brainDir, index, "history", query, limit, defaultEmbedder()); ok {
+		for _, item := range scored {
+			records = append(records, item.Record)
+		}
+	} else {
+		records = rankHistoryRecords(index, "history", query, limit)
+	}
+	matches := make([]brainTextMatch, 0, len(records))
+	for _, record := range records {
+		matches = append(matches, brainBriefHistoryRecordTextMatch(brainDir, record, query))
+	}
+	return matches
 }
 
 func brainBriefHistoryRecordTextMatch(_ string, record historyRecord, _ string) brainTextMatch {

@@ -263,6 +263,38 @@ func TestBrainBriefHistoryKeepsRetrievedAssignmentsUntrusted(t *testing.T) {
 	}
 }
 
+func TestBrainBriefFocusedHistoryUsesPrimarySymbol(t *testing.T) {
+	brainDir := t.TempDir()
+	index := historyIndex{
+		GeneratedAt: time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
+		Records: []historyRecord{
+			{
+				ID:      "noise",
+				Kind:    "validation",
+				Path:    "sessions/main/noise.jsonl",
+				Line:    1,
+				Summary: "The configuration tests passed after a general schema cleanup.",
+			},
+			{
+				ID:      "contract",
+				Kind:    "decision",
+				Path:    "sessions/main/contract.jsonl",
+				Line:    2,
+				Summary: "resolveConfig preserves the public strict_mode key for existing clients.",
+			},
+		},
+	}
+	matches := brainBriefFocusedHistoryMatches(
+		brainDir,
+		index,
+		semanticRecord{Name: "resolveConfig", QualifiedName: "resolveConfig"},
+		1,
+	)
+	if len(matches) != 1 || !strings.Contains(matches[0].Excerpt, "strict_mode") {
+		t.Fatalf("focused history did not recover the primary symbol contract: %+v", matches)
+	}
+}
+
 func TestBrainBriefMergesImplementationImpactContext(t *testing.T) {
 	root := semanticRecord{ID: "context-command", Kind: "function", Name: "newInspectContextCommand", FilePath: "internal/cli/agent_surface.go"}
 	run := semanticRecord{ID: "run", Kind: "function", Name: "runSemanticContext", FilePath: "internal/cli/semantic.go"}
