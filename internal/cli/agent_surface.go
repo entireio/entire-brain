@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
@@ -1382,9 +1383,11 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	// letting their prose become edits or completion criteria crosses the
 	// retrieval trust boundary and makes stale or malicious text executable.
 	hasTrustedValidation := false
+	hasTrustedLocus := false
 	if focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
 		inspectActions := brainBriefTrustedFocusedFileActions(task, report.Semantic.Context.Symbols, report.LikelyEditFiles[0])
 		if len(inspectActions) > 0 {
+			hasTrustedLocus = true
 			primary := report.Semantic.Context.Symbols[0]
 			var trustedTests []semanticTestSuggestion
 			if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
@@ -1409,6 +1412,13 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			// so it narrows the packet in both feature-flag arms. The flag controls
 			// only whether the same evidence is rendered as an action checklist.
 			report.LikelyEditFiles = []string{inspectActions[0].File}
+			// The focused pass supersedes broad query roots and graph neighbors.
+			// Keeping them in the final packet contradicts the trusted locus and
+			// invites agents to tour adjacent callers before checking the primary.
+			report.Semantic.Context.Symbols = []semanticRecord{primary}
+			report.Semantic.Context.Relations = []semanticRecord{}
+			report.Semantic.Context.Neighbors = []semanticRecord{}
+			report.Semantic.Tests.Roots = []semanticRecord{primary}
 			if len(trustedTests) > 0 {
 				hasTrustedValidation = true
 				report.Semantic.Tests.Suggestions = trustedTests
@@ -1427,13 +1437,17 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	if len(report.ActionChecklist) > 0 {
 		report.Guidance = append(report.Guidance,
 			"Start with the inspect action before broad search; treat it as a structured symbol to verify, not as a verified edit.",
-			"When the task and current symbol agree, make the minimal edit before broadening.",
 		)
-		if hasTrustedValidation {
-			report.Guidance = append(report.Guidance,
-				"Use the first likely_test_files entry as focused validation after the edit; broaden only if it fails unexpectedly.",
-			)
-		}
+	}
+	if hasTrustedLocus {
+		report.Guidance = append(report.Guidance,
+			"Inspect the single likely_edit_files symbol first; broaden only if current code contradicts the task or the focused test fails.",
+		)
+	}
+	if hasTrustedValidation {
+		report.Guidance = append(report.Guidance,
+			"Use the single semantic test suggestion as focused validation; if it passes and the diff is scoped, do not expand to adjacent test suites.",
+		)
 	}
 	if views, _, perr := loadPatternViews(status.Brain.Path); perr == nil {
 		report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
@@ -3539,6 +3553,16 @@ func brainBriefRawHistoryQueries(task string) []string {
 	for _, identifier := range historyIdentifierQueryTerms(task) {
 		normalized := strings.ToLower(strings.Trim(identifier, "_"))
 		if normalized == "" || normalized == "ultron" || normalized == "api" || normalized == "apis" {
+			continue
+		}
+		// Raw scanning is a precision fallback for code-shaped identifiers. Short
+		// all-caps acronyms such as MCP, HTTP, CLI, or JSON occur throughout tool
+		// manifests and captured environment context; using them alone returns the
+		// first noisy transcript lines and displaces indexed history ranking.
+		if identifier == strings.ToUpper(identifier) &&
+			len([]rune(identifier)) <= 4 &&
+			!strings.Contains(identifier, "_") &&
+			!strings.ContainsFunc(identifier, unicode.IsDigit) {
 			continue
 		}
 		if _, ok := seen[identifier]; ok {

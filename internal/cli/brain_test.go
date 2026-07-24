@@ -903,14 +903,15 @@ func TestRankHistoryRecordsPrefersPreciseCodeFactsOverSetupLogs(t *testing.T) {
 }
 
 func TestBrainBriefRawHistoryQueriesPrioritizeLimitIdentifiers(t *testing.T) {
-	queries := brainBriefRawHistoryQueries("Restore ULTRON storage APIs. repository query limit normalization, normalizeLimit, MAX_QUERY_LIMIT, listNodes searchNodes listAutomationActions")
+	queries := brainBriefRawHistoryQueries("Restore ULTRON storage APIs over MCP and HTTP. repository query limit normalization, normalizeLimit, MAX_QUERY_LIMIT, listNodes searchNodes listAutomationActions")
 	if len(queries) < 2 {
 		t.Fatalf("expected focused raw history queries: %+v", queries)
 	}
 	if queries[0] != "MAX_QUERY_LIMIT" || queries[1] != "NORMALIZELIMIT" {
 		t.Fatalf("limit identifiers should rank first: %+v", queries)
 	}
-	if slices.Contains(queries, "ULTRON") || slices.Contains(queries, "APIS") {
+	if slices.Contains(queries, "ULTRON") || slices.Contains(queries, "APIS") ||
+		slices.Contains(queries, "MCP") || slices.Contains(queries, "HTTP") {
 		t.Fatalf("generic identifiers should be filtered: %+v", queries)
 	}
 }

@@ -97,6 +97,11 @@ For direct-CLI product conditions, the agent uses the documented JSON surface:
 - ask the smallest task-driven follow-up rather than touring the command
   surface.
 
+The required initial `brief` receives the task prompt exactly as the agent
+received it. Task `brain_queries` are optional follow-up hints only; the harness
+must not append them to the brief query or otherwise turn normal Brain use into
+a synthetic caller expansion.
+
 For MCP conditions, use the configured local `entire brain mcp` tools:
 
 - `mcp_semantic` exposes semantic graph tools;
