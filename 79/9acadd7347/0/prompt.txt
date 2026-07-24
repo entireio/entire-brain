@@ -1,17 +1,1 @@
-I stopped you for now. Question: Do the brains that you use for the benchmark actually have distilled facts in them?
-
----
-
-So you have been lying to me the whole time?
-
----
-
-What changes did you make in the branch in the last 6h?
-
----
-
-Ok, ask Claude Fable to do an adversarial review of the branch.
-
----
-
 Fix all findings, then ask Claude to review again.
