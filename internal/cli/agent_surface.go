@@ -2052,12 +2052,14 @@ func brainBriefActionablePrimaryKind(task, kind string) bool {
 
 func brainBriefActionChecklistEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(envBrainActionChecklist))) {
-	case "0", "false", "no", "off", "disable", "disabled":
-		return false
-	default:
-		// Preserve the shipped behavior for an unset flag and for unrecognized
-		// values. The ablation is deliberately opt-out, not a silent rollout.
+	case "1", "true", "yes", "on", "enable", "enabled":
 		return true
+	default:
+		// Checklist actions remain available for controlled experiments, but
+		// are opt-in until they demonstrate stable agent lift. Unset,
+		// unrecognized, and explicit false values all preserve the evidence-only
+		// brief surface.
+		return false
 	}
 }
 

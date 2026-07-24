@@ -174,7 +174,8 @@ There are three different comparisons:
    runner, model, effort, timeout, and validation. Exactly one recorded feature
    flag differs. For the action-checklist ablation, set
    `ENTIRE_BRAIN_ACTION_CHECKLIST=1` or `0` explicitly in both arms and require
-   that value in `provenance.run_config.env_flags`.
+   that value in `provenance.run_config.env_flags`. The product default is off;
+   an ablation must never infer an arm from the unset default.
 
 For candidate-versus-main runs:
 

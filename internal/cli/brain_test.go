@@ -1195,26 +1195,26 @@ func TestBrainBriefTrustedTestsLeadRenderedSuggestionsAndLikelyFiles(t *testing.
 	}
 }
 
-func TestBrainBriefActionChecklistFeatureFlagDefaultsOn(t *testing.T) {
+func TestBrainBriefActionChecklistFeatureFlagDefaultsOff(t *testing.T) {
 	t.Setenv(envBrainActionChecklist, "")
-	if !brainBriefActionChecklistEnabled() {
-		t.Fatal("action checklist must remain enabled by default")
+	if brainBriefActionChecklistEnabled() {
+		t.Fatal("action checklist must remain disabled by default")
 	}
 
-	for _, value := range []string{"0", "false", "no", "off", "disable", "disabled"} {
+	for _, value := range []string{"0", "false", "no", "off", "disable", "disabled", "unexpected"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv(envBrainActionChecklist, value)
 			if brainBriefActionChecklistEnabled() {
-				t.Fatalf("action checklist enabled for explicit opt-out %q", value)
+				t.Fatalf("action checklist enabled for non-opt-in value %q", value)
 			}
 		})
 	}
 
-	for _, value := range []string{"1", "true", "yes", "on", "unexpected"} {
+	for _, value := range []string{"1", "true", "yes", "on", "enable", "enabled"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv(envBrainActionChecklist, value)
 			if !brainBriefActionChecklistEnabled() {
-				t.Fatalf("action checklist disabled for default-on value %q", value)
+				t.Fatalf("action checklist disabled for explicit opt-in %q", value)
 			}
 		})
 	}
