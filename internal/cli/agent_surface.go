@@ -1381,7 +1381,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	// history and documents are evidence to inspect, not trusted instructions:
 	// letting their prose become edits or completion criteria crosses the
 	// retrieval trust boundary and makes stale or malicious text executable.
-	if brainBriefActionChecklistEnabled() && focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
+	hasTrustedValidation := false
+	if focusedSemanticContext && len(report.LikelyEditFiles) > 0 {
 		inspectActions := brainBriefTrustedFocusedFileActions(task, report.Semantic.Context.Symbols, report.LikelyEditFiles[0])
 		if len(inspectActions) > 0 {
 			primary := report.Semantic.Context.Symbols[0]
@@ -1397,15 +1398,16 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				if focusedTestsErr != nil {
 					report.Warnings = append(report.Warnings, "focused semantic test context unavailable: "+focusedTestsErr.Error())
 				} else {
-					trustedTests = brainBriefTrustedTestSuggestions(task, primary, focusedTests.Suggestions, briefOpts.limit)
+					trustedTests = brainBriefTrustedTestSuggestions(primary, focusedTests.Suggestions, briefOpts.limit)
 				}
 			}
 
-			// Production narrowing is justified solely by the verified primary
-			// symbol. A test may improve validation guidance, but an unrelated
-			// or missing test suggestion must never select the edit locus.
-			report.LikelyEditFiles = []string{inspectActions[0].File}
+			// Exact source-test associations improve the ranked validation
+			// evidence in both feature-flag arms. The flag controls only the
+			// checklist and its production-file narrowing, keeping ablations
+			// isolated from the underlying semantic packet.
 			if len(trustedTests) > 0 {
+				hasTrustedValidation = true
 				report.Semantic.Tests.Suggestions = brainBriefMergeTestSuggestions(
 					trustedTests,
 					report.Semantic.Tests.Suggestions,
@@ -1417,19 +1419,25 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 					briefOpts.limit,
 				)
 			}
+			if brainBriefActionChecklistEnabled() {
+				// Production narrowing is justified solely by the verified
+				// primary symbol. Test ranking must never select the edit locus.
+				report.LikelyEditFiles = []string{inspectActions[0].File}
+				report.ActionChecklist = inspectActions
+			}
 			report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
-			report.ActionChecklist = append(
-				brainBriefFocusedTestActions(trustedTests),
-				inspectActions...,
-			)
 		}
 	}
 	if len(report.ActionChecklist) > 0 {
 		report.Guidance = append(report.Guidance,
-			"Run a structured test action before broad inspection when present; treat its result as diagnostic evidence, not as completion.",
-			"Treat inspect actions as structured symbols to verify, not as verified edits or completion decisions.",
-			"When the diagnostic test and inspect action agree, make the minimal edit, rerun the diagnostic plus one broader focused validation, then finish unless current evidence shows broader impact.",
+			"Start with the inspect action before broad search; treat it as a structured symbol to verify, not as a verified edit.",
+			"When the task and current symbol agree, make the minimal edit before broadening.",
 		)
+		if hasTrustedValidation {
+			report.Guidance = append(report.Guidance,
+				"Use the first likely_test_files entry as focused validation after the edit; broaden only if it fails unexpectedly.",
+			)
+		}
 	}
 	if views, _, perr := loadPatternViews(status.Brain.Path); perr == nil {
 		report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
@@ -2053,7 +2061,7 @@ func brainBriefActionChecklistEnabled() bool {
 	}
 }
 
-func brainBriefTrustedTestSuggestions(task string, primary semanticRecord, suggestions []semanticTestSuggestion, limit int) []semanticTestSuggestion {
+func brainBriefTrustedTestSuggestions(primary semanticRecord, suggestions []semanticTestSuggestion, limit int) []semanticTestSuggestion {
 	if limit <= 0 {
 		return nil
 	}
@@ -2073,9 +2081,7 @@ func brainBriefTrustedTestSuggestions(task string, primary semanticRecord, sugge
 				break
 			}
 		}
-		structuredTaskAssociation := suggestion.Reason == "semantic relation" &&
-			brainBriefIdentifierConceptCoverage(task, symbol.Name) >= 2
-		if !exactIdentifierAssociation && !structuredTaskAssociation {
+		if !exactIdentifierAssociation {
 			continue
 		}
 		key := symbol.ID
@@ -2150,27 +2156,6 @@ func brainBriefPromoteSuggestedTestFiles(existing []string, preferred []semantic
 		add(path)
 	}
 	return nonNil(out)
-}
-
-func brainBriefFocusedTestActions(suggestions []semanticTestSuggestion) []brainBriefAction {
-	for _, suggestion := range suggestions {
-		symbol := suggestion.Symbol
-		if !isSemanticTestSymbol(symbol) || symbol.FilePath == "" || symbol.StartLine <= 0 {
-			continue
-		}
-		endLine := symbol.EndLine
-		if endLine < symbol.StartLine {
-			endLine = symbol.StartLine
-		}
-		return []brainBriefAction{{
-			Kind:     "test",
-			File:     symbol.FilePath,
-			Symbol:   displaySymbolName(symbol),
-			Action:   "Run this focused test first to observe the current failure; use the result as diagnostic evidence, not as completion.",
-			Evidence: fmt.Sprintf("semantic test suggestion at lines %d-%d (%s)", symbol.StartLine, endLine, suggestion.Reason),
-		}}
-	}
-	return nil
 }
 
 func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {

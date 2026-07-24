@@ -1142,7 +1142,6 @@ func TestBrainBriefTrustedFocusedFileActionRequiresBehavioralPrimaryAgreement(t 
 }
 
 func TestBrainBriefTrustedTestSuggestionsRequirePrimaryAssociation(t *testing.T) {
-	task := "Restore semantic freshness completeness tolerance for parse errors"
 	primary := semanticRecord{
 		ID: "axis", Kind: "function", Name: "semanticCompletenessAxis",
 		FilePath: "internal/cli/semantic.go", StartLine: 2374, EndLine: 2390,
@@ -1161,7 +1160,7 @@ func TestBrainBriefTrustedTestSuggestionsRequirePrimaryAssociation(t *testing.T)
 		},
 		Reason: "name terms",
 	}
-	selected := brainBriefTrustedTestSuggestions(task, primary, []semanticTestSuggestion{loose, exact}, 3)
+	selected := brainBriefTrustedTestSuggestions(primary, []semanticTestSuggestion{loose, exact}, 3)
 	if len(selected) != 1 || selected[0].Symbol.ID != exact.Symbol.ID {
 		t.Fatalf("trusted tests did not reject the loose name-term suggestion: %+v", selected)
 	}
@@ -1193,23 +1192,6 @@ func TestBrainBriefTrustedTestsLeadRenderedSuggestionsAndLikelyFiles(t *testing.
 	)
 	if len(files) != 2 || files[0] != trusted.Symbol.FilePath {
 		t.Fatalf("trusted test did not lead likely test files: %v", files)
-	}
-}
-
-func TestBrainBriefFocusedTestActionIsDiagnosticNotCompletion(t *testing.T) {
-	suggestions := []semanticTestSuggestion{{
-		Symbol: semanticRecord{
-			Kind: "function", Name: "TestMCPInitializeAndToolsList", QualifiedName: "TestMCPInitializeAndToolsList",
-			FilePath: "internal/cli/mcp_test.go", StartLine: 20, EndLine: 38,
-		},
-		Reason: "name terms",
-	}}
-	actions := brainBriefFocusedTestActions(suggestions)
-	if len(actions) != 1 || actions[0].Kind != "test" || actions[0].Symbol != "TestMCPInitializeAndToolsList" {
-		t.Fatalf("focused semantic test action is not precise: %+v", actions)
-	}
-	if !strings.Contains(actions[0].Action, "diagnostic evidence") || strings.Contains(actions[0].Action, "complete_on_pass") {
-		t.Fatalf("test action crossed the completion trust boundary: %+v", actions[0])
 	}
 }
 
