@@ -25,8 +25,7 @@ Available tools:
 The tool responses wrap the existing CLI `--json` output as text content. Treat
 the CLI JSON contracts as the source of truth for fields and freshness policy.
 `brain_status` and `brain_index_status` are compact by default; pass
-`details: true` only when coverage histograms, staged-file classifications, or
-changed-symbol records are required.
+`details: true` for the full status JSON contract.
 `brain_code`, `brain_context`, `brain_impact`, and `brain_tests` also use compact
 semantic records by default; pass `details: true` only for the full provider
 record payload. Their default limits are 10 code results, 5 context symbols, 20
@@ -74,10 +73,12 @@ semantic context.
 
 `brain_refresh` is the deterministic local write tool for rebuilding
 code-derived sources when retrieval freshness is unsafe; it never runs seed
-agent synthesis and returns compact status JSON after completion. Set
-`worktree: true` only to include current uncommitted content. By default it
-skips checkpoint export/history so code iteration stays fast; set `sessions:
-true` only when those sources and patterns also need refresh.
+agent synthesis and returns status JSON after completion. Set `worktree: true`
+only to include current uncommitted content. By default it refreshes seed/docs
+and skips both semantic indexing and checkpoint export/history so the MCP call
+stays bounded. Set `semantic: true` only for small repositories; use
+`brain_index_repository` as a separate long-running step for large repositories.
+Set `sessions: true` only when history sources and patterns also need refresh.
 `brain_index_repository` is the narrower local write tool for building only the
 semantic index; neither tool publishes artifacts. `brain_delete_project`
 removes local generated brain data for the selected repo key.

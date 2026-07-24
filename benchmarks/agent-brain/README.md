@@ -98,13 +98,14 @@ repo that actually has Entire `.entire` session data; that data is machine-local
 and not committed. The semantic scenarios (`semantic_brain`, `mcp_semantic`) only
 need the source code and reproduce anywhere (e.g. `entireio/cli`).
 
-Each task creates a disposable git worktree, applies a known regression patch,
-commits that setup state, runs an agent, validates the fix, scores the run, and
-writes artifacts under `benchmarks/agent-brain/results/`.
+Each task creates a standalone disposable clone, applies a known regression,
+places that state behind an unchanged synthetic first-parent baseline, runs an
+agent, validates the fix, scores the run, and writes artifacts under
+`benchmarks/agent-brain/results/`.
 
 Tasks may also define `post_brain_replacements` or `post_brain_commands`. Those
 mutations are applied and committed after brain preparation, which creates a
-stale-context scenario for semantic and full-brain runs. Use these tasks to
+stale-context scenario for semantic and semantic-history runs. Use these tasks to
 measure whether agents check brain freshness before relying on prepared context.
 
 Brain prep artifacts are cached under `benchmarks/agent-brain/cache/` by
@@ -147,7 +148,7 @@ Example:
 python3 benchmarks/agent-brain/run.py run \
   --tasks entire-brain-mcp-tool-name.json \
   --agents codex \
-  --conditions no_brain,semantic_brain,full_brain \
+  --conditions no_brain,semantic_brain,semantic_history_brain \
   --source-root .. \
   --repetitions 3 \
   --suite-name codex-mcp-smoke
@@ -167,9 +168,10 @@ MCP-specific conditions are separate from CLI delivery:
 
 - `semantic_cli`: CLI-delivered semantic brain, equivalent to the original
   `semantic_brain` condition.
-- `full_cli_original`: original full-brain CLI policy, delivered through the
-  indexed Brain itself.
-- `full_cli_compact`: full Brain prep delivered through `brain brief` only:
+- `full_cli_original`: original semantic-and-indexed-history CLI policy,
+  delivered through the indexed Brain itself.
+- `full_cli_compact`: the same semantic-and-indexed-history prep delivered
+  through `brain brief` only:
   compact history hits, likely files/tests, and action checklist.
 - `mcp_semantic`: local `entire brain mcp` semantic graph tools only
   (`brain_status`, `brain_context`, `brain_impact`, `brain_changes`,
@@ -182,7 +184,7 @@ MCP-specific conditions are separate from CLI delivery:
   > history is now one source within the unified retrieval verbs.
 
 Temporal-memory ablation conditions are separate from the product-style
-full-brain conditions:
+semantic-history conditions:
 
 - `raw_history`: indexed records derived directly from a pinned pre-cutoff
   session bundle;
@@ -235,7 +237,7 @@ when that score is above the retention threshold:
 python3 benchmarks/agent-brain/run.py run \
   --tasks entire-brain-history-claude-seed-agent.json \
   --runners claude \
-  --conditions no_brain,full_brain \
+  --conditions no_brain,semantic_history_brain \
   --repetitions 1 \
   --stop-after-no-brain-score 90 \
   --suite-name phase2-layer-a-pilot
@@ -264,7 +266,7 @@ Runner matrixes are supported with `--runners`. Specs are
 python3 benchmarks/agent-brain/run.py run \
   --tasks entire-brain-history-codex-schema-contract.json \
   --runners codex:gpt-5:medium,codex:gpt-5:high,claude:sonnet:medium,claude:opus:max \
-  --conditions no_brain,full_brain \
+  --conditions no_brain,semantic_history_brain \
   --repetitions 3 \
   --suite-name phase2-model-matrix
 ```

@@ -167,7 +167,7 @@ func TestBrainBriefFactsCount(t *testing.T) {
 	}
 }
 
-func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.T) {
+func TestBrainBriefDefaultsToCompactPacketAndPreservesTaskShapedQuery(t *testing.T) {
 	if brainBriefDefaultLimit != 3 {
 		t.Fatalf("brain brief default limit = %d, want 3", brainBriefDefaultLimit)
 	}
@@ -175,13 +175,8 @@ func TestBrainBriefDefaultsToCompactPacketAndTargetsItsPublicSurface(t *testing.
 		t.Fatalf("brain brief context candidate limit = %d, want 24", got)
 	}
 	got := brainBriefSemanticQuery("Make brain brief compact for routine agent use")
-	for _, want := range []string{"brain_brief", "brainBrief", "runBrainBrief"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("semantic query %q missing public-surface identifier %q", got, want)
-		}
-	}
-	if !strings.HasPrefix(got, "brain_brief brainBrief runBrainBrief ") {
-		t.Fatalf("public-surface identifiers must lead the bounded semantic query: %q", got)
+	if got != "Make brain brief compact for routine agent use" {
+		t.Fatalf("semantic query should preserve ordinary task prose: %q", got)
 	}
 	plain := "ValidateToken behavior"
 	if got := brainBriefSemanticQuery(plain); got != plain {
@@ -375,7 +370,7 @@ func TestBrainBriefLikelyFilesLeadWithSelectedSemanticRoot(t *testing.T) {
 	}
 }
 
-func TestBrainBriefLikelyFilesLeadWithPublicContractDefinition(t *testing.T) {
+func TestBrainBriefLikelyFilesDoNotApplyPhraseTunedContractPromotion(t *testing.T) {
 	repoDir := t.TempDir()
 	for _, rel := range []string{"client/capabilities.go", "server/tools.go"} {
 		path := filepath.Join(repoDir, filepath.FromSlash(rel))
@@ -399,11 +394,11 @@ func TestBrainBriefLikelyFilesLeadWithPublicContractDefinition(t *testing.T) {
 		report,
 		"keep the advertised public tool contract stable",
 	)
-	if len(editFiles) == 0 || editFiles[0] != "server/tools.go" {
-		t.Fatalf("public contract definition must lead callers, got %v", editFiles)
+	if len(editFiles) < 2 || editFiles[0] != "client/capabilities.go" {
+		t.Fatalf("generic semantic order should be preserved without phrase-tuned promotion, got %v", editFiles)
 	}
-	if len(editFiles) != 1 {
-		t.Fatalf("public contract definition should exclude caller files from edit candidates, got %v", editFiles)
+	if !slices.Contains(editFiles, "server/tools.go") {
+		t.Fatalf("bounded alternatives should retain the definition candidate, got %v", editFiles)
 	}
 }
 
@@ -1001,7 +996,7 @@ func TestBrainBriefTaskFilenameFallbackFindsComponentAndSiblingTest(t *testing.T
 		}
 	}
 
-	editFiles, testFiles, _ := brainBriefLikelyFileGroupsForRepo(repoDir, "gh/example/entire-brain", brainBriefReport{}, "entire-brain-mcp-tool-name: Fix the MCP tool-list regression and keep the public name stable on the local server")
+	editFiles, testFiles, _ := brainBriefLikelyFileGroupsForRepo(repoDir, "gh/example/entire-brain", brainBriefReport{}, "Inspect the MCP implementation")
 	if len(editFiles) == 0 || editFiles[0] != "internal/cli/mcp.go" {
 		t.Fatalf("filename fallback did not prioritize the MCP implementation: %v", editFiles)
 	}
@@ -1041,7 +1036,7 @@ func TestBrainBriefTaskFilenameFallbackPromotesCompoundBasenameOverSemanticNoise
 	}
 }
 
-func TestBrainBriefTaskFilenameFallbackSkipsGeneratedBenchmarkTrees(t *testing.T) {
+func TestBrainBriefTaskFilenameFallbackDoesNotKnowBenchmarkLayout(t *testing.T) {
 	for _, rel := range []string{
 		"benchmarks/agent-brain/results",
 		"benchmarks/agent-brain/results/suite/worktree",
@@ -1049,8 +1044,8 @@ func TestBrainBriefTaskFilenameFallbackSkipsGeneratedBenchmarkTrees(t *testing.T
 		"benchmarks/agent-brain/discovery",
 		"benchmarks/agent-brain/tasks",
 	} {
-		if !brainBriefSkipSourceDir(rel) {
-			t.Errorf("generated benchmark tree should be skipped: %s", rel)
+		if brainBriefSkipSourceDir(rel) {
+			t.Errorf("product fallback must not special-case benchmark path: %s", rel)
 		}
 	}
 	if brainBriefSkipSourceDir("benchmarks/agent-brain") || brainBriefSkipSourceDir("benchmarks/agent-brain/evidence") {
@@ -1061,14 +1056,14 @@ func TestBrainBriefTaskFilenameFallbackSkipsGeneratedBenchmarkTrees(t *testing.T
 	}
 }
 
-func TestBrainBriefFilenameTermsDropGenericToolNameWords(t *testing.T) {
-	terms := brainBriefFilenameFallbackTerms(brainBriefFileMatchTerms("Keep the public MCP tool names stable after a tool-list regression"))
+func TestBrainBriefFilenameTermsRemainTaskDerived(t *testing.T) {
+	terms := brainBriefFileMatchTerms("Keep the public MCP tool names stable after a tool-list regression")
 	if !slices.Contains(terms, "mcp") {
 		t.Fatalf("component term missing: %v", terms)
 	}
-	for _, generic := range []string{"tool", "tools", "name", "names"} {
-		if slices.Contains(terms, generic) {
-			t.Fatalf("generic filename term %q leaked into %v", generic, terms)
+	for _, taskTerm := range []string{"tool", "names"} {
+		if !slices.Contains(terms, taskTerm) {
+			t.Fatalf("task-derived filename term %q missing from %v", taskTerm, terms)
 		}
 	}
 }
@@ -1096,7 +1091,7 @@ func TestBrainBriefFocusedFileFallbackSelectsTaskRelevantSymbolAndAction(t *test
 	}
 }
 
-func TestBrainBriefFocusedSemanticRefinementFindsContractRegistry(t *testing.T) {
+func TestBrainBriefFocusedSemanticRefinementKeepsGenericCandidateOrder(t *testing.T) {
 	current := []semanticRecord{
 		{ID: "client-list", Kind: "method", Name: "ListTools", QualifiedName: "Client.ListTools", FilePath: "internal/hostedbrain/client.go", StartLine: 100, EndLine: 120},
 		{ID: "project-list", Kind: "function", Name: "runMCPListProjects", QualifiedName: "runMCPListProjects", FilePath: "internal/cli/mcp.go", StartLine: 800, EndLine: 840},
@@ -1107,20 +1102,24 @@ func TestBrainBriefFocusedSemanticRefinementFindsContractRegistry(t *testing.T) 
 	}
 
 	refined := brainBriefRefineSemanticSymbols(current, candidates, "Keep the public MCP tool names stable after a tool-list regression", 3)
-	if len(refined) == 0 || refined[0].Name != "mcpToolDefinitions" {
-		t.Fatalf("contract registry did not lead refined semantic context: %+v", refined)
+	if len(refined) < 2 || refined[0].Name != "ListTools" || !slices.ContainsFunc(refined, func(record semanticRecord) bool {
+		return record.Name == "mcpToolDefinitions"
+	}) {
+		t.Fatalf("generic refinement should retain candidates without contract phrase promotion: %+v", refined)
 	}
 }
 
-func TestBrainBriefFocusedSemanticSelectionPromotesContractAfterTruncation(t *testing.T) {
+func TestBrainBriefFocusedSemanticSelectionUsesConceptCoverageOnly(t *testing.T) {
 	symbols := []semanticRecord{
 		{ID: "list", Kind: "method", Name: "ListTools", QualifiedName: "Client.ListTools", FilePath: "client.go", StartLine: 10, EndLine: 20},
 		{ID: "projects", Kind: "function", Name: "runMCPListProjects", QualifiedName: "runMCPListProjects", FilePath: "mcp.go", StartLine: 800, EndLine: 840},
 		{ID: "definitions", Kind: "function", Name: "mcpToolDefinitions", QualifiedName: "mcpToolDefinitions", FilePath: "mcp.go", StartLine: 235, EndLine: 386},
 	}
 	focused := brainBriefSelectFocusedFileSymbols(symbols, "Keep the public MCP tool names stable after a tool-list regression", 3)
-	if len(focused) == 0 || focused[0].Name != "mcpToolDefinitions" {
-		t.Fatalf("contract definition was not promoted after focused selection: %+v", focused)
+	if len(focused) < 2 || focused[0].Name != "ListTools" || !slices.ContainsFunc(focused, func(record semanticRecord) bool {
+		return record.Name == "mcpToolDefinitions"
+	}) {
+		t.Fatalf("focused selection should use generic concept coverage and retain alternatives: %+v", focused)
 	}
 }
 

@@ -40,7 +40,7 @@ DEFAULT_PROOF_MIN_REPETITIONS = 4
 
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
-HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
+HISTORY_CONDITIONS = {"full_brain", "semantic_history_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
 BRAIN_CONDITIONS = SEMANTIC_CONDITIONS | HISTORY_CONDITIONS
 MCP_NAMED_TOOL_REQUIRED_SCOPES = {
     "mcp_radar_location_only",

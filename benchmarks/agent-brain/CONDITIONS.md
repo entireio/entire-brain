@@ -15,6 +15,10 @@ The central comparison is simple:
 
 Git history is a normal coding tool. `git log`, `git show`, `git blame`,
 `git diff`, and other ordinary Git commands are allowed in both variants.
+The harness represents its prepared workspace as a synthetic merge whose first
+parent has the same tree. Agents must not explicitly diff the synthetic second
+parent or request merge-parent patches: that reconstructs harness setup rather
+than inspecting ordinary source history.
 
 ## Non-negotiable rules
 
@@ -90,17 +94,19 @@ For direct-CLI product conditions, the agent uses the documented JSON surface:
 
 - `semantic_brain` / `semantic_cli`: begin with `entire brain brief ... --json`
   and use semantic follow-ups only when the task needs them;
-- `full_brain`, `full_cli_original`, and `full_cli_compact`: begin with
-  `entire brain brief ... --json`, except a task with
-  `require_local_brain_search` must begin with the task's exact frozen
-  `entire brain search ... --json` command;
+- `semantic_history_brain`, `full_cli_original`, and `full_cli_compact`: begin
+  with `entire brain brief ... --json`; these conditions contain semantic/seed
+  context plus indexed session history, but intentionally contain no distilled
+  facts;
+- `full_brain` is reserved for a prepared Brain that also contains at least one
+  distilled durable fact; the harness fails closed if that fact source is absent;
 - ask the smallest task-driven follow-up rather than touring the command
   surface.
 
 The required initial `brief` receives the task prompt exactly as the agent
 received it. Task `brain_queries` are optional follow-up hints only; the harness
-must not append them to the brief query or otherwise turn normal Brain use into
-a synthetic caller expansion.
+must not append them to the brief query, mandate one as an exact search, or
+otherwise turn normal Brain use into a synthetic caller expansion.
 
 For MCP conditions, use the configured local `entire brain mcp` tools:
 
@@ -212,7 +218,7 @@ accepted only when all applicable checks pass:
 - no benchmark-private or previous-run artifact was accessed;
 - no-Brain invoked no Entire-family CLI, binary, wrapper, or MCP tool;
 - Brain made a real, structured Brain call through the required surface;
-- a task requiring a frozen local search used that exact command first;
+- a preregistered temporal-memory adherence lane used its frozen command first;
 - changed files are focused and contain no benchmark or test tampering;
 - the agent inspected its diff and ran proportionate tests;
 - token and duration metrics came from the agent protocol record;

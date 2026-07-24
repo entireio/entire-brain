@@ -2,7 +2,7 @@
   "id": "entire-brain-history-claude-bare-auth",
   "repo": "entire-brain",
   "repo_path": "entire-brain",
-  "conditions": ["no_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_history_brain"],
   "prepare_semantic": false,
   "prompt": "A checkpoint-context review changed the Claude Code seed-agent invocation after a local authentication compatibility failure. A regression reintroduced the old invocation. Restore the prior checkpointed decision and add focused coverage for the command shape.",
   "setup_replacements": [

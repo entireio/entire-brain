@@ -4,7 +4,7 @@
   "repo_path": "entire-cli",
   "source": "swe-bench-style-local",
   "suite_tags": ["swe-style", "entire-cli", "transcript"],
-  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "prompt": "Issue: after an agent moves its transcript from the originally stored path, the resolver finds the relocated file but later reads still look at the stale path. Patch the resolver so successful re-resolution is retained for subsequent reads.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

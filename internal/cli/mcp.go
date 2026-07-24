@@ -262,13 +262,13 @@ func mcpToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "brain_status",
-			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic and retrieval freshness, provider/coverage totals/blind spots, and live workspace state. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
+			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic and retrieval freshness, coverage totals/blind spots, and live workspace state. Set details=true for the full status JSON contract.",
 			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
 		},
 		{
 			"name":        "brain_refresh",
-			"description": "Refresh code-derived local Brain sources deterministically (seed, docs, semantic, and fact classification) and return compact status JSON. Use when retrieval freshness is unsafe; set sessions=true only when checkpoint history also needs refresh.",
-			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Refresh seed, docs, and semantic index from current uncommitted content"), "sessions": boolArg("sessions", "Also export Entire sessions and rebuild history and patterns"), "force": boolArg("force", "Rebuild selected sources even when current")}),
+			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed/docs refresh by default. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Set sessions=true only when checkpoint history also needs refresh.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Refresh selected sources from current uncommitted content"), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call (prefer brain_index_repository for large repositories)"), "sessions": boolArg("sessions", "Also export Entire sessions and rebuild history and patterns"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
 			"name":        "brain_brief",
@@ -484,7 +484,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if opts.Env.RepoRoot != "" {
 			target = opts.Env.RepoRoot
 		}
-		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, failOn: semanticAuditFailOnNone}, target)
+		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, compact: true, failOn: semanticAuditFailOnNone}, target)
 	case "brain_refresh":
 		worktree, boolErr := mcpBool(params.Arguments, "worktree")
 		if boolErr != nil {
@@ -501,11 +501,17 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = boolErr
 			break
 		}
+		semantic, boolErr := mcpBool(params.Arguments, "semantic")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
 		refreshOpts := defaultRefreshCommandOptions()
 		refreshOpts.force = force
 		refreshOpts.graphBinary = mcpGraphBinary()
 		refreshOpts.skipSessions = !sessions
 		refreshOpts.historyIndex = sessions
+		refreshOpts.semantic = semantic
 		refreshOpts.statusAfter = false
 		refreshOpts.seed.agent = "none"
 		refreshOpts.seed.worktree = worktree
@@ -519,7 +525,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			if opts.Env.RepoRoot != "" {
 				target = opts.Env.RepoRoot
 			}
-			err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, failOn: semanticAuditFailOnNone}, target)
+			err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, compact: true, failOn: semanticAuditFailOnNone}, target)
 		}
 	case "brain_index_repository":
 		path, stringErr := mcpOptionalString(params.Arguments, "path")

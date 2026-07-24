@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import errno
 import glob
 import hashlib
 import json
@@ -35,7 +36,8 @@ RESULT_DIR = BENCH_ROOT / "results"
 CACHE_DIR = BENCH_ROOT / "cache"
 VALIDATION_FIXTURE_DIR = BENCH_ROOT / "fixtures" / "validation"
 BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
-FILTERED_HISTORY_CACHE_SCHEMA = 1
+FILTERED_HISTORY_CACHE_SCHEMA = 2
+TOKEN_ACCOUNTING_VERSION = 2
 BENCH_GO_MOD_CACHE = pathlib.Path(
     os.environ.get(
         "ENTIRE_BENCH_GOMODCACHE",
@@ -268,7 +270,14 @@ class RunnerSpec:
 
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
-FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
+FULL_HISTORY_CONDITIONS = {
+    "full_brain",
+    "semantic_history_brain",
+    "full_cli_original",
+    "full_cli_compact",
+    "mcp_history",
+    "mcp_workspace_radar",
+}
 TEMPORAL_MEMORY_CONDITIONS = {"raw_history", "facts_only", "history_facts"}
 TEMPORAL_HISTORY_CONDITIONS = {"raw_history", "history_facts"}
 TEMPORAL_FACT_CONDITIONS = {"facts_only", "history_facts"}
@@ -280,7 +289,14 @@ SESSION_PREP_CONDITIONS = FULL_HISTORY_CONDITIONS | TEMPORAL_MEMORY_CONDITIONS
 # or mcp_* condition — the security-relevant direction). A new condition added to prompt_for but not
 # here would merely UNDER-capture (no diagnostic packet) until registered — benign for an opt-in
 # diagnostic.
-CLI_BRIEF_CONDITIONS = {"semantic_brain", "semantic_cli", "full_brain", "full_cli_original", "full_cli_compact"}
+CLI_BRIEF_CONDITIONS = {
+    "semantic_brain",
+    "semantic_cli",
+    "full_brain",
+    "semantic_history_brain",
+    "full_cli_original",
+    "full_cli_compact",
+}
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
 MCP_SEMANTIC_CONTEXT_TOOLS = {"brain_context", "brain_impact", "brain_changes", "brain_code"}
@@ -320,8 +336,10 @@ def is_mcp_condition(condition: str) -> bool:
 
 
 def condition_prep_kind(condition: str) -> str:
-    if condition in FULL_HISTORY_CONDITIONS:
+    if condition == "full_brain":
         return "full_brain"
+    if condition in FULL_HISTORY_CONDITIONS:
+        return "semantic_history_brain"
     if condition in SEMANTIC_CONDITIONS:
         return "semantic_brain"
     return condition
@@ -450,7 +468,11 @@ def assert_brain_state_ready(task: dict[str, Any], condition: str, state: dict[s
             raise RuntimeError(f"{condition} brain prep produced no durable facts")
         return
 
-    if task.get("prepare_semantic", True) and condition_prep_kind(condition) in {"semantic_brain", "full_brain"}:
+    if task.get("prepare_semantic", True) and condition_prep_kind(condition) in {
+        "semantic_brain",
+        "semantic_history_brain",
+        "full_brain",
+    }:
         if not manifest.get("has_semantic"):
             raise RuntimeError(f"{condition} brain prep did not produce a semantic source")
 
@@ -461,6 +483,13 @@ def assert_brain_state_ready(task: dict[str, Any], condition: str, state: dict[s
             raise RuntimeError(f"{condition} brain prep produced no exported sessions")
         if history_records <= 0:
             raise RuntimeError(f"{condition} brain prep produced no history index records")
+    if condition == "full_brain":
+        if not manifest.get("has_facts") or int(manifest.get("fact_count") or 0) <= 0:
+            raise RuntimeError(
+                "full_brain requires at least one distilled durable fact; use "
+                "semantic_history_brain when the prepared treatment intentionally "
+                "contains semantic and indexed history sources without facts"
+            )
 
 
 def parse_runner_spec(value: str) -> RunnerSpec:
@@ -1054,6 +1083,7 @@ def build_record_provenance(
     task_path = pathlib.Path(str(task["_path"])) if task.get("_path") else None
     source_head = git_commit_metadata(source, "HEAD")
     task_base = task.get("base_commit")
+    resolved_task_base = task.get("_resolved_base_commit") or base.get("commit")
     repo_path_input = task.get("repo_path")
     if isinstance(repo_path_input, str) and pathlib.Path(repo_path_input).is_absolute():
         repo_path_input = "<source-repo>"
@@ -1084,7 +1114,8 @@ def build_record_provenance(
             "id": task.get("id"),
             "path": display_path(task_path) if task_path else None,
             "config_sha256": task_config_sha256(task),
-            "base_commit": task_base,
+            "base_commit": resolved_task_base,
+            "base_commit_source": "task.base_commit" if task_base else "resolved_source_head",
         },
         "run_config": run_config_provenance(
             command,
@@ -1118,7 +1149,13 @@ def build_record_provenance(
 def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path:
     source = resolve_repo_path(task["repo_path"])
     base = task.get("_resolved_base_commit") or task.get("base_commit") or git_head(source)
-    worktree = run_dir / "worktree"
+    # Keep fixture/task IDs out of the agent-visible cwd. Run artifacts retain
+    # the descriptive ID, but the repository itself gets an opaque disposable
+    # location just like an ordinary fresh checkout.
+    worktree_root = run_dir.parent / ".worktrees"
+    worktree_root.mkdir(parents=True, exist_ok=True)
+    worktree_parent = pathlib.Path(tempfile.mkdtemp(prefix="repo-", dir=worktree_root))
+    worktree = worktree_parent / "repo"
     private_paths = filtered_agent_history_paths(task)
     source_commit = run_cmd(
         ["git", "rev-parse", "--verify", f"{base}^{{commit}}"],
@@ -1126,39 +1163,34 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
         check=True,
     ).stdout.strip()
     paths_present = private_paths_present_in_history(source, source_commit, private_paths)
-    if not paths_present:
-        # A direct detached worktree preserves partial-clone/promisor behavior and is
-        # safe when no benchmark/Entire-private path exists in the reachable history.
-        run_cmd(
-            ["git", "worktree", "add", "--detach", str(worktree), source_commit],
-            cwd=source,
-            check=True,
-        )
-    else:
-        history_repo = filtered_agent_history_repo(
-            source,
-            source_commit,
-            private_paths,
-            paths_present=paths_present,
-        )
-        run_cmd(
-            [
-                "git",
-                "clone",
-                "--no-local",
-                "--no-tags",
-                "--single-branch",
-                "--branch",
-                "baseline",
-                str(history_repo),
-                str(worktree),
-            ],
-            cwd=run_dir,
-            check=True,
-        )
-        run_cmd(["git", "checkout", "--detach"], cwd=worktree, check=True)
-        run_cmd(["git", "update-ref", "-d", "refs/remotes/origin/baseline"], cwd=worktree, check=True)
-        copy_origin_remote(source, worktree)
+    history_repo = filtered_agent_history_repo(
+        source,
+        source_commit,
+        private_paths,
+        paths_present=paths_present,
+    )
+    # Never use a linked worktree here. A linked worktree shares the developer
+    # repository's refs, reflogs, object store, and checkpoint objects; benchmark
+    # cleanup must only ever mutate this disposable standalone clone.
+    run_cmd(
+        [
+            "git",
+            "clone",
+            "--no-local",
+            "--no-tags",
+            "--single-branch",
+            "--branch",
+            "baseline",
+            str(history_repo),
+            str(worktree),
+        ],
+        cwd=run_dir,
+        check=True,
+    )
+    run_cmd(["git", "checkout", "--detach"], cwd=worktree, check=True)
+    run_cmd(["git", "update-ref", "-d", "refs/heads/baseline"], cwd=worktree, check=True)
+    run_cmd(["git", "update-ref", "-d", "refs/remotes/origin/baseline"], cwd=worktree, check=True)
+    run_cmd(["git", "remote", "remove", "origin"], cwd=worktree, check=True)
     ignore_benchmark_plugin(worktree)
     patch = task.get("setup_patch", "")
     if patch:
@@ -1180,15 +1212,6 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
         private_paths=private_paths,
     )
     return worktree
-
-
-def copy_origin_remote(source: pathlib.Path, worktree: pathlib.Path) -> None:
-    remote = run_cmd(["git", "remote", "get-url", "origin"], cwd=source)
-    url = remote.stdout.strip()
-    if remote.returncode == 0 and url:
-        existing = run_cmd(["git", "remote", "get-url", "origin"], cwd=worktree)
-        command = ["git", "remote", "set-url" if existing.returncode == 0 else "add", "origin", url]
-        run_cmd(command, cwd=worktree, check=True)
 
 
 def filtered_agent_history_paths(task: dict[str, Any] | None = None) -> list[str]:
@@ -1235,63 +1258,76 @@ def filtered_agent_history_repo(
     staging_repo = staging / "repo.git"
     export_ref = f"refs/entire-benchmark/export-{os.getpid()}-{key}"
     run_cmd(["git", "init", "--bare", str(staging_repo)], cwd=staging, check=True)
-    paths_present = paths_present or private_paths_present_in_history(
-        source,
-        source_commit,
-        private_paths,
+    paths_present = paths_present if paths_present is not None else private_paths_present_in_history(
+        source, source_commit, private_paths
     )
-    if not paths_present:
-        raise RuntimeError("filtered history requested without a private path to remove")
-    run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
-    try:
-        export_command = [
-            "git",
-            "fast-export",
-            "--use-done-feature",
-            export_ref,
-            "--",
-            ".",
-            *[f":(exclude){path}" for path in private_paths],
-        ]
-        with tempfile.TemporaryFile() as export_stderr:
-            exporter = subprocess.Popen(
-                export_command,
-                cwd=source,
-                stdout=subprocess.PIPE,
-                stderr=export_stderr,
-            )
-            assert exporter.stdout is not None
-            importer = subprocess.run(
-                ["git", "fast-import", "--quiet"],
-                cwd=staging_repo,
-                stdin=exporter.stdout,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            exporter.stdout.close()
-            export_returncode = exporter.wait()
-            export_stderr.seek(0)
-            export_error = export_stderr.read().decode(errors="replace")
-        if export_returncode != 0 or importer.returncode != 0:
-            raise RuntimeError(
-                "failed to build filtered source history:\n"
-                f"fast-export ({export_returncode}): {export_error}\n"
-                f"fast-import ({importer.returncode}): {importer.stderr.decode(errors='replace')}"
-            )
-    finally:
-        run_cmd(["git", "update-ref", "-d", export_ref], cwd=source)
-
-    filtered_tip = run_cmd(
-        ["git", "rev-parse", "--verify", export_ref],
-        cwd=staging_repo,
-        check=True,
-    ).stdout.strip()
+    if paths_present:
+        run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
+        try:
+            export_command = [
+                "git",
+                "fast-export",
+                "--use-done-feature",
+                export_ref,
+                "--",
+                ".",
+                *[f":(exclude){path}" for path in private_paths],
+            ]
+            with tempfile.TemporaryFile() as export_stderr:
+                exporter = subprocess.Popen(
+                    export_command,
+                    cwd=source,
+                    stdout=subprocess.PIPE,
+                    stderr=export_stderr,
+                )
+                assert exporter.stdout is not None
+                importer = subprocess.run(
+                    ["git", "fast-import", "--quiet"],
+                    cwd=staging_repo,
+                    stdin=exporter.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                exporter.stdout.close()
+                export_returncode = exporter.wait()
+                export_stderr.seek(0)
+                export_error = export_stderr.read().decode(errors="replace")
+            if export_returncode != 0 or importer.returncode != 0:
+                raise RuntimeError(
+                    "failed to build filtered source history:\n"
+                    f"fast-export ({export_returncode}): {export_error}\n"
+                    f"fast-import ({importer.returncode}): {importer.stderr.decode(errors='replace')}"
+                )
+        finally:
+            run_cmd(["git", "update-ref", "-d", export_ref], cwd=source)
+        filtered_tip = run_cmd(
+            ["git", "rev-parse", "--verify", export_ref],
+            cwd=staging_repo,
+            check=True,
+        ).stdout.strip()
+        run_cmd(["git", "update-ref", "-d", export_ref], cwd=staging_repo, check=True)
+    else:
+        # Fetching one explicit commit into a bare staging repository gives us a
+        # standalone object graph without copying source remotes, reflogs, or
+        # unreachable checkpoint/benchmark objects.
+        run_cmd(
+            [
+                "git",
+                "fetch",
+                "--no-tags",
+                "--no-write-fetch-head",
+                str(source),
+                f"+{source_commit}:refs/heads/baseline",
+            ],
+            cwd=staging_repo,
+            check=True,
+        )
+        filtered_tip = source_commit
     run_cmd(
         ["git", "update-ref", "refs/heads/baseline", filtered_tip],
         cwd=staging_repo,
         check=True,
     )
-    run_cmd(["git", "update-ref", "-d", export_ref], cwd=staging_repo, check=True)
     run_cmd(["git", "symbolic-ref", "HEAD", "refs/heads/baseline"], cwd=staging_repo, check=True)
     for path in private_paths:
         leaked = run_cmd(
@@ -1303,8 +1339,15 @@ def filtered_agent_history_repo(
             raise RuntimeError(f"filtered source history still contains private path {path}")
     try:
         os.replace(staging_repo, cache_repo)
-    except FileExistsError:
-        pass
+    except OSError as exc:
+        if exc.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+            raise
+        winner = run_cmd(
+            ["git", "cat-file", "-e", "refs/heads/baseline^{commit}"],
+            cwd=cache_repo,
+        )
+        if winner.returncode != 0:
+            raise RuntimeError(f"concurrent history-cache winner is invalid: {cache_repo}") from exc
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return cache_repo
@@ -1333,14 +1376,36 @@ def commit_agent_baseline(
     include_current_changes: bool = False,
     private_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Commit the current task state while retaining filtered ordinary Git history."""
+    """Hide harness setup behind an unchanged first-parent baseline.
+
+    HEAD and HEAD^1 have the same tree, so ordinary `git show HEAD` exposes no
+    setup patch. The original source history remains reachable through HEAD^2
+    for normal blame/log use. Inspecting that synthetic second-parent boundary
+    is separately treated as benchmark-protocol misuse.
+    """
     if include_current_changes:
         run_cmd(["git", "add", "-A"], cwd=worktree, check=True)
     status = run_cmd(["git", "status", "--porcelain"], cwd=worktree, check=True).stdout.strip()
     if status and not include_current_changes:
         raise RuntimeError(f"cannot commit benchmark baseline with dirty worktree:\n{status}")
     tree = run_cmd(["git", "write-tree"], cwd=worktree, check=True).stdout.strip()
-    parent = run_cmd(["git", "rev-parse", "HEAD"], cwd=worktree, check=True).stdout.strip()
+    source_parent = run_cmd(["git", "rev-parse", "HEAD"], cwd=worktree, check=True).stdout.strip()
+    anchor = run_cmd(
+        [
+            "git",
+            "-c",
+            "user.name=Entire Brain Benchmark",
+            "-c",
+            "user.email=benchmark@example.invalid",
+            "commit-tree",
+            tree,
+            "-m",
+            "Prepared source snapshot",
+        ],
+        cwd=worktree,
+        env=benchmark_git_env(),
+        check=True,
+    ).stdout.strip()
     commit = run_cmd(
         [
             "git",
@@ -1351,9 +1416,11 @@ def commit_agent_baseline(
             "commit-tree",
             tree,
             "-p",
-            parent,
+            anchor,
+            "-p",
+            source_parent,
             "-m",
-            message,
+            "Prepared task workspace",
         ],
         cwd=worktree,
         env=benchmark_git_env(),
@@ -1373,6 +1440,7 @@ def agent_history_attestation(
         check=True,
     ).stdout.strip()
     parent_count = max(0, len(head_line.split()) - 1)
+    parents = head_line.split()[1:]
     commit_count = int(
         run_cmd(["git", "rev-list", "--count", "HEAD"], cwd=worktree, check=True).stdout.strip()
     )
@@ -1384,14 +1452,26 @@ def agent_history_attestation(
             check=True,
         ).stdout.strip():
             private_findings.append(path)
+    refs = run_cmd(["git", "for-each-ref", "--format=%(refname)"], cwd=worktree, check=True).stdout.splitlines()
+    remotes = run_cmd(["git", "remote"], cwd=worktree, check=True).stdout.splitlines()
+    git_dir_raw = run_cmd(["git", "rev-parse", "--absolute-git-dir"], cwd=worktree, check=True).stdout.strip()
+    git_dir = pathlib.Path(git_dir_raw)
+    alternates = git_dir / "objects" / "info" / "alternates"
+    isolation_ok = not refs and not remotes and not alternates.exists()
     return {
         "head_commit": head_line.split()[0],
         "parent_count": parent_count,
+        "first_parent": parents[0] if parents else None,
+        "source_history_parent": parents[1] if len(parents) > 1 else None,
         "commit_count": commit_count,
         "source_history_available": commit_count > 1,
         "private_paths_filtered": not private_findings,
         "private_path_findings": private_findings,
-        "mode": "filtered_source_history",
+        "visible_refs": refs,
+        "visible_remotes": remotes,
+        "shared_object_store": alternates.exists(),
+        "repository_isolated": isolation_ok,
+        "mode": "isolated_filtered_source_history",
     }
 
 
@@ -2254,38 +2334,71 @@ def brain_cli_condition_audit(
     if requires_brain:
         if not bool(activity.get("used_brain")) or int(activity.get("direct_brain_cli_calls") or 0) < 1:
             findings.append({"kind": "missing_required_brain_use", "condition": condition})
-        if (
-            not (isinstance(task, dict) and task.get("require_local_brain_search"))
-            and "brief" not in set(activity.get("brain_commands") or [])
-        ):
+        if "brief" not in set(activity.get("brain_commands") or []):
             findings.append({"kind": "missing_required_brain_brief", "condition": condition})
-
-    requires_search = (
-        isinstance(task, dict)
-        and bool(task.get("require_local_brain_search"))
-        and condition in FULL_HISTORY_CONDITIONS
-    )
-    if requires_search:
-        expected = expected_local_history_search_command(task)
-        actual = activity.get("first_tool_command_tokens")
-        if actual != expected:
-            findings.append(
-                {
-                    "kind": "required_local_brain_search_was_not_first_tool",
-                    "expected": expected,
-                    "actual": actual,
-                }
-            )
-        if "search" not in set(activity.get("brain_commands") or []):
-            findings.append({"kind": "missing_required_local_brain_search"})
 
     return {
         "ok": not findings,
-        "required": requires_brain or requires_search or bool(findings),
+        "required": requires_brain or bool(findings),
         "entire_family_tools": activity.get("entire_family_tools", []),
         "first_tool_command_tokens": activity.get("first_tool_command_tokens"),
         "findings": findings,
     }
+
+
+def baseline_history_audit(
+    agent_info: dict[str, Any],
+    attestations: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    """Reject reconstruction of the harness-only setup boundary.
+
+    Ordinary Git history, blame, log, and commit inspection remain allowed.
+    The only forbidden operation is explicitly comparing the prepared workspace
+    to the synthetic merge's second parent (or asking Git for a merge-parent
+    patch), which reconstructs the benchmark's injected setup mutation.
+    """
+    activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
+    commands = [str(item) for item in activity.get("commands", []) if str(item).strip()]
+    boundary_commits = {
+        str(attestation.get("source_history_parent"))
+        for attestation in attestations
+        if isinstance(attestation, dict) and attestation.get("source_history_parent")
+    }
+    findings: list[dict[str, Any]] = []
+    for command in commands:
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            tokens = command.split()
+        lowered = [token.lower() for token in tokens]
+        if "git" not in {pathlib.Path(token).name.lower() for token in tokens}:
+            continue
+        joined = " ".join(lowered)
+        explicit_second_parent = bool(re.search(r"\bhead(?:[~^][0-9]+)*\^2\b", joined))
+        merge_patch = bool(
+            re.search(r"\bgit\s+(?:show|log)\b", joined)
+            and any(token in {"-m", "--cc", "-c", "--combined"} for token in lowered)
+            and re.search(r"\bhead\b", joined)
+        )
+        boundary_diff = bool(
+            re.search(r"\bgit\s+diff\b", joined)
+            and any(commit.lower()[:7] in joined for commit in boundary_commits)
+        )
+        derived_boundary_diff = bool(
+            re.search(r"\bgit\s+diff\b", joined)
+            and (
+                re.search(r"\bgit\s+(?:rev-list|show|cat-file)\b.*(?:--parents|--format=%p|-p\s+head)", joined)
+                or "head^2" in joined
+            )
+        )
+        if explicit_second_parent or merge_patch or boundary_diff or derived_boundary_diff:
+            findings.append(
+                {
+                    "kind": "benchmark_baseline_boundary_inspection",
+                    "command_sha256": text_sha256(command),
+                }
+            )
+    return {"ok": not findings, "required": True, "findings": findings}
 
 
 def expected_temporal_memory_command(task: dict[str, Any]) -> list[str]:
@@ -2370,9 +2483,20 @@ def temporal_memory_condition_audit(
 
 
 def remove_worktree(source: pathlib.Path, worktree: pathlib.Path) -> None:
-    proc = run_cmd(["git", "worktree", "remove", "--force", str(worktree)], cwd=source)
-    if proc.returncode != 0 and worktree.exists():
+    # Benchmark repositories are standalone disposable clones, never linked
+    # worktrees of `source`; removing them cannot touch source refs or reflogs.
+    if worktree.exists():
         shutil.rmtree(worktree, ignore_errors=True)
+    parent = worktree.parent
+    if parent.name.startswith("repo-") and parent.parent.name == ".worktrees":
+        try:
+            parent.rmdir()
+        except OSError:
+            pass
+        try:
+            parent.parent.rmdir()
+        except OSError:
+            pass
 
 
 CHECKPOINT_REF = "refs/heads/entire/checkpoints/v1"
@@ -2718,7 +2842,9 @@ def brain_cache_payload(
         "workspace_name": benchmark_workspace_name(task) if condition == "mcp_workspace_radar" else None,
         "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
         and condition_copies_entire_history(condition),
-        "memory_bundle": task.get("memory_bundle") if is_temporal_memory_condition(condition) else None,
+        "memory_bundle": task.get("memory_bundle")
+        if (is_temporal_memory_condition(condition) or condition == "full_brain")
+        else None,
         # The distiller binary is deliberately NOT part of the cache key: facts are
         # content-addressed (see the memory_record fact/history/transcript hashes),
         # and agents/models are vendor-updated, so keying prep on the live binary
@@ -3703,6 +3829,31 @@ def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.
         ]
         return commands
 
+    if condition == "full_brain":
+        # A condition named "full" must actually materialize facts. Require the
+        # same pinned distillation contract used by temporal-memory tasks, then
+        # add current seed and semantic sources without pruning any source.
+        memory_bundle_config(task)
+        commands = [
+            [str(tools["brain"]), "refresh", "sessions", "--checkpoint-limit", str(checkpoint_limit), "--history-index"],
+            temporal_distill_command(task, worktree, tools, dry_run=True),
+            temporal_distill_command(task, worktree, tools),
+            [str(tools["brain"]), "refresh", "seed", str(worktree), "--agent", "none", "--force"],
+        ]
+        if task.get("prepare_semantic", True):
+            commands.append(
+                [
+                    str(tools["brain"]),
+                    "refresh",
+                    "index",
+                    str(worktree),
+                    "--graph-binary",
+                    str(tools["entire"]),
+                    "--force",
+                ]
+            )
+        return commands
+
     commands = [[str(tools["brain"]), "refresh", "seed", str(worktree), "--agent", "none", "--force"]]
     if task.get("prepare_semantic", True):
         commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--graph-binary", str(tools["entire"]), "--force"])
@@ -3890,21 +4041,6 @@ def brain_brief_query(task: dict[str, Any]) -> str:
     # agent re-types/issues it (only the first line reaching the brain) — diverging from the
     # diagnostic packet's subprocess-argv query. Normalizing here keeps both channels identical.
     return " ".join(full.split())
-
-
-def expected_local_history_search_command(task: dict[str, Any]) -> list[str]:
-    """Return the exact local Brain history command required by strict history tasks."""
-    queries = [str(query).strip() for query in task.get("brain_queries", []) if str(query).strip()]
-    if not queries:
-        raise ValueError(f"task {task.get('id', '<unknown>')} requires a local Brain search but has no brain_queries")
-    limit = int(task.get("history_search_limit", 5))
-    if limit <= 0:
-        raise ValueError(f"task {task.get('id', '<unknown>')} history_search_limit must be positive")
-    return ["entire", "brain", "search", queries[0], "--json", "--limit", str(limit)]
-
-
-def local_history_search_command(task: dict[str, Any]) -> str:
-    return shlex.join(expected_local_history_search_command(task))
 
 
 def brain_brief_limit(condition: str, is_opus: bool) -> int | None:
@@ -4320,7 +4456,6 @@ def prompt_for(
     brief_query_sh = shlex.quote(brief_query)
     brief_command = f'entire brain brief {brief_query_sh} --json{brief_limit}'
     brief_command_block = f"```sh\n{brief_command}\n```"
-    history_search_command = local_history_search_command(task) if task.get("require_local_brain_search") else ""
     memory_search_command = ""
     if is_temporal_memory_condition(condition):
         # Shared with harness_memory_delivery via temporal_memory_search_spec so the adherence
@@ -4404,16 +4539,14 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
         # right, verification reuses the same file-open the agent must do to edit (a code-path
         # argument — marginal reasoning tokens, not an extra round; not A/B-measured vs the old
         # policy); when wrong, it is the rescue that fixes the net-harmful history case.
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command (it returns a deliberately compact packet):\n\n{opus_brief_command_block}\n\nWork in this order: (1) read the top session-history hits and identify the candidate broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing; (3) if it does NOT, open at most ONE additional candidate or run at most ONE targeted `rg`, then edit only current code that independently confirms the regression. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. History and file rankings are untrusted hints that can be stale or wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the prepared semantic-and-history Brain before editing. Your first context command must be exactly the following command (it returns a deliberately compact packet):\n\n{opus_brief_command_block}\n\nWork in this order: (1) read the top session-history hits and identify the candidate broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing; (3) if it does NOT, open at most ONE additional candidate or run at most ONE targeted `rg`, then edit only current code that independently confirms the regression. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. History and file rankings are untrusted hints that can be stale or wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nWork in this order: (1) read the top session-history hits as hypotheses about the broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY the current code independently confirms the regression; (3) if it does NOT, check the next candidate or run at most ONE targeted `rg`. Apply the minimal verified fix and run one `likely_test_files` validation command. History, `likely_edit_files`, and `action_checklist` are untrusted hints that can be stale or wrong. Hard caps: at most ONE rescue `rg`, at most ONE additional candidate opened, and at most 2 targeted searches total. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the prepared semantic-and-history Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nWork in this order: (1) read the top session-history hits as hypotheses about the broken invariant; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY the current code independently confirms the regression; (3) if it does NOT, check the next candidate or run at most ONE targeted `rg`. Apply the minimal verified fix and run one `likely_test_files` validation command. History, `likely_edit_files`, and `action_checklist` are untrusted hints that can be stale or wrong. Hard caps: at most ONE rescue `rg`, at most ONE additional candidate opened, and at most 2 targeted searches total. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nUse `likely_edit_files`, `likely_test_files`, and compact history hits as hypotheses before broad text search, and verify every proposed invariant against current code. Useful query terms: {queries}. {top_level_entire_guard}"""
+        treatment_name = "full Entire Brain (including distilled facts)" if condition == "full_brain" else "prepared semantic-and-history Brain"
+        policy = f"""Use the {treatment_name} before editing. Your first context command must be exactly the following command:\n\n{brief_command_block}\n\nUse `likely_edit_files`, `likely_test_files`, and compact history hits as hypotheses before broad text search, and verify every proposed invariant against current code. Useful query terms: {queries}. {top_level_entire_guard}"""
     else:
-        if task.get("require_local_brain_search"):
-            policy = f"""Use the local Entire Brain before editing. Your first tool command must be exactly `{history_search_command}` and you must run it exactly once. Treat returned history, `likely_edit_files`, and `likely_test_files` as hypotheses and verify the relevant current code before editing, with at most 2 targeted `rg`/`grep`/`find` commands. Do not run another Brain command. Do not substitute an installed skill, top-level `entire search`, top-level `entire explain`, git history, or ordinary repository search for this required Brain call. Semantic indexing is disabled for this condition, so focus on the local Brain's seed and session-history results. Useful history search terms: {queries}. {top_level_entire_guard}"""
-        else:
-            policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so your first context command must be exactly the following brief:\n\n{brief_command_block}\n\nUse seed context and task-relevant checkpoint/session history only as hypotheses, then verify current code before editing. Useful history search terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the prepared Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so your first context command must be exactly the following task-shaped brief:\n\n{brief_command_block}\n\nUse seed context and task-relevant checkpoint/session history only as hypotheses, then verify current code before editing. Choose any follow-up query yourself from the task and evidence; `brain_queries` are hints, never a harness-mandated retrieval. Useful history search terms: {queries}. {top_level_entire_guard}"""
     parts = [
         base,
         f"Benchmark condition: {condition}",
@@ -4426,7 +4559,10 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
         )
     parts.append(
         "Git history is allowed. Keep history queries targeted and bounded, and do not use Git "
-        "to inspect removed benchmark paths or information from previous benchmark runs."
+        "to inspect removed benchmark paths or information from previous benchmark runs. The "
+        "prepared workspace is represented as a synthetic merge; do not diff its second parent "
+        "or request merge-parent patches, because that reconstructs harness setup rather than "
+        "ordinary source history."
     )
     if not task.get("hide_expected_from_agent"):
         parts.append(f"Expected edit area: {expected}")
@@ -4678,6 +4814,12 @@ def walk_numbers(value: Any, keys: set[str]) -> int:
 
 def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
     usage: dict[str, Any] = {
+        "accounting_version": TOKEN_ACCOUNTING_VERSION,
+        "accounting_rule": (
+            "claude_input_plus_output_plus_cache_read_plus_cache_creation"
+            if agent == "claude"
+            else "openai_input_plus_output_cache_read_is_input_subset"
+        ),
         "turns": None,
         "input_tokens": None,
         "output_tokens": None,
@@ -4740,8 +4882,11 @@ def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
         usage["turns"] = turns
     if usage["total_tokens"] is None:
         if usage["input_tokens"] is not None or usage["output_tokens"] is not None:
-            # Codex/OpenAI reports cached input as a subset of input_tokens.
             usage["total_tokens"] = int(usage["input_tokens"] or 0) + int(usage["output_tokens"] or 0)
+            if agent == "claude":
+                # Claude reports cache reads/creation outside input_tokens.
+                usage["total_tokens"] += int(usage["cache_read_tokens"] or 0)
+                usage["total_tokens"] += int(usage["cache_creation_tokens"] or 0)
         elif usage["cache_read_tokens"] is not None or usage["cache_creation_tokens"] is not None:
             usage["total_tokens"] = int(usage["cache_read_tokens"] or 0) + int(
                 usage["cache_creation_tokens"] or 0
@@ -5223,6 +5368,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         "checked_stale": "stale" in brain_commands,
         "checked_freshness": checked_freshness,
         "test_commands": test_commands,
+        "commands": list(activity_source.get("commands", [])),
         "ran_tests": bool(test_commands),
         "checked_diff": bool(re.search(r"\bgit\s+(?:diff|status)\b", command_lower)),
         "saw_index_locked": "index_locked" in lower or "semantic index lock" in lower,
@@ -5611,6 +5757,11 @@ def run_one(
             worktree,
             filtered_agent_history_paths(task),
         )
+        if not record["agent_baseline_history"]["repository_isolated"]:
+            raise RuntimeError(
+                "agent repository isolation failed: "
+                f"{record['agent_baseline_history']}"
+            )
         prepare_condition_history(task, condition, worktree)
         env, prep = prepare_brain(
             task,
@@ -5689,8 +5840,8 @@ def run_one(
             read_isolation_profile=read_isolation_profile,
             read_isolation=read_isolation,
         )
-        # The agent ran and produced output. A failure past this point (an integrity
-        # abort, or a validation/scoring error) is a REAL condition outcome scored 0,
+        # The agent ran and produced output. A failure past this point (for example,
+        # a validation/scoring error) is a REAL condition outcome scored 0,
         # not an infrastructure non-outcome, so it must stay in the arm means. Only a
         # pre-agent failure (the agent never ran) is excluded; see the handlers below.
         record["agent_ran"] = True
@@ -5706,23 +5857,45 @@ def run_one(
             if task.get("memory_bundle")
             else {"ok": True, "required": False, "findings": []}
         )
+        baseline_audit = baseline_history_audit(
+            agent_info,
+            [
+                record.get("agent_baseline_history", {}),
+                record.get("post_brain_baseline_history", {}),
+            ],
+        )
         files = changed_files(worktree)
         secret_postflight = agent_secret_preflight(worktree)
         record["agent_secret_postflight"] = secret_postflight
-        if not secret_postflight["ok"]:
-            raise RuntimeError(f"post-agent benchmark secrets failed audit: {secret_postflight['findings'][:3]}")
         patch, patch_artifact = capture_agent_patch(worktree)
         patch_secret_hits = secret_pattern_hits(patch)
         record["agent_patch_secret_audit"] = {"ok": not patch_secret_hits, "patterns": patch_secret_hits}
-        if patch_secret_hits:
-            raise RuntimeError(f"agent patch contains benchmark-private patterns: {patch_secret_hits}")
         (run_dir / "agent.patch").write_text(patch)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
         scoring = score(task, condition, agent_info, validation, files, diff)
+        adherence_ok = (
+            mcp_audit["ok"]
+            and brain_cli_audit["ok"]
+            and temporal_audit["ok"]
+            and baseline_audit["ok"]
+        )
+        integrity_ok = (
+            leak_audit["ok"]
+            and secret_preflight["ok"]
+            and secret_postflight["ok"]
+            and not patch_secret_hits
+        )
         record.update(
             {
-                "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"] and brain_cli_audit["ok"] and temporal_audit["ok"],
+                # Task outcome and protocol validity are distinct axes. An agent
+                # may solve the task while violating a treatment condition; that
+                # row is excluded from comparisons rather than recorded as a
+                # failed coding task.
+                "ok": validation["ok"] and agent_info["returncode"] == 0,
+                "task_ok": validation["ok"] and agent_info["returncode"] == 0,
+                "adherence_ok": adherence_ok,
+                "integrity_ok": integrity_ok,
                 "worktree": provenance_path_reference(str(worktree), "agent_worktree"),
                 "brain_prep": prep,
                 "brain_state": brain_state,
@@ -5732,6 +5905,7 @@ def run_one(
                 "mcp_condition_audit": mcp_audit,
                 "brain_cli_condition_audit": brain_cli_audit,
                 "temporal_memory_condition_audit": temporal_audit,
+                "baseline_history_audit": baseline_audit,
                 "agent_info": agent_info,
                 "changed_files": files,
                 "patch_artifact": patch_artifact,
@@ -6093,6 +6267,7 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
     # OUT of arm means/deltas/p-values and counted separately. The audit only sets
     # ok=False when it was required, so `ok is False` is an exact, lane-agnostic gate.
     adherence_excluded: dict[tuple[str, str, str, str, str], int] = {}
+    integrity_excluded: dict[tuple[str, str, str, str, str], int] = {}
     for rec in records:
         runner_id = rec.get("runner", {}).get("id") if isinstance(rec.get("runner"), dict) else None
         runner_id = runner_id or rec["agent"]
@@ -6101,8 +6276,15 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         if rec.get("analysis_excluded"):
             excluded[key] = excluded.get(key, 0) + 1
             continue
+        if rec.get("integrity_ok") is False:
+            integrity_excluded[key] = integrity_excluded.get(key, 0) + 1
+            continue
+        # New records expose one condition-wide adherence bit. Preserve
+        # compatibility with older temporal records when summarizing archives.
         audit = rec.get("temporal_memory_condition_audit")
-        if isinstance(audit, dict) and audit.get("ok") is False:
+        if rec.get("adherence_ok") is False or (
+            "adherence_ok" not in rec and isinstance(audit, dict) and audit.get("ok") is False
+        ):
             adherence_excluded[key] = adherence_excluded.get(key, 0) + 1
             continue
         groups.setdefault(key, []).append(float(rec.get("score", {}).get("total", 0)))
@@ -6208,6 +6390,12 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                 (task_id, agent, runner_id, mode, condition), 0
             ),
             "n_adherence_excluded_baseline": adherence_excluded.get(
+                (task_id, agent, runner_id, mode, "no_brain"), 0
+            ),
+            "n_integrity_excluded_condition": integrity_excluded.get(
+                (task_id, agent, runner_id, mode, condition), 0
+            ),
+            "n_integrity_excluded_baseline": integrity_excluded.get(
                 (task_id, agent, runner_id, mode, "no_brain"), 0
             ),
             "mean_condition": sum(values) / len(values),
@@ -6490,7 +6678,7 @@ def generate_layer_a_scenarios(minimum: int) -> list[dict[str, Any]]:
                     "repo_path": topic["repo_path"],
                     "area": topic["area"],
                     "brain_source": topic["brain_source"],
-                    "condition": "semantic_brain" if topic["brain_source"] == "semantic" else "full_brain",
+                    "condition": "semantic_brain" if topic["brain_source"] == "semantic" else "semantic_history_brain",
                     "archetype": archetype["id"],
                     "prompt_shape": archetype["prompt_shape"],
                     "validation_strategy": archetype["validation_strategy"],
@@ -6498,7 +6686,7 @@ def generate_layer_a_scenarios(minimum: int) -> list[dict[str, Any]]:
                     "brain_excellence_hypothesis": topic["signal"] + " " + archetype["brain_advantage"],
                     "primary_metric": archetype["metric"],
                     "recommended_repetitions": {"pilot": 1, "proof_minimum": 4},
-                    "no_brain_pilot_gate": {"max_score": 90, "action": "reject_unless_full_brain_is_cheaper_or_faster"},
+                    "no_brain_pilot_gate": {"max_score": 90, "action": "reject_unless_semantic_history_brain_is_cheaper_or_faster"},
                     "status": "candidate-needs-pilot",
                     "discovery_score": candidate_discovery_score(topic["brain_source"], archetype["id"]),
                 }
@@ -6544,7 +6732,7 @@ def generate_layer_b_scenarios(minimum: int) -> list[dict[str, Any]]:
                     "repo": task.get("repo"),
                     "repo_path": task.get("repo_path"),
                     "condition": condition,
-                    "brain_source": "full" if condition == "full_brain" else "semantic",
+                    "brain_source": "semantic_history" if condition == "semantic_history_brain" else "semantic",
                     "archetype": archetype["id"],
                     "prompt_shape": archetype["prompt_shape"],
                     "validation_strategy": archetype["validation_strategy"],
@@ -6552,7 +6740,7 @@ def generate_layer_b_scenarios(minimum: int) -> list[dict[str, Any]]:
                     "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. " + archetype["brain_advantage"],
                     "primary_metric": archetype["metric"],
                     "recommended_repetitions": {"pilot": 1, "proof_minimum": 4},
-                    "no_brain_pilot_gate": {"max_score": 90, "action": "reject_unless_full_brain_is_cheaper_or_faster"},
+                    "no_brain_pilot_gate": {"max_score": 90, "action": "reject_unless_semantic_history_brain_is_cheaper_or_faster"},
                     "status": "candidate-needs-pilot",
                     "discovery_score": candidate_discovery_score("semantic", archetype["id"]) + 1,
                 }
@@ -6584,7 +6772,7 @@ def generate_layer_c_scenarios(minimum: int) -> list[dict[str, Any]]:
                     "repo": task.get("repo"),
                     "repo_path": task.get("repo_path"),
                     "condition": condition,
-                    "brain_source": "full" if condition == "full_brain" else "semantic",
+                    "brain_source": "semantic_history" if condition == "semantic_history_brain" else "semantic",
                     "archetype": archetype["id"],
                     "prompt_shape": archetype["prompt_shape"],
                     "validation_strategy": archetype["validation_strategy"],
@@ -6592,7 +6780,7 @@ def generate_layer_c_scenarios(minimum: int) -> list[dict[str, Any]]:
                     "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. " + archetype["brain_advantage"],
                     "primary_metric": archetype["metric"],
                     "recommended_repetitions": {"pilot": 1, "proof_minimum": 4},
-                    "no_brain_pilot_gate": {"max_score": 90, "action": "reject_unless_full_brain_is_cheaper_or_faster"},
+                    "no_brain_pilot_gate": {"max_score": 90, "action": "reject_unless_semantic_history_brain_is_cheaper_or_faster"},
                     "status": "candidate-needs-pilot",
                     "discovery_score": candidate_discovery_score("history", archetype["id"]) + 2,
                 }
@@ -6605,6 +6793,8 @@ def generate_layer_c_scenarios(minimum: int) -> list[dict[str, Any]]:
 
 def phase2_preferred_condition(task: dict[str, Any]) -> str:
     conditions = task.get("conditions", [])
+    if "semantic_history_brain" in conditions:
+        return "semantic_history_brain"
     if "full_brain" in conditions:
         return "full_brain"
     if "semantic_brain" in conditions:
@@ -7095,7 +7285,7 @@ def main() -> int:
         default="",
         help="Comma-separated runner specs: agent[:model[:effort]] or id=agent[:model[:effort]]. Overrides --agents.",
     )
-    run_p.add_argument("--conditions", default="no_brain,semantic_brain,full_brain")
+    run_p.add_argument("--conditions", default="no_brain,semantic_brain,semantic_history_brain")
     run_p.add_argument("--repetitions", type=int, default=1)
     run_p.add_argument(
         "--stop-after-no-brain-score",
@@ -7139,7 +7329,7 @@ def main() -> int:
 
     prep_p = sub.add_parser("prep")
     prep_p.add_argument("--tasks", nargs="*", default=[])
-    prep_p.add_argument("--conditions", default="semantic_brain,full_brain")
+    prep_p.add_argument("--conditions", default="semantic_brain,semantic_history_brain")
     prep_p.add_argument("--checkpoint-limit", type=int, default=200)
     prep_p.add_argument("--source-root", help="Directory containing task repositories")
     prep_p.add_argument("--suite-name")

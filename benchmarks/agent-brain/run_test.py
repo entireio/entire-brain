@@ -167,10 +167,11 @@ class RunnerAndConditionTests(unittest.TestCase):
             run.parse_runner_spec("gemini:gemini-3-flash-preview:max")
 
     def test_condition_prep_kind_separates_delivery_from_brain_artifacts(self):
-        self.assertEqual(run.condition_prep_kind("full_cli_original"), "full_brain")
-        self.assertEqual(run.condition_prep_kind("full_cli_compact"), "full_brain")
-        self.assertEqual(run.condition_prep_kind("mcp_history"), "full_brain")
-        self.assertEqual(run.condition_prep_kind("mcp_workspace_radar"), "full_brain")
+        self.assertEqual(run.condition_prep_kind("full_cli_original"), "semantic_history_brain")
+        self.assertEqual(run.condition_prep_kind("full_cli_compact"), "semantic_history_brain")
+        self.assertEqual(run.condition_prep_kind("mcp_history"), "semantic_history_brain")
+        self.assertEqual(run.condition_prep_kind("mcp_workspace_radar"), "semantic_history_brain")
+        self.assertEqual(run.condition_prep_kind("full_brain"), "full_brain")
         self.assertEqual(run.condition_prep_kind("mcp_semantic"), "semantic_brain")
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
         self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
@@ -215,6 +216,12 @@ class RunnerAndConditionTests(unittest.TestCase):
             "/tmp/brain", "distill", "/tmp/worktree", "--agent", "codex", "--model", "gpt-test",
             "--effort", "low", "--concurrency", "1", "--max-chunk-bytes", "131072",
         ])
+        full = run.brain_prep_commands(task, "full_brain", worktree, tools, 200)
+        self.assertEqual(full[0], [
+            "/tmp/brain", "refresh", "sessions", "--checkpoint-limit", "200", "--history-index",
+        ])
+        self.assertEqual(full[2], facts[-1])
+        self.assertIn(["/tmp/brain", "refresh", "seed", "/tmp/worktree", "--agent", "none", "--force"], full)
 
     def test_memory_bundle_validates_pinned_source_artifact_hashes(self):
         bundle = {
@@ -357,7 +364,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid benchmark workspace_name"):
             run.benchmark_workspace_name({"workspace_name": "../oops"})
 
-    def test_assert_brain_state_ready_requires_full_history_for_full_brain(self):
+    def test_assert_brain_state_ready_distinguishes_semantic_history_from_full_facts(self):
         task = {"prepare_semantic": True}
         ready = {
             "manifest": {
@@ -367,6 +374,12 @@ class RunnerAndConditionTests(unittest.TestCase):
             }
         }
         run.assert_brain_state_ready(task, "full_cli_compact", ready)
+        run.assert_brain_state_ready(task, "semantic_history_brain", ready)
+        with self.assertRaisesRegex(RuntimeError, "requires at least one distilled durable fact"):
+            run.assert_brain_state_ready(task, "full_brain", ready)
+        facts_ready = copy.deepcopy(ready)
+        facts_ready["manifest"].update({"has_facts": True, "fact_count": 1})
+        run.assert_brain_state_ready(task, "full_brain", facts_ready)
 
         missing_history = {"manifest": {"has_semantic": True, "session_count": 2, "history_records": 0}}
         with self.assertRaisesRegex(RuntimeError, "no history index records"):
@@ -619,7 +632,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("at most one targeted `search` or `inspect code`", prompt)
         self.assertNotIn("complete_on_pass", prompt)
 
-    def test_history_only_full_brain_prompt_requires_local_brain_search(self):
+    def test_history_brain_prompt_starts_from_real_task_not_curated_search(self):
         task = {
             "id": "history-task",
             "prompt": "Restore the historical behavior.",
@@ -629,18 +642,12 @@ class RunnerAndConditionTests(unittest.TestCase):
             "prepare_semantic": False,
             "require_local_brain_search": True,
         }
-        prompt = run.prompt_for(task, "full_brain")
-        self.assertIn(
-            "Your first tool command must be exactly `entire brain search '.github symbol was unexpectedly ignored' --json --limit 5`",
-            prompt,
-        )
-        self.assertIn("you must run it exactly once", prompt)
-        self.assertIn("Treat returned history, `likely_edit_files`, and `likely_test_files` as hypotheses", prompt)
-        self.assertIn("verify the relevant current code before editing", prompt)
+        prompt = run.prompt_for(task, "semantic_history_brain")
+        self.assertIn("entire brain brief 'Restore the historical behavior.' --json", prompt)
+        self.assertIn("Choose any follow-up query yourself", prompt)
+        self.assertIn("`brain_queries` are hints, never a harness-mandated retrieval", prompt)
         self.assertNotIn("brain-history-excerpt.md", prompt)
-        self.assertIn("Do not run another Brain command", prompt)
-        self.assertIn("Do not substitute an installed skill, top-level `entire search`", prompt)
-        self.assertIn("Do not substitute an installed skill", prompt)
+        self.assertNotIn("Your first tool command must be exactly `entire brain search", prompt)
 
     def test_brief_command_shell_quotes_query_for_metachar_tasks(self):
         # Release blocker (query corruption): brief_command is run VERBATIM in the agent's shell.
@@ -930,6 +937,28 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(usage["cache_read_tokens"], 600)
         self.assertEqual(usage["output_tokens"], 100)
         self.assertEqual(usage["total_tokens"], 1100)
+        self.assertEqual(usage["accounting_version"], run.TOKEN_ACCOUNTING_VERSION)
+        self.assertIn("subset", usage["accounting_rule"])
+
+    def test_claude_usage_counts_cache_tokens_as_additional_input(self):
+        stdout = json.dumps(
+            {
+                "num_turns": 2,
+                "modelUsage": {
+                    "claude-test": {
+                        "inputTokens": 100,
+                        "outputTokens": 20,
+                        "cacheReadInputTokens": 300,
+                        "cacheCreationInputTokens": 40,
+                    }
+                },
+            }
+        )
+        usage = run.extract_usage("claude", stdout, "")
+        self.assertEqual(usage["turns"], 2)
+        self.assertEqual(usage["total_tokens"], 460)
+        self.assertEqual(usage["accounting_version"], run.TOKEN_ACCOUNTING_VERSION)
+        self.assertIn("cache_read", usage["accounting_rule"])
 
     def test_top_level_entire_command_detection_distinguishes_brain_and_arguments(self):
         self.assertEqual(
@@ -950,21 +979,20 @@ class RunnerAndConditionTests(unittest.TestCase):
         )
         self.assertEqual(run.entire_family_invocations("git log -p -- README.md"), [])
 
-    def test_brain_cli_audit_requires_exact_first_local_search(self):
+    def test_brain_cli_audit_requires_task_shaped_brief_not_curated_search(self):
         task = {
             "id": "history-task",
             "brain_queries": ["history symptom"],
             "require_local_brain_search": True,
         }
-        expected = run.expected_local_history_search_command(task)
         clean = run.brain_cli_condition_audit(
-            "full_brain",
+            "semantic_history_brain",
             {
                 "activity": {
                     "used_brain": True,
                     "direct_brain_cli_calls": 1,
-                    "brain_commands": ["search"],
-                    "first_tool_command_tokens": expected,
+                    "brain_commands": ["brief"],
+                    "first_tool_command_tokens": ["entire", "brain", "brief", "task"],
                     "top_level_entire_commands": [],
                 }
             },
@@ -973,7 +1001,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertTrue(clean["ok"], clean)
 
         wrong_surface = run.brain_cli_condition_audit(
-            "full_brain",
+            "semantic_history_brain",
             {
                 "activity": {
                     "used_brain": False,
@@ -990,8 +1018,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             {finding["kind"] for finding in wrong_surface["findings"]},
             {
                 "missing_required_brain_use",
-                "required_local_brain_search_was_not_first_tool",
-                "missing_required_local_brain_search",
+                "missing_required_brain_brief",
             },
         )
 
@@ -1336,6 +1363,18 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(activity["direct_brain_cli_calls"], 1)
         self.assertEqual(activity["search_calls"], 1)
         self.assertTrue(activity["first_tool_is_memory_search"])
+
+    def test_baseline_history_audit_allows_git_history_but_rejects_setup_boundary(self):
+        attestation = {"source_history_parent": "a" * 40}
+        ordinary = {"activity": {"commands": ["git log -p -- src/file.go", "git blame src/file.go"]}}
+        self.assertTrue(run.baseline_history_audit(ordinary, [attestation])["ok"])
+        for command in [
+            "git diff HEAD^2 HEAD",
+            "git show -m HEAD",
+            f"git diff {'a' * 40} HEAD",
+        ]:
+            audit = run.baseline_history_audit({"activity": {"commands": [command]}}, [attestation])
+            self.assertFalse(audit["ok"], command)
 
     def test_temporal_memory_audit_enforces_first_single_search(self):
         task = _harness_task(memory_delivery="agent_tool")
@@ -1728,38 +1767,25 @@ class RunnerAndConditionTests(unittest.TestCase):
                 check=True,
             )
 
+            source_commit = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, check=True).stdout.strip()
             target.write_text("regressed behavior\n")
-            run.run_cmd(["git", "add", "target.txt"], cwd=repo, check=True)
-            run.run_cmd(
-                [
-                    "git",
-                    "-c",
-                    "user.name=Entire Brain Benchmark",
-                    "-c",
-                    "user.email=benchmark@example.invalid",
-                    "commit",
-                    "-m",
-                    "Benchmark setup",
-                ],
-                cwd=repo,
-                env=run.benchmark_git_env(),
-                check=True,
-            )
-            setup_commit = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, check=True).stdout.strip()
-            setup_patch = run.run_cmd(["git", "show", "--format=", "HEAD"], cwd=repo, check=True).stdout
-            self.assertIn("-fixed behavior", setup_patch)
-            self.assertIn("+regressed behavior", setup_patch)
 
-            baseline = run.commit_agent_baseline(repo, "Benchmark agent baseline")
-            self.assertEqual(baseline["parent_count"], 1)
+            baseline = run.commit_agent_baseline(
+                repo,
+                "ignored task-specific message",
+                include_current_changes=True,
+            )
+            self.assertEqual(baseline["parent_count"], 2)
             self.assertTrue(baseline["source_history_available"])
             parents = run.run_cmd(["git", "show", "--format=%P", "--no-patch", "HEAD"], cwd=repo, check=True).stdout.strip()
-            self.assertEqual(parents, setup_commit)
+            self.assertEqual(parents.split()[1], source_commit)
             baseline_patch = run.run_cmd(["git", "show", "--format=", "HEAD"], cwd=repo, check=True).stdout
             self.assertNotIn("-fixed behavior", baseline_patch)
             self.assertNotIn("+regressed behavior", baseline_patch)
-            old_commit = run.run_cmd(["git", "cat-file", "-e", f"{setup_commit}^{{commit}}"], cwd=repo)
+            old_commit = run.run_cmd(["git", "cat-file", "-e", f"{source_commit}^{{commit}}"], cwd=repo)
             self.assertEqual(old_commit.returncode, 0)
+            subject = run.run_cmd(["git", "log", "-1", "--format=%s"], cwd=repo, check=True).stdout
+            self.assertNotIn("ignored task-specific message", subject)
 
             target.write_text("agent repair\n")
             diff = run.run_cmd(["git", "diff", "--", "target.txt"], cwd=repo, check=True).stdout
@@ -1786,6 +1812,11 @@ class RunnerAndConditionTests(unittest.TestCase):
                 check=True,
             )
             source_head = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=source, check=True).stdout.strip()
+            source_refs_before = run.run_cmd(
+                ["git", "for-each-ref", "--format=%(refname):%(objectname)"],
+                cwd=source,
+                check=True,
+            ).stdout
             task = {
                 "id": "synthetic-history",
                 "repo_path": str(source),
@@ -1800,13 +1831,12 @@ class RunnerAndConditionTests(unittest.TestCase):
             parents = run.run_cmd(["git", "show", "--format=%P", "--no-patch", "HEAD"], cwd=worktree, check=True).stdout.strip()
             self.assertNotEqual(parents, "")
             setup_patch = run.run_cmd(["git", "show", "--format=", "HEAD", "--", "target.txt"], cwd=worktree, check=True).stdout
-            self.assertIn("-fixed behavior", setup_patch)
-            self.assertIn("+regressed behavior", setup_patch)
-            remote = run.run_cmd(["git", "remote", "get-url", "origin"], cwd=worktree, check=True).stdout.strip()
-            self.assertEqual(remote, "https://github.com/example/source.git")
+            self.assertEqual(setup_patch, "")
+            self.assertEqual(run.run_cmd(["git", "remote"], cwd=worktree, check=True).stdout.strip(), "")
             history = run.agent_history_attestation(worktree)
             self.assertTrue(history["source_history_available"])
             self.assertTrue(history["private_paths_filtered"])
+            self.assertTrue(history["repository_isolated"])
             self.assertFalse((worktree / "benchmarks" / "agent-brain").exists())
             private_history = run.run_cmd(
                 ["git", "rev-list", "--objects", "--all", "--", "benchmarks/agent-brain"],
@@ -1818,6 +1848,89 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertIn("real fix", log)
             source_commit = run.run_cmd(["git", "cat-file", "-e", f"{source_head}^{{commit}}"], cwd=worktree)
             self.assertNotEqual(source_commit.returncode, 0)
+            git_common = pathlib.Path(
+                run.run_cmd(["git", "rev-parse", "--git-common-dir"], cwd=worktree, check=True).stdout.strip()
+            )
+            if not git_common.is_absolute():
+                git_common = worktree / git_common
+            self.assertTrue(str(git_common.resolve()).startswith(str(worktree.resolve())))
+            run.remove_worktree(source, worktree)
+            self.assertEqual(
+                run.run_cmd(
+                    ["git", "for-each-ref", "--format=%(refname):%(objectname)"],
+                    cwd=source,
+                    check=True,
+                ).stdout,
+                source_refs_before,
+            )
+
+    def test_create_worktree_without_private_history_is_still_standalone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = pathlib.Path(tmp) / "source"
+            source.mkdir()
+            run.run_cmd(["git", "init"], cwd=source, check=True)
+            (source / "target.txt").write_text("fixed\n")
+            run.run_cmd(["git", "add", "target.txt"], cwd=source, check=True)
+            run.run_cmd(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "source"],
+                cwd=source,
+                env=run.benchmark_git_env(),
+                check=True,
+            )
+            task = {
+                "id": "standalone",
+                "repo_path": str(source),
+                "setup_replacements": [{"path": "target.txt", "old": "fixed\n", "new": "broken\n"}],
+            }
+            run_dir = pathlib.Path(tmp) / "run"
+            run_dir.mkdir()
+            worktree = run.create_worktree(task, run_dir)
+            history = run.agent_history_attestation(worktree)
+            self.assertTrue(history["repository_isolated"], history)
+            self.assertEqual(history["visible_refs"], [])
+            self.assertEqual(history["visible_remotes"], [])
+            self.assertFalse(history["shared_object_store"])
+            self.assertEqual(
+                run.run_cmd(["git", "show", "--format=", "HEAD"], cwd=worktree, check=True).stdout,
+                "",
+            )
+
+    def test_filtered_history_cache_accepts_valid_concurrent_enotempty_winner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            run.run_cmd(["git", "init"], cwd=source, check=True)
+            (source / "target.txt").write_text("source\n")
+            run.run_cmd(["git", "add", "target.txt"], cwd=source, check=True)
+            run.run_cmd(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "source"],
+                cwd=source,
+                env=run.benchmark_git_env(),
+                check=True,
+            )
+            head = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=source, check=True).stdout.strip()
+
+            def concurrent_winner(src, dst):
+                run.shutil.copytree(src, dst)
+                raise OSError(run.errno.ENOTEMPTY, "directory not empty")
+
+            with mock.patch.object(run, "CACHE_DIR", root / "cache"), mock.patch.object(
+                run.os, "replace", side_effect=concurrent_winner
+            ):
+                cache = run.filtered_agent_history_repo(
+                    source,
+                    head,
+                    list(run.AGENT_HISTORY_PRIVATE_PATHS),
+                    paths_present=[],
+                )
+            self.assertEqual(
+                run.run_cmd(
+                    ["git", "cat-file", "-e", "refs/heads/baseline^{commit}"],
+                    cwd=cache,
+                ).returncode,
+                0,
+            )
 
     def test_sanitize_brain_history_scrubs_benchmark_scaffolding(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2192,6 +2305,8 @@ class StatsAndAttributionTests(unittest.TestCase):
             self.assertEqual(prov["source"]["base"]["commit"], head)
             self.assertEqual(prov["source"]["head"]["commit"], head)
             self.assertEqual(prov["source"]["base_ref_source"], "source_head")
+            self.assertEqual(prov["task"]["base_commit"], head)
+            self.assertEqual(prov["task"]["base_commit_source"], "resolved_source_head")
             self.assertEqual(prov["run_config"]["checkpoint_limit"], 17)
             self.assertIs(prov["task"]["radar_include_deletions"], True)
             self.assertRegex(prov["run_config"]["fingerprint"], r"^[0-9a-f]{64}$")
@@ -2284,7 +2399,7 @@ class PanelAndStabilityTests(unittest.TestCase):
             {
                 "runners": ["codex:gpt-test:low"],
                 "tasks": ["entire-brain-history-bundle-sha256.json"],
-                "conditions": ["no_brain", "full_brain"],
+                "conditions": ["no_brain", "semantic_history_brain"],
                 "repetitions": 4,
             }
         )
@@ -7287,6 +7402,28 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(comp["n_adherence_excluded_baseline"], 1)
         self.assertEqual(comp["n_condition"], 2)
         self.assertEqual(comp["n_adherence_excluded_condition"], 0)
+
+    def test_summarize_excludes_non_temporal_brain_adherence_failure_without_changing_task_ok(self):
+        baseline = _rec(700, score=90)
+        baseline.update({"condition": "no_brain", "adherence_ok": True, "integrity_ok": True})
+        valid = _rec(500, score=95)
+        valid.update({"condition": "semantic_brain", "adherence_ok": True, "integrity_ok": True})
+        ignored_brain = _rec(300, score=100)
+        ignored_brain.update(
+            {
+                "condition": "semantic_brain",
+                "ok": True,
+                "task_ok": True,
+                "adherence_ok": False,
+                "integrity_ok": True,
+            }
+        )
+        with tempfile.TemporaryDirectory() as d:
+            summary = run.summarize([baseline, valid, ignored_brain], pathlib.Path(d))
+        comp = next(item for item in summary["comparisons"] if item["condition"] == "semantic_brain")
+        self.assertEqual(comp["n_condition"], 1)
+        self.assertEqual(comp["n_adherence_excluded_condition"], 1)
+        self.assertEqual(comp["mean_condition"], 95.0)
 
     def test_temporal_arms_symmetrically_strip_entire_side_channel(self):
         # Every arm of a temporal-memory task strips the repo's committed .entire/

@@ -14,11 +14,14 @@ import (
 const retrievalExcerptBytes = 600
 
 type compactUnifiedResult struct {
-	Source               string            `json:"source"`
-	ID                   string            `json:"id"`
-	Path                 string            `json:"path,omitempty"`
-	Heading              string            `json:"heading,omitempty"`
-	Line                 int               `json:"line,omitempty"`
+	Source  string `json:"source"`
+	ID      string `json:"id"`
+	Path    string `json:"path,omitempty"`
+	Heading string `json:"heading,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	// Text is retained for JSON compatibility. Excerpt is the bounded locator
+	// projection newer agents may prefer before calling get/multi-get.
+	Text                 string            `json:"text,omitempty"`
 	Excerpt              string            `json:"excerpt"`
 	Score                float64           `json:"score,omitempty"`
 	VerificationRequired bool              `json:"verification_required,omitempty"`
@@ -107,7 +110,11 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		related = relatedPatternPointers(brainDir, query, patternPointerCap)
 	}
 	if jsonOut {
-		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
+		// Preserve the established CLI JSON `text` field. MCP is the compact
+		// agent transport and can omit the duplicate full body; callers fetch it
+		// explicitly with brain_get when the excerpt is insufficient.
+		includeText := !strings.HasPrefix(surface, "mcp:")
+		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query, includeText)}
 		hints := retrievalHintsForResults(repoDir, results, query)
 		if len(hints.LikelyEditFiles) > 0 {
 			out["likely_edit_files"] = hints.LikelyEditFiles
@@ -245,7 +252,7 @@ func retrievalSiblingImplementationCandidates(testFile string) []string {
 	}
 }
 
-func compactUnifiedResults(results []unifiedResult, query string) []compactUnifiedResult {
+func compactUnifiedResults(results []unifiedResult, query string, includeText bool) []compactUnifiedResult {
 	if results == nil {
 		return []compactUnifiedResult{}
 	}
@@ -255,6 +262,9 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 			Source: result.Source, ID: result.ID, Path: result.Path, Heading: result.Heading, Line: result.Line,
 			Excerpt: retrievalResultExcerpt(result.Text, query, retrievalExcerptBytes), Score: result.Score,
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
+		}
+		if includeText {
+			out[i].Text = result.Text
 		}
 	}
 	return out

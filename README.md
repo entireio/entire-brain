@@ -193,13 +193,14 @@ shelling out to the CLI. The normal first call is `brain_brief`, then targeted
 follow-ups:
 
 - `brain_brief` for task-shaped context, history hits, likely files, and tests
-- `brain_status` to check compact freshness, coverage totals, and blind spots;
-  request `details: true` only for coverage histograms, staged-file classes, or
-  changed-symbol records
-- `brain_refresh` to deterministically rebuild code-derived local sources when
-  status reports unsafe retrieval freshness; set `worktree: true` only when
-  current uncommitted content belongs in the snapshot, and `sessions: true`
-  only when checkpoint history also needs refresh
+- `brain_status` for a compact freshness/coverage preflight; set
+  `details: true` for the full status JSON contract
+- `brain_refresh` for a bounded seed/docs refresh when retrieval freshness is
+  unsafe; set `semantic: true` only for small repositories and use
+  `brain_index_repository` as the separate long-running semantic step for large
+  repositories. Set `worktree: true` only when current uncommitted content
+  belongs in the snapshot, and `sessions: true` only when checkpoint history
+  also needs refresh
 - retrieval tools such as `brain_query` and `brain_get` for facts, docs, history
 - semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
   `brain_tests` for code navigation and validation planning
@@ -245,14 +246,13 @@ entire brain inspect tests "<symbol-or-id>" --json
 entire brain inspect regressions "<task or invariant>" --location-only --json
 ```
 
-`status --json` is the compact agent preflight. Check
+`status --json` preserves the full status contract. Check
 `semantic.freshness.severity` before graph inspection and
 `retrieval.freshness.severity` before query/get. A semantic-only
 `refresh index` does not rebuild seed/docs: use `entire brain refresh --agent
 none` when retrieval is stale, adding `--worktree` only when current
-uncommitted content should be included. Use `status --json --details` only when
-an audit or diagnosis needs language/kind/relation histograms,
-staged/unstaged/untracked classifications, or changed-symbol records.
+uncommitted content should be included. `status --json --details` remains an
+accepted compatibility spelling for callers that already use it.
 `inspect code --json`, `inspect context --json`, `inspect impact --json`, and
 `inspect tests --json` likewise return compact semantic records by default; add
 `--details` only when provider metadata is needed. Their defaults are 10 code

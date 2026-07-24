@@ -2,7 +2,7 @@
   "id": "entire-brain-stale-query-default-limit",
   "repo": "entire-brain",
   "repo_path": "entire-brain",
-  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "prompt": "Fix the unified query default-limit regression. A regression was applied after any prepared brain context, so do not trust semantic answers until you have checked freshness against the current checkout. The query command should keep its documented default result limit and its QMD-style -n alias. Run the focused retrieval alias tests before finishing.",
   "post_brain_replacements": [
     {

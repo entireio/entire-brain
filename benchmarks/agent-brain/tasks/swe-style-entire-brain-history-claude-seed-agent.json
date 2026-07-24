@@ -4,7 +4,7 @@
   "repo_path": "entire-brain",
   "conditions": [
     "no_brain",
-    "full_brain"
+    "semantic_history_brain"
   ],
   "prepare_semantic": false,
   "source": "swe-style",

@@ -4,7 +4,7 @@
   "repo_path": "entire-cli",
   "source": "swe-bench-style-local",
   "suite_tags": ["swe-style", "entire-cli", "manual-commit", "attribution"],
-  "conditions": ["no_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_history_brain"],
   "prompt": "Issue: manual-commit attribution drifts after a user makes an unrelated commit during an active session. The following condensation then counts older unrelated lines as `human_added`, causing the agent percentage to collapse. Restore the remembered behavior that keeps attribution math scoped to the current cycle.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

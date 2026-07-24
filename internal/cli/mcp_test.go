@@ -168,13 +168,13 @@ func TestMCPBrainRefreshReturnsFreshStatus(t *testing.T) {
 	responses := readMCPResponses(t, out.String())
 	payload := mcpTextJSONPayload(t, responses[0])
 	data, _ := json.Marshal(payload)
-	for _, want := range []string{`"seed":true`, `"docs":true`, `"semantic":true`, `"retrieval"`, `"freshness"`} {
+	for _, want := range []string{`"seed":true`, `"docs":true`, `"semantic":false`, `"retrieval"`, `"freshness"`} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("brain_refresh status missing %q: %s", want, data)
 		}
 	}
-	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
-		t.Fatalf("brain_refresh did not rebuild the semantic source: %+v", runner.calls)
+	if fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+		t.Fatalf("default brain_refresh should remain bounded; semantic indexing is opt-in: %+v", runner.calls)
 	}
 	for _, call := range runner.calls {
 		if call.name == "entire" && len(call.args) > 0 && call.args[0] == "checkpoint" {

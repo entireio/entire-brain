@@ -105,22 +105,22 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compactOut, err := execute(t, NewRootCommand(opts), "status", "--json")
+	defaultOut, err := execute(t, NewRootCommand(opts), "status", "--json")
 	if err != nil {
-		t.Fatalf("compact status: %v\n%s", err, compactOut)
+		t.Fatalf("default status: %v\n%s", err, defaultOut)
 	}
-	var compact brainStatusReport
-	if err := json.Unmarshal([]byte(compactOut), &compact); err != nil {
-		t.Fatalf("decode compact status: %v\n%s", err, compactOut)
+	var defaultReport brainStatusReport
+	if err := json.Unmarshal([]byte(defaultOut), &defaultReport); err != nil {
+		t.Fatalf("decode default status: %v\n%s", err, defaultOut)
 	}
-	if compact.Semantic == nil || compact.Semantic.Coverage == nil || compact.Semantic.Coverage.Files != 3 || compact.Semantic.Coverage.Symbols != 3 || compact.Semantic.Coverage.Relations != 2 {
-		t.Fatalf("compact status lost coverage totals: %+v", compact.Semantic)
+	if defaultReport.Semantic == nil || defaultReport.Semantic.Coverage == nil || defaultReport.Semantic.Coverage.Files != 3 || defaultReport.Semantic.Coverage.Symbols != 3 || defaultReport.Semantic.Coverage.Relations != 2 {
+		t.Fatalf("default status lost coverage totals: %+v", defaultReport.Semantic)
 	}
-	if len(compact.Semantic.BlindSpots) != 1 || compact.Semantic.BlindSpots[0].Path != "src/broken.ts" || len(compact.Semantic.Coverage.WarningDetails) != 1 || len(compact.Semantic.Coverage.PartialFailureDetails) != 1 {
-		t.Fatalf("compact status lost warnings or blind spots: %+v", compact.Semantic)
+	if len(defaultReport.Semantic.BlindSpots) != 1 || defaultReport.Semantic.BlindSpots[0].Path != "src/broken.ts" || len(defaultReport.Semantic.Coverage.WarningDetails) != 1 || len(defaultReport.Semantic.Coverage.PartialFailureDetails) != 1 {
+		t.Fatalf("default status lost warnings or blind spots: %+v", defaultReport.Semantic)
 	}
-	if len(compact.Semantic.Coverage.FileLanguages) != 0 || len(compact.Semantic.Coverage.Languages) != 0 || len(compact.Semantic.Coverage.SymbolKinds) != 0 || len(compact.Semantic.Coverage.RelationTypes) != 0 {
-		t.Fatalf("compact status leaked coverage histograms: %+v", compact.Semantic.Coverage)
+	if len(defaultReport.Semantic.Coverage.FileLanguages) == 0 || len(defaultReport.Semantic.Coverage.Languages) == 0 || len(defaultReport.Semantic.Coverage.SymbolKinds) == 0 || len(defaultReport.Semantic.Coverage.RelationTypes) == 0 {
+		t.Fatalf("default status omitted established coverage histograms: %+v", defaultReport.Semantic.Coverage)
 	}
 
 	detailedOut, err := execute(t, NewRootCommand(opts), "status", "--json", "--details")

@@ -2,7 +2,7 @@
   "id": "entire-cli-review-base-flag-scope",
   "repo": "entire-cli",
   "repo_path": "entire-cli",
-  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "prompt": "Fix the review scope regression: `entire review --base <ref>` must use the explicit base ref when collecting checkpoint context and composing the agent prompt/banner. Preserve the existing review checkpoint context behavior.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

@@ -1,11 +1,11 @@
 {
   "name": "full",
-  "description": "The committed full-panel benchmark for the new brain (facts/distill + semantic + history). This manifest IS the run config: `python3 run.py panel full` expands it into the existing run path and prints a per-task stability verdict. Runners are fully pinned (agent:model:effort) so the proof is reproducible and the model is visible in the artifacts. Conditions intersect each task's own conditions (history-only tasks run no_brain+full_brain; semantic tasks add semantic_brain).",
+  "description": "The committed broad coding panel for semantic and indexed-history Brain treatments. Distilled-fact effects belong to the separate temporal-memory panels. This manifest IS the run config: `python3 run.py panel full` expands it into the existing run path and prints a per-task stability verdict. Runners are fully pinned (agent:model:effort) so the proof is reproducible and the model is visible in the artifacts. Conditions intersect each task's own conditions (history-only tasks run no_brain+semantic_history_brain; semantic tasks add semantic_brain).",
   "runners": [
     "claude:claude-sonnet-4-6:high",
     "codex:gpt-5.5:high"
   ],
-  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "repetitions": 4,
   "tasks": [
     "entire-brain-query-default-limit.json",
