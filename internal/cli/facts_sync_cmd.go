@@ -114,17 +114,35 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		return err
 	}
 
+	// Publish the conflicts this sync RAISED to the shared open-proposal queue, so
+	// other members can review them with `facts proposals`. Only backends that serve
+	// the queue (the hosted http one) can take them; the local git-meta store has no
+	// proposal set and is left untouched. A publish failure never fails the sync —
+	// the facts already landed, and an entire-api that predates the queue endpoint
+	// must not break a working sync — so it is reported as a warning.
+	pub, pubErr := publishRaisedProposals(ctx, srv, repoID, branch, res.Proposals)
+	if pubErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not publish %d raised proposal(s) to the shared review queue: %v\n", len(res.Proposals), pubErr)
+	}
+
 	if syncOpts.jsonOut {
-		return writeJSON(cmd, map[string]any{
-			"branch":    branch,
-			"backend":   backendLabel,
-			"member":    memberID,
-			"published": res.Published,
-			"ref":       res.NewRef,
-			"attempts":  res.Attempts,
-			"proposals": res.Proposals,
-			"facts":     len(facts),
-		})
+		payload := map[string]any{
+			"branch":             branch,
+			"backend":            backendLabel,
+			"member":             memberID,
+			"published":          res.Published,
+			"ref":                res.NewRef,
+			"attempts":           res.Attempts,
+			"proposals":          res.Proposals,
+			"facts":              len(facts),
+			"proposals_shared":   pub.Published,
+			"proposals_open":     pub.Open,
+			"proposals_head_ref": pub.Ref,
+		}
+		if pubErr != nil {
+			payload["proposals_share_error"] = pubErr.Error()
+		}
+		return writeJSON(cmd, payload)
 	}
 
 	out := cmd.OutOrStdout()
@@ -139,6 +157,9 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		fmt.Fprintf(out, "%d cross-member conflict(s) queued for review:\n", len(res.Proposals))
 		for _, p := range res.Proposals {
 			fmt.Fprintf(out, "  %s %s -> %s (by %s, confidence %.2f)\n", p.Action, p.CandidateID, p.TargetID, p.ProposedBy, p.Confidence)
+		}
+		if pub.Published {
+			fmt.Fprintf(out, "shared to the review queue (%d open); resolve with 'facts proposals apply|reject <proposal>'\n", pub.Open)
 		}
 	}
 	return nil
@@ -162,6 +183,21 @@ func persistFactsSyncProposals(brainDir, branch string, proposals []factProposal
 		}
 		return nil
 	})
+}
+
+// publishRaisedProposals shares a sync's raised conflicts through the backend's open
+// proposal queue when it has one. A backend that only implements the fact-set head
+// seam (internal/factgitmeta's local store) is a no-op, so the default local flow is
+// unchanged and never reaches the network.
+func publishRaisedProposals(ctx context.Context, srv factsync.Server, repoID, branch string, raised []factProposal) (factsync.PublishResult, error) {
+	if len(raised) == 0 {
+		return factsync.PublishResult{}, nil
+	}
+	transport, ok := srv.(factsync.ProposalTransport)
+	if !ok {
+		return factsync.PublishResult{}, nil
+	}
+	return factsync.PublishRaised(ctx, transport, repoID, branch, raised)
 }
 
 // resolveFactsBackendName folds the --facts-backend flag, the env override, and
