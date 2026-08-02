@@ -108,10 +108,94 @@ cross-implementation one: it relies on Go's HTML escaping, struct field order,
 `omitempty`, and RFC3339Nano time formatting, and it does not hold for bytes a
 non-Go producer emitted or for a non-canonical original (e.g. explicit
 `"size":0` or reordered fields). **Do not** sign or content-hash the received
-artifact bytes directly across implementations. Integrity/signing instead hashes
-each referenced blob by its `sha256:` digest (already content-addressed); if the
-manifest itself must be signed cross-implementation, M1.3/M1.4 define an explicit
-canonical encoding rather than relying on `encoding/json` defaults.
+artifact bytes directly across implementations, and do not compare them for
+equality. Integrity/signing hashes each referenced blob by its `sha256:` digest
+(already content-addressed); when the artifact itself must be hashed, signed, or
+byte-compared across implementations, run it through the canonical encoding
+below instead of relying on `encoding/json` defaults.
+
+## Canonical encoding
+
+Milestone **P1.M1.3**, implemented in `internal/brainwire/canonical.go`. It is a
+profile of [RFC 8785][jcs] (JSON Canonicalization Scheme) restricted to this
+schema, and it closes exactly the four Go-specific hazards named above.
+
+[jcs]: https://www.rfc-editor.org/rfc/rfc8785
+
+```go
+CanonicalMarshal(a BrainArtifact) ([]byte, error)     // typed value -> canonical bytes
+Canonicalize(raw []byte) ([]byte, error)              // foreign bytes -> canonical bytes
+CanonicalUnmarshal(raw []byte, out *BrainArtifact) error
+```
+
+`CanonicalMarshal` routes through the same normalizer as `Canonicalize`, so
+`CanonicalMarshal(a)` equals `Canonicalize(anyValidEncodingOf(a))` by
+construction. `Canonicalize` is idempotent: `Canonicalize(Canonicalize(b)) ==
+Canonicalize(b)`. Neither function changes a single JSON tag — **the tags are
+the contract**; this milestone only constrains how those tags are serialized, so
+it is not a schema version bump.
+
+### The rules
+
+1. **No HTML escaping.** `<`, `>`, `&` and every other non-control code point
+   are emitted as raw UTF-8, never `\u003c`. Affects `repo_key`,
+   `default_branch`, `branch`, `path`, `media_type`, `provider`.
+2. **Keys sorted lexicographically** by UTF-16 code unit, *not* in Go struct
+   declaration order. So a manifest starts with `brain_schema_version` and ends
+   with `repo_key`, and the artifact's top-level order is `facts`, `manifest`,
+   `overlays`, `snapshots`. Sorting by UTF-16 code unit (not UTF-8 bytes)
+   matters only for non-BMP keys a future minor might add.
+3. **`omitempty` is normative and exhaustive.** Every optional field has one
+   declared omitted default; a producer that emits it explicitly is
+   non-canonical, and the canonicalizer removes it. A JSON `null` and an empty
+   array both count as absent. Required fields (no `omitempty`) are *always*
+   emitted, zero-filled when the input omits them.
+
+   | Type | Field | Required? | Omitted when |
+   |---|---|---|---|
+   | `BrainArtifact` | `manifest` | required | — |
+   | `BrainArtifact` | `snapshots`, `overlays`, `facts` | optional | `null` or `len == 0` |
+   | `BrainManifest` | `repo_key`, `generated_at`, `brain_schema_version` | required | — |
+   | `BrainManifest` | `default_branch`, `provider`, `provider_version`, `provider_schema_version` | optional | `""` |
+   | `ContentRef` | `digest` | required | — |
+   | `ContentRef` | `size` | optional | `0` |
+   | `ContentRef` | `media_type`, `path` | optional | `""` |
+   | `SnapshotRef` | `commit`, `content` | required | — |
+   | `SnapshotRef` | `tree` | optional | `""` |
+   | `OverlayRef` | `base_commit`, `head_commit`, `content` | required | — |
+   | `OverlayRef` | `branch` | optional | `""` |
+   | `FactsRef` | `branch`, `content` | required | — |
+
+   The table lives in code as `canonicalArtifact` and friends;
+   `TestCanonicalFieldTableMatchesStructTags` fails the build if it ever drifts
+   from the struct tags.
+4. **Time.** `generated_at` is converted to UTC and **truncated to whole
+   seconds**, then written with a literal `Z` — never `+00:00`, never a
+   fractional part. Sub-second input **truncates, it does not error**, so
+   `12:00:00Z` and `12:00:00.123456789Z` canonicalize to identical bytes. A
+   caller needing sub-second fidelity must not use this contract. Input is
+   parsed as RFC 3339, so any offset form is accepted and converted; an
+   unparseable timestamp is an error, and an absent one becomes the zero time
+   `0001-01-01T00:00:00Z`.
+5. **Numbers: decimal integers only.** No exponent, no fraction, no leading
+   zeros, no leading `+`. `-0` normalizes to `0`. `1e2` and `1.0` are rejected
+   rather than rounded, as is anything outside `int64`.
+6. **Strings: valid UTF-8, minimal escaping.** Only `"`, `\` and C0 controls are
+   escaped; C0 uses the short forms `\b \f \n \r \t` where they exist and
+   lowercase `\u00xx` otherwise. `U+007F`, `U+2028`, `U+2029` and all multi-byte
+   sequences are emitted raw.
+
+Unknown fields (those a newer additive minor introduced, per the tolerant-reader
+rule below) are **preserved** and canonically re-emitted. Their omitted defaults
+are unknowable to an older reader, so their values pass through unchanged apart
+from key ordering, string escaping, and number syntax — which is what lets an
+older verifier still check a signature over a newer producer's artifact.
+
+`CanonicalUnmarshal` canonicalizes and then tolerantly decodes, so the resulting
+value's `GeneratedAt` is already UTC-truncated and `CanonicalMarshal` of it
+reproduces the same bytes — except when the input carried unknown fields, which
+the typed decode necessarily drops. Verify signatures against `Canonicalize`
+output, not against a re-marshaled struct.
 
 ## Versioning rules
 
@@ -192,3 +276,24 @@ milestone defines the contract, not the store.
   error and preserves known fields.
 - **Local version invariant** — `BrainSchemaVersion` is itself valid
   `major.minor` and self-compatible.
+
+`internal/brainwire/canonical_test.go`, one test per canonical-encoding rule:
+
+- **Golden fixture** — the exact canonical bytes of the representative
+  artifact, written by hand rather than captured from the encoder.
+- **Key order** — lexicographic, and explicitly *not* Go declaration order.
+- **Idempotence** — `Canonicalize(Canonicalize(x)) == Canonicalize(x)` for
+  canonical, Go-default, non-canonical and empty input.
+- **Order independence** — two field orders of the same artifact produce
+  identical bytes.
+- **Omitted defaults** — explicit `"size":0` / `"tree":""` / `null` / `[]` are
+  normalized away; required fields are zero-filled; the field table is checked
+  against the struct tags by reflection.
+- **Escaping** — HTML characters stay raw, `"` and `\` and C0 controls escape
+  minimally.
+- **Time** — sub-second, `+00:00` and non-zero offsets all collapse to the same
+  whole-second `Z` form.
+- **Numbers** — exponents, fractions and overflow rejected; `-0` normalized.
+- **Unknown fields** — preserved and canonically re-emitted.
+- **Errors** — malformed JSON, trailing data, wrong JSON types, unparseable
+  timestamps.
