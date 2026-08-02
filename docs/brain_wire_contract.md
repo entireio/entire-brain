@@ -112,7 +112,8 @@ artifact bytes directly across implementations, and do not compare them for
 equality. Integrity/signing hashes each referenced blob by its `sha256:` digest
 (already content-addressed); when the artifact itself must be hashed, signed, or
 byte-compared across implementations, run it through the canonical encoding
-below instead of relying on `encoding/json` defaults.
+below instead of relying on `encoding/json` defaults. "Manifest signing" below
+does exactly that.
 
 ## Canonical encoding
 
@@ -196,6 +197,158 @@ value's `GeneratedAt` is already UTC-truncated and `CanonicalMarshal` of it
 reproduces the same bytes — except when the input carried unknown fields, which
 the typed decode necessarily drops. Verify signatures against `Canonicalize`
 output, not against a re-marshaled struct.
+
+## Manifest signing
+
+Milestone **P1.M1.4**, implemented in `internal/brainwire/signing.go`.
+
+### What is signed, and why it is the manifest
+
+Blobs are already content-addressed: every `ContentRef` carries a
+`sha256:<hex>` digest of its bytes, so a reader that fetches a blob can check it
+against the digest with no signature at all. What is *not* self-proving is the
+artifact itself — the set of digests, their keys (`commit`,
+`(base_commit, head_commit)`, `branch`) and the identity/version manifest.
+That is what the signature covers.
+
+Because every referenced digest sits inside the signed bytes, the signature
+**transitively covers all blob content**: swapping, adding, removing or
+reordering a blob changes a digest or the reference list, changes the canonical
+bytes, and invalidates the signature.
+`ReferencedDigests(a)` enumerates the covered digests, and
+`TestSignatureCommitsToEveryBlobDigest` asserts the property directly (each
+digest appears verbatim in the pre-image; each of swap / one-character change /
+add / remove / reorder produces `ErrBadSignature`).
+
+The canonical encoding above is the substrate: a signature a non-Go
+implementation must verify cannot be taken over "whatever `encoding/json`
+emitted", because those bytes depend on Go's HTML escaping, struct order,
+`omitempty` and RFC3339Nano formatting. Signed bytes are therefore *always* the
+canonical form.
+
+### Signature envelope
+
+The signature is **detached** — transported alongside the artifact, never inside
+it — so adding a signature does not change the bytes it signs.
+
+```go
+type Signature struct {
+    Alg               string `json:"alg"`                // "ed25519"
+    KeyID             string `json:"key_id"`             // "ed25519:<128-bit fingerprint>"
+    CanonicalEncoding string `json:"canonical_encoding"` // "brainwire-canonical/1"
+    Sig               string `json:"sig"`                // standard base64, 64 raw bytes
+}
+```
+
+Nothing is implied by context:
+
+- **`alg`** carries the algorithm identifier so it can rotate. Today the only
+  value is `ed25519` (pure Ed25519, RFC 8032 — *not* Ed25519ph). A verifier that
+  does not know an identifier fails closed with `ErrUnknownAlgorithm`; it never
+  skips the check.
+- **`canonical_encoding`** pins the canonicalization the signature was produced
+  under, so a future change to the canonical rules **cannot silently validate**.
+  A mismatch is `ErrUnsupportedEncoding`.
+- **`key_id`** is derived from the public key, so it cannot disagree with the key
+  it names: `"ed25519:" + hex(sha256(rawPublicKey)[:16])`. It is an identifier,
+  not a security boundary; the signature check is the boundary.
+
+### Signed pre-image
+
+A signature covers a domain-separated pre-image that also binds the envelope's
+own metadata:
+
+```
+SigningDomain               "\n"    // "entire-brain/artifact-signature/v1"
+Signature.Alg               "\n"
+Signature.KeyID             "\n"
+Signature.CanonicalEncoding "\n"
+<canonical artifact bytes>
+```
+
+LF is an unambiguous separator: `alg`, `key_id` and `canonical_encoding` are
+validated to contain no LF, and canonical artifact bytes never contain a raw LF
+(the canonical encoder emits no whitespace and escapes control characters inside
+strings). `Signature.Sig` is deliberately excluded — a signature cannot cover
+itself.
+
+Binding the metadata means a valid signature cannot be **relabeled** under a
+different algorithm, key or encoding version: doing so changes the pre-image, so
+it stops verifying. `SigningInput(env, canonical)` is exported so another
+implementation can be checked against a byte-exact pre-image.
+
+### API
+
+```go
+Sign(a BrainArtifact, signer crypto.Signer) (Signature, error)
+SignCanonical(canonical []byte, signer crypto.Signer) (Signature, error)
+
+Verify(a BrainArtifact, sig Signature, pub crypto.PublicKey) error
+VerifyBytes(raw []byte, sig Signature, pub crypto.PublicKey) error       // canonicalizes first
+VerifyCanonical(canonical []byte, sig Signature, pub crypto.PublicKey) error
+```
+
+Signing takes a `crypto.Signer`, not raw key bytes, so a caller can keep the key
+in an HSM, a KMS or an agent; this build requires `signer.Public()` to be an
+`ed25519.PublicKey`. Verification takes a `crypto.PublicKey` for the same
+reason.
+
+`VerifyBytes` is the transport entry point: it canonicalizes first, so a
+producer in another language whose serializer differs cosmetically (key order,
+escaping, an explicit `"size":0`) still verifies. Unknown fields from a newer
+additive minor survive canonicalization, so **an older verifier can still check a
+newer producer's signature** — and stripping such a field breaks it, so an older
+reader cannot drop what it does not understand and still validate.
+`SignCanonical` / `VerifyCanonical` refuse anything that is not byte-identical to
+its own canonicalization (`ErrNotCanonical`) rather than silently normalizing.
+
+### Error types
+
+Every failure is distinguishable with `errors.Is`:
+
+| Error | Means |
+|---|---|
+| `ErrBadSignature` | the cryptographic check failed — artifact, signature, or a bound envelope field was altered |
+| `ErrUnknownAlgorithm` | `alg` names an algorithm this build does not implement, or the key is not of that type |
+| `ErrUnsupportedEncoding` | signature was produced under a canonical encoding this build cannot reproduce |
+| `ErrKeyMismatch` | the envelope names a different key than the one offered |
+| `ErrNotCanonical` | input is not in (or cannot be brought into) canonical form |
+| `ErrMalformedSignature` | missing field, LF in a field, or `sig` not base64 of 64 bytes |
+| `ErrNoKey` | no usable key material at the given source |
+| `ErrInsecureKeyFile` | private-key file is group- or world-accessible |
+
+### Key handling
+
+```go
+LoadSignerFile(path string) (*Ed25519Signer, error)
+LoadSignerEnv(name string) (*Ed25519Signer, error)
+LoadPublicKeyFile(path string) (ed25519.PublicKey, error)
+ParseEd25519PrivateKey / ParseEd25519PublicKey / MarshalPrivateKeyPEM / MarshalPublicKeyPEM
+GenerateEd25519Signer(entropy io.Reader) (*Ed25519Signer, error)
+```
+
+- **Formats** are the interoperable ones: PEM PKCS#8 `PRIVATE KEY` (what
+  `openssl genpkey -algorithm ed25519` writes) and PEM PKIX `PUBLIC KEY`, plus
+  bare base64 of a 32-byte seed / 64-byte private key / 32-byte public key for
+  environment variables. `LoadSignerEnv` also accepts PEM with `\n`-escaped
+  newlines, the usual shape in a secrets manager.
+- **Private key files must be mode `0600`** (no group/other bits) on non-Windows
+  hosts; otherwise `ErrInsecureKeyFile`.
+- **Key material is never logged.** `Ed25519Signer` implements `String`,
+  `GoString`, `MarshalText` and `MarshalJSON` to render only the key id, so the
+  key cannot leak through `%v`, `%s`, `%q`, `%#v`, a structured logger, or a JSON
+  dump of a config struct that embeds it. No error message returned by the
+  loaders contains key bytes — only paths, variable names and lengths.
+  `TestSignerNeverRendersKeyMaterial` searches every render and every loader
+  error for both spellings of the secret.
+
+### Cross-implementation proof
+
+`TestSignatureGolden` pins the key id, pre-image and signature for a fixed seed
+and the representative artifact. Both constants were reproduced **outside Go**
+with `openssl` (commands are in the test's doc comment):
+`openssl pkeyutl -verify -rawin -pubin -inkey kpub.pem -sigfile sig.bin -in msg.bin`
+reports `Signature Verified Successfully`.
 
 ## Versioning rules
 
@@ -297,3 +450,31 @@ milestone defines the contract, not the store.
 - **Unknown fields** — preserved and canonically re-emitted.
 - **Errors** — malformed JSON, trailing data, wrong JSON types, unparseable
   timestamps.
+
+`internal/brainwire/signing_test.go`:
+
+- **Round trip** — sign, then verify through `Verify`, `VerifyCanonical`,
+  `VerifyBytes`, and after a JSON round trip of the envelope.
+- **Golden fixture** — fixed seed → pinned key id, pre-image and signature,
+  independently reproduced with `openssl`.
+- **Stability** — signing the same artifact twice, signing an independently
+  built equal artifact, and verifying a foreign producer's reordered /
+  explicit-default / offset-timestamp encoding all agree.
+- **Tampered manifest** — each of the 14 signed fields (identity, provider,
+  version, timestamp, snapshot/overlay/facts keys, content size and media type)
+  and a flipped signature byte produce `ErrBadSignature`.
+- **Blob commitment** — every digest is present in the pre-image; swap,
+  one-character change, add, remove and reorder each fail.
+- **Wrong key** — a different key gives `ErrKeyMismatch`; an envelope relabeled
+  with the other key's id gives `ErrBadSignature`, proving the key id is bound
+  into the pre-image.
+- **Fail-closed** — unknown/future/empty `alg`, future/empty
+  `canonical_encoding`, empty `key_id`/`sig`, LF injection, non-base64 and
+  wrong-length signatures, and a non-Ed25519 verification key.
+- **Non-canonical input** — `SignCanonical`/`VerifyCanonical` reject Go-default
+  and malformed bytes; `VerifyBytes` accepts the same content.
+- **Unknown fields** — a newer minor's artifact verifies on this reader, and
+  stripping the unknown field breaks the signature.
+- **Keys** — PEM and bare-base64 load from file and env, insecure file mode,
+  missing file, unset/empty env, public-key parsing, malformed material, and
+  that no render or loader error ever contains key material.
