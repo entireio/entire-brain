@@ -76,11 +76,14 @@ at index time.
 Conversation vectors (Phase 2): behind the same gate as history vectors — a
 fusion-eligible embedder (`ENTIRE_BRAIN_EMBEDDER` with a Gemma-class server)
 plus the `brain_cgo` build — `refresh` also embeds exchange projections into a
-separate vec0 store, and conversation `query` fuses BM25 with calibrated
-exchange vectors via RRF. Lexical-only operation stays fully supported: with
-the gate closed, `query` degrades to exactly the lexical ranking, and CLI
-`vsearch --source conversation` returns a structured unavailable error naming
-the requirements. `brain_status` reports the projection and its vector identity
+separate vec0 store. Explicit `vsearch --source conversation` is semantic-only
+over that store (a structured unavailable error names the requirements when
+the arm is closed). Conversation `query` stays **BM25-only by default**: the
+2026-08-07 calibration measured RRF fusion trading exact-match precision for a
+marginal paraphrase gain (see `docs/eval_ledger.md`), so the fused ranking
+ships dark behind the `ENTIRE_BRAIN_CONVERSATION_FUSION` development flag
+until a ledger row validates it — the same eligibility discipline history
+fusion uses. `brain_status` reports the projection and its vector identity
 under `retrieval.conversation` (`vector_state`:
 disabled | gate_closed | unavailable_build | absent | current, plus the model
 id and vector count when current).

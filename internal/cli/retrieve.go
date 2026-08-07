@@ -618,8 +618,21 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		}
 		scored = rankConversationSemantic(index, scores, candidateLimit)
 	case modeHybrid:
+		// Conversation fusion is OFF by default pending a validated positive:
+		// the 2026-08-07 calibration on the entire-brain corpus (22-task exact
+		// pack + 10-task paraphrase stratum, EmbeddingGemma) measured fusion
+		// trading exact-match precision (R@1 0.864→0.773, one R@5 loss, one
+		// paraphrase dropped from rank 1 to unranked) for +1 paraphrase hit —
+		// the same displacement failure mode that closed Model2Vec history
+		// fusion. Same discipline as historyFusionEligible: the fused arm
+		// ships dark behind a development flag until an eval-ledger row
+		// validates it (see docs/eval_ledger.md).
 		var ok bool
-		scored, ok = rankConversationFused(brainDir, index, query, candidateLimit, defaultEmbedder())
+		if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
+			scored, ok = rankConversationFused(brainDir, index, query, candidateLimit, defaultEmbedder())
+		} else {
+			scored, ok = rankHistoryViaFTS(brainDir, index, conversationKind, query, candidateLimit)
+		}
 		if !ok {
 			scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
 		}
