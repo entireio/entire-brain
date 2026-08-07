@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bxa22095i</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/cd50f07a-6a14-4eeb-ab8e-26e010985a67/tasks/bxa22095i.output</output-file>
+<status>completed</status>
+<summary>Background command "Full suites for Phase 3 increment 1" completed (exit code 0)</summary>
+</task-notification>
