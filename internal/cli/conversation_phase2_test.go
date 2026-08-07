@@ -536,3 +536,122 @@ func TestRecallSkillTemplatesEmbeddedAndSafe(t *testing.T) {
 		}
 	}
 }
+
+// --- Phase 3 increment 1: doctor + stats coverage ---
+
+func TestBrainStatsReportCountsAndVersions(t *testing.T) {
+	brainDir, _ := buildConversationBrainFixture(t, "sess-stats")
+	report, err := buildBrainStatsReport(brainDir, time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if report.Sessions.Count != 1 || report.Sessions.ByAgent["claude"] != 1 || report.Sessions.ByBranch["main"] != 1 {
+		t.Fatalf("sessions stats = %+v", report.Sessions)
+	}
+	if report.History.Records == 0 || report.History.ByKind[conversationKind] != 2 {
+		t.Fatalf("history stats = %+v", report.History)
+	}
+	if report.History.ScanCacheVersion != historyScanCacheVersion || report.History.FTSSchema != historyFTSSchema {
+		t.Fatalf("index versions = %+v", report.History)
+	}
+	c := report.Conversation
+	if c == nil || c.Exchanges != 2 || c.IncompleteExchanges != 1 {
+		t.Fatalf("conversation stats = %+v", c)
+	}
+	if c.ByAgent["claude"] != 2 || c.ByBranch["main"] != 2 {
+		t.Fatalf("conversation breakdowns = %+v", c)
+	}
+	if c.IdentityDegraded != 0 || c.RangeIncomplete != 0 {
+		t.Fatalf("completion state = %+v", c)
+	}
+	if c.OldestCreatedAt == "" || c.LatestCreatedAt == "" {
+		t.Fatalf("missing created-at range: %+v", c)
+	}
+	if c.VectorState != "disabled" {
+		t.Fatalf("vector state = %q (test env has no embedder opt-in)", c.VectorState)
+	}
+}
+
+func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := "sessions/main/20260807T120000Z_doctor.jsonl"
+	full := filepath.Join(storage.BrainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(conversationClaudeFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "doc-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	states := func() map[string]doctorCheckResult {
+		t.Helper()
+		out := map[string]doctorCheckResult{}
+		for _, check := range brainDoctorChecks((&cobra.Command{}).Context(), opts, repoDir) {
+			out[check.Name] = check
+		}
+		return out
+	}
+	checks := states()
+	for name, want := range map[string]string{
+		"manifest": "ok", "capture": "ok", "history_index": "ok",
+		"history_freshness": "ok", "conversation": "ok", "write_lock": "ok",
+	} {
+		if checks[name].State != want {
+			t.Fatalf("%s = %+v, want state %s (all: %+v)", name, checks[name], want, checks)
+		}
+	}
+	if !strings.Contains(checks["conversation"].Detail, "2 exchanges") {
+		t.Fatalf("conversation detail = %q", checks["conversation"].Detail)
+	}
+
+	// A session exported after the index build (a missed hook) must flip
+	// history_freshness to warn until the next refresh repairs it. Reload the
+	// on-disk manifest first — the index build annotated it with the history
+	// source, which the tampered rewrite must preserve.
+	onDisk, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onDisk.Sources.Sessions.Sessions = append(onDisk.Sources.Sessions.Sessions, exportSession{
+		SessionID: "missed-sess", Branch: "main", LatestCheckpoint: "cp2",
+		TranscriptPath: "sessions/main/20260807T130000Z_missed.jsonl", CreatedAt: now,
+	})
+	if err := writeBrainManifestAndReadme(storage.BrainDir, *onDisk); err != nil {
+		t.Fatal(err)
+	}
+	if got := states()["history_freshness"]; got.State != "warn" {
+		t.Fatalf("missed session must flip history_freshness to warn: %+v", got)
+	}
+
+	// While the write lock is held, doctor reports it without failing.
+	unlock, err := acquireBrainWriteLock(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := states()["write_lock"]
+	unlock()
+	if got.State != "warn" || !strings.Contains(got.Detail, "held") {
+		t.Fatalf("held lock check = %+v", got)
+	}
+}

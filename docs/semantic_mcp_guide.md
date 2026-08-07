@@ -98,6 +98,17 @@ unchanged until this section qualifies for the compact budget); each hit
 carries `content_role: historical_evidence` and the packet gains an explicit
 verify-before-acting guidance line.
 
+Lifecycle observability: `entire brain doctor --json` walks the
+capture → export → index → recall chain (exported sessions, history index
+health, conversation freshness against the current session fingerprint — a
+missed session-end hook shows up as a `history_freshness` warn until the next
+refresh repairs it — the conversation projection and its vector identity, the
+derived BM25 index, and the write lock). `entire brain stats --json` reports
+counts and ranges by branch, agent, source kind, completion state
+(incomplete / range-incomplete / degraded-identity / truncated-projection),
+and index versions (scan cache, FTS schema). Automatic indexing is inherited:
+`watch` already drives the deterministic refresh that rebuilds exchanges.
+
 Current limits: `brain_vsearch` (MCP) does not accept `source` or filters;
 current repository only; exchanges never enter default retrieval, publish, or
 bundle output (and enter `brain_brief` only under the development flag above);
