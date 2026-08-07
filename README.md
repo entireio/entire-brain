@@ -548,10 +548,14 @@ calls.
 
 To keep specific sessions out of the brain's projections, use
 `entire brain privacy list|exclude|include|purge`. `exclude` tombstones a
-session so every derived layer (history records, conversation exchanges, FTS,
-vector stores, caches) skips it on rebuild while keeping the exported
-transcript; `purge` additionally deletes the exported transcript copy and the
-derived stores (`--dry-run` reports exactly what would be removed first).
+session so every derived layer (history records, conversation exchanges,
+pattern episodes and corpus, FTS, vector stores, caches) skips it on rebuild
+while keeping the exported transcript; `purge` additionally deletes the
+exported transcript copy and the derived stores, removes durable facts whose
+only provenance is the purged session (facts corroborated by other sessions
+keep their remaining anchors), filters its pattern episodes, and clears its
+distill-cache entries (`--dry-run` reports exactly what would be removed
+first). Skill-memory — your accept/decline curation — is never touched.
 Tombstones are brain-local and survive re-export: a purged session that the
 capture layer re-exports stays un-indexed until an explicit `include`. Note the
 canonical capture on `entire/checkpoints/v1` is the capture layer's data —

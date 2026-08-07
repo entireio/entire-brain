@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -293,8 +294,17 @@ type sessionPurgePlan struct {
 	// Records is the number of index records (all kinds) derived from those
 	// transcripts that the rebuild will drop.
 	Records int `json:"records"`
+	// FactsDeleted counts durable facts whose ONLY provenance is the purged
+	// session (physically removed); FactAnchorsStripped counts purged-session
+	// anchors removed from facts that remain corroborated by other sessions.
+	FactsDeleted        int `json:"facts_deleted"`
+	FactAnchorsStripped int `json:"fact_anchors_stripped"`
+	// Episodes counts pattern-layer episode records derived from the session.
+	Episodes int `json:"episodes"`
 	// DerivedStores are rebuildable stores deleted wholesale (they regenerate
-	// from the surviving truth on the next query/refresh).
+	// from the surviving truth on the next query/refresh/patterns build).
+	// skill-memory.ndjson is deliberately NOT here: it holds user curation
+	// decisions (ids/status/counters, no transcript content), not derivation.
 	DerivedStores []purgeArtifact `json:"derived_stores"`
 	DryRun        bool            `json:"dry_run"`
 }
@@ -356,6 +366,12 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 			fmt.Fprintf(out, "  transcript %s (%d bytes)\n", artifact.Path, artifact.Bytes)
 		}
 		fmt.Fprintf(out, "  %d derived index records\n", plan.Records)
+		if plan.FactsDeleted > 0 || plan.FactAnchorsStripped > 0 {
+			fmt.Fprintf(out, "  %d single-source facts deleted, %d anchors stripped from corroborated facts\n", plan.FactsDeleted, plan.FactAnchorsStripped)
+		}
+		if plan.Episodes > 0 {
+			fmt.Fprintf(out, "  %d pattern episodes\n", plan.Episodes)
+		}
 		for _, artifact := range plan.DerivedStores {
 			fmt.Fprintf(out, "  derived store %s (%d bytes, rebuilds from surviving truth)\n", artifact.Path, artifact.Bytes)
 		}
@@ -399,21 +415,174 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 			}
 		}
 	}
+	// Facts derived from the purged session (single-source facts are deleted;
+	// multi-source facts only lose the purged anchor).
+	if byBranch, ferr := loadAllFactBranches(brainDir); ferr == nil {
+		for _, facts := range byBranch {
+			for _, fact := range facts {
+				matched, remaining := 0, 0
+				for _, anchor := range fact.Provenance {
+					if strings.TrimSpace(anchor.SessionID) == sessionID {
+						matched++
+					} else {
+						remaining++
+					}
+				}
+				switch {
+				case matched > 0 && remaining == 0:
+					plan.FactsDeleted++
+				case matched > 0:
+					plan.FactAnchorsStripped += matched
+				}
+			}
+		}
+	}
+	// Pattern-layer episodes derived from the session.
+	plan.Episodes = countSessionEpisodes(brainDir, sessionID, transcriptRels)
 	// Rebuildable derived stores removed wholesale: their row-level content is
 	// keyed by record ids/text derived from the purged transcripts, and every
 	// one regenerates from the surviving truth (index rebuild, lazy FTS build,
-	// next vector sync).
+	// next vector sync, next patterns build). runs.ndjson is a build log and
+	// logs are inside the plan's deletion inventory.
 	for _, rel := range []string{
 		historyFTSDBRelPath(),
 		filepath.ToSlash(filepath.Join(historyDirName, historyScanCacheFileName)),
 		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
 		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
+		patternCorpusPath,
+		patternsTasksPath,
+		patternsProceduresPath,
+		patternsPracticesPath,
+		patternRunsRelPath,
 	} {
 		if info, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); statErr == nil {
 			plan.DerivedStores = append(plan.DerivedStores, purgeArtifact{Path: rel, Bytes: info.Size()})
 		}
 	}
 	return plan, nil
+}
+
+// countSessionEpisodes counts episode records that would be filtered out of
+// patterns/episodes.ndjson by a purge.
+func countSessionEpisodes(brainDir, sessionID string, transcriptRels map[string]bool) int {
+	_, removed, _ := filterEpisodesFile(brainDir, sessionID, transcriptRels, false)
+	return removed
+}
+
+// filterEpisodesFile removes episode records belonging to the purged session
+// (by session id or transcript anchor). With write=false it only counts.
+// Unparseable lines are preserved verbatim — filtering must never corrupt what
+// it does not understand.
+func filterEpisodesFile(brainDir, sessionID string, transcriptRels map[string]bool, write bool) (kept int, removed int, err error) {
+	data, readErr := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)))
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return 0, 0, nil
+		}
+		return 0, 0, readErr
+	}
+	var out strings.Builder
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		var record episodeRecord
+		if json.Unmarshal([]byte(trimmed), &record) == nil {
+			if strings.TrimSpace(record.SessionID) == sessionID || transcriptRels[filepath.ToSlash(strings.TrimSpace(record.Source.Path))] {
+				removed++
+				continue
+			}
+		}
+		out.WriteString(line)
+		out.WriteByte('\n')
+		kept++
+	}
+	if !write || removed == 0 {
+		return kept, removed, nil
+	}
+	return kept, removed, writeBrainRelativeFileAtomic(brainDir, patternsEpisodesPath, []byte(out.String()), 0o600)
+}
+
+// purgeSessionFacts applies the fact rules: strip purged-session anchors,
+// physically delete facts left with no provenance, and prune proposals that
+// reference a deleted fact. Returns (deleted, strippedAnchors).
+func purgeSessionFacts(brainDir, sessionID string) (int, int, error) {
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil {
+		return 0, 0, err
+	}
+	deletedTotal, strippedTotal := 0, 0
+	for branch, facts := range byBranch {
+		changed := false
+		deletedIDs := map[string]bool{}
+		kept := make([]factRecord, 0, len(facts))
+		for _, fact := range facts {
+			remaining := fact.Provenance[:0:0]
+			stripped := 0
+			for _, anchor := range fact.Provenance {
+				if strings.TrimSpace(anchor.SessionID) == sessionID {
+					stripped++
+					continue
+				}
+				remaining = append(remaining, anchor)
+			}
+			if stripped > 0 && len(remaining) == 0 {
+				deletedIDs[fact.ID] = true
+				deletedTotal++
+				changed = true
+				continue
+			}
+			if stripped > 0 {
+				fact.Provenance = remaining
+				strippedTotal += stripped
+				changed = true
+			}
+			kept = append(kept, fact)
+		}
+		if !changed {
+			continue
+		}
+		if err := writeFacts(brainDir, branch, kept); err != nil {
+			return deletedTotal, strippedTotal, err
+		}
+		if proposals, perr := loadFactProposals(brainDir, branch); perr == nil && len(proposals) > 0 {
+			keptProposals := proposals[:0:0]
+			for _, proposal := range proposals {
+				if deletedIDs[proposal.CandidateID] || deletedIDs[proposal.TargetID] {
+					continue
+				}
+				keptProposals = append(keptProposals, proposal)
+			}
+			if len(keptProposals) != len(proposals) {
+				if err := writeFactProposals(brainDir, branch, keptProposals); err != nil {
+					return deletedTotal, strippedTotal, err
+				}
+			}
+		}
+	}
+	return deletedTotal, strippedTotal, nil
+}
+
+// purgeDistillCacheEntries drops the purged session's distill-cache entries
+// (fingerprint hashes keyed by branch/session — no content, but a purged
+// session must not look "already distilled" if it is ever re-included).
+func purgeDistillCacheEntries(brainDir, sessionID string) {
+	cache := loadDistillCache(brainDir)
+	if len(cache.Sessions) == 0 {
+		return
+	}
+	suffix := "/" + url.PathEscape(sessionID)
+	changed := false
+	for key := range cache.Sessions {
+		if strings.HasSuffix(key, suffix) {
+			delete(cache.Sessions, key)
+			changed = true
+		}
+	}
+	if changed {
+		saveDistillCache(brainDir, cache)
+	}
 }
 
 // executeSessionPurge applies the plan under the already-held write lock:
@@ -441,6 +610,17 @@ func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now 
 	for _, artifact := range plan.DerivedStores {
 		removeSQLiteStoreFiles(filepath.Join(brainDir, filepath.FromSlash(artifact.Path)))
 	}
+	if _, _, err := purgeSessionFacts(brainDir, sessionID); err != nil {
+		return err
+	}
+	transcriptRels := map[string]bool{}
+	for _, artifact := range plan.Transcripts {
+		transcriptRels[artifact.Path] = true
+	}
+	if _, _, err := filterEpisodesFile(brainDir, sessionID, transcriptRels, true); err != nil {
+		return err
+	}
+	purgeDistillCacheEntries(brainDir, sessionID)
 	_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil)
 	return err
 }

@@ -273,3 +273,160 @@ func TestSessionTombstonesRoundTripAndCorruptFallback(t *testing.T) {
 		t.Fatalf("corrupt tombstones must read as empty: %+v", got)
 	}
 }
+
+// TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts extends the canary
+// gate across the remaining derived layers: durable facts (single-source
+// deleted, corroborated facts keep their other anchors), pattern episodes,
+// derived pattern stores, and the distill cache — while skill-memory (user
+// curation) survives.
+func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 7, 14, 0, 0, 0, time.UTC)
+
+	// Durable facts: one anchored only to the secret session (carrying the
+	// canary), one corroborated by both sessions.
+	single := factRecord{
+		ID: factRecordID("the leaked key "+privacyCanary+" was rotated", nil), Text: "the leaked key " + privacyCanary + " was rotated",
+		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+		Provenance: []factAnchor{{SessionID: "secret-sess"}},
+	}
+	multi := factRecord{
+		ID: factRecordID("cursor reuses unchanged transcripts", nil), Text: "cursor reuses unchanged transcripts",
+		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+		Provenance: []factAnchor{{SessionID: "secret-sess"}, {SessionID: "clean-sess"}},
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{single, multi}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Pattern episodes: one from each session (NDJSON, as the episode layer
+	// writes them), plus derived pattern outputs and a distill cache.
+	secretEpisode := episodeRecord{ID: "ep-secret", SessionID: "secret-sess", Intent: "rotate " + privacyCanary,
+		Source: episodeAnchor{Path: "sessions/main/20260802T000000Z_secret.jsonl", Line: 1}, Reinforcement: "neutral"}
+	cleanEpisode := episodeRecord{ID: "ep-clean", SessionID: "clean-sess", Intent: "fix cursor",
+		Source: episodeAnchor{Path: "sessions/main/20260801T000000Z_clean.jsonl", Line: 1}, Reinforcement: "neutral"}
+	var episodesBuf strings.Builder
+	for _, episode := range []episodeRecord{secretEpisode, cleanEpisode} {
+		line, _ := json.Marshal(episode)
+		episodesBuf.Write(line)
+		episodesBuf.WriteByte('\n')
+	}
+	if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), []byte(episodesBuf.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patternRunsRelPath, patternCorpusPath} {
+		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skillMemoryBody := `{"pattern_id":"task:x","status":"active","skill_name":"deploy-check"}` + "\n"
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath)), []byte(skillMemoryBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache := loadDistillCache(brainDir)
+	if cache.Sessions == nil {
+		cache.Sessions = map[string]string{}
+	}
+	cache.Sessions["main/secret-sess"] = "sha256:aaa"
+	cache.Sessions["main/clean-sess"] = "sha256:bbb"
+	saveDistillCache(brainDir, cache)
+
+	// Plan reflects the full inventory, then execute.
+	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.FactsDeleted != 1 || plan.FactAnchorsStripped != 1 || plan.Episodes != 1 {
+		t.Fatalf("plan = facts_deleted=%d stripped=%d episodes=%d, want 1/1/1", plan.FactsDeleted, plan.FactAnchorsStripped, plan.Episodes)
+	}
+	wantStores := map[string]bool{patternCorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patternRunsRelPath: false}
+	for _, store := range plan.DerivedStores {
+		if _, ok := wantStores[store.Path]; ok {
+			wantStores[store.Path] = true
+		}
+	}
+	for rel, seen := range wantStores {
+		if !seen {
+			t.Fatalf("plan missing derived store %s: %+v", rel, plan.DerivedStores)
+		}
+	}
+	if err := executeSessionPurge(brainDir, "secret-sess", plan, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Canary absent from every surviving artifact under the brain dir except
+	// nothing — walk everything.
+	assertCanaryAbsent(t, brainDir)
+	err = filepath.Walk(brainDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && strings.Contains(string(data), privacyCanary) {
+			t.Fatalf("canary survived in %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Facts: single-source deleted, corroborated fact kept with the purged
+	// anchor stripped.
+	facts, err := loadFacts(brainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 1 || facts[0].ID != multi.ID {
+		t.Fatalf("surviving facts = %+v", facts)
+	}
+	if len(facts[0].Provenance) != 1 || facts[0].Provenance[0].SessionID != "clean-sess" {
+		t.Fatalf("anchor strip failed: %+v", facts[0].Provenance)
+	}
+
+	// Episodes: only the clean session's episode remains.
+	episodesData, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(episodesData), "ep-secret") || !strings.Contains(string(episodesData), "ep-clean") {
+		t.Fatalf("episode filtering wrong: %s", episodesData)
+	}
+
+	// Skill memory (user curation) survives; distill cache keeps only the
+	// clean session.
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); err != nil {
+		t.Fatalf("skill memory must survive purge: %v", err)
+	}
+	cacheAfter := loadDistillCache(brainDir)
+	if _, gone := cacheAfter.Sessions["main/secret-sess"]; gone {
+		t.Fatal("purged session must leave the distill cache")
+	}
+	if _, kept := cacheAfter.Sessions["main/clean-sess"]; !kept {
+		t.Fatal("clean session's distill cache entry must survive")
+	}
+}
+
+// TestExcludedSessionsProduceNoEpisodesOrCorpusRows locks the tombstone into
+// the pattern layer: an excluded session contributes no episodes on rebuild.
+func TestExcludedSessionsProduceNoEpisodesOrCorpusRows(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 7, 15, 0, 0, 0, time.UTC)
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["secret-sess"] = sessionTombstone{At: now}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+	episodes, _, err := buildBrainEpisodes(brainDir, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, episode := range episodes {
+		if episode.SessionID == "secret-sess" || strings.Contains(episode.Intent, privacyCanary) {
+			t.Fatalf("excluded session produced an episode: %+v", episode)
+		}
+	}
+}

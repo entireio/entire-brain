@@ -339,6 +339,19 @@ func buildPatternCorpus(brainDir string, now time.Time) error {
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		sessions = manifest.Sources.Sessions.Sessions
 	}
+	// Session tombstones (Phase 4): excluded sessions never enter the corpus,
+	// and dropping them from the present set prunes their previously indexed
+	// rows below.
+	if stones := loadSessionTombstones(brainDir); len(stones.Excluded) > 0 {
+		kept := make([]exportSession, 0, len(sessions))
+		for _, s := range sessions {
+			if _, excluded := stones.Excluded[strings.TrimSpace(s.SessionID)]; excluded {
+				continue
+			}
+			kept = append(kept, s)
+		}
+		sessions = kept
+	}
 	// Optional enrichment source: durable facts, branch-scoped. Absent/missing
 	// facts degrade gracefully (no episode_facts links).
 	factsByBranch, _ := loadAllFactBranches(brainDir)
