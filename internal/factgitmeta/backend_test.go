@@ -284,8 +284,16 @@ func TestBackendConcurrentCreateNoLostUpdate(t *testing.T) {
 	ch := make(chan res, 2)
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); r, e := bA.Advance(context.Background(), "repo", "main", "", blobA); ch <- res{r, e} }()
-	go func() { defer wg.Done(); r, e := bB.Advance(context.Background(), "repo", "main", "", blobB); ch <- res{r, e} }()
+	go func() {
+		defer wg.Done()
+		r, e := bA.Advance(context.Background(), "repo", "main", "", blobA)
+		ch <- res{r, e}
+	}()
+	go func() {
+		defer wg.Done()
+		r, e := bB.Advance(context.Background(), "repo", "main", "", blobB)
+		ch <- res{r, e}
+	}()
 	wg.Wait()
 	close(ch)
 

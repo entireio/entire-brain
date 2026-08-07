@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 
 	"github.com/go-git/go-billy/v6/osfs"
 	git "github.com/go-git/go-git/v6"
@@ -54,27 +53,26 @@ func openLocalRepo(gitDir string) (*localRepo, error) {
 	return &localRepo{store: store, gitDir: gitDir}, nil
 }
 
-// lock takes a cross-process EXCLUSIVE advisory lock (flock) on a lockfile in the
+// lock takes a cross-process exclusive advisory lock on a lockfile in the
 // git dir and returns an unlock func the caller must defer. It serializes the
 // whole Advance read-CAS loop across processes: go-git performs the create-path
 // ref write (CheckAndSetReference with a nil old ref) UNCONDITIONALLY — it skips
 // the absence check when old==nil — so without this, two concurrent first-syncs
 // would both "win" and silently drop one member's facts. The update path is
 // already ref-CAS-safe under go-git's own flock; this also closes its benign
-// read→write TOCTOU. flock is advisory + released automatically if the process
-// dies, so a crash never leaves a stale lock. (unix: flock(2); the local fact
-// store is a unix dev-machine tool.)
+// read→write TOCTOU. The OS lock is released automatically if the process dies,
+// so a crash never leaves a stale lock.
 func (r *localRepo) lock() (func(), error) {
 	f, err := os.OpenFile(filepath.Join(r.gitDir, lockFileName), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("factgitmeta: open lockfile: %w", err)
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockFile(f); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("factgitmeta: acquire lock: %w", err)
 	}
 	return func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = unlockFile(f)
 		_ = f.Close()
 	}, nil
 }

@@ -110,6 +110,9 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	if err != nil {
 		return err
 	}
+	if err := persistFactsSyncProposals(storage.BrainDir, branch, res.Proposals); err != nil {
+		return err
+	}
 
 	if syncOpts.jsonOut {
 		return writeJSON(cmd, map[string]any{
@@ -139,6 +142,26 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		}
 	}
 	return nil
+}
+
+// persistFactsSyncProposals appends cross-member conflicts to the same durable
+// queue consumed by facts review/status and the recall pending-review guard.
+// The brain write lock makes the read-merge-write atomic with other local
+// writers, while writeFactProposals supplies stable ordering and deduplication.
+func persistFactsSyncProposals(brainDir, branch string, proposals []factProposal) error {
+	if len(proposals) == 0 {
+		return nil
+	}
+	return withBrainWriteLock(brainDir, func() error {
+		existing, err := loadFactProposals(brainDir, branch)
+		if err != nil {
+			return fmt.Errorf("facts sync: load review queue: %w", err)
+		}
+		if err := writeFactProposals(brainDir, branch, append(existing, proposals...)); err != nil {
+			return fmt.Errorf("facts sync: persist review queue: %w", err)
+		}
+		return nil
+	})
 }
 
 // resolveFactsBackendName folds the --facts-backend flag, the env override, and
