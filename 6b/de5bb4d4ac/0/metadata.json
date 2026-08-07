@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "6bde5bb4d4ac",
+  "session_id": "019fd8df-5a22-7932-818a-8c685431d480",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T04:18:39.592669Z",
+  "branch": "docs/p0m5-install-docs",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/getting-started.md",
+    "docs/release_press_release.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "5d2baea8a87d",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 1726626,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 48807680,
+    "output_tokens": 113077,
+    "api_call_count": 421
+  },
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T04:18:39.389121Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 40,
+    "human_removed": 3,
+    "total_committed": 0,
+    "total_lines_changed": 43,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
