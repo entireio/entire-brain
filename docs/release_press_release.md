@@ -1,7 +1,7 @@
 # Draft Release Press Release
 
-> Internal draft for the P0 local-brain release (`entire-sem`, `entire-brain`,
-> and the `brain-bench` eval harness, all on the aligned `v0.1.0` line). Not for
+> Internal draft for the P0 local-brain release (`entire-graph`, `entire-brain`,
+> and the GraphMark evaluation harness, all on the aligned `v0.1.0` line). Not for
 > publication. Claims are scoped to what the retained evidence supports; anything
 > unverified is flagged rather than asserted.
 
@@ -19,15 +19,11 @@ durable facts into an inspectable memory layer that stays on the developer's
 machine.
 
 `entire-brain` gives agents a qmd-inspired retrieval surface over the repo's
-local memory. `entire-sem` is the semantic provider: it parses source locally and
+local memory. `entire-graph` is the semantic provider: it parses source locally and
 gives the brain a code-structure graph (symbols, relations, boundaries, and
 likely tests), with freshness and blind-spot reporting so an agent knows how far
 to trust it. The local replay-lab agent-benchmark harness measures whether those
 tools improve task outcomes, instead of relying on demos or anecdotes.
-
-Note: `entire-sem` was renamed to `entire-graph` after `v0.1.0`. This release
-targets the `v0.1.0` provider (`entire sem`); a post-rename announcement should
-say `entire-graph`.
 
 ## What Is Shipped
 
@@ -39,25 +35,25 @@ say `entire-graph`.
   `multi-get`.
 - Semantic freshness, blind-spot reporting, and a semantic audit surface
   (`status --json`, gated in CI by `status --fail-on release`).
-- Local benchmark harnesses: `brain-bench` for semantic-graph accuracy, and the
+- Local benchmark harnesses: GraphMark for semantic-graph accuracy, and the
   replay-lab agent harness for no-brain, semantic-brain, and full-brain agent
   conditions.
 - Local-only by default: stdio MCP with no network listener, deterministic
   refresh and retrieval with no hosted-model calls, and `ENTIRE_BRAIN_NO_EGRESS`
   / `ENTIRE_BRAIN_LOCAL_ONLY` enforcement on the no-agent, dry-run, and
   loopback paths.
-- `entire-sem` and `entire-brain` both tagged `v0.1.0` on the aligned GA commit.
+- `entire-graph` and `entire-brain` both tagged `v0.1.0` on the aligned GA commit.
 
 ## Proven With Evidence
 
-**Semantic usefulness is claimable, backed by `brain-bench`.** On the frozen
+**Semantic usefulness is claimable, backed by GraphMark.** On the frozen
 benchmark board, Entire beats the comparison baseline on 28 of 30 top languages
 at exact-McNemar p<0.05 (C# at p=0.07 and PHP at p=0.18 lead on rate but sit just
 under significance, reflecting fewer scored repos rather than a loss), for an
 overall 1,148 vs 802 correct (91% vs 64%, p near 0), with Benjamini-Hochberg
 multiple-comparisons control. This is the first broad, reproducible, in-repo-gated
 proof, and it supersedes the earlier single narrow condition-level result.
-`brain-bench` is wired as a CI regression gate: the committed significance report
+GraphMark is wired as a CI regression gate: the committed significance report
 must regenerate byte-identical, so a corpus or harness change has to re-commit it.
 
 ## Known Replay-Lab Outcome
@@ -108,8 +104,8 @@ used the Claude runner after the limit reset.)
   reports. The deterministic Radar and MCP tool-contract evidence remains
   separate from the agent-lift question.
 
-Note: this is distinct from the `brain-bench` semantic-accuracy proof above.
-`brain-bench` measures whether the semantic graph is correct; the replay-lab
+Note: this is distinct from the GraphMark semantic-accuracy proof above.
+GraphMark measures whether the semantic graph is correct; the replay-lab
 items here measure whether the tools change agent outcomes on a task.
 
 ## Blocked Or Access-Dependent
@@ -135,7 +131,7 @@ items here measure whether the tools change agent outcomes on a task.
 - Do not claim facts beat raw or preprocessed sessions except for the specific
   paired eval metric and relevance source being cited.
 - Do not claim tree-sitter or semantic indexing covers every file or language.
-  The `brain-bench` result names the covered languages; inventory-only filetypes
+  The GraphMark result names the covered languages; inventory-only filetypes
   are not semantic coverage.
 - Do not claim multi-agent collaboration is complete.
 - Do not claim the replay-lab proves universal agent improvement across all
@@ -148,7 +144,7 @@ items here measure whether the tools change agent outcomes on a task.
   harnessing, eval harness, benchmark harness. Both repos tagged `v0.1.0`,
   aligned.
 - Proven with committed evidence:
-  - Semantic usefulness via `brain-bench` (28 of 30 languages, 1,148 vs 802,
+  - Semantic usefulness via GraphMark (28 of 30 languages, 1,148 vs 802,
     p<0.05, Benjamini-Hochberg controlled), wired as a CI regression gate.
   - A clean history-channel correctness-axis replay-lab agent-lift proof
     (`claude:sonnet:high`, no_brain 0/4 vs full_brain 4/4,

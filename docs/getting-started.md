@@ -44,11 +44,11 @@ local `entire-<name>` executable into Entire's managed plugin directory.
 
 ```sh
 # 1. Semantic provider (the entire-graph code-graph plugin the brain shells out to)
-CGO_ENABLED=1 go install github.com/entireio/entire-graph/cmd/entire-graph@main
+CGO_ENABLED=1 go install github.com/entireio/entire-graph/cmd/entire-graph@v0.1.0
 entire plugin install "$(go env GOPATH)/bin/entire-graph" --force
 
 # 2. The brain
-go install github.com/entireio/entire-brain/cmd/entire-brain@v0.1.0
+go install github.com/ashtom/entire-brain/cmd/entire-brain@v0.1.0
 entire plugin install "$(go env GOPATH)/bin/entire-brain" --force
 ```
 
@@ -59,16 +59,17 @@ binaries directly after `go install`, without the `entire plugin install` step.
 not fetch from a git URL or a GitHub release, and it does not auto-install the
 provider dependency, so both `go install` steps are required.
 
-These `go install` commands assume the published `v0.1.0` modules resolve at the
-paths shown. If `go install` cannot resolve one (for example the module path or
-release tag differs), use "Install from source" below, which builds from a local
-checkout and does not depend on the module proxy.
+The `entire-brain` `v0.1.0` module still declares its historical
+`github.com/ashtom/entire-brain` path, so the versioned `go install` command must
+use that path even though the repository's canonical GitHub URL is now
+`github.com/entireio/entire-brain`. Install from source if your environment cannot
+resolve the repository redirect through the module proxy.
 
 ### Install from source
 
 Cloning gives you the same result and does not depend on the module proxy. Clone
-the provider at the `v0.1.0` tag (its `main` branch is now `entire-graph`), clone
-the brain next to it, and run the bundled installer.
+the provider at the `v0.1.0` tag, clone the brain next to it, and run the bundled
+installer.
 
 ```sh
 git clone --branch v0.1.0 https://github.com/entireio/entire-graph.git
@@ -87,20 +88,24 @@ To build and install only the brain from a checkout, run `scripts/install-local.
 (equivalently `mise run install`). You still need `entire graph` installed
 separately for the semantic layer.
 
-### Release archive
+### Release archive (forthcoming)
 
-Signed per-OS/arch archives are the packaged distribution channel. Each archive
-contains the plugin binary plus `README.md`, `LICENSE`, and `entire-plugin.yml`,
-alongside a `SHA256SUMS` file. After downloading and verifying the checksum,
-extract and install the binary:
+Prebuilt per-OS/arch archives are the planned packaged distribution channel, but
+they have not been published yet. Until they appear on the
+[GitHub Releases](https://github.com/entireio/entire-brain/releases) page, use
+`go install` or the source installer above.
+
+Each published archive will contain the plugin binary plus `README.md`, `LICENSE`,
+and `entire-plugin.yml`, alongside a `SHA256SUMS` file. After downloading and
+verifying the checksum, extract and install the binary:
 
 ```sh
 tar -xzf entire-brain-v0.1.0-darwin-arm64.tar.gz
 entire plugin install ./entire-brain-v0.1.0-darwin-arm64/entire-brain --force
 ```
 
-Install the matching `entire-graph` release archive the same way so `entire graph`
-is available.
+When provider archives are published, install the matching `entire-graph` archive
+the same way so `entire graph` is available.
 
 ## Verify
 
@@ -115,8 +120,8 @@ entire graph doctor --json      # provider diagnostics; expect "no_egress": true
 
 `entire brain doctor` reports whether the plugin directories and the semantic
 provider are wired up. If it says the provider is missing, confirm `entire graph`
-resolves and that you installed `entire-graph` at `v0.1.0` rather than the renamed
-`entire-graph`.
+resolves, that `entire graph version` reports `v0.1.0`, and that the installed
+binary is named `entire-graph` rather than the retired `entire-sem`.
 
 ## First run: build a brain and query it
 
