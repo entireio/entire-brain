@@ -352,6 +352,14 @@ entire brain search "SQLITE_BUSY" --source conversation --json
 entire brain get conversation:<id> --json
 ```
 
+Conversation queries take structured filters — `--after`/`--before` (RFC3339 or
+YYYY-MM-DD session time), `--session <id>`, `--agent <harness>`, and `--branch`
+— which error on any other source rather than being silently ignored. Results
+carry `matched_terms` (which query tokens actually hit) and are diversity-capped
+so one long session cannot crowd out every other trajectory; filtering to a
+session lifts the cap. Re-exported duplicate sessions are collapsed at index
+time (newest export wins).
+
 Exchanges are extracted deterministically and locally (no model calls), indexed
 lexically only (`vsearch --source conversation` is unsupported), and never enter
 default retrieval or published bundles. Every result is labeled

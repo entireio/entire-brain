@@ -219,7 +219,7 @@ func scanDocumentConversation(messages []documentMessage, totalLines int) conver
 		switch message.Role {
 		case "user":
 			text := strings.TrimSpace(message.Text)
-			if text == "" || isWrapperRequest(text) {
+			if text == "" || isWrapperRequest(text) || isConversationInjectedRequest(text) {
 				continue
 			}
 			request := normalizeConversationText(text)
@@ -239,13 +239,34 @@ func scanDocumentConversation(messages []documentMessage, totalLines int) conver
 // conversationSubstantiveRequest returns the normalized request text when obj
 // is a real user turn (wrapper injections, tool-result pseudo-user messages,
 // and environment envelopes are filtered by the same predicate every other
-// request consumer uses), "" otherwise.
+// request consumer uses, plus conversation-specific hook-injection patterns),
+// "" otherwise.
 func conversationSubstantiveRequest(obj map[string]any) string {
 	text := strings.TrimSpace(transcriptUserText(obj))
-	if text == "" || isWrapperRequest(text) {
+	if text == "" || isWrapperRequest(text) || isConversationInjectedRequest(text) {
 		return ""
 	}
 	return normalizeConversationText(text)
+}
+
+// isConversationInjectedRequest extends the shared wrapper predicate with
+// harness-injected pseudo-requests observed while dogfooding Phase 1: Stop-hook
+// feedback and session-hook announcements are machine-generated user turns, not
+// requests worth opening an exchange for. Deliberately conversation-scoped —
+// isWrapperRequest is shared by request records, handoff, and the facts eval,
+// whose semantics must not silently change.
+func isConversationInjectedRequest(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.HasPrefix(lower, "stop hook feedback:") ||
+		strings.HasPrefix(lower, "a session-scoped stop hook is now active")
+}
+
+// isConversationNoiseNarrative reports assistant chunks that are harness error
+// envelopes, not narrative (e.g. "API Error: 529 Overloaded…"). Observed while
+// dogfooding: such chunks formed whole "responses". An exchange whose only
+// response is noise is then skipped as incomplete.
+func isConversationNoiseNarrative(chunk string) bool {
+	return strings.HasPrefix(strings.TrimSpace(chunk), "API Error:")
 }
 
 // conversationAssistantNarrative returns the visible assistant narrative chunks
@@ -353,7 +374,7 @@ func conversationToolNames(obj map[string]any) []string {
 
 func appendConversationNarrative(exchange *conversationExchange, chunk string, maxBytes int) {
 	chunk = normalizeConversationText(chunk)
-	if chunk == "" {
+	if chunk == "" || isConversationNoiseNarrative(chunk) {
 		return
 	}
 	if len(exchange.Response) >= maxBytes {
@@ -618,7 +639,7 @@ func expandDocumentConversationRange(messages []documentMessage, record historyR
 		switch message.Role {
 		case "user":
 			text := strings.TrimSpace(message.Text)
-			if text == "" || isWrapperRequest(text) {
+			if text == "" || isWrapperRequest(text) || isConversationInjectedRequest(text) {
 				continue
 			}
 			if out.Request == "" {
@@ -637,7 +658,7 @@ func expandDocumentConversationRange(messages []documentMessage, record historyR
 
 func appendBoundedNarrative(response *strings.Builder, chunk string, maxBytes int, truncated *bool) {
 	chunk = normalizeConversationText(chunk)
-	if chunk == "" {
+	if chunk == "" || isConversationNoiseNarrative(chunk) {
 		return
 	}
 	if response.Len() >= maxBytes {

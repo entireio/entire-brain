@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 )
 
 // retrieve.go is the unified retrieval layer behind the qmd-inspired verbs
@@ -34,6 +35,9 @@ type unifiedResult struct {
 	Agent     string `json:"agent,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"` // expanded/projected text is bounded, not complete
+	// MatchedTerms lists the query tokens that actually hit this record, so a
+	// weak match is diagnosable instead of opaque (conversation search only).
+	MatchedTerms []string `json:"matched_terms,omitempty"`
 }
 
 type retrievalMode int
@@ -61,6 +65,44 @@ const (
 type retrievalOptions struct {
 	// Source selects the layer(s) to rank: "" or "all" is the default set.
 	Source string
+	// Structured conversation-source filters (Phase 2). Zero values mean no
+	// filter. After/Before bound the session time (After inclusive, Before
+	// exclusive); records without a session time are excluded whenever a time
+	// filter is set, so a filter can never leak an unprovable record into
+	// scope. SessionID and Agent are exact (Agent case-insensitive) matches.
+	// Branch filters on the captured branch. All five apply only when
+	// Source == "conversation"; supplying After/Before/SessionID/Agent with
+	// another source is a structured error, never silently ignored.
+	After     time.Time
+	Before    time.Time
+	SessionID string
+	Agent     string
+	Branch    string
+}
+
+// hasConversationOnlyFilters reports filters that have no meaning outside the
+// conversation source. Branch is excluded: it is a long-standing facts-branch
+// selector on every retrieval surface and doubles as the conversation branch
+// filter when that source is selected.
+func (o retrievalOptions) hasConversationOnlyFilters() bool {
+	return !o.After.IsZero() || !o.Before.IsZero() ||
+		strings.TrimSpace(o.SessionID) != "" || strings.TrimSpace(o.Agent) != ""
+}
+
+// parseRetrievalTimeFilter parses a CLI/MCP time filter: RFC3339 or a plain
+// YYYY-MM-DD day (interpreted as UTC midnight). Empty means unset.
+func parseRetrievalTimeFilter(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("time filter must be RFC3339 or YYYY-MM-DD (got %q)", value)
 }
 
 // parseRetrievalSource validates a user/client-supplied source selector,
@@ -111,7 +153,10 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if mode == modeVector {
 			return nil, errConversationVectorUnsupported
 		}
-		return retrieveConversation(brainDir, query, limit)
+		return retrieveConversation(brainDir, query, limit, opts)
+	}
+	if opts.hasConversationOnlyFilters() {
+		return nil, fmt.Errorf(`after/before/session/agent filters require source "conversation" (got %q)`, source)
 	}
 	includeFacts := source == retrievalSourceAll || source == retrievalSourceFact
 	includeHistory := source == retrievalSourceAll || source == retrievalSourceHistory
@@ -523,12 +568,20 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	return out
 }
 
+// conversationSessionTopKDivisor sets the default per-session share of a
+// conversation result list: one session may hold at most limit/2 (min 1) of
+// the returned results while other sessions still have candidates. Dogfooding
+// measured single sessions holding 29–84% of a brain's exchanges; without a
+// cap one long session crowds out every other trajectory.
+const conversationSessionTopKDivisor = 2
+
 // retrieveConversation is the explicit conversation-source arm: lexical BM25
-// (with the substring scorer as fallback) over exchange records only. It never
-// consults facts, docs, or classified history, and every result carries the
+// (with the substring scorer as fallback) over exchange records only, then
+// structured filters and a per-session diversity cap. It never consults facts,
+// docs, or classified history, and every result carries the
 // historical-evidence contract. Hybrid mode degrades to lexical: no
-// conversation vector index exists in Phase 1.
-func retrieveConversation(brainDir, query string, limit int) ([]unifiedResult, error) {
+// conversation vector index exists yet.
+func retrieveConversation(brainDir, query string, limit int, opts retrievalOptions) ([]unifiedResult, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err
@@ -540,25 +593,110 @@ func retrieveConversation(brainDir, query string, limit int) ([]unifiedResult, e
 	if err != nil {
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
-	candidateLimit := limit * 2
-	if candidateLimit < limit {
+	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
+	// Filters and the diversity cap discard ranked candidates, so over-fetch
+	// enough for the survivors to still fill the limit.
+	candidateLimit := limit * 4
+	if filtered {
+		candidateLimit = limit * 16
+	}
+	if candidateLimit < limit { // overflow guard
 		candidateLimit = limit
 	}
 	scored, ok := rankHistoryViaFTS(brainDir, index, conversationKind, query, candidateLimit)
 	if !ok {
 		scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
 	}
-	if len(scored) > limit {
-		scored = scored[:limit]
+	kept := make([]scoredHistoryRecord, 0, len(scored))
+	for _, s := range scored {
+		if conversationRecordMatchesFilters(s.Record, opts) {
+			kept = append(kept, s)
+		}
 	}
-	out := make([]unifiedResult, len(scored))
-	for i, s := range scored {
+	kept = capConversationSessionShare(kept, limit, opts)
+	if len(kept) > limit {
+		kept = kept[:limit]
+	}
+	out := make([]unifiedResult, len(kept))
+	for i, s := range kept {
 		out[i] = conversationToUnified(s.Record)
+		// Explainability: which query tokens actually hit this record, so a
+		// thin result is debuggable ("only 'bug' matched") instead of opaque.
+		out[i].MatchedTerms = historyRecordMatchedTerms(s.Record, query)
 		// Preserve list order for callers that read Score; RRF-scale for
 		// consistency with single-list merges.
 		out[i].Score = 1.0 / (rrfK + float64(i+1))
 	}
 	return out, nil
+}
+
+// conversationRecordMatchesFilters applies the structured conversation filters.
+// Scope safety over recall: a record that cannot prove it is inside a time
+// filter (no session time) is excluded when one is set.
+func conversationRecordMatchesFilters(record historyRecord, opts retrievalOptions) bool {
+	if session := strings.TrimSpace(opts.SessionID); session != "" && record.SessionID != session {
+		return false
+	}
+	if agent := strings.TrimSpace(opts.Agent); agent != "" && !strings.EqualFold(record.Agent, agent) {
+		return false
+	}
+	if branch := strings.TrimSpace(opts.Branch); branch != "" && record.Branch != branch {
+		return false
+	}
+	if !opts.After.IsZero() || !opts.Before.IsZero() {
+		created, err := time.Parse(time.RFC3339, record.CreatedAt)
+		if err != nil {
+			return false
+		}
+		if !opts.After.IsZero() && created.Before(opts.After) {
+			return false
+		}
+		if !opts.Before.IsZero() && !created.Before(opts.Before) {
+			return false
+		}
+	}
+	return true
+}
+
+// capConversationSessionShare enforces the per-session diversity cap: at most
+// max(1, limit/conversationSessionTopKDivisor) results per session while other
+// sessions still have candidates. If the cap leaves the list short and only
+// capped sessions have candidates left, they backfill in rank order — the cap
+// prevents crowding out, it does not hide the only matching session. An
+// explicit session filter disables the cap entirely.
+func capConversationSessionShare(scored []scoredHistoryRecord, limit int, opts retrievalOptions) []scoredHistoryRecord {
+	if strings.TrimSpace(opts.SessionID) != "" || len(scored) <= 1 {
+		return scored
+	}
+	perSession := limit / conversationSessionTopKDivisor
+	if perSession < 1 {
+		perSession = 1
+	}
+	counts := map[string]int{}
+	kept := make([]scoredHistoryRecord, 0, min(limit, len(scored)))
+	var overflow []scoredHistoryRecord
+	for _, s := range scored {
+		key := s.Record.SessionID
+		if key == "" {
+			key = s.Record.Path
+		}
+		if counts[key] >= perSession {
+			overflow = append(overflow, s)
+			continue
+		}
+		counts[key]++
+		kept = append(kept, s)
+		if len(kept) >= limit {
+			return kept
+		}
+	}
+	for _, s := range overflow {
+		if len(kept) >= limit {
+			break
+		}
+		kept = append(kept, s)
+	}
+	return kept
 }
 
 // conversationToUnified projects an exchange record for search results: the

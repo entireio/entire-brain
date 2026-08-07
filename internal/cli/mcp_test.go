@@ -1777,3 +1777,51 @@ func TestMCPConversationQueryThenGet(t *testing.T) {
 		t.Fatalf("expanded result missing caveat: %s", caveats)
 	}
 }
+
+// TestMCPConversationFilterArguments locks the Phase 2 filter contract:
+// after/before/session_id/agent are accepted on brain_search/brain_query,
+// validated (bad dates and non-conversation sources are structured errors),
+// and rejected as unknown arguments on brain_vsearch.
+func TestMCPConversationFilterArguments(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	mcpConversationFixture(t, repoDir, env, runner, now)
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly","source":"conversation","agent":"claude","after":"2026-07-01"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly","source":"conversation","after":"not-a-date"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly","agent":"claude"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"x","after":"2026-07-01"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 4 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+	// 1: valid filters return the exchange (session created_at is within range,
+	// agent matches case-insensitively).
+	if responses[0]["error"] != nil {
+		t.Fatalf("valid filter call errored: %+v", responses[0])
+	}
+	payload := mcpTextJSONPayload(t, responses[0])
+	results, ok := payload["results"].([]any)
+	if !ok || len(results) == 0 {
+		t.Fatalf("filtered search returned nothing: %+v", payload)
+	}
+	// 2: invalid date is a structured error.
+	if responses[1]["error"] == nil {
+		t.Fatalf("bad after must error: %+v", responses[1])
+	}
+	// 3: filters without source=conversation are a structured error.
+	if responses[2]["error"] == nil {
+		t.Fatalf("filter without conversation source must error: %+v", responses[2])
+	}
+	// 4: vsearch does not accept filter arguments at all.
+	if responses[3]["error"] == nil {
+		t.Fatalf("brain_vsearch with a filter must error: %+v", responses[3])
+	}
+}

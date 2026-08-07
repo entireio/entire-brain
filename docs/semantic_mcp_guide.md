@@ -63,10 +63,20 @@ the current request before acting. If the source transcript changed or is
 missing since indexing, `brain_get` returns the stored projection with a
 `conversation_source_stale` caveat instead of full content.
 
-Phase 1 limits: lexical ranking only (`brain_vsearch` does not accept `source`;
-no conversation vector index exists), current repository only, exchanges never
-enter default retrieval, `brain_brief`, publish, or bundle output, and the
-record schema is experimental and may change.
+Conversation queries accept structured filters (Phase 2): `after` / `before`
+(RFC3339 or YYYY-MM-DD session time; `after` inclusive, `before` exclusive),
+`session_id`, and `agent`, plus the existing `branch` argument. Supplying a
+filter with any other source is a structured error, never silently ignored.
+Results include `matched_terms` — the query tokens that actually hit the record
+— so a weak match is diagnosable, and a per-session diversity cap keeps one
+long session from occupying the whole result list (an explicit `session_id`
+filter lifts it). Duplicate exchanges from re-exported sessions are collapsed
+at index time.
+
+Current limits: lexical ranking only (`brain_vsearch` does not accept `source`
+or filters; no conversation vector index exists), current repository only,
+exchanges never enter default retrieval, `brain_brief`, publish, or bundle
+output, and the record schema is experimental and may change.
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and

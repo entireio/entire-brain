@@ -30,12 +30,13 @@ type compactUnifiedResult struct {
 
 	// Conversation-exchange provenance (experimental, additive; empty for
 	// every other source).
-	EndLine   int    `json:"end_line,omitempty"`
-	Branch    string `json:"branch,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Agent     string `json:"agent,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
+	EndLine      int      `json:"end_line,omitempty"`
+	Branch       string   `json:"branch,omitempty"`
+	SessionID    string   `json:"session_id,omitempty"`
+	Agent        string   `json:"agent,omitempty"`
+	CreatedAt    string   `json:"created_at,omitempty"`
+	Truncated    bool     `json:"truncated,omitempty"`
+	MatchedTerms []string `json:"matched_terms,omitempty"`
 }
 
 type retrievalTaskHints struct {
@@ -68,7 +69,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var limit int
 	var branch string
 	var patterns bool
-	var source string
+	var source, after, before, session, agent string
 	cmd := &cobra.Command{
 		Use:   use + " <query>",
 		Short: short,
@@ -78,27 +79,61 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			parsedSource, err := parseRetrievalSource(source)
+			ropts, err := buildRetrievalOptions(source, after, before, session, agent, branch)
 			if err != nil {
 				return fmt.Errorf("--%s", err.Error())
 			}
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, parsedSource, wantJSON, patterns, use)
+			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, ropts, wantJSON, patterns, use)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current); with --source conversation also filters exchanges to that captured branch")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
 	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to one source: all, fact, history, conversation, or doc (default all; conversation is experimental opt-in)")
+	cmd.Flags().StringVar(&after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
+	cmd.Flags().StringVar(&before, "before", "", "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)")
+	cmd.Flags().StringVar(&session, "session", "", "Conversation source only: exchanges from this session id (also disables the per-session diversity cap)")
+	cmd.Flags().StringVar(&agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")")
 	return cmd
 }
 
+// buildRetrievalOptions validates and assembles the shared retrieval-options
+// contract from CLI flags or MCP arguments. branch doubles as the conversation
+// branch filter; error text names bare flag words so the CLI can prefix "--".
+func buildRetrievalOptions(source, after, before, session, agent, branch string) (retrievalOptions, error) {
+	parsedSource, err := parseRetrievalSource(source)
+	if err != nil {
+		return retrievalOptions{}, err
+	}
+	afterTime, err := parseRetrievalTimeFilter(after)
+	if err != nil {
+		return retrievalOptions{}, fmt.Errorf("after: %s", err.Error())
+	}
+	beforeTime, err := parseRetrievalTimeFilter(before)
+	if err != nil {
+		return retrievalOptions{}, fmt.Errorf("before: %s", err.Error())
+	}
+	if !afterTime.IsZero() && !beforeTime.IsZero() && !afterTime.Before(beforeTime) {
+		return retrievalOptions{}, fmt.Errorf("after (%s) must be earlier than before (%s)", after, before)
+	}
+	return retrievalOptions{
+		Source:    parsedSource,
+		After:     afterTime,
+		Before:    beforeTime,
+		SessionID: strings.TrimSpace(session),
+		Agent:     strings.TrimSpace(agent),
+		Branch:    strings.TrimSpace(branch),
+	}, nil
+}
+
 // surface names the read surface for serve receipts ("search"/"vsearch"/
-// "query" from the CLI, "mcp:brain_*" from the MCP server). source is a
-// validated retrieval source selector ("" defaults to all).
-func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch, source string, jsonOut, patterns bool, surface string) error {
+// "query" from the CLI, "mcp:brain_*" from the MCP server). ropts carries the
+// validated source selector and structured filters; branch (the raw flag)
+// still selects the facts branch via resolveFactsTarget.
+func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, ropts retrievalOptions, jsonOut, patterns bool, surface string) error {
 	// Reject --limit <= 0 rather than silently defaulting, so a typo like
 	// `--limit 0` is an explicit error (matching the rest of the CLI surface). The
 	// MCP path passes a validated positive limit, so it's unaffected.
@@ -109,7 +144,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if err != nil {
 		return err
 	}
-	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, resolvedBranch, query, limit, mode, retrievalOptions{Source: source})
+	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, resolvedBranch, query, limit, mode, ropts)
 	if err != nil {
 		return err
 	}
@@ -275,6 +310,7 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
 			EndLine: result.EndLine, Branch: result.Branch, SessionID: result.SessionID,
 			Agent: result.Agent, CreatedAt: result.CreatedAt, Truncated: result.Truncated,
+			MatchedTerms: result.MatchedTerms,
 		}
 	}
 	return out

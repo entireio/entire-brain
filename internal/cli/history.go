@@ -47,7 +47,10 @@ const (
 	// both rankers still exclude kind=request from general ranking.
 	// v5: extract experimental conversation "exchange" records (conversation.go)
 	// during the scan; older caches do not contain them.
-	historyScanCacheVersion = 5
+	// v6: conversation-scoped wrapper filtering (hook-injected pseudo-requests)
+	// and API-error narrative exclusion changed exchange extraction; cached v5
+	// exchanges would keep the noise.
+	historyScanCacheVersion = 6
 )
 
 type historySourceManifest struct {
@@ -287,6 +290,12 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		progress(0, total)
 	}
 	seenDecisions := map[string]struct{}{}
+	// Re-exported sessions (the same session written under multiple transcript
+	// paths) produce byte-identical exchanges with identical IDs — measured at
+	// 17–31% of exchange records on real brains. Files iterate newest-first, so
+	// keeping the first occurrence of each exchange ID retains the newest
+	// export's copy (which also carries any appended assistant output).
+	seenExchanges := map[string]struct{}{}
 	incompleteExchanges := 0
 	for i, file := range files {
 		rel, relErr := filepath.Rel(outputDir, file.Path)
@@ -335,6 +344,12 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 					continue
 				}
 				seenDecisions[dedupeKey] = struct{}{}
+			}
+			if record.Kind == conversationKind {
+				if _, ok := seenExchanges[record.ID]; ok {
+					continue
+				}
+				seenExchanges[record.ID] = struct{}{}
 			}
 			index.Records = append(index.Records, record)
 		}
