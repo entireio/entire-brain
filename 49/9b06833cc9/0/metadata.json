@@ -1,0 +1,72 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "499b06833cc9",
+  "session_id": "cd50f07a-6a14-4eeb-ab8e-26e010985a67",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-07T14:35:01.789719Z",
+  "branch": "feat/conversational-memory-phase1",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/conversation.go",
+    "internal/cli/conversation_test.go",
+    "internal/cli/history.go",
+    "internal/cli/history_eval.go",
+    "internal/cli/history_fts.go",
+    "internal/cli/history_vec.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/retrieval_guard.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "839f40027231",
+  "token_usage": {
+    "input_tokens": 246,
+    "cache_creation_tokens": 288782,
+    "cache_read_tokens": 25773176,
+    "output_tokens": 105246,
+    "api_call_count": 124
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-07T14:35:01.736337Z",
+    "agent_lines": 2131,
+    "agent_removed": 53,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2131,
+    "total_lines_changed": 2184,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2131,
+      "agent_lines_removed": 53,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    }
+  ]
+}
