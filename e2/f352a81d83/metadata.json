@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "e2f352a81d83",
+  "strategy": "manual-commit",
+  "branch": "feat/conversational-memory-phase2",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/history.go",
+    "internal/cli/root.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e2/f352a81d83/0/metadata.json",
+      "transcript": "/e2/f352a81d83/0/full.jsonl",
+      "content_hash": "/e2/f352a81d83/0/content_hash.txt",
+      "prompt": "/e2/f352a81d83/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 84,
+    "cache_creation_tokens": 46016,
+    "cache_read_tokens": 22923335,
+    "output_tokens": 30780,
+    "api_call_count": 42
+  }
+}
