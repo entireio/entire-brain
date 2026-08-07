@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Opus compact-mode result: re-derive audit `ok` with the committed (tested)
-model-aware mcp_condition_audit, then report compact-Opus vs no_brain per cell.
+"""Historical Opus matrix report: re-derive audit `ok` with the current tested
+mcp_condition_audit, then report the retained Opus vs no_brain cells.
 
 Re-derivation is deterministic and applies the committed audit bugfix to records
 that were collected by in-flight processes loading the pre-fix module — it does
@@ -79,14 +79,14 @@ def main():
     tasks = sorted({k[0] for k in cells}); efforts = ["low", "medium", "high", "xhigh"]
     hdr = f"{'task':12}{'effort':8}{'cond':18}{'valid':7}{'score':7}{'time':7}{'cost':8}{'Δtime':8}{'Δcost':8}{'Δscore':7}"
     print(hdr); print("-" * len(hdr))
-    wins = {"mcp_history": {"all3": 0, "tot": 0}, "full_cli_compact": {"both": 0, "tot": 0}}
+    wins = {"mcp_history": {"all3": 0, "tot": 0}, "semantic_history_cli_compact": {"both": 0, "tot": 0}}
     for t in tasks:
         for e in efforts:
             nb = cells.get((t, e, "no_brain"))
             if not nb:
                 continue
             b = agg(nb)
-            for c in ["no_brain", "full_cli_compact", "mcp_history"]:
+            for c in ["no_brain", "semantic_history_cli_compact", "mcp_history"]:
                 rs = cells.get((t, e, c))
                 if not rs:
                     continue
@@ -101,13 +101,13 @@ def main():
                         if a['time'] < b['time'] and a['cost'] < b['cost'] and a['score'] > b['score']:
                             wins["mcp_history"]["all3"] += 1
                     else:
-                        wins["full_cli_compact"]["tot"] += 1
+                        wins["semantic_history_cli_compact"]["tot"] += 1
                         if a['time'] < b['time'] and a['cost'] < b['cost']:
-                            wins["full_cli_compact"]["both"] += 1
+                            wins["semantic_history_cli_compact"]["both"] += 1
                 print(f"{t:12}{e:8}{c:18}{str(a['valid'])+'/'+str(a['n']):7}{a['score']:<7}{a['time']:<7}{a['cost']:<8}{dt:8}{dc:8}{ds:7}")
     print()
     print(f"MCP cells where Opus is faster AND cheaper AND higher-score: {wins['mcp_history']['all3']}/{wins['mcp_history']['tot']}")
-    print(f"CLI cells where Opus is faster AND cheaper:                  {wins['full_cli_compact']['both']}/{wins['full_cli_compact']['tot']}")
+    print(f"CLI cells where Opus is faster AND cheaper:                  {wins['semantic_history_cli_compact']['both']}/{wins['semantic_history_cli_compact']['tot']}")
 
     # 3. pooled
     print("\n=== POOLED (all efforts + both tasks) compact-Opus vs no_brain ===")
@@ -116,7 +116,7 @@ def main():
         pool.setdefault(c, []).extend(rs)
     b = agg(pool["no_brain"])
     print(f"{'cond':18}{'valid':9}{'score':8}{'time':7}{'cost':8}{'tok':9}{'out':8}")
-    for c in ["no_brain", "full_cli_compact", "mcp_history"]:
+    for c in ["no_brain", "semantic_history_cli_compact", "mcp_history"]:
         a = agg(pool[c])
         d = ""
         if c != "no_brain":

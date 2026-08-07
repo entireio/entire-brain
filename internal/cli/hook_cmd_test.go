@@ -75,8 +75,12 @@ func TestHookEmitSilentAndBudget(t *testing.T) {
 	c := newHookPostFailureCommand(Options{})
 	var sb strings.Builder
 	c.SetOut(&sb)
-	if err := hookEmit(c, hits, 150, false); err != nil {
+	kept, err := hookEmit(c, hits, 150, false)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(kept) == 0 || len(kept) >= 3 {
+		t.Fatalf("hookEmit should report the capped emission it made, got %d facts", len(kept))
 	}
 	lines := strings.Split(strings.TrimSpace(sb.String()), "\n")
 	if len(lines) >= 3 {

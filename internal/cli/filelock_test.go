@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +16,9 @@ func TestFileLockContentionAndReacquire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquire lock: %v", err)
 	}
-	if _, err := acquireFileLock(lockPath, "brain_locked", 25*time.Millisecond); err == nil || !strings.Contains(err.Error(), "brain_locked") {
-		t.Fatalf("contention err = %v", err)
+	if _, err := acquireFileLock(lockPath, "brain_locked", 25*time.Millisecond); err == nil ||
+		!strings.Contains(err.Error(), "brain_locked") || !errors.Is(err, errFileLockTimeout) {
+		t.Fatalf("typed contention err = %v", err)
 	}
 	if err := lock.Close(); err != nil {
 		t.Fatalf("unlock: %v", err)

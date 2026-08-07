@@ -34,8 +34,9 @@ func (f *fakeFusionEmbedder) historyFusionEligible() bool { return true }
 // memHistoryVecStore is an in-memory historyVectorStore so the sync logic is
 // testable on both builds (the real vec0 store exists only under brain_cgo).
 type memHistoryVecStore struct {
-	vecs    map[string][]float32
-	upserts int
+	vecs     map[string][]float32
+	upserts  int
+	knnCalls int
 }
 
 func newMemHistoryVecStore() *memHistoryVecStore {
@@ -62,6 +63,7 @@ func (m *memHistoryVecStore) upsert(add map[string][]float32, drop []string) err
 }
 
 func (m *memHistoryVecStore) knnCos(qvec []float32, k int) (map[string]float64, bool) {
+	m.knnCalls++
 	if len(m.vecs) == 0 || k <= 0 {
 		return nil, false
 	}
@@ -82,6 +84,22 @@ func (m *memHistoryVecStore) knnCos(qvec []float32, k int) (map[string]float64, 
 		out[s.id] = s.cos
 	}
 	return out, true
+}
+
+func TestHistorySemanticScoresRejectInvalidQueryBeforeKNN(t *testing.T) {
+	store := newMemHistoryVecStore()
+	store.vecs["record"] = []float32{1, 0}
+	wrongDimension := &wrongDimensionQueryEmbedder{}
+	if got := historySemanticScoresWithStore(store, wrongDimension, "query", 10, true); len(got) != 0 {
+		t.Fatalf("wrong-dimension history query produced scores: %v", got)
+	}
+	zero := &fixedEmbedder{dim: 2, vecs: map[string][]float32{"query": {0, 0}}}
+	if got := historySemanticScoresWithStore(store, zero, "query", 10, true); len(got) != 0 {
+		t.Fatalf("zero history query produced scores: %v", got)
+	}
+	if store.knnCalls != 0 {
+		t.Fatalf("invalid history queries reached KNN %d times", store.knnCalls)
+	}
 }
 
 func TestHistorySemanticEmbedderGate(t *testing.T) {
@@ -204,6 +222,105 @@ func TestRankHistorySemanticDedupsAndSkips(t *testing.T) {
 	if got[0].Score <= got[1].Score {
 		t.Fatalf("display scores must follow cosine order: %d vs %d", got[0].Score, got[1].Score)
 	}
+}
+
+func TestRankHistorySemanticRelevantRejectsNoiseButKeepsUpperTail(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "target", Kind: "decision", Summary: "the relevant durable decision"},
+		{ID: "n1", Kind: "decision", Summary: "unrelated one"},
+		{ID: "n2", Kind: "decision", Summary: "unrelated two"},
+		{ID: "n3", Kind: "decision", Summary: "unrelated three"},
+		{ID: "n4", Kind: "decision", Summary: "unrelated four"},
+		{ID: "n5", Kind: "decision", Summary: "unrelated five"},
+	}}
+	strong := map[string]float64{
+		"target": 0.9, "n1": 0.1, "n2": 0.1, "n3": 0.1, "n4": 0.1, "n5": 0.1,
+	}
+	got := rankHistorySemanticRelevant(index, strong, 10)
+	if len(got) != 1 || got[0].Record.ID != "target" {
+		t.Fatalf("confident history upper tail was not isolated: %+v", got)
+	}
+	flat := map[string]float64{
+		"target": 0.101, "n1": 0.1, "n2": 0.1, "n3": 0.1, "n4": 0.1, "n5": 0.1,
+	}
+	if got := rankHistorySemanticRelevant(index, flat, 10); len(got) != 0 {
+		t.Fatalf("flat history neighborhood escaped automatic calibration: %+v", got)
+	}
+	if raw := rankHistorySemantic(index, flat, 10); len(raw) != len(index.Records) {
+		t.Fatalf("explicit semantic ranking should preserve raw neighbors: %+v", raw)
+	}
+}
+
+func TestRankHistorySemanticHybridPreservesLexicalHitsButRejectsNoise(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "lex", Kind: "decision", Summary: "lexically reached evidence"},
+		{ID: "n1", Kind: "decision", Summary: "unrelated one"},
+		{ID: "n2", Kind: "decision", Summary: "unrelated two"},
+		{ID: "n3", Kind: "decision", Summary: "unrelated three"},
+	}}
+	flat := map[string]float64{"lex": 0.101, "n1": 0.1, "n2": 0.1, "n3": 0.1}
+	got := rankHistorySemanticHybrid(
+		index, flat, 10, map[string]struct{}{"lex": {}},
+	)
+	if len(got) != 1 || got[0].Record.ID != "lex" {
+		t.Fatalf("hybrid history must keep lexical evidence without admitting semantic noise: %+v", got)
+	}
+}
+
+func TestRankHistorySemanticHybridHasIndependentCalibrationArm(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "lex-1", Kind: "decision", Summary: "lexical one"},
+		{ID: "lex-2", Kind: "decision", Summary: "lexical two"},
+		{ID: "lex-3", Kind: "decision", Summary: "lexical three"},
+		{ID: "semantic", Kind: "decision", Summary: "term disjoint evidence"},
+		{ID: "noise-1", Kind: "decision", Summary: "noise one"},
+		{ID: "noise-2", Kind: "decision", Summary: "noise two"},
+		{ID: "noise-3", Kind: "decision", Summary: "noise three"},
+		{ID: "noise-4", Kind: "decision", Summary: "noise four"},
+	}}
+	scores := map[string]float64{
+		"lex-1": 1, "lex-2": 0.999, "lex-3": 0.998, "semantic": 0.997,
+		"noise-1": 0, "noise-2": 0, "noise-3": 0, "noise-4": 0,
+	}
+	lexical := map[string]struct{}{"lex-1": {}, "lex-2": {}, "lex-3": {}}
+	ranks := rankHistorySemanticHybridRanks(index, scores, 3, lexical)
+	if len(ranks.ranked) != 3 {
+		t.Fatalf("primary history vector list length = %d, want 3", len(ranks.ranked))
+	}
+	if len(ranks.calibratedSemanticOnly) != 1 || ranks.calibratedSemanticOnly[0].Record.ID != "semantic" {
+		t.Fatalf("calibrated history arm was truncated by the primary limit: %+v", ranks.calibratedSemanticOnly)
+	}
+}
+
+func TestRankHistorySemanticHybridGivesSemanticOnlyEvidenceTwoRRFVotes(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "lexical", Kind: "decision", Summary: "lexically reached evidence"},
+		{ID: "semantic", Kind: "decision", Summary: "term disjoint evidence"},
+		{ID: "noise-1", Kind: "decision", Summary: "noise one"},
+		{ID: "noise-2", Kind: "decision", Summary: "noise two"},
+		{ID: "noise-3", Kind: "decision", Summary: "noise three"},
+		{ID: "noise-4", Kind: "decision", Summary: "noise four"},
+	}}
+	scores := map[string]float64{
+		"lexical": 1, "semantic": 0.99,
+		"noise-1": 0, "noise-2": 0, "noise-3": 0, "noise-4": 0,
+	}
+	ranks := rankHistorySemanticHybridRanks(
+		index, scores, 10, map[string]struct{}{"lexical": {}},
+	)
+	merged := rrfMergeUnified([][]unifiedResult{
+		historyToUnified(ranks.ranked),
+		historyToUnified(ranks.calibratedSemanticOnly),
+	}, 10)
+	for _, result := range merged {
+		if result.ID == "semantic" {
+			if result.Score <= 1.0/(rrfK+1) {
+				t.Fatalf("semantic-only history evidence received only one RRF vote: %v", result.Score)
+			}
+			return
+		}
+	}
+	t.Fatalf("semantic-only history evidence was not admitted: %+v", merged)
 }
 
 func TestRankHistoryFusedGateClosedIsExactlyFTS(t *testing.T) {

@@ -7,8 +7,8 @@ Available tools:
 
 - `brain_status`
 - `brain_index_status` (alias for `brain_status`)
-- Project/index management: `brain_index_repository`, `brain_list_projects`,
-  `brain_delete_project`
+- Project/index management: `brain_refresh`, `brain_index_repository`,
+  `brain_list_projects`, `brain_delete_project`
 - `brain_brief`
 - Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
   `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`
@@ -46,8 +46,9 @@ incompatible representation will use a new version name.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a
-Gemma-class embedder is configured and `refresh` has built history vectors). All three return ids you can
-pass to `brain_get`/`brain_multi_get`. (The earlier `brain_history` tool was
+Gemma-class embedder is configured and `refresh` has built history vectors).
+All three return ids you can pass to `brain_get`/`brain_multi_get` for full
+records. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
@@ -83,9 +84,19 @@ relations, and persists them as queryable `RUNTIME_TRACE` graph facts that are
 also visible to graph schema/metrics, trace-path traversal, and `brain_brief`
 semantic context.
 
-`brain_index_repository` is a local write tool for building the semantic index;
-it does not publish artifacts. `brain_delete_project` removes local generated
-brain data for the selected repo key.
+`brain_refresh` is the deterministic local write tool for rebuilding
+code-derived sources when retrieval freshness is unsafe; it never runs seed
+agent synthesis and returns status JSON after completion. It includes current
+uncommitted content by default; set `worktree: false` only for committed HEAD.
+It refreshes seed/docs, skips checkpoint export/history, and has a 60-second
+server-side deadline so the synchronous MCP connection cannot be held
+indefinitely. Set `semantic: true` only for small repositories; use
+`brain_index_repository` as a separate long-running step for large repositories.
+Use the CLI command `entire brain refresh sessions` when history sources and
+patterns need refresh.
+`brain_index_repository` is the narrower local write tool for building only the
+semantic index; neither tool publishes artifacts. `brain_delete_project`
+removes local generated brain data for the selected repo key.
 
 `brain_patterns` and `brain_patterns_status` are read-only pattern-corpus
 inspection tools. Skill formation is intentionally not exposed as an MCP write

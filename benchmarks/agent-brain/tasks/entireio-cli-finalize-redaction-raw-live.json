@@ -3,7 +3,7 @@
   "repo": "entire-cli",
   "repo_path": "cli-bench",
   "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
-  "conditions": ["no_brain", "full_cli_compact", "mcp_history"],
+  "conditions": ["no_brain", "semantic_history_cli_compact", "mcp_history"],
   "prompt": "After a recent cleanup that removed what looked like redundant duplicate secret-scrubbing at the end of each agent turn, users report that a credential pasted into the chat mid-turn can show up in plaintext in the permanently saved conversation history. Investigate and fix the leak. Constraint: do not simply reintroduce wasteful double-scrubbing of content that was already cleaned when each mid-turn snapshot was processed; the cleanup's goal of avoiding duplicated work on already-clean content was legitimate.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

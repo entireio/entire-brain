@@ -5,7 +5,7 @@
   "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
   "conditions": [
     "no_brain",
-    "full_cli_compact",
+    "semantic_history_cli_compact",
     "mcp_history"
   ],
   "prompt": "Fix the release-candidate stale-session-state regression. A hidden integration shows that after an ordinary commit during an active session, later accounting remains anchored to stale state. Keep the fix minimal.",

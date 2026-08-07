@@ -213,7 +213,7 @@ func TestBrainReviewUsesRuntimeTraceForRankingAndContext(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
 	cmd := &cobra.Command{Use: "index"}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	tracePath := filepath.Join(repoDir, "runtime-trace.ndjson")
@@ -287,7 +287,7 @@ func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	mk := func() *cobra.Command {
 		return NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 	}
-	if _, err := execute(t, mk(), "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, mk(), "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")

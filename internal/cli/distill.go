@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	distillTemplateName    = "templates/entire-brain-distill.md"
-	distillTaxonomyMarker  = "${TAXONOMY_BLOCK}"
-	distillMaxOutputBytes  = 256 * 1024
-	distillFactMaxTextSize = 2000
+	distillTemplateName             = "templates/entire-brain-distill.md"
+	distillTaxonomyMarker           = "${TAXONOMY_BLOCK}"
+	distillMaxOutputBytes           = 256 * 1024
+	distillMaxStructuredOutputBytes = 4 * 1024 * 1024
+	distillFactMaxTextSize          = 2000
 )
 
 // distillTemplate returns the distillation prompt body shipped with the binary,
@@ -113,9 +114,9 @@ func distillAgentCommandArgs(agent string, agentCommand []string, prompt string)
 		}
 		return append([]string(nil), agentCommand...), nil
 	case "codex":
-		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", prompt}, nil
+		return []string{"codex", "exec", "--json", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", prompt}, nil
 	case "claude-code":
-		return []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", prompt}, nil
+		return []string{"claude", "--print", "--output-format", "json", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", prompt}, nil
 	case "ollama":
 		return []string{"ollama", "", prompt}, nil
 	case "none", "":

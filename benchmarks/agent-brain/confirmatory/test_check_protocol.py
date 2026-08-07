@@ -305,7 +305,7 @@ class ProtocolCheckTest(unittest.TestCase):
 
     def test_preparation_artifacts_are_consistent(self) -> None:
         # The integration verification is an immutable historical receipt.  This
-        # workstream intentionally changes four of its recorded source files, so
+        # workstream intentionally changes nine of its recorded source files, so
         # the live validator must fail closed on exactly those stale bindings
         # rather than silently rewriting the receipt.
         self.assertEqual(
@@ -313,6 +313,11 @@ class ProtocolCheckTest(unittest.TestCase):
             [
                 "source_artifacts[0]: content hash mismatch: benchmarks/agent-brain/run.py",
                 "source_artifacts[1]: content hash mismatch: benchmarks/agent-brain/run_test.py",
+                "source_artifacts[8]: content hash mismatch: internal/cli/facts_eligibility_test.go",
+                "source_artifacts[9]: content hash mismatch: internal/cli/facts_read_cmd.go",
+                "source_artifacts[11]: content hash mismatch: internal/cli/embed_rank.go",
+                "source_artifacts[12]: content hash mismatch: internal/cli/embed_store.go",
+                "source_artifacts[13]: content hash mismatch: internal/cli/embed_vec_cgo.go",
                 "source_artifacts[15]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",
                 "source_artifacts[17]: content hash mismatch: benchmarks/agent-brain/analysis/confirmatory.py",
             ],

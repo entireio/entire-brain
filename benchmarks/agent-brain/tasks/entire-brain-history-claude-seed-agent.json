@@ -2,7 +2,7 @@
   "id": "entire-brain-history-claude-seed-agent",
   "repo": "entire-brain",
   "repo_path": "entire-brain",
-  "conditions": ["no_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_history_brain"],
   "prepare_semantic": false,
   "prompt": "A checkpointed implementation added support for the second first-party seed synthesis agent and its matching intake template. A regression removed that support, the tests, and the docs. Restore the prior checkpointed behavior and keep the agent invocation isolated from project configuration.",
   "setup_replacements": [
@@ -48,6 +48,5 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": ["second seed synthesis agent", "intake template for seed agent", "agent invocation ignores project configuration", "agent runs without session persistence"],
-  "history_excerpt_lines": 40
+  "brain_queries": ["second seed synthesis agent", "intake template for seed agent", "agent invocation ignores project configuration", "agent runs without session persistence"]
 }

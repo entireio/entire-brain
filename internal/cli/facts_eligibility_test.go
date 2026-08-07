@@ -173,6 +173,13 @@ func treeContentHash(t *testing.T, root string) string {
 			return err
 		}
 		if !entry.IsDir() {
+			rel, _ := filepath.Rel(root, path)
+			rel = filepath.ToSlash(rel)
+			if filepath.Base(path) == factsVitalityLogFileName ||
+				filepath.Base(path) == factsVitalityRollupFileName ||
+				rel == filepath.ToSlash(filepath.Join(brainLockDirName, factsVitalityLockName)) {
+				return nil
+			}
 			paths = append(paths, path)
 		}
 		return nil

@@ -37,8 +37,8 @@ func securityToggleEnabled(name string) bool {
 	case "1", "true", "yes", "on", "enable", "enabled":
 		return true
 	default:
-		if _, seen := securityToggleWarned.LoadOrStore(name+"="+raw, struct{}{}); !seen {
-			fmt.Fprintf(os.Stderr, "warning: %s=%q is not a recognized boolean; treating as enabled (fail-closed)\n", name, raw)
+		if _, seen := securityToggleWarned.LoadOrStore(name, struct{}{}); !seen {
+			fmt.Fprintf(os.Stderr, "warning: %s is not a recognized boolean; treating as enabled (fail-closed)\n", name)
 		}
 		return true
 	}

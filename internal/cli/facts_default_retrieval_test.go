@@ -29,7 +29,7 @@ func TestRankFactsFusedPublicOraclePreservesTargetAndHardDistractor(t *testing.T
 	}
 }
 
-func TestRankFactsFusedPublicSyntheticNullGolden(t *testing.T) {
+func TestRankFactsFusedPublicSyntheticNullFailsClosed(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
 	t.Setenv("ENTIRE_BRAIN_FACTS_BM25", "")
 	facts := loadFactsBM25PublicSnapshot(t)
@@ -38,29 +38,15 @@ func TestRankFactsFusedPublicSyntheticNullGolden(t *testing.T) {
 		t.Skip("bundled semantic backend unavailable")
 	}
 	// This is a clearly synthetic corpus-closed null, not a relevance label.
-	// The semantic arm currently returns its nearest six rather than an empty
-	// list; freeze that behavior here so failure-vector hardening cannot silently
-	// change null-query packet content.
+	// Automatic semantic injection now fails closed when the nearest candidates
+	// do not clear the corpus-relative calibration gate.
 	got := rankFactsFused(facts, "xylophone zebra quokka", 6, false, rr)
-	want := []string{
-		"fact:e3e7d5ba3d7767d06ea91f5e",
-		"fact:8c7cbd18b936edc149a64ec1",
-		"fact:2b0e4f409de31a6aa95ce0a0",
-		"fact:63485ff4d3e7da4d742dacda",
-		"fact:0d1104c5493d9d6febcb7600",
-		"fact:d6d013154da56499fbf92453",
-	}
-	if len(got) != len(want) {
-		t.Fatalf("null result count=%d, want %d", len(got), len(want))
-	}
-	for i := range want {
-		if got[i].ID != want[i] {
-			t.Fatalf("null rank %d=%s, want %s", i+1, got[i].ID, want[i])
-		}
+	if len(got) != 0 {
+		t.Fatalf("synthetic null returned semantic-only facts: %+v", got)
 	}
 }
 
-func TestRankFactsFusedCapsWeakSemanticTail(t *testing.T) {
+func TestRankFactsFusedCalibrationSuppressesWeakSemanticTail(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
 	t.Setenv("ENTIRE_BRAIN_FACTS_BM25", "")
 	facts := loadFactsBM25PublicSnapshot(t)
@@ -72,8 +58,8 @@ func TestRankFactsFusedCapsWeakSemanticTail(t *testing.T) {
 	const target = "fact:32203deb1036cba4d14b243c"
 
 	fullDepth := rankFactsFusedWithSemanticDepthMultiplier(facts, query, 6, false, rr, 0)
-	if rank := rankOfFactID(fullDepth, target); rank != 0 {
-		t.Fatalf("historical full-depth fusion target rank=%d, want outside top 6", rank)
+	if rank := rankOfFactID(fullDepth, target); rank == 0 {
+		t.Fatal("calibration removed a strong lexical target at full semantic depth")
 	}
 	got := rankFactsFused(facts, query, 6, false, rr)
 	if rank := rankOfFactID(got, target); rank == 0 {
@@ -119,7 +105,7 @@ func TestRankFactsFusedTwoTimesDepthPreservesCalibrationCases(t *testing.T) {
 	}
 }
 
-func TestRankFactsFusedTwoTimesDepthKeepsSemanticOnlyFactReachable(t *testing.T) {
+func TestRankFactsFusedRejectsUncalibratedSemanticOnlyFact(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
 	t.Setenv("ENTIRE_BRAIN_FACTS_BM25", "")
 	facts := loadFactsBM25PublicSnapshot(t)
@@ -132,8 +118,8 @@ func TestRankFactsFusedTwoTimesDepthKeepsSemanticOnlyFactReachable(t *testing.T)
 	if rank := rankOfFactID(rankFacts(facts, query, len(facts), false), target); rank != 0 {
 		t.Fatalf("semantic-only calibration target unexpectedly has lexical rank %d", rank)
 	}
-	if rank := rankOfFactID(rankFactsFused(facts, query, 6, false, rr), target); rank == 0 {
-		t.Fatal("semantic-only calibration target absent from top 6")
+	if rank := rankOfFactID(rankFactsFused(facts, query, 6, false, rr), target); rank != 0 {
+		t.Fatalf("uncalibrated semantic-only target reached automatic top 6 at rank %d", rank)
 	}
 }
 

@@ -371,6 +371,9 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "seed")
 	runner := seedFixtureRunner(repoDir)
 	runner.responses[fakeCommandKey("git", "ls-files", "--others", "--exclude-standard")] = fakeCommandResponse{stdout: "AGENTS.md\n.env.local\n"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: "?? AGENTS.md\n"}
+	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: runner})
 	if _, err := execute(t, cmd, "refresh", "seed", "--worktree", "--output", outputDir, repoDir); err != nil {
 		t.Fatalf("seed --worktree: %v", err)
@@ -386,8 +389,22 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	if manifest.Sources.Seed.WorktreeMode != "worktree" {
 		t.Fatalf("worktree mode = %q", manifest.Sources.Seed.WorktreeMode)
 	}
+	if manifest.Sources.Seed.WorktreeHash == "" {
+		t.Fatal("worktree seed is missing its verification hash")
+	}
 	if !hasSeedDocument(manifest.Sources.Seed.Documents, "AGENTS.md") {
 		t.Fatalf("AGENTS.md was not included: %+v", manifest.Sources.Seed.Documents)
+	}
+}
+
+func TestSeedRejectsDirtyWorktreeWithoutWorktreeFlag(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M README.md\n"}
+	cmd := NewRootCommand(Options{Version: "test-version", Runner: runner})
+	_, err := execute(t, cmd, "refresh", "seed", "--output", filepath.Join(t.TempDir(), "seed"), repoDir)
+	if err == nil || !strings.Contains(err.Error(), "dirty_worktree") {
+		t.Fatalf("dirty seed refresh err = %v, want dirty_worktree", err)
 	}
 }
 
@@ -572,6 +589,7 @@ func seedFixtureRunner(repoDir string) *fakeCommandRunner {
 		fakeCommandKey("git", "rev-parse", "HEAD"): {
 			stdout: "abc123\n",
 		},
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {},
 		fakeCommandKey("git", "log", "--reverse", "--format=%aI", "--max-count=1"): {
 			stdout: "2025-01-01T00:00:00Z\n",
 		},

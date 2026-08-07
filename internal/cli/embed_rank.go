@@ -38,10 +38,11 @@ type knnVectorStore interface {
 	knnCos(qvec []float32) (map[string]float64, bool)
 }
 
-// semanticReranker holds the embedder and a cache of fact vectors. Fact ids are
-// content-derived, so a vector is valid for the life of the fact: the in-memory
-// cache makes an eval over many queries embed each fact at most once, and an
-// optional disk store (recall/brief) carries vectors across CLI invocations.
+// semanticReranker holds the embedder and a cache of fact vectors. Fact ids hash
+// normalized text plus sorted paths, so a vector is valid for the life of the
+// fact. The in-memory cache makes an eval over many queries embed each fact at
+// most once, and an optional disk store (recall/brief) carries vectors across
+// CLI invocations.
 type semanticReranker struct {
 	e       Embedder
 	cache   map[string][]float32
@@ -89,7 +90,7 @@ func newSemanticRerankerForBranch(e Embedder, brainDir, branch string) *semantic
 	if rr == nil {
 		return nil
 	}
-	rr.store = newVectorStore(brainDir, branch, e.ID(), e.Dim())
+	rr.store = newVectorStore(brainDir, branch, factEmbeddingModelID(e.ID()), e.Dim())
 	rr.cache = rr.store.load()
 	rr.loaded = len(rr.cache)
 	rr.touched = map[string]bool{}
@@ -110,11 +111,16 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 		s.touched[f.ID] = true
 	}
 	if v, ok := s.cache[f.ID]; ok {
-		// Both insertion below and every persistent store load enforce the same
-		// validity predicate, so a cache hit is already known-good.
-		return v
+		if validSemanticEmbedding(v, s.e.Dim()) {
+			return v
+		}
+		// Keep a tombstone until flush. savePresent merges with the latest disk
+		// state under the write lock, so deleting only from this stale in-memory
+		// snapshot could otherwise resurrect the invalid persisted vector.
+		s.cache[f.ID] = nil
+		s.dirty = true
 	}
-	v := s.e.Embed(f.Text)
+	v := s.e.Embed(factEmbeddingText(f))
 	// Cache only a full-dimension vector with actual numeric signal. A transient
 	// embed failure (nil/short/zero/non-finite)
 	// must not be cached, or every later call this process would reuse the empty
@@ -137,10 +143,7 @@ type queryEmbedder interface {
 // has one, so a document/query asymmetry (EmbeddingGemma) is honored without
 // changing the symmetric Model2Vec path.
 func (s *semanticReranker) embedQuery(query string) []float32 {
-	if qe, ok := s.e.(queryEmbedder); ok {
-		return qe.EmbedQuery(query)
-	}
-	return s.e.Embed(query)
+	return embedQueryWith(s.e, query)
 }
 
 // retain marks ids as present this run for prune purposes, without forcing an
@@ -218,11 +221,13 @@ func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string,
 		limit = 10
 	}
 	type cand struct {
-		rec    factRecord
-		lex    float64
-		lexHit bool // retrieved by the lexical arm (distinguishes a 0-score BM25 hit from a miss)
-		cos    float64
-		semHit bool // backed by a valid candidate vector, not failure-shaped zero noise
+		rec           factRecord
+		lex           float64
+		lexHit        bool // retrieved by the lexical arm (distinguishes a 0-score BM25 hit from a miss)
+		cos           float64
+		semHit        bool // backed by a valid candidate vector, not failure-shaped zero noise
+		semanticValid bool
+		semantic      bool
 	}
 	queryLocus := factLocus(query)
 	rr.lastRun.Attempted = true
@@ -299,7 +304,29 @@ func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string,
 				}
 			}
 		}
-		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos, semHit: semHit})
+		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos, semHit: semHit, semanticValid: semHit})
+	}
+	if haveSemantic {
+		cosines := make([]float64, len(cands))
+		needsCalibration := false
+		for index := range cands {
+			cosines[index] = cands[index].cos
+			needsCalibration = needsCalibration || (cands[index].semanticValid && !cands[index].lexHit)
+		}
+		var backgrounds []float64
+		if needsCalibration {
+			vectors := make([][]float32, len(cands))
+			for index := range cands {
+				if cands[index].semanticValid {
+					vectors[index] = rr.factVector(cands[index].rec)
+				}
+			}
+			backgrounds = semanticLeaveOneOutBackgrounds(qvec, vectors)
+		}
+		mask := semanticResultMask(cosines, needsCalibration, backgrounds)
+		for index := range cands {
+			cands[index].semantic = mask[index]
+		}
 	}
 
 	// Lexical ranks: only facts retrieved lexically (lexHit) contribute a lexical
@@ -326,16 +353,21 @@ func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string,
 		}
 	}
 
-	// Semantic ranks: candidates backed by valid vectors are ranked by cosine, so
-	// a term-disjoint but semantically-near fact can earn a rank. Failure-shaped
-	// vectors are excluded rather than receiving a recency-ordered zero-cosine
-	// rank. Only an oversampled top window contributes to RRF: the weak tail of a
-	// small static model is not evidence strong enough to displace a top lexical
-	// match. Skipped entirely when there's no valid query embedding, leaving a
-	// clean lexical-only ranking.
+	// Semantic ranks: semantic-only candidates must clear the corpus-relative
+	// gate. Lexical hits retain their semantic rank. The oversampled depth keeps
+	// the weak tail of a small static model from displacing a top lexical match.
 	if haveSemantic {
-		sort.SliceStable(order, func(a, b int) bool {
-			ia, ib := order[a], order[b]
+		semanticOrder := make([]int, 0, len(cands))
+		for index := range cands {
+			if !cands[index].semanticValid {
+				continue
+			}
+			if cands[index].semantic || cands[index].lexHit {
+				semanticOrder = append(semanticOrder, index)
+			}
+		}
+		sort.SliceStable(semanticOrder, func(a, b int) bool {
+			ia, ib := semanticOrder[a], semanticOrder[b]
 			if cands[ia].semHit != cands[ib].semHit {
 				return cands[ia].semHit
 			}
@@ -344,12 +376,18 @@ func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string,
 			}
 			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 		})
-		semanticDepth := semanticFusionDepth(limit, semanticDepthMultiplier, len(order))
-		for rank, idx := range order {
-			if rank >= semanticDepth || !cands[idx].semHit {
-				break
-			}
+		semanticDepth := semanticFusionDepth(limit, semanticDepthMultiplier, len(semanticOrder))
+		semanticOrder = semanticOrder[:semanticDepth]
+		for rank, idx := range semanticOrder {
 			fused[idx] += 1.0 / (rrfK + float64(rank+1))
+		}
+		calibratedRank := 0
+		for _, idx := range semanticOrder {
+			if !cands[idx].semantic || cands[idx].lexHit {
+				continue
+			}
+			fused[idx] += 1.0 / (rrfK + float64(calibratedRank+1))
+			calibratedRank++
 		}
 	}
 
@@ -361,7 +399,16 @@ func rankFactsFusedWithSemanticDepthMultiplier(facts []factRecord, query string,
 		if fused[ia] != fused[ib] {
 			return fused[ia] > fused[ib]
 		}
-		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
+		if !cands[ia].rec.UpdatedAt.Equal(cands[ib].rec.UpdatedAt) {
+			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
+		}
+		if cands[ia].semanticValid != cands[ib].semanticValid {
+			return cands[ia].semanticValid
+		}
+		if cands[ia].semanticValid && cands[ia].cos != cands[ib].cos {
+			return cands[ia].cos > cands[ib].cos
+		}
+		return cands[ia].rec.ID < cands[ib].rec.ID
 	})
 	// Only facts that earned a retrieval signal (fused > 0) are returned. The
 	// oversampled semantic window and every lexical hit are eligible; when

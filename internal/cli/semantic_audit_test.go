@@ -81,7 +81,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
-			Provider:         "entire-sem",
+			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
@@ -105,7 +105,32 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report := statusSemanticDetail(t, opts, repoDir)
+	defaultOut, err := execute(t, NewRootCommand(opts), "status", "--json")
+	if err != nil {
+		t.Fatalf("default status: %v\n%s", err, defaultOut)
+	}
+	var defaultReport brainStatusReport
+	if err := json.Unmarshal([]byte(defaultOut), &defaultReport); err != nil {
+		t.Fatalf("decode default status: %v\n%s", err, defaultOut)
+	}
+	if defaultReport.Semantic == nil || defaultReport.Semantic.Coverage == nil || defaultReport.Semantic.Coverage.Files != 3 || defaultReport.Semantic.Coverage.Symbols != 3 || defaultReport.Semantic.Coverage.Relations != 2 {
+		t.Fatalf("default status lost coverage totals: %+v", defaultReport.Semantic)
+	}
+	if len(defaultReport.Semantic.BlindSpots) != 1 || defaultReport.Semantic.BlindSpots[0].Path != "src/broken.ts" || len(defaultReport.Semantic.Coverage.WarningDetails) != 1 || len(defaultReport.Semantic.Coverage.PartialFailureDetails) != 1 {
+		t.Fatalf("default status lost warnings or blind spots: %+v", defaultReport.Semantic)
+	}
+	if len(defaultReport.Semantic.Coverage.FileLanguages) == 0 || len(defaultReport.Semantic.Coverage.Languages) == 0 || len(defaultReport.Semantic.Coverage.SymbolKinds) == 0 || len(defaultReport.Semantic.Coverage.RelationTypes) == 0 {
+		t.Fatalf("default status omitted established coverage histograms: %+v", defaultReport.Semantic.Coverage)
+	}
+
+	detailedOut, err := execute(t, NewRootCommand(opts), "status", "--json", "--details")
+	if err != nil {
+		t.Fatalf("detailed status: %v\n%s", err, detailedOut)
+	}
+	var report brainStatusReport
+	if err := json.Unmarshal([]byte(detailedOut), &report); err != nil {
+		t.Fatalf("decode detailed status: %v\n%s", err, detailedOut)
+	}
 	sem := report.Semantic
 	if sem == nil || sem.Coverage == nil {
 		t.Fatalf("semantic section missing from status report: %+v", report)
@@ -136,6 +161,45 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	}
 }
 
+func TestBrainStatusCompactReportPreservesTrustAndOmitsFollowUpDetail(t *testing.T) {
+	full := brainStatusReport{
+		Sources: brainStatusSources{Semantic: true},
+		Semantic: &brainStatusSemantic{
+			Coverage: &brainStatusSemanticCoverage{
+				Files: 3, Symbols: 4, Relations: 5, Warnings: 1,
+				WarningDetails: []semanticWarning{{Code: "W_TEST"}},
+				FileLanguages:  []semanticAuditCount{{Name: "Go", Count: 3}},
+				Languages:      []semanticAuditCount{{Name: "Go", Count: 4}},
+				SymbolKinds:    []semanticAuditCount{{Name: "function", Count: 4}},
+				RelationTypes:  []semanticAuditCount{{Name: "CALLS", Count: 5}},
+			},
+			Freshness:  &staleReport{Severity: "ok"},
+			BlindSpots: []brainBlindSpot{{Code: "W_TEST", Path: "partial.go"}},
+		},
+		Live: brainLiveState{
+			Dirty:              true,
+			Staged:             []string{"staged.go"},
+			Unstaged:           []string{"dirty.go"},
+			Untracked:          []string{"new.go"},
+			ChangedFiles:       []string{"dirty.go", "new.go"},
+			ChangedSymbolHints: []semanticRecord{{ID: "symbol:changed"}},
+		},
+	}
+	compact := brainStatusCompactReport(full)
+	if compact.Semantic == nil || compact.Semantic.Coverage == nil || compact.Semantic.Coverage.Files != 3 || compact.Semantic.Freshness.Severity != "ok" || len(compact.Semantic.BlindSpots) != 1 {
+		t.Fatalf("compact status lost trust-critical state: %+v", compact)
+	}
+	if len(compact.Semantic.Coverage.WarningDetails) != 1 || len(compact.Live.ChangedFiles) != 2 || !compact.Live.Dirty {
+		t.Fatalf("compact status lost warnings or live changed files: %+v", compact)
+	}
+	if len(compact.Semantic.Coverage.FileLanguages) != 0 || len(compact.Semantic.Coverage.Languages) != 0 || len(compact.Semantic.Coverage.SymbolKinds) != 0 || len(compact.Semantic.Coverage.RelationTypes) != 0 || len(compact.Live.Staged) != 0 || len(compact.Live.Unstaged) != 0 || len(compact.Live.Untracked) != 0 || len(compact.Live.ChangedSymbolHints) != 0 {
+		t.Fatalf("compact status retained opt-in detail: %+v", compact)
+	}
+	if len(full.Semantic.Coverage.FileLanguages) != 1 || len(full.Live.ChangedSymbolHints) != 1 {
+		t.Fatalf("compact projection mutated detailed report: %+v", full)
+	}
+}
+
 func TestValidateSemanticSQLiteStoreChecksFileCount(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), semanticSQLiteName)
 	db, err := sql.Open(sqliteDriverName, storePath)
@@ -154,6 +218,29 @@ func TestValidateSemanticSQLiteStoreChecksFileCount(t *testing.T) {
 	err = validateSemanticSQLiteStore(storePath, 2, 0, 0)
 	if err == nil || !strings.Contains(err.Error(), "file count 1 does not match manifest 2") {
 		t.Fatalf("expected file count mismatch, got %v", err)
+	}
+}
+
+func TestValidateSemanticSQLiteStoreInReadOnlyDirectory(t *testing.T) {
+	storeDir := t.TempDir()
+	storePath := filepath.Join(storeDir, semanticSQLiteName)
+	db, err := sql.Open(sqliteDriverName, storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSemanticSQLite(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(storeDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(storeDir, 0o700) })
+
+	if err := validateSemanticSQLiteStore(storePath, 0, 0, 0); err != nil {
+		t.Fatalf("validate immutable store in read-only directory: %v", err)
 	}
 }
 
@@ -177,7 +264,7 @@ func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []se
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
-			Provider:         "entire-sem",
+			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
@@ -206,7 +293,7 @@ func TestStatusJSONIncludesSemanticSection(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("decode status JSON: %v\n%s", err, out)
 	}
-	if report.Semantic == nil || report.Semantic.Provider == nil || report.Semantic.Provider.Name != "entire-sem" {
+	if report.Semantic == nil || report.Semantic.Provider == nil || report.Semantic.Provider.Name != "entire-graph" {
 		t.Fatalf("semantic provider missing: %+v", report.Semantic)
 	}
 	if report.Semantic.Coverage == nil || report.Semantic.Coverage.Symbols != 3 || report.Semantic.Coverage.Relations != 4 {
@@ -216,6 +303,92 @@ func TestStatusJSONIncludesSemanticSection(t *testing.T) {
 	// and its session list scales with brain size.
 	if strings.Contains(out, `"manifest"`) {
 		t.Fatalf("status JSON must not embed the raw manifest:\n%s", out)
+	}
+}
+
+func TestBuildBrainRetrievalStatus(t *testing.T) {
+	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: " M README.md\n"},
+		fakeCommandKey("git", "diff", "--binary", "HEAD"):                       {stdout: "diff --git a/README.md b/README.md\n"},
+		fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD"):           {},
+	}}
+	worktreeHash, err := worktreeFingerprint(context.Background(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("worktree fingerprint: %v", err)
+	}
+	manifest := func(commit, mode, hash string, seedAt, docsAt time.Time) *exportManifest {
+		return &exportManifest{Sources: &brainSources{
+			Seed: &seedSourceManifest{GeneratedAt: seedAt, Commit: commit, WorktreeMode: mode, WorktreeHash: hash},
+			Docs: &docSourceManifest{GeneratedAt: docsAt, Records: 7, Files: 3},
+		}}
+	}
+	tests := []struct {
+		name      string
+		manifest  *exportManifest
+		live      brainLiveState
+		severity  string
+		seedState string
+		docsState string
+	}{
+		{
+			name: "tracked current clean", manifest: manifest("headsha", "tracked", "", now, now),
+			live: brainLiveState{Head: "headsha"}, severity: "ok", seedState: "ok", docsState: "ok",
+		},
+		{
+			name: "tracked old commit", manifest: manifest("oldsha", "tracked", "", now, now),
+			live: brainLiveState{Head: "headsha"}, severity: "unsafe", seedState: "stale", docsState: "ok",
+		},
+		{
+			name: "tracked current dirty", manifest: manifest("headsha", "tracked", "", now, now),
+			live: brainLiveState{Head: "headsha", Dirty: true}, severity: "degraded", seedState: "dirty-unindexed", docsState: "ok",
+		},
+		{
+			name: "worktree snapshot current", manifest: manifest("headsha", "worktree", worktreeHash, now, now),
+			live: brainLiveState{Head: "headsha", Dirty: true}, severity: "ok", seedState: "dirty-indexed", docsState: "ok",
+		},
+		{
+			name: "docs predate seed", manifest: manifest("headsha", "tracked", "", now, now.Add(-time.Minute)),
+			live: brainLiveState{Head: "headsha"}, severity: "unsafe", seedState: "ok", docsState: "stale",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			report := buildBrainRetrievalStatus(context.Background(), runner, repoDir, test.manifest, test.live)
+			if report.Freshness.Severity != test.severity {
+				t.Fatalf("severity = %q, want %q: %+v", report.Freshness.Severity, test.severity, report.Freshness.Axes)
+			}
+			if got := report.Freshness.Axes["seed"].State; got != test.seedState {
+				t.Fatalf("seed state = %q, want %q", got, test.seedState)
+			}
+			if got := report.Freshness.Axes["docs"].State; got != test.docsState {
+				t.Fatalf("docs state = %q, want %q", got, test.docsState)
+			}
+		})
+	}
+}
+
+func TestBrainStatusFreshnessSeverityIncludesRetrieval(t *testing.T) {
+	report := brainStatusReport{
+		Semantic:  &brainStatusSemantic{Freshness: &staleReport{Severity: "ok"}},
+		Retrieval: &brainStatusRetrieval{Freshness: &staleReport{Severity: "unsafe"}},
+	}
+	if got := brainStatusFreshnessSeverity(report); got != "unsafe" {
+		t.Fatalf("combined freshness = %q, want unsafe", got)
+	}
+}
+
+func TestBrainStatusReleaseFreshnessRequiresSemanticAssessment(t *testing.T) {
+	report := brainStatusReport{
+		Retrieval: &brainStatusRetrieval{Freshness: &staleReport{Severity: "ok"}},
+	}
+	if got := brainStatusFreshnessSeverity(report); got != "" {
+		t.Fatalf("retrieval-only status passed as release-ready: %q", got)
+	}
+	report.Semantic = &brainStatusSemantic{}
+	if got := brainStatusFreshnessSeverity(report); got != "" {
+		t.Fatalf("semantic status without freshness passed as release-ready: %q", got)
 	}
 }
 
@@ -321,7 +494,7 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
-			Provider:         "entire-sem",
+			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",

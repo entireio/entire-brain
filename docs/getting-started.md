@@ -1,89 +1,126 @@
 # Getting Started
 
-## What This Is
+This guide takes you from nothing to querying a local repository brain. No team
+context is assumed.
 
-Entire is a Git-native platform for AI-assisted software work. Its base layer is
-session capture: `entire-cli` installs Git and agent hooks for supported coding
-agents, records prompts, transcripts, tool activity, files touched, token usage,
-and checkpoint metadata, then stores that context on a dedicated Entire-managed
-ref (`entire/checkpoints/v1`) instead of mixing it into normal code history. A
-checkpoint is the retained link between an agent session and the commit or
-intermediate work state it produced.
+`entire-brain` is an external-command plugin for the Entire CLI. Once installed
+it is invoked as `entire brain ...`. It builds a local, inspectable "brain" for a
+repository from retained Entire sessions, seed context, docs, decision history,
+a semantic code graph, and durable facts, then exposes retrieval, review, and MCP
+surfaces that agents and humans query. Everything it builds stays on your machine.
 
-`entire-sem` and `entire-brain` add the local reasoning layer on top of that
-captured history. `entire-sem` is the semantic provider: it parses source code
-locally and emits versioned code-structure records and semantic diffs.
-`entire-brain` consumes those records plus Entire sessions, checkpoint history,
-docs, runtime traces, durable facts, and pattern evidence into a local
-repository brain.
+## Requirements
 
-The result is a local memory system for humans and agents. Humans install,
-refresh, and curate the brain. Agents consume it through configured hooks, MCP
-tools, file-based intake instructions, or direct JSON commands when MCP is not
-available. The practical effect is that an agent can start work with retained
-context, freshness signals, semantic navigation, prior decisions, likely tests,
-and known failure modes instead of rediscovering them from scratch.
+- The Entire CLI, available on your `PATH` as `entire`. It is the host that
+  dispatches `entire brain`, and it is what captures the sessions the brain
+  learns from.
+- Git.
+- A Go toolchain (1.26 or newer) if you install with `go install` or build from
+  source. The prebuilt release archive does not need Go.
+- The `entire-graph` semantic provider, invoked as `entire graph`. The brain shells
+  out to it (`entire graph snapshot`, `entire graph doctor`) to build the semantic
+  code graph. Building `entire-graph` from source needs a cgo-capable C compiler,
+  because it uses tree-sitter native parser bindings. The brain itself is a
+  pure-Go build and does not need cgo.
+
+You can build a brain from history, docs, and facts without the provider (see
+"If you do not have the semantic provider yet" below), but the semantic code
+graph needs `entire graph`.
+
+The provider is `entire-graph` (the public `entireio/entire-graph` repo),
+invoked as `entire graph`. The brain shells out to `entire graph snapshot` and
+`entire graph doctor` to build and verify the semantic layer. Install the latest
+provider as shown below. If you do not need the semantic code graph, you can skip
+the provider and run the brain with `--semantic=false` (see First run).
 
 ## Install
 
-Prerequisites:
+There are two components: the brain plugin and the `entire-graph` provider it
+calls. Install the provider first, then the brain. Both are registered with the
+Entire CLI the same way, using `entire plugin install <path>`, which links a
+local `entire-<name>` executable into Entire's managed plugin directory.
 
-- Entire CLI installed and available as `entire`
-- Entire already enabled in the repository you want to use
-- The target agent hooks already installed for that repository
-- Git
-- Go 1.26 toolchain for `entire-brain`
-- A cgo-capable compiler/toolchain for `entire-sem`
+### Versioned install status
 
-### 1. Clone The Repositories
+A versioned `go install` path is not available for the Graph-named integration
+yet. The existing `v0.1.0` tags predate the rename: the provider tag builds
+`entire-sem`, and the brain tag invokes `entire sem`. Do not combine those tags
+with the `entire graph` commands in this guide. This section will gain copy-paste
+`go install` commands after matching Graph-based release tags are published in
+both repositories.
 
-Choose a local directory where you keep source checkouts, then clone
-`entire-sem` and `entire-brain` side by side. The directory names matter:
-`scripts/install.sh` expects `entire-sem` to be the sibling checkout next to
-`entire-brain`.
+`entire plugin install` currently supports local executable paths only. It does
+not fetch from a git URL or a GitHub release, and it does not auto-install the
+provider dependency.
 
-```sh
-cd /path/to/your/source-directory
+### Install from source
 
-git clone https://github.com/suhaanthayyil/entire-sem.git
-git clone https://github.com/ashtom/entire-brain.git
-```
-
-These are the current source repositories used by this project.
-
-### 2. Install The Plugins
-
-Run the installer from the `entire-brain` checkout:
+Until matching Graph-based tags are available, the working pre-release path is to
+build both components from their current `main` branches. This path tracks
+development and is not a reproducible versioned install; use matching release
+tags once they are published.
 
 ```sh
-cd /path/to/your/source-directory/entire-brain
+git clone --branch main https://github.com/entireio/entire-graph.git
+git clone --branch main https://github.com/entireio/entire-brain.git
+cd entire-brain
 scripts/install.sh
 ```
 
-This builds and installs both plugins, writes the default `entire-brain`
-configuration file, then runs `entire brain doctor`.
-`entire-brain` uses a pure-Go default build. `entire-sem` uses tree-sitter native
-parser bindings, so its local source build needs cgo.
+`scripts/install.sh` builds and installs the sibling `entire-graph` provider, then
+builds and installs `entire-brain`, writes the default plugin configuration
+(`entire brain config init`), and runs `entire brain doctor`. It expects
+`entire-graph` to be the sibling checkout next to `entire-brain`; point it
+elsewhere with `ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/install.sh`.
 
-Verify manually:
+To build and install only the brain from a checkout, run `scripts/install-local.sh`
+(equivalently `mise run install`). You still need `entire graph` installed
+separately for the semantic layer.
+
+### Release archive (forthcoming)
+
+Prebuilt per-OS/arch archives are the planned packaged distribution channel, but
+they have not been published yet. Until they appear on the
+[GitHub Releases](https://github.com/entireio/entire-brain/releases) page, use
+the pre-release source installer above.
+
+Each published archive will contain the plugin binary plus `README.md`, `LICENSE`,
+and `entire-plugin.yml`, alongside a `SHA256SUMS` file. After downloading and
+verifying the checksum, extract and install the binary:
 
 ```sh
-entire sem version
-entire sem doctor --json
-entire brain version
-entire brain doctor
-entire plugin doctor
+VERSION=vX.Y.Z # use the matching version published by both repositories
+tar -xzf "entire-brain-${VERSION}-darwin-arm64.tar.gz"
+entire plugin install "./entire-brain-${VERSION}-darwin-arm64/entire-brain" --force
 ```
 
-If `doctor` reports that the semantic provider is missing, check that
-`entire-sem` and `entire-brain` were cloned side by side with the names shown
-above. See [Operations](operations.md) for `entire-brain` build details and
-`../entire-sem/docs/operations.md` for `entire-sem` release/cgo details.
+When provider archives are published, install the matching `entire-graph` archive
+the same way so `entire graph` is available.
 
-### 3. Build The Deterministic Brain
+## Verify
 
-Run the first refresh in the Entire-enabled repository you want agents to work
-in:
+```sh
+entire brain version          # plugin version
+entire brain doctor           # checks the Entire CLI plugin environment
+entire brain status           # summarizes the brain (empty until the first refresh)
+
+entire graph version            # provider version
+entire graph doctor --json      # provider diagnostics; expect "no_egress": true
+```
+
+`entire brain doctor` reports whether the plugin directories and the semantic
+provider are wired up. If it says the provider is missing, confirm `entire graph`
+resolves and that the installed binary is named `entire-graph` rather than the
+retired `entire-sem`. For a versioned release, also confirm the brain and provider
+report the same published release version.
+
+## First run: build a brain and query it
+
+Run the first build inside a git repository. A repository that has Entire enabled
+and some captured agent sessions produces the richest brain, because sessions,
+decision history, and distillable facts all come from that captured work. On a
+repository with no Entire history the brain still builds from seed context, docs,
+and the semantic code graph.
 
 ```sh
 cd /path/to/your/repo
@@ -92,54 +129,74 @@ entire brain refresh --agent none
 entire brain status
 ```
 
-The semantic refresh refuses a dirty worktree by default. Run it on a clean
-checkout, or use the advanced `entire brain refresh index --worktree` path only
-when you intentionally want the current uncommitted state indexed. Worktree-
-backed semantic indexes are rejected by bundle export.
+`refresh` exports captured sessions, builds the local history and doc indexes,
+asks `entire graph` for a semantic snapshot, and stores the derived brain under
+Entire's plugin data directory. `--agent none` keeps this first build
+deterministic and token-free, with no hosted-model calls.
 
-`--agent none` keeps the first build deterministic and token-free, with no
-hosted-model calls. Refresh exports captured sessions, builds the local
-history/doc indexes, asks `entire-sem` for a semantic snapshot, and stores the
-derived brain under Entire's local plugin data directory.
+The semantic snapshot is built from committed state, so run `refresh` on a clean
+checkout. On a dirty worktree the semantic step can be skipped or refused; index
+uncommitted state deliberately with `entire brain refresh index --worktree`.
+Bundle export rejects worktree-backed semantic indexes.
 
-At this point the brain can answer from captured history, docs, semantic code
-structure, runtime traces, patterns, and any existing durable facts. It has not
-yet extracted new durable facts from retained sessions.
+`entire brain status` then reports the brain's sources, durable-fact readiness,
+and semantic coverage, freshness, and blind spots. Add `--json` for a
+machine-readable report.
 
-### 4. Distill Durable Facts
+### If you do not have the semantic provider yet
 
-Distillation is the egress-gated agent step that turns captured sessions into
-durable project knowledge: decisions, constraints, preferences, gotchas,
-conventions, and invariants. If your goal is a full brain with newly extracted
-durable facts, this is the next step after deterministic refresh:
+`refresh` runs the semantic step by default, and that step fails if `entire graph`
+cannot be verified. To build a brain from sessions, history, docs, and facts
+without the provider, disable the semantic step:
 
 ```sh
-entire brain distill --agent codex --model gpt-5.4-mini --effort low
+entire brain refresh --agent none --semantic=false
 ```
 
-To estimate cost before spending agent calls, run a dry run first:
+Install the Graph-based `entire-graph` from source (or from a matching release tag
+once available), then re-run `entire brain refresh --agent none` to add the
+semantic code graph.
+
+### Query the brain
+
+Every result carries an `id` you can fetch in full with `get`.
 
 ```sh
-entire brain distill --dry-run --json
+entire brain overview                          # what the project is: stack, commands, recent decisions
+entire brain brief "add rate limiting to the API"   # a bounded, task-shaped context packet
+entire brain query "how does checkpointing work"    # hybrid lexical + vector search across the brain
+entire brain search "checkpoint"               # exact keyword search
+entire brain recall "why did we pick this default"  # durable facts for the current branch
+entire brain get fact:<id>                     # fetch one item in full
 ```
 
-To inspect the resulting facts:
+Add `--json` to any of these for machine-readable output. `entire brain guide`
+prints the recommended command set for a coding agent.
+
+### Optional: distill durable facts
+
+Distillation is an opt-in agent step that turns captured sessions into durable
+project knowledge (decisions, constraints, preferences, gotchas, conventions).
+It sends redacted transcript chunks to the selected agent, so it spends tokens
+and performs network egress unless you point it at a local loopback agent. Always
+estimate first.
 
 ```sh
-entire brain facts status --json
-entire brain facts tree --depth 1
+entire brain distill --dry-run --json                                  # estimate work; no agent call
+entire brain distill --agent codex --model gpt-5.4-mini --effort low   # extract facts
+entire brain facts status                                              # review readiness
 ```
 
-Distillation sends redacted transcript chunks to the selected agent unless you
-use a local loopback agent such as Ollama. It is incremental and cached:
-unchanged sessions are skipped, near-duplicate facts are reconciled against the
-branch's existing facts, and low-confidence merge/supersede decisions are
-queued for `entire brain facts review`.
+Distillation is incremental and cached: unchanged sessions are skipped, and
+low-confidence merges are queued for `entire brain facts review`.
 
-For active repos, keep the brain current with the watcher:
+### Use the brain from an agent
+
+For agents that speak MCP, register the brain as a local stdio MCP server. It
+opens no network listener.
 
 ```sh
-entire brain watch
+entire brain mcp
 ```
 
 The default watcher performs deterministic refreshes only. Token-spending work,

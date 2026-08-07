@@ -47,7 +47,7 @@ go test ./internal/cli -run 'TestWorkspaceSearchAndGetIncludesPersistedGraphEdge
   including Cypher-style endpoint predicates over file paths, file names, and
   `kind = "file"` nodes.
 - Warm-refresh semantic no-op proof passed: after an initial refresh, a second
-  refresh with the same HEAD does not call `entire sem snapshot` again.
+  refresh with the same HEAD does not call `entire graph snapshot` again.
 - Full repository tests passed:
   - `github.com/ashtom/entire-brain/internal/cli`: latest local run 91.310s
   - `github.com/ashtom/entire-brain/internal/config`: cached

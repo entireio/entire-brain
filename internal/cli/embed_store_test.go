@@ -125,7 +125,7 @@ func TestRerankerDiskCacheReusesVectors(t *testing.T) {
 	}
 	// Read back through the same per-build store the reranker writes
 	// (vectors.bin on pure-Go builds, the vec0 SQLite store under brain_cgo).
-	if got := newVectorStore(dir, "main", e.ID(), e.Dim()).load(); len(got) != 2 {
+	if got := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load(); len(got) != 2 {
 		t.Fatalf("expected 2 persisted vectors, got %d", len(got))
 	}
 
@@ -143,8 +143,30 @@ func TestRerankerDiskCacheReusesVectors(t *testing.T) {
 	if err := rr2.flush(); err != nil {
 		t.Fatalf("flush2: %v", err)
 	}
-	if got := newVectorStore(dir, "main", e.ID(), e.Dim()).load(); len(got) != 1 {
+	if got := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load(); len(got) != 1 {
 		t.Errorf("expected prune to 1 touched vector, got %d", len(got))
+	}
+}
+
+func TestRerankerFlushDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{fail: func(text string) bool { return text == factEmbeddingText(fact) }}
+	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	present := map[string]struct{}{fact.ID: {}}
+	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := newSemanticRerankerForBranch(e, dir, "main")
+	if vector := rr.factVector(fact); vector != nil {
+		t.Fatalf("failed repair returned a vector: %v", vector)
+	}
+	if err := rr.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.load()[fact.ID]; ok {
+		t.Fatal("flush resurrected the invalid persisted vector")
 	}
 }
 
@@ -179,7 +201,7 @@ func TestRerankerRetainPreservesOutOfScopeVectors(t *testing.T) {
 	if err := rr2.flush(); err != nil {
 		t.Fatalf("scoped flush: %v", err)
 	}
-	got := newVectorStore(dir, "main", e.ID(), e.Dim()).load()
+	got := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load()
 	if _, ok := got["fact:b"]; !ok {
 		t.Errorf("retain should preserve out-of-scope fact:b across flush; cache has %d entries: %v", len(got), keysOf(got))
 	}
@@ -216,7 +238,7 @@ func TestRerankerFlushPrunesWithoutDirtyEmbed(t *testing.T) {
 	if err := rr2.flush(); err != nil {
 		t.Fatalf("prune flush: %v", err)
 	}
-	got := newVectorStore(dir, "main", e.ID(), e.Dim()).load()
+	got := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load()
 	if _, ok := got["fact:b"]; ok {
 		t.Errorf("departed fact:b should be pruned even without a dirty embed; have %v", keysOf(got))
 	}

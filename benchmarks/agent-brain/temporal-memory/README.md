@@ -1,4 +1,4 @@
-# Temporal Memory Phase 0A
+# Temporal Memory Phase 0A / 0B
 
 This lane isolates project memory from present-code retrieval. It materializes
 one authentic, temporally frozen Entire session bundle and derives three
@@ -17,15 +17,96 @@ history-index, and fact-artifact SHA-256 hashes. A pinned run fails instead of
 redistilling when that exact private source artifact is unavailable or differs.
 This keeps agent backends on byte-identical memory inputs.
 
-Temporal rows have a hard protocol audit. A memory arm is invalid unless its
-first tool action is exactly one `entire brain search`; all arms are invalid if
-they inspect raw `.entire`, `.benchmark`, or checkpoint-ref artifacts. Claude
-uses stream JSON and safe mode so tool activity is observable and user hooks,
-skills, auto-memory, and project instructions are disabled.
+Temporal rows have a hard protocol audit. In the agent-tool lane a memory arm
+is invalid unless its first tool action is exactly one `entire brain search`;
+in every lane all arms are invalid if they inspect raw `.entire`, `.benchmark`,
+or checkpoint-ref artifacts. Claude uses stream JSON and safe mode so tool
+activity is observable and user hooks, skills, auto-memory, and project
+instructions are disabled.
 
 The committed development task is diagnostic, not paper evidence. It was used
 to implement and debug the adapter. Sealed tasks and repeated runs are required
 before any channel-attributed claim.
+
+## Phase 0B: Harness-Owned Causal Delivery
+
+Phase 0A's clean confirmation showed that prompt-only tool adherence is
+unstable: four memory rows violated the single-frozen-search protocol, and each
+violation destroyed a causal row. Phase 0B removes the causal lane's dependence
+on whether the task agent chooses to call Brain.
+
+A temporal task selects its lane with the task-level `memory_delivery` field:
+
+- `agent_tool` (default): the original product-adherence lane. The prompt
+  mandates the single frozen `entire brain search`, and the temporal audit
+  fails rows whose first tool action is not exactly that search. This lane
+  measures whether the product's agent-driven delivery is followed; it is not
+  the causal estimate.
+- `harness`: the causal lane. Before the task agent starts, the harness itself
+  executes the one frozen retrieval (the same `entire brain search
+  <query> --json --limit <N> --branch <branch>` the agent-tool lane mandates;
+  both lanes share one query/limit/branch builder so they cannot drift) against
+  the isolated per-condition store. The response is deterministically bounded
+  to `memory_bundle.packet.max_bytes` (default 65536) while remaining valid
+  JSON: ranked whole results are retained first, followed when possible by a
+  UTF-8-safe text prefix of the next result, with explicit truncation counts.
+  The task must also preregister `memory_bundle.packet.min_results`. Both the
+  retrieved and delivered result counts must meet that floor; use `0` only for
+  a deliberately neutral/zero-hit stratum and at least `1` for memory-positive
+  strata.
+  The packet is injected between `<frozen-memory-packet>` tags. The `no_brain`
+  arm runs through the same execution and scoring lane with no packet; the
+  packet and its policy text are the treatment, so prompt byte lengths are not
+  claimed to be identical.
+
+After harness delivery, the worktree's `.benchmark` store (Brain plugin data,
+the local copy of the shared one-distillation source cache) is physically
+deleted before the agent starts. Raw transcripts, checkpoint refs, and withheld
+channels were already deleted during prep. The frozen benchmark `entire`
+wrapper stays on `PATH`, while host Entire state roots and host
+`entire`/`entire-brain` executables are sandbox-denied. Any disobedient `entire
+brain ...` call is also flagged by the temporal audit
+(`brain_used_in_harness_delivery`) as an isolation probe. The harness lane has
+no first-tool/search-count requirement: retrieval adherence is not part of the
+causal treatment.
+
+The causal lane also removes every Git remote, strips benchmark-control and
+shell-redirection variables from the task-agent environment, and launches the
+agent under a macOS `sandbox-exec` filesystem profile. The profile denies read
+and write access to the harness repository, original source checkout, host
+Entire data/config/state/cache roots, and host Entire executables while
+re-allowing only the disposable worktree and frozen tool directory. A platform
+without that enforcement fails before agent launch; sealed causal rows never
+fall back to prompt-only isolation.
+
+Delivery is fail-closed. A retrieval that exits non-zero, returns an empty or
+non-JSON response, or misses the preregistered result floor raises before the
+task agent is launched, and the failed attempt's provenance is still
+persisted. Every harness-lane row writes `memory-delivery.json` (also embedded
+in `record.json` as `memory_delivery`) with: a path-redacted frozen-tool argv,
+the agent-lane-equivalent CLI command, query, limit, branch, preregistered
+minimum, condition, exit status, duration, full-response SHA-256 and byte count,
+delivered-packet SHA-256, byte count, deterministic token estimate
+(`ceil(utf8_bytes / 4)`), truncation and budget metadata, source IDs (session
+IDs, transcript/history/fact hashes, prep and source cache keys), and product
+identity (binary role/name/SHA-256 plus harness head commit). The record holds
+hashes, sizes, commands, and configuration — never hidden answers or absolute
+host paths; the delivered packet text itself appears only in `prompt.txt`.
+
+The two lanes are never pooled. `summarize()` keys every comparison by
+delivery mode, so a harness-lane arm only compares against a harness-lane
+`no_brain` baseline and adherence failures cannot contaminate the causal
+treatment estimate. Harness-lane rows also score the soft `brain_use`
+component exactly like `no_brain` in every arm, keeping the composite score
+symmetric across the causal arms.
+
+Task schemas additionally support behavioral validators: a `validation` entry
+may be an object `{"command": ..., "kind": "exact" | "behavioral"}` instead of
+a plain string (which stays an exact validator). The kind labels validators
+that assert behavior through tests rather than one exact source expression —
+the Phase 0A neutral-task over-specification repair — and every validator of
+either kind must still pass, so behavioral support never weakens exact
+validation. No new sealed tasks are authored or run in this change.
 
 Prepare without launching a task agent:
 

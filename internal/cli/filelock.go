@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 )
 
 const fileLockRetryInterval = 10 * time.Millisecond
+
+var errFileLockTimeout = errors.New("file lock timeout")
 
 type fileLock struct {
 	path string
@@ -41,7 +44,7 @@ func acquireFileLock(path, code string, timeout time.Duration) (*fileLock, error
 			return nil, fmt.Errorf("lock file: %w", err)
 		}
 		if timeout <= 0 || time.Now().Add(fileLockRetryInterval).After(deadline) {
-			return nil, fmt.Errorf("%s: timed out acquiring lock at %s", code, path)
+			return nil, fmt.Errorf("%s: timed out acquiring lock at %s: %w", code, path, errFileLockTimeout)
 		}
 		time.Sleep(fileLockRetryInterval)
 	}

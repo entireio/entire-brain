@@ -15,7 +15,7 @@ import (
 
 type semanticBenchOptions struct {
 	json              bool
-	semBinary         string
+	graphBinary       string
 	profile           string
 	timeout           time.Duration
 	inactivityTimeout time.Duration
@@ -54,7 +54,7 @@ func newBenchmarkCommand(opts Options) *cobra.Command {
 }
 
 func newSemanticBenchCommand(opts Options) *cobra.Command {
-	benchOpts := semanticBenchOptions{semBinary: "entire"}
+	benchOpts := semanticBenchOptions{graphBinary: "entire"}
 	cmd := &cobra.Command{
 		Use:   "semantic [path]",
 		Short: "Benchmark end-to-end semantic Brain indexing in an isolated store",
@@ -71,10 +71,10 @@ func newSemanticBenchCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&benchOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&benchOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
+	cmd.Flags().StringVar(&benchOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().StringVar(&benchOpts.profile, "profile", "syntax-only", "Semantic provider snapshot profile")
-	cmd.Flags().DurationVar(&benchOpts.timeout, "sem-timeout", 0, "Overall deadline for the semantic provider snapshot (0 uses the default)")
-	cmd.Flags().DurationVar(&benchOpts.inactivityTimeout, "sem-inactivity-timeout", 0, "Abort the snapshot if the provider emits no records for this long (0 uses the default)")
+	cmd.Flags().DurationVar(&benchOpts.timeout, "graph-timeout", 0, "Overall deadline for the semantic provider snapshot (0 uses the default)")
+	cmd.Flags().DurationVar(&benchOpts.inactivityTimeout, "graph-inactivity-timeout", 0, "Abort the snapshot if the provider emits no records for this long (0 uses the default)")
 	cmd.Flags().BoolVar(&benchOpts.keep, "keep", false, "Keep the isolated benchmark store after the run")
 	cmd.Flags().BoolVar(&benchOpts.progress, "progress", false, "Print Brain indexing phase progress to stderr")
 	return cmd
@@ -88,7 +88,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 	if !local {
 		return fmt.Errorf("semantic benchmark requires a local repository path: %s", target)
 	}
-	tempRoot, err := os.MkdirTemp("", "entire-brain-sem-bench-*")
+	tempRoot, err := os.MkdirTemp("", "entire-brain-graph-bench-*")
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 	start := time.Now()
 	indexOpts := semanticIndexOptions{
 		force:             true,
-		semBinary:         benchOpts.semBinary,
+		graphBinary:       benchOpts.graphBinary,
 		profile:           benchOpts.profile,
 		timeout:           benchOpts.timeout,
 		inactivityTimeout: benchOpts.inactivityTimeout,

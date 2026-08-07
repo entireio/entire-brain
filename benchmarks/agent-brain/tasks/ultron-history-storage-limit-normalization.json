@@ -4,8 +4,8 @@
   "repo_path": "../Ultron",
   "conditions": [
     "no_brain",
-    "full_cli_original",
-    "full_cli_compact"
+    "semantic_history_cli_original",
+    "semantic_history_cli_compact"
   ],
   "copy_entire_history_from_source": true,
   "path_prefix": "auto",
@@ -27,6 +27,5 @@
   ],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": ["storage list search APIs normalize invalid oversized limits", "repository limits trust caller-provided values", "bounded row caps in storage backends", "query list limit hardening regression"],
-  "history_excerpt_lines": 40
+  "brain_queries": ["storage list search APIs normalize invalid oversized limits", "repository limits trust caller-provided values", "bounded row caps in storage backends", "query list limit hardening regression"]
 }

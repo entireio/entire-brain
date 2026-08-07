@@ -13,10 +13,10 @@ suspected regressions (`file:line`, expected vs current, confidence, provenance)
 - MCP tools `brain_regressions` / `brain_review` (single repo) and `brain_workspace_regressions` /
   `brain_workspace_review` (cross-repo workspace).
 
-This is a **building block**, per the design split between entire-brain / entire-sem / entire-replay-lab.
+This is a **building block**, per the design split between entire-brain / entire-graph / entire-replay-lab.
 The intended consumers are the cli's `entire review` and `entire labs investigate`, which gain a
 "diff-less mode" when the brain is installed — the same graceful upgrade entire-brain gets from
-entire-sem. **Those consumers live in the `entireio/cli` repo, not here.** The cli side is a moving
+entire-graph. **Those consumers live in the `entireio/cli` repo, not here.** The cli side is a moving
 target (it is being redesigned by Peyton across PRs #1241 → #1370 → #1352), so this repo owns only the
 *contract*; the wiring is cross-repo and is tracked below.
 

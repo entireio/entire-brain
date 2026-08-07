@@ -36,7 +36,7 @@ CODEX_SUITE_GLOBS = [
     "*mcp-history-codex-low-med-tight-checklist*",
     "*mcp-history-codex-high-xhigh-tight-checklist*",
     "*mcp-history-codex-xhigh-oversearch-guard*",
-    # CLI per-effort (no_brain + full_cli_compact) — provides the CLI bars at med/high/xhigh
+    # CLI per-effort (no_brain + semantic_history_cli_compact) — provides the CLI bars at med/high/xhigh
     "ultron-self-contained-mini-efforts-hardened-actions-*",
     "ultron-self-contained-gpt55-efforts-hardened-actions-*",
     # low-effort n=3 (CLI proof)
@@ -62,11 +62,11 @@ SCENARIO = {
     "entireio-cli-transcript-reresolve": "cli-transcript-reresolve",
 }
 
-COND_ORDER = ["no_brain", "semantic_brain", "full_cli_compact", "mcp_semantic", "mcp_history"]
-COND_LABEL = {"no_brain": "no_brain (grep)", "semantic_brain": "Brain via CLI (sem)",
-              "full_cli_compact": "Brain via CLI", "mcp_semantic": "Brain via MCP (sem)",
+COND_ORDER = ["no_brain", "semantic_brain", "semantic_history_cli_compact", "mcp_semantic", "mcp_history"]
+COND_LABEL = {"no_brain": "no_brain (grep)", "semantic_brain": "Brain via CLI (graph)",
+              "semantic_history_cli_compact": "Brain via CLI", "mcp_semantic": "Brain via MCP (graph)",
               "mcp_history": "Brain via MCP"}
-COND_COLOR = {"no_brain": "#8d99ae", "semantic_brain": "#3aa6a0", "full_cli_compact": "#2a9d8f",
+COND_COLOR = {"no_brain": "#8d99ae", "semantic_brain": "#3aa6a0", "semantic_history_cli_compact": "#2a9d8f",
               "mcp_semantic": "#21897e", "mcp_history": "#1d7874"}
 
 

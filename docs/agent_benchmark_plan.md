@@ -1,5 +1,12 @@
 # Agent Brain Benchmark Plan
 
+<!-- entire-brain-status: historical -->
+
+> **Historical planning record.** This document describes pre-release benchmark
+> phases and must not be used to select an Entire Brain implementation or
+> benchmark an older checkout. The current operating policy and smallest
+> real-agent canary live in [`benchmarks/agent-brain/README.md`](../benchmarks/agent-brain/README.md).
+
 ## Status addendum (2026-06-10)
 
 The per-phase "current status" notes below are dated ~2026-06-01 and predate the
@@ -24,6 +31,11 @@ most recent harness work. Current state:
   the cross-repo workspace task (declared not-runnable in the panel), Codex
   model attribution (pinned via flag but not echoed in output), and expanding
   full-brain (checkpoint-history) tasks in the panel.
+
+Checked-in artifacts under `benchmarks/agent-brain/evidence` are immutable
+historical records. Product and command labels in those artifacts identify the
+binaries that generated them; naming migrations must preserve the original
+bytes unless a repository-owned process derives new, fingerprint-valid evidence.
 
 ## Summary
 
@@ -596,10 +608,10 @@ use, so the cache is usable for the expanded semantic task set.
 The earlier `entire-cli` semantic indexing pause is resolved for local
 benchmarking:
 
-- `entire-sem snapshot --repo <entire-cli-checkout> --format ndjson
+- `entire-graph snapshot --repo <entire-cli-checkout> --format ndjson
   --no-network` completes in about 17 seconds with normal project ignores;
 - isolated `entire brain refresh index <entire-cli-checkout>` completes in about 29
-  seconds using locally built `entire-brain` and `entire-sem`;
+  seconds using locally built `entire-brain` and `entire-graph`;
 - the artifact records 760 files, 9,130 symbols, 179,717 stored relations, zero
   warnings, zero partial failures, and a roughly 152 MB SQLite store;
 - semantic prep cache entries for four `entire-cli` tasks now produce
@@ -746,7 +758,7 @@ Add these scenario families:
 - **Cross-repo workspace tasks**
   - Break a plugin dispatch/env assumption where the fix could plausibly live
     in `entire-brain` or `../cli`.
-  - Later include `../entire-sem` for provider/consumer contract mismatch
+  - Later include `../entire-graph` for provider/consumer contract mismatch
     scenarios.
   - Expected value: workspace inspect context should orient the agent to the right repo
     boundary faster.

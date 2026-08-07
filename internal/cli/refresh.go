@@ -22,21 +22,72 @@ type refreshCommandOptions struct {
 	rawTranscript    bool
 	scope            string
 	force            bool
+	skipSessions     bool
 	semantic         bool
 	semanticWorktree bool
 	allBranches      bool
 	forceAllBranches bool
 	historyIndex     bool
-	semBinary        string
+	graphBinary      string
 	statusAfter      bool
 	seed             seedCommandOptions
 }
 
 func newRefreshCommand(opts Options) *cobra.Command {
-	refreshOpts := refreshCommandOptions{
+	refreshOpts := defaultRefreshCommandOptions()
+	cmd := &cobra.Command{
+		Use:   "refresh",
+		Short: "Create or refresh the repository brain",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// --worktree belongs to seed/docs. A dirty semantic snapshot must be
+			// an explicit `brain index --worktree` operation (or the deprecated
+			// --semantic-worktree compatibility flag), so the ordinary
+			// `refresh --worktree` path must not accidentally attempt and fail a
+			// committed-tree semantic rebuild.
+			if refreshOpts.seed.worktree && !refreshOpts.semanticWorktree && !cmd.Flags().Changed("semantic") {
+				refreshOpts.semantic = false
+			}
+			return runRefresh(cmd.Context(), cmd, opts, refreshOpts)
+		},
+	}
+	cmd.Flags().StringVarP(&refreshOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the brain (default: persistent brain directory)")
+	cmd.Flags().BoolVar(&refreshOpts.force, "force", false, "Force a full refresh; overwrite explicit output when used with --output")
+	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "auto", "Agent synthesis mode for seed: auto, none, codex, claude-code, or command")
+	cmd.Flags().IntVar(&refreshOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
+	cmd.Flags().StringVar(&refreshOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
+	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
+	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
+	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
+	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh seed and docs from the current worktree")
+	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
+	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
+	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
+	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
+	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: allow semantic indexing of the current dirty worktree")
+	_ = cmd.Flags().MarkDeprecated("semantic-worktree", "use `entire brain index --worktree` for an explicit semantic worktree snapshot")
+	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
+	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
+	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
+	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
+	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
+		_ = cmd.Flags().MarkHidden(name)
+	}
+	// Individual refresh stages, runnable on their own: `refresh` does all of
+	// them. Each stage is named after the brain source it refreshes (the same
+	// vocabulary as the status sources line).
+	cmd.AddCommand(newExportCommand(opts))        // refresh sessions: export transcripts from checkpoints
+	cmd.AddCommand(newHistoryIndexCommand(opts))  // refresh history: decision index from exported transcripts
+	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index: semantic symbol graph
+	cmd.AddCommand(newSeedCommand(opts))          // refresh seed
+	return cmd
+}
+
+func defaultRefreshCommandOptions() refreshCommandOptions {
+	return refreshCommandOptions{
 		checkpointLimit: 0,
 		entireBinary:    "entire",
-		semBinary:       "entire",
+		graphBinary:     "entire",
 		scope:           exportScopeAll,
 		historyIndex:    true,
 		semantic:        true,
@@ -53,43 +104,6 @@ func newRefreshCommand(opts Options) *cobra.Command {
 			agentMaxInputBytes: defaultAgentMaxInput,
 		},
 	}
-	cmd := &cobra.Command{
-		Use:   "refresh",
-		Short: "Create or refresh the repository brain",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRefresh(cmd.Context(), cmd, opts, refreshOpts)
-		},
-	}
-	cmd.Flags().StringVarP(&refreshOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the brain (default: persistent brain directory)")
-	cmd.Flags().BoolVar(&refreshOpts.force, "force", false, "Force a full refresh; overwrite explicit output when used with --output")
-	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "auto", "Agent synthesis mode for seed: auto, none, codex, claude-code, or command")
-	cmd.Flags().IntVar(&refreshOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
-	cmd.Flags().StringVar(&refreshOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
-	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
-	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
-	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Include selected untracked instruction/docs files in seed")
-	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
-	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
-	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
-	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Allow semantic indexing of the current dirty worktree")
-	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
-	cmd.Flags().StringVar(&refreshOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
-	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
-	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
-	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "sem-binary", "all-branches", "force-all-branches"} {
-		_ = cmd.Flags().MarkHidden(name)
-	}
-	// Individual refresh stages, runnable on their own: `refresh` does all of
-	// them. Each stage is named after the brain source it refreshes (the same
-	// vocabulary as the status sources line).
-	cmd.AddCommand(newExportCommand(opts))        // refresh sessions: export transcripts from checkpoints
-	cmd.AddCommand(newHistoryIndexCommand(opts))  // refresh history: decision index from exported transcripts
-	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index: semantic symbol graph
-	cmd.AddCommand(newSeedCommand(opts))          // refresh seed
-	return cmd
 }
 
 func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOpts refreshCommandOptions) error {
@@ -134,21 +148,29 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if outputExplicit {
 		exportOpts.outputDir = refreshOpts.outputDir
 	}
-	exportTask := progress.Begin("export sessions")
-	exportOpts.progress = func(p exportProgress) {
-		exportTask.Update(refreshExportProgressLabel(p))
-	}
-	exportErr := runExport(ctx, exportCmd, opts, exportOpts)
-	exportTaskFinished := false
-	finishExportTask := func(err error) {
-		if exportTaskFinished {
-			return
+	var exportErr error
+	finishExportTask := func(error) {}
+	updateExportTask := func(string) {}
+	if !refreshOpts.skipSessions {
+		exportTask := progress.Begin("export sessions")
+		exportOpts.progress = func(p exportProgress) {
+			exportTask.Update(refreshExportProgressLabel(p))
 		}
-		exportTask.Finish(err)
-		exportTaskFinished = true
-	}
-	if exportErr == nil {
-		finishExportTask(nil)
+		exportErr = runExport(ctx, exportCmd, opts, exportOpts)
+		exportTaskFinished := false
+		finishExportTask = func(err error) {
+			if exportTaskFinished {
+				return
+			}
+			exportTask.Finish(err)
+			exportTaskFinished = true
+		}
+		updateExportTask = exportTask.Update
+		if exportErr == nil {
+			finishExportTask(nil)
+		}
+	} else {
+		progress.Skip("export sessions")
 	}
 
 	storageTask := progress.Begin("locate brain")
@@ -170,7 +192,13 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		finishOutput(nil)
 	}
 	manifest, _ := loadBrainManifest(brainDir)
-	needSeed := outputExplicit || refreshOpts.seed.force || seedNeededForBrain(manifest)
+	needSeed := outputExplicit || refreshOpts.seed.force
+	if !needSeed {
+		needSeed, err = seedRefreshNeeded(ctx, opts, repoDir, manifest, refreshOpts.seed.worktree)
+		if err != nil {
+			return err
+		}
+	}
 	if exportErr != nil && (manifest == nil || manifest.Sources == nil) {
 		needSeed = true
 	}
@@ -179,7 +207,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		return exportErr
 	}
 	if exportErr != nil {
-		exportTask.Update("export sessions: unavailable, using seed baseline")
+		updateExportTask("export sessions: unavailable, using seed baseline")
 	}
 	finishExportTask(nil)
 	if needSeed {
@@ -290,7 +318,8 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
-		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, refreshOpts.semanticWorktree)
+		semanticWorktree := refreshOpts.semanticWorktree
+		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, semanticWorktree)
 		if err != nil {
 			semanticCheckTask.Finish(err)
 			return err
@@ -310,7 +339,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			semanticProgress := func(phase string) {
 				semanticTask.Update("semantic index: " + phase)
 			}
-			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
+			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
 				semanticTask.Finish(err)
 				return err
 			}
@@ -347,7 +376,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// token-free, so it is part of the normal refresh — the user never has to
 	// discover a second build command. Rebuilt when sessions changed or --force.
 	manifest, _ = loadBrainManifest(brainDir)
-	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
+	if !refreshOpts.skipSessions && manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishPatterns := progress.Step("pattern layer")
 		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
 			finishPatterns(err)
@@ -680,15 +709,30 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 }
 
 func seedNeededForBrain(manifest *exportManifest) bool {
-	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
-		return true
-	}
-	if manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return true
+	// Seed freshness is independent of checkpoint/session availability. MCP's
+	// default refresh intentionally omits sessions, so using an empty session
+	// list as a seed-missing signal rebuilt an otherwise current seed every time.
+	return manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil
+}
+
+func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manifest *exportManifest, worktree bool) (bool, error) {
+	if seedNeededForBrain(manifest) {
+		return true, nil
 	}
 	seed := manifest.Sources.Seed
-	if seed.HistoryBaseline != nil && seed.HistoryBaseline.SeedRequired {
-		return false
+	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("resolve HEAD for seed refresh: %w", err)
 	}
-	return false
+	if seed.Commit != head {
+		return true, nil
+	}
+	if worktree {
+		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
+		if err != nil {
+			return false, fmt.Errorf("fingerprint worktree for seed refresh: %w", err)
+		}
+		return seed.WorktreeMode != "worktree" || seed.WorktreeHash != hash, nil
+	}
+	return seed.WorktreeMode == "worktree", nil
 }

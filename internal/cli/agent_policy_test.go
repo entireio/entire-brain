@@ -1,6 +1,12 @@
 package cli
 
-import "testing"
+import (
+	"io"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+)
 
 func TestSecurityToggleFailsClosedOnTypos(t *testing.T) {
 	cases := map[string]bool{
@@ -26,6 +32,23 @@ func TestSecurityToggleFailsClosedOnTypos(t *testing.T) {
 	}
 }
 
+func TestSecurityToggleWarningRedactsUnrecognizedValue(t *testing.T) {
+	securityToggleWarned = sync.Map{}
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "secret-token-value")
+
+	out := captureStderr(t, func() {
+		if !securityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS") {
+			t.Fatal("securityToggleEnabled() = false; want fail-closed true for unrecognized value")
+		}
+	})
+	if strings.Contains(out, "secret-token-value") {
+		t.Fatalf("warning leaked raw env value: %q", out)
+	}
+	if !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("warning omitted env var name: %q", out)
+	}
+}
+
 func TestRejectAgentForNoEgressDefaultDenies(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	for _, ok := range []string{"ollama", "none", ""} {
@@ -47,4 +70,35 @@ func TestRejectAgentForNoEgressNoopWhenDisabled(t *testing.T) {
 	if err := rejectAgentForNoEgress("codex"); err != nil {
 		t.Errorf("no-egress disabled: codex should be allowed, got %v", err)
 	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	writerClosed := false
+	closeWriter := func() error {
+		if writerClosed {
+			return nil
+		}
+		writerClosed = true
+		return w.Close()
+	}
+	defer func() { _ = closeWriter() }()
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	fn()
+	if err := closeWriter(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

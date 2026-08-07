@@ -377,7 +377,7 @@ model** (`assets/embedmodel.bin`, converted offline by
 BERT-WordPiece tokenize → gather per-token vectors → mean-pool → L2-normalize,
 over an int8-quantized table. This is the only backend that fits the brain's
 pure-Go, cgo-free, offline, single-static-binary shape; a transformer bi-encoder
-(ONNX) or a `entire sem embed` provider command remain drop-in alternatives
+(ONNX) or a `entire graph embed` provider command remain drop-in alternatives
 behind the `Embedder` interface, to be adopted only if the harness shows the
 static model leaves recall headroom. Brute-force cosine over the (small) active
 fact set is used rather than an ANN index or `sqlite-vec` (a C extension
@@ -492,7 +492,7 @@ proof it cannot perform.
 - **Phase D (in progress):** fact-layer embedding recall. **Backend: a bundled
   Model2Vec static model run in pure Go** (no cgo/ONNX/network; single static
   binary), behind an `Embedder` interface so a transformer bi-encoder or a
-  provider-shelled embedder can replace it on measured evidence. `entire-sem`
+  provider-shelled embedder can replace it on measured evidence. `entire-graph`
   was evaluated and rejected as a backend — it is a structural (tree-sitter)
   provider with no embedder. Retrieval blends lexical + semantic via Reciprocal
   Rank Fusion, with the semantic list ranking the full active set to lift the

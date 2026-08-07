@@ -110,7 +110,7 @@ func TestWorkspaceCreateAddRefreshAndContext(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	out, err := execute(t, cmd, "workspace", "create", "payments-platform")
@@ -157,7 +157,7 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	manifest := mustSemanticSource(t, env)
@@ -192,7 +192,7 @@ func TestWorkspaceContextAndImpactReportLockedSemanticIndex(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
@@ -229,7 +229,7 @@ func TestWorkspaceRefreshRejectsMismatchedLocalPathHintRepoKey(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	manifest := workspaceManifest{
@@ -284,7 +284,7 @@ func TestWorkspaceAddStoresResolvedRepoRootForRelativeHint(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
@@ -2167,23 +2167,23 @@ func indexWorkspaceGraphRepoWithSnapshot(t *testing.T, cmd *cobra.Command, opts 
 		t.Fatal(err)
 	}
 	runner.responses = map[string]fakeCommandResponse{
-		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                {stdout: repoDir + "\n"},
-		fakeCommandKey("git", "rev-parse", "HEAD"):                                                           {stdout: "aaa111\n"},
-		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                    {stdout: "tree111\n"},
-		fakeCommandKey("git", "branch", "--show-current"):                                                    {stdout: "main\n"},
-		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):              {stdout: "origin/main\n"},
-		fakeCommandKey("git", "status", "--porcelain"):                                                       {stdout: ""},
-		fakeCommandKey("entire", "sem", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
-		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: snapshot},
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                  {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                                                             {stdout: "aaa111\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                      {stdout: "tree111\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                                                      {stdout: "main\n"},
+		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):                {stdout: "origin/main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                                                         {stdout: ""},
+		fakeCommandKey("entire", "graph", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
+		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: snapshot},
 	}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index %s: %v", repoKey, err)
 	}
 }
 
 func workspaceGraphSnapshot(repoKey, symbolName string) string {
 	symbolID := repoKey + ":go:service.go:function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","CONFIGURES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","CONFIGURES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:config:kubernetes/image/shared:latest","type":"CONFIGURES","confidence":0.82}
@@ -2193,7 +2193,7 @@ func workspaceGraphSnapshot(repoKey, symbolName string) string {
 
 func workspaceGraphImportingSnapshot(repoKey, symbolName, importSpec string) string {
 	symbolID := repoKey + ":go:service.go:function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","IMPORTS"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","IMPORTS"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:import:` + importSpec + `","type":"IMPORTS","confidence":0.8}
@@ -2202,7 +2202,7 @@ func workspaceGraphImportingSnapshot(repoKey, symbolName, importSpec string) str
 
 func workspaceGraphRouteCallerSnapshot(repoKey, symbolName, route string) string {
 	symbolID := repoKey + ":go:client.go:function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HTTP_CALLS"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HTTP_CALLS"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:client.go","path":"client.go","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"client.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:route:` + route + `","type":"HTTP_CALLS","confidence":0.82}
@@ -2211,7 +2211,7 @@ func workspaceGraphRouteCallerSnapshot(repoKey, symbolName, route string) string
 
 func workspaceGraphRouteHandlerSnapshot(repoKey, symbolName, route string) string {
 	symbolID := repoKey + ":go:server.go:function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:server.go","path":"server.go","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"server.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:route:` + route + `","type":"HANDLES_ROUTE","confidence":0.95}
@@ -2220,7 +2220,7 @@ func workspaceGraphRouteHandlerSnapshot(repoKey, symbolName, route string) strin
 
 func workspaceGraphLibrarySnapshot(repoKey, path, symbolName string) string {
 	symbolID := repoKey + ":go:" + path + ":function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:` + path + `","path":"` + path + `","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"pkg.` + symbolName + `","file_path":"` + path + `","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 `
@@ -2228,7 +2228,7 @@ func workspaceGraphLibrarySnapshot(repoKey, path, symbolName string) string {
 
 func workspaceGraphExternalSymbolSnapshot(repoKey, symbolName, externalQualifiedName string) string {
 	symbolID := repoKey + ":go:service.go:function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["CALLS"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["CALLS"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:symbol:` + externalQualifiedName + `","type":"CALLS","confidence":0.82}
@@ -2237,7 +2237,7 @@ func workspaceGraphExternalSymbolSnapshot(repoKey, symbolName, externalQualified
 
 func workspaceGraphQualifiedSymbolSnapshot(repoKey, path, symbolName, qualifiedName string) string {
 	symbolID := repoKey + ":go:" + path + ":function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-graph","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:` + path + `","path":"` + path + `","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"` + qualifiedName + `","file_path":"` + path + `","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 `
@@ -2508,7 +2508,7 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	// Seed a session asserting the invariant + a regressed working tree, so a scan WOULD fire.
@@ -2942,6 +2942,7 @@ func TestSplitWorkspaceID(t *testing.T) {
 		wantErr bool
 	}{
 		{in: "gh/owner/repo/fact:abc", repoKey: "gh/owner/repo", id: "fact:abc"},
+		{in: "gh/owner/repo/review:abc", repoKey: "gh/owner/repo", id: "review:abc"},
 		{in: "local/abc123/history:h1", repoKey: "local/abc123", id: "history:h1"},
 		{in: "gh/owner/repo/doc:guide", repoKey: "gh/owner/repo", id: "doc:guide"},
 		{in: "fact:abc", wantErr: true},      // unqualified

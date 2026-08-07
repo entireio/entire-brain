@@ -761,7 +761,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			results = append(results, result)
 			continue
 		}
-		db, err := sql.Open(sqliteDriverName, storePath)
+		db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
@@ -2010,6 +2010,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if err != nil {
 		return err
 	}
+	dirs, dirsErr := resolvePluginDirs(opts.Env)
 	var results []workspaceRetrieveResult
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
@@ -2025,10 +2026,17 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			continue
 		}
 		result.Branch = branch
-		found, err := retrieveUnified(brainDir, branch, query, retrieveOpts.limit, mode)
+		var repoDir string
+		if dirsErr == nil {
+			repoDir, _ = resolveWorkspaceMemberRepoDir(cmd.Context(), opts, dirs.Config, repo)
+		}
+		found, err := retrieveUnified(repoDir, brainDir, branch, query, retrieveOpts.limit, mode)
 		if err != nil {
 			result.Error = err.Error()
 		} else if found != nil {
+			if repoDir == "" {
+				found = annotateCurrentCodeUnavailable(found)
+			}
 			result.Results = found
 		}
 		results = append(results, result)
@@ -2070,7 +2078,12 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if result.RepoKey == manifest.Name && strings.HasPrefix(r.ID, "graph:") {
 				printedID = r.ID
 			}
-			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", r.Source, printedID, loc, ex)
+			label := r.Source
+			if r.VerificationRequired {
+				label += " verify"
+			}
+			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, printedID, loc, ex)
+			printRetrievalCaveats(out, r)
 		}
 		if result.Error != "" {
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
@@ -2084,9 +2097,9 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 	if err != nil {
 		return err
 	}
-	members := make(map[string]bool, len(manifest.Repos))
+	members := make(map[string]workspaceRepo, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
-		members[repo.RepoKey] = true
+		members[repo.RepoKey] = repo
 	}
 	// Bare pattern:/theme: ids address the workspace-level aggregate corpus
 	// directly (the ids `workspace patterns` prints); repo-qualified ids drill
@@ -2118,7 +2131,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		if err != nil {
 			return err
 		}
-		if !members[repoKey] {
+		if _, ok := members[repoKey]; !ok {
 			return fmt.Errorf("repo %s is not a member of workspace %s", repoKey, manifest.Name)
 		}
 		if _, seen := idsByRepo[repoKey]; !seen {
@@ -2130,6 +2143,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 	if wsResult != nil {
 		results = append(results, *wsResult)
 	}
+	dirs, dirsErr := resolvePluginDirs(opts.Env)
 	for _, repoKey := range repoOrder {
 		result := workspaceGetResult{RepoKey: repoKey, Results: []unifiedResult{}, Missing: []string{}}
 		brainDir, err := brainDirForKey(opts.Env, repoKey)
@@ -2143,13 +2157,20 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 			continue
 		}
 		result.Branch = branch
-		found, missing, err := getUnifiedBatch(brainDir, branch, idsByRepo[repoKey])
+		var repoDir string
+		if dirsErr == nil {
+			repoDir, _ = resolveWorkspaceMemberRepoDir(cmd.Context(), opts, dirs.Config, members[repoKey])
+		}
+		found, missing, err := getUnifiedBatch(repoDir, brainDir, branch, idsByRepo[repoKey])
 		if err != nil {
 			result.Error = err.Error()
 			results = append(results, result)
 			continue
 		}
 		if found != nil {
+			if repoDir == "" {
+				found = annotateCurrentCodeUnavailable(found)
+			}
 			result.Results = found
 		}
 		// Re-qualify missing ids so the output names the brain they were missing from.
@@ -2171,7 +2192,13 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 			if r.Line > 0 {
 				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
 			}
-			fmt.Fprintf(out, "[%s] %s/%s  %s\n%s\n\n", r.Source, result.RepoKey, r.ID, loc, r.Text)
+			label := r.Source
+			if r.VerificationRequired {
+				label += " verify"
+			}
+			fmt.Fprintf(out, "[%s] %s/%s  %s\n%s\n", label, result.RepoKey, r.ID, loc, r.Text)
+			printRetrievalCaveats(out, r)
+			fmt.Fprintln(out)
 		}
 		for _, id := range result.Missing {
 			fmt.Fprintf(out, "not found: %s\n", id)
@@ -2370,7 +2397,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // into the repo key and the brain-local id. Repo keys never contain ':', so the
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
-	for _, prefix := range []string{"fact:", "history:", "doc:", "pattern:", "theme:"} {
+	for _, prefix := range []string{"fact:", "review:", "history:", "doc:", "pattern:", "theme:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}
@@ -2378,7 +2405,7 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 			return qualified[:i], qualified[i+1:], nil
 		}
 	}
-	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, <repo-key>/doc:…, <repo-key>/pattern:…, or <repo-key>/theme:…)", qualified)
+	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/review:…, <repo-key>/history:…, <repo-key>/doc:…, <repo-key>/pattern:…, or <repo-key>/theme:…)", qualified)
 }
 
 // workspaceFullRefresh fans the free deterministic single-repo refresh over
@@ -2717,8 +2744,40 @@ func writeJSON(cmd *cobra.Command, value any) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(data))
-	return nil
+	n, err := fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	if err == nil && n != len(data)+1 {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
+func writeText(cmd *cobra.Command, render func(io.Writer)) error {
+	// Stream directly to stdout instead of buffering the whole rendered body:
+	// large multi-get/fact output must not be held in memory in full. The
+	// sticky writer short-circuits after the first failure and preserves the
+	// error, so callers still skip receipt recording when output fails.
+	out := &stickyErrorWriter{writer: cmd.OutOrStdout()}
+	render(out)
+	return out.err
+}
+
+type stickyErrorWriter struct {
+	writer io.Writer
+	err    error
+}
+
+func (w *stickyErrorWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.err = err
+	}
+	return n, err
 }
 
 // ---- workspace list / remove (ergonomics) ----

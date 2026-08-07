@@ -658,6 +658,36 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc, Warnings: warnings})
 }
 
+// vizSessionFallbackText builds a compact, factual markdown body for a session
+// with no recorded summary, so its sidebar is never blank. It leans on data we
+// already have — the basenames of the files it touched (capped) — and falls back
+// to a short note only when truly nothing is known.
+func vizSessionFallbackText(se exportSession) string {
+	fps := make([]string, 0, len(se.FilesTouched))
+	for _, fp := range se.FilesTouched {
+		if fp = strings.TrimSpace(fp); fp != "" {
+			fps = append(fps, fp)
+		}
+	}
+	if len(fps) == 0 {
+		return "No summary recorded."
+	}
+	const maxFiles = 8
+	shown := fps
+	if len(shown) > maxFiles {
+		shown = shown[:maxFiles]
+	}
+	var b strings.Builder
+	b.WriteString("**Files touched**\n")
+	for _, fp := range shown {
+		b.WriteString("- " + filepath.Base(filepath.ToSlash(fp)) + "\n")
+	}
+	if extra := len(fps) - len(shown); extra > 0 {
+		fmt.Fprintf(&b, "- _(+%d more)_\n", extra)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	limit := vizQueryLimit(r, 3000)
 	// Same defense as facts/history: node IDs must be unique and non-empty.
@@ -696,7 +726,13 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		text := ""
 		if se.Summary != nil {
-			text = firstNonEmpty(se.Summary.Intent, se.Summary.Outcome)
+			text = strings.TrimSpace(firstNonEmpty(se.Summary.Intent, se.Summary.Outcome))
+		}
+		if text == "" {
+			// No recorded summary → synthesize a factual body from the files it
+			// touched (as markdown, so the sidebar renders a real list) so the
+			// session's detail pane is never blank.
+			text = vizSessionFallbackText(se)
 		}
 		link := s.sessionLink(se.SessionID)
 		label := ""
@@ -767,7 +803,13 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	}
 	text := ""
 	if se.Summary != nil {
-		text = firstNonEmpty(se.Summary.Intent, se.Summary.Outcome)
+		text = strings.TrimSpace(firstNonEmpty(se.Summary.Intent, se.Summary.Outcome))
+	}
+	if text == "" {
+		// No recorded summary → synthesize a factual body from the files it
+		// touched (as markdown, so the sidebar renders a real list) so the
+		// session's detail pane is never blank.
+		text = vizSessionFallbackText(*se)
 	}
 	link := s.sessionLink(se.SessionID)
 	sessLabel := ""
@@ -1225,9 +1267,13 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Memory hits (facts / history / docs), same code path as `entire brain search`.
-	if u, err := retrieveUnified(s.brainDir, s.branch, q, limit, modeLexical); err == nil {
+	if u, err := retrieveUnified(s.repoDir, s.brainDir, s.branch, q, limit, modeLexical); err == nil {
 		for _, h := range u {
-			resp.Hits = append(resp.Hits, vizHit{Source: h.Source, ID: h.ID, Title: h.Heading, Text: h.Text, Path: h.Path, Line: h.Line, Score: h.Score})
+			text := h.Text
+			if h.VerificationRequired {
+				text = "VERIFY AGAINST CURRENT EVIDENCE: " + text
+			}
+			resp.Hits = append(resp.Hits, vizHit{Source: h.Source, ID: h.ID, Title: h.Heading, Text: text, Path: h.Path, Line: h.Line, Score: h.Score})
 		}
 	}
 	writeJSONHTTP(w, http.StatusOK, resp)

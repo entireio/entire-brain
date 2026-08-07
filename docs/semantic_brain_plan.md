@@ -6,7 +6,7 @@ impact analysis, branch-aware freshness, and multi-repo workspace support.
 
 The core constraint is that Entire Brain should remain the orchestration,
 durable memory, and agent contract layer. Tree-sitter parsing and semantic
-extraction should live behind a provider boundary, with `entire-sem` as the
+extraction should live behind a provider boundary, with `entire-graph` as the
 expected provider.
 
 ## Goals
@@ -89,7 +89,7 @@ Owns:
 
 ### Semantic Provider
 
-`entire-sem` should own:
+`entire-graph` should own:
 
 - Tree-sitter parsing.
 - Entity extraction.
@@ -191,11 +191,11 @@ behavior, freshness policy, and agent presentation.
 Initial provider commands:
 
 ```sh
-entire sem snapshot --repo . --format ndjson
-entire sem symbols --repo . --format ndjson
-entire sem edges --repo . --format ndjson
-entire sem diff --base main --head HEAD --json
-entire sem doctor --json
+entire graph snapshot --repo . --format ndjson
+entire graph symbols --repo . --format ndjson
+entire graph edges --repo . --format ndjson
+entire graph diff --base main --head HEAD --json
+entire graph doctor --json
 ```
 
 Provider output should support newline-delimited JSON from the first release.
@@ -243,7 +243,7 @@ Schema compatibility policy:
 
 ### Streaming consumption contract (Brain)
 
-Entire Brain consumes the `entire sem snapshot --format ndjson` output as a
+Entire Brain consumes the `entire graph snapshot --format ndjson` output as a
 **stream**, record by record, and never buffers the full provider output in
 memory. The end-to-end indexing path (`entire brain index`) is therefore
 memory-bounded regardless of repository size.
@@ -270,7 +270,7 @@ The streaming contract is:
 Lean header (identity + snapshot configuration):
 
 ```json
-{"schema_version":"1.1","provider":"entire-sem","provider_version":"dev","repo_key":"local/bank","commit":"…","tree":"…","profile":"full","relation_set":["CALLS","IMPORTS"],"skipped_relation_families":[],"profile_limits":{"evidence":"full","call_resolution":"full"},"completeness":{"languages":null,"relations":null}}
+{"schema_version":"1.1","provider":"entire-graph","provider_version":"dev","repo_key":"local/bank","commit":"…","tree":"…","profile":"full","relation_set":["CALLS","IMPORTS"],"skipped_relation_families":[],"profile_limits":{"evidence":"full","call_resolution":"full"},"completeness":{"languages":null,"relations":null}}
 ```
 
 Final summary (authoritative aggregate metadata):
@@ -312,16 +312,16 @@ How Brain handles this:
   not persist a misleading "complete" snapshot. A malformed NDJSON line is
   reported with its line number and never panics.
 - **Timeouts.** There is no fixed short timeout. The snapshot runs under a
-  generous, configurable overall deadline (`--sem-timeout`, default 30m) plus a
-  configurable inactivity timeout (`--sem-inactivity-timeout`, default 5m) and
+  generous, configurable overall deadline (`--graph-timeout`, default 30m) plus a
+  configurable inactivity timeout (`--graph-inactivity-timeout`, default 5m) and
   honors context cancellation, so large repositories are not killed while a hung
   provider still aborts.
 
-**Provider version / compatibility.** Older `entire-sem` output that uses a
+**Provider version / compatibility.** Older `entire-graph` output that uses a
 fuller header and emits no trailing `summary` record remains supported: Brain
 falls back to the header for aggregate metadata and records
 `summary_present: false`. The required minimum provider behavior is the
-`major == 1` NDJSON snapshot schema (`entire sem snapshot --format ndjson`); the
+`major == 1` NDJSON snapshot schema (`entire graph snapshot --format ndjson`); the
 lean-header + `summary` split is consumed when present and is the recommended
 provider profile going forward.
 
@@ -447,7 +447,7 @@ Example:
     "semantic": {
       "generated_at": "2026-05-31T00:00:00Z",
       "commit": "abc123",
-      "provider": "entire-sem",
+      "provider": "entire-graph",
       "provider_version": "0.1.0",
       "snapshot_path": "semantic/snapshots/abc123/snapshot.json",
       "symbols": 1234,
@@ -661,8 +661,8 @@ semantics.
 ```sh
 entire brain refresh index .
 entire brain refresh index --force
-entire brain refresh index --sem-binary entire
-entire brain refresh --skip-sem
+entire brain refresh index --graph-binary entire
+entire brain refresh --skip-graph
 entire brain refresh index --worktree
 ```
 
@@ -960,15 +960,15 @@ so it should start with boundary extraction before the first workspace release.
 
 ## Provider Requirements
 
-Detailed `entire-sem` provider requirements live in the sibling repository:
+Detailed `entire-graph` provider requirements live in the sibling repository:
 
 ```text
-../entire-sem/docs/semantic_provider_requirements.md
+../entire-graph/docs/semantic_provider_requirements.md
 ```
 
-Entire Brain should treat `entire-sem` as an artifact-emitting provider. This
+Entire Brain should treat `entire-graph` as an artifact-emitting provider. This
 plan keeps the provider boundary and consumer contract visible, but the provider
-implementation roadmap belongs with `entire-sem`.
+implementation roadmap belongs with `entire-graph`.
 
 ## Roadmap
 

@@ -1,7 +1,7 @@
 # Input limits & untrusted-input hardening
 
 Entire Brain ingests data from sources it does not control: Entire session
-transcripts, the `entire-sem` snapshot stream, repository files, checkpoint
+transcripts, the `entire-graph` snapshot stream, repository files, checkpoint
 history fetched over git, MCP requests, and on-disk derived artifacts. This
 document records the size/time ceilings and the defensive policies that keep a
 malformed or hostile input from crashing the process, exhausting memory, or
@@ -20,7 +20,7 @@ derived cache is rebuilt) rather than silently truncated or allowed to OOM.
 | JSON manifest / index / cursor | 16 MiB | `maxManifestBytes` | — |
 | Full semantic snapshot (read) | 2 GiB | `defaultMaxSemanticSnapshotBytes` | `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES` |
 | Gzip cache decompressed output | snapshot cap | `loadCheckpointMetadataCache`, `loadHistoryScanCache` | `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES` |
-| Per NDJSON record (entire-sem) | 16 MiB | `semanticMaxRecordBytes` | `ENTIRE_BRAIN_MAX_RECORD_BYTES` |
+| Per NDJSON record (entire-graph) | 16 MiB | `semanticMaxRecordBytes` | `ENTIRE_BRAIN_MAX_RECORD_BYTES` |
 | Brain-inspect history line | 4 MiB | `brainInspectHistoryMaxLine` | — |
 | Facts NDJSON line | 64 KiB | `factsMaxLineBytes` | — |
 | History record line | 1 MiB | `historyMaxLineBytes` | — |
@@ -38,7 +38,7 @@ read at `max+1` bytes via `io.LimitReader` and error if the source exceeds `max`
   and returns JSON-RPC `-32603` instead of tearing down the stdio session
   (`handleMCPMessage`). Distill worker goroutines convert a panic into a
   per-chunk error so one bad chunk does not crash the whole run.
-- **Tolerant entire-sem ingest.** A stray malformed NDJSON record is skipped,
+- **Tolerant entire-graph ingest.** A stray malformed NDJSON record is skipped,
   counted, and surfaced as a `provider_malformed_record_dropped` warning rather
   than failing the whole index. More than `maxDroppedSemanticRecords` (1000)
   drops is treated as a broken stream and fails. Set
@@ -73,14 +73,14 @@ read at `max+1` bytes via `io.LimitReader` and error if the source exceeds `max`
   rejecting any non-loopback IP. This defeats `localhost`-by-name trust, hostile
   `/etc/hosts`, and DNS rebinding.
 - The MCP `brain_index_repository` tool resolves its indexer binary from the
-  trusted server environment (`ENTIRE_BRAIN_SEM_BINARY`, default `entire`), never
+  trusted server environment (`ENTIRE_BRAIN_GRAPH_BINARY`, default `entire`), never
   from a client argument, and constrains the index path to the bound repo root
   unless `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` is set.
 
 ## Fuzzing
 
 `fuzz_test.go` provides panic-invariant fuzz harnesses for the untrusted parsers:
-MCP framing, the entire-sem NDJSON stream, the `embed_store` binary loader, the
+MCP framing, the entire-graph NDJSON stream, the `embed_store` binary loader, the
 distilled fact-line parser, and the document-conversation parser. Run e.g.:
 
 ```sh

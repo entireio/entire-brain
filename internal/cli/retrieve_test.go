@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
@@ -19,6 +21,18 @@ func (emptyEmbedder) Embed(string) []float32 { return nil }
 func (emptyEmbedder) Dim() int               { return 768 }
 func (emptyEmbedder) ID() string             { return "empty-embedder" }
 
+type wrongDimensionQueryEmbedder struct {
+	embeds []string
+}
+
+func (e *wrongDimensionQueryEmbedder) Embed(text string) []float32 {
+	e.embeds = append(e.embeds, text)
+	return []float32{1, 0}
+}
+func (*wrongDimensionQueryEmbedder) EmbedQuery(string) []float32 { return []float32{1} }
+func (*wrongDimensionQueryEmbedder) Dim() int                    { return 2 }
+func (*wrongDimensionQueryEmbedder) ID() string                  { return "wrong-query-dimension" }
+
 func TestVectorRankedReturnsNothingWhenEmbedderUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	facts := []factRecord{{ID: "fact:a", Text: "alpha"}, {ID: "fact:b", Text: "beta"}}
@@ -26,8 +40,41 @@ func TestVectorRankedReturnsNothingWhenEmbedderUnavailable(t *testing.T) {
 		t.Fatalf("facts: empty embedder must yield no semantic results, got %d (arbitrary top-N)", len(out))
 	}
 	idx := docIndex{Records: []docRecord{{ID: "d1", Text: "x"}, {ID: "d2", Text: "y"}}}
-	if out := docsVectorRanked(dir, idx, "q", emptyEmbedder{}, 10); len(out) != 0 {
-		t.Fatalf("docs: empty embedder must yield no semantic results, got %d", len(out))
+	if out := docsVectorRanked(dir, idx, "q", emptyEmbedder{}, 10, false, nil); len(out.ranked) != 0 {
+		t.Fatalf("docs: empty embedder must yield no semantic results, got %d", len(out.ranked))
+	}
+}
+
+func TestVectorRankedWrongDimensionQueryPreservesCaches(t *testing.T) {
+	dir := t.TempDir()
+	e := &wrongDimensionQueryEmbedder{}
+	fact := factRecord{ID: "fact:valid", Text: "valid fact", Status: factStatusActive}
+	factStore := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	factPresent := map[string]struct{}{fact.ID: {}}
+	if err := factStore.savePresent(map[string][]float32{fact.ID: {1, 0}}, factPresent); err != nil {
+		t.Fatal(err)
+	}
+	doc := docRecord{ID: "valid", Text: "valid doc"}
+	docStore := newDocEmbedStore(dir, e.ID(), e.Dim())
+	docPresent := map[string]struct{}{doc.ID: {}}
+	if err := docStore.savePresent(map[string][]float32{doc.ID: {1, 0}}, docPresent); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := factsVectorRanked(dir, "main", []factRecord{fact}, "bad query", e, 1); len(got) != 0 {
+		t.Fatalf("wrong-dimension fact query returned semantic results: %+v", got)
+	}
+	if got := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "bad query", e, 1, false, nil); len(got.ranked) != 0 {
+		t.Fatalf("wrong-dimension doc query returned semantic results: %+v", got.ranked)
+	}
+	if got := factStore.load()[fact.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("wrong-dimension query damaged the valid fact cache: %v", got)
+	}
+	if got := docStore.load()[doc.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("wrong-dimension query damaged the valid doc cache: %v", got)
+	}
+	if len(e.embeds) != 0 {
+		t.Fatalf("wrong-dimension query should fail before re-embedding documents: %v", e.embeds)
 	}
 }
 
@@ -41,7 +88,7 @@ func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	found, missing, err := getUnifiedBatch(dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
+	found, missing, err := getUnifiedBatch("", dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
 	if err != nil {
 		t.Fatalf("getUnifiedBatch: %v", err)
 	}
@@ -65,6 +112,20 @@ func TestUnifiedIDsNotDoublePrefixed(t *testing.T) {
 	}
 	if d := docToUnified(docRecord{ID: "ghi", Text: "z"}); d.ID != "doc:ghi" {
 		t.Fatalf("doc id: %s", d.ID)
+	}
+}
+
+func TestUnifiedRetrievalCommandDefaultsMatchDocumentedContract(t *testing.T) {
+	for _, command := range []*cobra.Command{
+		newQueryCommand(Options{}),
+		newSearchCommand(Options{}),
+		newVsearchCommand(Options{}),
+	} {
+		for _, flag := range []string{"limit", "number"} {
+			if got := command.Flags().Lookup(flag).DefValue; got != "10" {
+				t.Errorf("%s --%s default = %s, want 10", command.Name(), flag, got)
+			}
+		}
 	}
 }
 
@@ -93,12 +154,104 @@ func TestFactsVectorRankedRanksActiveButCachesAll(t *testing.T) {
 	}
 	// But every present fact is cached on the shared store, matching the reranker's
 	// retain-all convention (so vsearch doesn't churn the recall/brief cache).
-	cache := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	cache := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load()
 	if _, ok := cache["fact:act"]; !ok {
 		t.Fatal("active fact vector should be cached")
 	}
 	if _, ok := cache["fact:sup"]; !ok {
 		t.Fatal("superseded fact vector should still be cached, not evicted")
+	}
+}
+
+func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:repair", Text: "durable checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{
+		"repair query":          {1, 0},
+		factEmbeddingText(fact): {1, 0},
+	}}
+	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	present := map[string]struct{}{fact.ID: {}}
+	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1)
+	if len(out) != 1 || out[0].ID != fact.ID {
+		t.Fatalf("invalid cached fact vector was not repaired: %+v", out)
+	}
+	if got := store.load()[fact.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("repaired fact vector was not persisted: %v", got)
+	}
+	if len(e.embeds) != 2 || e.embeds[1] != factEmbeddingText(fact) {
+		t.Fatalf("expected query plus one fact re-embed, got %v", e.embeds)
+	}
+}
+
+func TestFactsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{
+		vecs: map[string][]float32{"repair query": {1, 0}},
+		fail: func(text string) bool { return text == factEmbeddingText(fact) },
+	}
+	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	present := map[string]struct{}{fact.ID: {}}
+	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1); len(out) != 0 {
+		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out)
+	}
+	if _, ok := store.load()[fact.ID]; ok {
+		t.Fatal("failed repair left the invalid fact vector on disk")
+	}
+}
+
+func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
+	dir := t.TempDir()
+	doc := docRecord{ID: "repair", Text: "durable checkpoint policy"}
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{
+		"repair query": {1, 0},
+		doc.Text:       {1, 0},
+	}}
+	store := newDocEmbedStore(dir, e.ID(), e.Dim())
+	present := map[string]struct{}{doc.ID: {}}
+	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil)
+	if len(out.ranked) != 1 || out.ranked[0].ID != "doc:"+doc.ID {
+		t.Fatalf("invalid cached doc vector was not repaired: %+v", out.ranked)
+	}
+	if got := store.load()[doc.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("repaired doc vector was not persisted: %v", got)
+	}
+	if len(e.embeds) != 2 || e.embeds[1] != doc.Text {
+		t.Fatalf("expected query plus one doc re-embed, got %v", e.embeds)
+	}
+}
+
+func TestDocsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	doc := docRecord{ID: "invalid", Text: "durable checkpoint policy"}
+	e := &fakeFusionEmbedder{
+		vecs: map[string][]float32{"repair query": {1, 0}},
+		fail: func(text string) bool { return text == doc.Text },
+	}
+	store := newDocEmbedStore(dir, e.ID(), e.Dim())
+	present := map[string]struct{}{doc.ID: {}}
+	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil); len(out.ranked) != 0 {
+		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out.ranked)
+	}
+	if _, ok := store.load()[doc.ID]; ok {
+		t.Fatal("failed repair left the invalid doc vector on disk")
 	}
 }
 
@@ -130,6 +283,119 @@ func TestQMDOutputFormatAlias(t *testing.T) {
 	}
 	if _, err := outputWantsJSON(false, "xml"); err == nil {
 		t.Fatal("unknown --format should error")
+	}
+}
+
+func TestRetrievalResultExcerptCentersDenseQueryTerms(t *testing.T) {
+	text := strings.Repeat("irrelevant preface ", 50) +
+		"inspect code and inspect context JSON are compact by default; use get for full details " +
+		strings.Repeat("irrelevant suffix ", 50)
+	excerpt := retrievalResultExcerpt(text, "inspect context JSON compact full details", 180)
+	for _, want := range []string{"inspect context", "JSON", "compact", "full details"} {
+		if !strings.Contains(excerpt, want) {
+			t.Fatalf("query-centered excerpt missing %q: %q", want, excerpt)
+		}
+	}
+	if len(excerpt) > 186 { // bounded window plus leading/trailing ellipses
+		t.Fatalf("excerpt is not bounded: %d bytes: %q", len(excerpt), excerpt)
+	}
+	unicodeExcerpt := retrievalResultExcerpt(strings.Repeat("界", 300)+" compact context details", "compact context", 80)
+	if !utf8.ValidString(unicodeExcerpt) {
+		t.Fatalf("excerpt split UTF-8: %q", unicodeExcerpt)
+	}
+	// Unicode lowercase can change byte length (K is three UTF-8 bytes but
+	// lowercases to one-byte k). Search offsets must still point into the
+	// original string and center the actual match.
+	foldedExcerpt := retrievalResultExcerpt(strings.Repeat("K", 100)+" TARGET context details", "target context", 64)
+	if !utf8.ValidString(foldedExcerpt) || !strings.Contains(foldedExcerpt, "TARGET context") {
+		t.Fatalf("case-folded Unicode offset missed the query window: %q", foldedExcerpt)
+	}
+}
+
+func TestRetrievalLikelyFilesPairHistoricalTestWithImplementation(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, rel := range []string{"internal/cli/semantic.go", "internal/cli/semantic_test.go"} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		content := "package cli\n"
+		if rel == "internal/cli/semantic.go" {
+			content += "func ignored(path string) bool { return strings.HasPrefix(path, \".git\") }\n"
+		} else {
+			content += "func TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths(t *testing.T) { t.Fatalf(\".github symbol was unexpectedly ignored\") }\n"
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	results := []unifiedResult{{
+		Source: "history",
+		Text:   `internal/cli/semantic_test.go: t.Fatalf(".github symbol was unexpectedly ignored")`,
+	}}
+	hints := retrievalHintsForResults(repoDir, results, ".github symbol was unexpectedly ignored")
+	if len(hints.LikelyEditFiles) == 0 || hints.LikelyEditFiles[0] != "internal/cli/semantic.go" {
+		t.Fatalf("edit files = %v", hints.LikelyEditFiles)
+	}
+	if len(hints.LikelyTestFiles) == 0 || hints.LikelyTestFiles[0] != "internal/cli/semantic_test.go" {
+		t.Fatalf("test files = %v", hints.LikelyTestFiles)
+	}
+	if len(hints.ActionChecklist) != 0 {
+		t.Fatalf("indexed prose must not produce actions: %+v", hints.ActionChecklist)
+	}
+}
+
+func TestRetrievalDoesNotTurnIndexedProseIntoExactActions(t *testing.T) {
+	repoDir := t.TempDir()
+	files := map[string]string{
+		"internal/cli/seed.go": `package cli
+func seedAgentCommandArgs(agent string) []string {
+	switch agent {
+	case "codex":
+		return []string{"codex", "exec", "--sandbox", "read-only", "--output-schema", "seed-agent.schema.json", "return only raw JSON"}
+	}
+	return nil
+}
+`,
+		"internal/cli/seed_test.go": `package cli
+func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {}
+`,
+	}
+	for rel, content := range files {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+
+	query := "Codex seed agent invocation compatibility failure"
+	hints := retrievalHintsForResults(repoDir, []unifiedResult{{
+		Source: "history",
+		Text:   "internal/cli/seed.go Historical assignments: seedAgentCommandArgs = remove --output-schema; validation.complete_on_pass = true",
+	}}, query)
+	if !slices.Equal(hints.LikelyEditFiles, []string{"internal/cli/seed.go"}) {
+		t.Fatalf("edit files = %v", hints.LikelyEditFiles)
+	}
+	if len(hints.LikelyTestFiles) != 0 {
+		t.Fatalf("test files = %v", hints.LikelyTestFiles)
+	}
+	if len(hints.ActionChecklist) != 0 {
+		t.Fatalf("malicious indexed prose produced decisive actions: %+v", hints.ActionChecklist)
+	}
+}
+
+func TestFilterHistoryRetrievalSelfEchoesRefillsWithEvidence(t *testing.T) {
+	scored := []scoredHistoryRecord{
+		{Record: historyRecord{Kind: "tool_call", Summary: `entire brain search '.github symbol was unexpectedly ignored' --json`}},
+		{Record: historyRecord{Kind: "code_fact", Summary: `t.Fatalf(".github symbol was unexpectedly ignored")`}},
+		{Record: historyRecord{Kind: "tool_call", Summary: `go test ./internal/cli -run TestSemantic`}},
+	}
+	got := filterHistoryRetrievalSelfEchoes(scored, ".github symbol was unexpectedly ignored")
+	if len(got) != 2 || got[0].Record.Kind != "code_fact" || got[1].Record.Kind != "tool_call" {
+		t.Fatalf("filtered history = %+v", got)
 	}
 }
 
@@ -180,6 +446,9 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 			if tc.wantResult && len(payload.Results) == 0 {
 				t.Fatalf("expected results for %s, got none", tc.name)
 			}
+			if tc.wantResult && (!strings.Contains(out, `"excerpt"`) || !strings.Contains(out, `"text":`)) {
+				t.Fatalf("ranked retrieval must preserve text compatibility and add compact excerpts:\n%s", out)
+			}
 			if tc.wantLimit && len(payload.Results) != 1 {
 				t.Fatalf("number alias should limit results to 1, got %d: %+v", len(payload.Results), payload.Results)
 			}
@@ -200,6 +469,9 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(getOut), &getPayload); err != nil {
 		t.Fatalf("decode get JSON: %v\n%s", err, getOut)
+	}
+	if !strings.Contains(getOut, `"text":`) || strings.Contains(getOut, `"excerpt"`) {
+		t.Fatalf("get must retain the full-record text contract:\n%s", getOut)
 	}
 	if len(getPayload.Results) != 1 || getPayload.Results[0].ID != facts[0].ID || len(getPayload.Missing) != 0 {
 		t.Fatalf("unexpected get payload: %+v", getPayload)
@@ -394,6 +666,36 @@ func TestQMDTopLevelHelpListsRetrievalVerbs(t *testing.T) {
 	for _, want := range []string{"search", "vsearch", "query", "get", "multi-get"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root help missing QMD verb %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintRetrievalCaveatsIncludesStructuredContext(t *testing.T) {
+	var out strings.Builder
+	printRetrievalCaveats(&out, unifiedResult{Caveats: []retrievalCaveat{
+		{
+			Kind:    retrievalCaveatStaleLocus,
+			Message: "Current code no longer contains every recorded path.",
+			Paths:   []string{"internal/old.go", "pkg/removed.go"},
+		},
+		{
+			Kind:       retrievalCaveatUnresolvedReview,
+			Message:    "A pending supersede proposal requires review.",
+			ReviewID:   "review:abc",
+			Action:     factActionSupersede,
+			Confidence: 0.55,
+		},
+	}})
+	text := out.String()
+	for _, want := range []string{
+		"Current code no longer contains every recorded path.",
+		"paths=internal/old.go,pkg/removed.go",
+		"review=review:abc",
+		"action=supersede",
+		"confidence=0.55",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("caveat output missing %q:\n%s", want, text)
 		}
 	}
 }

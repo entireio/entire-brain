@@ -33,6 +33,7 @@ export function createGraph(canvas, handlers = {}) {
   let hover = null, selected = null, focusSet = null;
   let replayActive = null, replayVisited = null; // Sets of node ids during session replay
   let replayLead = null; // top-degree active ids that get labels/rings (a file can touch 100s of symbols)
+  let labelSet = null; // the handful of top-degree hubs that get a persistent label (never a wall of text)
   let autoFit = false; // keep the view framed while the sim settles (any graph size)
   let dirty = true, W = 0, H = 0, dpr = 1;
 
@@ -49,7 +50,10 @@ export function createGraph(canvas, handlers = {}) {
   resize();
 
   // ---------- data ----------
-  function radius(n) { return Math.min(3 + Math.sqrt(n.degree || 0) * 1.5, 16); }
+  // Nodes stay small, distinct dots — hubs modestly larger by degree so the eye
+  // lands on them, but never so big they overlap into a blob. Floor keeps leaves
+  // clickable; a tight cap bounds mega-hubs.
+  function radius(n) { return Math.min(2.2 + Math.sqrt(n.degree || 0) * 1.1, 11); }
 
   function setData(rawNodes, rawEdges) {
     byId = new Map();
@@ -67,6 +71,15 @@ export function createGraph(canvas, handlers = {}) {
       edges.push({ ...e, source: s, target: t });
     }
     selected = null; hover = null; focusSet = null;
+    // Only the top hubs by degree ever carry a persistent label. Labeling every
+    // mid-degree node turns a large graph into an unreadable wall of white text;
+    // a small fixed set (scaled gently with graph size, hard-capped) keeps the
+    // view legible and tells the eye where the anchors are.
+    {
+      const ranked = nodes.slice().sort((a, b) => (b.degree || 0) - (a.degree || 0));
+      const n = Math.min(14, Math.max(5, Math.round(nodes.length * 0.03)));
+      labelSet = new Set(ranked.slice(0, n).filter((d) => (d.degree || 0) > 2).map((d) => d.id));
+    }
     // Fewer settling ticks for very large graphs (each tick rebuilds the quadtree);
     // the coverage-capped edge set keeps the layout well-spread regardless.
     const iters = nodes.length > 6000 ? 220 : 300;
@@ -283,6 +296,7 @@ export function createGraph(canvas, handlers = {}) {
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
+    const placedLabels = []; // drawn label rects this frame, to skip overlaps (declutter dense hubs)
     const showLabels = cam.scale > 1.15;
     const replaying = replayActive !== null;
     const pulse = replaying ? (0.5 + 0.5 * Math.sin(performance.now() / 240)) : 0;
@@ -326,9 +340,13 @@ export function createGraph(canvas, handlers = {}) {
       } else {
         const dim = hi && n !== hi && !(incident && [...incident].some((e) => e.source === n || e.target === n));
         const focusDim = !hi && focusSet && !focusSet.has(n.id);
+        // At overview zoom (labels hidden, nothing hovered/focused) gently fade the
+        // low-degree leaves so hubs/clusters pop and the eye lands on what matters.
+        // Dim, don't delete; and never fight the hover/focus/replay alpha above.
+        const overviewDim = !hi && !focusSet && !showLabels && (n.degree || 0) <= 1;
         // Keep dimmed context clearly visible (0.5, not near-invisible) so moving
         // the cursor over a sparse graph doesn't make everything flicker away.
-        alpha = (dim || focusDim) ? 0.5 : 1;
+        alpha = (dim || focusDim) ? 0.5 : (overviewDim ? 0.55 : 1);
       }
       if (isLead) { // expanding pulse ring on the few lead symbols only (not all 100s)
         ctx.globalAlpha = 0.55 * (1 - pulse * 0.7);
@@ -342,16 +360,33 @@ export function createGraph(canvas, handlers = {}) {
       ctx.shadowBlur = 0;
       if (n === selected) { ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke(); }
       else if (n.fixed) { ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke(); }
-      // During replay label ONLY the few lead symbols of the active step — a file
-      // can touch hundreds of symbols and labeling all of them is an unreadable wall.
-      const wantLabel = n === hi || n === selected || isLead || (!replaying && showLabels && n.degree >= 5);
+      // Persistent labels go ONLY to the top-hub set (see setData) plus whatever
+      // the cursor/selection touches — never "every node past a degree threshold",
+      // which walls the view with overlapping text. Zoom in and more of the top
+      // hubs' neighbourhoods become legible via hover; the anchor set stays fixed.
+      const wantLabel = n === hi || n === selected || isLead || (!replaying && labelSet && labelSet.has(n.id));
       if (wantLabel) {
-        ctx.globalAlpha = alpha < 0.5 ? 0.25 : 0.92;
-        ctx.fillStyle = '#f3f3f3';
-        ctx.font = '11px ui-monospace, Menlo, monospace';
+        ctx.globalAlpha = alpha < 0.5 ? 0.3 : 1;
+        ctx.font = '600 11px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'center';
         const label = n.name || n.id;
-        ctx.fillText(label.length > 28 ? label.slice(0, 27) + '...' : label, x, y - (isActive ? r + 2 : r) - 5);
+        const text = label.length > 26 ? label.slice(0, 25) + '…' : label;
+        const ly = y - (isActive ? r + 2 : r) - 6;
+        // Skip a label that would collide with one already drawn this frame — keeps
+        // clustered hubs from stacking their names into an illegible pile. The
+        // hovered/selected label always wins (drawn regardless).
+        const half = text.length * 3.4 + 4, box = { x0: x - half, x1: x + half, y0: ly - 9, y1: ly + 3 };
+        const collides = (n !== hi && n !== selected) && placedLabels.some((p) => box.x0 < p.x1 && box.x1 > p.x0 && box.y0 < p.y1 && box.y1 > p.y0);
+        if (!collides) {
+          placedLabels.push(box);
+          // Dark halo so a label stays readable over nodes/edges in a dense core.
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = 3.5;
+          ctx.strokeStyle = 'rgba(10,10,10,0.9)';
+          ctx.strokeText(text, x, ly);
+          ctx.fillStyle = '#f3f3f3';
+          ctx.fillText(text, x, ly);
+        }
       }
       ctx.globalAlpha = 1;
     }
@@ -451,6 +486,13 @@ export function createGraph(canvas, handlers = {}) {
     cam.tx = sx - wx * cam.scale; cam.ty = sy - wy * cam.scale;
     dirty = true;
   }, { passive: false });
+  // Leaving the canvas ends the hover: clear the highlight and tell the app so it
+  // cancels any pending (delayed) tooltip and hides a shown one — without this a
+  // rest-timer could paint a stale tooltip after the cursor left onto the chrome.
+  canvas.addEventListener('pointerleave', () => {
+    if (hover !== null) { hover = null; dirty = true; }
+    handlers.onHover && handlers.onHover(null);
+  });
 
   return {
     setData, mergeData, focus, clearFocus, zoomToFit,

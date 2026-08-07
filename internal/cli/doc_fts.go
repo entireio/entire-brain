@@ -166,8 +166,10 @@ func rankDocsLexical(index docIndex, query string, limit int) []scoredDocRecord 
 		}
 	}
 	sort.SliceStable(scored, func(a, b int) bool {
-		if scored[a].score != scored[b].score {
-			return scored[a].score > scored[b].score
+		left := docTrustAdjustedScore(float64(scored[a].score), scored[a].rec.Historical)
+		right := docTrustAdjustedScore(float64(scored[b].score), scored[b].rec.Historical)
+		if left != right {
+			return left > right
 		}
 		return scored[a].rec.ID < scored[b].rec.ID
 	})
@@ -199,8 +201,9 @@ func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([
 		return nil, false
 	}
 	defer rows.Close()
-	out := make([]scoredDocRecord, 0, limit)
+	out := make([]scoredDocRecord, 0, limit*4)
 	seen := map[string]struct{}{}
+	rawScores := map[string]float64{}
 	var topScore float64
 	for rows.Next() {
 		var order int
@@ -222,13 +225,28 @@ func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([
 			continue
 		}
 		seen[rec.ID] = struct{}{}
+		rawScores[rec.ID] = score
 		out = append(out, scoredDocRecord{Record: rec, Score: int(score*1000 + 0.5)})
-		if len(out) >= limit {
+		if len(out) >= limit*4 {
 			break
 		}
 	}
 	if rows.Err() != nil {
 		return nil, false
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		// Preserve SQLite's sub-millipoint BM25 precision for ordering. The
+		// public integer score can round tiny equal matches to zero, which must
+		// not erase the current-vs-historical trust discount.
+		left := docTrustAdjustedScore(rawScores[out[a].Record.ID], out[a].Record.Historical)
+		right := docTrustAdjustedScore(rawScores[out[b].Record.ID], out[b].Record.Historical)
+		if left != right {
+			return left > right
+		}
+		return out[a].Record.ID < out[b].Record.ID
+	})
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, true
 }

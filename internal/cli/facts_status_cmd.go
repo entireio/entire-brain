@@ -11,25 +11,70 @@ import (
 )
 
 type factsStatusReport struct {
-	SchemaVersion int                 `json:"schema_version"`
-	GeneratedAt   time.Time           `json:"generated_at"`
-	Repo          string              `json:"repo"`
-	BrainPath     string              `json:"brain_path"`
-	RepoHead      string              `json:"repo_head,omitempty"`
-	BrainManifest string              `json:"brain_manifest_sha256,omitempty"`
-	Branch        string              `json:"branch,omitempty"`
-	AllBranches   bool                `json:"all_branches,omitempty"`
-	FactsArmReady bool                `json:"facts_arm_ready"`
-	Totals        factsStatusCounts   `json:"totals"`
-	Branches      []factsBranchState  `json:"branches,omitempty"`
-	ManifestFacts *factSourceManifest `json:"manifest_facts,omitempty"`
-	Warnings      []string            `json:"warnings,omitempty"`
+	SchemaVersion int               `json:"schema_version"`
+	GeneratedAt   time.Time         `json:"generated_at"`
+	Repo          string            `json:"repo"`
+	BrainPath     string            `json:"brain_path"`
+	RepoHead      string            `json:"repo_head,omitempty"`
+	BrainManifest string            `json:"brain_manifest_sha256,omitempty"`
+	Branch        string            `json:"branch,omitempty"`
+	AllBranches   bool              `json:"all_branches,omitempty"`
+	FactsArmReady bool              `json:"facts_arm_ready"`
+	Totals        factsStatusCounts `json:"totals"`
+	// Vitality summarizes the branch's serve receipts (vitality Phase 1);
+	// omitted in --all-branches mode, where each branch carries its own.
+	Vitality      *factsVitalitySummary `json:"vitality,omitempty"`
+	Branches      []factsBranchState    `json:"branches,omitempty"`
+	ManifestFacts *factSourceManifest   `json:"manifest_facts,omitempty"`
+	Warnings      []string              `json:"warnings,omitempty"`
 }
 
 type factsBranchState struct {
-	Branch        string            `json:"branch"`
-	FactsArmReady bool              `json:"facts_arm_ready"`
-	Totals        factsStatusCounts `json:"totals"`
+	Branch        string                `json:"branch"`
+	FactsArmReady bool                  `json:"facts_arm_ready"`
+	Totals        factsStatusCounts     `json:"totals"`
+	Vitality      *factsVitalitySummary `json:"vitality,omitempty"`
+}
+
+// factsVitalitySummary is the serve-receipt rollup surfaced in facts status:
+// how much of the store has actually been emitted, and the most recent
+// last-served evidence.
+type factsVitalitySummary struct {
+	ServedFacts    int        `json:"served_facts"` // distinct fact ids with receipts
+	ServedTotal    int        `json:"served_total"` // total serve receipts
+	PendingEvents  int        `json:"pending_events"`
+	LastServedAt   *time.Time `json:"last_served_at,omitempty"`
+	LastServedFact string     `json:"last_served_fact,omitempty"`
+	LastSurface    string     `json:"last_surface,omitempty"`
+}
+
+// factsVitalitySummaryForBranch folds the branch's vitality view into the
+// status summary. Receipts are best-effort telemetry, so any problem returns
+// nil plus a warning instead of failing status.
+func factsVitalitySummaryForBranch(brainDir, branch string) (*factsVitalitySummary, []string) {
+	rollup, stats, err := loadVitalityView(brainDir, branch)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("facts vitality ledger unreadable on %s: %v", branch, err)}
+	}
+	var warnings []string
+	if stats.RollupCorrupt {
+		warnings = append(warnings, fmt.Sprintf("facts vitality rollup corrupt on %s; run `facts vitality --compact` to rebuild", branch))
+	}
+	summary := &factsVitalitySummary{PendingEvents: stats.PendingEvents}
+	for id, entry := range rollup.Facts {
+		summary.ServedFacts++
+		summary.ServedTotal += entry.Served
+		last := entry.LastServed
+		better := summary.LastServedAt == nil || last.After(*summary.LastServedAt) ||
+			(last.Equal(*summary.LastServedAt) && id < summary.LastServedFact)
+		if better {
+			at := last
+			summary.LastServedAt = &at
+			summary.LastServedFact = id
+			summary.LastSurface = entry.LastSurface
+		}
+	}
+	return summary, warnings
 }
 
 type factsStatusCounts struct {
@@ -119,12 +164,15 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 			if err != nil {
 				return report, err
 			}
+			vitality, vitalityWarnings := factsVitalitySummaryForBranch(brainDir, branch)
 			report.Branches = append(report.Branches, factsBranchState{
 				Branch:        branch,
 				FactsArmReady: counts.Active > 0,
 				Totals:        counts,
+				Vitality:      vitality,
 			})
 			report.Totals.add(counts)
+			report.Warnings = append(report.Warnings, vitalityWarnings...)
 		}
 	} else {
 		facts, err := loadFacts(brainDir, branch)
@@ -136,10 +184,13 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 			return report, err
 		}
 		report.Totals = counts
+		vitality, vitalityWarnings := factsVitalitySummaryForBranch(brainDir, branch)
+		report.Vitality = vitality
+		report.Warnings = append(report.Warnings, vitalityWarnings...)
 	}
 
 	report.FactsArmReady = report.Totals.Active > 0
-	report.Warnings = factsStatusWarnings(report)
+	report.Warnings = append(report.Warnings, factsStatusWarnings(report)...)
 	return report, nil
 }
 
@@ -213,6 +264,14 @@ func printFactsStatus(cmd *cobra.Command, report factsStatusReport) {
 	fmt.Fprintf(cmd.OutOrStdout(), "facts status for %s\n", target)
 	fmt.Fprintf(cmd.OutOrStdout(), "brain: %s\n", report.BrainPath)
 	printFactsStatusCounts(cmd, report.Totals)
+	if v := report.Vitality; v != nil && v.ServedTotal > 0 {
+		last := ""
+		if v.LastServedAt != nil {
+			last = fmt.Sprintf(" last_served=%s fact=%s surface=%s", v.LastServedAt.UTC().Format(time.RFC3339), v.LastServedFact, v.LastSurface)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "vitality: served_facts=%d served_total=%d pending_events=%d%s\n",
+			v.ServedFacts, v.ServedTotal, v.PendingEvents, last)
+	}
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)
 	}

@@ -43,7 +43,9 @@ const vecStoreFileName = "vectors.sqlite"
 // the branch, never corruption.
 func newVectorStore(brainDir, branch, modelID string, dim int) vectorStore {
 	dir := filepath.Join(brainDir, filepath.FromSlash(factsBranchRelDir(branch)), embedStoreDirName)
-	return &vecStore{path: filepath.Join(dir, vecStoreFileName), modelID: modelID, dim: dim}
+	return &vecStore{
+		path: filepath.Join(dir, vecStoreFileName), brainDir: brainDir, modelID: modelID, dim: dim,
+	}
 }
 
 func (s *vecStore) vectorCacheBackend() string { return "sqlite_vec" }
@@ -128,6 +130,15 @@ func (s *vecStore) save(vecs map[string][]float32) error {
 }
 
 func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]struct{}) error {
+	if s.brainDir != "" {
+		return withBrainWriteLock(s.brainDir, func() error {
+			return s.savePresentUnlocked(vecs, present)
+		})
+	}
+	return s.savePresentUnlocked(vecs, present)
+}
+
+func (s *vecStore) savePresentUnlocked(vecs map[string][]float32, present map[string]struct{}) error {
 	if present != nil {
 		merged := s.load()
 		for id := range merged {
@@ -137,6 +148,8 @@ func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]str
 		}
 		for id, vec := range vecs {
 			if _, ok := present[id]; ok {
+				// As in embedStore, a wrong-dimension value is a tombstone. It
+				// replaces the reloaded entry and is skipped during the rewrite.
 				merged[id] = vec
 			}
 		}
@@ -147,9 +160,15 @@ func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]str
 		return err
 	}
 	defer db.Close()
-	// Recreate the schema from scratch on every save: a model or dim change
-	// alters the vec0 column declaration itself, and save() is a full rewrite
-	// anyway, so dropping is both the migration and the prune.
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Recreate the schema transactionally on every save: a model or dim change
+	// alters the vec0 column declaration itself, and save() is a full rewrite.
+	// Keeping DROP/CREATE and inserts in one transaction preserves the previous
+	// cache after a crash instead of leaving an empty intermediate schema.
 	ddl := []string{
 		`DROP TABLE IF EXISTS vec_facts`,
 		`DROP TABLE IF EXISTS fact_ids`,
@@ -158,15 +177,10 @@ func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]str
 		`CREATE TABLE fact_ids(rowid INTEGER PRIMARY KEY, fact_id TEXT UNIQUE NOT NULL)`,
 	}
 	for _, stmt := range ddl {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := tx.Exec(stmt); err != nil {
 			return err
 		}
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	for _, kv := range [][2]string{{"model_id", s.modelID}, {"dim", strconv.Itoa(s.dim)}} {
 		if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, kv[0], kv[1]); err != nil {
 			return err
@@ -430,11 +444,11 @@ func (s *historyVecStore) knnCos(qvec []float32, k int) (map[string]float64, boo
 	return out, true
 }
 
-// knnCos runs one vec0 KNN MATCH over the whole store and returns cosine
-// similarity per fact id — the semantic arm ranks the full candidate set, so
-// k is the store's row count, not a top-k. ok=false on any miss (no store,
-// model/dim mismatch, empty, wrong query dim) sends rankFactsFused to the
-// brute-force fallback.
+// knnCos runs one vec0 KNN MATCH and returns cosine similarity per fact id. It
+// covers the whole store up to sqlite-vec's k ceiling; candidates beyond that
+// ceiling use rankFactsFused's per-fact cache fallback instead of making the
+// entire query fail. ok=false on a store/model/dim/query failure sends every
+// candidate through that fallback.
 func (s *vecStore) knnCos(qvec []float32) (map[string]float64, bool) {
 	if !validSemanticEmbedding(qvec, s.dim) {
 		return nil, false
@@ -461,9 +475,10 @@ func (s *vecStore) knnCos(qvec []float32) (map[string]float64, bool) {
 	if err != nil {
 		return nil, false
 	}
+	k := min(count, vec0KnnMaxK)
 	rows, err := db.Query(
 		`SELECT f.fact_id, v.distance FROM vec_facts v JOIN fact_ids f ON f.rowid = v.rowid WHERE v.embedding MATCH ? AND k = ?`,
-		qblob, count)
+		qblob, k)
 	if err != nil {
 		return nil, false
 	}

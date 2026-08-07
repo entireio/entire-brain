@@ -1,12 +1,12 @@
 {
   "name": "p01-clean-proof",
-  "description": "Clean replay-lab proof panel for the two correctness-gap candidates that survived the no-brain difficulty screen: the durable-facts merge-confidence default (value-recovery) and the export checkpoint-branch-reachability contract (behavioral). One pinned Codex runner, no_brain vs full_brain, four repetitions. Tasks are checkpoint-backed entire-brain history tasks (no sibling repos needed). The other two authored clean tasks (order-cache, value-hook) are intentionally excluded: order-cache saturated (no_brain solves from the symptom) and value-hook's brain arm raised quality but did not recover the exact value.",
+  "description": "Clean replay-lab proof panel for the two correctness-gap candidates that survived the no-brain difficulty screen: the durable-facts merge-confidence default (value-recovery) and the export checkpoint-branch-reachability contract (behavioral). One pinned Codex runner, no_brain vs semantic_history_brain, four repetitions. Tasks are checkpoint-backed entire-brain history tasks (no sibling repos needed). The other two authored clean tasks (order-cache, value-hook) are intentionally excluded: order-cache saturated (no_brain solves from the symptom) and value-hook's brain arm raised quality but did not recover the exact value.",
   "runners": [
     "codex:gpt-5.5:high"
   ],
   "conditions": [
     "no_brain",
-    "full_brain"
+    "semantic_history_brain"
   ],
   "repetitions": 4,
   "tasks": [
