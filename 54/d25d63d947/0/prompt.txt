@@ -1,0 +1,41 @@
+Pull main from GitHub, then check if the current branch is already merged or what's the status
+
+---
+
+Run a full review of all changes in the branch.
+
+---
+
+Ask Cursor for a review as well. Tell me what it found before merging it.
+
+---
+
+Ok, do that.
+
+---
+
+Review the remaining open PRs, one by one. Decide if the PR is ready for merging.
+
+---
+
+On 73, commit fixes for your findings. Ignore that the repo isn't public yet, it will be later this month.
+
+---
+
+73 ready to go then?
+
+---
+
+Fix this CI issue
+
+---
+
+Review the Copilot feedback and address it with a fix or just close if dumb.
+
+---
+
+Show me the review findings for 74 and 75 again
+
+---
+
+Implement and push fixes for both
