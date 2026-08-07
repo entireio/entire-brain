@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "8ff3a603b628",
+  "strategy": "manual-commit",
+  "branch": "docs/p0m5-install-docs",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/getting-started.md",
+    "docs/release_press_release.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8f/f3a603b628/0/metadata.json",
+      "transcript": "/8f/f3a603b628/0/full.jsonl",
+      "compact_transcript": "/8f/f3a603b628/0/transcript.jsonl",
+      "content_hash": "/8f/f3a603b628/0/content_hash.txt",
+      "prompt": "/8f/f3a603b628/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1284117,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 38906880,
+    "output_tokens": 90304,
+    "api_call_count": 315
+  }
+}
