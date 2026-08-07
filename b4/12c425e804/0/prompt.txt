@@ -19,3 +19,11 @@ Review the remaining open PRs, one by one. Decide if the PR is ready for merging
 ---
 
 On 73, commit fixes for your findings. Ignore that the repo isn't public yet, it will be later this month.
+
+---
+
+73 ready to go then?
+
+---
+
+Fix this CI issue
