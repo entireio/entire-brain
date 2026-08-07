@@ -101,6 +101,12 @@ type conversationScanResult struct {
 // exported session transcript. Supported shapes are the line-oriented JSONL
 // dialects (claude, codex, pi) and the document-form transcript; raw .md/.txt
 // files have no role structure and yield no exchanges.
+//
+// NOTE: deliberately a sibling of, not a replacement for,
+// transcriptEpisodeSegments (reinforcement.go) — see the divergence note there.
+// Exchanges return only visible assistant narrative under a strict trust
+// contract; episodes keep raw work text for commit detection. Keep the dialect
+// switches in sync when adding a transcript format.
 func scanConversationTranscript(path string) (conversationScanResult, error) {
 	f, err := os.Open(path)
 	if err != nil {

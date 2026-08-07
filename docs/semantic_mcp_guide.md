@@ -85,10 +85,23 @@ under `retrieval.conversation` (`vector_state`:
 disabled | gate_closed | unavailable_build | absent | current, plus the model
 id and vector count when current).
 
+Recall skill: `templates/entire-brain-recall-codex-skill.md` and
+`templates/entire-brain-recall-claude-agent.md` ship the progressive
+query-then-get recall behavior (activate on prior-work/rationale questions,
+search bounded projections, expand at most one or two ids, verify before
+acting). They are embedded in the binary and readable by external skill
+installers, like the intake templates.
+
+`brain_brief` can include up to three bounded conversation pointers behind the
+`ENTIRE_BRAIN_BRIEF_CONVERSATION` development flag (default packets are
+unchanged until this section qualifies for the compact budget); each hit
+carries `content_role: historical_evidence` and the packet gains an explicit
+verify-before-acting guidance line.
+
 Current limits: `brain_vsearch` (MCP) does not accept `source` or filters;
-current repository only; exchanges never enter default retrieval,
-`brain_brief`, publish, or bundle output; and the record schema is experimental
-and may change.
+current repository only; exchanges never enter default retrieval, publish, or
+bundle output (and enter `brain_brief` only under the development flag above);
+and the record schema is experimental and may change.
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and

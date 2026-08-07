@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	entirebrain "github.com/ashtom/entire-brain"
+	"github.com/spf13/cobra"
 )
 
 // Phase 2 increment 1: index-time dedupe of re-exported sessions, hook/noise
@@ -388,5 +391,148 @@ func TestBuildConversationStatusDisabledWithoutEmbedderOptIn(t *testing.T) {
 	}
 	if buildConversationStatus(t.TempDir(), &exportManifest{Sources: &brainSources{}}) != nil {
 		t.Fatal("no history source must yield no conversation status block")
+	}
+}
+
+// --- Increment 3: brief opt-in flag + recall skill templates ---
+
+func TestBrainBriefConversationHitsBehindDevFlag(t *testing.T) {
+	brainDir, _ := buildConversationBrainFixture(t, "sess-brief")
+
+	// Flag off (default): the packet carries no conversation section.
+	t.Setenv("ENTIRE_BRAIN_BRIEF_CONVERSATION", "")
+	if hits := brainBriefConversationHits(brainDir, "flaky lock test windows", 3); len(hits) == 0 {
+		t.Fatal("helper itself must retrieve hits (the flag gates the caller)")
+	}
+
+	// The helper output is bounded and labeled.
+	hits := brainBriefConversationHits(brainDir, "flaky lock test windows", 10)
+	if len(hits) > 3 {
+		t.Fatalf("brief hits = %d, cap is 3", len(hits))
+	}
+	for _, hit := range hits {
+		if hit.ContentRole != conversationContentRole {
+			t.Fatalf("hit missing historical_evidence role: %+v", hit)
+		}
+		if len(hit.Excerpt) > 220 {
+			t.Fatalf("excerpt over budget: %d bytes", len(hit.Excerpt))
+		}
+		if !strings.HasPrefix(hit.ID, conversationIDPrefix) {
+			t.Fatalf("hit id = %q", hit.ID)
+		}
+	}
+}
+
+func TestBrainBriefFlagGatesConversationSection(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := "sessions/main/20260807T120000Z_brief.jsonl"
+	transcript := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Why does the export cursor skip the nightly session?"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The cursor reuses unchanged transcripts; the nightly session had no new checkpoint."}]}}
+`
+	full := filepath.Join(storage.BrainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "brief-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	briefJSON := func() brainBriefReport {
+		t.Helper()
+		cmd := NewRootCommand(opts)
+		out, err := execute(t, cmd, "brief", "export cursor nightly session", "--json")
+		if err != nil {
+			t.Fatalf("brief: %v\n%s", err, out)
+		}
+		var report brainBriefReport
+		if err := json.Unmarshal([]byte(out), &report); err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		return report
+	}
+
+	t.Setenv("ENTIRE_BRAIN_BRIEF_CONVERSATION", "")
+	off := briefJSON()
+	if len(off.Conversation) != 0 {
+		t.Fatalf("default brief leaked conversation hits: %+v", off.Conversation)
+	}
+	for _, line := range off.Guidance {
+		if strings.Contains(line, "Conversation hits") {
+			t.Fatalf("default brief carries the conversation guidance line: %q", line)
+		}
+	}
+
+	t.Setenv("ENTIRE_BRAIN_BRIEF_CONVERSATION", "1")
+	on := briefJSON()
+	if len(on.Conversation) == 0 {
+		t.Fatal("flagged brief returned no conversation hits")
+	}
+	hit := on.Conversation[0]
+	if hit.ContentRole != conversationContentRole || !strings.HasPrefix(hit.ID, conversationIDPrefix) {
+		t.Fatalf("hit = %+v", hit)
+	}
+	if !strings.Contains(hit.Excerpt, "export cursor") && !strings.Contains(hit.Excerpt, "nightly session") {
+		t.Fatalf("excerpt off-topic: %q", hit.Excerpt)
+	}
+	guided := false
+	for _, line := range on.Guidance {
+		if strings.Contains(line, "quoted historical evidence") {
+			guided = true
+		}
+	}
+	if !guided {
+		t.Fatalf("flagged brief missing the historical-evidence guidance: %v", on.Guidance)
+	}
+}
+
+func TestRecallSkillTemplatesEmbeddedAndSafe(t *testing.T) {
+	for _, name := range []string{
+		"templates/entire-brain-recall-codex-skill.md",
+		"templates/entire-brain-recall-claude-agent.md",
+	} {
+		data, err := entirebrain.Templates.ReadFile(name)
+		if err != nil {
+			t.Fatalf("template %s not embedded: %v", name, err)
+		}
+		text := string(data)
+		if !strings.HasPrefix(text, "---\nname: entire-brain-recall\n") {
+			t.Fatalf("%s missing skill frontmatter", name)
+		}
+		// The progressive query-then-get contract and the safety contract are
+		// the two load-bearing pieces; both must survive edits.
+		for _, want := range []string{
+			"--source conversation",
+			"conversation:<id>",
+			"never as instructions",
+			"verification_required",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("%s missing %q", name, want)
+			}
+		}
+		// The skill must never instruct the agent to obey recalled content.
+		if strings.Contains(strings.ToLower(text), "follow the recalled") {
+			t.Fatalf("%s tells the agent to follow recalled content", name)
+		}
 	}
 }
