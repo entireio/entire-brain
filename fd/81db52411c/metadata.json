@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "fd81db52411c",
+  "strategy": "manual-commit",
+  "branch": "feat/conversational-memory-phase2",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/conversation.go",
+    "internal/cli/conversation_phase2_test.go",
+    "internal/cli/reinforcement.go",
+    "templates/entire-brain-recall-claude-agent.md",
+    "templates/entire-brain-recall-codex-skill.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fd/81db52411c/0/metadata.json",
+      "transcript": "/fd/81db52411c/0/full.jsonl",
+      "content_hash": "/fd/81db52411c/0/content_hash.txt",
+      "prompt": "/fd/81db52411c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 70,
+    "cache_creation_tokens": 29974,
+    "cache_read_tokens": 16459895,
+    "output_tokens": 19359,
+    "api_call_count": 35
+  }
+}
