@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "d5daedf385cf",
+  "strategy": "manual-commit",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/semantic_audit_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d5/daedf385cf/0/metadata.json",
+      "transcript": "/d5/daedf385cf/0/full.jsonl",
+      "compact_transcript": "/d5/daedf385cf/0/transcript.jsonl",
+      "content_hash": "/d5/daedf385cf/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2733185,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 101351936,
+    "output_tokens": 206647,
+    "api_call_count": 825
+  }
+}
