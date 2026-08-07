@@ -218,6 +218,20 @@ func newHistoryVectorStore(brainDir, modelID string, dim int) (historyVectorStor
 	return &historyVecStore{path: filepath.Join(dir, vecStoreFileName), modelID: modelID, dim: dim}, true
 }
 
+// conversationVecStoreFileName keeps conversation-exchange vectors in their own
+// vec0 file beside the history vectors: the stores share machinery but not
+// identity — general history KNN must never spend budget on exchanges, and a
+// conversation model migration must not invalidate history vectors (or vice
+// versa).
+const conversationVecStoreFileName = "conversation-vectors.sqlite"
+
+// newConversationVectorStore is newHistoryVectorStore for the conversation
+// exchange projection (same vec0 schema, separate file and identity).
+func newConversationVectorStore(brainDir, modelID string, dim int) (historyVectorStore, bool) {
+	dir := filepath.Join(brainDir, historyDirName, embedStoreDirName)
+	return &historyVecStore{path: filepath.Join(dir, conversationVecStoreFileName), modelID: modelID, dim: dim}, true
+}
+
 func (s *historyVecStore) open() (*sql.DB, error) {
 	return (&vecStore{path: s.path}).open()
 }

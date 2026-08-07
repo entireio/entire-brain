@@ -205,6 +205,15 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 				return serr
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "history vectors: %d embedded, %d pruned (%d total)\n", added, dropped, total)
+			if convStore, convOK := newConversationVectorStore(storage.BrainDir, e.ID(), e.Dim()); convOK {
+				convAdded, convDropped, convTotal, convErr := syncConversationVectors(convStore, index, e, func(done, totalNew int) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "conversation vectors: %d/%d new %s embedded\n", done, totalNew, pluralUnit("exchange", totalNew))
+				})
+				if convErr != nil {
+					return convErr
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "conversation vectors: %d embedded, %d pruned (%d total)\n", convAdded, convDropped, convTotal)
+			}
 		}
 	}
 	return nil

@@ -73,10 +73,22 @@ long session from occupying the whole result list (an explicit `session_id`
 filter lifts it). Duplicate exchanges from re-exported sessions are collapsed
 at index time.
 
-Current limits: lexical ranking only (`brain_vsearch` does not accept `source`
-or filters; no conversation vector index exists), current repository only,
-exchanges never enter default retrieval, `brain_brief`, publish, or bundle
-output, and the record schema is experimental and may change.
+Conversation vectors (Phase 2): behind the same gate as history vectors — a
+fusion-eligible embedder (`ENTIRE_BRAIN_EMBEDDER` with a Gemma-class server)
+plus the `brain_cgo` build — `refresh` also embeds exchange projections into a
+separate vec0 store, and conversation `query` fuses BM25 with calibrated
+exchange vectors via RRF. Lexical-only operation stays fully supported: with
+the gate closed, `query` degrades to exactly the lexical ranking, and CLI
+`vsearch --source conversation` returns a structured unavailable error naming
+the requirements. `brain_status` reports the projection and its vector identity
+under `retrieval.conversation` (`vector_state`:
+disabled | gate_closed | unavailable_build | absent | current, plus the model
+id and vector count when current).
+
+Current limits: `brain_vsearch` (MCP) does not accept `source` or filters;
+current repository only; exchanges never enter default retrieval,
+`brain_brief`, publish, or bundle output; and the record schema is experimental
+and may change.
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and

@@ -137,9 +137,13 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	return retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, limit, mode, retrievalOptions{})
 }
 
-// errConversationVectorUnsupported is the structured Phase 1 answer for
-// vsearch over the conversation source: no conversation vector index exists.
-var errConversationVectorUnsupported = errors.New(`source "conversation" is not supported by vector search: no conversation vector index exists (Phase 1); use lexical search or query with the conversation source`)
+// errConversationVectorUnsupported is the structured answer for explicit
+// vector search over the conversation source when the semantic arm is
+// unavailable: the arm requires the fusion-eligible embedder opt-in
+// (ENTIRE_BRAIN_EMBEDDER with a Gemma-class server), the brain_cgo build's
+// vec0 store, and refresh-built conversation vectors. Lexical search and query
+// keep working without any of that.
+var errConversationVectorUnsupported = errors.New(`source "conversation" vector search is unavailable: it requires a fusion-eligible embedder (ENTIRE_BRAIN_EMBEDDER), the brain_cgo build, and conversation vectors built by refresh; use search or query with --source conversation for lexical recall`)
 
 func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
 	if limit <= 0 {
@@ -150,10 +154,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		source = retrievalSourceAll
 	}
 	if source == retrievalSourceConversation {
-		if mode == modeVector {
-			return nil, errConversationVectorUnsupported
-		}
-		return retrieveConversation(brainDir, query, limit, opts)
+		return retrieveConversation(brainDir, query, limit, mode, opts)
 	}
 	if opts.hasConversationOnlyFilters() {
 		return nil, fmt.Errorf(`after/before/session/agent filters require source "conversation" (got %q)`, source)
@@ -575,18 +576,23 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 // cap one long session crowds out every other trajectory.
 const conversationSessionTopKDivisor = 2
 
-// retrieveConversation is the explicit conversation-source arm: lexical BM25
-// (with the substring scorer as fallback) over exchange records only, then
-// structured filters and a per-session diversity cap. It never consults facts,
-// docs, or classified history, and every result carries the
-// historical-evidence contract. Hybrid mode degrades to lexical: no
-// conversation vector index exists yet.
-func retrieveConversation(brainDir, query string, limit int, opts retrievalOptions) ([]unifiedResult, error) {
+// retrieveConversation is the explicit conversation-source arm over exchange
+// records only, then structured filters and a per-session diversity cap. It
+// never consults facts, docs, or classified history, and every result carries
+// the historical-evidence contract. Ranking by mode: search is BM25 (substring
+// scorer as fallback); query fuses BM25 with calibrated conversation vectors
+// when the gated semantic arm is available and degrades to exactly the lexical
+// ranking otherwise; vsearch is semantic-only and returns a structured
+// unavailable error when the arm is closed.
+func retrieveConversation(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.History == nil {
+		if mode == modeVector {
+			return nil, errConversationVectorUnsupported
+		}
 		return nil, nil
 	}
 	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
@@ -603,9 +609,26 @@ func retrieveConversation(brainDir, query string, limit int, opts retrievalOptio
 	if candidateLimit < limit { // overflow guard
 		candidateLimit = limit
 	}
-	scored, ok := rankHistoryViaFTS(brainDir, index, conversationKind, query, candidateLimit)
-	if !ok {
-		scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
+	var scored []scoredHistoryRecord
+	switch mode {
+	case modeVector:
+		scores := conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
+		if len(scores) == 0 {
+			return nil, errConversationVectorUnsupported
+		}
+		scored = rankConversationSemantic(index, scores, candidateLimit)
+	case modeHybrid:
+		var ok bool
+		scored, ok = rankConversationFused(brainDir, index, query, candidateLimit, defaultEmbedder())
+		if !ok {
+			scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
+		}
+	default:
+		var ok bool
+		scored, ok = rankHistoryViaFTS(brainDir, index, conversationKind, query, candidateLimit)
+		if !ok {
+			scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
+		}
 	}
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {

@@ -507,7 +507,7 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 
 	// Conversation source returns only exchanges, each under the
 	// historical-evidence contract.
-	results, err := retrieveConversation(brainDir, "flaky lock test windows", 10, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "flaky lock test windows", 10, modeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("retrieveConversation: %v", err)
 	}
@@ -672,7 +672,7 @@ func TestConversationCanaryStaysInsideHistoricalEvidenceWrapper(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	results, err := retrieveConversation(brainDir, "vendor doc cleanup", 5, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "vendor doc cleanup", 5, modeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("retrieve: %v (%d results)", err, len(results))
 	}

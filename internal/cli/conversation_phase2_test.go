@@ -161,7 +161,7 @@ func TestConversationStructuredFilters(t *testing.T) {
 	query := "deploy pipeline"
 	get := func(opts retrievalOptions) []string {
 		t.Helper()
-		results, err := retrieveConversation(brainDir, query, 10, opts)
+		results, err := retrieveConversation(brainDir, query, 10, modeLexical, opts)
 		if err != nil {
 			t.Fatalf("retrieve: %v", err)
 		}
@@ -204,7 +204,7 @@ func TestConversationStructuredFilters(t *testing.T) {
 	}
 
 	// Explainability: matched terms surface on every result.
-	results, err := retrieveConversation(brainDir, "deploy pipeline beta", 10, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "deploy pipeline beta", 10, modeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("retrieve: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestConversationSessionDiversityCap(t *testing.T) {
 	brainDir := writeConversationFilterFixture(t)
 	// limit 4 → per-session cap 2. sess-a has three strong candidates; b and c
 	// must still appear.
-	results, err := retrieveConversation(brainDir, "deploy pipeline", 4, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "deploy pipeline", 4, modeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestConversationSessionDiversityCap(t *testing.T) {
 
 	// Backfill: when only one session matches, the cap must not starve the
 	// result list.
-	only, err := retrieveConversation(brainDir, "alpha attempt", 3, retrievalOptions{})
+	only, err := retrieveConversation(brainDir, "alpha attempt", 3, modeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
@@ -260,11 +260,133 @@ func TestConversationSessionDiversityCap(t *testing.T) {
 	}
 
 	// An explicit session filter disables the cap.
-	scoped, err := retrieveConversation(brainDir, "deploy pipeline", 10, retrievalOptions{SessionID: "sess-a"})
+	scoped, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeLexical, retrievalOptions{SessionID: "sess-a"})
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
 	if len(scoped) != 3 {
 		t.Fatalf("session-scoped query must return all its exchanges: %d", len(scoped))
+	}
+}
+
+// --- Increment 2: conversation semantic arm ---
+
+func TestSyncConversationVectorsSelectsExchangesOnly(t *testing.T) {
+	store := newMemHistoryVecStore()
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{}}
+	index := historyIndex{Records: []historyRecord{
+		{ID: "history:d1", Kind: "decision", Summary: "decision summary"},
+		{ID: "history:r1", Kind: "request", Summary: "request summary"},
+		{ID: conversationIDPrefix + "e1", Kind: conversationKind, Summary: "exchange one"},
+		{ID: conversationIDPrefix + "e2", Kind: conversationKind, Summary: "exchange two"},
+	}}
+	added, dropped, total, err := syncConversationVectors(store, index, e, nil)
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if added != 2 || dropped != 0 || total != 2 {
+		t.Fatalf("added/dropped/total = %d/%d/%d, want 2/0/2", added, dropped, total)
+	}
+	ids, _ := store.ids()
+	if _, ok := ids[conversationIDPrefix+"e1"]; !ok {
+		t.Fatalf("exchange vector missing: %v", ids)
+	}
+	if _, ok := ids["history:d1"]; ok {
+		t.Fatal("non-exchange record embedded into the conversation store")
+	}
+	// A departed exchange is pruned on the next sync.
+	index.Records = index.Records[:3]
+	_, dropped, total, err = syncConversationVectors(store, index, e, nil)
+	if err != nil || dropped != 1 || total != 1 {
+		t.Fatalf("prune: dropped=%d total=%d err=%v", dropped, total, err)
+	}
+}
+
+func TestRankConversationSemanticRanksExchangesOnly(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "history:d1", Kind: "decision", Summary: "decision about caching"},
+		{ID: conversationIDPrefix + "e1", Kind: conversationKind, Summary: "cache rewrite rationale"},
+		{ID: conversationIDPrefix + "e2", Kind: conversationKind, Summary: "unrelated deploy talk"},
+	}}
+	scores := map[string]float64{
+		"history:d1":                0.99, // must be ignored: not an exchange
+		conversationIDPrefix + "e1": 0.9,
+		conversationIDPrefix + "e2": 0.2,
+	}
+	ranked := rankConversationSemantic(index, scores, 10)
+	if len(ranked) != 2 {
+		t.Fatalf("ranked = %d records, want 2 (exchanges only): %+v", len(ranked), ranked)
+	}
+	if ranked[0].Record.ID != conversationIDPrefix+"e1" {
+		t.Fatalf("cosine order wrong: %+v", ranked)
+	}
+	for _, s := range ranked {
+		if s.Record.Kind != conversationKind {
+			t.Fatalf("non-exchange leaked into conversation semantic ranking: %+v", s.Record)
+		}
+	}
+}
+
+func TestRankConversationFusedDegradesToLexicalWhenGateClosed(t *testing.T) {
+	brainDir := writeConversationFilterFixture(t)
+	source := &historySourceManifest{IndexPath: historyIndexPath}
+	index, err := loadBrainHistoryIndex(brainDir, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// nil embedder = gate closed: fused ranking must equal the lexical ranking
+	// exactly (same list, same ok contract).
+	fused, fusedOK := rankConversationFused(brainDir, index, "deploy pipeline", 10, nil)
+	lex, lexOK := rankHistoryViaFTS(brainDir, index, conversationKind, "deploy pipeline", 10)
+	if fusedOK != lexOK || len(fused) != len(lex) {
+		t.Fatalf("degraded fusion differs from lexical: ok %v/%v len %d/%d", fusedOK, lexOK, len(fused), len(lex))
+	}
+	for i := range fused {
+		if fused[i].Record.ID != lex[i].Record.ID {
+			t.Fatalf("degraded fusion order differs at %d: %s vs %s", i, fused[i].Record.ID, lex[i].Record.ID)
+		}
+	}
+}
+
+func TestConversationVectorModeExplicitUnavailable(t *testing.T) {
+	brainDir := writeConversationFilterFixture(t)
+	// On this build/environment the conversation semantic arm is closed:
+	// vsearch must return the structured unavailable error, and hybrid must
+	// produce exactly the lexical results.
+	if _, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeVector, retrievalOptions{}); err == nil {
+		t.Fatal("vector mode with a closed semantic arm must error explicitly")
+	}
+	hybrid, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeHybrid, retrievalOptions{})
+	if err != nil {
+		t.Fatalf("hybrid: %v", err)
+	}
+	lexical, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeLexical, retrievalOptions{})
+	if err != nil {
+		t.Fatalf("lexical: %v", err)
+	}
+	if len(hybrid) != len(lexical) {
+		t.Fatalf("hybrid (degraded) differs from lexical: %d vs %d", len(hybrid), len(lexical))
+	}
+	for i := range hybrid {
+		if hybrid[i].ID != lexical[i].ID {
+			t.Fatalf("hybrid order differs at %d: %s vs %s", i, hybrid[i].ID, lexical[i].ID)
+		}
+	}
+}
+
+func TestBuildConversationStatusDisabledWithoutEmbedderOptIn(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
+	manifest := &exportManifest{Sources: &brainSources{History: &historySourceManifest{
+		Exchanges: 42, IncompleteExchanges: 3,
+	}}}
+	status := buildConversationStatus(t.TempDir(), manifest)
+	if status == nil || status.Exchanges != 42 || status.IncompleteExchanges != 3 {
+		t.Fatalf("status = %+v", status)
+	}
+	if status.VectorState != "disabled" {
+		t.Fatalf("vector state = %q, want disabled", status.VectorState)
+	}
+	if buildConversationStatus(t.TempDir(), &exportManifest{Sources: &brainSources{}}) != nil {
+		t.Fatal("no history source must yield no conversation status block")
 	}
 }

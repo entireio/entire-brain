@@ -150,3 +150,111 @@ func TestHistorySemanticScoresUseStableCalibrationNeighborhood(t *testing.T) {
 		t.Fatalf("display limit 1 produced %d calibration scores, want all %d stored rows", len(scores), records)
 	}
 }
+
+// TestConversationVecStoreIsolatedFromHistoryStore proves the conversation
+// vector store is a distinct vec0 file with its own identity: writes to one
+// are invisible to the other, so general history KNN can never surface
+// exchange vectors and vice versa.
+func TestConversationVecStoreIsolatedFromHistoryStore(t *testing.T) {
+	brainDir := t.TempDir()
+	hist, ok := newHistoryVectorStore(brainDir, "model-a", 2)
+	if !ok {
+		t.Fatal("history store unavailable on brain_cgo build")
+	}
+	conv, ok := newConversationVectorStore(brainDir, "model-a", 2)
+	if !ok {
+		t.Fatal("conversation store unavailable on brain_cgo build")
+	}
+	if err := hist.upsert(map[string][]float32{"history:d1": {1, 0}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := conv.upsert(map[string][]float32{conversationIDPrefix + "e1": {0, 1}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	histIDs, ok := hist.ids()
+	if !ok || len(histIDs) != 1 {
+		t.Fatalf("history ids: ok=%v %v", ok, histIDs)
+	}
+	if _, leaked := histIDs[conversationIDPrefix+"e1"]; leaked {
+		t.Fatal("conversation vector leaked into the history store")
+	}
+	convIDs, ok := conv.ids()
+	if !ok || len(convIDs) != 1 {
+		t.Fatalf("conversation ids: ok=%v %v", ok, convIDs)
+	}
+	if _, leaked := convIDs["history:d1"]; leaked {
+		t.Fatal("history vector leaked into the conversation store")
+	}
+	// KNN on each store sees only its own rows.
+	scores, ok := conv.knnCos([]float32{0, 1}, 10)
+	if !ok || len(scores) != 1 {
+		t.Fatalf("conversation knn: ok=%v %v", ok, scores)
+	}
+	if _, leaked := scores["history:d1"]; leaked {
+		t.Fatal("conversation KNN returned a history row")
+	}
+}
+
+// TestRankConversationFusedSemanticArmEndToEnd exercises the OPEN fused path
+// against the real vec0 store with a deterministic fusion-eligible embedder:
+// a term-disjoint exchange (no lexical overlap with the query) must be
+// reachable through the semantic arm, and lexical hits must survive fusion.
+func TestRankConversationFusedSemanticArmEndToEnd(t *testing.T) {
+	brainDir := t.TempDir()
+	semanticSummary := "term disjoint note about connection pooling"
+	lexicalSummary := "deploy pipeline alpha rollback rationale"
+	index := historyIndex{
+		GeneratedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC),
+		Records: []historyRecord{
+			{ID: conversationIDPrefix + "lex", Kind: conversationKind, SessionID: "s1",
+				Path: "sessions/main/a.jsonl", Line: 1, Summary: lexicalSummary},
+			{ID: conversationIDPrefix + "sem", Kind: conversationKind, SessionID: "s2",
+				Path: "sessions/main/b.jsonl", Line: 3, Summary: semanticSummary},
+			{ID: conversationIDPrefix + "far", Kind: conversationKind, SessionID: "s3",
+				Path: "sessions/main/c.jsonl", Line: 5, Summary: "unrelated chatter"},
+			{ID: "history:d1", Kind: "decision", Summary: "deploy pipeline decision must stay out"},
+		},
+	}
+	query := "deploy pipeline alpha"
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{
+		query:               {0, 1},
+		semanticSummary:     {0, 1}, // cosine 1.0 with the query, zero lexical overlap
+		lexicalSummary:      {1, 0}, // lexically strong, semantically orthogonal
+		"unrelated chatter": {1, 0},
+	}}
+	store, ok := newConversationVectorStore(brainDir, e.ID(), e.Dim())
+	if !ok {
+		t.Fatal("conversation store unavailable on brain_cgo build")
+	}
+	if _, _, _, err := syncConversationVectors(store, index, e, nil); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	fused, ok := rankConversationFused(brainDir, index, query, 10, e)
+	if !ok || len(fused) == 0 {
+		t.Fatalf("fused: ok=%v len=%d", ok, len(fused))
+	}
+	got := map[string]bool{}
+	for _, s := range fused {
+		got[s.Record.ID] = true
+		if s.Record.Kind != conversationKind {
+			t.Fatalf("non-exchange leaked through fusion: %+v", s.Record)
+		}
+	}
+	if !got[conversationIDPrefix+"lex"] {
+		t.Fatalf("lexical hit lost in fusion: %v", got)
+	}
+	if !got[conversationIDPrefix+"sem"] {
+		t.Fatalf("term-disjoint semantic hit not reachable through fusion: %v", got)
+	}
+
+	// Explicit vector mode over the same store: semantic-only, best-first.
+	scores := conversationSemanticScores(brainDir, e, query, 10, false)
+	if len(scores) == 0 {
+		t.Fatal("conversationSemanticScores returned nothing with a populated store")
+	}
+	ranked := rankConversationSemantic(index, scores, 10)
+	if len(ranked) == 0 || ranked[0].Record.ID != conversationIDPrefix+"sem" {
+		t.Fatalf("vector mode order wrong: %+v", ranked)
+	}
+}

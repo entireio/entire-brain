@@ -94,12 +94,27 @@ type brainStatusSemantic struct {
 }
 
 type brainStatusRetrieval struct {
-	SeedCommit      string       `json:"seed_commit,omitempty"`
-	SeedMode        string       `json:"seed_mode,omitempty"`
-	DocsGeneratedAt string       `json:"docs_generated_at,omitempty"`
-	DocsRecords     int          `json:"docs_records,omitempty"`
-	DocsFiles       int          `json:"docs_files,omitempty"`
-	Freshness       *staleReport `json:"freshness,omitempty"`
+	SeedCommit      string                   `json:"seed_commit,omitempty"`
+	SeedMode        string                   `json:"seed_mode,omitempty"`
+	DocsGeneratedAt string                   `json:"docs_generated_at,omitempty"`
+	DocsRecords     int                      `json:"docs_records,omitempty"`
+	DocsFiles       int                      `json:"docs_files,omitempty"`
+	Conversation    *brainStatusConversation `json:"conversation,omitempty"`
+	Freshness       *staleReport             `json:"freshness,omitempty"`
+}
+
+// brainStatusConversation reports the experimental conversation-exchange
+// projection and the identity/degraded state of its optional vector arm.
+type brainStatusConversation struct {
+	Exchanges           int `json:"exchanges"`
+	IncompleteExchanges int `json:"incomplete_exchanges,omitempty"`
+	// VectorState: "disabled" (no embedder opt-in), "gate_closed" (embedder
+	// unavailable or not fusion-eligible), "unavailable_build" (pure-Go build),
+	// "absent" (never built or built for another model — run refresh), or
+	// "current".
+	VectorState   string `json:"vector_state"`
+	VectorModelID string `json:"vector_model_id,omitempty"`
+	Vectors       int    `json:"vectors,omitempty"`
 }
 
 type brainStatusSemanticProvider struct {
@@ -1193,6 +1208,17 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 		}
 		if r.DocsGeneratedAt != "" {
 			fmt.Fprintf(out, "  docs: %d records from %d files (generated %s)\n", r.DocsRecords, r.DocsFiles, r.DocsGeneratedAt)
+		}
+		if c := r.Conversation; c != nil {
+			line := fmt.Sprintf("  conversation: %d exchanges", c.Exchanges)
+			if c.IncompleteExchanges > 0 {
+				line += fmt.Sprintf(" (%d incomplete)", c.IncompleteExchanges)
+			}
+			line += ", vectors " + c.VectorState
+			if c.VectorState == "current" {
+				line += fmt.Sprintf(" (%d, %s)", c.Vectors, c.VectorModelID)
+			}
+			fmt.Fprintln(out, line)
 		}
 		if f := r.Freshness; f != nil {
 			fmt.Fprintf(out, "  freshness: %s\n", f.Severity)
@@ -3166,6 +3192,9 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	}
 	if manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
 		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, repoDir, manifest, report.Live)
+		if report.Retrieval != nil {
+			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
+		}
 	}
 	if report.Semantic != nil {
 		freshness, freshnessErr := semanticStaleReport(ctx, opts, repoDir)
@@ -3230,6 +3259,47 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDi
 	}
 	report.Freshness = &staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes}
 	return report
+}
+
+// buildConversationStatus reports the conversation-exchange projection counts
+// and the identity/degraded state of its optional vector arm (deliverable 7 of
+// the conversational-memory plan's Phase 2). nil when the brain has no history
+// source at all.
+func buildConversationStatus(brainDir string, manifest *exportManifest) *brainStatusConversation {
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.History == nil {
+		return nil
+	}
+	history := manifest.Sources.History
+	status := &brainStatusConversation{
+		Exchanges:           history.Exchanges,
+		IncompleteExchanges: history.IncompleteExchanges,
+	}
+	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
+		status.VectorState = "disabled"
+		return status
+	}
+	e := historySemanticEmbedder(defaultEmbedder())
+	if e == nil {
+		status.VectorState = "gate_closed"
+		return status
+	}
+	store, ok := newConversationVectorStore(brainDir, e.ID(), e.Dim())
+	if !ok {
+		status.VectorState = "unavailable_build"
+		return status
+	}
+	ids, ok := store.ids()
+	if !ok {
+		// Never built, or built for another model/dim: either way the current
+		// embedder sees no usable vectors and a refresh rebuilds cleanly.
+		status.VectorState = "absent"
+		status.VectorModelID = e.ID()
+		return status
+	}
+	status.VectorState = "current"
+	status.VectorModelID = e.ID()
+	status.Vectors = len(ids)
+	return status
 }
 
 func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
