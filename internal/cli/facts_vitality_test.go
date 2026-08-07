@@ -427,7 +427,7 @@ func TestVitalityConcurrentAppendsAreLossless(t *testing.T) {
 				{Type: vitalityEventServed, FactID: fmt.Sprintf("fact:unique-%02d", i), At: now, Surface: "query", Branch: branch},
 			}
 			errs <- appendVitalityEventsBoundedWithLockTimeout(
-				brainDir, branch, events, factsVitalityLogMaxBytes, time.Second,
+				brainDir, branch, events, factsVitalityLogMaxBytes, losslessConcurrencyTestLockTimeout,
 			)
 		}()
 	}
