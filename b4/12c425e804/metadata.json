@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "b412c425e804",
+  "strategy": "manual-commit",
+  "branch": "docs/p0m5-install-docs",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/sqlite_read.go",
+    "internal/cli/sqlite_read_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b4/12c425e804/0/metadata.json",
+      "transcript": "/b4/12c425e804/0/full.jsonl",
+      "compact_transcript": "/b4/12c425e804/0/transcript.jsonl",
+      "content_hash": "/b4/12c425e804/0/content_hash.txt",
+      "prompt": "/b4/12c425e804/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1599740,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 41659392,
+    "output_tokens": 101543,
+    "api_call_count": 348
+  }
+}
