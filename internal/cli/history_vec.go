@@ -170,7 +170,7 @@ func rankHistorySemanticFiltered(
 	cands := make([]cand, 0, min(limit, len(scores)))
 	seen := map[string]struct{}{}
 	for i, r := range index.Records {
-		if r.Kind == "request" {
+		if historyGeneralRankingHiddenKind(r.Kind) {
 			continue
 		}
 		cos, ok := scores[r.ID]
@@ -304,7 +304,7 @@ func syncHistoryVectors(store historyVectorStore, index historyIndex, e Embedder
 	existing, _ := store.ids() // !ok reads as empty: a fresh or mismatched store rebuilds
 	want := map[string]struct{}{}
 	for _, r := range index.Records {
-		if r.Kind == "request" {
+		if historyGeneralRankingHiddenKind(r.Kind) {
 			continue
 		}
 		want[r.ID] = struct{}{}
@@ -317,7 +317,7 @@ func syncHistoryVectors(store historyVectorStore, index historyIndex, e Embedder
 	}
 	var missing []historyRecord
 	for _, r := range index.Records {
-		if r.Kind == "request" {
+		if historyGeneralRankingHiddenKind(r.Kind) {
 			continue
 		}
 		if _, ok := existing[r.ID]; !ok {

@@ -27,6 +27,15 @@ type compactUnifiedResult struct {
 	VerificationRequired bool              `json:"verification_required,omitempty"`
 	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
 	RelatedIDs           []string          `json:"related_ids,omitempty"`
+
+	// Conversation-exchange provenance (experimental, additive; empty for
+	// every other source).
+	EndLine   int    `json:"end_line,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 type retrievalTaskHints struct {
@@ -59,6 +68,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var limit int
 	var branch string
 	var patterns bool
+	var source string
 	cmd := &cobra.Command{
 		Use:   use + " <query>",
 		Short: short,
@@ -68,7 +78,11 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON, patterns, use)
+			parsedSource, err := parseRetrievalSource(source)
+			if err != nil {
+				return fmt.Errorf("--%s", err.Error())
+			}
+			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, parsedSource, wantJSON, patterns, use)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -77,12 +91,14 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
+	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to one source: all, fact, history, conversation, or doc (default all; conversation is experimental opt-in)")
 	return cmd
 }
 
 // surface names the read surface for serve receipts ("search"/"vsearch"/
-// "query" from the CLI, "mcp:brain_*" from the MCP server).
-func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut, patterns bool, surface string) error {
+// "query" from the CLI, "mcp:brain_*" from the MCP server). source is a
+// validated retrieval source selector ("" defaults to all).
+func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch, source string, jsonOut, patterns bool, surface string) error {
 	// Reject --limit <= 0 rather than silently defaulting, so a typo like
 	// `--limit 0` is an explicit error (matching the rest of the CLI surface). The
 	// MCP path passes a validated positive limit, so it's unaffected.
@@ -93,7 +109,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if err != nil {
 		return err
 	}
-	results, err := retrieveUnified(repoDir, brainDir, resolvedBranch, query, limit, mode)
+	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, resolvedBranch, query, limit, mode, retrievalOptions{Source: source})
 	if err != nil {
 		return err
 	}
@@ -160,15 +176,11 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		}
 		for _, r := range results {
 			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
-			loc := r.Path
-			if r.Line > 0 {
-				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
-			}
 			label := r.Source
 			if r.VerificationRequired {
 				label += " verify"
 			}
-			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, r.ID, loc, ex)
+			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, r.ID, unifiedResultLocation(r), ex)
 			printRetrievalCaveats(out, r)
 		}
 		for _, p := range related {
@@ -261,6 +273,8 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 			Source: result.Source, ID: result.ID, Path: result.Path, Heading: result.Heading, Line: result.Line,
 			Text: result.Text, Excerpt: retrievalResultExcerpt(result.Text, query, retrievalExcerptBytes), Score: result.Score,
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
+			EndLine: result.EndLine, Branch: result.Branch, SessionID: result.SessionID,
+			Agent: result.Agent, CreatedAt: result.CreatedAt, Truncated: result.Truncated,
 		}
 	}
 	return out
@@ -350,7 +364,7 @@ func newGetCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "get <id>",
-		Short: "Fetch one item in full by id (fact:… | review:… | history:… | doc:… | pattern:… | theme:…)",
+		Short: "Fetch one item in full by id (fact:… | review:… | history:… | conversation:… | doc:… | pattern:… | theme:…)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wantJSON, err := outputWantsJSON(jsonOut, format)
@@ -434,15 +448,11 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	}
 	if err := writeText(cmd, func(out io.Writer) {
 		for _, r := range found {
-			loc := r.Path
-			if r.Line > 0 {
-				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
-			}
 			label := r.Source
 			if r.VerificationRequired {
 				label += " verify"
 			}
-			fmt.Fprintf(out, "[%s] %s  %s\n%s\n", label, r.ID, loc, r.Text)
+			fmt.Fprintf(out, "[%s] %s  %s\n%s\n", label, r.ID, unifiedResultLocation(r), r.Text)
 			printRetrievalCaveats(out, r)
 			fmt.Fprintln(out)
 		}
@@ -456,6 +466,19 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		recordReceipt()
 	}
 	return nil
+}
+
+// unifiedResultLocation renders a result's source anchor, including the
+// inclusive end line for range-bearing results (conversation exchanges).
+func unifiedResultLocation(r unifiedResult) string {
+	switch {
+	case r.Line > 0 && r.EndLine > r.Line:
+		return fmt.Sprintf("%s:%d-%d", r.Path, r.Line, r.EndLine)
+	case r.Line > 0:
+		return fmt.Sprintf("%s:%d", r.Path, r.Line)
+	default:
+		return r.Path
+	}
 }
 
 func printRetrievalCaveats(out io.Writer, result unifiedResult) {

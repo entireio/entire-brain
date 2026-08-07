@@ -26,7 +26,10 @@ import (
 
 const (
 	historyFTSFileName = "index-fts.sqlite"
-	historyFTSSchema   = "1"
+	// historyFTSSchema v2: conversation exchange rows are indexed (their bounded
+	// search projection lives in Summary) and excluded from general ranking
+	// unless the exchange kind is explicitly selected.
+	historyFTSSchema = "2"
 )
 
 // historyFTSRelevanceCutoff keeps only matches scoring at least this fraction of
@@ -259,9 +262,10 @@ func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query st
 		sb.WriteString(" AND kind IN (" + strings.Join(placeholders, ",") + ")")
 	} else {
 		// User-prompt records add noise to general ranking (measured: they displace
-		// relevant content without improving recall). Surface them only via the
-		// explicit `requests` kind, not the broad history/sessions sweep.
-		sb.WriteString(" AND kind != 'request'")
+		// relevant content without improving recall); conversation exchanges are
+		// opt-in via the explicit conversation source. Surface them only via their
+		// explicit kinds, never the broad history/sessions sweep.
+		sb.WriteString(" AND kind NOT IN ('request', '" + conversationKind + "')")
 	}
 	sb.WriteString(" ORDER BY bm25(history_fts) LIMIT ?")
 	args = append(args, limit*4) // over-fetch so summary dedup still fills limit

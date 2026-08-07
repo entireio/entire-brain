@@ -3703,6 +3703,10 @@ func historyInspectKinds(kind string) map[string]struct{} {
 		return map[string]struct{}{"decision": {}}
 	case "requests":
 		return map[string]struct{}{"request": {}}
+	case conversationKind:
+		// Experimental conversation exchanges; reached only through the explicit
+		// conversation retrieval source, never the general history sweep.
+		return map[string]struct{}{conversationKind: {}}
 	case "validation":
 		return map[string]struct{}{"validation": {}}
 	case "tool-paths":
