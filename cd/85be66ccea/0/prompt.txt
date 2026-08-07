@@ -1,0 +1,13 @@
+Pull main from GitHub, then check if the current branch is already merged or what's the status
+
+---
+
+Run a full review of all changes in the branch.
+
+---
+
+Ask Cursor for a review as well. Tell me what it found before merging it.
+
+---
+
+Ok, do that.
