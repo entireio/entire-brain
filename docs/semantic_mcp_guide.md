@@ -109,6 +109,14 @@ counts and ranges by branch, agent, source kind, completion state
 and index versions (scan cache, FTS schema). Automatic indexing is inherited:
 `watch` already drives the deterministic refresh that rebuilds exchanges.
 
+Privacy: `entire brain privacy exclude|include|purge <session-id>` (CLI only)
+controls which captured sessions may enter any projection. Exclusion is
+understood before derived indexing — a tombstoned session contributes no
+records, exchanges, FTS rows, or vectors — and purge physically deletes the
+exported transcript copy plus the derived stores, with `--dry-run` predicting
+the exact artifacts and bytes first. Tombstones survive re-export until an
+explicit include.
+
 Current limits: `brain_vsearch` (MCP) does not accept `source` or filters;
 current repository only; exchanges never enter default retrieval, publish, or
 bundle output (and enter `brain_brief` only under the development flag above);

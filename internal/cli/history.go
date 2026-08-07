@@ -65,7 +65,10 @@ type historySourceManifest struct {
 	CodeFacts           int       `json:"code_facts"`
 	Exchanges           int       `json:"exchanges,omitempty"`
 	IncompleteExchanges int       `json:"incomplete_exchanges,omitempty"`
-	Warnings            []string  `json:"warnings,omitempty"`
+	// ExcludedSessions counts tombstoned sessions skipped before derived
+	// indexing (their content is never retained; see session_privacy.go).
+	ExcludedSessions int      `json:"excluded_sessions,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
 }
 
 type historyIndex struct {
@@ -289,6 +292,10 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	manifest, _ := loadBrainManifest(outputDir)
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
+	// Session tombstones (Phase 4): excluded sessions are understood BEFORE
+	// derived indexing — their transcripts are skipped entirely (no records,
+	// no exchanges, no cache entry), counted without retaining content.
+	excludedByPath := excludedTranscriptPaths(manifest, loadSessionTombstones(outputDir))
 	repoKey := ""
 	if manifest != nil {
 		repoKey = manifest.RepoKey
@@ -306,12 +313,20 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	// export's copy (which also carries any appended assistant output).
 	seenExchanges := map[string]struct{}{}
 	incompleteExchanges := 0
+	excludedSessions := map[string]struct{}{}
 	for i, file := range files {
 		rel, relErr := filepath.Rel(outputDir, file.Path)
 		if relErr != nil {
 			rel = file.Path
 		}
 		rel = filepath.ToSlash(rel)
+		if sessionID, excluded := excludedByPath[rel]; excluded {
+			excludedSessions[sessionID] = struct{}{}
+			if progress != nil {
+				progress(i+1, total)
+			}
+			continue
+		}
 
 		var records []historyRecord
 		var incomplete int
@@ -382,6 +397,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Records:             len(index.Records),
 		IncompleteExchanges: incompleteExchanges,
+		ExcludedSessions:    len(excludedSessions),
 		Warnings:            append([]string(nil), index.Warnings...),
 	}
 	for _, record := range index.Records {
