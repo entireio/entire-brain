@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 
 AGENT="${1:?usage: run_cli_parallel.sh <codex|claude> <maxjobs>}"
 MAXJOBS="${2:?maxjobs}"
-CONDS="no_brain,full_cli_compact,mcp_history"
+CONDS="no_brain,semantic_history_cli_compact,mcp_history"
 REPS=3
 CKPT=200
 CBUDGET=25

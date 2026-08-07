@@ -6,7 +6,7 @@
   ],
   "conditions": [
     "no_brain",
-    "full_brain"
+    "semantic_history_brain"
   ],
   "repetitions": 4,
   "tasks": [

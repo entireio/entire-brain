@@ -4,7 +4,7 @@
   "repo_path": "../Ultron",
   "conditions": [
     "no_brain",
-    "full_cli_compact",
+    "semantic_history_cli_compact",
     "mcp_history"
   ],
   "copy_entire_history_from_source": true,
@@ -37,6 +37,5 @@
     "browser decisions failing invalid_type metadata",
     "agentic decider provider contract",
     "request metadata step compatibility"
-  ],
-  "history_excerpt_lines": 24
+  ]
 }

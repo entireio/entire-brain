@@ -140,9 +140,17 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 			}
 			var lexicalHistoryIDs map[string]struct{}
 			if mode != modeVector {
-				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, candidateLimit)
+				historyCandidateLimit := candidateLimit * 3
+				if historyCandidateLimit < candidateLimit {
+					historyCandidateLimit = candidateLimit
+				}
+				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, historyCandidateLimit)
 				if !ok {
-					scored = rankHistoryRecordsScored(index, "history", query, candidateLimit, 0)
+					scored = rankHistoryRecordsScored(index, "history", query, historyCandidateLimit, 0)
+				}
+				scored = filterHistoryRetrievalSelfEchoes(scored, query)
+				if len(scored) > candidateLimit {
+					scored = scored[:candidateLimit]
 				}
 				if len(scored) > 0 {
 					lexicalHistoryIDs = make(map[string]struct{}, len(scored))
@@ -213,6 +221,29 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	}
 
 	return rrfMergeUnified(lists, limit), nil
+}
+
+func filterHistoryRetrievalSelfEchoes(scored []scoredHistoryRecord, query string) []scoredHistoryRecord {
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return scored
+	}
+	out := scored[:0]
+	for _, item := range scored {
+		kind := strings.ToLower(strings.TrimSpace(item.Record.Kind))
+		summary := strings.ToLower(item.Record.Summary)
+		brainInvocation := strings.Contains(summary, "entire brain search") ||
+			strings.Contains(summary, "entire brain query") ||
+			strings.Contains(summary, "entire brain brief") ||
+			strings.Contains(summary, "brain_search") ||
+			strings.Contains(summary, "brain_query") ||
+			strings.Contains(summary, "brain_brief")
+		if kind == "tool_call" && brainInvocation && strings.Contains(summary, needle) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // factsVectorRanked ranks active facts by cosine. facts is the full present set
@@ -376,8 +407,10 @@ func docsVectorRanked(
 		scored[i].keep = mask[i]
 	}
 	sort.Slice(scored, func(a, b int) bool {
-		if scored[a].cos != scored[b].cos {
-			return scored[a].cos > scored[b].cos
+		left := docTrustAdjustedScore(scored[a].cos, index.Records[scored[a].i].Historical)
+		right := docTrustAdjustedScore(scored[b].cos, index.Records[scored[b].i].Historical)
+		if left != right {
+			return left > right
 		}
 		return index.Records[scored[a].i].ID < index.Records[scored[b].i].ID
 	})
@@ -422,7 +455,17 @@ func historyToUnified(scored []scoredHistoryRecord) []unifiedResult {
 }
 
 func docToUnified(r docRecord) unifiedResult {
-	return unifiedResult{Source: "doc", ID: "doc:" + r.ID, Path: r.Path, Line: r.Line, Heading: r.Heading, Text: r.Text}
+	result := unifiedResult{Source: "doc", ID: "doc:" + r.ID, Path: r.Path, Line: r.Line, Heading: r.Heading, Text: r.Text}
+	if r.Historical {
+		result.VerificationRequired = true
+		result.Caveats = []retrievalCaveat{{
+			Kind:    retrievalCaveatHistoricalDocument,
+			Message: "This document is explicitly historical or superseded; prefer current operational documentation.",
+			Paths:   []string{r.Path},
+			Action:  "Verify against the current README and active implementation before relying on it.",
+		}}
+	}
+	return result
 }
 
 func docsToUnified(scored []scoredDocRecord) []unifiedResult {

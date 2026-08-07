@@ -114,7 +114,7 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 		// error here is a real inconsistency, not expected staleness.
 		return semanticAuditCoverage{}, fmt.Errorf("validate semantic store for audit: %w", err)
 	}
-	db, err := sql.Open(sqliteDriverName, storePath)
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("open semantic store: %w", err)
 	}

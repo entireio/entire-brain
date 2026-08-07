@@ -30,10 +30,10 @@ SCENARIO = {
     "entireio-cli-review-base-flag-scope": "review-flag-scope",
     "entireio-cli-transcript-reresolve": "transcript-reresolve",
 }
-COND_ORDER = ["no_brain", "full_cli_compact", "mcp_history"]
-COND_LABEL = {"no_brain": "no_brain (grep)", "full_cli_compact": "Brain via CLI", "mcp_history": "Brain via MCP"}
-COND_COLOR = {"no_brain": "#8d99ae", "full_cli_compact": "#2a9d8f", "mcp_history": "#1d4e89"}
-COND_MARK = {"no_brain": "o", "full_cli_compact": "s", "mcp_history": "^"}
+COND_ORDER = ["no_brain", "semantic_history_cli_compact", "mcp_history"]
+COND_LABEL = {"no_brain": "no_brain (grep)", "semantic_history_cli_compact": "Brain via CLI", "mcp_history": "Brain via MCP"}
+COND_COLOR = {"no_brain": "#8d99ae", "semantic_history_cli_compact": "#2a9d8f", "mcp_history": "#1d4e89"}
+COND_MARK = {"no_brain": "o", "semantic_history_cli_compact": "s", "mcp_history": "^"}
 MODEL_ORDER = ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5", "gpt-5.5", "gpt-5.4-mini"]
 MODEL_SHORT = {"claude-opus-4-8": "Opus", "claude-sonnet-4-6": "Sonnet", "claude-haiku-4-5": "Haiku",
                "gpt-5.5": "GPT-5.5", "gpt-5.4-mini": "GPT-5.4-mini"}
@@ -302,7 +302,7 @@ def chart_brain_deltas(rows):
     metrics = [("score", "Δ score (pts, ↑ better)", lambda st, b: st["score"] - b["score"]),
                ("tokens", "Δ tokens (%, ↓ better)", lambda st, b: pct(st["tokens"], b["tokens"])),
                ("seconds", "Δ time (%, ↓ better)", lambda st, b: pct(st["seconds"], b["seconds"]))]
-    brain_conds = ["full_cli_compact", "mcp_history"]
+    brain_conds = ["semantic_history_cli_compact", "mcp_history"]
     for ax, (mk, title, fn) in zip(axes, metrics):
         width = 0.8 / len(brain_conds); x = np.arange(len(models))
         for ci, c in enumerate(brain_conds):
@@ -376,7 +376,7 @@ def chart_model_noeffort(rows):
 
 
 # ---------------------------------------------------------------- 3D charts -----
-COND_COLOR_3D = {"no_brain": "#e63946", "full_cli_compact": "#2a9d8f", "mcp_history": "#1d4e89"}
+COND_COLOR_3D = {"no_brain": "#e63946", "semantic_history_cli_compact": "#2a9d8f", "mcp_history": "#1d4e89"}
 
 
 def scatter3d(rows, colorby, fname, title):

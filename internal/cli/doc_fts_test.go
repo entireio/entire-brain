@@ -38,3 +38,18 @@ func TestDocFTSRetrieves(t *testing.T) {
 		t.Fatalf("nondeterministic: %d vs %d", len(a), len(b))
 	}
 }
+
+func TestDocFTSPrefersCurrentOverHistorical(t *testing.T) {
+	brainDir := t.TempDir()
+	index := docIndex{
+		GeneratedAt: time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC),
+		Records: []docRecord{
+			{ID: "a-old", Path: "seed/docs/old.md", Text: "agent benchmark workflow", Historical: true},
+			{ID: "z-current", Path: "seed/docs/current.md", Text: "agent benchmark workflow"},
+		},
+	}
+	scored, ok := rankDocsViaFTS(brainDir, index, "agent benchmark workflow", 2)
+	if !ok || len(scored) != 2 || scored[0].Record.ID != "z-current" {
+		t.Fatalf("current FTS document should rank first, got ok=%v %+v", ok, scored)
+	}
+}

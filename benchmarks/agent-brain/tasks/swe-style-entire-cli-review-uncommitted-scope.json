@@ -1,10 +1,10 @@
 {
   "id": "swe-style-entire-cli-review-uncommitted-scope",
   "repo": "entire-cli",
-  "repo_path": "cli",
+  "repo_path": "entire-cli",
   "source": "swe-bench-style-local",
   "suite_tags": ["swe-style", "entire-cli", "review"],
-  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "prompt": "Issue: review agents are skipping in-progress working-tree edits because the generated review prompt only talks about committed branch changes. Restore the prompt contract so uncommitted changes are clearly in scope when reviewing against a base ref.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

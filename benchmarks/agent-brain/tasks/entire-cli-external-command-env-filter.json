@@ -1,8 +1,8 @@
 {
   "id": "entire-cli-external-command-env-filter",
   "repo": "entire-cli",
-  "repo_path": "cli",
-  "conditions": ["no_brain", "full_brain"],
+  "repo_path": "entire-cli",
+  "conditions": ["no_brain", "semantic_history_brain"],
   "prepare_semantic": false,
   "prompt": "Fix the security regression where third-party Entire plugin subprocesses can receive credential-like environment variables from the parent process. Preserve intentional allowlist and user override behavior.",
   "hide_expected_from_agent": true,

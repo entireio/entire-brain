@@ -4,7 +4,7 @@
   "repo_path": "entire-brain",
   "source": "swe-bench-style-local",
   "suite_tags": ["swe-style", "stale-context", "semantic"],
-  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "prompt": "We need a patch for this issue: after a refactor, `entire brain semantic query` only returns two results by default, even though the CLI contract and docs expect the default limit to be twenty. Diagnose the regression and submit the minimal code fix. The prepared repository context may be stale relative to the current checkout.",
   "post_brain_replacements": [
     {

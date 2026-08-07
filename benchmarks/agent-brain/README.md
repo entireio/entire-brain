@@ -3,6 +3,51 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+## Benchmark condition contract
+
+[`CONDITIONS.md`](CONDITIONS.md) is the normative contract for what no-Brain and
+Brain agents may use, what both must avoid, how Git history is treated, how
+candidate-versus-main runs stay comparable, and which raw-session checks make a
+row valid. Read it before authoring a task, changing the harness, or running a
+comparison.
+
+## Current-main-only policy
+
+Entire Brain has no released product baseline. Every `run`, `panel`, `prep`, and
+`check` invocation builds the Brain binary from this checkout and fails unless
+the checkout's `HEAD` contains the locally fetched `origin/main`. Fetch before a
+consequential run, then create or rebase the experiment branch from that mainline.
+
+All causal arms in a suite use that same freshly built Brain binary. Conditions
+may vary memory delivery (`no_brain`, raw history, facts, or retrieved memory),
+but must not substitute an older Entire Brain implementation as a control. A
+task repository may intentionally pin a historical commit to reproduce a known
+bug; that does not authorize an old Brain binary.
+
+The unmerged `wip/memory-lifecycle-plan-handoff-20260712` task corpus is retired:
+it was never run, its `mined-c0701` directories were not disjoint, and it is not
+an eligible source for development or holdout claims. Any successor population
+must be regenerated in GraphMark with unique task IDs and source commits across
+splits before it is referenced here.
+
+## Implementation canaries are real agent use
+
+Fast implementation canaries must exercise the installed current Brain through
+the same documented MCP or direct-CLI surface a normal coding agent uses, on a
+real repository and a real engineering task. Start with `brain_status`, then
+`brain_brief`, then only the smallest task-driven follow-up such as
+`brain_query`, `brain_code`, or `brain_tests`. Record freshness, usefulness,
+irrelevant context, output size, latency, and any fallback to direct inspection.
+
+Do not call internal retriever/ranker functions, invent synthetic caller
+adapters, or treat mocks and unit tests as canary evidence. Focused unit and
+integration tests should reproduce and protect a fix, but the canary is the
+agent-facing behavior that motivated it. Dogfood the active development task
+first; use a tiny additional development set only when one real task cannot
+separate the behavior under investigation. Do not start a long-running agent
+matrix or holdout run until repeated real-task use shows that the implementation
+and failure taxonomy are stable.
+
 ## Stable panel (`panel`) + the stability gate
 
 "Is benchmarking stable?" is answered with a **committed panel manifest** plus a **printed
@@ -29,7 +74,7 @@ The **stability gate** (in `summarize`, so `run`/`panel`/`report` all show it) t
 Each comparison also carries the coefficient of variation for tokens and score, for **both** the
 condition and the baseline arm (`..._condition` / `..._baseline`). **Honesty note:** agent
 sampling is inherently non-deterministic; the harness-controllable variance (base commit, setup commit,
-semantic cache, parentless baseline) is already pinned, so stability comes from **repetitions + CV +
+semantic cache, filtered source-history baseline) is already pinned, so stability comes from **repetitions + CV +
 drop-one**, not a fake seed. The gate can only *downgrade* a result to saturated/noisy — it never
 manufactures significance — and the headline stays validation pass-rate + measured tokens.
 
@@ -41,7 +86,7 @@ hard-coded home paths:
 - `~` and `$VARS`/`${VARS}` are expanded.
 - A **relative** `repo_path` is resolved against `$AGENT_BENCH_REPO_ROOT`
   (default: the parent directory of this repo). The bundled tasks assume a
-  sibling layout: e.g. `repo_path: "cli"` → `<repos>/cli`, `repo_path: "../Ultron"`
+  sibling layout: e.g. `repo_path: "entire-cli"` → `<repos>/entire-cli`, `repo_path: "../Ultron"`
   → `<repos>/../Ultron`. Set `AGENT_BENCH_REPO_ROOT=/path/to/your/repos` to point
   elsewhere, or use an absolute `repo_path`.
 - `path_prefix: "auto"` resolves to the directory of the host `node` (so the
@@ -53,13 +98,14 @@ repo that actually has Entire `.entire` session data; that data is machine-local
 and not committed. The semantic scenarios (`semantic_brain`, `mcp_semantic`) only
 need the source code and reproduce anywhere (e.g. `entireio/cli`).
 
-Each task creates a disposable git worktree, applies a known regression patch,
-commits that setup state, runs an agent, validates the fix, scores the run, and
-writes artifacts under `benchmarks/agent-brain/results/`.
+Each task creates a standalone disposable clone, applies a known regression,
+places that state behind an unchanged synthetic first-parent baseline, runs an
+agent, validates the fix, scores the run, and writes artifacts under
+`benchmarks/agent-brain/results/`.
 
 Tasks may also define `post_brain_replacements` or `post_brain_commands`. Those
 mutations are applied and committed after brain preparation, which creates a
-stale-context scenario for semantic and full-brain runs. Use these tasks to
+stale-context scenario for semantic and semantic-history runs. Use these tasks to
 measure whether agents check brain freshness before relying on prepared context.
 
 Brain prep artifacts are cached under `benchmarks/agent-brain/cache/` by
@@ -96,38 +142,57 @@ Each `record.json` includes:
 - `agent_info.usage` for turns, tokens, cache tokens, and cost when the agent
   output exposes those fields.
 
+Token accounting is versioned. Version 3 records the last cumulative structured
+protocol usage snapshot rather than summing snapshots, counts Claude cache
+reads/creation as processed input, and records `accounting_source` plus
+`total_input_tokens`. Token comparisons are emitted only within the same runner,
+accounting version, and source base commit; different providers remain
+side-by-side observations rather than a pooled token metric.
+
 Example:
 
 ```sh
 python3 benchmarks/agent-brain/run.py run \
   --tasks entire-brain-mcp-tool-name.json \
   --agents codex \
-  --conditions no_brain,semantic_brain,full_brain \
+  --conditions no_brain,semantic_brain,semantic_history_brain \
+  --source-root .. \
   --repetitions 3 \
   --suite-name codex-mcp-smoke
 ```
 
-MCP-specific conditions are separate from CLI/context-file delivery:
+Use the same `--source-root` for every compared Brain ref. Task worktrees are
+always created from those current source repositories; the Brain binary is the
+only intended branch/main difference.
+
+The short version is: no-Brain retains every normal coding tool, including
+ordinary Git history, but has no Entire-family tools or Entire-managed memory.
+Brain adds the condition's Entire Brain surface. Neither may access information
+from previous benchmark runs. See [`CONDITIONS.md`](CONDITIONS.md) for the full
+enforced contract.
+
+MCP-specific conditions are separate from CLI delivery:
 
 - `semantic_cli`: CLI-delivered semantic brain, equivalent to the original
   `semantic_brain` condition.
-- `full_cli_original`: original full-brain delivery with the generated
-  `.benchmark/brain-history-excerpt.md` file.
-- `full_cli_compact`: full Brain prep delivered through `brain brief` only:
-  compact history hits, likely files/tests, and action checklist; no raw
-  history excerpt file.
+- `semantic_history_cli_original`: original semantic-and-indexed-history CLI policy,
+  delivered through the indexed Brain itself.
+- `semantic_history_cli_compact`: the same semantic-and-indexed-history prep delivered
+  through `brain brief` only: compact history hits and likely files/tests. The
+  optional action checklist is product-feature-flagged and off by default;
+  enable it only in a preregistered feature ablation.
 - `mcp_semantic`: local `entire brain mcp` semantic graph tools only
   (`brain_status`, `brain_context`, `brain_impact`, `brain_changes`,
   `brain_code`); unified `brain_query` retrieval is intentionally excluded from
   this condition.
 - `mcp_history`: local `entire brain mcp` with `brain_brief` and indexed-history
-  retrieval; no history excerpt file is provided as a shortcut.
+  retrieval.
   > Note: this condition uses `brain_brief` plus unified `brain_search` /
   > `brain_query` retrieval. The old dedicated `brain_history` tool was removed;
   > history is now one source within the unified retrieval verbs.
 
 Temporal-memory ablation conditions are separate from the product-style
-full-brain conditions:
+semantic-history conditions:
 
 - `raw_history`: indexed records derived directly from a pinned pre-cutoff
   session bundle;
@@ -180,7 +245,7 @@ when that score is above the retention threshold:
 python3 benchmarks/agent-brain/run.py run \
   --tasks entire-brain-history-claude-seed-agent.json \
   --runners claude \
-  --conditions no_brain,full_brain \
+  --conditions no_brain,semantic_history_brain \
   --repetitions 1 \
   --stop-after-no-brain-score 90 \
   --suite-name phase2-layer-a-pilot
@@ -209,7 +274,7 @@ Runner matrixes are supported with `--runners`. Specs are
 python3 benchmarks/agent-brain/run.py run \
   --tasks entire-brain-history-codex-schema-contract.json \
   --runners codex:gpt-5:medium,codex:gpt-5:high,claude:sonnet:medium,claude:opus:max \
-  --conditions no_brain,full_brain \
+  --conditions no_brain,semantic_history_brain \
   --repetitions 3 \
   --suite-name phase2-model-matrix
 ```

@@ -5,8 +5,11 @@ of the answer, not as decoration.
 
 Recommended intake flow:
 
-1. Run `entire brain status --json` and check `semantic.freshness.severity`.
-2. Use `entire brain inspect code <symbol> --json --limit 20 --offset 0` or
+1. Run `entire brain status --json`; check `semantic.freshness.severity` before
+   graph inspection and `retrieval.freshness.severity` before query/get.
+   The default is the compact trust preflight; use `--details` only for
+   coverage histograms, staged-file classifications, or changed-symbol records.
+2. Use `entire brain inspect code <symbol> --json` (10 results by default) or
    `entire brain inspect search-graph <query> --json` to find candidate symbols
    and relation hits.
 3. Use `entire brain inspect query-graph "type:CALLS <query>" --json` when the
@@ -14,8 +17,8 @@ Recommended intake flow:
    graph-schema --json` when you need the available relation/types inventory.
    Use `entire brain inspect graph-ui semantic-graph.html` when a local visual
    graph explorer is useful.
-4. Use `entire brain inspect context <symbol> --json --include-content=false` for
-   relation-aware context.
+4. Use `entire brain inspect context <symbol> --json --include-content=false`
+   for relation-aware context (5 symbols by default).
 5. Use `entire brain inspect snippet <symbol-or-id> --json` before editing a
    resolved symbol, and `entire brain inspect trace-path <from> <to> --json`
    when you need to verify a directed static path.
@@ -28,7 +31,12 @@ Recommended intake flow:
    persisted dynamic trace facts; `brief`, `trace-path`, and graph
    schema/metrics also include the imported runtime trace edges.
 8. Use `entire brain inspect tests <symbol> --json` before choosing validation
-   commands for a changed symbol.
+   commands for a changed symbol. Code, context, impact, and test JSON is compact
+   by default; use `--details` only when full provider records are required.
+   `entire brain inspect changes --json` is also read-only by default and maps
+   diff-hunk line ranges to the indexed symbols they actually touch; add
+   `--write-report` only when a persisted `semantic/changes/latest.json` artifact
+   is explicitly needed.
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
    `entire brain workspace inspect graph <workspace> --json` (per-repo graph
    metrics, shared external contracts, canonical route-template
@@ -48,10 +56,13 @@ Recommended intake flow:
    path hints.
 10. Use `entire brain mcp` only as a local stdio adapter when an agent needs MCP
    tool calls instead of direct CLI commands.
-11. Refresh with `entire brain refresh` when `status` reports unsafe semantic
-   data.
-12. Use `entire brain refresh index --worktree` only when uncommitted code is
-   intentionally part of the question.
+11. Refresh semantic data with `entire brain refresh index` when only
+   `semantic.freshness` is unsafe. Use `entire brain refresh --agent none` when
+   `retrieval.freshness` is unsafe because semantic-only refreshes do not
+   rebuild seed/docs.
+12. Add `--worktree` to either refresh only when uncommitted content is
+   intentionally part of the question; status verifies that exact dirty
+   snapshot and reports later drift.
 
 Do not publish semantic artifacts or send semantic context to remote services in
 phase 1.

@@ -1722,6 +1722,16 @@ func TestSemanticQueryJSONIncludesPagination(t *testing.T) {
 	if !strings.Contains(out.String(), `"pagination"`) || !strings.Contains(out.String(), `"count": 1`) {
 		t.Fatalf("query JSON missing pagination:\n%s", out.String())
 	}
+	if strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("default code JSON retained full provider records:\n%s", out.String())
+	}
+	out.Reset()
+	if err := runSemanticQuery(queryCmd.Context(), queryCmd, opts, semanticQueryOptions{limit: 1, json: true, details: true}, "ValidateToken"); err != nil {
+		t.Fatalf("detailed query: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("detailed code JSON omitted provider fields:\n%s", out.String())
+	}
 }
 
 func TestSemanticContextJSONIncludesRelations(t *testing.T) {
@@ -1741,6 +1751,16 @@ func TestSemanticContextJSONIncludesRelations(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"relations"`) || !strings.Contains(out.String(), `"CALLS"`) {
 		t.Fatalf("context JSON missing relations:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("default context JSON retained full provider records:\n%s", out.String())
+	}
+	out.Reset()
+	if err := runSemanticContext(contextCmd.Context(), contextCmd, opts, semanticContextOptions{limit: 10, json: true, details: true}, "gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken"); err != nil {
+		t.Fatalf("detailed context: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("detailed context JSON omitted provider fields:\n%s", out.String())
 	}
 }
 
@@ -1784,6 +1804,16 @@ func TestSemanticImpactTraversesRelations(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"relations"`) || !strings.Contains(out.String(), `"CALLS"`) {
 		t.Fatalf("impact JSON missing relation:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("default impact JSON retained full provider records:\n%s", out.String())
+	}
+	out.Reset()
+	if err := runSemanticImpact(impactCmd.Context(), impactCmd, opts, semanticImpactOptions{limit: 10, depth: 1, json: true, details: true}, "ValidateToken"); err != nil {
+		t.Fatalf("detailed impact: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type"`) {
+		t.Fatalf("detailed impact JSON omitted provider record fields:\n%s", out.String())
 	}
 }
 
@@ -1894,6 +1924,15 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"+`{"from":"ValidateToken","to":"CallValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeIngest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStorePath := filepath.Join(storage.BrainDir, filepath.FromSlash(beforeIngest.Sources.Semantic.StorePath))
 	var out bytes.Buffer
 	ingestCmd := &cobra.Command{Use: "ingest"}
 	ingestCmd.SetOut(&out)
@@ -1902,6 +1941,28 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"matched_static_edges": 1`) {
 		t.Fatalf("trace ingest did not validate static edge:\n%s", out.String())
+	}
+	afterIngest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterIngest.Sources.Semantic.GenerationPath == beforeIngest.Sources.Semantic.GenerationPath {
+		t.Fatalf("trace ingest mutated active generation in place: %s", afterIngest.Sources.Semantic.GenerationPath)
+	}
+	oldDB, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(oldStorePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldTraceCount int
+	if err := oldDB.QueryRow(`SELECT COUNT(*) FROM runtime_traces`).Scan(&oldTraceCount); err != nil {
+		_ = oldDB.Close()
+		t.Fatal(err)
+	}
+	if err := oldDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if oldTraceCount != 0 {
+		t.Fatalf("previous immutable generation contains %d runtime traces, want 0", oldTraceCount)
 	}
 	out.Reset()
 	queryTraceCmd := &cobra.Command{Use: "query-trace"}
@@ -2045,6 +2106,14 @@ func TestSemanticImpactFallsBackToSnapshot(t *testing.T) {
 	}
 }
 
+func TestInspectChangesPersistsLatestReportByDefault(t *testing.T) {
+	cmd := newInspectChangesCommand(Options{})
+	flag := cmd.Flags().Lookup("write-report")
+	if flag == nil || flag.DefValue != "true" {
+		t.Fatalf("write-report default = %v, want true", flag)
+	}
+}
+
 func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -2064,8 +2133,88 @@ func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	if !strings.Contains(out.String(), `"internal/auth/token.go"`) || !strings.Contains(out.String(), `"ValidateToken"`) {
 		t.Fatalf("changes JSON missing symbol:\n%s", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "changes", "latest.json")); err != nil {
-		t.Fatalf("changes report missing: %v", err)
+	reportPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "changes", "latest.json")
+	if _, err := os.Stat(reportPath); !os.IsNotExist(err) {
+		t.Fatalf("default changes unexpectedly wrote report: %v", err)
+	}
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true, persist: true}); err != nil {
+		t.Fatalf("changes with persisted report: %v", err)
+	}
+	if _, err := os.Stat(reportPath); err != nil {
+		t.Fatalf("persisted changes report missing: %v", err)
+	}
+}
+
+func TestSemanticChangesMapsDiffHunksInsteadOfFirstFileSymbols(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticChangesRangeFixtureSnapshot())
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
+	runner.responses[fakeCommandKey("git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")] = fakeCommandResponse{stdout: "diff --git internal/auth/token.go internal/auth/token.go\n--- internal/auth/token.go\n+++ internal/auth/token.go\n@@ -12 +12 @@\n-old\n+new\n"}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	changesCmd := &cobra.Command{Use: "changes"}
+	changesCmd.SetOut(&out)
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	var payload struct {
+		Changes semanticChangesReport `json:"changes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("decode changes: %v\n%s", err, out.String())
+	}
+	if len(payload.Changes.Ranges) != 1 || payload.Changes.Ranges[0].StartLine != 12 || payload.Changes.Ranges[0].EndLine != 12 {
+		t.Fatalf("ranges = %+v", payload.Changes.Ranges)
+	}
+	if len(payload.Changes.Symbols) != 1 || payload.Changes.Symbols[0].Name != "ValidateToken" {
+		t.Fatalf("hunk symbols = %+v", payload.Changes.Symbols)
+	}
+}
+
+func TestParseSemanticChangedRangesUsesIndexedCoordinatePlane(t *testing.T) {
+	diff := "diff --git internal/auth/token.go internal/auth/token.go\n--- internal/auth/token.go\n+++ internal/auth/token.go\n@@ -10,2 +10,4 @@\n--- header-like deleted content\n+++ header-like added content\n@@ -20 +22 @@\n"
+	tracked := parseSemanticChangedRanges(diff, false)
+	if len(tracked) != 2 || tracked[0].StartLine != 10 || tracked[0].EndLine != 11 || tracked[1].File != "internal/auth/token.go" || tracked[1].StartLine != 20 {
+		t.Fatalf("tracked ranges = %+v", tracked)
+	}
+	worktree := parseSemanticChangedRanges(diff, true)
+	if len(worktree) != 2 || worktree[0].StartLine != 10 || worktree[0].EndLine != 13 || worktree[1].File != "internal/auth/token.go" || worktree[1].StartLine != 22 {
+		t.Fatalf("worktree ranges = %+v", worktree)
+	}
+}
+
+func TestSemanticChangesDefaultDoesNotAcquireIndexLock(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	lockDir := filepath.Join(brainDir, semanticLockDir)
+	if err := os.Remove(filepath.Join(lockDir, semanticIndexLockName)); err != nil {
+		t.Fatalf("remove index lock file: %v", err)
+	}
+	if err := os.Remove(lockDir); err != nil {
+		t.Fatalf("remove lock directory: %v", err)
+	}
+	if err := os.Symlink(t.TempDir(), lockDir); err != nil {
+		t.Fatalf("replace lock directory with symlink: %v", err)
+	}
+	changesCmd := &cobra.Command{Use: "changes"}
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("read-only changes should not inspect or acquire the index lock: %v", err)
+	}
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true, persist: true}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("persisted changes should validate the index lock path, got: %v", err)
 	}
 }
 
@@ -2279,6 +2428,18 @@ func TestSemanticTestsSuggestsRelevantTests(t *testing.T) {
 	}
 	if !strings.Contains(out, `"TestValidateToken"`) || !strings.Contains(out, `"reason"`) {
 		t.Fatalf("tests output missing relevant suggestion:\n%s", out)
+	}
+	if strings.Contains(out, `"record_type"`) {
+		t.Fatalf("default tests JSON retained full provider records:\n%s", out)
+	}
+	detailed := &cobra.Command{Use: "tests"}
+	var detailedOut bytes.Buffer
+	detailed.SetOut(&detailedOut)
+	if err := runSemanticTests(detailed.Context(), detailed, Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}, semanticTestsOptions{limit: 5, json: true, details: true}, "ValidateToken"); err != nil {
+		t.Fatalf("detailed tests: %v", err)
+	}
+	if !strings.Contains(detailedOut.String(), `"record_type"`) {
+		t.Fatalf("detailed tests JSON omitted provider record fields:\n%s", detailedOut.String())
 	}
 }
 
@@ -4392,6 +4553,7 @@ func semanticFixtureRunner(repoDir, snapshot string) *fakeCommandRunner {
 		fakeCommandKey("git", "branch", "--show-current"):                                                                                                      {stdout: "feature\n"},
 		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):                                                                {stdout: "origin/main\n"},
 		fakeCommandKey("git", "status", "--porcelain"):                                                                                                         {stdout: ""},
+		fakeCommandKey("git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD"):                                                     {stdout: ""},
 		fakeCommandKey("entire", "graph", "doctor", "--json"):                                                                                                  {stdout: `{"no_egress":true}`},
 		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"):                                                 {stdout: snapshot},
 		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath):               {stdout: snapshot},
@@ -4434,6 +4596,13 @@ func semanticFixtureSnapshot(schema string) string {
 	return `{"schema_version":"` + schema + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+`
+}
+
+func semanticChangesRangeFixtureSnapshot() string {
+	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.PrepareToken","kind":"function","name":"PrepareToken","qualified_name":"auth.PrepareToken","file_path":"internal/auth/token.go","start_line":1,"end_line":5,"signature":"func PrepareToken()","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 `
 }
 

@@ -4,7 +4,7 @@
   "repo_path": "entire-brain",
   "conditions": [
     "no_brain",
-    "full_brain"
+    "semantic_history_brain"
   ],
   "copy_checkpoint_ref_from_source": true,
   "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",

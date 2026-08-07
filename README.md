@@ -31,6 +31,21 @@ and known failure modes instead of rediscovering them from scratch.
 The plugin binary is named `entire-brain` and is invoked through Entire as
 `entire brain`.
 
+## Development source of truth
+
+Entire Brain has no released product version. Development starts from the
+locally fetched current mainline; do not resume an old WIP/integration checkout
+or use an older Brain binary as a benchmark control. The Agent Brain harness
+builds from the active checkout and refuses to run unless `HEAD` contains local
+`origin/main`. All causal arms use that same binary and vary only memory
+delivery.
+
+GraphMark owns cross-product benchmark evidence and split integrity. See
+[`benchmarks/agent-brain/CONDITIONS.md`](benchmarks/agent-brain/CONDITIONS.md)
+for the normative condition and comparison contract, and
+[`benchmarks/agent-brain/README.md`](benchmarks/agent-brain/README.md) for
+harness operation and the retired-corpus notice.
+
 ## Install
 
 Prerequisites:
@@ -102,10 +117,11 @@ entire brain refresh --agent none
 entire brain status
 ```
 
-The semantic refresh refuses a dirty worktree by default. Run it on a clean
-checkout, or use the advanced `entire brain refresh index --worktree` path only
-when you intentionally want the current uncommitted state indexed. Worktree-
-backed semantic indexes are rejected by bundle export.
+Refresh refuses a dirty worktree by default. Run it on a clean checkout, or use
+`entire brain refresh --worktree` only when you intentionally want seed/docs and
+the semantic index to include the same current uncommitted state. Use the
+advanced `refresh index --worktree` path when only the semantic layer needs
+updating. Worktree-backed semantic indexes are rejected by bundle export.
 
 `--agent none` keeps the first build deterministic and token-free, with no
 hosted-model calls. Refresh exports captured sessions, builds the local
@@ -177,7 +193,14 @@ shelling out to the CLI. The normal first call is `brain_brief`, then targeted
 follow-ups:
 
 - `brain_brief` for task-shaped context, history hits, likely files, and tests
-- `brain_status` to check freshness, coverage, and blind spots
+- `brain_status` for a compact freshness/coverage preflight; set
+  `details: true` for the full status JSON contract
+- `brain_refresh` for a bounded seed/docs refresh when retrieval freshness is
+  unsafe. It includes the current worktree by default, never exports checkpoint
+  sessions, and is capped at 60 seconds; set `semantic: true` only for small repositories and use
+  `brain_index_repository` as the separate long-running semantic step for large
+  repositories. Set `worktree: false` only when the snapshot must be committed
+  HEAD; use `entire brain refresh sessions` from the CLI for checkpoint history
 - retrieval tools such as `brain_query` and `brain_get` for facts, docs, history
 - semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
   `brain_tests` for code navigation and validation planning
@@ -223,10 +246,25 @@ entire brain inspect tests "<symbol-or-id>" --json
 entire brain inspect regressions "<task or invariant>" --location-only --json
 ```
 
+`status --json` preserves the full status contract. Check
+`semantic.freshness.severity` before graph inspection and
+`retrieval.freshness.severity` before query/get. A semantic-only
+`refresh index` does not rebuild seed/docs: use `entire brain refresh --agent
+none` when retrieval is stale, adding `--worktree` only when current
+uncommitted content should be included. `status --json --details` remains an
+accepted compatibility spelling for callers that already use it.
+`inspect code --json`, `inspect context --json`, `inspect impact --json`, and
+`inspect tests --json` likewise return compact semantic records by default; add
+`--details` only when provider metadata is needed. Their defaults are 10 code
+results, 5 context symbols, 20 impact symbols, and 3 test suggestions;
+`--limit` remains available for deliberate expansion.
+
 Prefer `query` for broad facts/history/docs, `search` for exact terms, semantic
 `inspect` subcommands for code-graph questions, and `get`/`multi-get` when a
-prior result returned an id. Don't broaden into repo-wide text search until the
-brain's targeted context has been used.
+prior result returned an id. Retrieval returns ten bounded excerpts by default;
+raise `--limit` deliberately instead of treating ranked search as a full-record
+dump. Don't broaden into repo-wide text search until the brain's targeted
+context has been used.
 
 ### 4. Hidden hooks deliver context at the moment of relevance
 
@@ -317,12 +355,14 @@ entire brain inspect code "ValidateToken" --json         # find a symbol in the 
 entire brain inspect context "ValidateToken" --json      # relation-aware context
 entire brain inspect impact "ValidateToken" --json       # impact set via typed relations
 entire brain inspect tests "ValidateToken" --json        # test suggestions
+# add --details to any of the four commands only for full provider records
 entire brain inspect graph-schema --json                 # relation/schema inventory
 entire brain inspect graph-ui semantic-graph.html        # local static graph explorer
 entire brain inspect trace-path "<caller>" "<callee>" --json
 entire brain inspect dead-code --json
 entire brain inspect boundaries --kind tool --json
-entire brain inspect changes --json                      # map the working-tree diff to symbols
+entire brain inspect changes --json                      # read-only, diff-hunk-scoped symbol mapping
+# add --write-report only when semantic/changes/latest.json should be persisted
 ```
 
 ### Review risk without a clean diff
@@ -417,15 +457,16 @@ entire brain facts eval-gen > facts-tasks.json
 entire brain facts eval --tasks facts-tasks.json --retriever facts --json > facts-eval.json
 entire brain facts eval-compare --a <before.json> --b <after.json>
 entire brain bench semantic .
-entire brain status --json
+entire brain status --json --details
 ```
 
 `facts eval-compare` runs a paired t-test with Holm correction and rejects
 non-proof or mismatched relevance sources unless `--allow-proxy-comparison` is
-explicit. Treat the `semantic` section of `status --json` as audit evidence for
-the reported provider output (`status --fail-on release` is the CI gate form),
-not a global coverage claim; public semantic claims should name the covered
-languages, relation types, freshness state, and benchmark records behind them.
+explicit. Treat the `semantic` section of `status --json --details` as audit
+evidence for the reported provider output (`status --fail-on release` is the
+compact CI gate form), not a global coverage claim; public semantic claims
+should name the covered languages, relation types, freshness state, and
+benchmark records behind them.
 
 ### Tune retrieval
 
@@ -500,8 +541,8 @@ Repo keys are derived from the repository origin. For example,
 
 ### Environment toggles
 
-Optional `ENTIRE_BRAIN_*` variables tune retrieval and diagnostics. All are
-off/default unless set; none are required for normal use.
+Optional `ENTIRE_BRAIN_*` variables tune retrieval and diagnostics. None are
+required for normal use.
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -509,6 +550,7 @@ off/default unless set; none are required for normal use.
 | `ENTIRE_BRAIN_OLLAMA_MODEL` | `embeddinggemma` | Model requested from the embed server when `ENTIRE_BRAIN_EMBEDDER=ollama`. |
 | `ENTIRE_BRAIN_EMBED_URL` | `http://localhost:11434/api/embed` | Embed endpoint (Ollama, or qmd's node-llama-cpp server). Must accept `{"model","input"}` and return `{"embeddings":[[…]]}`. |
 | `ENTIRE_BRAIN_FACTS_BM25` | (unset → token-overlap) | `1`/`true`/`yes`/`on` switches the facts lexical arm to FTS5 BM25. Experimental; measured at parity, kept for A/B'ing the lexical engine. |
+| `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
 | `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 

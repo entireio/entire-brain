@@ -42,6 +42,31 @@ func idfRankingSnapshot() string {
 	return b.String()
 }
 
+func leadingIntentRankingSnapshot() string {
+	var b strings.Builder
+	b.WriteString(`{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}` + "\n")
+	b.WriteString(`{"record_type":"symbol","id":"plugin-env","kind":"function","name":"isPluginEnvAllowed","qualified_name":"cli.isPluginEnvAllowed","file_path":"cmd/entire/cli/plugin_env.go","start_line":1,"end_line":2,"signature":"plugin env xdg prefix","language":"Go","stable_id_version":"1"}` + "\n")
+	for _, term := range []string{"plugin", "env", "xdg", "prefix"} {
+		for i := 0; i < 4; i++ {
+			fmt.Fprintf(&b, `{"record_type":"symbol","id":"common-%s-%d","kind":"function","name":"Common%s%d","qualified_name":"pkg.Common%s%d","file_path":"pkg/common_%s_%d.go","start_line":1,"end_line":2,"signature":"%s helper","language":"Go","stable_id_version":"1"}`+"\n", term, i, term, i, term, i, term, i, term)
+		}
+	}
+	for _, term := range []string{"subprocess", "allowlist", "credential", "withheld", "namespace", "desktop", "directory", "forwarded"} {
+		fmt.Fprintf(&b, `{"record_type":"symbol","id":"rare-%s","kind":"function","name":"Rare%s","qualified_name":"pkg.Rare%s","file_path":"pkg/%s.go","start_line":1,"end_line":2,"signature":"%s unique","language":"Go","stable_id_version":"1"}`+"\n", term, term, term, term, term)
+	}
+	return b.String()
+}
+
+func morphologyRankingSnapshot() string {
+	var b strings.Builder
+	b.WriteString(`{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}` + "\n")
+	b.WriteString(`{"record_type":"symbol","id":"normalize","kind":"function","name":"NormalizeRepositoryName","qualified_name":"repo.NormalizeRepositoryName","file_path":"pkg/repo/name.go","start_line":1,"end_line":2,"signature":"func NormalizeRepositoryName(name string) string","language":"Go","stable_id_version":"1"}` + "\n")
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&b, `{"record_type":"symbol","id":"repo-name-%d","kind":"function","name":"RepositoryNameHelper%d","qualified_name":"pkg.RepositoryNameHelper%d","file_path":"pkg/repo/helper%d.go","start_line":1,"end_line":2,"signature":"repository name helper","language":"Go","stable_id_version":"1"}`+"\n", i, i, i, i)
+	}
+	return b.String()
+}
+
 func TestTokenizedSearchRanksRareTokenAboveCommonTokens(t *testing.T) {
 	_, storePath, _ := indexFixtureBrain(t, idfRankingSnapshot())
 	// Multi-word query that matches no single symbol verbatim, so the tokenized
@@ -58,6 +83,47 @@ func TestTokenizedSearchRanksRareTokenAboveCommonTokens(t *testing.T) {
 	}
 	if results[0].Score <= 0 {
 		t.Fatalf("expected positive relevance score on rare match, got %d", results[0].Score)
+	}
+}
+
+func TestTokenizedSearchUsesDiscriminatingTermAfterFirstEightCandidates(t *testing.T) {
+	_, storePath, _ := indexFixtureBrain(t, idfRankingSnapshot())
+	query := "alpha beta gamma delta epsilon theta lambda omega zebra"
+	results, err := findSemanticSymbolsInSQLite(storePath, query, 20, 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "rare-zebra" {
+		t.Fatalf("late rare term did not drive ranking: %s", summarizeIDs(results))
+	}
+}
+
+func TestTokenizedSearchKeepsLeadingTaskIntentAlongsideRareTailTerms(t *testing.T) {
+	_, storePath, _ := indexFixtureBrain(t, leadingIntentRankingSnapshot())
+	query := "plugin env xdg prefix subprocess allowlist credential withheld namespace desktop directory forwarded"
+	results, err := findSemanticSymbolsInSQLite(storePath, query, 20, 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "plugin-env" {
+		t.Fatalf("leading task intent did not survive rare-tail selection: %s", summarizeIDs(results))
+	}
+}
+
+func TestTokenizedSearchConnectsTaskNounsToIdentifierVerbs(t *testing.T) {
+	_, storePath, _ := indexFixtureBrain(t, morphologyRankingSnapshot())
+	results, err := findSemanticSymbolsInSQLite(storePath, "fix repository name normalization", 20, 0)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "normalize" {
+		t.Fatalf("normalization did not resolve NormalizeRepositoryName: %s", summarizeIDs(results))
+	}
+	tokens := semanticQueryTokens("normalization validation authentication environment")
+	for _, want := range []string{"normalize", "validate", "authenticate", "env"} {
+		if !containsToken(tokens, want) {
+			t.Fatalf("derived identifier term %q missing from %v", want, tokens)
+		}
 	}
 }
 
@@ -148,6 +214,12 @@ func TestSemanticQueryLooksLikePath(t *testing.T) {
 		{"apps/web/src/lib/feed.ts", true},
 		{"feed.ts", true},
 		{"internal\\auth\\token.go", true},
+		{"./internal/cli", true},
+		{"refresh/status freshness", false},
+		{"refresh/status", false},
+		{"https://example.com/refresh/status", false},
+		{"https://example.com/internal/token.go", false},
+		{"why is internal/token.go stale", false},
 		{"why did we choose supabase", false},
 		{"ValidateToken", false},
 		{"feed refresh worker", false},
@@ -170,6 +242,58 @@ func TestSemanticQueryTokensDropsStopwordsAndShortTerms(t *testing.T) {
 		if !containsToken(tokens, kept) {
 			t.Errorf("expected content token %q to be kept, got [%s]", kept, joined)
 		}
+	}
+}
+
+func TestSemanticTestRelevanceRejectsDirectoryNoiseAndKeepsNameEvidence(t *testing.T) {
+	rootNames := []string{"brainBriefJSONReport"}
+	rootFiles := []string{"internal/cli/agent_surface.go"}
+	noise := semanticRecord{
+		ID:       "noise",
+		Name:     "recordingRunner",
+		FilePath: "internal/cli/add_test.go",
+	}
+	if reason, score := semanticTestRelevance(noise, nil, rootNames, rootFiles); reason != "" || score != 0 {
+		t.Fatalf("same-directory noise received relevance: reason=%q score=%d", reason, score)
+	}
+	target := semanticRecord{
+		ID:       "target",
+		Name:     "TestBrainBriefJSONProjectionOmitsFollowUpDetail",
+		FilePath: "internal/cli/brain_test.go",
+	}
+	if reason, score := semanticTestRelevance(target, nil, rootNames, rootFiles); reason != "name terms" || score <= 0 {
+		t.Fatalf("name-related test lost relevance: reason=%q score=%d", reason, score)
+	}
+}
+
+func TestSemanticAgentFollowUpsDefaultToCompactBudgets(t *testing.T) {
+	code := newInspectCodeCommand(Options{})
+	if got := code.Flags().Lookup("limit").DefValue; got != "10" {
+		t.Fatalf("code default limit = %s, want 10", got)
+	}
+	if code.Flags().Lookup("details") == nil {
+		t.Fatal("code command missing --details")
+	}
+	context := newInspectContextCommand(Options{})
+	if got := context.Flags().Lookup("limit").DefValue; got != "5" {
+		t.Fatalf("context default limit = %s, want 5", got)
+	}
+	if context.Flags().Lookup("details") == nil {
+		t.Fatal("context command missing --details")
+	}
+	impact := newInspectImpactCommand(Options{})
+	if got := impact.Flags().Lookup("limit").DefValue; got != "20" {
+		t.Fatalf("impact default limit = %s, want 20", got)
+	}
+	if impact.Flags().Lookup("details") == nil {
+		t.Fatal("impact command missing --details")
+	}
+	tests := newInspectTestsCommand(Options{})
+	if got := tests.Flags().Lookup("limit").DefValue; got != "3" {
+		t.Fatalf("tests default limit = %s, want 3", got)
+	}
+	if tests.Flags().Lookup("details") == nil {
+		t.Fatal("tests command missing --details")
 	}
 }
 

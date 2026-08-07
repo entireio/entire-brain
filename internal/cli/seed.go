@@ -68,6 +68,7 @@ type seedSourceManifest struct {
 	GeneratedAt       time.Time            `json:"generated_at"`
 	Commit            string               `json:"commit,omitempty"`
 	WorktreeMode      string               `json:"worktree_mode"`
+	WorktreeHash      string               `json:"worktree_hash,omitempty"`
 	FileFingerprint   string               `json:"file_fingerprint"`
 	SummaryPath       string               `json:"summary_path"`
 	Documents         []seedDocument       `json:"documents,omitempty"`
@@ -218,7 +219,7 @@ func newSeedCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&seedOpts.maxFileBytes, "max-file-bytes", defaultSeedMaxFileBytes, "Maximum bytes to copy from any source/doc file")
 	cmd.Flags().IntVar(&seedOpts.maxFiles, "max-files", defaultSeedMaxFiles, "Maximum files to scan")
 	cmd.Flags().StringVar(&seedOpts.format, "format", "markdown+json", "Seed output format")
-	cmd.Flags().BoolVar(&seedOpts.worktree, "worktree", false, "Include selected untracked instruction/docs files")
+	cmd.Flags().BoolVar(&seedOpts.worktree, "worktree", false, "Include current tracked changes and selected untracked instruction/docs files")
 	cmd.Flags().StringVar(&seedOpts.agent, "agent", "none", "Agent synthesis mode: none, command, codex, or claude-code")
 	cmd.Flags().StringArrayVar(&seedOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&seedOpts.model, "model", "", "Override the agent model for codex/claude-code seed synthesis (e.g. a fast/cheap model)")
@@ -254,6 +255,15 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if !local {
 		return fmt.Errorf("seed target must be an existing local path: %s", target)
 	}
+	if !seedOpts.worktree {
+		dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
+		if err != nil {
+			return fmt.Errorf("check worktree before seed refresh: %w", err)
+		}
+		if dirty {
+			return errors.New("dirty_worktree: refusing to seed uncommitted content without --worktree")
+		}
+	}
 
 	outputExplicit := seedOpts.outputExplicit || cmd.Flags().Changed("output")
 	persistentSeed := !outputExplicit
@@ -278,6 +288,13 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if err != nil {
 		return err
 	}
+	worktreeHash := ""
+	if seedOpts.worktree {
+		worktreeHash, err = worktreeFingerprint(ctx, opts.Runner, repoDir)
+		if err != nil {
+			return fmt.Errorf("fingerprint worktree for seed: %w", err)
+		}
+	}
 
 	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts)
 	if err != nil {
@@ -297,6 +314,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			GeneratedAt:       opts.Now().UTC(),
 			Commit:            scan.Commit,
 			WorktreeMode:      seedWorktreeMode(seedOpts),
+			WorktreeHash:      worktreeHash,
 			FileFingerprint:   scan.Fingerprint,
 			SummaryPath:       filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")),
 			Documents:         scan.Docs,
@@ -318,6 +336,15 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			}
 			if agentManifest != nil {
 				seedManifest.Agent = agentManifest
+			}
+		}
+		if seedOpts.worktree {
+			currentHash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
+			if err != nil {
+				return fmt.Errorf("recheck worktree fingerprint for seed: %w", err)
+			}
+			if currentHash != worktreeHash {
+				return errors.New("worktree_changed: worktree content changed during seed refresh")
 			}
 		}
 

@@ -761,7 +761,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			results = append(results, result)
 			continue
 		}
-		db, err := sql.Open(sqliteDriverName, storePath)
+		db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
 		if err != nil {
 			unlock()
 			result.Error = err.Error()

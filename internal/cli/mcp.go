@@ -22,6 +22,8 @@ import (
 
 const maxMCPFrameBytes = 4 * 1024 * 1024
 
+var mcpRefreshTimeout = 60 * time.Second
+
 type mcpFrameMode string
 
 const (
@@ -262,13 +264,18 @@ func mcpToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "brain_status",
-			"description": "Summarize the local brain: sources, durable-fact counts and verification, semantic provider/coverage/freshness/blind spots, and live workspace state.",
-			"inputSchema": objectSchema(nil, map[string]any{}),
+			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic and retrieval freshness, coverage totals/blind spots, and live workspace state. Set details=true for the full status JSON contract.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
+		},
+		{
+			"name":        "brain_refresh",
+			"description": "Refresh bounded code-derived Brain sources and return status JSON. Includes current worktree content by default and never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content (default true; set false for committed HEAD only)"), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call (prefer brain_index_repository for large repositories)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
 			"name":        "brain_brief",
-			"description": "Build a bounded task packet from local brain context, live state, semantic context, and indexed history.",
-			"inputSchema": objectSchema([]string{"task"}, map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section")}),
+			"description": "Build a compact task packet from local brain context, live state, semantic context, and indexed history; use targeted follow-up tools when more detail is needed.",
+			"inputSchema": objectSchema([]string{"task"}, map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section (default 3)")}),
 		},
 		{
 			"name":        "brain_query",
@@ -297,28 +304,28 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_context",
-			"description": "Return relation-aware local semantic context.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols")}),
+			"description": "Return relation-aware local semantic context with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_impact",
-			"description": "Traverse local semantic impact relations.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "depth": integerArg("depth", "Relation depth")}),
+			"description": "Traverse local semantic impact relations with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "depth": integerArg("depth", "Relation depth"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_changes",
-			"description": "Map local file changes to semantic symbols.",
+			"description": "Map local diff hunks to the indexed symbols they touch without writing Brain artifacts.",
 			"inputSchema": objectSchema(nil, map[string]any{"limit": integerArg("limit", "Maximum symbols")}),
 		},
 		{
 			"name":        "brain_code",
-			"description": "Search semantic code facts (the symbol graph) by name or description — find where a symbol lives.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results")}),
+			"description": "Search semantic code facts (the symbol graph) by name or description with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_index_status",
-			"description": "Alias for brain_status focused on semantic index freshness, coverage, and counts.",
-			"inputSchema": objectSchema(nil, map[string]any{}),
+			"description": "Alias for brain_status with semantic and retrieval freshness, coverage, and counts. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
 		},
 		{
 			"name":        "brain_index_repository",
@@ -337,8 +344,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_search_code",
-			"description": "Search indexed source symbols/snippets by name or text.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results")}),
+			"description": "Alias for brain_code; search indexed source symbols with compact records by default. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_search_graph",
@@ -372,7 +379,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_detect_changes",
-			"description": "Alias for brain_changes: map local file changes to semantic symbols.",
+			"description": "Alias for brain_changes: map local diff hunks to the indexed symbols they touch without writing Brain artifacts.",
 			"inputSchema": objectSchema(nil, map[string]any{"limit": integerArg("limit", "Maximum symbols")}),
 		},
 		{
@@ -387,8 +394,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_tests",
-			"description": "Suggest tests relevant to a symbol or query, derived from semantic relations.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions")}),
+			"description": "Suggest a compact set of tests relevant to a symbol or query. Set details=true for full provider records.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
 		},
 		{
 			"name":        "brain_boundaries",
@@ -434,6 +441,9 @@ func mcpToolDefinitions() []map[string]any {
 }
 
 func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (map[string]any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var params mcpToolCallParams
 	if err := json.Unmarshal(raw, &params); err != nil {
 		return nil, err
@@ -446,7 +456,18 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
 	cmd.SetContext(ctx)
-	limit, err := mcpPositiveInt(params.Arguments, "limit", 20)
+	defaultLimit := 20
+	switch params.Name {
+	case "brain_brief":
+		defaultLimit = brainBriefDefaultLimit
+	case "brain_tests":
+		defaultLimit = 3
+	case "brain_context":
+		defaultLimit = 5
+	case "brain_code", "brain_search_code":
+		defaultLimit = 10
+	}
+	limit, err := mcpPositiveInt(params.Arguments, "limit", defaultLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -458,13 +479,65 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
+	details, err := mcpBool(params.Arguments, "details")
+	if err != nil {
+		return nil, err
+	}
 	switch params.Name {
 	case "brain_status", "brain_index_status":
 		target := "."
 		if opts.Env.RepoRoot != "" {
 			target = opts.Env.RepoRoot
 		}
-		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, failOn: semanticAuditFailOnNone}, target)
+		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, compact: true, failOn: semanticAuditFailOnNone}, target)
+	case "brain_refresh":
+		worktree := true
+		if _, provided := params.Arguments["worktree"]; provided {
+			worktree, err = mcpBool(params.Arguments, "worktree")
+			if err != nil {
+				break
+			}
+		}
+		force, boolErr := mcpBool(params.Arguments, "force")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		semantic, boolErr := mcpBool(params.Arguments, "semantic")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		refreshOpts := defaultRefreshCommandOptions()
+		refreshOpts.force = force
+		refreshOpts.seed.force = force
+		refreshOpts.graphBinary = mcpGraphBinary()
+		refreshOpts.skipSessions = true
+		refreshOpts.historyIndex = false
+		refreshOpts.semantic = semantic
+		refreshOpts.statusAfter = false
+		refreshOpts.seed.agent = "none"
+		refreshOpts.seed.worktree = worktree
+		refreshCmd := &cobra.Command{Use: "brain_refresh"}
+		refreshCmd.SetOut(io.Discard)
+		refreshCmd.SetErr(io.Discard)
+		refreshCtx, cancelRefresh := context.WithTimeout(ctx, mcpRefreshTimeout)
+		defer cancelRefresh()
+		refreshCmd.SetContext(refreshCtx)
+		err = runRefresh(refreshCtx, refreshCmd, opts, refreshOpts)
+		if errors.Is(refreshCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf(
+				"brain_refresh exceeded the %s MCP limit; use the dedicated CLI refresh/index command",
+				mcpRefreshTimeout,
+			)
+		}
+		if err == nil {
+			target := "."
+			if opts.Env.RepoRoot != "" {
+				target = opts.Env.RepoRoot
+			}
+			err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, compact: true, failOn: semanticAuditFailOnNone}, target)
+		}
 	case "brain_index_repository":
 		path, stringErr := mcpOptionalString(params.Arguments, "path")
 		if stringErr != nil {
@@ -556,7 +629,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_context":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runSemanticContext(ctx, cmd, opts, semanticContextOptions{limit: limit, json: true}, query)
+			err = runSemanticContext(ctx, cmd, opts, semanticContextOptions{limit: limit, json: true, details: details}, query)
 		}
 	case "brain_impact":
 		err = requireMCPQuery(query)
@@ -565,7 +638,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			if depthErr != nil {
 				err = depthErr
 			} else {
-				err = runSemanticImpact(ctx, cmd, opts, semanticImpactOptions{limit: limit, depth: depth, json: true}, query)
+				err = runSemanticImpact(ctx, cmd, opts, semanticImpactOptions{limit: limit, depth: depth, json: true, details: details}, query)
 			}
 		}
 	case "brain_changes", "brain_detect_changes":
@@ -573,7 +646,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_code", "brain_search_code":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runSemanticQuery(ctx, cmd, opts, semanticQueryOptions{limit: limit, json: true}, query)
+			err = runSemanticQuery(ctx, cmd, opts, semanticQueryOptions{limit: limit, json: true, details: details}, query)
 		}
 	case "brain_search_graph":
 		err = requireMCPQuery(query)
@@ -645,7 +718,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_tests":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runSemanticTests(ctx, cmd, opts, semanticTestsOptions{limit: limit, json: true}, query)
+			err = runSemanticTests(ctx, cmd, opts, semanticTestsOptions{limit: limit, json: true, details: details}, query)
 		}
 	case "brain_boundaries":
 		kind, stringErr := mcpOptionalString(params.Arguments, "kind")

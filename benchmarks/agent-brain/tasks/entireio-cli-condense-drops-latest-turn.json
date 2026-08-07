@@ -3,7 +3,7 @@
   "repo": "entire-cli",
   "repo_path": "cli-bench",
   "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
-  "conditions": ["no_brain", "full_cli_compact", "mcp_history"],
+  "conditions": ["no_brain", "semantic_history_cli_compact", "mcp_history"],
   "prompt": "In multi-turn Claude Code sessions, the checkpoint condensed at the end of a turn is sometimes incomplete: it contains earlier turns' content but none of the lines from the turn that just finished. First turns of a session are always captured fully; the loss only appears from the second turn onward and is intermittent, more frequent when turns finish quickly back-to-back. Diagnose the root cause and fix it with a minimal change.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

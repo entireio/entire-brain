@@ -17,6 +17,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
+
+func (f commandRunnerFunc) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	return f(ctx, dir, name, args...)
+}
+
 func TestMCPInitializeAndToolsList(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
@@ -125,7 +131,7 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	listData, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_index_repository", "brain_list_projects", "brain_delete_project"} {
+	for _, want := range []string{"brain_refresh", "brain_index_repository", "brain_list_projects", "brain_delete_project"} {
 		if !strings.Contains(string(listData), want) {
 			t.Fatalf("tools/list missing %q: %s", want, listData)
 		}
@@ -141,6 +147,100 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}
 	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
 		t.Fatalf("brain_delete_project did not remove %s: %v", brainDir, err)
+	}
+}
+
+func TestMCPBrainRefreshReturnsFreshStatus(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	runner := seedFixtureRunner(repoDir)
+	addRefreshSemanticFixture(runner, repoDir)
+	opts := Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC) },
+	}
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_refresh","arguments":{}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	payload := mcpTextJSONPayload(t, responses[0])
+	data, _ := json.Marshal(payload)
+	for _, want := range []string{`"seed":true`, `"docs":true`, `"semantic":false`, `"retrieval"`, `"freshness"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("brain_refresh status missing %q: %s", want, data)
+		}
+	}
+	if fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+		t.Fatalf("default brain_refresh should remain bounded; semantic indexing is opt-in: %+v", runner.calls)
+	}
+	for _, call := range runner.calls {
+		if call.name == "entire" && len(call.args) > 0 && call.args[0] == "checkpoint" {
+			t.Fatalf("default brain_refresh unexpectedly scanned sessions: %+v", runner.calls)
+		}
+	}
+	brainDir, err := brainDirForKey(opts.Env, "gh/example/repo")
+	if err != nil {
+		t.Fatalf("brain dir: %v", err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Seed == nil ||
+		manifest.Sources.Seed.WorktreeMode != "worktree" || manifest.Sources.Seed.WorktreeHash == "" {
+		t.Fatalf("default brain_refresh did not index the current worktree: %+v", manifest.Sources)
+	}
+
+	// A forced refresh must propagate force into the seed stage even when the
+	// current worktree fingerprint is already indexed.
+	runner.calls = nil
+	forceInput := frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_refresh","arguments":{"force":true}}}`)
+	out.Reset()
+	if err := runMCP(context.Background(), strings.NewReader(forceInput), &out, opts); err != nil {
+		t.Fatalf("forced mcp refresh: %v", err)
+	}
+	if !fakeRunnerCalled(runner, "git", "ls-files") {
+		t.Fatalf("force did not rebuild seed sources: %+v", runner.calls)
+	}
+}
+
+func TestMCPBrainRefreshRejectsSessionsAndHonorsTimeout(t *testing.T) {
+	var out bytes.Buffer
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_refresh","arguments":{"sessions":true}}}`)
+	if err := runMCP(context.Background(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	errObj, ok := responses[0]["error"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "unknown argument for brain_refresh: sessions") {
+		t.Fatalf("sessions argument was not rejected: %+v", responses[0])
+	}
+
+	oldTimeout := mcpRefreshTimeout
+	mcpRefreshTimeout = time.Millisecond
+	t.Cleanup(func() { mcpRefreshTimeout = oldTimeout })
+	blocking := commandRunnerFunc(func(ctx context.Context, _ string, _ string, _ ...string) ([]byte, []byte, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	})
+	out.Reset()
+	timeoutInput := frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_refresh","arguments":{}}}`)
+	if err := runMCP(context.Background(), strings.NewReader(timeoutInput), &out, Options{Version: "test-version", Runner: blocking}); err != nil {
+		t.Fatalf("mcp timeout: %v", err)
+	}
+	responses = readMCPResponses(t, out.String())
+	errObj, ok = responses[0]["error"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "exceeded the 1ms MCP limit") {
+		t.Fatalf("timeout was not surfaced: %+v", responses[0])
 	}
 }
 
@@ -183,7 +283,7 @@ func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
 	}
 }
 
-func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
+func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
@@ -191,7 +291,7 @@ func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_status", "semantic provider/coverage/freshness/blind spots"} {
+	for _, want := range []string{"brain_status", "semantic and retrieval freshness", "coverage totals/blind spots", "details=true"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("tools/list missing %q: %s", want, data)
 		}
@@ -1028,13 +1128,17 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_context","arguments":{"query":"ValidateToken","limit":5}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_impact","arguments":{"query":"ValidateToken","depth":1,"limit":5}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_changes","arguments":{"limit":5}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_changes","arguments":{"limit":5}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_impact","arguments":{"query":"ValidateToken","depth":1,"limit":5,"details":true}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brain_context","arguments":{"query":"ValidateToken","limit":5,"details":true}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"brain_code","arguments":{"query":"ValidateToken","limit":5}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"brain_code","arguments":{"query":"ValidateToken","limit":5,"details":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
-	if len(responses) != 3 {
+	if len(responses) != 7 {
 		t.Fatalf("responses = %d", len(responses))
 	}
 	for _, response := range responses {
@@ -1046,6 +1150,28 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	for _, want := range []string{"ValidateToken", "relations", "internal/auth/token.go"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("wrapper results missing %q: %s", want, data)
+		}
+	}
+	compactImpact, _ := json.Marshal(mcpTextJSONPayload(t, responses[1]))
+	detailedImpact, _ := json.Marshal(mcpTextJSONPayload(t, responses[3]))
+	if strings.Contains(string(compactImpact), `"record_type"`) {
+		t.Fatalf("compact MCP impact retained provider fields: %s", compactImpact)
+	}
+	if !strings.Contains(string(detailedImpact), `"record_type"`) {
+		t.Fatalf("detailed MCP impact omitted provider fields: %s", detailedImpact)
+	}
+	compactContext, _ := json.Marshal(mcpTextJSONPayload(t, responses[0]))
+	detailedContext, _ := json.Marshal(mcpTextJSONPayload(t, responses[4]))
+	compactCode, _ := json.Marshal(mcpTextJSONPayload(t, responses[5]))
+	detailedCode, _ := json.Marshal(mcpTextJSONPayload(t, responses[6]))
+	for name, payload := range map[string][]byte{"context": compactContext, "code": compactCode} {
+		if strings.Contains(string(payload), `"record_type"`) {
+			t.Fatalf("compact MCP %s retained provider fields: %s", name, payload)
+		}
+	}
+	for name, payload := range map[string][]byte{"context": detailedContext, "code": detailedCode} {
+		if !strings.Contains(string(payload), `"record_type"`) {
+			t.Fatalf("detailed MCP %s omitted provider fields: %s", name, payload)
 		}
 	}
 }
@@ -1277,15 +1403,23 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(oldWD) }()
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`)
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_status","arguments":{"details":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
-	data, _ := json.Marshal(responses[0]["result"])
-	if !strings.Contains(string(data), `"severity\": \"ok\"`) {
-		t.Fatalf("status result = %s", data)
+	if len(responses) != 2 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+	compact, _ := json.Marshal(mcpTextJSONPayload(t, responses[0]))
+	if !strings.Contains(string(compact), `"severity":"ok"`) || strings.Contains(string(compact), `"file_languages"`) || strings.Contains(string(compact), `"changed_symbol_hints"`) {
+		t.Fatalf("compact status result = %s", compact)
+	}
+	detailed, _ := json.Marshal(mcpTextJSONPayload(t, responses[1]))
+	if !strings.Contains(string(detailed), `"severity":"ok"`) || !strings.Contains(string(detailed), `"file_languages"`) {
+		t.Fatalf("detailed status result = %s", detailed)
 	}
 }
 
@@ -1451,7 +1585,11 @@ func assertMCPRetrievalResult(t *testing.T, response map[string]any, branch, id,
 		if !ok {
 			continue
 		}
-		if row["id"] == id && strings.Contains(fmt.Sprint(row["text"]), text) {
+		body := fmt.Sprint(row["excerpt"])
+		if body == "<nil>" {
+			body = fmt.Sprint(row["text"])
+		}
+		if row["id"] == id && strings.Contains(body, text) {
 			return
 		}
 	}

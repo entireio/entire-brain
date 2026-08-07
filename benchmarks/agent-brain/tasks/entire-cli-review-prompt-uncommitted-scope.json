@@ -1,8 +1,8 @@
 {
   "id": "entire-cli-review-prompt-uncommitted-scope",
   "repo": "entire-cli",
-  "repo_path": "cli",
-  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "repo_path": "entire-cli",
+  "conditions": ["no_brain", "semantic_brain", "semantic_history_brain"],
   "prompt": "Fix the review prompt regression. The shared review prompt must explicitly include uncommitted working-tree changes in scope when a base ref is present, so review agents do not silently skip in-progress edits.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
