@@ -18,3 +18,10 @@ func newVectorStore(brainDir, branch, modelID string, dim int) vectorStore {
 func newHistoryVectorStore(brainDir, modelID string, dim int) (historyVectorStore, bool) {
 	return nil, false
 }
+
+// newConversationVectorStore mirrors newHistoryVectorStore: the conversation
+// semantic arm is vec0-only, so on this build the conversation source stays
+// lexical (BM25) with an explicit vector-unavailable state.
+func newConversationVectorStore(brainDir, modelID string, dim int) (historyVectorStore, bool) {
+	return nil, false
+}

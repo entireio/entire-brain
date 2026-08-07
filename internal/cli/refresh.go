@@ -288,6 +288,22 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 			vecTask.Update(fmt.Sprintf("history vectors: %d embedded, %d pruned (%d total)", added, droppedVecs, total))
 			vecTask.Finish(nil)
+			// Conversation vectors ride the same stage and gate but live in
+			// their own store (separate identity; general history KNN never
+			// spends budget on exchanges). Skipped silently when the store is
+			// unavailable — the history stage above already reported why.
+			if convStore, convOK := newConversationVectorStore(brainDir, e.ID(), e.Dim()); convOK {
+				convTask := progress.Begin("conversation vectors")
+				convAdded, convDropped, convTotal, convErr := syncConversationVectors(convStore, index, e, func(done, totalNew int) {
+					convTask.Update(fmt.Sprintf("conversation vectors: %d/%d new %s embedded", done, totalNew, pluralUnit("exchange", totalNew)))
+				})
+				if convErr != nil {
+					convTask.Finish(convErr)
+					return convErr
+				}
+				convTask.Update(fmt.Sprintf("conversation vectors: %d embedded, %d pruned (%d total)", convAdded, convDropped, convTotal))
+				convTask.Finish(nil)
+			}
 		}
 	}
 	// Doc index: retrievable chunks of the brain's own markdown (seed summaries

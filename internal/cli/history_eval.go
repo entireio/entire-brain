@@ -135,9 +135,13 @@ func generateHistoryEvalTasks(brainDir string, manifest *exportManifest, index h
 			pr = &pathRecords{}
 			byPath[r.Path] = pr
 		}
-		if r.Kind == "request" {
+		switch {
+		case r.Kind == "request":
 			pr.requests = append(pr.requests, r)
-		} else {
+		case historyGeneralRankingHiddenKind(r.Kind):
+			// Conversation exchanges are hidden from general ranking, so they
+			// cannot be labelable eval answers either.
+		default:
 			pr.rankable = append(pr.rankable, r)
 		}
 	}
@@ -477,7 +481,7 @@ func (f *historyFusedRanker) rank(query string, k int) ([]historyRecord, error) 
 	cands := make([]cand, 0, len(f.index.Records))
 	seen := map[string]struct{}{}
 	for _, r := range f.index.Records {
-		if r.Kind == "request" {
+		if historyGeneralRankingHiddenKind(r.Kind) {
 			continue
 		}
 		key := normalizeHistorySearchText(r.Summary)

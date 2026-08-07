@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
+	"time"
 )
 
 // retrieve.go is the unified retrieval layer behind the qmd-inspired verbs
@@ -14,7 +16,7 @@ import (
 // scores don't fight.
 
 type unifiedResult struct {
-	Source               string            `json:"source"` // fact | fact-review | history | doc | consolidation | theme | workspace_pattern | workspace_graph
+	Source               string            `json:"source"` // fact | fact-review | history | conversation | doc | consolidation | theme | workspace_pattern | workspace_graph
 	ID                   string            `json:"id"`     // prefixed, addressable by get/multi-get
 	Path                 string            `json:"path,omitempty"`
 	Heading              string            `json:"heading,omitempty"`
@@ -24,6 +26,18 @@ type unifiedResult struct {
 	VerificationRequired bool              `json:"verification_required,omitempty"`
 	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
 	RelatedIDs           []string          `json:"related_ids,omitempty"`
+
+	// Conversation-exchange provenance (experimental, additive; empty for every
+	// other source).
+	EndLine   int    `json:"end_line,omitempty"` // inclusive 1-based source range end
+	Branch    string `json:"branch,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"` // expanded/projected text is bounded, not complete
+	// MatchedTerms lists the query tokens that actually hit this record, so a
+	// weak match is diagnosable instead of opaque (conversation search only).
+	MatchedTerms []string `json:"matched_terms,omitempty"`
 }
 
 type retrievalMode int
@@ -33,6 +47,77 @@ const (
 	modeVector                       // vsearch
 	modeHybrid                       // query
 )
+
+// Retrieval source selectors. Phase 1 of the conversational-memory plan:
+// "all" retains the pre-Phase-1 source set (facts + classified history + docs);
+// conversation exchanges are returned only when explicitly selected.
+const (
+	retrievalSourceAll          = "all"
+	retrievalSourceFact         = "fact"
+	retrievalSourceHistory      = "history"
+	retrievalSourceConversation = "conversation"
+	retrievalSourceDoc          = "doc"
+)
+
+// retrievalOptions is the shared CLI/MCP retrieval-options contract; extend it
+// rather than widening positional signatures (cross-cutting rule of the
+// conversational-memory plan).
+type retrievalOptions struct {
+	// Source selects the layer(s) to rank: "" or "all" is the default set.
+	Source string
+	// Structured conversation-source filters (Phase 2). Zero values mean no
+	// filter. After/Before bound the session time (After inclusive, Before
+	// exclusive); records without a session time are excluded whenever a time
+	// filter is set, so a filter can never leak an unprovable record into
+	// scope. SessionID and Agent are exact (Agent case-insensitive) matches.
+	// Branch filters on the captured branch. All five apply only when
+	// Source == "conversation"; supplying After/Before/SessionID/Agent with
+	// another source is a structured error, never silently ignored.
+	After     time.Time
+	Before    time.Time
+	SessionID string
+	Agent     string
+	Branch    string
+}
+
+// hasConversationOnlyFilters reports filters that have no meaning outside the
+// conversation source. Branch is excluded: it is a long-standing facts-branch
+// selector on every retrieval surface and doubles as the conversation branch
+// filter when that source is selected.
+func (o retrievalOptions) hasConversationOnlyFilters() bool {
+	return !o.After.IsZero() || !o.Before.IsZero() ||
+		strings.TrimSpace(o.SessionID) != "" || strings.TrimSpace(o.Agent) != ""
+}
+
+// parseRetrievalTimeFilter parses a CLI/MCP time filter: RFC3339 or a plain
+// YYYY-MM-DD day (interpreted as UTC midnight). Empty means unset.
+func parseRetrievalTimeFilter(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("time filter must be RFC3339 or YYYY-MM-DD (got %q)", value)
+}
+
+// parseRetrievalSource validates a user/client-supplied source selector,
+// normalizing "" to "all". CLI and MCP share these semantics.
+func parseRetrievalSource(value string) (string, error) {
+	source := strings.ToLower(strings.TrimSpace(value))
+	switch source {
+	case "":
+		return retrievalSourceAll, nil
+	case retrievalSourceAll, retrievalSourceFact, retrievalSourceHistory, retrievalSourceConversation, retrievalSourceDoc:
+		return source, nil
+	default:
+		return "", fmt.Errorf("source must be one of all, fact, history, conversation, doc (got %q)", value)
+	}
+}
 
 func embedQueryWith(e Embedder, q string) []float32 {
 	if qe, ok := e.(queryEmbedder); ok {
@@ -49,9 +134,34 @@ func embedQueryWith(e Embedder, q string) []float32 {
 // embedding hundreds of thousands of records per query is hours of work that
 // belongs in refresh. Missing layers are skipped, not errors.
 func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode retrievalMode) ([]unifiedResult, error) {
+	return retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, limit, mode, retrievalOptions{})
+}
+
+// errConversationVectorUnsupported is the structured answer for explicit
+// vector search over the conversation source when the semantic arm is
+// unavailable: the arm requires the fusion-eligible embedder opt-in
+// (ENTIRE_BRAIN_EMBEDDER with a Gemma-class server), the brain_cgo build's
+// vec0 store, and refresh-built conversation vectors. Lexical search and query
+// keep working without any of that.
+var errConversationVectorUnsupported = errors.New(`source "conversation" vector search is unavailable: it requires a fusion-eligible embedder (ENTIRE_BRAIN_EMBEDDER), the brain_cgo build, and conversation vectors built by refresh; use search or query with --source conversation for lexical recall`)
+
+func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	source := opts.Source
+	if source == "" {
+		source = retrievalSourceAll
+	}
+	if source == retrievalSourceConversation {
+		return retrieveConversation(brainDir, query, limit, mode, opts)
+	}
+	if opts.hasConversationOnlyFilters() {
+		return nil, fmt.Errorf(`after/before/session/agent filters require source "conversation" (got %q)`, source)
+	}
+	includeFacts := source == retrievalSourceAll || source == retrievalSourceFact
+	includeHistory := source == retrievalSourceAll || source == retrievalSourceHistory
+	includeDocs := source == retrievalSourceAll || source == retrievalSourceDoc
 	// Preserve the existing 2x per-layer candidate budget. The facts arm adds a
 	// bounded collapse reserve before applying trust state, so unrelated
 	// history/doc RRF candidates never change merely because a proposal entered
@@ -62,17 +172,24 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	}
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
-	all, err := loadFacts(brainDir, branch)
-	if err != nil {
-		return nil, err
-	}
-	active := make([]factRecord, 0, len(all))
-	for _, f := range all {
-		if f.Status == factStatusActive {
-			active = append(active, f)
+	var all []factRecord
+	var active []factRecord
+	var proposals []factProposal
+	var proposalsErr error
+	if includeFacts {
+		var err error
+		all, err = loadFacts(brainDir, branch)
+		if err != nil {
+			return nil, err
 		}
+		active = make([]factRecord, 0, len(all))
+		for _, f := range all {
+			if f.Status == factStatusActive {
+				active = append(active, f)
+			}
+		}
+		proposals, proposalsErr = loadFactProposals(brainDir, branch)
 	}
-	proposals, proposalsErr := loadFactProposals(brainDir, branch)
 	var e Embedder
 	if mode != modeLexical {
 		e = defaultEmbedder()
@@ -81,7 +198,7 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	var lists [][]unifiedResult
 
 	// Facts.
-	if len(active) > 0 {
+	if includeFacts && len(active) > 0 {
 		factLimit := min(len(active), candidateLimit)
 		if proposalsErr == nil {
 			factLimit = guardedFactCandidateLimit(active, proposals, candidateLimit)
@@ -128,7 +245,7 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	// problem — surface it rather than returning silently-incomplete results. A
 	// brain with no history source (nil) is legitimately skipped.
 	historySem := historySemanticEmbedder(e)
-	if mode != modeVector || historySem != nil {
+	if includeHistory && (mode != modeVector || historySem != nil) {
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
 			return nil, err
@@ -186,7 +303,13 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	// Docs — lexical (search/query) and/or vector (vsearch/query). In hybrid mode
 	// docs join BOTH arms, mirroring facts. A never-built doc index is skipped; a
 	// corrupt/unreadable one is a real storage problem and is surfaced.
-	docIdx, derr := loadDocIndex(brainDir)
+	var docIdx docIndex
+	var derr error
+	if includeDocs {
+		docIdx, derr = loadDocIndex(brainDir)
+	} else {
+		derr = os.ErrNotExist
+	}
 	switch {
 	case derr == nil && len(docIdx.Records) > 0:
 		var lexicalDocIDs map[string]struct{}
@@ -446,6 +569,197 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	return out
 }
 
+// conversationSessionTopKDivisor sets the default per-session share of a
+// conversation result list: one session may hold at most limit/2 (min 1) of
+// the returned results while other sessions still have candidates. Dogfooding
+// measured single sessions holding 29–84% of a brain's exchanges; without a
+// cap one long session crowds out every other trajectory.
+const conversationSessionTopKDivisor = 2
+
+// retrieveConversation is the explicit conversation-source arm over exchange
+// records only, then structured filters and a per-session diversity cap. It
+// never consults facts, docs, or classified history, and every result carries
+// the historical-evidence contract. Ranking by mode: search is BM25 (substring
+// scorer as fallback); query fuses BM25 with calibrated conversation vectors
+// when the gated semantic arm is available and degrades to exactly the lexical
+// ranking otherwise; vsearch is semantic-only and returns a structured
+// unavailable error when the arm is closed.
+func retrieveConversation(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.History == nil {
+		if mode == modeVector {
+			return nil, errConversationVectorUnsupported
+		}
+		return nil, nil
+	}
+	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	if err != nil {
+		return nil, fmt.Errorf("load history index: %w", err)
+	}
+	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
+	// Filters and the diversity cap discard ranked candidates, so over-fetch
+	// enough for the survivors to still fill the limit.
+	candidateLimit := limit * 4
+	if filtered {
+		candidateLimit = limit * 16
+	}
+	if candidateLimit < limit { // overflow guard
+		candidateLimit = limit
+	}
+	var scored []scoredHistoryRecord
+	switch mode {
+	case modeVector:
+		scores := conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
+		if len(scores) == 0 {
+			return nil, errConversationVectorUnsupported
+		}
+		scored = rankConversationSemantic(index, scores, candidateLimit)
+	case modeHybrid:
+		var ok bool
+		scored, ok = rankConversationFused(brainDir, index, query, candidateLimit, defaultEmbedder())
+		if !ok {
+			scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
+		}
+	default:
+		var ok bool
+		scored, ok = rankHistoryViaFTS(brainDir, index, conversationKind, query, candidateLimit)
+		if !ok {
+			scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
+		}
+	}
+	kept := make([]scoredHistoryRecord, 0, len(scored))
+	for _, s := range scored {
+		if conversationRecordMatchesFilters(s.Record, opts) {
+			kept = append(kept, s)
+		}
+	}
+	kept = capConversationSessionShare(kept, limit, opts)
+	if len(kept) > limit {
+		kept = kept[:limit]
+	}
+	out := make([]unifiedResult, len(kept))
+	for i, s := range kept {
+		out[i] = conversationToUnified(s.Record)
+		// Explainability: which query tokens actually hit this record, so a
+		// thin result is debuggable ("only 'bug' matched") instead of opaque.
+		out[i].MatchedTerms = historyRecordMatchedTerms(s.Record, query)
+		// Preserve list order for callers that read Score; RRF-scale for
+		// consistency with single-list merges.
+		out[i].Score = 1.0 / (rrfK + float64(i+1))
+	}
+	return out, nil
+}
+
+// conversationRecordMatchesFilters applies the structured conversation filters.
+// Scope safety over recall: a record that cannot prove it is inside a time
+// filter (no session time) is excluded when one is set.
+func conversationRecordMatchesFilters(record historyRecord, opts retrievalOptions) bool {
+	if session := strings.TrimSpace(opts.SessionID); session != "" && record.SessionID != session {
+		return false
+	}
+	if agent := strings.TrimSpace(opts.Agent); agent != "" && !strings.EqualFold(record.Agent, agent) {
+		return false
+	}
+	if branch := strings.TrimSpace(opts.Branch); branch != "" && record.Branch != branch {
+		return false
+	}
+	if !opts.After.IsZero() || !opts.Before.IsZero() {
+		created, err := time.Parse(time.RFC3339, record.CreatedAt)
+		if err != nil {
+			return false
+		}
+		if !opts.After.IsZero() && created.Before(opts.After) {
+			return false
+		}
+		if !opts.Before.IsZero() && !created.Before(opts.Before) {
+			return false
+		}
+	}
+	return true
+}
+
+// capConversationSessionShare enforces the per-session diversity cap: at most
+// max(1, limit/conversationSessionTopKDivisor) results per session while other
+// sessions still have candidates. If the cap leaves the list short and only
+// capped sessions have candidates left, they backfill in rank order — the cap
+// prevents crowding out, it does not hide the only matching session. An
+// explicit session filter disables the cap entirely.
+func capConversationSessionShare(scored []scoredHistoryRecord, limit int, opts retrievalOptions) []scoredHistoryRecord {
+	if strings.TrimSpace(opts.SessionID) != "" || len(scored) <= 1 {
+		return scored
+	}
+	perSession := limit / conversationSessionTopKDivisor
+	if perSession < 1 {
+		perSession = 1
+	}
+	counts := map[string]int{}
+	kept := make([]scoredHistoryRecord, 0, min(limit, len(scored)))
+	var overflow []scoredHistoryRecord
+	for _, s := range scored {
+		key := s.Record.SessionID
+		if key == "" {
+			key = s.Record.Path
+		}
+		if counts[key] >= perSession {
+			overflow = append(overflow, s)
+			continue
+		}
+		counts[key]++
+		kept = append(kept, s)
+		if len(kept) >= limit {
+			return kept
+		}
+	}
+	for _, s := range overflow {
+		if len(kept) >= limit {
+			break
+		}
+		kept = append(kept, s)
+	}
+	return kept
+}
+
+// conversationToUnified projects an exchange record for search results: the
+// bounded search projection plus provenance and the historical-evidence
+// contract. Full bounded content is get's job.
+func conversationToUnified(record historyRecord) unifiedResult {
+	return unifiedResult{
+		Source:               retrievalSourceConversation,
+		ID:                   record.ID,
+		Path:                 record.Path,
+		Heading:              conversationKind,
+		Line:                 record.Line,
+		EndLine:              record.EndLine,
+		Branch:               record.Branch,
+		SessionID:            record.SessionID,
+		Agent:                record.Agent,
+		CreatedAt:            record.CreatedAt,
+		Text:                 record.Summary,
+		Truncated:            record.ProjectionTruncated,
+		VerificationRequired: true,
+		Caveats:              []retrievalCaveat{conversationHistoricalEvidenceCaveat()},
+	}
+}
+
+// conversationGetResult is the bounded ID-based expansion: re-parse the exact
+// indexed range from the canonical transcript when its digest still matches;
+// otherwise degrade to the stored projection with an explicit source-integrity
+// caveat instead of presenting it as faithful full content.
+func conversationGetResult(brainDir string, record historyRecord) unifiedResult {
+	result := conversationToUnified(record)
+	expansion, err := expandConversationExchange(brainDir, record)
+	if err != nil {
+		result.Caveats = append(result.Caveats, conversationSourceStaleCaveat(record.Path))
+		return result
+	}
+	result.Text = conversationExpansionText(expansion)
+	result.Truncated = expansion.Truncated
+	return result
+}
+
 func historyToUnified(scored []scoredHistoryRecord) []unifiedResult {
 	out := make([]unifiedResult, len(scored))
 	for i, s := range scored {
@@ -510,7 +824,7 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
 // pathological on large brains. Results preserve input order.
 func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {
-	var wantFact, wantReview, wantHistory, wantDoc bool
+	var wantFact, wantReview, wantHistory, wantConversation, wantDoc bool
 	for _, id := range ids {
 		switch {
 		case strings.HasPrefix(id, "fact:"):
@@ -519,6 +833,8 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			wantReview = true
 		case strings.HasPrefix(id, "history:"):
 			wantHistory = true
+		case strings.HasPrefix(id, conversationIDPrefix):
+			wantConversation = true
 		case strings.HasPrefix(id, "doc:"):
 			wantDoc = true
 		}
@@ -547,7 +863,8 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 		}
 	}
 	histByID := map[string]historyRecord{}
-	if wantHistory {
+	convByID := map[string]historyRecord{}
+	if wantHistory || wantConversation {
 		// A corrupt manifest, or a history index the manifest declares but that is
 		// missing/unreadable, is a real storage problem — surface it rather than
 		// reporting every history:* id as "not found". A brain with no history source
@@ -562,6 +879,10 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 				return nil, nil, fmt.Errorf("load history index: %w", err)
 			}
 			for _, r := range index.Records {
+				if r.Kind == conversationKind {
+					convByID[r.ID] = r
+					continue
+				}
 				histByID[r.ID] = r
 			}
 		}
@@ -612,6 +933,13 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 		case strings.HasPrefix(id, "history:"):
 			if r, ok := histByID[id]; ok {
 				found = append(found, historyToUnified([]scoredHistoryRecord{{Record: r}})[0])
+				continue
+			}
+		case strings.HasPrefix(id, conversationIDPrefix):
+			// The transcript path is resolved from the indexed record only —
+			// a client-supplied id can never choose a filesystem path.
+			if r, ok := convByID[id]; ok {
+				found = append(found, conversationGetResult(brainDir, r))
 				continue
 			}
 		case strings.HasPrefix(id, "doc:"):

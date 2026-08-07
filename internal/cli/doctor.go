@@ -8,30 +8,42 @@ import (
 )
 
 func newDoctorCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
+	var jsonOut bool
+	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check the parent Entire CLI plugin environment",
+		Short: "Check the plugin environment and the capture-to-recall chain",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(cmd, opts)
+			return runDoctor(cmd, opts, jsonOut)
 		},
 	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	return cmd
 }
 
-func runDoctor(cmd *cobra.Command, opts Options) error {
-	env := opts.Env
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "ENTIRE_CLI_VERSION=%s\n", valueOrUnset(env.CLIVersion))
-	fmt.Fprintf(out, "ENTIRE_REPO_ROOT=%s\n", valueOrUnset(env.RepoRoot))
-	fmt.Fprintf(out, "ENTIRE_PLUGIN_CONFIG_DIR=%s\n", valueOrUnset(env.PluginConfigDir))
-	fmt.Fprintf(out, "ENTIRE_PLUGIN_DATA_DIR=%s\n", valueOrUnset(env.PluginDataDir))
-	fmt.Fprintf(out, "ENTIRE_PLUGIN_STATE_DIR=%s\n", valueOrUnset(env.PluginStateDir))
-	fmt.Fprintf(out, "ENTIRE_PLUGIN_CACHE_DIR=%s\n", valueOrUnset(env.PluginCacheDir))
+// doctorReport is the machine-readable doctor contract: environment values,
+// plugin-dir writability, and — when run inside a repository — the
+// capture -> export -> index -> recall chain checks (brainDoctorChecks).
+type doctorReport struct {
+	Env    map[string]string   `json:"env"`
+	Dirs   []doctorCheckResult `json:"dirs"`
+	Checks []doctorCheckResult `json:"checks,omitempty"`
+}
 
+func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
+	env := opts.Env
+	report := doctorReport{Env: map[string]string{
+		"ENTIRE_CLI_VERSION":       env.CLIVersion,
+		"ENTIRE_REPO_ROOT":         env.RepoRoot,
+		"ENTIRE_PLUGIN_CONFIG_DIR": env.PluginConfigDir,
+		"ENTIRE_PLUGIN_DATA_DIR":   env.PluginDataDir,
+		"ENTIRE_PLUGIN_STATE_DIR":  env.PluginStateDir,
+		"ENTIRE_PLUGIN_CACHE_DIR":  env.PluginCacheDir,
+	}}
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {
 		return err
 	}
-	checks := []struct {
+	for _, check := range []struct {
 		label string
 		path  string
 	}{
@@ -39,20 +51,45 @@ func runDoctor(cmd *cobra.Command, opts Options) error {
 		{label: "plugin data dir", path: dirs.Data},
 		{label: "plugin state dir", path: dirs.State},
 		{label: "plugin cache dir", path: dirs.Cache},
-	}
-	for _, check := range checks {
-		if err := probeWritableDir(check.path); err != nil {
-			return fmt.Errorf("%s: %w", check.label, err)
+	} {
+		result := doctorCheckResult{Name: check.label, State: "ok", Detail: check.path}
+		if probeErr := probeWritableDir(check.path); probeErr != nil {
+			result.State = "error"
+			result.Detail = probeErr.Error()
 		}
-		fmt.Fprintf(out, "%s: writable (%s)\n", check.label, check.path)
+		report.Dirs = append(report.Dirs, result)
 	}
 	if env.RepoRoot != "" && opts.Runner != nil {
-		report, err := semanticStaleReport(cmd.Context(), opts, env.RepoRoot)
-		if err != nil {
-			fmt.Fprintf(out, "semantic brain: unavailable (%s)\n", err)
+		report.Checks = brainDoctorChecks(cmd.Context(), opts, env.RepoRoot)
+		if semReport, semErr := semanticStaleReport(cmd.Context(), opts, env.RepoRoot); semErr != nil {
+			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: "warn", Detail: "unavailable: " + semErr.Error()})
 		} else {
-			fmt.Fprintf(out, "semantic brain: %s\n", report.Severity)
+			state := "ok"
+			if semReport.Severity != "ok" {
+				state = "warn"
+			}
+			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: state, Detail: semReport.Severity})
 		}
+	}
+	if jsonOut {
+		return writeJSON(cmd, report)
+	}
+	out := cmd.OutOrStdout()
+	for _, key := range []string{"ENTIRE_CLI_VERSION", "ENTIRE_REPO_ROOT", "ENTIRE_PLUGIN_CONFIG_DIR", "ENTIRE_PLUGIN_DATA_DIR", "ENTIRE_PLUGIN_STATE_DIR", "ENTIRE_PLUGIN_CACHE_DIR"} {
+		fmt.Fprintf(out, "%s=%s\n", key, valueOrUnset(report.Env[key]))
+	}
+	for _, dir := range report.Dirs {
+		if dir.State != "ok" {
+			return fmt.Errorf("%s: %s", dir.Name, dir.Detail)
+		}
+		fmt.Fprintf(out, "%s: writable (%s)\n", dir.Name, dir.Detail)
+	}
+	for _, check := range report.Checks {
+		fmt.Fprintf(out, "%s: %s", check.Name, check.State)
+		if check.Detail != "" {
+			fmt.Fprintf(out, " (%s)", check.Detail)
+		}
+		fmt.Fprintln(out)
 	}
 	return nil
 }

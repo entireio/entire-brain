@@ -126,7 +126,12 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 		warnings []string
 		counts   reinforcementCounts
 	)
+	// Session tombstones (Phase 4): excluded sessions contribute no episodes.
+	stones := loadSessionTombstones(outputDir)
 	for _, session := range manifest.Sources.Sessions.Sessions {
+		if _, excluded := stones.Excluded[strings.TrimSpace(session.SessionID)]; excluded {
+			continue
+		}
 		rel := strings.TrimSpace(session.TranscriptPath)
 		if rel == "" {
 			continue
