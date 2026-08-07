@@ -1917,6 +1917,7 @@ def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
             "items_redacted": 0,
             "contaminated_sessions_removed": 0,
             "history_records_removed": 0,
+            "search_indexes_invalidated": 0,
             "session_corpus_sha256": empty_hash,
             "history_index_sha256": empty_hash,
         }
@@ -1925,6 +1926,7 @@ def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
     items_redacted = 0
     contaminated_sessions_removed = 0
     history_records_removed = 0
+    search_indexes_invalidated = 0
     session_files: list[pathlib.Path] = []
     history_indexes: list[pathlib.Path] = []
     repos_root = plugin / "data" / "repos"
@@ -1965,6 +1967,25 @@ def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
             if removed:
                 files_scrubbed += 1
                 items_redacted += removed
+    # History/doc FTS databases are derived from the JSON indexes scrubbed
+    # above. Their freshness fingerprints do not include record content, so a
+    # content-only redaction would otherwise leave the original benchmark text
+    # searchable. Remove the rebuildable databases and their possible sidecars;
+    # Brain queries will rebuild them from sanitized truth or use lexical fallback.
+    derived_search_names = {
+        "index-fts.sqlite",
+        "index-fts.sqlite-journal",
+        "index-fts.sqlite-shm",
+        "index-fts.sqlite-wal",
+    }
+    for brain_data in existing_roots:
+        for path in sorted(brain_data.rglob("index-fts.sqlite*")):
+            if path.name not in derived_search_names or path.parent.name not in {"docs", "history"}:
+                continue
+            if not path.is_file() or path.is_symlink():
+                continue
+            path.unlink()
+            search_indexes_invalidated += 1
     return {
         "ok": True,
         "files_checked": files_checked,
@@ -1972,6 +1993,7 @@ def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
         "items_redacted": items_redacted,
         "contaminated_sessions_removed": contaminated_sessions_removed,
         "history_records_removed": history_records_removed,
+        "search_indexes_invalidated": search_indexes_invalidated,
         "session_corpus_sha256": sha256_file_corpus(plugin, session_files),
         "history_index_sha256": sha256_history_record_corpus(plugin, history_indexes),
     }

@@ -1924,6 +1924,15 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"+`{"from":"ValidateToken","to":"CallValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeIngest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStorePath := filepath.Join(storage.BrainDir, filepath.FromSlash(beforeIngest.Sources.Semantic.StorePath))
 	var out bytes.Buffer
 	ingestCmd := &cobra.Command{Use: "ingest"}
 	ingestCmd.SetOut(&out)
@@ -1932,6 +1941,28 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"matched_static_edges": 1`) {
 		t.Fatalf("trace ingest did not validate static edge:\n%s", out.String())
+	}
+	afterIngest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterIngest.Sources.Semantic.GenerationPath == beforeIngest.Sources.Semantic.GenerationPath {
+		t.Fatalf("trace ingest mutated active generation in place: %s", afterIngest.Sources.Semantic.GenerationPath)
+	}
+	oldDB, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(oldStorePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldTraceCount int
+	if err := oldDB.QueryRow(`SELECT COUNT(*) FROM runtime_traces`).Scan(&oldTraceCount); err != nil {
+		_ = oldDB.Close()
+		t.Fatal(err)
+	}
+	if err := oldDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if oldTraceCount != 0 {
+		t.Fatalf("previous immutable generation contains %d runtime traces, want 0", oldTraceCount)
 	}
 	out.Reset()
 	queryTraceCmd := &cobra.Command{Use: "query-trace"}

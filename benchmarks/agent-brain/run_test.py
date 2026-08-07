@@ -2004,6 +2004,17 @@ class RunnerAndConditionTests(unittest.TestCase):
             current_index.write_text(
                 json.dumps({"items": ["useful", "benchmarks/agent-brain/results/current/record.json"]})
             )
+            history_fts = current_brain / "history" / "index-fts.sqlite"
+            history_fts.parent.mkdir()
+            history_fts.write_bytes(b"stale unsanitized history fts")
+            history_wal = history_fts.with_name(history_fts.name + "-wal")
+            history_wal.write_bytes(b"stale unsanitized history wal")
+            docs_fts = current_brain / "docs" / "index-fts.sqlite"
+            docs_fts.parent.mkdir()
+            docs_fts.write_bytes(b"stale unsanitized docs fts")
+            semantic_store = current_brain / "semantic" / "semantic.sqlite"
+            semantic_store.parent.mkdir()
+            semantic_store.write_bytes(b"semantic store must remain")
 
             summary = run.sanitize_brain_history(plugin)
             self.assertEqual(summary["files_scrubbed"], 4)
@@ -2013,6 +2024,11 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertNotIn("benchmarks/agent-brain/tasks", current_session.read_text())
             self.assertIn("[redacted benchmark scaffold]", index.read_text())
             self.assertIn("[redacted benchmark scaffold]", current_index.read_text())
+            self.assertEqual(summary["search_indexes_invalidated"], 3)
+            self.assertFalse(history_fts.exists())
+            self.assertFalse(history_wal.exists())
+            self.assertFalse(docs_fts.exists())
+            self.assertTrue(semantic_store.exists())
 
     def test_sanitize_brain_history_removes_contaminated_sessions_as_whole_units(self):
         with tempfile.TemporaryDirectory() as tmp:
