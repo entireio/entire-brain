@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "ed5422370d43",
+  "strategy": "manual-commit",
+  "branch": "feat/purge-gitmeta-sync-caveat",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/eval_ledger.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ed/5422370d43/0/metadata.json",
+      "transcript": "/ed/5422370d43/0/full.jsonl",
+      "content_hash": "/ed/5422370d43/0/content_hash.txt",
+      "prompt": "/ed/5422370d43/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 144,
+    "cache_creation_tokens": 57312,
+    "cache_read_tokens": 45633201,
+    "output_tokens": 39288,
+    "api_call_count": 72
+  }
+}
