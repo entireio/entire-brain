@@ -40,40 +40,29 @@ calls. Install the provider first, then the brain. Both are registered with the
 Entire CLI the same way, using `entire plugin install <path>`, which links a
 local `entire-<name>` executable into Entire's managed plugin directory.
 
-### Quick install with `go install`
+### Versioned install status
 
-```sh
-# 1. Semantic provider (the entire-graph code-graph plugin the brain shells out to)
-CGO_ENABLED=1 go install github.com/entireio/entire-graph/cmd/entire-graph@v0.1.0
-entire plugin install "$(go env GOPATH)/bin/entire-graph" --force
-
-# 2. The brain
-go install github.com/ashtom/entire-brain/cmd/entire-brain@v0.1.0
-entire plugin install "$(go env GOPATH)/bin/entire-brain" --force
-```
-
-If `$(go env GOPATH)/bin` is already on your `PATH`, Entire can also discover the
-binaries directly after `go install`, without the `entire plugin install` step.
+A versioned `go install` path is not available for the Graph-named integration
+yet. The existing `v0.1.0` tags predate the rename: the provider tag builds
+`entire-sem`, and the brain tag invokes `entire sem`. Do not combine those tags
+with the `entire graph` commands in this guide. This section will gain copy-paste
+`go install` commands after matching Graph-based release tags are published in
+both repositories.
 
 `entire plugin install` currently supports local executable paths only. It does
 not fetch from a git URL or a GitHub release, and it does not auto-install the
-provider dependency, so both `go install` steps are required.
-
-The `entire-brain` `v0.1.0` module still declares its historical
-`github.com/ashtom/entire-brain` path, so the versioned `go install` command must
-use that path even though the repository's canonical GitHub URL is now
-`github.com/entireio/entire-brain`. Install from source if your environment cannot
-resolve the repository redirect through the module proxy.
+provider dependency.
 
 ### Install from source
 
-Cloning gives you the same result and does not depend on the module proxy. Clone
-the provider at the `v0.1.0` tag, clone the brain next to it, and run the bundled
-installer.
+Until matching Graph-based tags are available, the working pre-release path is to
+build both components from their current `main` branches. This path tracks
+development and is not a reproducible versioned install; use matching release
+tags once they are published.
 
 ```sh
-git clone --branch v0.1.0 https://github.com/entireio/entire-graph.git
-git clone https://github.com/entireio/entire-brain.git
+git clone --branch main https://github.com/entireio/entire-graph.git
+git clone --branch main https://github.com/entireio/entire-brain.git
 cd entire-brain
 scripts/install.sh
 ```
@@ -93,15 +82,16 @@ separately for the semantic layer.
 Prebuilt per-OS/arch archives are the planned packaged distribution channel, but
 they have not been published yet. Until they appear on the
 [GitHub Releases](https://github.com/entireio/entire-brain/releases) page, use
-`go install` or the source installer above.
+the pre-release source installer above.
 
 Each published archive will contain the plugin binary plus `README.md`, `LICENSE`,
 and `entire-plugin.yml`, alongside a `SHA256SUMS` file. After downloading and
 verifying the checksum, extract and install the binary:
 
 ```sh
-tar -xzf entire-brain-v0.1.0-darwin-arm64.tar.gz
-entire plugin install ./entire-brain-v0.1.0-darwin-arm64/entire-brain --force
+VERSION=vX.Y.Z # use the matching version published by both repositories
+tar -xzf "entire-brain-${VERSION}-darwin-arm64.tar.gz"
+entire plugin install "./entire-brain-${VERSION}-darwin-arm64/entire-brain" --force
 ```
 
 When provider archives are published, install the matching `entire-graph` archive
@@ -120,8 +110,9 @@ entire graph doctor --json      # provider diagnostics; expect "no_egress": true
 
 `entire brain doctor` reports whether the plugin directories and the semantic
 provider are wired up. If it says the provider is missing, confirm `entire graph`
-resolves, that `entire graph version` reports `v0.1.0`, and that the installed
-binary is named `entire-graph` rather than the retired `entire-sem`.
+resolves and that the installed binary is named `entire-graph` rather than the
+retired `entire-sem`. For a versioned release, also confirm the brain and provider
+report the same published release version.
 
 ## First run: build a brain and query it
 
@@ -162,8 +153,9 @@ without the provider, disable the semantic step:
 entire brain refresh --agent none --semantic=false
 ```
 
-Install `entire-graph` `v0.1.0` later and re-run `entire brain refresh --agent none`
-to add the semantic code graph.
+Install the Graph-based `entire-graph` from source (or from a matching release tag
+once available), then re-run `entire brain refresh --agent none` to add the
+semantic code graph.
 
 ### Query the brain
 
@@ -238,9 +230,11 @@ Local-only by default:
   query expansion with `recall --expand`, pattern verification, and judged
   evaluation commands. A configured checkpoint remote also lets `refresh` fetch
   checkpoint history over the network.
-- Set `ENTIRE_BRAIN_NO_EGRESS=1` (or `ENTIRE_BRAIN_LOCAL_ONLY=1`), or use
-  `--agent none` and `--dry-run`, to keep a repository strictly local. No-egress
-  mode enforces locality for the no-agent, dry-run, and loopback-Ollama paths.
+- Set `ENTIRE_BRAIN_NO_EGRESS=1` (or `ENTIRE_BRAIN_LOCAL_ONLY=1`) to enforce the
+  brain's strict local-only mode. The gate suppresses configured checkpoint-remote
+  access and rejects hosted-agent paths. `--agent none` and `--dry-run` avoid
+  agent work for commands that support them, but they are not repository-wide
+  egress controls and do not by themselves block every network-capable path.
 
 Base Entire session capture stores transcripts and metadata on the repository's
 `entire/checkpoints/v1` branch. Review the Entire CLI security and privacy guide

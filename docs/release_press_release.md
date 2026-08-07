@@ -1,9 +1,9 @@
 # Draft Release Press Release
 
 > Internal draft for the P0 local-brain release (`entire-graph`, `entire-brain`,
-> and the GraphMark evaluation harness, all on the aligned `v0.1.0` line). Not for
-> publication. Claims are scoped to what the retained evidence supports; anything
-> unverified is flagged rather than asserted.
+> and the GraphMark evaluation harness). Matching Graph-based release tags are
+> still pending. Not for publication. Claims are scoped to what the retained
+> evidence supports; anything unverified is flagged rather than asserted.
 
 ## Headline
 
@@ -42,7 +42,6 @@ tools improve task outcomes, instead of relying on demos or anecdotes.
   refresh and retrieval with no hosted-model calls, and `ENTIRE_BRAIN_NO_EGRESS`
   / `ENTIRE_BRAIN_LOCAL_ONLY` enforcement on the no-agent, dry-run, and
   loopback paths.
-- `entire-graph` and `entire-brain` both tagged `v0.1.0` on the aligned GA commit.
 
 ## Proven With Evidence
 
@@ -125,6 +124,9 @@ items here measure whether the tools change agent outcomes on a task.
   signing.
 - Generated fact-at-checkpoint creation remains a future CLI and checkpoint
   pipeline change. Current distill still supports backfill.
+- Matching Graph-based release tags have not been cut. The existing `v0.1.0`
+  tags predate the rename and use the legacy `entire sem` integration, so they
+  must not be presented as the versioned release pair for this draft.
 
 ## Future Claims We Should Not Make Yet
 
@@ -139,10 +141,11 @@ items here measure whether the tools change agent outcomes on a task.
 
 ## Release Checklist
 
-- Shipped: local retrieval, semantic index consumption, durable facts, anchor
-  verification, MCP and Regression Radar contracts, workspace-radar MCP
-  harnessing, eval harness, benchmark harness. Both repos tagged `v0.1.0`,
-  aligned.
+- Shipped in current source: local retrieval, Graph-named semantic index
+  consumption, durable facts, anchor verification, MCP and Regression Radar
+  contracts, workspace-radar MCP harnessing, eval harness, benchmark harness.
+- Release packaging blocked: cut matching Graph-based tags for `entire-graph`
+  and `entire-brain`; do not reuse the legacy `v0.1.0` pair.
 - Proven with committed evidence:
   - Semantic usefulness via GraphMark (28 of 30 languages, 1,148 vs 802,
     p<0.05, Benjamini-Hochberg controlled), wired as a CI regression gate.
