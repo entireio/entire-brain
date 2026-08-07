@@ -9,6 +9,17 @@ import (
 	"time"
 )
 
+const losslessConcurrencyTestLockTimeout = 30 * time.Second
+
+func withBrainWriteLockForLosslessConcurrencyTest(brainDir string, fn func() error) error {
+	unlock, err := acquireBrainWriteLockTimeout(brainDir, losslessConcurrencyTestLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
+}
+
 func TestConcurrentFactCommitsAreLossless(t *testing.T) {
 	brainDir := t.TempDir()
 	branch := "main"
@@ -41,7 +52,7 @@ func TestConcurrentFactCommitsAreLossless(t *testing.T) {
 			unique.Provenance = []factAnchor{{SessionID: fmt.Sprintf("unique-%02d", i), Line: i + 1}}
 			shared := makeFact("shared fact", []string{"preferences.coding.style"}, now)
 			shared.Provenance = []factAnchor{{SessionID: fmt.Sprintf("shared-%02d", i), Line: i + 1}}
-			errs <- withBrainWriteLock(brainDir, func() error {
+			errs <- withBrainWriteLockForLosslessConcurrencyTest(brainDir, func() error {
 				facts, err := loadFacts(brainDir, branch)
 				if err != nil {
 					return err
