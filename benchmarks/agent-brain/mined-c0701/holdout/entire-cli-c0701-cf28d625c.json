@@ -1,7 +1,7 @@
 {
   "id": "entire-cli-c0701-cf28d625c",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "repo_path": "entire-cli",
   "base_commit": "e4ca4508d0a680b5396a23237c819c2023e58765",
   "conditions": [
     "no_brain",
@@ -48,6 +48,6 @@
   "exclude_session_ids": [
     "3226bd70-0500-4e6d-a29a-8384e972f47d"
   ],
-  "frozen_session_dates_path": "/Users/thomi/.entire-brain-eval/quarantine-full-20260714T204719Z/session_dates.json",
+  "frozen_session_dates_path": "$AGENT_BENCH_FROZEN_SESSION_DATES",
   "_rolling_cutoff_confidence": "high (entire checkpoint explain resolved fix session directly)"
 }

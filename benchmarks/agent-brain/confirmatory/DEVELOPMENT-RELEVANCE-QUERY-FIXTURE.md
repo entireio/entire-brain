@@ -54,7 +54,7 @@ helpers.
 | null-review ledger | `benchmarks/agent-brain/confirmatory/offline-relevance-null-review-ledger.json` | `d9e7d71334a88a60cdbf4f71c8808c5383d616f54bc7fcda59ef7460e5d01e0b` |
 | fact snapshot | `benchmarks/agent-brain/confirmatory/offline-relevance-fact-snapshot.json` | `a4c2061d2eaf8acde60594e7db7339c6ea6fa81304925f6d257341580eb07d79` |
 | engine pins | `benchmarks/agent-brain/confirmatory/engine-verification-pins.json` | `c4e4989ffe22cefa2e71211ba2baa4027634daf07d19ff5e92a8b1289243db11` |
-| task inventory | `benchmarks/agent-brain/confirmatory/task-inventory.json` | `082ff79f18a05035084ff12ea7f6d75a3b5ba17e6a54fccd2d6f1814f13c6d6c` |
+| task inventory | `benchmarks/agent-brain/confirmatory/task-inventory.json` | `1f16cb079f5aa7a5fc023011a1f3c717bc060cf86a59fe385a27aa07ba28b5d5` |
 
 `source_bindings.label_set_id` is
 `exposed-c0701-manual-review-2026-07-15-v3`. `source_bindings.snapshot_roots` contains the exact eight

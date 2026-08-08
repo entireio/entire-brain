@@ -37,7 +37,7 @@ func TestSyncStripsLocalPathsButKeepsOpaqueProvenance(t *testing.T) {
 	srv := &fakeServer{}
 	now := time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC)
 
-	const localPath = "sessions/2026-07-07/Users-thomi-secret/transcript.jsonl"
+	const localPath = "sessions/2026-07-07/Users-local-user-secret/transcript.jsonl"
 	local := []factmerge.Record{anchoredFact(
 		"ci runs on self-hosted runners", []string{"ci.runner.host"},
 		factmerge.Anchor{SessionID: "sess-1", Commit: "deadbeef", CheckpointID: "ckpt-9", Transcript: localPath, Line: 42},
@@ -58,7 +58,7 @@ func TestSyncStripsLocalPathsButKeepsOpaqueProvenance(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("Current: found=%v err=%v", found, err)
 	}
-	if bytes.Contains(blob, []byte("Users-thomi")) || strings.Contains(string(blob), localPath) {
+	if bytes.Contains(blob, []byte("Users-local-user")) || strings.Contains(string(blob), localPath) {
 		t.Fatalf("LOCAL PATH LEAKED into the shared head blob:\n%s", blob)
 	}
 	recs, err := factmerge.ParseNDJSON(bytes.NewReader(blob))

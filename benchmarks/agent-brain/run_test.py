@@ -3869,6 +3869,39 @@ class FrozenBrainDeliveryTests(unittest.TestCase):
         "sess-own-fix": "2026-07-09T00:00:00Z",
     }
 
+    def test_task_input_path_expands_environment_and_relative_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_path = root / "tasks" / "task.json"
+            env_path = root / "inputs" / "session_dates.json"
+            old = os.environ.get("AGENT_BENCH_FROZEN_SESSION_DATES")
+            try:
+                os.environ["AGENT_BENCH_FROZEN_SESSION_DATES"] = str(env_path)
+                self.assertEqual(
+                    run.resolve_task_input_path(
+                        {"_path": str(task_path)}, "$AGENT_BENCH_FROZEN_SESSION_DATES"
+                    ),
+                    env_path.resolve(),
+                )
+                self.assertEqual(
+                    run.resolve_task_input_path({"_path": str(task_path)}, "../inputs/dates.json"),
+                    (root / "inputs" / "dates.json").resolve(),
+                )
+            finally:
+                if old is None:
+                    os.environ.pop("AGENT_BENCH_FROZEN_SESSION_DATES", None)
+                else:
+                    os.environ["AGENT_BENCH_FROZEN_SESSION_DATES"] = old
+
+    def test_task_input_path_rejects_unset_environment_variable(self):
+        old = os.environ.pop("AGENT_BENCH_MISSING_INPUT", None)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "unresolved environment variable"):
+                run.resolve_task_input_path({}, "$AGENT_BENCH_MISSING_INPUT/file.json")
+        finally:
+            if old is not None:
+                os.environ["AGENT_BENCH_MISSING_INPUT"] = old
+
     @staticmethod
     def _fact(fid, session_ids):
         return {

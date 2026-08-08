@@ -1,7 +1,7 @@
 {
   "id": "entire-cli-c0701-078a63ebb",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "repo_path": "entire-cli",
   "base_commit": "ef4196eba1f418e60b31c1411d89f80bd060ca9d",
   "conditions": [
     "no_brain",
@@ -46,6 +46,6 @@
   "memory_delivery": "frozen_brief",
   "rolling_cutoff_rfc3339": "2026-07-06T12:48:59-07:00",
   "exclude_session_ids": [],
-  "frozen_session_dates_path": "/Users/thomi/.entire-brain-eval/quarantine-full-20260714T204719Z/session_dates.json",
+  "frozen_session_dates_path": "$AGENT_BENCH_FROZEN_SESSION_DATES",
   "_rolling_cutoff_confidence": "no_checkpoint (commit has no Entire-Checkpoint trailer; not an Entire session; 0 provenance sessions touch expected_files within +/-1d -> nothing to leak; cutoff guards temporality)"
 }

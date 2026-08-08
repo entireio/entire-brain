@@ -3,7 +3,7 @@
   "_mined_from_commit": "8968a763900708d55e67275e25078b0df40a6663",
   "_mined_note": "Auto-mined memory-sensitive task: setup_patch reverse-applies the SOURCE hunks of the fix commit (removes the ValidateSessionID guards + their rationale comments), leaving the commit's regression tests in the tree as hidden validation. Rationale (traversal -> arbitrary file write RCE) lives in the session that produced the fix, not in the post-removal tree. Flavor: recall-solution (transcript likely contains the patch) -- pending design decision on recall-decision vs recall-solution tasks.",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "repo_path": "entire-cli",
   "conditions": [
     "no_brain",
     "full_brain"

@@ -1110,6 +1110,27 @@ def resolve_repo_path(raw: str) -> pathlib.Path:
     return path
 
 
+def resolve_task_input_path(task: dict[str, Any], raw: str) -> pathlib.Path:
+    """Resolve a task-owned input without embedding the producer's home directory.
+
+    Environment variables and ``~`` are expanded first. Relative paths are
+    interpreted next to the task config, which makes checked-in task bundles
+    relocatable. An unset variable fails closed instead of becoming a misleading
+    relative path.
+    """
+    expanded = os.path.expanduser(os.path.expandvars(str(raw)))
+    if "$" in expanded:
+        raise RuntimeError(
+            f"unresolved environment variable in task input path {raw!r}; "
+            "set it before running (see benchmarks/agent-brain/README.md)"
+        )
+    path = pathlib.Path(expanded)
+    if not path.is_absolute():
+        task_path = pathlib.Path(str(task.get("_path") or ROOT / "task.json"))
+        path = task_path.resolve().parent / path
+    return path.resolve()
+
+
 def require_current_brain_mainline(
     repo: pathlib.Path = ROOT,
     main_ref: str = "origin/main",
@@ -5605,12 +5626,13 @@ def recall_frozen_brain_facts(
     exclude_ids = task.get("exclude_session_ids") or []
     session_dates: dict[str, str] | None = None
     if cutoff_rfc3339:
-        dates_path = task.get("frozen_session_dates_path")
-        if not dates_path:
+        raw_dates_path = task.get("frozen_session_dates_path")
+        if not raw_dates_path:
             raise RuntimeError(
                 "rolling_cutoff_rfc3339 is set but frozen_session_dates_path is missing; "
                 "cannot date fact provenance for the rolling-cutoff filter"
             )
+        dates_path = resolve_task_input_path(task, str(raw_dates_path))
         session_dates = load_session_dates(dates_path)
     results: list[dict[str, Any]] = []
     eligibility_audits: list[dict[str, Any]] = []
@@ -5625,7 +5647,7 @@ def recall_frozen_brain_facts(
                     "--eligible-before",
                     str(cutoff_rfc3339),
                     "--session-dates",
-                    str(task["frozen_session_dates_path"]),
+                    str(dates_path),
                     "--read-only-semantic-cache",
                 ]
             )

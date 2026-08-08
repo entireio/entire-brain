@@ -33,7 +33,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-21fcaf5f2.json",
-        "config_sha256": "a76b750e6079fcd19f01bf117ae4c658405931cd915371f836fd35b9941cf0ef",
+        "config_sha256": "467350192f4e565e46133daff006d723e4b1619ba1fb30b3b4cb2b45be09c6bf",
         "prompt_sha256": "cd97c0f11f4379da834c004a4ee14df4bda906606c2793bf74226e9294816397",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-21fcaf5f2-test.patch",
         "patch_sha256": "961119de7f3270a8f188296759b5da9631df6d251fb3f68613bb0aefee660ffc"
@@ -57,7 +57,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-250538b1f.json",
-        "config_sha256": "2f50667d4d5f29efcb8100e2a967ee44c2a8b6f2267b00ce581878863200503d",
+        "config_sha256": "237615f189fdfabb3d3164244d10a2ee229d200772593b35500cbc9cded9e36d",
         "prompt_sha256": "1f5ea9862ffa34550e9f44446b8a4be9cf2a43853c775057ad8ea420bc7d5629",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-250538b1f-test.patch",
         "patch_sha256": "f9019b3aba5c234aa1744f4d08a7d2f9fcb43d87739603b74943ba046161e7f2"
@@ -81,7 +81,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-40cb4d68a.json",
-        "config_sha256": "33cb9ba88c5726830ad857d6d84a801070c22a7d672bd0f0fc3fe6a1c6f0eb83",
+        "config_sha256": "d1af3578f5efa2201c3ebd9d5c1691f24e7adefaabacfd8aeb38036e4ab36bce",
         "prompt_sha256": "761e514007ccb01d553847320a337c4295229cdf9d40ba1f21999d31b98f3d19",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-40cb4d68a-test.patch",
         "patch_sha256": "a05dd974237c40c8939086b2f1f5f11f2dbf6dcdceaf1c49021186f415f2a9c3"
@@ -105,10 +105,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-570854e73.json",
-        "config_sha256": "2c1b41bd5d0445a94ac8035f333763f31e6cda1dcb49a3758d9b98b4ead0fb76",
+        "config_sha256": "448954b5ddee2bcc08ce8a8688195c979b333bdc21008f9d2be789f3b76dc725",
         "prompt_sha256": "be847ba87dcec8bd31c858b2c138d2f3bcfe399a943614cff2e03f0d29b234ce",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-570854e73-test.patch",
-        "patch_sha256": "242549fa51a5f4304311c22dd34c190f514b2f40cc2953e75ade6fc87b294cf9"
+        "patch_sha256": "685747d1901c143b236ddc97dc1328216de561dfc2eaf9de10d7c21336f4cbee"
       },
       "ledger": {
         "present": true,
@@ -129,7 +129,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-5f68588b1.json",
-        "config_sha256": "fd1e13ef6b6b7473165948bd8a4deea3ec034fef4b81571ce8dec32b801792e5",
+        "config_sha256": "1fe5fddcb17b22baa7948530000c09033f83848966fac9d1465e342cf7d6181f",
         "prompt_sha256": "d625f536964f24ebe992a1db57ca095376f266a5b024d1915f9cc14807a79e1d",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-5f68588b1-test.patch",
         "patch_sha256": "63a111658f5634b9cfe43e9a6a68dfdaeb960755733f26fea227319233632d64"
@@ -153,7 +153,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-6050a60b3.json",
-        "config_sha256": "ab5b7fd44eb74a95be2ace1965f937d0ae93dd27da6f1bc17058a94ad6ae1da0",
+        "config_sha256": "de4356207482d893848785d0a872290a00511d818da12eca4694b0c98413990d",
         "prompt_sha256": "4468a8e5e3aeace46be94a27ce372ede4b299a69b47b289a88ef630ba0f0b980",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-6050a60b3-test.patch",
         "patch_sha256": "47d1be1fa24f62dd05ff0b1832deca0632e2e26408b7b4d6e36c116d6700f4c2"
@@ -177,7 +177,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-60576d5e8.json",
-        "config_sha256": "87e856cf448b76e8e75f81d7d2e8f3a57ffcbd1c4874e6d2b7f69a021b28c074",
+        "config_sha256": "d8a3788bdbef4e82729377f0f68716a3548e72f0c0feb8793d1810e5240bf2ed",
         "prompt_sha256": "5fb6445defed214d499d03934416437886dc6b1a71993218731df4b6c885015b",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-60576d5e8-test.patch",
         "patch_sha256": "ed2a77b222965835b908829bd434911b4679dd90b48512672f75242a6616c057"
@@ -201,7 +201,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-6699ec40a.json",
-        "config_sha256": "e754cd2ad67bd8f7e45066129e039b98afa4dc32870ae1518cabcac5431353dd",
+        "config_sha256": "9aebaf14f0888db7a1f08e8a6957cd9365678b3499fefbde0e3fd4d68f560a26",
         "prompt_sha256": "c42df88e88b6f5146124bd88cf2e1cb635cd89aa5a57926e0073445fd4096d0c",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-6699ec40a-test.patch",
         "patch_sha256": "f27e61cfd7f69f330a4263c39564a93c30c186d4f332fb79f2436d6c0013ee54"
@@ -225,10 +225,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-6cdbe3cc8.json",
-        "config_sha256": "d56f7f9f190191eecaf6cc875b732e5e4f1bc90662e3217c4f28870cc16b5a58",
+        "config_sha256": "afccc53db30243ac562ad70dc230546ae60407a7841aed5431672c400248dfc7",
         "prompt_sha256": "5574fd3045b3de5385d9cd3d8e1fba968f670c5cb2569928b5446d057d4b6255",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-6cdbe3cc8-test.patch",
-        "patch_sha256": "eb3ede1b60453683fa41185cb597eb4ff6a387ee79fd649fc3e98256e9f4d174"
+        "patch_sha256": "20fd0e134bdca05f00e880192ae3b60453cb012f186270acb24ae3cc1cbb43de"
       },
       "ledger": {
         "present": true,
@@ -250,10 +250,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-855b8cdab.json",
-        "config_sha256": "20fe98702fb52b525862f980e823ee2eb19e30b19010a042c9b396425b70a2c6",
+        "config_sha256": "e781a22f3caa97e104f622d9bb235ac57916d3ab892d090525a5e213005b6f9f",
         "prompt_sha256": "3fa0c875d90a2b7ca404524ad0c158ed5b9d1cdc857e9a696965756195b4467d",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-855b8cdab-test.patch",
-        "patch_sha256": "da663e5ffd799a15244c4f80bb9723e836bfb2dbbe9cdb6b425ac20a7eab6740"
+        "patch_sha256": "7490f7c7d874cabe2fa26d07c2fe396fa35684082b91328299178621cd8b675c"
       },
       "ledger": {
         "present": true,
@@ -276,7 +276,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-8828752a7.json",
-        "config_sha256": "35445e5eeaaa16e4b888f087812ca4eaeef788fe6fec8f652166aac3bc4b1ce7",
+        "config_sha256": "6d43ce812acd766e217ab5ad6660a79ebc4499fe77c6c1bd011437040cdf4282",
         "prompt_sha256": "1ea745c4ea50aa1c308d27369b92faf9a0ded4b386dbefe18cf0a11831287d96",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-8828752a7-test.patch",
         "patch_sha256": "b5a3ee2aca26018ed2699cc8b6c8c6ba5429b7b76db35499308ca267136ce69a"
@@ -300,7 +300,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-96ed4e121.json",
-        "config_sha256": "e435289030bd353197c0a74e001f64271dd5b13ae8e752556688f927457153d4",
+        "config_sha256": "3b5691533dc2d48369887cff648a90391943f30867331fe3bf8eee0e8aa32989",
         "prompt_sha256": "3669ee010346045538852702c72a1ff6d0da129b34970c1c3e68fc394fb16018",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-96ed4e121-test.patch",
         "patch_sha256": "65b4a656cbddd9de8c5440c496b8fcd7a6ea9e6b5712acad5fb881935ebf25c5"
@@ -324,7 +324,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-996336140.json",
-        "config_sha256": "999042fdf0038679a761d9952479a9d0851357c5b199d6806575061f710f66f4",
+        "config_sha256": "49f73b6b8dbbe011c7371d2344d15ac2da6bc66bc43e01fbb1e6c9e67426a58e",
         "prompt_sha256": "473fe4241553222e152e700f9c472271866acc65c8e5b176eac92bc5bfc88d97",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-996336140-test.patch",
         "patch_sha256": "d46f9b1f73cc54b6131f0d3c63443ef53fa4dc627533ae9169cf45b688035c7a"
@@ -348,7 +348,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-a9d4ce908.json",
-        "config_sha256": "7ed77ed9f82c5f0201167276c7f05fc652cdf6565e3901fe57097290e7012c14",
+        "config_sha256": "74ea50cb6a1e326b609f99c67f188e7a8fc928094988c543878b13d64ad52f94",
         "prompt_sha256": "ea7bc56298a057b161531c8764b0f33dedb6e65d1cb71c83e52c3ee3903d9f2f",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-a9d4ce908-test.patch",
         "patch_sha256": "adbc1a90580e9902cb3f3190b3edd44ad42a6b74bd1941450d508641f6e6cc1d"
@@ -372,7 +372,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-aaeb8546c.json",
-        "config_sha256": "20462984ca9dc65652634368cc65d4e9e90f6f5b84a72fcd08bcbe4dd7c3265f",
+        "config_sha256": "f0091de42c1bc565d83859fe3b8d389469c63e6ef18ce8bd7de199baa1a1ae2b",
         "prompt_sha256": "75aaed80bb0254969e7ae67629b54eec91bbc878581762100e753053c906fd76",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-aaeb8546c-test.patch",
         "patch_sha256": "b3e1f41ed6bf74292cb7e02c1062594ea9eea1d3e5d4ff97dee8af91204a055e"
@@ -396,10 +396,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-b3f0deb5b.json",
-        "config_sha256": "d740abbf5154758277cc11ebc4765545090b882778d65e516d9e94fcfecbfd48",
+        "config_sha256": "1343975d3f956fbe00e81dd7af939a76f55079bade1d1bf1dc56ceb96b825fb9",
         "prompt_sha256": "4ffe826e69fb0304091ceff6f0d79287f80f3189c506c3e51c61a1ad36e16819",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-b3f0deb5b-test.patch",
-        "patch_sha256": "7bb2da7e046416d198d220d3dc8dd9115e45bbf5ae7e264c7878355e0ce14648"
+        "patch_sha256": "d239c76da8e11c96aa7f5bea8c913fdba9473ecde1bd266a785581642e1ab919"
       },
       "ledger": {
         "present": true,
@@ -420,10 +420,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-b72a6e621.json",
-        "config_sha256": "7742fd20a82ba9be21cc476e7f28ea2f99eb9a61a8366a0ee924c875388048df",
+        "config_sha256": "bbdb52b64a84685d0abe4e80152d0b1c67fd01828f1ae1a019cd82235b31de21",
         "prompt_sha256": "50a71a50f077ee8ca21ff82e82954604dbe955252979ca04e0af385c0a61d788",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-b72a6e621-test.patch",
-        "patch_sha256": "e14f9bfce632a1764634ab0982817b93cbb9ca08f2d1e47bbd6c88c5190bead5"
+        "patch_sha256": "fc775afe1c46718c202185868520487e2fd069b9b3f216d914bd127f08c88a3b"
       },
       "ledger": {
         "present": true,
@@ -444,7 +444,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-c67d74e6c.json",
-        "config_sha256": "8a988eb205e5f17adfb3862b5bfc89e9fe0715f0306716ac1165dcc32580d1d9",
+        "config_sha256": "5692d948f24c2f92166829ac2a823386a5cddd94ee338b91e317c07501f7d696",
         "prompt_sha256": "45a297a04a3b2a577f668fb65ca4367e70d28619b45aa99e3d823fc5cd989ba6",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-c67d74e6c-test.patch",
         "patch_sha256": "40e66da362136b546f472a9f63dfe3d7c6d66969cade3fdab21c9e48cf04ac64"
@@ -468,7 +468,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-d8df699cb.json",
-        "config_sha256": "b652b00369b9b45e1621dc470b3a9441408d19b28f83a0c7254208dd9f6ea02d",
+        "config_sha256": "a3c140c05eeafc782a12d4ba89d96c9976620cfaf8b7ead0d01b6bd2e2885d34",
         "prompt_sha256": "fe3d967b521c2847897260f26d26cc6d56f08362e9257fbb1ca5f3c4aa340e4f",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-d8df699cb-test.patch",
         "patch_sha256": "159e2b2ad824e3832e4ac7e6c2dcee007b26503d40fa193fda456d725a3f0210"
@@ -492,7 +492,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-d90849ac5.json",
-        "config_sha256": "1c47d26f39995ccfdf63a7040a7f57edbbe9a5d2be019a1d6ccc9a3125b42324",
+        "config_sha256": "0223c4a44fcdff99ec9a8c42fe3e925161ffaa85c8574e9bbf209d9115c506e6",
         "prompt_sha256": "f17fffa0a41d43cab6b0f9d579c1d529545dba080c9c0d6f36e815e33122bdb3",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-d90849ac5-test.patch",
         "patch_sha256": "9c169ef60c1803f38f15b77d8237125ef6bde01ce3fcb5904f64a95fb614bd52"
@@ -516,7 +516,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-d9df8fcca.json",
-        "config_sha256": "c076b11e774a08b1b1dfd494492426413e037e42ef7d84bfe0b5b5a72ed3a70e",
+        "config_sha256": "6d1107e819d7d206f0edc2ea4a04c23d09dbcd611798416cb5ee0abdc337113b",
         "prompt_sha256": "a1c212f87c564f838f7bc29e6ca258ace78c08ee7cf02b9ed0253038ead43b15",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-d9df8fcca-test.patch",
         "patch_sha256": "a5d92507621741c2910bfb027352f0feff7b570451f9a1013ac5666505727880"
@@ -540,7 +540,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-e52b748b4.json",
-        "config_sha256": "42cc945f2c445d5176a0292081c43e5067a7c1f91f4f5f00e230538cffe2e20d",
+        "config_sha256": "55b8384e332f16b1cc978f477b1464d3f32ee3f053252260f709bae67f179eac",
         "prompt_sha256": "804ae23027a24b3452a3b05ee3673256ca75d67a0630e5989e1bc23ccfad9255",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-e52b748b4-test.patch",
         "patch_sha256": "e1cedbbdc741c09cbb34728ec8836d5f8c3e0ab972db4241649ac09128b264c7"
@@ -564,7 +564,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-0730ddd75.json",
-        "config_sha256": "e558477d1494595c2fc789e7f26950caefd40deb20aef6a3cba444bec42c491c",
+        "config_sha256": "51bb1a1b09329ead5740bd6bffe269369ca2f7c8149f53549fb9790a7ab971d9",
         "prompt_sha256": "1846f6640e35cce91e0562a4fd179c76eac1f66619ad13d82c0f6585bcff5d28",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-0730ddd75-test.patch",
         "patch_sha256": "ce91f91a888b6ad14af16286ef7865433643741206edac6a8010737c49584a58"
@@ -588,7 +588,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-078a63ebb.json",
-        "config_sha256": "22aaf03cb7f5f658b5f97645fd47bacd6e4827904d005bdc58aa7c12cd03b107",
+        "config_sha256": "9d91a48d77e54e875e1ab40a82689f6f0f7d3abb1f4a06d1a2275b2510b6cc0c",
         "prompt_sha256": "02b694563cc33dbc1d1621f43b35b213c0f5d9cc72e3e854d0ca9d5a4db309af",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-078a63ebb-test.patch",
         "patch_sha256": "8dfbc10d7852046196a2b784d8f2f41f6e3764999be745070f84473af867e52b"
@@ -612,7 +612,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-338d79887.json",
-        "config_sha256": "ec9ed450ce922446c7754c7627c6e3adaa4c38152da245f732eff918fc16858c",
+        "config_sha256": "3275522e17cd38675861e49794fd4cf96e496d6a5a8705a5ed67171ee53456db",
         "prompt_sha256": "ec22c29dbabf4e6101cfddf7e45161f495b57fe320e5ca3827fc782d0e0c43f5",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-338d79887-test.patch",
         "patch_sha256": "b2a3ad220461ffb9d7461ffff35fb515614f641ce834d6bdb2774c37d1e25691"
@@ -636,7 +636,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-36563bc78.json",
-        "config_sha256": "e487b052a6fad2dbb455cc2afc02ffa01a9021694fa21410bcc09ac2532b7ef5",
+        "config_sha256": "b64b5982c956d434039338800f0c49e952b509a24c904168db13d35285140b23",
         "prompt_sha256": "6d88b65acddb3b07303050e9c83d0de096051899ca458b04717fc7b0a77cb84f",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-36563bc78-test.patch",
         "patch_sha256": "be055e6e4c66345b0dfb23abef91053bc941b7c88a50da8a0f21e48dbf7af400"
@@ -660,7 +660,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-3a1b973ad.json",
-        "config_sha256": "56a8a31ea8479620311b2365d31d00a82982706cf9e2d9c29939c23353e9edb2",
+        "config_sha256": "5149fc9a36ee6170355aec8637020dff2f073a1b2f61d6220a459323c2e7ab66",
         "prompt_sha256": "8d67160b705bf2ca306deeedcef6a503981e1e87a31e5d7721798ff75a1fa944",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-3a1b973ad-test.patch",
         "patch_sha256": "fc1c73151be245ed78f2e6fab219ecd90152f4b1ff8769fb0001e59243e8f2b8"
@@ -684,7 +684,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-40cded153.json",
-        "config_sha256": "972d2ccb1b8a7213da05ad7b5c98723b873551558cb66016d30446e82266d786",
+        "config_sha256": "9da199d20ecd47df45c107edbc014a11c1053ca2d2ccbf007cc04f90860c05e1",
         "prompt_sha256": "e9758611068e412af739bd59f96b2e66b51e372f312ad1b892b14c12c86613d8",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-40cded153-test.patch",
         "patch_sha256": "04febb0a027257b82da1884214acd09379b91f943387fdbbd15642a3815b6f29"
@@ -708,10 +708,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-43ae6061f.json",
-        "config_sha256": "3b565b0d3e751d99b43b3335120c627760ff2bd3745c94e924d4ca0185f51b00",
+        "config_sha256": "834651b461d5349d72c3bec6124aeafd822697e156e01b6c678a4fa75e682a0a",
         "prompt_sha256": "87691914e1122325fb29830104727e6fa78322ca8de22b0bfe709b6fe4867426",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-43ae6061f-test.patch",
-        "patch_sha256": "c09be9a8fa999417bcef483e8ce53f2c5f11835397dadc4817f355f308e3b75e"
+        "patch_sha256": "669cae85eaebe4d23ba2a6969bbab5f6d87e9dc183991554300b96344ab5a546"
       },
       "ledger": {
         "present": true,
@@ -735,7 +735,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-4dd458656.json",
-        "config_sha256": "58582f6c864f15c91ee137f9062d3311d9afa70483f9bda4d2ad46267aea0a7d",
+        "config_sha256": "7abcad59cb594935d3636e81adf35c87616064bad62048006b68e8eb69dacbb3",
         "prompt_sha256": "a5de1488460ad41a280193a4c198e5a526097b612740b14fa3a972967bb3f045",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-4dd458656-test.patch",
         "patch_sha256": "dae23e29c83bb7b8ce01b4fc38c1f2501ce398f564dd8b125d4591ef4eb066a9"
@@ -759,10 +759,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-55cde8f97.json",
-        "config_sha256": "5a83d0a94b58aec3bbf5fe22cd79442e6b1c6ca90d93a29c5b1a7a7bb5719bb7",
+        "config_sha256": "a6119e2452e31ac4f28cb5f9717b0654917cc5f5896b4ed126e6f092ccdbf704",
         "prompt_sha256": "54ec09ac98c82ba221ecd055df3734a6d1e4eebb0ed01616e8fc727cfeeca349",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-55cde8f97-test.patch",
-        "patch_sha256": "98e8b50c5b0fa349fbe76f5163230076d290802eb3e180e75186cc167d289329"
+        "patch_sha256": "96e6cbca7f136fbdcb5dd21756bd25aff04e01207678e274ffdfbcbdfbf39517"
       },
       "ledger": {
         "present": true,
@@ -783,7 +783,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-5edbdf073.json",
-        "config_sha256": "eb684b7a2c545a74df8233ffab1f9dd72cc28873479c6061e45fabf6543319e2",
+        "config_sha256": "aec6e9773e310fb45d12aa3bebb9ca38ec4f9bb46aff810b62d694b1e6d70e7b",
         "prompt_sha256": "8a3d46ab68985ee07c4ec0264d69797c687eccfdc307fcb3d4da2f80d3da1d37",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-5edbdf073-test.patch",
         "patch_sha256": "4abc200471a3b976bb4e032df1dbc5188a6bc56e8d41bc88cbb2afdb8479abe1"
@@ -807,7 +807,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-605050d0e.json",
-        "config_sha256": "48bd60b609cc0c14fb12bb0efe8031ed85dc0f019958c67e8d52b951f8851bde",
+        "config_sha256": "441d59ef797a8c94b8135830158b2e8f025848e5e7d74135ebb1a8039724a15f",
         "prompt_sha256": "f3d28d2dc67d5228ed955e28d47434392b49a686f2688fdc35777fa5b6e872a3",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-605050d0e-test.patch",
         "patch_sha256": "b52f860961115dbc71655911a3190906760d23ec8852573d079c351b7a8f66cf"
@@ -831,7 +831,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-7a56d8ce9.json",
-        "config_sha256": "01c12521eeac631da709a416427deb15e474e44d2e2d5442f3e9375ba935f6df",
+        "config_sha256": "a5f8b087753272cd4c89bedc3f27c3ff2a080cec285cf772823f5db246788b42",
         "prompt_sha256": "4b78c41382fb1536ad249a0b251351e0176a4ca1b5e5d5fa56e13e6af60a8f78",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-7a56d8ce9-test.patch",
         "patch_sha256": "8771bb0862e8a812f5fc0f77fecfdd0f54fba6a57c44dabbd759331e6aa7afcf"
@@ -855,7 +855,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-80c7a4efd.json",
-        "config_sha256": "dc9a8339b6ea034293520c81d2c0626944590a76a79dc90e948091b6bf64f6ec",
+        "config_sha256": "c758bea67a73ed3c8e6053b1e4d7a283cdee09e0c1404569a3f216be08c49681",
         "prompt_sha256": "20d9aa1c5189f80afefc1a515eb974a5ac1351efb7b8dbe529d4d7e5c7f0ad2b",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-80c7a4efd-test.patch",
         "patch_sha256": "0797d79fc6389a9d71cbc95ccf8f5d4594a120db41e9ac07c924a81c7abed2ae"
@@ -879,7 +879,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-80f680618.json",
-        "config_sha256": "c143e3f164d363f9c19b7fb21a91e6d5b425693abfd79d2bda94b36bccfe600e",
+        "config_sha256": "5e2a72dc985e764c3153bf9cad7081c19213864eb7d97fd4bdd113c779525102",
         "prompt_sha256": "4d817647bbc9f823812f22ac187a57c74a671821eafb3b9029d9cd3bb2634911",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-80f680618-test.patch",
         "patch_sha256": "11627a7ae5a12c9167dbbfabc70d3df34133003131e9418b8e9c64446c67dacb"
@@ -903,7 +903,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-885cf3a68.json",
-        "config_sha256": "260a485d30c2e0935efc4e98032c454f15b4b219cb8737d2b881722c5552a9bd",
+        "config_sha256": "61f10ee0c9a18c119943dd63d751f06b749add112d090a9c2cbb496c948dd40a",
         "prompt_sha256": "e76da9e26d5a33b5d2d55bcc90a2cd1262f03acb4e47819222733d1c33c75a45",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-885cf3a68-test.patch",
         "patch_sha256": "5718b8e79a02fe827eb6f28be85cd4edf76a90fc09a9d559b792de9bf44caff9"
@@ -927,10 +927,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-9c2b149fd.json",
-        "config_sha256": "d9655dd3f2e7873c4b39e2316c9475f3d312899b3dce4b4fe4e8234f6220c45e",
+        "config_sha256": "751b1202f10571e197350baa819bc8ba737762bdcc3fa87633cb3458a2348457",
         "prompt_sha256": "8f48c55bd5a48102672220ac5e3897e10ca37b6b08c848c5f4de580d30174bc7",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-9c2b149fd-test.patch",
-        "patch_sha256": "a84417f43071d17c825b18f5fb9cf405b902a2978cba62d5da02d85e489b7a62"
+        "patch_sha256": "7eca5af5bf13e23d55d407592467d43817e0fcca5204edde35bc6acf455a7609"
       },
       "ledger": {
         "present": true,
@@ -951,7 +951,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-befdcf4fb.json",
-        "config_sha256": "7d7f3b064599c669374e5a07a1ad99d4d1e9e9572b2f3c8c6568cc8e5dd6d374",
+        "config_sha256": "6a962eb3c49adaf341fb715b5380c9dad0c92dc5f9fe1dc043d9b3504e6ccde5",
         "prompt_sha256": "e38e3cdc37ad7f40a01978012de38157c4f7ff1b96db8cf3f9877add38b99778",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-befdcf4fb-test.patch",
         "patch_sha256": "c4c7e71f3ce10c9ca636c2c01d4ee0bd66a125d6b02e1b77f909cbaafc92be38"
@@ -975,7 +975,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-c768ab0ec.json",
-        "config_sha256": "51d4d03c25a299e0acb1b5960f25d222117f2d137f1c73361a96b0b1a191223b",
+        "config_sha256": "2f01e742721e8e19f3c86a2962cf4ed3be0cd9ce4f7220c43b3e084a52aa1bf2",
         "prompt_sha256": "b9f07cbcc87ddb86cfb9622e9fad81bcfe0f1e49e38c356c18d21948536c4980",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-c768ab0ec-test.patch",
         "patch_sha256": "e69b66577ed98a70976c8f9d55950f735728200fb63975f493cf9330c835ee42"
@@ -999,10 +999,10 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-c8d80aa8f.json",
-        "config_sha256": "34f094c92a32651c4e03e6489ff1935f96e77495ef39538c1f264e43a957f61c",
+        "config_sha256": "a1eacb61cbac2c174a30828331b234e85c85394289cc116bcf22fa2e5b820290",
         "prompt_sha256": "4dd71b42a665b0f986c814c0b4e48ed0e80a1791f854602c85aa7d869fca7bba",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-c8d80aa8f-test.patch",
-        "patch_sha256": "fc83d96a71c9d535731cbd1082a21be0eaaf060f12c0eb3367685cec9183ca15"
+        "patch_sha256": "ad102f043914ee91c0ca9d33aeb856087116d0984317501964bdc76d1c90c81c"
       },
       "ledger": {
         "present": true,
@@ -1023,7 +1023,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-cf28d625c.json",
-        "config_sha256": "c547373ee8622578bb159eaf23fb03d5c2e9b0f1ed66cc6834877c828e86ecf0",
+        "config_sha256": "e3d341c3a69ab4a89eeddfa50243721c408246ee4949b3baf623c541c35f40cc",
         "prompt_sha256": "df7ab425942054a8536c6574efec9707139b0bb60c81ad5e4c34616ca184f1c2",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-cf28d625c-test.patch",
         "patch_sha256": "b14cdef878ed9d129a9ed53417a733cb8144dadee5e2432aff971e88f5fa028d"
@@ -1047,7 +1047,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-dd255c286.json",
-        "config_sha256": "98732ba663a5fe371c1748ee80b856b999ac9776d25fb3a87ed14cd19703c71e",
+        "config_sha256": "0d2294da2402c2d724f546401b4d7ff760061b4491a1373167e15686430ad4b8",
         "prompt_sha256": "2c4e9c1274b7c13855f9b255646542c567889cdeb4709d9ebd2b6fa7b3a06bdf",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-dd255c286-test.patch",
         "patch_sha256": "45121e3963779f5df8fb46ac84ec38ee95d12a3599ec1924e1ebe72aa3ad0794"
@@ -1071,7 +1071,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-de60a63d0.json",
-        "config_sha256": "ae183d49de99129210eb55e0a4b1e4b3498be6589fee0214a10274ebc11a2bd1",
+        "config_sha256": "95969085186e834dcb83a4616059a381bc2cdab523789b1ab802fb562a5af203",
         "prompt_sha256": "7fc267cb7d734607f313a17beded39a8590f1713d9d989ee498cfc61b73b11ec",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-de60a63d0-test.patch",
         "patch_sha256": "9b17017c5aa7a25a7ae6fa2be38af390056078c6ad7082acc0f7f4975fb161ba"
@@ -1095,7 +1095,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-e1112a77a.json",
-        "config_sha256": "a2dfa2795c2c1305629549896abd73314776db32411a40a875e69818435ed436",
+        "config_sha256": "6028a3601c858e2a3bb4cc226c6f929e40698630a85696181fb1e98ce0fdb4ac",
         "prompt_sha256": "5351c988dbd7c9e09812e21a9b148c80ce069a816fbc0bd719876df72d8063a5",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-e1112a77a-test.patch",
         "patch_sha256": "e3c3f745463bc2d3af57c0b1609581c2f03eaa54bfa7d759099dad8811a5853c"
@@ -1119,7 +1119,7 @@
       ],
       "artifacts": {
         "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-fe8428c24.json",
-        "config_sha256": "f09457a0d53f49040b98bf07bc4e416a669e2df046240b590f8fb991f755c329",
+        "config_sha256": "af13d5f20fdaae18d3f1e44b8d2b1ea386fa473e70db3a956df112d60ee3f215",
         "prompt_sha256": "443aa2a2f847be8bbdba61e844e586a06502f9020a8120fd34b73b120f8adea8",
         "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-fe8428c24-test.patch",
         "patch_sha256": "c9dd1e1f5442afaf68419fcd98ad0fd705c974dc83c3f7a5571e209ba1145fbe"

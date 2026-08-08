@@ -2,6 +2,11 @@
   "schema_version": 1,
   "base_commit": "bbe1bdf5be2e4fac2f81dc9156a3118a2733c360",
   "verified_commit": "486092083dae787769078db787390b14ea03e766",
+  "publication_sanitization": {
+    "applied": true,
+    "document": "benchmarks/agent-brain/PUBLICATION-SANITIZATION.md",
+    "logs_are_sanitized_derivatives": true
+  },
   "source_commits": {
     "ws2": "0c04088d8a9d70ed15c21a90979caebc5a70d2dc",
     "ws3": "0fc3a7d891a3b7106cdb4dd88023b8606886c4db",
@@ -90,7 +95,7 @@
       "command": "python3 benchmarks/agent-brain/run_test.py",
       "status": "pass",
       "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/python-harness.txt",
-      "log_sha256": "b978773feb4736f47eba9cb32de91578359fb0306e10555538d39c53c0870676"
+      "log_sha256": "90e273e3455d78494cdd49f70f2a76d8325725550072e6be89602655b913c3bf"
     },
     {
       "id": "go-test-all",

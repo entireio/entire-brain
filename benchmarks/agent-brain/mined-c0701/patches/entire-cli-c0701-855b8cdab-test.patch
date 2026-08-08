@@ -61,7 +61,7 @@ index 143bed43e..a49d4533c 100644
 -// repo had for that endpoint — a token forces HTTPS, then an existing remote
 -// on the provider host, then defaulting to SSH.
 -func TestPushURL_EntireOriginReusesProviderRemoteScheme(t *testing.T) {
--	const entireOrigin = "entire://aws-eu-central-1.entire.io/gh/entireio/cli"
+-	const entireOrigin = "entire://cell-eu-central.example.invalid/gh/entireio/cli"
 +// TestPushURL_EntireOriginDerivesMirrorURL reproduces the real-world setup:
 +// origin migrated to an entire:// URL (forge-prefixed /gh/owner/repo) with a
 +// github checkpoint_remote. Checkpoints must follow origin through the
@@ -70,8 +70,8 @@ index 143bed43e..a49d4533c 100644
 +// exception is a checkpoint token, which is an HTTPS credential for the
 +// provider host and therefore forces direct provider HTTPS.
 +func TestPushURL_EntireOriginDerivesMirrorURL(t *testing.T) {
-+	const entireOrigin = "entire://aws-ap-southeast-2.entire.io/gh/entireio/cli"
-+	const mirrorCheckpointURL = "entire://aws-ap-southeast-2.entire.io/gh/entireio/cli-checkpoints"
++	const entireOrigin = "entire://cell-ap-southeast.example.invalid/gh/entireio/cli"
++	const mirrorCheckpointURL = "entire://cell-ap-southeast.example.invalid/gh/entireio/cli-checkpoints"
  	tests := []struct {
  		name        string
  		githubURL   string
@@ -113,9 +113,9 @@ index 143bed43e..a49d4533c 100644
  		},
 +		{
 +			name:           "entire push remote keeps cluster and forge",
-+			pushRemoteURL:  "entire://aws-ap-southeast-2.entire.io/gh/org/main-repo",
++			pushRemoteURL:  "entire://cell-ap-southeast.example.invalid/gh/org/main-repo",
 +			checkpointRepo: "org/checkpoints",
-+			want:           "entire://aws-ap-southeast-2.entire.io/gh/org/checkpoints",
++			want:           "entire://cell-ap-southeast.example.invalid/gh/org/checkpoints",
 +		},
 +		{
 +			name:           "entire push remote with non-standard port",
@@ -125,7 +125,7 @@ index 143bed43e..a49d4533c 100644
 +		},
 +		{
 +			name:           "entire push remote with forge not matching provider",
-+			pushRemoteURL:  "entire://aws-ap-southeast-2.entire.io/et/org/main-repo",
++			pushRemoteURL:  "entire://cell-ap-southeast.example.invalid/et/org/main-repo",
 +			checkpointRepo: "org/checkpoints",
 +			wantDeriveErr:  true,
 +		},

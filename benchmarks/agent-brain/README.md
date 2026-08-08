@@ -32,6 +32,11 @@ public/synthetic fixture evidence, see
 That local measurement covers exact packet bytes and `o200k_base` tokens only;
 it is not a run over the private 114-task corpus and makes no quality claim.
 
+Checked-in historical evidence is a publication-safe derivative rather than a
+byte-identical copy of private producer artifacts. See
+[`PUBLICATION-SANITIZATION.md`](PUBLICATION-SANITIZATION.md) for the exact scope,
+integrity treatment, and retained synthetic credential fixture.
+
 ## Treatment-isolated tasks
 
 Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or
@@ -98,6 +103,11 @@ hard-coded home paths:
 - `path_prefix: "auto"` resolves to the directory of the host `node` (so the
   tsx-based validations work without a hard-coded node path).
 - `setup_commands` get `$BENCH_SOURCE_REPO` = the resolved source repo path.
+- External task inputs such as `frozen_session_dates_path` use the same `~` and
+  environment-variable expansion. Relative values resolve next to the task
+  config. The bundled C0701 tasks expect
+  `AGENT_BENCH_FROZEN_SESSION_DATES=/path/to/session_dates.json`; an unset
+  variable fails closed before a run starts.
 
 Caveat: the Ultron **session-history** scenarios (`mcp_history`, `full_*`) need a
 repo that actually has Entire `.entire` session data; that data is machine-local

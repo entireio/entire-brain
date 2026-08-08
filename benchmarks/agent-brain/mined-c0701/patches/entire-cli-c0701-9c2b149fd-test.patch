@@ -8,7 +8,7 @@ index e2debb7ff..0299b7c5c 100644
  
 +	t.Run("-j shorthand behaves like --jurisdiction", func(t *testing.T) {
 +		t.Setenv("ENTIRE_CONFIG_DIR", t.TempDir())
-+		envToken := makeTestJWT(t, fmt.Sprintf(`{"aud":"https://us.auth.entire.io","home_jurisdiction":"us","exp":%d}`, time.Now().Add(2*time.Hour).Unix()))
++		envToken := makeTestJWT(t, fmt.Sprintf(`{"aud":"https://auth-us.example.invalid","home_jurisdiction":"us","exp":%d}`, time.Now().Add(2*time.Hour).Unix()))
 +		t.Setenv("ENTIRE_TOKEN", envToken)
 +		t.Cleanup(auth.SetCellExchangeTransportForTest(t, stubExchangeRT{token: "jurisdiction-token"}))
 +

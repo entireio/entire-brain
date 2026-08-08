@@ -10,7 +10,7 @@
     {
       "id": "semantic_layer_b_pilot",
       "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-pilot-20260611/records.ndjson",
-      "sha256": "7c816f74c8cdd4481bc76ba50b39a350510dde4e63d007f7cb46b95ff1b642c5",
+      "sha256": "f5a93c8aa323e584363a60d73d57c2680139993be4089db7eac00238dca4e5c4",
       "control_condition": "no_brain",
       "memory_condition": "semantic_brain",
       "diagnostic_role": "sparse_between_task_sensitivity",
@@ -24,7 +24,7 @@
     {
       "id": "semantic_layer_b_proof",
       "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-proof-20260611/records.ndjson",
-      "sha256": "2ca207a7e8133a18c150694929c3c6691f6384ad55c8195aca3926f85f2a3ee8",
+      "sha256": "a0db267b00b00fd8634d8bbfc55f9bdf19bf50d3064398717e747579627c3803",
       "control_condition": "no_brain",
       "memory_condition": "semantic_brain",
       "diagnostic_role": "two_task_repetition_sensitivity",
@@ -38,7 +38,7 @@
     {
       "id": "legacy_full_cli_compact",
       "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-hist-proof-20260611/records.ndjson",
-      "sha256": "11f85178682ad629fc1cc439f37ee1bc94ca5147830bf1ce9c8e88e18baeee95",
+      "sha256": "6deffd48e11678e02d0fc0c6cfa09d827df0eba590975b1e37e2624462603ac3",
       "control_condition": "no_brain",
       "memory_condition": "full_cli_compact",
       "diagnostic_role": "three_task_repetition_sensitivity",
@@ -52,7 +52,7 @@
     {
       "id": "legacy_full_brain_replay",
       "path": "benchmarks/agent-brain/evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260618T195058Z/records.ndjson",
-      "sha256": "24a1630f817a698d97ce862e2e1895508062474e6f1ebfd4c685e60e753a5962",
+      "sha256": "cd58f7c103308c72247c65d8f126f5c1311bc102ed722333ff75c7d1b9f9c4fc",
       "control_condition": "no_brain",
       "memory_condition": "full_brain",
       "diagnostic_role": "two_task_repetition_sensitivity",

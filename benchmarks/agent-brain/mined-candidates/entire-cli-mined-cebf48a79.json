@@ -5,7 +5,7 @@
   "_leak_risk_selfassessed": "low",
   "_mined_note": "Auto-mined memory-sensitive task. setup_patch reverse-applies the fix commit's SOURCE hunks (removes the guard + rationale comments); the commit's regression tests remain in the tree as hidden validation. Rationale lives in the session history that produced the fix, not the post-revert tree. Judgment/prompt drafted by a per-commit reviewer; NOT yet run.",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "repo_path": "entire-cli",
   "conditions": [
     "no_brain",
     "full_brain"

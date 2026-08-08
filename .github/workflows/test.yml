@@ -96,6 +96,7 @@ jobs:
       - name: Validate mined-scale corpus and portable task setup
         run: |
           set -e
+          python3 benchmarks/agent-brain/test_publication_safety.py
           python3 benchmarks/agent-brain/mined-scale/check_manifest.py
           python3 benchmarks/agent-brain/test_mined_scale_manifest.py
           python3 benchmarks/agent-brain/run_test.py PostBrainSetupTests

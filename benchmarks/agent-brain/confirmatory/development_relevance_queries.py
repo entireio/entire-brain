@@ -141,7 +141,7 @@ def default_trusted_source_bindings() -> dict[str, Any]:
         },
         "task_inventory": {
             "path": base + "task-inventory.json",
-            "sha256": "082ff79f18a05035084ff12ea7f6d75a3b5ba17e6a54fccd2d6f1814f13c6d6c",
+            "sha256": "1f16cb079f5aa7a5fc023011a1f3c717bc060cf86a59fe385a27aa07ba28b5d5",
         },
         "label_set_id": "exposed-c0701-manual-review-2026-07-15-v3",
         "snapshot_roots": {

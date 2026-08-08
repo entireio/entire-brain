@@ -22,14 +22,14 @@ index 4b8f0241f..e286bab67 100644
 -			},
 -		},
 -		{
--			group: cellGroup{cell: "aws-us-east-2", jurisdiction: "us"},
+-			group: cellGroup{cell: "cell-us-east", jurisdiction: "us"},
 -			value: &codesearch.SearchResponse{
 -				Results: []codesearch.Result{dup},
 -				Stats:   codesearch.Stats{TotalMatches: 1, TotalFiles: 1, ReposSearched: 1},
 -			},
 -		},
 +		{group: cellGroup{cell: "", jurisdiction: ""}, value: cellVal()},
-+		{group: cellGroup{cell: "aws-us-east-2", jurisdiction: "us"}, value: cellVal()},
++		{group: cellGroup{cell: "cell-us-east", jurisdiction: "us"}, value: cellVal()},
  	}
  
  	merged, err := mergeSearchResults(context.Background(), 0, results)
@@ -75,7 +75,7 @@ index 4b8f0241f..e286bab67 100644
 +		}
 +	}
 +	results := []cellCallResult[*codesearch.SearchResponse]{
-+		cell("aws-us-east-2", "us"),
++		cell("cell-us-east", "us"),
 +		cell(testCellEU, "eu"),
 +	}
 +

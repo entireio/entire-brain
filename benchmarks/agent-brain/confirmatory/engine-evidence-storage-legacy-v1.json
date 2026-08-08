@@ -28,10 +28,10 @@
   "evidence": {
     "manifest_path": "run-bb68c0ac-v3/engine-verification.json",
     "manifest_sha256": "b7c9baae2c3f0ed9b0773226ececf5bf129bd4dd487c02ffab9945cf0fc9c17d",
-    "recorded_artifact_root": "/Users/thomi/.entire-brain-eval/retained-engine-evidence-20260716"
+    "recorded_artifact_root": "/redacted/engine-evidence/retained"
   },
   "recorded_external_inputs": {
-    "repo_root": "/Users/thomi/.entire-brain-eval/quarantine-full-20260714T204719Z/scratch-clone",
+    "repo_root": "/redacted/engine-evidence/source-repo",
     "repo_key": "local/scratch-clone-0aefa16aaca0"
   },
   "hydration": {

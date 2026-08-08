@@ -21,7 +21,7 @@ index b92146501..e020c729c 100644
  // owner/provider/cluster), so they shape both the table and --json output and
  // work under --show-available.
 @@ -525,19 +525,19 @@ func TestRepoMirrorList_FilterSort(t *testing.T) {
- 		{Owner: "other", Repo: "api", ClusterHost: "eu-west-1.entire.io"},
+ 		{Owner: "other", Repo: "api", ClusterHost: "cell-eu-west.example.invalid"},
  	}
  
 -	t.Run("--repo narrows the table by repo-name substring", func(t *testing.T) {
@@ -95,18 +95,18 @@ index b92146501..e020c729c 100644
 +		// against `--sort name` regressing to a plain single-key sort that would
  		// drop the tiebreak.
  		dupes := []coreapi.Mirror{
- 			{Owner: "acme", Repo: "web", ClusterHost: "eu-west-1.entire.io"},
+ 			{Owner: "acme", Repo: "web", ClusterHost: "cell-eu-west.example.invalid"},
 @@ -602,7 +612,7 @@ func TestRepoMirrorList_FilterSort(t *testing.T) {
- 			{Owner: "acme", Repo: "api", ClusterHost: "aws-us-east-2.entire.io"},
+ 			{Owner: "acme", Repo: "api", ClusterHost: "cell-us-east.example.invalid"},
  		}
  		serveMirrorList(t, dupes, nil)
 -		stdout, _ := runMirrorList(t, "--sort", "repo")
 +		stdout, _ := runMirrorList(t, "--sort", "name")
  		// acme/api before acme/web, and within the acme/web tie aws before eu.
  		requireOrder(t, stdout,
- 			"entire://aws-us-east-2.entire.io/gh/acme/api",
+ 			"entire://cell-us-east.example.invalid/gh/acme/api",
 @@ -610,17 +620,17 @@ func TestRepoMirrorList_FilterSort(t *testing.T) {
- 			"entire://eu-west-1.entire.io/gh/acme/web",
+ 			"entire://cell-eu-west.example.invalid/gh/acme/web",
  		)
  
 -		// -repo reverses the whole ordering, tiebreak included.
@@ -115,8 +115,8 @@ index b92146501..e020c729c 100644
 -		stdout, _ = runMirrorList(t, "--sort", "-repo")
 +		stdout, _ = runMirrorList(t, "--sort", "-name")
  		requireOrder(t, stdout,
- 			"entire://eu-west-1.entire.io/gh/acme/web",
- 			"entire://aws-us-east-2.entire.io/gh/acme/web",
+ 			"entire://cell-eu-west.example.invalid/gh/acme/web",
+ 			"entire://cell-us-east.example.invalid/gh/acme/web",
  		)
  	})
  

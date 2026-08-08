@@ -102,7 +102,7 @@
     "executed_run_predicate_version": 2,
     "interpretation": "The byte-verified legacy records show material heterogeneity and correctness saturation, but their selected tasks, legacy treatments, runners, and harness contracts are not exchangeable with the candidate confirmatory experiment. They cannot select assumptions or pass the power gate.",
     "manifest_path": "benchmarks/agent-brain/confirmatory/power-calibration-exploratory-v1.json",
-    "manifest_sha256": "88a371da61d5aa9552fd6ccfeda13199cbe068831ff0992310aa251c12727d6b",
+    "manifest_sha256": "a85541bad11d940dcb5e11db4fe99fb3f191616410e21a6db99df5ab81eb2c20",
     "paired_task_cluster_instances": 14,
     "pooled_estimate_prohibited": true,
     "pooling_policy": "report_each_source_separately; do_not_pool_across_legacy_treatments_or_runners",
@@ -163,7 +163,7 @@
           "raw": 17,
           "selected_conditions": 17
         },
-        "sha256": "7c816f74c8cdd4481bc76ba50b39a350510dde4e63d007f7cb46b95ff1b642c5"
+        "sha256": "f5a93c8aa323e584363a60d73d57c2680139993be4089db7eac00238dca4e5c4"
       },
       {
         "arms": {
@@ -215,7 +215,7 @@
           "raw": 16,
           "selected_conditions": 16
         },
-        "sha256": "2ca207a7e8133a18c150694929c3c6691f6384ad55c8195aca3926f85f2a3ee8"
+        "sha256": "a0db267b00b00fd8634d8bbfc55f9bdf19bf50d3064398717e747579627c3803"
       },
       {
         "arms": {
@@ -268,7 +268,7 @@
           "raw": 24,
           "selected_conditions": 24
         },
-        "sha256": "11f85178682ad629fc1cc439f37ee1bc94ca5147830bf1ce9c8e88e18baeee95"
+        "sha256": "6deffd48e11678e02d0fc0c6cfa09d827df0eba590975b1e37e2624462603ac3"
       },
       {
         "arms": {
@@ -320,7 +320,7 @@
           "raw": 16,
           "selected_conditions": 16
         },
-        "sha256": "24a1630f817a698d97ce862e2e1895508062474e6f1ebfd4c685e60e753a5962"
+        "sha256": "cd58f7c103308c72247c65d8f126f5c1311bc102ed722333ff75c7d1b9f9c4fc"
       }
     ],
     "unique_task_ids_across_sources": 12
