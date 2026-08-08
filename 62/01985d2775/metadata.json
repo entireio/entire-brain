@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "6201985d2775",
+  "strategy": "manual-commit",
+  "branch": "feat/watch-consolidation-cadence",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/watch.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/62/01985d2775/0/metadata.json",
+      "transcript": "/62/01985d2775/0/full.jsonl",
+      "content_hash": "/62/01985d2775/0/content_hash.txt",
+      "prompt": "/62/01985d2775/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 39,
+    "cache_creation_tokens": 21296,
+    "cache_read_tokens": 15225825,
+    "output_tokens": 14442,
+    "api_call_count": 20
+  }
+}
