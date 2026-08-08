@@ -131,6 +131,22 @@ counts and ranges by branch, agent, source kind, completion state
 and index versions (scan cache, FTS schema). Automatic indexing is inherited:
 `watch` already drives the deterministic refresh that rebuilds exchanges.
 
+Durable freshness coordination (C3): `entire brain memory` is the CLI-only
+work-record surface. `memory notify --event session_start|checkpoint|session_end
+--session <id> --repo-key <key>` records a content-free, generation-coalesced
+lifecycle hint (the endpoint a host adapter calls; hint loss never loses
+memory) and makes one best-effort non-blocking worker launch. `memory
+reconcile` compares canonical sessions with the projection receipts
+(`history/projection-state-v1.json`, published through the manifest commit)
+and enqueues durable, content-free jobs
+(`pending|running|complete|retryable_error|invalid|excluded|superseded|cancelled`,
+retry backoff 1m/5m/30m/2h then manual-only); `memory status`, `memory jobs
+[--state]`, `memory retry <job-id>`, and `memory cancel <job-id>` inspect and
+repair the record. The hidden `memory worker --once` runs one bounded pass:
+reconcile, claim, one consolidation, settle jobs against the receipts,
+consume satisfied hints. Reconciliation remains the correctness authority
+throughout; jobs are operational history, receipts are the durable proof.
+
 Privacy: `entire brain privacy list|exclude|include|purge|verify|retention`
 (CLI only) controls which captured sessions may enter any projection.
 Tombstones are consulted both at build time AND at every retrieval boundary

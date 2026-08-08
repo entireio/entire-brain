@@ -69,6 +69,11 @@ type historySourceManifest struct {
 	// indexing (their content is never retained; see session_privacy.go).
 	ExcludedSessions int      `json:"excluded_sessions,omitempty"`
 	Warnings         []string `json:"warnings,omitempty"`
+	// ProjectionStatePath/Digest publish the C3 projection receipt file; the
+	// manifest's atomic replacement is the commit point, so an interruption
+	// before it leaves readers on the previous receipt set.
+	ProjectionStatePath   string `json:"projection_state_path,omitempty"`
+	ProjectionStateDigest string `json:"projection_state_digest,omitempty"`
 }
 
 type historyIndex struct {
@@ -263,6 +268,15 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
+	// C3 projection receipts: the durable record of which canonical sessions
+	// this consolidation represented, published through the manifest commit.
+	receipts := buildProjectionReceipts(outputDir, manifest, index, now)
+	receiptDigest, receiptErr := writeProjectionState(outputDir, receipts)
+	if receiptErr != nil {
+		return nil, fmt.Errorf("write projection receipts: %w", receiptErr)
+	}
+	source.ProjectionStatePath = projectionStateRel
+	source.ProjectionStateDigest = receiptDigest
 	manifest.Sources.History = source
 	if manifest.GeneratedAt.IsZero() {
 		manifest.GeneratedAt = now
