@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "1a67c455a0f7",
+  "session_id": "13004c3e-234f-4fde-96ff-302bb2fe5c4e",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T18:37:03.99592Z",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "templates/entire-brain-recall-claude-agent.md",
+    "templates/entire-brain-recall-codex-skill.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "6f0372f08793",
+  "checkpoint_transcript_start": 1954,
+  "transcript_lines_at_start": 1954,
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 4757,
+    "cache_read_tokens": 4635092,
+    "output_tokens": 2659,
+    "api_call_count": 6
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T18:37:03.872901Z",
+    "agent_lines": 31,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 31,
+    "total_lines_changed": 33,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
