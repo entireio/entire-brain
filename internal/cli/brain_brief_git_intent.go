@@ -15,11 +15,15 @@ import (
 )
 
 const (
-	brainBriefGitIntentTermLimit      = 6
-	brainBriefGitIntentCommitLimit    = 16
-	brainBriefGitIntentPathLimit      = 64
-	brainBriefGitIntentOutputLimit    = 64 * 1024
-	brainBriefGitIntentTimeout        = 100 * time.Millisecond
+	brainBriefGitIntentTermLimit   = 6
+	brainBriefGitIntentCommitLimit = 16
+	brainBriefGitIntentPathLimit   = 64
+	brainBriefGitIntentOutputLimit = 64 * 1024
+	// The lookup runs two bounded Git subprocesses. A 100 ms shared deadline
+	// flakes under ordinary package-wide CI contention even when each command is
+	// healthy; 500 ms keeps the fallback bounded without turning scheduler delay
+	// into a random retrieval miss.
+	brainBriefGitIntentTimeout        = 500 * time.Millisecond
 	brainBriefGitIntentWindowsTimeout = time.Second
 )
 

@@ -1393,6 +1393,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History
+		freshOverlay := loadFreshHistoryOverlay(status.Brain.Path, source)
+		historyInputCount := source.Records + len(freshOverlay.overlay)
 		historyEmbedder := defaultEmbedder()
 		fusionEnabled := historySemanticEmbedder(historyEmbedder) != nil
 		var scoredHistory []scoredHistoryRecord
@@ -1413,7 +1415,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 					if historyErr != nil {
 						historyErrors = 1
 					}
-					profile.finishStage(&profile.History.IndexedRank, directStarted, source.Records, len(scoredHistory), historyErrors)
+					profile.finishStage(&profile.History.IndexedRank, directStarted, historyInputCount, len(scoredHistory), historyErrors)
 				}
 			} else {
 				// Legacy/stale/corrupt derived caches retain the exact old path:
@@ -1453,7 +1455,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 						}
 					}
 					if profile != nil {
-						profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records), len(scoredHistory), 0)
+						profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records)+len(freshOverlay.overlay), len(scoredHistory), 0)
 					}
 				}
 			}
@@ -1479,13 +1481,18 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 					scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
 				}
 				if profile != nil {
-					profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records), len(scoredHistory), 0)
+					profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records)+len(freshOverlay.overlay), len(scoredHistory), 0)
 				}
 			}
 		}
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
+			if len(freshOverlay.overlay) > 0 {
+				scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, func(historyIndex) ([]scoredHistoryRecord, bool) {
+					return scoredHistory, true
+				})
+			}
 			indexedMatches := make([]brainTextMatch, 0, len(scoredHistory))
 			for _, scored := range scoredHistory {
 				indexedMatches = append(indexedMatches, historyRecordTextMatch(scored.Record))
@@ -1794,8 +1801,9 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 
 // brainBriefConversationHits retrieves a small, bounded set of conversation
 // exchanges for the brief packet: at most 3 (or limit, if smaller), excerpts
-// capped at 200 bytes. Hybrid mode so the gated semantic arm helps when open;
-// it degrades to lexical otherwise.
+// capped at 200 bytes. Hybrid mode: BM25 by default, fused only under the
+// ENTIRE_BRAIN_CONVERSATION_FUSION development flag (see eval ledger
+// 2026-08-07).
 func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefConversationHit {
 	count := min(3, limit)
 	if count <= 0 {

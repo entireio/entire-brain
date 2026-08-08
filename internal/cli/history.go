@@ -136,6 +136,8 @@ type historySessionFile struct {
 	Path          string
 	SortTime      time.Time
 	ContentSHA256 string
+	Size          int64
+	ModUnixNano   int64
 }
 
 type historySessionCandidate struct {
@@ -157,6 +159,8 @@ type historyScanCache struct {
 
 type historyScanCacheEntry struct {
 	ContentSHA256 string          `json:"content_sha256"`
+	Size          int64           `json:"size,omitempty"`
+	ModUnixNano   int64           `json:"mod_unix_nano,omitempty"`
 	Records       []historyRecord `json:"records"`
 	// IncompleteExchanges preserves the per-file diagnostic (exchanges opened
 	// with no visible assistant narrative) across cache reuse.
@@ -291,6 +295,11 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 	if err := writeBrainManifestAndReadme(outputDir, *manifest); err != nil {
 		return nil, err
 	}
+	// Consolidation: a completed full build has absorbed everything the
+	// short-term overlay held (both re-scan changed files), so the overlay is
+	// cleared here — the long-term memory is now current and the short-term
+	// buffer starts empty. See history_delta.go.
+	clearHistoryShortTerm(outputDir)
 	return source, nil
 }
 
@@ -396,17 +405,17 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		var records []historyRecord
 		var incomplete int
 		cached, hasCached := prevCache.Files[rel]
-		scannedFresh := false
 		if file.ContentSHA256 != "" {
 			fingerprintedFiles = append(fingerprintedFiles, file.historySessionFile)
 			if hasCached && cached.ContentSHA256 != "" && cached.ContentSHA256 == file.ContentSHA256 {
 				records = cached.Records
 				incomplete = cached.IncompleteExchanges
 			} else {
-				scanned, scannedSHA256, scanErr := scanHistoryFileWithContentSHA(outputDir, file.Path, nil)
+				scanned, scannedSHA256, scannedIncomplete, warnings, ok :=
+					scanSessionFileRecordsWithContentSHA(outputDir, file.Path, rel, nil)
+				index.Warnings = append(index.Warnings, warnings...)
 				switch {
 				case scannedSHA256 == "":
-					index.Warnings = append(index.Warnings, historyScanFingerprintError(file.Path, scanErr).Error())
 					if progress != nil {
 						progress(i+1, total)
 					}
@@ -417,54 +426,34 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 						progress(i+1, total)
 					}
 					continue
-				case scanErr != nil:
-					index.Warnings = append(index.Warnings, scanErr.Error())
+				case !ok:
 					if progress != nil {
 						progress(i+1, total)
 					}
 					continue
 				}
 				records = scanned
-				scannedFresh = true
+				incomplete = scannedIncomplete
 			}
 		} else {
 			// Cache-empty files take this path: parsing and SHA-256 consume the
-			// transcript through one bounded stream.
-			scanned, contentSHA256, scanErr := scanHistoryFileWithContentSHA(outputDir, file.Path, file.Info)
-			if contentSHA256 == "" {
-				index.Warnings = append(index.Warnings, historyScanFingerprintError(file.Path, scanErr).Error())
-				if progress != nil {
-					progress(i+1, total)
-				}
-				continue
+			// transcript through one bounded stream. The shared scanner also keeps
+			// long-term and short-term exchange extraction identical.
+			scanned, contentSHA256, scannedIncomplete, warnings, ok :=
+				scanSessionFileRecordsWithContentSHA(outputDir, file.Path, rel, file.Info)
+			index.Warnings = append(index.Warnings, warnings...)
+			if contentSHA256 != "" {
+				file.ContentSHA256 = contentSHA256
+				fingerprintedFiles = append(fingerprintedFiles, file.historySessionFile)
 			}
-			file.ContentSHA256 = contentSHA256
-			fingerprintedFiles = append(fingerprintedFiles, file.historySessionFile)
-			if scanErr != nil {
-				// A parse failure is still fingerprinted when the complete regular
-				// file was read safely, matching the prior hash-then-scan behavior.
-				index.Warnings = append(index.Warnings, scanErr.Error())
+			if !ok {
 				if progress != nil {
 					progress(i+1, total)
 				}
 				continue
 			}
 			records = scanned
-			scannedFresh = true
-		}
-		if scannedFresh {
-			// Conversation exchanges are an additive experimental projection; an
-			// extraction failure downgrades to classic records with a warning
-			// rather than dropping the whole file.
-			conversationScan, convErr := scanConversationTranscript(file.Path)
-			if convErr != nil {
-				index.Warnings = append(index.Warnings, fmt.Sprintf("conversation exchanges skipped for %s: %v", rel, convErr))
-			} else if conversationScan.SourceDigest != file.ContentSHA256 {
-				index.Warnings = append(index.Warnings, fmt.Sprintf("history transcript changed between history and conversation scan: %s", file.Path))
-			} else {
-				records = append(records, conversationExchangeRecords(rel, conversationScan)...)
-				incomplete = conversationScan.Incomplete
-			}
+			incomplete = scannedIncomplete
 		}
 		// Only files that scanned cleanly (or were reused) are cached; a file
 		// that errored is left out so the next refresh retries it. Branch and
@@ -472,6 +461,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		// annotates a copy below.
 		newCache.Files[rel] = historyScanCacheEntry{
 			ContentSHA256:       file.ContentSHA256,
+			Size:                file.Size,
+			ModUnixNano:         file.ModUnixNano,
 			Records:             records,
 			IncompleteExchanges: incomplete,
 		}
@@ -544,6 +535,38 @@ func historyScanFingerprintError(path string, err error) error {
 		return err
 	}
 	return fmt.Errorf("history transcript scan returned no content fingerprint: %s", path)
+}
+
+// scanSessionFileRecords scans one exported transcript into classic history
+// records plus conversation exchanges. ok=false means the whole file failed to
+// scan (retried on the next build); a conversation-extraction failure only
+// downgrades to classic records with a warning. Shared by the full (long-term)
+// index build and the short-term delta path so both always extract
+// identically.
+func scanSessionFileRecords(outputDir, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
+	records, _, incomplete, warnings, ok = scanSessionFileRecordsWithContentSHA(outputDir, path, rel, nil)
+	return records, incomplete, warnings, ok
+}
+
+func scanSessionFileRecordsWithContentSHA(outputDir, path, rel string, expected fs.FileInfo) (records []historyRecord, contentSHA256 string, incomplete int, warnings []string, ok bool) {
+	scanned, contentSHA256, scanErr := scanHistoryFileWithContentSHA(outputDir, path, expected)
+	if contentSHA256 == "" {
+		return nil, "", 0, []string{historyScanFingerprintError(path, scanErr).Error()}, false
+	}
+	if scanErr != nil {
+		return nil, contentSHA256, 0, []string{scanErr.Error()}, false
+	}
+	records = scanned
+	conversationScan, convErr := scanConversationTranscript(path)
+	if convErr != nil {
+		warnings = append(warnings, fmt.Sprintf("conversation exchanges skipped for %s: %v", rel, convErr))
+	} else if conversationScan.SourceDigest != contentSHA256 {
+		warnings = append(warnings, fmt.Sprintf("history transcript changed between history and conversation scan: %s", path))
+	} else {
+		records = append(records, conversationExchangeRecords(rel, conversationScan)...)
+		incomplete = conversationScan.Incomplete
+	}
+	return records, contentSHA256, incomplete, warnings, true
 }
 
 // historySessionByTranscriptPath maps each exported transcript path to its
@@ -855,6 +878,8 @@ func collectHistorySessionFilesForIndex(outputDir, sessionsRoot string, excluded
 			Path:          path,
 			SortTime:      historySessionSortTime(path, info.ModTime()),
 			ContentSHA256: contentSHA256,
+			Size:          info.Size(),
+			ModUnixNano:   info.ModTime().UnixNano(),
 		})
 	})
 	if err != nil {
@@ -881,8 +906,10 @@ func collectHistorySessionFileCandidatesForIndex(outputDir, sessionsRoot string,
 		}
 		files = append(files, historySessionCandidate{
 			historySessionFile: historySessionFile{
-				Path:     path,
-				SortTime: historySessionSortTime(path, info.ModTime()),
+				Path:        path,
+				SortTime:    historySessionSortTime(path, info.ModTime()),
+				Size:        info.Size(),
+				ModUnixNano: info.ModTime().UnixNano(),
 			},
 			Info: info,
 		})

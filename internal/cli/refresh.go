@@ -78,6 +78,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	// vocabulary as the status sources line).
 	cmd.AddCommand(newExportCommand(opts))        // refresh sessions: export transcripts from checkpoints
 	cmd.AddCommand(newHistoryIndexCommand(opts))  // refresh history: decision index from exported transcripts
+	cmd.AddCommand(newDeltaCommand(opts))         // refresh delta: short-term memory (changed transcripts only)
 	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index: semantic symbol graph
 	cmd.AddCommand(newSeedCommand(opts))          // refresh seed
 	return cmd

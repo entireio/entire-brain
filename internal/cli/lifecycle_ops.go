@@ -85,13 +85,29 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 	}
 	add("history_index", "ok", fmt.Sprintf("%d records (generated %s)", len(index.Records), history.GeneratedAt.UTC().Format(time.RFC3339)))
 	current := brainSessionsFingerprint(brainDir)
+	shortTerm := loadHistoryShortTerm(brainDir, history)
 	switch {
 	case history.SessionsFingerprint == "":
 		add("history_freshness", "warn", "index predates fingerprinting; run `entire brain refresh`")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
+	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current:
+		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `entire brain refresh`)", len(shortTerm.Files)))
 	default:
-		add("history_freshness", "warn", "exported sessions changed since the last index build; run `entire brain refresh` (a missed session-end hook is repaired the same way)")
+		add("history_freshness", "warn", "exported sessions changed since the last index build; run `entire brain refresh delta` for immediate freshness or `entire brain refresh` to consolidate (a missed session-end hook is repaired the same way)")
+	}
+	if len(shortTerm.Files) > 0 {
+		records := 0
+		for _, entry := range shortTerm.Files {
+			records += len(entry.Records)
+		}
+		detail := fmt.Sprintf("%d records from %d changed transcripts (built %s)", records, len(shortTerm.Files), shortTerm.GeneratedAt.UTC().Format(time.RFC3339))
+		state := "ok"
+		if shortTerm.Truncated {
+			state = "warn"
+			detail += "; buffer full — consolidate with `entire brain refresh`"
+		}
+		add("short_term_memory", state, detail)
 	}
 
 	// Conversation projection + vector identity.
@@ -139,6 +155,17 @@ type brainStatsReport struct {
 	Sessions     brainStatsSessions      `json:"sessions"`
 	History      brainStatsHistory       `json:"history"`
 	Conversation *brainStatsConversation `json:"conversation,omitempty"`
+	// ShortTerm reports the short-term memory overlay (changed transcripts
+	// indexed since the last consolidation), when present.
+	ShortTerm *brainStatsShortTerm `json:"short_term,omitempty"`
+}
+
+type brainStatsShortTerm struct {
+	Files       int    `json:"files"`
+	Records     int    `json:"records"`
+	Exchanges   int    `json:"exchanges"`
+	GeneratedAt string `json:"generated_at"`
+	Truncated   bool   `json:"truncated,omitempty"`
 }
 
 type brainStatsSessions struct {
@@ -303,6 +330,22 @@ func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, er
 		conversation.Vectors = vectorStatus.Vectors
 	}
 	report.Conversation = &conversation
+	if shortTerm := loadHistoryShortTerm(brainDir, history); len(shortTerm.Files) > 0 {
+		stats := brainStatsShortTerm{
+			Files:       len(shortTerm.Files),
+			GeneratedAt: shortTerm.GeneratedAt.UTC().Format(time.RFC3339),
+			Truncated:   shortTerm.Truncated,
+		}
+		for _, entry := range shortTerm.Files {
+			stats.Records += len(entry.Records)
+			for _, record := range entry.Records {
+				if record.Kind == conversationKind {
+					stats.Exchanges++
+				}
+			}
+		}
+		report.ShortTerm = &stats
+	}
 	return report, nil
 }
 
@@ -328,6 +371,13 @@ func renderBrainStats(out io.Writer, report brainStatsReport) {
 		line := "  vectors: " + c.VectorState
 		if c.VectorState == "current" {
 			line += fmt.Sprintf(" (%d, %s)", c.Vectors, c.VectorModelID)
+		}
+		fmt.Fprintln(out, line)
+	}
+	if s := report.ShortTerm; s != nil {
+		line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (built %s)", s.Records, s.Exchanges, s.Files, s.GeneratedAt)
+		if s.Truncated {
+			line += " — buffer full, consolidate with `entire brain refresh`"
 		}
 		fmt.Fprintln(out, line)
 	}

@@ -159,6 +159,16 @@ entire brain watch                                                              
 entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort low --budget 1
 ```
 
+The watcher keeps memory fresh in two tiers, like a brain: on every tick it
+runs the cheap **short-term** path (`entire brain refresh delta` — incremental
+checkpoint export plus an overlay index of only the transcripts that changed;
+seconds even on very large brains), so an in-flight session's earlier turns
+and parallel terminals' work are searchable near-real-time. The change-gated
+full refresh is **consolidation**: it absorbs the short-term overlay into
+long-term memory (full index, FTS, vectors) and clears the buffer. You can run
+`entire brain refresh delta` by hand any time you want immediate recall of
+just-captured work.
+
 If you also want generated seed summaries, run refresh with an agent instead of
 the deterministic seed path (`entire brain refresh --agent auto --seed-model
 gpt-5.4-mini --seed-effort low`). Seed synthesis orients an agent on the

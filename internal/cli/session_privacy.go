@@ -111,20 +111,16 @@ func newPrivacyCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func resolveSessionsBrain(ctx context.Context, opts Options) (string, error) {
+func resolveSessionsBrain(ctx context.Context, opts Options) (repoStorage, error) {
 	target := agentSurfaceTarget(opts, nil)
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
-		return "", err
+		return repoStorage{}, err
 	}
 	if !local {
-		return "", fmt.Errorf("sessions administration requires a local repository path: %s", target)
+		return repoStorage{}, fmt.Errorf("sessions administration requires a local repository path: %s", target)
 	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return "", err
-	}
-	return storage.BrainDir, nil
+	return repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 }
 
 type sessionListEntry struct {
@@ -145,10 +141,11 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 		Short: "List captured sessions and their exclusion state",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			brainDir, err := resolveSessionsBrain(cmd.Context(), opts)
+			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
+			brainDir := storage.BrainDir
 			manifest, err := loadBrainManifest(brainDir)
 			if err != nil {
 				return err
@@ -226,10 +223,11 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 	if sessionID == "" {
 		return fmt.Errorf("session id is required")
 	}
-	brainDir, err := resolveSessionsBrain(ctx, opts)
+	storage, err := resolveSessionsBrain(ctx, opts)
 	if err != nil {
 		return err
 	}
+	brainDir := storage.BrainDir
 	if err := withBrainWriteLock(brainDir, func() error {
 		stones := loadSessionTombstones(brainDir)
 		stones.Excluded[sessionID] = sessionTombstone{At: opts.Now().UTC(), Reason: strings.TrimSpace(reason)}
@@ -256,10 +254,11 @@ func newSessionsIncludeCommand(opts Options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := strings.TrimSpace(args[0])
-			brainDir, err := resolveSessionsBrain(cmd.Context(), opts)
+			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
+			brainDir := storage.BrainDir
 			if err := withBrainWriteLock(brainDir, func() error {
 				stones := loadSessionTombstones(brainDir)
 				if _, ok := stones.Excluded[sessionID]; !ok {
@@ -306,7 +305,11 @@ type sessionPurgePlan struct {
 	// skill-memory.ndjson is deliberately NOT here: it holds user curation
 	// decisions (ids/status/counters, no transcript content), not derivation.
 	DerivedStores []purgeArtifact `json:"derived_stores"`
-	DryRun        bool            `json:"dry_run"`
+	// Caveats name locations a purge does NOT clean, so incomplete deletion is
+	// explicit rather than silent (e.g. the `facts sync` git-meta store, whose
+	// keep-both merge model has no deletion semantics yet).
+	Caveats []string `json:"caveats,omitempty"`
+	DryRun  bool     `json:"dry_run"`
 }
 
 type purgeArtifact struct {
@@ -334,10 +337,11 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 	if sessionID == "" {
 		return fmt.Errorf("session id is required")
 	}
-	brainDir, err := resolveSessionsBrain(ctx, opts)
+	storage, err := resolveSessionsBrain(ctx, opts)
 	if err != nil {
 		return err
 	}
+	brainDir := storage.BrainDir
 	var plan sessionPurgePlan
 	if err := withBrainWriteLock(brainDir, func() error {
 		var planErr error
@@ -345,6 +349,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		if planErr != nil {
 			return planErr
 		}
+		plan.Caveats = append(plan.Caveats, purgeGitmetaSyncCaveats(opts.Env, storage.Key, plan)...)
 		plan.DryRun = dryRun
 		if dryRun {
 			return nil
@@ -374,6 +379,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		}
 		for _, artifact := range plan.DerivedStores {
 			fmt.Fprintf(out, "  derived store %s (%d bytes, rebuilds from surviving truth)\n", artifact.Path, artifact.Bytes)
+		}
+		for _, caveat := range plan.Caveats {
+			fmt.Fprintf(out, "  NOT purged: %s\n", caveat)
 		}
 	})
 }
@@ -623,6 +631,30 @@ func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now 
 	purgeDistillCacheEntries(brainDir, sessionID)
 	_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil)
 	return err
+}
+
+// purgeGitmetaSyncCaveats reports fact copies a purge can NOT clean: the
+// `facts sync` git-meta store (plugin cache, shared fact-set head). Its
+// keep-both merge model has no deletion semantics yet, so purged facts synced
+// there survive — and a later `facts sync` can merge them back into the local
+// store. Surfacing this explicitly beats silently claiming complete deletion;
+// real deletion semantics for the shared store are parked (see the plan repo's
+// parking lot).
+func purgeGitmetaSyncCaveats(env EntireEnv, repoKey string, plan sessionPurgePlan) []string {
+	if plan.FactsDeleted == 0 && plan.FactAnchorsStripped == 0 {
+		return nil
+	}
+	gitDir, err := gitmetaDirForKey(env, repoKey)
+	if err != nil {
+		return nil
+	}
+	if _, statErr := os.Stat(gitDir); statErr != nil {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"a `facts sync` git-meta store exists at %s; previously synced copies of purged facts remain there and a future `facts sync` may merge them back — the shared fact-set store has no deletion semantics yet",
+		gitDir,
+	)}
 }
 
 // removeSQLiteStoreFiles deletes a store file plus SQLite WAL/SHM siblings;
