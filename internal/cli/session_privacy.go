@@ -896,6 +896,11 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if err := purgeDistillCacheEntries(brainDir, sessionID); err != nil {
 		return err
 	}
+	if cleanupManifest, manifestErr := loadBrainManifest(brainDir); manifestErr == nil {
+		if err := purgeSessionAbstracts(brainDir, cleanupManifest, sessionID); err != nil {
+			return err
+		}
+	}
 	if _, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil); err != nil {
 		return err
 	}

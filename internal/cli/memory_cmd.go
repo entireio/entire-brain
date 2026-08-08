@@ -31,6 +31,11 @@ func newMemoryCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newMemoryRetryCommand(opts))
 	cmd.AddCommand(newMemoryCancelCommand(opts))
 	cmd.AddCommand(newMemoryWorkerCommand(opts))
+	cmd.AddCommand(newMemoryRepairCommand(opts))
+	cmd.AddCommand(newMemoryRebuildCommand(opts))
+	cmd.AddCommand(newMemoryMigrateCommand(opts))
+	cmd.AddCommand(newMemoryConfigureCommand(opts))
+	cmd.AddCommand(newMemoryAbstractCommand(opts))
 	return cmd
 }
 
@@ -402,6 +407,8 @@ func newMemoryStatusCommand(opts Options) *cobra.Command {
 				"jobs_by_state":    byState,
 				"receipts":         len(receipts.Sessions),
 				"receipts_current": receiptsOK,
+				"install":          memoryInstallHealth(brainDir),
+				"migrations":       detectMemoryMigrations(brainDir, source),
 			}
 			if receiptsOK {
 				payload["receipts_generated_at"] = receipts.GeneratedAt.UTC().Format(time.RFC3339)

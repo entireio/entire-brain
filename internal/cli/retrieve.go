@@ -50,6 +50,11 @@ type unifiedResult struct {
 	NextTurn        int                `json:"next_turn,omitempty"`
 	PacketTruncated bool               `json:"packet_truncated,omitempty"`
 
+	// C4 abstract status on session outlines (additive; never a generation
+	// call).
+	AbstractStatus string           `json:"abstract_status,omitempty"`
+	Abstract       *sessionAbstract `json:"abstract,omitempty"`
+
 	// C2 multi-concept session coverage (additive; heading session_coverage).
 	Concepts          []string       `json:"concepts,omitempty"`
 	ConceptMatches    []conceptMatch `json:"concept_matches,omitempty"`
@@ -1136,7 +1141,9 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			}
 		case strings.HasPrefix(id, conversationSessionIDPrefix):
 			if view, ok := sessionViews[id]; ok {
-				found = append(found, conversationSessionOutline(view, gopts.AfterTurn, gopts.OutlineLimit))
+				outline := conversationSessionOutline(view, gopts.AfterTurn, gopts.OutlineLimit)
+				outline.AbstractStatus, outline.Abstract = sessionAbstractStatus(brainDir, view)
+				found = append(found, outline)
 				continue
 			}
 		case strings.HasPrefix(id, conversationIDPrefix):

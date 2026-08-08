@@ -247,6 +247,25 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			}
 		}
 	}
+	// C4 abstracts: an artifact whose session reference belongs to a
+	// tombstoned session is a violation (cleanup deletes them; verify proves
+	// it).
+	for id := range stones.Excluded {
+		refs := sessionRefsForSessionID(brainDir, manifest, id)
+		if len(refs) == 0 {
+			continue
+		}
+		if entries, err := os.ReadDir(filepath.Join(brainDir, filepath.FromSlash(abstractsDirRel))); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+					continue
+				}
+				if artifact, ok := loadSessionAbstract(brainDir, "sha256:"+strings.TrimSuffix(entry.Name(), ".json")); ok && refs[artifact.SessionRef] {
+					add(id, "session_abstract", "artifact "+entry.Name()+" survives for an excluded session; re-run purge")
+				}
+			}
+		}
+	}
 	// Failed cleanup transactions stay visible until a re-run completes them
 	// (R0.2). In-flight states are not findings: this function runs inside
 	// the cleanup itself, whose own transaction is mid-transition.

@@ -147,6 +147,24 @@ reconcile, claim, one consolidation, settle jobs against the receipts,
 consume satisfied hints. Reconciliation remains the correctness authority
 throughout; jobs are operational history, receipts are the durable proof.
 
+Maintenance and optional abstracts (C4/C5): `memory repair` verifies
+dependencies and performs the smallest deterministic rebuild; `memory rebuild
+--all` recreates every disposable projection from canonical sessions; `memory
+migrate` upgrades derived schemas (build beside, atomic switch, never delete
+first; unknown newer versions stay read-only) — each mutation returns a
+versioned content-free receipt with stable `memory_*` error codes, and
+`memory status` reports install health (build capabilities, writable
+directories, schema versions, pending migrations). Session abstracts are
+OFF by default: `memory configure abstracts --enable --provider <name>
+[--allow-hosted-egress]` stores content-free feature selection (never
+credentials), `memory abstract <conversation-session:id>` explicitly
+generates an evidence-linked, bounded artifact whose every statement cites
+exchanges of the same session (fabricated citations are discarded), session
+outlines report `abstract_status`
+(disabled|missing|current|stale|provider_unavailable) without ever making a
+generation call, a changed session digest reads stale with no text served,
+and privacy cleanup deletes the session's artifacts.
+
 Privacy: `entire brain privacy list|exclude|include|purge|verify|retention`
 (CLI only) controls which captured sessions may enter any projection.
 Tombstones are consulted both at build time AND at every retrieval boundary
