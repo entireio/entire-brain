@@ -655,3 +655,24 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 		t.Fatalf("held lock check = %+v", got)
 	}
 }
+
+// TestConversationEmbeddingTextIsRequestWeighted locks the reqw1 scheme: the
+// request line survives whole, the response contributes at most a bounded
+// head, and the store identity carries the scheme version so a change rebuilds
+// vectors instead of mixing schemes.
+func TestConversationEmbeddingTextIsRequestWeighted(t *testing.T) {
+	record := historyRecord{Summary: "why did the deploy fail\n" + strings.Repeat("long response body ", 200)}
+	text := conversationEmbeddingText(record)
+	if !strings.HasPrefix(text, "why did the deploy fail\n") {
+		t.Fatalf("request line lost: %q", text[:60])
+	}
+	if len(text) > len("why did the deploy fail\n")+512 {
+		t.Fatalf("response head over bound: %d bytes", len(text))
+	}
+	if only := conversationEmbeddingText(historyRecord{Summary: "just a request"}); only != "just a request" {
+		t.Fatalf("request-only summary: %q", only)
+	}
+	if id := conversationVectorModelID("ollama:embeddinggemma"); id != "ollama:embeddinggemma:reqw1" {
+		t.Fatalf("versioned store id = %q", id)
+	}
+}
