@@ -315,8 +315,19 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get",
-			"description": "Fetch one item in full by its id (fact:… | review:… | history:… | conversation:… | doc:… | pattern:… | theme:…), e.g. from a search result or pattern listing. conversation: ids expand to a bounded historical request/response exchange that must be verified against current code before acting.",
-			"inputSchema": objectSchema([]string{"id"}, map[string]any{"id": stringArg("id", "Prefixed item id"), "branch": branchArg()}),
+			"description": "Fetch one item in full by its id (fact:… | review:… | history:… | conversation:… | conversation-session:… | doc:… | pattern:… | theme:…), e.g. from a search result or pattern listing. conversation: ids expand to a bounded historical request/response exchange (optionally with up to 3 adjacent exchanges via context_before/context_after); conversation-session: ids return a bounded, paginated session outline (after_turn/limit). Recalled content must be verified against current code before acting.",
+			"inputSchema": objectSchema([]string{"id"}, map[string]any{
+				"id":     stringArg("id", "Prefixed item id"),
+				"branch": branchArg(),
+				"context_before": map[string]any{"type": "integer", "title": "context_before", "minimum": 0, "maximum": conversationContextMax,
+					"description": "Adjacent earlier exchanges to include (conversation: ids only)"},
+				"context_after": map[string]any{"type": "integer", "title": "context_after", "minimum": 0, "maximum": conversationContextMax,
+					"description": "Adjacent later exchanges to include (conversation: ids only)"},
+				"after_turn": map[string]any{"type": "integer", "title": "after_turn", "minimum": 0,
+					"description": "Outline cursor: entries after this turn ordinal (conversation-session: ids only)"},
+				"limit": map[string]any{"type": "integer", "title": "limit", "minimum": 1, "maximum": conversationOutlineMaxLimit,
+					"description": "Outline entries per page (conversation-session: ids only)"},
+			}),
 		},
 		{
 			"name":        "brain_multi_get",
@@ -644,9 +655,28 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		id = strings.TrimSpace(id)
 		if id == "" {
 			err = errors.New("id is required")
-		} else {
-			err = runGet(ctx, cmd, opts, []string{id}, branch, true, "mcp:brain_get")
+			break
 		}
+		gopts := getOptions{}
+		_, beforeSet := params.Arguments["context_before"]
+		_, afterSet := params.Arguments["context_after"]
+		_, turnSet := params.Arguments["after_turn"]
+		_, limitSet := params.Arguments["limit"]
+		gopts.ContextSet = beforeSet || afterSet
+		gopts.OutlineSet = turnSet || limitSet
+		if gopts.ContextBefore, err = mcpNonNegativeInt(params.Arguments, "context_before", 0); err != nil {
+			break
+		}
+		if gopts.ContextAfter, err = mcpNonNegativeInt(params.Arguments, "context_after", 0); err != nil {
+			break
+		}
+		if gopts.AfterTurn, err = mcpNonNegativeInt(params.Arguments, "after_turn", 0); err != nil {
+			break
+		}
+		if gopts.OutlineLimit, err = mcpNonNegativeInt(params.Arguments, "limit", 0); err != nil {
+			break
+		}
+		err = runGet(ctx, cmd, opts, []string{id}, branch, true, gopts, "mcp:brain_get")
 	case "brain_multi_get":
 		ids, sliceErr := mcpStringSlice(params.Arguments, "ids")
 		if sliceErr != nil {
@@ -656,7 +686,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if len(ids) == 0 {
 			err = errors.New("ids is required")
 		} else {
-			err = runGet(ctx, cmd, opts, ids, branch, true, "mcp:brain_multi_get")
+			err = runGet(ctx, cmd, opts, ids, branch, true, getOptions{}, "mcp:brain_multi_get")
 		}
 	case "brain_context":
 		err = requireMCPQuery(query)

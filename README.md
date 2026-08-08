@@ -373,6 +373,19 @@ so one long session cannot crowd out every other trajectory; filtering to a
 session lifts the cap. Re-exported duplicate sessions are collapsed at index
 time (newest export wins).
 
+Session navigation: every conversation result carries a `session_ref`
+(a virtual `conversation-session:` identity derived from repo, branch, and
+session id; no second transcript archive exists). `get conversation:<id>
+--context-before N --context-after N` (0-3 each) expands up to three adjacent
+exchanges from the same reconciled session, dropping context farthest-first
+under a 128 KiB packet cap. `get conversation-session:<id> [--after-turn N]
+[--limit N]` returns a bounded, paginated outline (request excerpts, ordinals,
+tool names; default 20 entries, max 50, 64 KiB per page) with a stable
+`next_turn` cursor that appends never shift. Navigation options are
+type-specific and error on any other id kind; MCP `brain_get` takes the same
+`context_before`/`context_after`/`after_turn`/`limit` fields, and
+`workspace get` accepts them for repo-qualified ids.
+
 Exchanges are extracted deterministically and locally (no model calls) and
 never enter default retrieval or published bundles. Lexical BM25 is the
 default and always available. A separate conversation vector store exists for

@@ -138,7 +138,7 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	if err := runWorkspaceGet(cmd, opts, "plat", []string{aggID}, "", false); err != nil {
+	if err := runWorkspaceGet(cmd, opts, "plat", []string{aggID}, "", false, getOptions{}); err != nil {
 		t.Fatalf("workspace get aggregate id: %v", err)
 	}
 	got := out.String()
@@ -151,7 +151,7 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 
 	// Member-qualified ids still route to the member repo (existing behavior).
 	out.Reset()
-	if err := runWorkspaceGet(cmd, opts, "plat", []string{"gh/acme/a/pattern:does-not-exist"}, "", false); err != nil {
+	if err := runWorkspaceGet(cmd, opts, "plat", []string{"gh/acme/a/pattern:does-not-exist"}, "", false, getOptions{}); err != nil {
 		t.Fatalf("member-qualified get should not error: %v", err)
 	}
 	if !strings.Contains(out.String(), "not found") {

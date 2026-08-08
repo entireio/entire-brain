@@ -1825,3 +1825,73 @@ func TestMCPConversationFilterArguments(t *testing.T) {
 		t.Fatalf("brain_vsearch with a filter must error: %+v", responses[3])
 	}
 }
+
+// TestMCPConversationNavigation locks C1's MCP parity: brain_get accepts
+// context_before/context_after for conversation: ids and after_turn/limit for
+// conversation-session: ids, with type mismatches as structured errors.
+func TestMCPConversationNavigation(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	mcpConversationFixture(t, repoDir, env, runner, now)
+
+	// Find the exchange and its session reference.
+	searchInput := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly session","source":"conversation"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(searchInput), &out, opts); err != nil {
+		t.Fatalf("mcp search: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	payload := mcpTextJSONPayload(t, responses[0])
+	results := payload["results"].([]any)
+	row := results[0].(map[string]any)
+	convID, _ := row["id"].(string)
+	sessionRef, _ := row["session_ref"].(string)
+	if !strings.HasPrefix(sessionRef, "conversation-session:") {
+		t.Fatalf("search hit missing session_ref: %+v", row)
+	}
+
+	input := frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": convID, "context_after": 1}},
+	}) + frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "limit": 1}},
+	}) + frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "context_before": 1}},
+	})
+	out.Reset()
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp navigation: %v", err)
+	}
+	responses = readMCPResponses(t, out.String())
+	if len(responses) != 3 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+
+	// Context packet on the exchange id.
+	packet := mcpTextJSONPayload(t, responses[0])
+	packetRow := packet["results"].([]any)[0].(map[string]any)
+	if packetRow["target_id"] != convID || packetRow["session_ref"] != sessionRef {
+		t.Fatalf("packet identity: %+v", packetRow)
+	}
+
+	// Session outline.
+	outline := mcpTextJSONPayload(t, responses[1])
+	outlineRow := outline["results"].([]any)[0].(map[string]any)
+	if outlineRow["heading"] != "session_outline" {
+		t.Fatalf("outline heading: %+v", outlineRow)
+	}
+	turns, _ := outlineRow["turns"].([]any)
+	if len(turns) != 1 {
+		t.Fatalf("outline turns: %+v", outlineRow)
+	}
+
+	// Type mismatch is a structured error, never an ignored option.
+	if responses[2]["error"] == nil {
+		t.Fatalf("context option on a session target must error: %+v", responses[2])
+	}
+}

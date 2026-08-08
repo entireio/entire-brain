@@ -37,6 +37,9 @@ type compactUnifiedResult struct {
 	CreatedAt    string   `json:"created_at,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty"`
 	MatchedTerms []string `json:"matched_terms,omitempty"`
+	// SessionRef names the C1 virtual session so a caller can fetch the
+	// outline or adjacent context.
+	SessionRef string `json:"session_ref,omitempty"`
 }
 
 type retrievalTaskHints struct {
@@ -310,7 +313,7 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
 			EndLine: result.EndLine, Branch: result.Branch, SessionID: result.SessionID,
 			Agent: result.Agent, CreatedAt: result.CreatedAt, Truncated: result.Truncated,
-			MatchedTerms: result.MatchedTerms,
+			MatchedTerms: result.MatchedTerms, SessionRef: result.SessionRef,
 		}
 	}
 	return out
@@ -398,21 +401,32 @@ func newGetCommand(opts Options) *cobra.Command {
 	var jsonOut bool
 	var format string
 	var branch string
+	var contextBefore, contextAfter, afterTurn, outlineLimit int
 	cmd := &cobra.Command{
 		Use:   "get <id>",
-		Short: "Fetch one item in full by id (fact:… | review:… | history:… | conversation:… | doc:… | pattern:… | theme:…)",
+		Short: "Fetch one item in full by id (fact:… | review:… | history:… | conversation:… | conversation-session:… | doc:… | pattern:… | theme:…)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wantJSON, err := outputWantsJSON(jsonOut, format)
 			if err != nil {
 				return err
 			}
-			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON, "get")
+			gopts := getOptions{
+				ContextBefore: contextBefore, ContextAfter: contextAfter,
+				AfterTurn: afterTurn, OutlineLimit: outlineLimit,
+				ContextSet: cmd.Flags().Changed("context-before") || cmd.Flags().Changed("context-after"),
+				OutlineSet: cmd.Flags().Changed("after-turn") || cmd.Flags().Changed("limit"),
+			}
+			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON, gopts, "get")
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
+	cmd.Flags().IntVar(&contextBefore, "context-before", 0, "Adjacent earlier exchanges to include (conversation: ids only, 0-3)")
+	cmd.Flags().IntVar(&contextAfter, "context-after", 0, "Adjacent later exchanges to include (conversation: ids only, 0-3)")
+	cmd.Flags().IntVar(&afterTurn, "after-turn", 0, "Outline cursor: entries after this turn ordinal (conversation-session: ids only)")
+	cmd.Flags().IntVar(&outlineLimit, "limit", 0, "Outline entries per page, max 50 (conversation-session: ids only)")
 	return cmd
 }
 
@@ -429,7 +443,7 @@ func newMultiGetCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON, "multi-get")
+			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON, getOptions{}, "multi-get")
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -451,12 +465,12 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 	}
 }
 
-func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, surface string) error {
+func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, gopts getOptions, surface string) error {
 	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
 		return err
 	}
-	found, missing, err := getUnifiedBatch(repoDir, brainDir, resolvedBranch, ids)
+	found, missing, err := getUnifiedBatchOptions(repoDir, brainDir, resolvedBranch, ids, gopts)
 	if err != nil {
 		return err
 	}
@@ -490,6 +504,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 			}
 			fmt.Fprintf(out, "[%s] %s  %s\n%s\n", label, r.ID, unifiedResultLocation(r), r.Text)
 			printRetrievalCaveats(out, r)
+			printConversationTurns(out, r)
 			fmt.Fprintln(out)
 		}
 		for _, id := range missing {

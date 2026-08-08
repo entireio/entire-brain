@@ -38,6 +38,17 @@ type unifiedResult struct {
 	// MatchedTerms lists the query tokens that actually hit this record, so a
 	// weak match is diagnosable instead of opaque (conversation search only).
 	MatchedTerms []string `json:"matched_terms,omitempty"`
+
+	// C1 session navigation (additive; conversation source only).
+	SessionRef      string             `json:"session_ref,omitempty"`
+	TargetID        string             `json:"target_id,omitempty"`
+	ContextBefore   int                `json:"context_before,omitempty"`
+	ContextAfter    int                `json:"context_after,omitempty"`
+	OmittedBefore   int                `json:"omitted_before,omitempty"`
+	OmittedAfter    int                `json:"omitted_after,omitempty"`
+	Turns           []conversationTurn `json:"turns,omitempty"`
+	NextTurn        int                `json:"next_turn,omitempty"`
+	PacketTruncated bool               `json:"packet_truncated,omitempty"`
 }
 
 type retrievalMode int
@@ -727,6 +738,9 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	out := make([]unifiedResult, len(kept))
 	for i, s := range kept {
 		out[i] = conversationToUnified(s.Record)
+		// Session navigation identity (C1): every hit names its virtual
+		// session so callers can fetch the outline or adjacent context.
+		out[i].SessionRef, _ = recordSessionRef(s.Record, manifest.RepoKey, manifest)
 		// Explainability: which query tokens actually hit this record, so a
 		// thin result is debuggable ("only 'bug' matched") instead of opaque.
 		out[i].MatchedTerms = historyRecordMatchedTerms(s.Record, query)
@@ -926,13 +940,20 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
 // pathological on large brains. Results preserve input order.
 func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {
+	return getUnifiedBatchOptions(repoDir, brainDir, branch, ids, getOptions{})
+}
+
+func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopts getOptions) (found []unifiedResult, missing []string, err error) {
 	// One request fans out to at most this many record resolutions; each
 	// conversation id triggers a bounded transcript read, so the batch size
 	// itself must be bounded too (R0-7).
 	if len(ids) > maxGetBatchIDs {
 		return nil, nil, fmt.Errorf("at most %d ids per get/multi-get request (got %d)", maxGetBatchIDs, len(ids))
 	}
-	var wantFact, wantReview, wantHistory, wantConversation, wantDoc bool
+	if err := validateGetOptions(gopts); err != nil {
+		return nil, nil, err
+	}
+	var wantFact, wantReview, wantHistory, wantConversation, wantSession, wantDoc bool
 	for _, id := range ids {
 		switch {
 		case strings.HasPrefix(id, "fact:"):
@@ -941,11 +962,29 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			wantReview = true
 		case strings.HasPrefix(id, "history:"):
 			wantHistory = true
+		case strings.HasPrefix(id, conversationSessionIDPrefix):
+			wantSession = true
 		case strings.HasPrefix(id, conversationIDPrefix):
 			wantConversation = true
 		case strings.HasPrefix(id, "doc:"):
 			wantDoc = true
 		}
+	}
+	// Navigation arguments are type-specific (C1): context counts belong to a
+	// single conversation: target, outline cursor/limit to a single
+	// conversation-session: target. Anything else is a structured
+	// invalid-argument error, never an ignored option.
+	if gopts.navigation() && len(ids) != 1 {
+		return nil, nil, fmt.Errorf("navigation options require exactly one target id (got %d)", len(ids))
+	}
+	if gopts.ContextSet && !wantConversation {
+		return nil, nil, fmt.Errorf("context-before/context-after are valid only for a conversation: target")
+	}
+	if gopts.OutlineSet && !wantSession {
+		return nil, nil, fmt.Errorf("after-turn/limit are valid only for a conversation-session: target")
+	}
+	if wantSession && len(ids) != 1 {
+		return nil, nil, fmt.Errorf("a conversation-session: outline requires its own single-id request")
 	}
 	// Exclusion guard (R0-1): a tombstoned session's records resolve as "not
 	// found" on every get surface immediately, even before cleanup finishes.
@@ -976,7 +1015,12 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 	}
 	histByID := map[string]historyRecord{}
 	convByID := map[string]historyRecord{}
-	if wantHistory || wantConversation {
+	var sessionViews map[string]conversationSessionView
+	// convScopes maps a conversation id to its session scopes (ref -> newest
+	// record in that scope), so a legacy id colliding across scopes is a
+	// structured ambiguity, never a silent last-write-wins pick (C1).
+	convScopes := map[string]map[string]historyRecord{}
+	if wantHistory || wantConversation || wantSession {
 		// A corrupt manifest, or a history index the manifest declares but that is
 		// missing/unreadable, is a real storage problem — surface it rather than
 		// reporting every history:* id as "not found". A brain with no history source
@@ -993,6 +1037,23 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			// Re-resolve the guard with the manifest so records that lost
 			// their session id still block by transcript path.
 			guard = loadSessionReadGuard(brainDir, manifest)
+			if wantConversation || wantSession {
+				sessionViews = buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+				for ref, view := range sessionViews {
+					for _, r := range view.Records {
+						scopes := convScopes[r.ID]
+						if scopes == nil {
+							scopes = map[string]historyRecord{}
+							convScopes[r.ID] = scopes
+						}
+						if prev, ok := scopes[ref]; ok {
+							scopes[ref] = newestHistoryRecord(prev, r)
+						} else {
+							scopes[ref] = r
+						}
+					}
+				}
+			}
 			// reconciledRecords collapses duplicate stable IDs to the same
 			// newest-copy winner ranking uses, so get expands exactly the
 			// record search returned (R0-4).
@@ -1056,9 +1117,42 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 				found = append(found, historyToUnified([]scoredHistoryRecord{{Record: r}})[0])
 				continue
 			}
+		case strings.HasPrefix(id, conversationSessionIDPrefix):
+			if view, ok := sessionViews[id]; ok {
+				found = append(found, conversationSessionOutline(view, gopts.AfterTurn, gopts.OutlineLimit))
+				continue
+			}
 		case strings.HasPrefix(id, conversationIDPrefix):
 			// The transcript path is resolved from the indexed record only;
 			// a client-supplied id can never choose a filesystem path.
+			scopes := convScopes[id]
+			if len(scopes) > 1 {
+				// The existing branch selector may disambiguate a legacy id
+				// that collides across session scopes; a silent winner never
+				// may (C1).
+				matching := map[string]historyRecord{}
+				for ref, record := range scopes {
+					if record.Branch == branch {
+						matching[ref] = record
+					}
+				}
+				if len(matching) != 1 {
+					return nil, nil, fmt.Errorf("memory_identity_ambiguous: %s resolves to %d session scopes; pass --branch to select one", id, len(scopes))
+				}
+				scopes = matching
+			}
+			if len(scopes) == 1 {
+				for ref, record := range scopes {
+					if gopts.ContextSet {
+						found = append(found, conversationContextPacket(brainDir, sessionViews[ref], record, gopts.ContextBefore, gopts.ContextAfter))
+					} else {
+						result := conversationGetResult(brainDir, record)
+						result.SessionRef = ref
+						found = append(found, result)
+					}
+				}
+				continue
+			}
 			if r, ok := convByID[id]; ok {
 				found = append(found, conversationGetResult(brainDir, r))
 				continue

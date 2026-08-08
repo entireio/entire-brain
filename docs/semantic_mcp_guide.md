@@ -154,6 +154,16 @@ Cross-repo expansion stays explicit: `workspace get <ws>
 <repo-key>/conversation:<id>` is the second, repo-qualified step before any
 raw content leaves another repository's brain.
 
+Session navigation (C1): conversation results carry `session_ref`;
+`brain_get` expands a `conversation:` id with `context_before`/`context_after`
+(0-3 adjacent exchanges, 128 KiB packet cap, farthest-first eviction) and
+returns a bounded paginated outline for a `conversation-session:` id
+(`after_turn`/`limit`, 20 default and 50 max entries, 64 KiB page cap,
+stable `next_turn` cursor). Navigation arguments are type-specific; a
+mismatch is a structured error. A legacy exchange id that resolves in more
+than one session scope returns `memory_identity_ambiguous` unless `--branch`
+selects one.
+
 Current limits: `brain_vsearch` (MCP) does not accept `source` or filters;
 exchanges never enter default retrieval, publish, or bundle output (and enter
 `brain_brief` only under the development flag above); and the record schema is

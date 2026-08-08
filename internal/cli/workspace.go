@@ -491,16 +491,27 @@ func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, s
 func newWorkspaceGetCommand(opts Options) *cobra.Command {
 	var jsonOut bool
 	var branch string
+	var contextBefore, contextAfter, afterTurn, outlineLimit int
 	cmd := &cobra.Command{
 		Use:   "get <workspace> <repo-key/id>...",
 		Short: "Fetch items in full by repo-qualified id (e.g. gh/owner/repo/fact:… or gh/owner/repo/conversation:…, as printed by workspace search)",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkspaceGet(cmd, opts, args[0], args[1:], branch, jsonOut)
+			gopts := getOptions{
+				ContextBefore: contextBefore, ContextAfter: contextAfter,
+				AfterTurn: afterTurn, OutlineLimit: outlineLimit,
+				ContextSet: cmd.Flags().Changed("context-before") || cmd.Flags().Changed("context-after"),
+				OutlineSet: cmd.Flags().Changed("after-turn") || cmd.Flags().Changed("limit"),
+			}
+			return runWorkspaceGet(cmd, opts, args[0], args[1:], branch, jsonOut, gopts)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
+	cmd.Flags().IntVar(&contextBefore, "context-before", 0, "Adjacent earlier exchanges to include (conversation: ids only, 0-3)")
+	cmd.Flags().IntVar(&contextAfter, "context-after", 0, "Adjacent later exchanges to include (conversation: ids only, 0-3)")
+	cmd.Flags().IntVar(&afterTurn, "after-turn", 0, "Outline cursor: entries after this turn ordinal (conversation-session: ids only)")
+	cmd.Flags().IntVar(&outlineLimit, "limit", 0, "Outline entries per page, max 50 (conversation-session: ids only)")
 	return cmd
 }
 
@@ -2126,7 +2137,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	return nil
 }
 
-func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool) error {
+func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool, gopts getOptions) error {
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
@@ -2195,7 +2206,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		if dirsErr == nil {
 			repoDir, _ = resolveWorkspaceMemberRepoDir(cmd.Context(), opts, dirs.Config, members[repoKey])
 		}
-		found, missing, err := getUnifiedBatch(repoDir, brainDir, branch, idsByRepo[repoKey])
+		found, missing, err := getUnifiedBatchOptions(repoDir, brainDir, branch, idsByRepo[repoKey], gopts)
 		if err != nil {
 			result.Error = err.Error()
 			results = append(results, result)
@@ -2431,7 +2442,8 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // into the repo key and the brain-local id. Repo keys never contain ':', so the
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
-	for _, prefix := range []string{"fact:", "review:", "history:", "conversation:", "doc:", "pattern:", "theme:"} {
+	// conversation-session: must precede conversation: (prefix containment).
+	for _, prefix := range []string{"fact:", "review:", "history:", conversationSessionIDPrefix, "conversation:", "doc:", "pattern:", "theme:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}
