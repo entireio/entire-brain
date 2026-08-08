@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "28c9102549b6",
+  "strategy": "manual-commit",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "benchmarks/agent-brain/mined-scale/PREREGISTRATION.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/28/c9102549b6/0/metadata.json",
+      "transcript": "/28/c9102549b6/0/full.jsonl",
+      "compact_transcript": "/28/c9102549b6/0/transcript.jsonl",
+      "content_hash": "/28/c9102549b6/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 300016,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7027712,
+    "output_tokens": 27590,
+    "api_call_count": 60
+  }
+}

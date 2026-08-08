@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "28c9102549b6",
+  "session_id": "019fd8df-5a22-7932-818a-8c685431d480",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T01:57:55.906963Z",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "benchmarks/agent-brain/mined-scale/PREREGISTRATION.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "bf7c6b58c21b",
+  "checkpoint_transcript_start": 5590,
+  "transcript_lines_at_start": 5590,
+  "compact_transcript_start": 1245,
+  "token_usage": {
+    "input_tokens": 300016,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7027712,
+    "output_tokens": 27590,
+    "api_call_count": 60
+  },
+  "session_metrics": {
+    "turn_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T01:57:54.305817Z",
+    "agent_lines": 17,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 17,
+    "total_lines_changed": 19,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
