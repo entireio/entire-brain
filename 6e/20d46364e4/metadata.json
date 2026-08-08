@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "6e20d46364e4",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md",
+    "docs/limits.md",
+    "docs/recall_threat_model.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/conversation.go",
+    "internal/cli/conversation_test.go",
+    "internal/cli/doc_contract_test.go",
+    "internal/cli/history.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/history_fts.go",
+    "internal/cli/history_vec.go",
+    "internal/cli/history_vec_cgo_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/retrieval_guard.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/safe_read.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_test.go",
+    "internal/cli/session_privacy_verify.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6e/20d46364e4/0/metadata.json",
+      "transcript": "/6e/20d46364e4/0/full.jsonl",
+      "content_hash": "/6e/20d46364e4/0/content_hash.txt",
+      "prompt": "/6e/20d46364e4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 118,
+    "cache_creation_tokens": 526624,
+    "cache_read_tokens": 28645981,
+    "output_tokens": 70626,
+    "api_call_count": 59
+  }
+}
