@@ -170,6 +170,14 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	if candidateLimit < limit { // integer overflow guard for unreasonable inputs
 		candidateLimit = limit
 	}
+	// Exclusion guard (R0-1): consulted at this retrieval boundary so a
+	// tombstoned session's derived records are unreadable immediately, even
+	// mid-cleanup. Empty guard (the normal case) changes nothing.
+	guard := loadSessionReadGuard(brainDir, nil)
+	var guardPred func(historyRecord) bool
+	if !guard.empty() {
+		guardPred = func(r historyRecord) bool { return !guard.blocksRecord(r) }
+	}
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factRecord
@@ -182,6 +190,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if err != nil {
 			return nil, err
 		}
+		all = guardFactRecords(guard, all)
 		active = make([]factRecord, 0, len(all))
 		for _, f := range all {
 			if f.Status == factStatusActive {
@@ -255,19 +264,30 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			if err != nil {
 				return nil, fmt.Errorf("load history index: %w", err)
 			}
+			// Re-resolve the guard with the manifest so records that lost
+			// their session id still block by transcript path; guardPred
+			// closes over the same variable and picks the paths up.
+			if !guard.empty() {
+				guard = loadSessionReadGuard(brainDir, manifest)
+			}
 			// Semantic arms rank the long-term records minus files the
 			// short-term overlay superseded (overlay records have no vectors
 			// until consolidation; the lexical tier carries their freshness)
-			// and minus copies a newer overlay copy supersedes (R0-4).
+			// and minus copies a newer overlay copy supersedes (R0-4). The
+			// exclusion guard filters both arms (R0-1).
 			index := fresh.longTermReconciled()
+			if guardPred != nil {
+				index = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, guardPred)}
+			}
 			var lexicalHistoryIDs map[string]struct{}
 			if mode != modeVector {
 				historyCandidateLimit := candidateLimit * 3
 				if historyCandidateLimit < candidateLimit {
 					historyCandidateLimit = candidateLimit
 				}
-				scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-					return rankHistoryViaFTS(brainDir, longTerm, "history", query, historyCandidateLimit)
+				scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, guardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+					lex, _, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, historyCandidateLimit, historyFTSRelevanceCutoff, guardPred)
+					return lex, ok
 				})
 				scored = filterHistoryRetrievalSelfEchoes(scored, query)
 				if len(scored) > candidateLimit {
@@ -608,10 +628,18 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// arm ranks only in-scope records, so a valid session/agent/time/branch
 	// match can never be displaced out of a bounded candidate window by
 	// higher-ranked out-of-scope rows. The over-fetch below is dedup/diversity
-	// headroom only.
+	// headroom only. The exclusion guard joins the same predicate (R0-1): a
+	// tombstoned session is unreadable here even while its derived cleanup is
+	// still running.
+	guard := loadSessionReadGuard(brainDir, manifest)
 	var pred func(historyRecord) bool
-	if filtered {
-		pred = func(r historyRecord) bool { return conversationRecordMatchesFilters(r, opts) }
+	if filtered || !guard.empty() {
+		pred = func(r historyRecord) bool {
+			if guard.blocksRecord(r) {
+				return false
+			}
+			return !filtered || conversationRecordMatchesFilters(r, opts)
+		}
 	}
 	candidateLimit := limit * 4
 	if candidateLimit < limit { // overflow guard
@@ -622,7 +650,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	switch mode {
 	case modeVector:
 		var scores map[string]float64
-		if filtered {
+		if pred != nil {
 			scores = conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(defaultEmbedder()), query, false)
 		} else {
 			scores = conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
@@ -680,6 +708,9 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// re-check keeps the contract obvious and cheap.
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {
+		if guard.blocksRecord(s.Record) {
+			continue
+		}
 		if conversationRecordMatchesFilters(s.Record, opts) {
 			kept = append(kept, s)
 		}
@@ -895,6 +926,9 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			wantDoc = true
 		}
 	}
+	// Exclusion guard (R0-1): a tombstoned session's records resolve as "not
+	// found" on every get surface immediately, even before cleanup finishes.
+	guard := loadSessionReadGuard(brainDir, nil)
 	factByID := map[string]factRecord{}
 	var reviewByID map[string]factReviewGroup
 	var reviewByFactID map[string]factReviewGroup
@@ -905,6 +939,7 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 		if ferr != nil {
 			return nil, nil, ferr
 		}
+		facts = guardFactRecords(guard, facts)
 		for _, f := range facts {
 			factByID[f.ID] = f
 		}
@@ -934,10 +969,16 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			if err != nil {
 				return nil, nil, fmt.Errorf("load history index: %w", err)
 			}
+			// Re-resolve the guard with the manifest so records that lost
+			// their session id still block by transcript path.
+			guard = loadSessionReadGuard(brainDir, manifest)
 			// reconciledRecords collapses duplicate stable IDs to the same
 			// newest-copy winner ranking uses, so get expands exactly the
 			// record search returned (R0-4).
 			for _, r := range fresh.reconciledRecords() {
+				if guard.blocksRecord(r) {
+					continue
+				}
 				if r.Kind == conversationKind {
 					convByID[r.ID] = r
 					continue

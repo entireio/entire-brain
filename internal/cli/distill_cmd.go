@@ -665,6 +665,8 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
+	// Excluded sessions must never produce new derived facts (R0-1).
+	sessions = filterTombstonedSessions(brainDir, sessions)
 	// Chronological order so any future supersession chain reconstructs
 	// deterministically regardless of incremental vs --force.
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
@@ -796,8 +798,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			maps.Copy(cache.Sessions, prevCache.Sessions)
 			maps.Copy(cache.Sessions, newCache.Sessions)
 		}
-		saveDistillCache(brainDir, cache)
-		return nil
+		return saveDistillCache(brainDir, cache)
 	}
 	flushFactStores := func(final bool) error {
 		return withBrainWriteLock(brainDir, func() error {
@@ -1191,6 +1192,8 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
+	// Excluded sessions must never produce new derived facts (R0-1).
+	sessions = filterTombstonedSessions(brainDir, sessions)
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
 	prevCache := loadDistillCache(brainDir)
 	branchSeen := map[string]struct{}{}
@@ -1765,12 +1768,12 @@ func loadDistillCache(brainDir string) distillCache {
 
 // saveDistillCache persists the incremental cache. Failure is non-fatal: a
 // missing cache only costs a full re-distillation next run.
-func saveDistillCache(brainDir string, cache distillCache) {
+func saveDistillCache(brainDir string, cache distillCache) error {
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = writeBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
 }
 
 // execDistillAgent is the real distillAgentRunner: it runs the agent with the

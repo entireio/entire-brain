@@ -1339,6 +1339,13 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			// record set ever touching FTS (rankFreshHistory keeps the on-disk
 			// BM25 index ranking the long-term tier only).
 			briefFresh = &fresh
+			// Exclusion guard (R0-1): the brief's history arm honors
+			// tombstones at read time like every retrieval surface.
+			briefGuard := loadSessionReadGuard(status.Brain.Path, status.Manifest)
+			var briefGuardPred func(historyRecord) bool
+			if !briefGuard.empty() {
+				briefGuardPred = func(r historyRecord) bool { return !briefGuard.blocksRecord(r) }
+			}
 			var indexedMatches []brainTextMatch
 			// rankHistoryFused is rankHistoryViaFTS unless the history fusion
 			// gate is open (fusion-eligible embedder + refresh-built vec0
@@ -1347,9 +1354,18 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			// surface serves is exactly where fusion measured strongest. The
 			// short-term overlay fuses in on top either way (rankFreshHistory
 			// is a no-op passthrough when the overlay is empty).
-			scored := rankFreshHistory(fresh, "history", task, briefOpts.limit, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+			scored := rankFreshHistory(fresh, "history", task, briefOpts.limit, briefGuardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 				return rankHistoryFused(status.Brain.Path, longTerm, "history", task, briefOpts.limit, defaultEmbedder())
 			})
+			if briefGuardPred != nil {
+				kept := scored[:0:0]
+				for _, s := range scored {
+					if briefGuardPred(s.Record) {
+						kept = append(kept, s)
+					}
+				}
+				scored = kept
+			}
 			for _, s := range scored {
 				indexedMatches = append(indexedMatches, brainBriefHistoryRecordTextMatch(status.Brain.Path, s.Record, task))
 			}
@@ -3528,6 +3544,11 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 	if maxHits <= 0 {
 		maxHits = brainInspectHistoryMaxHits
 	}
+	// Exclusion guard (R0-1): the raw walk reads exported transcripts, so a
+	// tombstoned session's transcript (kept on exclude, deleted on purge)
+	// must be skipped here.
+	rawManifest, _ := loadBrainManifest(brainDir)
+	rawGuard := loadSessionReadGuard(brainDir, rawManifest)
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			report.ScanErrors = append(report.ScanErrors, err.Error())
@@ -3551,6 +3572,9 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
 		if relSlash == historyIndexPath || relSlash == "manifest.json" || strings.HasPrefix(relSlash, "seed/") {
+			return nil
+		}
+		if _, excluded := rawGuard.paths[relSlash]; excluded {
 			return nil
 		}
 		report.Scanned++
@@ -3785,14 +3809,24 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 		return nil
 	}
 	candidateLimit := brainBriefExpandedCandidateLimit(limit, 3)
+	// Exclusion guard (R0-1): tombstoned sessions stay out of the focused
+	// history context.
+	fGuard := loadSessionReadGuard(brainDir, nil)
+	var fGuardPred func(historyRecord) bool
+	if !fGuard.empty() {
+		fGuardPred = func(r historyRecord) bool { return !fGuard.blocksRecord(r) }
+	}
 	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
 	// merged index here rebuilt or misresolved the BM25 store).
-	scored := rankFreshHistory(fresh, "history", query, candidateLimit, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 		return rankHistoryFused(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder())
 	})
 	records := make([]historyRecord, 0, len(scored))
 	for _, item := range scored {
+		if fGuardPred != nil && !fGuardPred(item.Record) {
+			continue
+		}
 		records = append(records, item.Record)
 	}
 	// A command that merely searched for a symbol is weaker evidence than the

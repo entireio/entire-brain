@@ -141,9 +141,18 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			}
 		}
 		overlay := loadHistoryShortTerm(brainDir, source)
-		for rel := range overlay.Files {
+		for rel, entry := range overlay.Files {
 			if id, hit := excludedPath(rel); hit {
 				add(id, "short_term_memory", rel)
+				continue
+			}
+			// Record-level check mirrors the history-index check: an overlay
+			// record can carry a tombstoned session id under a path the
+			// manifest no longer maps.
+			for _, record := range entry.Records {
+				if _, tombstoned := stones.Excluded[record.SessionID]; tombstoned && record.SessionID != "" {
+					add(record.SessionID, "short_term_memory", "record "+record.ID+" in "+rel)
+				}
 			}
 		}
 	}
@@ -190,6 +199,33 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		for id := range stones.Excluded {
 			if strings.HasSuffix(key, "/"+url.PathEscape(id)) {
 				add(id, "distill_cache", key)
+			}
+		}
+	}
+	// Derived binary stores (R0-2): exclude and purge delete every store in
+	// the shared inventory wholesale (then rebuild what regenerates), and
+	// later rebuilds honor tombstones at build time. A store file that still
+	// predates the last tombstone write is exactly the failed/locked deletion
+	// this check exists to catch; a store recreated after cleanup is clean by
+	// construction. Both timestamps come from the same filesystem clock (the
+	// tombstone file's mtime, not the recorded wall-clock time) so an
+	// injected or skewed clock cannot fake either outcome.
+	var newestID string
+	var newestAt time.Time
+	for id, stone := range stones.Excluded {
+		if stone.At.After(newestAt) {
+			newestID, newestAt = id, stone.At
+		}
+	}
+	if info, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))); statErr == nil {
+		cutoff := info.ModTime()
+		for _, rel := range privacyDerivedStoreRels() {
+			storeInfo, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel)))
+			if statErr != nil {
+				continue
+			}
+			if storeInfo.ModTime().Before(cutoff) {
+				add(newestID, "derived_store", rel+" predates the newest tombstone; its deletion failed or was skipped, re-run purge")
 			}
 		}
 	}

@@ -204,6 +204,99 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// sessionReadGuard is the retrieval-time tombstone view (R0-1): every
+// conversation/history/fact retrieval boundary consults it so an excluded
+// session becomes unreadable the moment its tombstone lands, without waiting
+// for the derived rebuild. Defense in depth, not a substitute for cleanup.
+type sessionReadGuard struct {
+	ids   map[string]sessionTombstone
+	paths map[string]string // excluded transcript rel -> session id, from the manifest
+}
+
+// loadSessionReadGuard builds the guard from the tombstone set and, when a
+// manifest is supplied, the excluded sessions' transcript paths (records that
+// lost their session id still resolve by path). Same fail-open contract as
+// loadSessionTombstones: corruption restores indexing, never deletes data.
+func loadSessionReadGuard(brainDir string, manifest *exportManifest) sessionReadGuard {
+	stones := loadSessionTombstones(brainDir)
+	if len(stones.Excluded) == 0 {
+		return sessionReadGuard{}
+	}
+	guard := sessionReadGuard{ids: stones.Excluded}
+	if manifest != nil {
+		guard.paths = excludedTranscriptPaths(manifest, stones)
+	}
+	return guard
+}
+
+func (g sessionReadGuard) empty() bool { return len(g.ids) == 0 }
+
+func (g sessionReadGuard) blocksSession(sessionID string) bool {
+	if g.empty() {
+		return false
+	}
+	_, ok := g.ids[strings.TrimSpace(sessionID)]
+	return ok
+}
+
+func (g sessionReadGuard) blocksRecord(r historyRecord) bool {
+	if g.blocksSession(r.SessionID) {
+		return true
+	}
+	_, ok := g.paths[r.Path]
+	return ok
+}
+
+// blocksFact mirrors the purge rule at read time: a fact whose every
+// provenance anchor points at excluded sessions is unreadable; a fact still
+// corroborated by a non-excluded session (or with no session provenance at
+// all, e.g. seed-derived) stays visible.
+func (g sessionReadGuard) blocksFact(f factRecord) bool {
+	if g.empty() || len(f.Provenance) == 0 {
+		return false
+	}
+	for _, anchor := range f.Provenance {
+		if !g.blocksSession(anchor.SessionID) {
+			return false
+		}
+	}
+	return true
+}
+
+// guardFactRecords filters a fact slice through the exclusion guard,
+// returning the input unchanged when nothing is excluded.
+func guardFactRecords(guard sessionReadGuard, facts []factRecord) []factRecord {
+	if guard.empty() || len(facts) == 0 {
+		return facts
+	}
+	kept := make([]factRecord, 0, len(facts))
+	for _, f := range facts {
+		if guard.blocksFact(f) {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept
+}
+
+// filterTombstonedSessions drops excluded sessions from a derivation work
+// list (R0-1): an excluded session must never produce new derived facts or
+// records, even though its canonical transcript may still exist.
+func filterTombstonedSessions(brainDir string, sessions []exportSession) []exportSession {
+	stones := loadSessionTombstones(brainDir)
+	if len(stones.Excluded) == 0 {
+		return sessions
+	}
+	kept := sessions[:0:0]
+	for _, session := range sessions {
+		if _, excluded := stones.Excluded[strings.TrimSpace(session.SessionID)]; excluded {
+			continue
+		}
+		kept = append(kept, session)
+	}
+	return kept
+}
+
 func newSessionsExcludeCommand(opts Options) *cobra.Command {
 	var reason string
 	var jsonOut bool
@@ -231,20 +324,23 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 	}
 	brainDir := storage.BrainDir
 	if err := withBrainWriteLock(brainDir, func() error {
-		stones := loadSessionTombstones(brainDir)
-		stones.Excluded[sessionID] = sessionTombstone{At: opts.Now().UTC(), Reason: strings.TrimSpace(reason)}
-		if err := saveSessionTombstones(brainDir, stones); err != nil {
-			return err
+		// Exclusion is purge minus the transcript (R0-1): the tombstone guards
+		// reads immediately, then every derived projection the session fed --
+		// index records, facts, episodes, pattern outputs, caches, FTS and
+		// vector stores -- is removed or rebuilt from the surviving truth.
+		// Errors propagate; a partial cleanup is a failure, not a success.
+		plan, planErr := buildSessionPurgePlan(brainDir, sessionID)
+		if planErr != nil {
+			return planErr
 		}
-		_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, opts.Now().UTC(), nil)
-		return err
+		return executeSessionCleanup(brainDir, sessionID, plan, opts.Now().UTC(), strings.TrimSpace(reason), true)
 	}); err != nil {
 		return err
 	}
 	if jsonOut {
 		return writeJSON(cmd, map[string]any{"excluded": sessionID})
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "excluded %s and rebuilt the history projection\n", sessionID)
+	fmt.Fprintf(cmd.OutOrStdout(), "excluded %s and removed or rebuilt its derived projections\n", sessionID)
 	return nil
 }
 
@@ -417,33 +513,41 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	}
 	sort.Slice(plan.Transcripts, func(i, j int) bool { return plan.Transcripts[i].Path < plan.Transcripts[j].Path })
 	if manifest.Sources != nil && manifest.Sources.History != nil {
-		if index, ierr := loadBrainHistoryIndex(brainDir, manifest.Sources.History); ierr == nil {
-			for _, record := range index.Records {
-				if transcriptRels[record.Path] {
-					plan.Records++
-				}
+		// A declared-but-unreadable index is a real storage problem: failing
+		// here beats an under-reported plan that execution would then trust
+		// (R0-2: dry-run and execution inventories must match).
+		index, ierr := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		if ierr != nil {
+			return plan, fmt.Errorf("load history index: %w", ierr)
+		}
+		for _, record := range index.Records {
+			if transcriptRels[record.Path] {
+				plan.Records++
 			}
 		}
 	}
 	// Facts derived from the purged session (single-source facts are deleted;
-	// multi-source facts only lose the purged anchor).
-	if byBranch, ferr := loadAllFactBranches(brainDir); ferr == nil {
-		for _, facts := range byBranch {
-			for _, fact := range facts {
-				matched, remaining := 0, 0
-				for _, anchor := range fact.Provenance {
-					if strings.TrimSpace(anchor.SessionID) == sessionID {
-						matched++
-					} else {
-						remaining++
-					}
+	// multi-source facts only lose the purged anchor). A corrupt fact store is
+	// an error, not an empty count.
+	byBranch, ferr := loadAllFactBranches(brainDir)
+	if ferr != nil {
+		return plan, fmt.Errorf("load facts: %w", ferr)
+	}
+	for _, facts := range byBranch {
+		for _, fact := range facts {
+			matched, remaining := 0, 0
+			for _, anchor := range fact.Provenance {
+				if strings.TrimSpace(anchor.SessionID) == sessionID {
+					matched++
+				} else {
+					remaining++
 				}
-				switch {
-				case matched > 0 && remaining == 0:
-					plan.FactsDeleted++
-				case matched > 0:
-					plan.FactAnchorsStripped += matched
-				}
+			}
+			switch {
+			case matched > 0 && remaining == 0:
+				plan.FactsDeleted++
+			case matched > 0:
+				plan.FactAnchorsStripped += matched
 			}
 		}
 	}
@@ -454,9 +558,22 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	// one regenerates from the surviving truth (index rebuild, lazy FTS build,
 	// next vector sync, next patterns build). runs.ndjson is a build log and
 	// logs are inside the plan's deletion inventory.
-	for _, rel := range []string{
+	for _, rel := range privacyDerivedStoreRels() {
+		if info, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); statErr == nil {
+			plan.DerivedStores = append(plan.DerivedStores, purgeArtifact{Path: rel, Bytes: info.Size()})
+		}
+	}
+	return plan, nil
+}
+
+// privacyDerivedStoreRels is the one inventory of rebuildable derived stores
+// that exclude/purge delete wholesale and `privacy verify` re-checks; dry-run,
+// execution, and verification must never disagree on this list (R0-2).
+func privacyDerivedStoreRels() []string {
+	return []string{
 		historyFTSDBRelPath(),
 		filepath.ToSlash(filepath.Join(historyDirName, historyScanCacheFileName)),
+		historyShortTermPath,
 		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
 		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
 		patternCorpusPath,
@@ -464,12 +581,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		patternsProceduresPath,
 		patternsPracticesPath,
 		patternRunsRelPath,
-	} {
-		if info, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); statErr == nil {
-			plan.DerivedStores = append(plan.DerivedStores, purgeArtifact{Path: rel, Bytes: info.Size()})
-		}
 	}
-	return plan, nil
 }
 
 // countSessionEpisodes counts episode records that would be filtered out of
@@ -577,10 +689,11 @@ func purgeSessionFacts(brainDir, sessionID string) (int, int, error) {
 // purgeDistillCacheEntries drops the purged session's distill-cache entries
 // (fingerprint hashes keyed by branch/session; no content, but a purged
 // session must not look "already distilled" if it is ever re-included).
-func purgeDistillCacheEntries(brainDir, sessionID string) {
+// A failed write propagates (R0-2).
+func purgeDistillCacheEntries(brainDir, sessionID string) error {
 	cache := loadDistillCache(brainDir)
 	if len(cache.Sessions) == 0 {
-		return
+		return nil
 	}
 	suffix := "/" + url.PathEscape(sessionID)
 	changed := false
@@ -590,9 +703,10 @@ func purgeDistillCacheEntries(brainDir, sessionID string) {
 			changed = true
 		}
 	}
-	if changed {
-		saveDistillCache(brainDir, cache)
+	if !changed {
+		return nil
 	}
+	return saveDistillCache(brainDir, cache)
 }
 
 // executeSessionPurge applies the plan under the already-held write lock:
@@ -600,25 +714,38 @@ func purgeDistillCacheEntries(brainDir, sessionID string) {
 // never resurrected), then physical deletion, then a clean rebuild of the
 // history projection from the surviving truth.
 func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now time.Time) error {
+	return executeSessionCleanup(brainDir, sessionID, plan, now, "purged", false)
+}
+
+// executeSessionCleanup is the shared exclude/purge executor: tombstone,
+// transcript deletion (purge only), derived-store deletion, fact/episode/
+// cache filtering, then the rebuild. Every deletion error propagates (R0-2);
+// the tombstone-first order keeps a failed run resumable and the session
+// unreadable in the meantime.
+func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, now time.Time, reason string, keepTranscripts bool) error {
 	stones := loadSessionTombstones(brainDir)
-	stones.Excluded[sessionID] = sessionTombstone{At: now, Reason: "purged"}
+	stones.Excluded[sessionID] = sessionTombstone{At: now, Reason: reason}
 	if err := saveSessionTombstones(brainDir, stones); err != nil {
 		return err
 	}
-	for _, artifact := range plan.Transcripts {
-		path := filepath.Join(brainDir, filepath.FromSlash(artifact.Path))
-		if err := rejectSymlinkPathComponents(brainDir, filepath.FromSlash(artifact.Path)); err != nil {
-			if os.IsNotExist(err) {
-				continue
+	if !keepTranscripts {
+		for _, artifact := range plan.Transcripts {
+			path := filepath.Join(brainDir, filepath.FromSlash(artifact.Path))
+			if err := rejectSymlinkPathComponents(brainDir, filepath.FromSlash(artifact.Path)); err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return err
 			}
-			return err
-		}
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 		}
 	}
 	for _, artifact := range plan.DerivedStores {
-		removeSQLiteStoreFiles(filepath.Join(brainDir, filepath.FromSlash(artifact.Path)))
+		if err := removeSQLiteStoreFiles(filepath.Join(brainDir, filepath.FromSlash(artifact.Path))); err != nil {
+			return fmt.Errorf("delete derived store %s: %w", artifact.Path, err)
+		}
 	}
 	if _, _, err := purgeSessionFacts(brainDir, sessionID); err != nil {
 		return err
@@ -630,7 +757,9 @@ func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now 
 	if _, _, err := filterEpisodesFile(brainDir, sessionID, transcriptRels, true); err != nil {
 		return err
 	}
-	purgeDistillCacheEntries(brainDir, sessionID)
+	if err := purgeDistillCacheEntries(brainDir, sessionID); err != nil {
+		return err
+	}
 	_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil)
 	return err
 }
@@ -661,10 +790,16 @@ func purgeGitmetaSyncCaveats(env EntireEnv, repoKey string, plan sessionPurgePla
 
 // removeSQLiteStoreFiles deletes a store file plus SQLite WAL/SHM siblings;
 // every target is a regenerable derived artifact, so missing files are fine.
-func removeSQLiteStoreFiles(path string) {
+// Any other failure (locked store, permission) propagates: a store that
+// survives a privacy operation must fail that operation, never be reported
+// as removed (R0-2).
+func removeSQLiteStoreFiles(path string) error {
 	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
-		_ = os.Remove(candidate)
+		if err := os.Remove(candidate); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
+	return nil
 }
 
 // Portable mirrors of the cgo-only vector-store filenames so the purge
