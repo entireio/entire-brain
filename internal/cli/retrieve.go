@@ -251,20 +251,23 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			return nil, err
 		}
 		if manifest.Sources != nil && manifest.Sources.History != nil {
-			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+			fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 			if err != nil {
 				return nil, fmt.Errorf("load history index: %w", err)
 			}
+			// Semantic arms rank the long-term records minus files the
+			// short-term overlay superseded (overlay records have no vectors
+			// until consolidation; the lexical tier carries their freshness).
+			index := fresh.longTermActive()
 			var lexicalHistoryIDs map[string]struct{}
 			if mode != modeVector {
 				historyCandidateLimit := candidateLimit * 3
 				if historyCandidateLimit < candidateLimit {
 					historyCandidateLimit = candidateLimit
 				}
-				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, historyCandidateLimit)
-				if !ok {
-					scored = rankHistoryRecordsScored(index, "history", query, historyCandidateLimit, 0)
-				}
+				scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+					return rankHistoryViaFTS(brainDir, longTerm, "history", query, historyCandidateLimit)
+				})
 				scored = filterHistoryRetrievalSelfEchoes(scored, query)
 				if len(scored) > candidateLimit {
 					scored = scored[:candidateLimit]
@@ -595,7 +598,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		}
 		return nil, nil
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 	if err != nil {
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
@@ -616,7 +619,9 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		if len(scores) == 0 {
 			return nil, errConversationVectorUnsupported
 		}
-		scored = rankConversationSemantic(index, scores, candidateLimit)
+		// Semantic-only ranks long-term vectors; short-term records have no
+		// vectors until consolidation and are deliberately absent here.
+		scored = rankConversationSemantic(fresh.longTermActive(), scores, candidateLimit)
 	case modeHybrid:
 		// Conversation fusion is OFF by default pending a validated positive:
 		// the 2026-08-07 calibration on the entire-brain corpus (22-task exact
@@ -627,21 +632,16 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		// fusion. Same discipline as historyFusionEligible: the fused arm
 		// ships dark behind a development flag until an eval-ledger row
 		// validates it (see docs/eval_ledger.md).
-		var ok bool
-		if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
-			scored, ok = rankConversationFused(brainDir, index, query, candidateLimit, defaultEmbedder())
-		} else {
-			scored, ok = rankHistoryViaFTS(brainDir, index, conversationKind, query, candidateLimit)
-		}
-		if !ok {
-			scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
-		}
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
+				return rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder())
+			}
+			return rankHistoryViaFTS(brainDir, longTerm, conversationKind, query, candidateLimit)
+		})
 	default:
-		var ok bool
-		scored, ok = rankHistoryViaFTS(brainDir, index, conversationKind, query, candidateLimit)
-		if !ok {
-			scored = rankHistoryRecordsScored(index, conversationKind, query, candidateLimit, 0)
-		}
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+			return rankHistoryViaFTS(brainDir, longTerm, conversationKind, query, candidateLimit)
+		})
 	}
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {
@@ -887,11 +887,13 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			return nil, nil, err
 		}
 		if manifest.Sources != nil && manifest.Sources.History != nil {
-			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+			fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 			if err != nil {
 				return nil, nil, fmt.Errorf("load history index: %w", err)
 			}
-			for _, r := range index.Records {
+			// mergedRecords appends short-term records last, so for a duplicate
+			// id the fresher short-term copy wins the map insert.
+			for _, r := range fresh.mergedRecords() {
 				if r.Kind == conversationKind {
 					convByID[r.ID] = r
 					continue

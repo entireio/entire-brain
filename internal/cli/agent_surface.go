@@ -1330,25 +1330,27 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh`")
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
-		index, historyErr := loadBrainHistoryIndex(status.Brain.Path, status.Manifest.Sources.History)
+		fresh, historyErr := loadFreshHistory(status.Brain.Path, status.Manifest.Sources.History)
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
-			briefHistoryIndex = &index
+			// Downstream symbol-focused lookups see the merged (short-term aware)
+			// record set, so an in-flight session's decisions reach the brief.
+			merged := historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: fresh.mergedRecords()}
+			briefHistoryIndex = &merged
 			var indexedMatches []brainTextMatch
 			// rankHistoryFused is rankHistoryViaFTS unless the history fusion
 			// gate is open (fusion-eligible embedder + refresh-built vec0
 			// vectors), in which case the brief's history context gets the
 			// capstone-validated fused ranking — the midtask stratum this
-			// surface serves is exactly where fusion measured strongest.
-			if scored, ok := rankHistoryFused(status.Brain.Path, index, "history", task, briefOpts.limit, defaultEmbedder()); ok {
-				for _, s := range scored {
-					indexedMatches = append(indexedMatches, brainBriefHistoryRecordTextMatch(status.Brain.Path, s.Record, task))
-				}
-			} else {
-				for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
-					indexedMatches = append(indexedMatches, brainBriefHistoryRecordTextMatch(status.Brain.Path, record, task))
-				}
+			// surface serves is exactly where fusion measured strongest. The
+			// short-term overlay fuses in on top either way (rankFreshHistory
+			// is a no-op passthrough when the overlay is empty).
+			scored := rankFreshHistory(fresh, "history", task, briefOpts.limit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+				return rankHistoryFused(status.Brain.Path, longTerm, "history", task, briefOpts.limit, defaultEmbedder())
+			})
+			for _, s := range scored {
+				indexedMatches = append(indexedMatches, brainBriefHistoryRecordTextMatch(status.Brain.Path, s.Record, task))
 			}
 			rawMatches, rawErr := brainBriefRawHistoryMatches(status.Brain.Path, task, nil, briefOpts.limit)
 			if rawErr != nil {

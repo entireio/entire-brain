@@ -52,9 +52,14 @@ const watchCursorLockName = "watch.lock"
 type watchSteps struct {
 	now         func() time.Time
 	fingerprint func(context.Context) string
-	refresh     func(context.Context) error
-	seed        func(context.Context) error
-	distill     func(context.Context) error
+	// delta is the cheap short-term memory update (incremental export + overlay
+	// index of changed transcripts). It runs EVERY tick, before the change
+	// gate, so an in-flight session's turns are recallable near-real-time; the
+	// full refresh below is consolidation and stays change-gated.
+	delta   func(context.Context) error
+	refresh func(context.Context) error
+	seed    func(context.Context) error
+	distill func(context.Context) error
 }
 
 // defaultWatchOptions are the shared defaults for `watch` and `workspace watch`.
@@ -165,6 +170,16 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 // then the GATED token-spending work (seed synthesis and/or distill). agentCalls is shared across
 // ticks/members so --budget caps total token spend across the whole run.
 func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps, agentCalls *int) {
+	// Short-term memory first, every tick: cheap (change detection + only
+	// changed transcripts), and it must never block or fail the tick — a delta
+	// failure just means the long-term path repairs freshness later.
+	if steps.delta != nil {
+		if err := steps.delta(ctx); err != nil {
+			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
+		} else {
+			fmt.Fprintln(out, "[watch] short-term memory updated")
+		}
+	}
 	cursor := loadWatchCursor(cursorPath)
 	fp := steps.fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
@@ -225,10 +240,24 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 	return watchSteps{
 		now:         now,
 		fingerprint: func(c context.Context) string { return watchFingerprint(c, opts.Runner, repoDir) },
+		delta:       func(c context.Context) error { return watchShortTermDelta(c, cmd, opts, repoDir) },
 		refresh:     func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
 		seed:        func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		distill:     func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
 	}
+}
+
+// watchShortTermDelta runs the short-term memory path for one repo: quiet
+// (output discarded — the tick logs one summary line), deterministic, and
+// token-free.
+func watchShortTermDelta(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
+	perRepo := opts
+	perRepo.Env.RepoRoot = repoDir
+	deltaCmd := &cobra.Command{Use: "delta"}
+	deltaCmd.SetOut(io.Discard)
+	deltaCmd.SetErr(io.Discard)
+	deltaCmd.SetContext(ctx)
+	return runRefreshDelta(deltaCmd, perRepo, true)
 }
 
 // watchShouldSpend decides whether the token-spending agent work (seed and/or distill) runs this tick:
