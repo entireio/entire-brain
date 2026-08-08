@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -808,5 +810,54 @@ func TestConversationExchangeRecordsIdenticalRequestsDistinctOrdinals(t *testing
 	})
 	if annotated[0].ID == annotated[1].ID {
 		t.Fatal("identical request text at different ordinals must yield distinct ids")
+	}
+}
+
+// TestConversationExpansionStreamsLargeTranscripts proves R0-7: expanding one
+// exchange from an oversized line-oriented transcript streams the file (only
+// the indexed range is materialized) while the digest still covers the whole
+// stream, and a post-index append is reported stale, never served.
+func TestConversationExpansionStreamsLargeTranscripts(t *testing.T) {
+	brainDir := t.TempDir()
+	rel := "sessions/main/20260808T000000Z_huge.jsonl"
+	var b strings.Builder
+	b.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"why did the cache rewrite fail"}]}}` + "\n")
+	b.WriteString(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: the rewrite raced the invalidation."}]}}` + "\n")
+	filler := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + strings.Repeat("filler ", 100) + `"}]}}` + "\n"
+	for b.Len() < 16<<20 {
+		b.WriteString(filler)
+	}
+	data := []byte(b.String())
+	full := filepath.Join(brainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := historyRecord{Path: rel, Line: 1, EndLine: 2, SourceDigest: conversationDigest(data)}
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	expansion, err := expandConversationExchange(brainDir, record)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("expand: %v", err)
+	}
+	if !strings.Contains(expansion.Request, "cache rewrite") || !strings.Contains(expansion.Response, "raced the invalidation") {
+		t.Fatalf("expansion content wrong: %+v", expansion)
+	}
+	if delta := after.TotalAlloc - before.TotalAlloc; delta > 4<<20 {
+		t.Fatalf("expansion allocated %d bytes for a %d-byte transcript; the read is not streaming", delta, len(data))
+	}
+
+	// Any append after indexing must surface as stale even though the indexed
+	// range itself is unchanged: the digest covers the complete stream.
+	if err := os.WriteFile(full, append(data, []byte(filler)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expandConversationExchange(brainDir, record); !errors.Is(err, errConversationSourceStale) {
+		t.Fatalf("appended source must be stale: %v", err)
 	}
 }
