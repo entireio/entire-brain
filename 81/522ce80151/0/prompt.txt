@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>boglaqkge</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/13004c3e-234f-4fde-96ff-302bb2fe5c4e/tasks/boglaqkge.output</output-file>
+<status>completed</status>
+<summary>Background command "Full cgo suite after C1" completed (exit code 0)</summary>
+</task-notification>

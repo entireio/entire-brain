@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "81522ce80151",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/conversation_session.go",
+    "internal/cli/conversation_session_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/pattern_workspace_test.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/workspace.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/81/522ce80151/0/metadata.json",
+      "transcript": "/81/522ce80151/0/full.jsonl",
+      "content_hash": "/81/522ce80151/0/content_hash.txt",
+      "prompt": "/81/522ce80151/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 67,
+    "cache_creation_tokens": 60726,
+    "cache_read_tokens": 21811227,
+    "output_tokens": 45666,
+    "api_call_count": 36
+  }
+}
