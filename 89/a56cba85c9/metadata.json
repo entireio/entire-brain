@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "89a56cba85c9",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/conversation_phase2_test.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/history_fts.go",
+    "internal/cli/history_vec.go",
+    "internal/cli/history_vec_cgo_test.go",
+    "internal/cli/retrieve.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/89/a56cba85c9/0/metadata.json",
+      "transcript": "/89/a56cba85c9/0/full.jsonl",
+      "content_hash": "/89/a56cba85c9/0/content_hash.txt",
+      "prompt": "/89/a56cba85c9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 107,
+    "cache_creation_tokens": 285200,
+    "cache_read_tokens": 8522354,
+    "output_tokens": 66241,
+    "api_call_count": 54
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "89a56cba85c9",
+  "session_id": "13004c3e-234f-4fde-96ff-302bb2fe5c4e",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T07:10:22.935747Z",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/history_fts.go",
+    "internal/cli/history_vec.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/conversation_phase2_test.go",
+    "internal/cli/history_vec_cgo_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "a0ca4e55ef28",
+  "token_usage": {
+    "input_tokens": 107,
+    "cache_creation_tokens": 285200,
+    "cache_read_tokens": 8522354,
+    "output_tokens": 66241,
+    "api_call_count": 54
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T07:10:22.866979Z",
+    "agent_lines": 365,
+    "agent_removed": 41,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 365,
+    "total_lines_changed": 406,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
