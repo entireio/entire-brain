@@ -222,7 +222,9 @@ func TestRankConversationFusedSemanticArmEndToEnd(t *testing.T) {
 		lexicalSummary:      {1, 0}, // lexically strong, semantically orthogonal
 		"unrelated chatter": {1, 0},
 	}}
-	store, ok := newConversationVectorStore(brainDir, e.ID(), e.Dim())
+	// The store identity carries the embedding-text scheme version (reqw1);
+	// query-time lookups use the same versioned id.
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
 	if !ok {
 		t.Fatal("conversation store unavailable on brain_cgo build")
 	}
