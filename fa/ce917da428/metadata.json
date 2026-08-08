@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "face917da428",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/conversation.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fa/ce917da428/0/metadata.json",
+      "transcript": "/fa/ce917da428/0/full.jsonl",
+      "content_hash": "/fa/ce917da428/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 239,
+    "cache_creation_tokens": 410747,
+    "cache_read_tokens": 28591382,
+    "output_tokens": 143514,
+    "api_call_count": 120
+  }
+}
