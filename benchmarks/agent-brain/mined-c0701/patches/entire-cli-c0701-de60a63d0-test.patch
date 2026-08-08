@@ -1,0 +1,73 @@
+diff --git a/cmd/entire/cli/review/manifest_test.go b/cmd/entire/cli/review/manifest_test.go
+index effa3547e..754cd6b59 100644
+--- a/cmd/entire/cli/review/manifest_test.go
++++ b/cmd/entire/cli/review/manifest_test.go
+@@ -172,6 +172,24 @@ func TestWriteReviewCompletionFooter_PointsToFindings(t *testing.T) {
+ 	}
+ }
+ 
++func TestWriteReviewCompletionFooter_UsesTimestampWhenAvailable(t *testing.T) {
++	manifest := LocalReviewManifest{
++		CreatedAt: time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC),
++		Sources:   []ManifestSource{{SessionID: "claude-session", Label: "Claude Code"}},
++	}
++	var b strings.Builder
++
++	writeReviewCompletionFooter(&b, manifest)
++
++	got := b.String()
++	if !strings.Contains(got, "entire review --findings '20260507T100000'") {
++		t.Fatalf("footer missing timestamp view command:\n%s", got)
++	}
++	if strings.Contains(got, "entire review --findings 'claude-session'") {
++		t.Fatalf("footer should not advertise session handle when timestamp is available:\n%s", got)
++	}
++}
++
+ func TestReviewFindingCommandsQuoteShellHandles(t *testing.T) {
+ 	manifest := LocalReviewManifest{
+ 		Sources: []ManifestSource{{
+@@ -195,6 +213,43 @@ func TestReviewFindingCommandsQuoteShellHandles(t *testing.T) {
+ 	}
+ }
+ 
++func TestPrintReviewFindingsList_UsesTimestampForDuplicateSessionHandles(t *testing.T) {
++	manifests := []LocalReviewManifest{
++		{
++			CreatedAt: time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC),
++			Sources: []ManifestSource{{
++				SessionID: "claude-session",
++				Label:     "Claude Code",
++				Output:    "first finding",
++			}},
++		},
++		{
++			CreatedAt: time.Date(2026, 5, 7, 10, 5, 0, 0, time.UTC),
++			Sources: []ManifestSource{{
++				SessionID: "claude-session",
++				Label:     "Claude Code",
++				Output:    "second finding",
++			}},
++		},
++	}
++	var b strings.Builder
++
++	printReviewFindingsList(&b, manifests)
++
++	got := b.String()
++	for _, want := range []string{
++		"view: entire review --findings '20260507T100000'",
++		"view: entire review --findings '20260507T100500'",
++	} {
++		if !strings.Contains(got, want) {
++			t.Fatalf("findings list missing %q:\n%s", want, got)
++		}
++	}
++	if strings.Contains(got, "view: entire review --findings 'claude-session'") {
++		t.Fatalf("findings list should not advertise ambiguous session handle:\n%s", got)
++	}
++}
++
+ func TestPrintReviewFindingsList_ListsSessionsWithoutLocalPath(t *testing.T) {
+ 	oldArgs := os.Args
+ 	t.Cleanup(func() { os.Args = oldArgs })

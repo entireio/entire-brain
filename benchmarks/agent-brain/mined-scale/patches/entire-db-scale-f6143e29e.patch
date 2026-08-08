@@ -1,0 +1,52 @@
+diff --git a/server/connecterr/connecterr.go b/server/connecterr/connecterr.go
+index 0e724ef79..628452eaf 100644
+--- a/server/connecterr/connecterr.go
++++ b/server/connecterr/connecterr.go
+@@ -8,10 +8,7 @@ package connecterr
+ import (
+ 	"context"
+ 	"errors"
+-	"io"
+ 	"log/slog"
+-	"net"
+-	"syscall"
+ 
+ 	"connectrpc.com/connect"
+ 	"github.com/jackc/pgx/v5/pgconn"
+@@ -53,14 +50,6 @@ import (
+ // out, connection refused) is Unavailable. These are pre-send by
+ // construction, but pgconn.SafeToRetry currently returns false for
+ // ConnectError so it slips past the SafeToRetry gate.
+-//
+-// Mid-flight TCP failures — io.ErrUnexpectedEOF, ECONNRESET, EPIPE,
+-// net.ErrClosed — are Unavailable. When postgres (or any backend) is
+-// killed while a query is in flight, pgx surfaces the raw socket
+-// error without a SQLSTATE wrapper, so SafeToRetry returns false and
+-// the PgError branch never matches. The query state is unknown but
+-// the failure is operationally transient (network/cluster fault),
+-// not a program bug — Internal is the wrong rate signal.
+ func ClassifyTransient(err error) (connect.Code, bool) {
+ 	if errors.Is(err, context.Canceled) {
+ 		return connect.CodeCanceled, true
+@@ -100,21 +89,9 @@ func ClassifyTransient(err error) (connect.Code, bool) {
+ 	if errors.As(err, &connErr) {
+ 		return connect.CodeUnavailable, true
+ 	}
+-	if isMidFlightNetworkFailure(err) {
+-		return connect.CodeUnavailable, true
+-	}
+ 	return 0, false
+ }
+ 
+-// isMidFlightNetworkFailure reports whether err is a raw socket
+-// failure that pgx surfaces when the connection dies mid-query.
+-func isMidFlightNetworkFailure(err error) bool {
+-	return errors.Is(err, io.ErrUnexpectedEOF) ||
+-		errors.Is(err, syscall.ECONNRESET) ||
+-		errors.Is(err, syscall.EPIPE) ||
+-		errors.Is(err, net.ErrClosed)
+-}
+-
+ // isTransientPgClass reports whether sqlstate is in a SQLSTATE class
+ // that signals an operationally transient outcome rather than a
+ // program bug. Class 08 (connection_exception) and class 57

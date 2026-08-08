@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-development-task-negative-control-v1.json",
+  "title": "Agent Brain development-only task reverse-patch negative-control receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "status",
+    "exposure",
+    "repository_id",
+    "base_oid",
+    "head_oid",
+    "input_ledger_sha256",
+    "input_ledger_file_sha256",
+    "generated_at",
+    "implementation",
+    "environment",
+    "command_policy",
+    "summary",
+    "results",
+    "receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"const": "agent_brain_development_task_negative_control_v1"},
+    "status": {"const": "development_filter_only"},
+    "exposure": {"const": "development_only_identity_inspected"},
+    "repository_id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\r\\n]+$"},
+    "base_oid": {"$ref": "#/$defs/oid"},
+    "head_oid": {"$ref": "#/$defs/oid"},
+    "input_ledger_sha256": {"$ref": "#/$defs/sha256"},
+    "input_ledger_file_sha256": {"$ref": "#/$defs/sha256"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files", "aggregate_sha256", "python_implementation", "python_version"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "prefixItems": [
+            {"$ref": "#/$defs/runner_file"},
+            {"$ref": "#/$defs/eligibility_file"},
+            {"$ref": "#/$defs/population_file"}
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "aggregate_sha256": {"$ref": "#/$defs/sha256"},
+        "python_implementation": {"type": "string", "minLength": 1},
+        "python_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "go_version",
+        "git_version",
+        "go_binary_sha256",
+        "go_env_keys",
+        "go_env_sha256",
+        "platform",
+        "environment_policy",
+        "environment_manifest_sha256",
+        "inherited_variable_count",
+        "credential_like_variable_count",
+        "execution_overrides"
+      ],
+      "properties": {
+        "go_version": {"type": "string", "minLength": 1},
+        "git_version": {"type": "string", "minLength": 1},
+        "go_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "go_env_keys": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "GOARCH"},
+            {"const": "GOOS"},
+            {"const": "GOVERSION"},
+            {"const": "GOROOT"},
+            {"const": "GOTOOLDIR"},
+            {"const": "GOWORK"},
+            {"const": "GOFLAGS"},
+            {"const": "GOTOOLCHAIN"},
+            {"const": "GOENV"},
+            {"const": "GOPROXY"},
+            {"const": "GOSUMDB"},
+            {"const": "GOVCS"},
+            {"const": "CGO_ENABLED"},
+            {"const": "CC"},
+            {"const": "CXX"},
+            {"const": "GOEXPERIMENT"},
+            {"const": "GOCACHE"},
+            {"const": "GOMODCACHE"},
+            {"const": "GOPATH"}
+          ],
+          "items": false,
+          "minItems": 19,
+          "maxItems": 19
+        },
+        "go_env_sha256": {"$ref": "#/$defs/sha256"},
+        "platform": {"type": "string", "minLength": 1},
+        "environment_policy": {"const": "deny_all_then_explicit_local_allowlist_v1"},
+        "environment_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "inherited_variable_count": {"const": 0},
+        "credential_like_variable_count": {"const": 0},
+        "execution_overrides": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["GOENV", "GOFLAGS", "GOPROXY", "GOSUMDB", "GOTOOLCHAIN", "GOVCS", "GOWORK"],
+          "properties": {
+            "GOENV": {"const": "off"},
+            "GOFLAGS": {"const": ""},
+            "GOPROXY": {"const": "off"},
+            "GOSUMDB": {"const": "off"},
+            "GOTOOLCHAIN": {"const": "local"},
+            "GOVCS": {"const": "*:off"},
+            "GOWORK": {"const": "off"}
+          }
+        }
+      }
+    },
+    "command_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "reversal", "test_scope", "go_test_flags", "per_run_timeout_seconds"],
+      "properties": {
+        "name": {"const": "changed_go_test_packages_reverse_production_go_v1"},
+        "reversal": {"const": "first_parent_production_go_only_no_renames_v1"},
+        "test_scope": {"const": "packages_containing_changed_go_test_files"},
+        "go_test_flags": {
+          "type": "array",
+          "prefixItems": [{"const": "-count=1"}, {"const": "-timeout=0"}],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "per_run_timeout_seconds": {"type": "integer", "minimum": 10, "maximum": 3600}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_count", "classification_counts"],
+      "properties": {
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "classification_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "eligible_for_symptom_review",
+            "negative_control_survived",
+            "baseline_invalid_failure",
+            "baseline_invalid_timeout",
+            "reversed_invalid_timeout"
+          ],
+          "properties": {
+            "eligible_for_symptom_review": {"type": "integer", "minimum": 0},
+            "negative_control_survived": {"type": "integer", "minimum": 0},
+            "baseline_invalid_failure": {"type": "integer", "minimum": 0},
+            "baseline_invalid_timeout": {"type": "integer", "minimum": 0},
+            "reversed_invalid_timeout": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/result"}
+    },
+    "receipt_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "oid": {"type": "string", "pattern": "^(?!0{40}$)[0-9a-f]{40}$"},
+    "runner_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "sha256"],
+      "properties": {
+        "role": {"const": "negative_control_runner"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "eligibility_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "sha256"],
+      "properties": {
+        "role": {"const": "eligibility_scanner"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "population_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "sha256"],
+      "properties": {
+        "role": {"const": "canonical_population_helpers"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "exit_code", "output_sha256", "output_byte_count"],
+      "properties": {
+        "status": {"enum": ["completed", "timeout"]},
+        "exit_code": {"type": ["integer", "null"], "minimum": 0},
+        "output_sha256": {"$ref": "#/$defs/sha256"},
+        "output_byte_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "first_parent_position",
+        "candidate_ref",
+        "commit_oid",
+        "parent_oid",
+        "source_file_count",
+        "source_paths_sha256",
+        "test_file_count",
+        "test_target_count",
+        "test_targets_sha256",
+        "test_command_sha256",
+        "baseline",
+        "reversed_source",
+        "classification"
+      ],
+      "properties": {
+        "first_parent_position": {"type": "integer", "minimum": 1},
+        "candidate_ref": {"$ref": "#/$defs/sha256"},
+        "commit_oid": {"$ref": "#/$defs/oid"},
+        "parent_oid": {"$ref": "#/$defs/oid"},
+        "source_file_count": {"type": "integer", "minimum": 1},
+        "source_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "test_file_count": {"type": "integer", "minimum": 1},
+        "test_target_count": {"type": "integer", "minimum": 1},
+        "test_targets_sha256": {"$ref": "#/$defs/sha256"},
+        "test_command_sha256": {"$ref": "#/$defs/sha256"},
+        "baseline": {"$ref": "#/$defs/execution"},
+        "reversed_source": {"$ref": "#/$defs/execution"},
+        "classification": {
+          "enum": [
+            "eligible_for_symptom_review",
+            "negative_control_survived",
+            "baseline_invalid_failure",
+            "baseline_invalid_timeout",
+            "reversed_invalid_timeout"
+          ]
+        }
+      }
+    }
+  }
+}

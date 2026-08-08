@@ -1,0 +1,149 @@
+diff --git a/core/api/server.go b/core/api/server.go
+index 23e059c9f..1e657e96f 100644
+--- a/core/api/server.go
++++ b/core/api/server.go
+@@ -1279,6 +1279,110 @@ func (s *Server) consumeOAuthStateRecord(ctx context.Context, state string) (aut
+ 	return authn.OAuthStateRecord{RedirectTo: st.payload, Provider: st.provider, AuthRequestID: st.authRequestID}, nil
+ }
+ 
++// bridgingForeignAuthorizeURL resolves the home-region /authorize URL for a
++// pkg/op-originated auth request whose GitHub callback landed on a foreign
++// region. The user's PKCE verifier lives on the laptop, so we forward the
++// original RP params (client_id, redirect_uri, code_challenge, scope, etc.)
++// to the home region's canonical /authorize and let pkg/op there issue the
++// code. The orphaned AuthRequest on this region is best-effort-deleted; if
++// the lookup fails the caller writes a 500 and we return ok=false so it can
++// short-circuit.
++//
++// homeConsoleURL is the home jurisdiction's console base URL. We use it to
++// rewrite the redirect_uri when the original points at this region's console
++// (the post-PR-#1380 default flow): each region registers the "console"
++// OAuth client with only its own console redirect_uri, so forwarding the
++// foreign-region one verbatim trips pkg/op's "redirect_uri is missing in the
++// client configuration" check on the home side. Loopback (CLI) and
++// third-party RP redirect URIs pass through unchanged.
++func (s *Server) bridgingForeignAuthorizeURL(w http.ResponseWriter, r *http.Request, requestID, homeBaseURL, homeConsoleURL, providerID string) (string, bool) {
++	if s.authRequestStore == nil {
++		writeErr(w, r, http.StatusInternalServerError, errors.New("auth request store not configured"))
++		return "", false
++	}
++	req, err := s.authRequestStore.ByID(r.Context(), requestID)
++	if err != nil {
++		writeErr(w, r, http.StatusInternalServerError, fmt.Errorf("lookup auth request for foreign redirect: %w", err))
++		return "", false
++	}
++	if err := s.authRequestStore.Delete(r.Context(), requestID); err != nil {
++		slogutil.Warn(r.Context(), "delete orphaned bridging auth request",
++			slog.String("id", requestID), slog.String("error", err.Error()))
++	}
++	req.RedirectURI = rewriteConsoleRedirectURI(req.RedirectURI, s.consoleURL, homeConsoleURL)
++	return buildBridgingForeignAuthorizeURL(homeBaseURL, req, providerID), true
++}
++
++// rewriteConsoleRedirectURI swaps scheme+host on a console-bound redirect_uri
++// so the home region's "console" OAuth client whitelist accepts it. Path,
++// query, and fragment are preserved so the home console's /api/auth/callback
++// handler behaves identically to a local login.
++//
++// Three cases pass through unchanged:
++//   - redirect_uri host doesn't match the local console host (loopback /
++//     entire-core-cli, third-party RPs registered on a single region, etc.).
++//     Those clients are responsible for being registered cross-region; we
++//     can't synthesize a correct home URL for them.
++//   - localConsoleURL or homeConsoleURL is empty/unparseable. The caller
++//     enforces non-empty homeConsoleURL upstream; this is defence in depth.
++//   - any parse error on the redirect_uri itself. pkg/op on the home side
++//     will surface the mismatch as a 400, same as before this rewrite.
++func rewriteConsoleRedirectURI(redirectURI, localConsoleURL, homeConsoleURL string) string {
++	if localConsoleURL == "" || homeConsoleURL == "" {
++		return redirectURI
++	}
++	local, err := neturl.Parse(localConsoleURL)
++	if err != nil || local.Host == "" {
++		return redirectURI
++	}
++	orig, err := neturl.Parse(redirectURI)
++	if err != nil || orig.Host == "" {
++		return redirectURI
++	}
++	if !strings.EqualFold(orig.Host, local.Host) {
++		return redirectURI
++	}
++	home, err := neturl.Parse(homeConsoleURL)
++	if err != nil || home.Host == "" {
++		return redirectURI
++	}
++	rewritten := *orig
++	rewritten.Scheme = home.Scheme
++	rewritten.Host = home.Host
++	return rewritten.String()
++}
++
++func buildBridgingForeignAuthorizeURL(homeBaseURL string, req authn.AuthRequest, providerID string) string {
++	q := neturl.Values{}
++	q.Set("client_id", req.ClientID)
++	q.Set("redirect_uri", req.RedirectURI)
++	if req.ResponseType != "" {
++		q.Set("response_type", req.ResponseType)
++	}
++	if req.ResponseMode != "" {
++		q.Set("response_mode", req.ResponseMode)
++	}
++	if req.State != "" {
++		q.Set("state", req.State)
++	}
++	if req.Nonce != "" {
++		q.Set("nonce", req.Nonce)
++	}
++	if req.CodeChallengeValue != "" {
++		q.Set("code_challenge", req.CodeChallengeValue)
++		if req.CodeChallengeMethod != "" {
++			q.Set("code_challenge_method", req.CodeChallengeMethod)
++		}
++	}
++	if len(req.Scopes) > 0 {
++		q.Set("scope", strings.Join(req.Scopes, " "))
++	}
++	if providerID != "" {
++		q.Set("provider", providerID)
++	}
++	return strings.TrimRight(homeBaseURL, "/") + "/authorize?" + q.Encode()
++}
++
+ // redirectToPrimaryLogin bounces /api/auth/login hits that arrived on the
+ // auth host (or any host other than the console) to the configured
+ // front-door login URL. Returns true when it wrote a 302 — callers must
+@@ -1720,6 +1824,33 @@ func (s *Server) handleProviderRegionalCallback(w http.ResponseWriter, r *http.R
+ 		writeErr(w, r, http.StatusInternalServerError, err)
+ 		return
+ 	}
++	// A pkg/op-originated /authorize flow that landed on a foreign region
++	// needs the home region's /authorize to issue the code (the user's
++	// PKCE verifier is on their laptop). Bridge the original AuthRequest
++	// over to the home region; the home region's pkg/op will read it,
++	// MarkDone, and emit the code.
++	if result.IsForeignJurisdiction && stateRec.AuthRequestID != "" {
++		homeBaseURL, ok := s.jurisdictionAuthHosts[result.HomeJurisdiction]
++		if !ok {
++			writeErr(w, r, http.StatusInternalServerError, fmt.Errorf("unknown home jurisdiction %q", result.HomeJurisdiction))
++			return
++		}
++		// jurisdictionHosts is the console-host map (REGION_HOSTS). Required
++		// here so we can rewrite a foreign-region console redirect_uri to the
++		// home region's console host — without it the home /authorize will
++		// 400 with "redirect_uri is missing in the client configuration".
++		homeConsoleURL, ok := s.jurisdictionHosts[result.HomeJurisdiction]
++		if !ok || homeConsoleURL == "" {
++			writeErr(w, r, http.StatusInternalServerError, fmt.Errorf("missing console URL for home jurisdiction %q", result.HomeJurisdiction))
++			return
++		}
++		dest, ok := s.bridgingForeignAuthorizeURL(w, r, stateRec.AuthRequestID, homeBaseURL, homeConsoleURL, providerID)
++		if !ok {
++			return
++		}
++		http.Redirect(w, r, dest, http.StatusFound)
++		return
++	}
+ 	// PII boundary: never write the user's GitHub access/refresh tokens into
+ 	// the foreign region's regional store. The home region keeps them.
+ 	if !result.IsForeignJurisdiction {

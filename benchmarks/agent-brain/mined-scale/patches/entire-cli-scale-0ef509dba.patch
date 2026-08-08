@@ -1,0 +1,281 @@
+diff --git a/cmd/entire/cli/agent/claudecode/hooks.go b/cmd/entire/cli/agent/claudecode/hooks.go
+index 5890d430a..b112dd1c9 100644
+--- a/cmd/entire/cli/agent/claudecode/hooks.go
++++ b/cmd/entire/cli/agent/claudecode/hooks.go
+@@ -34,28 +34,12 @@ const ClaudeSettingsFileName = "settings.json"
+ // metadataDenyRule blocks Claude from reading Entire session metadata
+ const metadataDenyRule = "Read(./.entire/metadata/**)"
+ 
+-// localDevHookCmdPrefix is the command prefix used for hooks in local-dev mode.
+-// It points at scripts/entire-dev, which compiles the CLI on demand and falls
+-// back to the entire binary on PATH when the tree does not build (e.g. mid
+-// merge-conflict-fix). ${CLAUDE_PROJECT_DIR} is set by Claude Code to the
+-// repository root when it runs hooks.
+-const localDevHookCmdPrefix = "${CLAUDE_PROJECT_DIR}/scripts/entire-dev "
+-
+-// entireHookPrefixes are command prefixes that identify Entire hooks. The
+-// "go run" prefix is retained so hooks installed by older versions are still
+-// recognized for removal/upgrade.
++// entireHookPrefixes are command prefixes that identify Entire hooks (both old and new formats)
+ var entireHookPrefixes = []string{
+ 	"entire ",
+-	localDevHookCmdPrefix,
+ 	"go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go ",
+ }
+ 
+-// localDevHookCommand builds a local-dev hook command for the given hook name,
+-// delegating to scripts/entire-dev for the build-probe-and-fallback logic.
+-func localDevHookCommand(hookName string) string {
+-	return fmt.Sprintf("%shooks claude-code %s", localDevHookCmdPrefix, hookName)
+-}
+-
+ // InstallHooks installs Claude Code hooks in .claude/settings.json.
+ // If force is true, removes existing Entire hooks before installing.
+ // Returns the number of hooks installed.
+@@ -130,13 +114,13 @@ func (c *ClaudeCodeAgent) InstallHooks(ctx context.Context, localDev bool, force
+ 	// Define hook commands
+ 	var sessionStartCmd, sessionEndCmd, stopCmd, userPromptSubmitCmd, preTaskCmd, postTaskCmd, postTodoCmd string
+ 	if localDev {
+-		sessionStartCmd = localDevHookCommand(HookNameSessionStart)
+-		sessionEndCmd = localDevHookCommand(HookNameSessionEnd)
+-		stopCmd = localDevHookCommand(HookNameStop)
+-		userPromptSubmitCmd = localDevHookCommand(HookNameUserPromptSubmit)
+-		preTaskCmd = localDevHookCommand(HookNamePreTask)
+-		postTaskCmd = localDevHookCommand(HookNamePostTask)
+-		postTodoCmd = localDevHookCommand(HookNamePostTodo)
++		sessionStartCmd = "go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go hooks claude-code session-start"
++		sessionEndCmd = "go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go hooks claude-code session-end"
++		stopCmd = "go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go hooks claude-code stop"
++		userPromptSubmitCmd = "go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go hooks claude-code user-prompt-submit"
++		preTaskCmd = "go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go hooks claude-code pre-task"
++		postTaskCmd = "go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go hooks claude-code post-task"
++		postTodoCmd = "go run ${CLAUDE_PROJECT_DIR}/cmd/entire/main.go hooks claude-code post-todo"
+ 	} else {
+ 		sessionStartCmd = agent.WrapProductionJSONWarningHookCommand("entire hooks claude-code session-start", agent.WarningFormatMultiLine)
+ 		sessionEndCmd = agent.WrapProductionSilentHookCommand("entire hooks claude-code session-end")
+diff --git a/cmd/entire/cli/agent/codex/hooks.go b/cmd/entire/cli/agent/codex/hooks.go
+index e98ee3421..4254e1990 100644
+--- a/cmd/entire/cli/agent/codex/hooks.go
++++ b/cmd/entire/cli/agent/codex/hooks.go
+@@ -16,11 +16,9 @@ import (
+ // HooksFileName is the hooks config file used by Codex.
+ const HooksFileName = "hooks.json"
+ 
+-// entireHookPrefixes identifies Entire hook commands. The "go run" prefix is
+-// retained so hooks installed by older versions are still recognized.
++// entireHookPrefixes identifies Entire hook commands.
+ var entireHookPrefixes = []string{
+ 	"entire ",
+-	agent.LocalDevHookScript + " ",
+ 	`go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go `,
+ }
+ 
+@@ -80,7 +78,7 @@ func (c *CodexAgent) InstallHooks(ctx context.Context, localDev bool, force bool
+ 	// Build hook commands
+ 	var cmdPrefix string
+ 	if localDev {
+-		cmdPrefix = agent.LocalDevHookScript + " hooks codex "
++		cmdPrefix = `go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go hooks codex `
+ 	} else {
+ 		cmdPrefix = "entire hooks codex "
+ 	}
+diff --git a/cmd/entire/cli/agent/copilotcli/hooks.go b/cmd/entire/cli/agent/copilotcli/hooks.go
+index 6892b0e82..7792eef49 100644
+--- a/cmd/entire/cli/agent/copilotcli/hooks.go
++++ b/cmd/entire/cli/agent/copilotcli/hooks.go
+@@ -20,12 +20,9 @@ const HooksFileName = "entire.json"
+ // hooksDir is the directory within the repo where Copilot CLI looks for hook configs.
+ const hooksDir = ".github/hooks"
+ 
+-// entireHookPrefixes are command prefixes that identify Entire hooks in the
+-// bash field. The "go run" prefix is retained so hooks installed by older
+-// versions are still recognized.
++// entireHookPrefixes are command prefixes that identify Entire hooks in the bash field.
+ var entireHookPrefixes = []string{
+ 	"entire ",
+-	agent.LocalDevHookScript + " ",
+ 	`go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go `,
+ }
+ 
+@@ -104,7 +101,7 @@ func (c *CopilotCLIAgent) InstallHooks(ctx context.Context, localDev bool, force
+ 	// Define command prefix
+ 	var cmdPrefix string
+ 	if localDev {
+-		cmdPrefix = agent.LocalDevHookScript + " hooks copilot-cli "
++		cmdPrefix = `go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go hooks copilot-cli `
+ 	} else {
+ 		cmdPrefix = "entire hooks copilot-cli "
+ 	}
+diff --git a/cmd/entire/cli/agent/cursor/hooks.go b/cmd/entire/cli/agent/cursor/hooks.go
+index 0bb78eda9..513eba9e2 100644
+--- a/cmd/entire/cli/agent/cursor/hooks.go
++++ b/cmd/entire/cli/agent/cursor/hooks.go
+@@ -31,12 +31,9 @@ const (
+ // HooksFileName is the hooks file used by Cursor.
+ const HooksFileName = "hooks.json"
+ 
+-// entireHookPrefixes are command prefixes that identify Entire hooks. The
+-// "go run" prefix is retained so hooks installed by older versions are still
+-// recognized.
++// entireHookPrefixes are command prefixes that identify Entire hooks
+ var entireHookPrefixes = []string{
+ 	"entire ",
+-	agent.LocalDevHookScript + " ",
+ 	`go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go `,
+ }
+ 
+@@ -117,7 +114,7 @@ func (c *CursorAgent) InstallHooks(ctx context.Context, localDev bool, force boo
+ 	// Define hook commands
+ 	var cmdPrefix string
+ 	if localDev {
+-		cmdPrefix = agent.LocalDevHookScript + " hooks cursor "
++		cmdPrefix = `go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go hooks cursor `
+ 	} else {
+ 		cmdPrefix = "entire hooks cursor "
+ 	}
+diff --git a/cmd/entire/cli/agent/factoryaidroid/hooks.go b/cmd/entire/cli/agent/factoryaidroid/hooks.go
+index 75b186e42..a8b01fdcf 100644
+--- a/cmd/entire/cli/agent/factoryaidroid/hooks.go
++++ b/cmd/entire/cli/agent/factoryaidroid/hooks.go
+@@ -36,12 +36,9 @@ const FactorySettingsFileName = "settings.json"
+ // metadataDenyRule blocks Factory Droid from reading Entire session metadata
+ const metadataDenyRule = "Read(./.entire/metadata/**)"
+ 
+-// entireHookPrefixes are command prefixes that identify Entire hooks. The
+-// "go run" prefix is retained so hooks installed by older versions are still
+-// recognized.
++// entireHookPrefixes are command prefixes that identify Entire hooks
+ var entireHookPrefixes = []string{
+ 	"entire ",
+-	agent.LocalDevHookScript + " ",
+ 	`go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go `,
+ }
+ 
+@@ -122,7 +119,7 @@ func (f *FactoryAIDroidAgent) InstallHooks(ctx context.Context, localDev bool, f
+ 
+ 	// Define hook commands
+ 	var sessionStartCmd, sessionEndCmd, stopCmd, userPromptSubmitCmd, preTaskCmd, postTaskCmd, preCompactCmd string
+-	localDevPrefix := agent.LocalDevHookScript + " hooks factoryai-droid "
++	localDevPrefix := `go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go hooks factoryai-droid `
+ 	if localDev {
+ 		sessionStartCmd = localDevPrefix + "session-start"
+ 		sessionEndCmd = localDevPrefix + "session-end"
+diff --git a/cmd/entire/cli/agent/geminicli/hooks.go b/cmd/entire/cli/agent/geminicli/hooks.go
+index 1d33599a3..4a313a08b 100644
+--- a/cmd/entire/cli/agent/geminicli/hooks.go
++++ b/cmd/entire/cli/agent/geminicli/hooks.go
+@@ -36,12 +36,9 @@ const (
+ // GeminiSettingsFileName is the settings file used by Gemini CLI.
+ const GeminiSettingsFileName = "settings.json"
+ 
+-// entireHookPrefixes are command prefixes that identify Entire hooks. The
+-// "go run" prefix is retained so hooks installed by older versions are still
+-// recognized.
++// entireHookPrefixes are command prefixes that identify Entire hooks
+ var entireHookPrefixes = []string{
+ 	"entire ",
+-	agent.LocalDevHookScript + " ",
+ 	`go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go `,
+ }
+ 
+@@ -105,7 +102,7 @@ func (g *GeminiCLIAgent) InstallHooks(ctx context.Context, localDev bool, force
+ 	// Define hook commands based on localDev mode
+ 	var cmdPrefix string
+ 	if localDev {
+-		cmdPrefix = agent.LocalDevHookScript + " hooks gemini "
++		cmdPrefix = `go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go hooks gemini `
+ 	} else {
+ 		cmdPrefix = "entire hooks gemini "
+ 	}
+diff --git a/cmd/entire/cli/agent/hook_command.go b/cmd/entire/cli/agent/hook_command.go
+index 9f6c82e18..5320dd443 100644
+--- a/cmd/entire/cli/agent/hook_command.go
++++ b/cmd/entire/cli/agent/hook_command.go
+@@ -25,14 +25,6 @@ func MissingEntireWarning(format WarningFormat) string {
+ 	}
+ }
+ 
+-// LocalDevHookScript is the local-development hook launcher, with the repo root
+-// resolved at hook runtime via git. It points at scripts/entire-dev, which
+-// compiles the CLI on demand and falls back to the entire binary on PATH when
+-// the tree does not build (e.g. mid merge-conflict-fix). Agents that locate the
+-// repo root with `git rev-parse` build their local-dev command prefix from
+-// this; claude-code uses ${CLAUDE_PROJECT_DIR} and defines its own prefix.
+-const LocalDevHookScript = `"$(git rev-parse --show-toplevel)"/scripts/entire-dev`
+-
+ // WrapProductionSilentHookCommand exits successfully without output when the
+ // Entire CLI is missing from PATH.
+ func WrapProductionSilentHookCommand(command string) string {
+diff --git a/cmd/entire/cli/agent/opencode/hooks.go b/cmd/entire/cli/agent/opencode/hooks.go
+index d88ff0476..02b2f7cb7 100644
+--- a/cmd/entire/cli/agent/opencode/hooks.go
++++ b/cmd/entire/cli/agent/opencode/hooks.go
+@@ -51,7 +51,7 @@ func (a *OpenCodeAgent) InstallHooks(ctx context.Context, localDev bool, force b
+ 	// Build the command prefix
+ 	var cmdPrefix string
+ 	if localDev {
+-		cmdPrefix = agent.LocalDevHookScript
++		cmdPrefix = `go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go`
+ 	} else {
+ 		cmdPrefix = "entire"
+ 	}
+diff --git a/cmd/entire/cli/agent/pi/hooks.go b/cmd/entire/cli/agent/pi/hooks.go
+index b90fe52e8..f238b16c1 100644
+--- a/cmd/entire/cli/agent/pi/hooks.go
++++ b/cmd/entire/cli/agent/pi/hooks.go
+@@ -52,7 +52,7 @@ func extensionPath(ctx context.Context) (string, error) {
+ func renderExtension(localDev bool) string {
+ 	var cmd string
+ 	if localDev {
+-		cmd = agent.LocalDevHookScript
++		cmd = `go run "$(git rev-parse --show-toplevel)"/cmd/entire/main.go`
+ 	} else {
+ 		cmd = "entire"
+ 	}
+diff --git a/cmd/entire/cli/strategy/hook_managers.go b/cmd/entire/cli/strategy/hook_managers.go
+index c9b4ac0ed..d6e1d7095 100644
+--- a/cmd/entire/cli/strategy/hook_managers.go
++++ b/cmd/entire/cli/strategy/hook_managers.go
+@@ -63,7 +63,7 @@ func detectHookManagers(repoRoot string) []hookManager {
+ }
+ 
+ // hookManagerWarning builds a warning string for detected hook managers.
+-// cmdPrefix is the CLI command prefix (e.g., "entire" or "./scripts/entire-dev").
++// cmdPrefix is the CLI command prefix (e.g., "entire" or "go run ./cmd/entire/main.go").
+ func hookManagerWarning(managers []hookManager, cmdPrefix string) string {
+ 	if len(managers) == 0 {
+ 		return ""
+diff --git a/cmd/entire/cli/strategy/hooks.go b/cmd/entire/cli/strategy/hooks.go
+index 415d04a9a..394a45b65 100644
+--- a/cmd/entire/cli/strategy/hooks.go
++++ b/cmd/entire/cli/strategy/hooks.go
+@@ -20,13 +20,6 @@ const backupSuffix = ".pre-entire"
+ const chainComment = "# Chain: run pre-existing hook"
+ const missingEntireGitHookWarning = "[entire] Entire CLI is enabled but not installed or not on PATH. Skipping Entire Git hook; continuing. Installation guide: https://docs.entire.io/cli/installation#installation-methods"
+ 
+-// localDevHookCmdPrefix is the command prefix used for git hooks in local
+-// development mode. It points at scripts/entire-dev, which compiles the CLI on
+-// demand and falls back to the entire binary on PATH when the tree does not
+-// build. The path is relative to the repository root, which is git's working
+-// directory when it runs hooks.
+-const localDevHookCmdPrefix = "./scripts/entire-dev"
+-
+ // gitHookNames are the git hooks managed by Entire CLI
+ var gitHookNames = []string{"prepare-commit-msg", "commit-msg", "post-commit", "post-rewrite", "pre-push"}
+ 
+@@ -430,13 +423,13 @@ fi
+ }
+ 
+ // hookCmdPrefix returns the command prefix for hook scripts and warning messages.
+-// Returns the scripts/entire-dev launcher when local_dev is enabled.
++// Returns "go run ./cmd/entire/main.go" when local_dev is enabled.
+ // When absolutePath is true, resolves the full binary path via os.Executable()
+ // and returns an error if resolution fails. This is needed for GUI git clients
+ // (Xcode, Tower, etc.) that don't source shell profiles.
+ func hookCmdPrefix(localDev, absolutePath bool) (string, error) {
+ 	if localDev {
+-		return localDevHookCmdPrefix, nil
++		return "go run ./cmd/entire/main.go", nil
+ 	}
+ 	if absolutePath {
+ 		exe, err := os.Executable()

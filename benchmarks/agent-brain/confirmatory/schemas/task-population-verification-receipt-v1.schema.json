@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-task-population-verification-receipt-v1.json",
+  "title": "Task-population verification receipt",
+  "type": "object",
+  "required": [
+    "schema",
+    "kind",
+    "status",
+    "verification_subject_schema",
+    "verification_subject_sha256",
+    "verifier",
+    "verified_at",
+    "authentication_status",
+    "identity_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-task-population-verification-receipt/v1"},
+    "kind": {"enum": ["selection", "assignment", "overlap_commitment"]},
+    "status": {"const": "verified"},
+    "verification_subject_schema": {
+      "const": "agent-brain-task-population-verification-subject/full-population-v1"
+    },
+    "verification_subject_sha256": {"$ref": "#/$defs/sha256"},
+    "verifier": {"type": "string", "minLength": 1},
+    "verified_at": {"type": "string", "format": "date-time"},
+    "authentication_status": {
+      "const": "unauthenticated_no_trust_anchor_fail_closed"
+    },
+    "identity_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    }
+  }
+}

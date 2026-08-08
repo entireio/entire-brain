@@ -1,0 +1,87 @@
+diff --git a/cmd/entire/cli/checkpoint/committed.go b/cmd/entire/cli/checkpoint/committed.go
+index ef34721df..84d744fe6 100644
+--- a/cmd/entire/cli/checkpoint/committed.go
++++ b/cmd/entire/cli/checkpoint/committed.go
+@@ -345,14 +345,11 @@ func (s *GitStore) writeSessionToSubdirectory(ctx context.Context, opts WriteCom
+ 	}
+ 
+ 	// Write transcript
+-	wroteTranscript, err := s.writeTranscript(ctx, opts, sessionPath, entries)
+-	if err != nil {
++	if err := s.writeTranscript(ctx, opts, sessionPath, entries); err != nil {
+ 		return filePaths, err
+ 	}
+-	if wroteTranscript {
+-		filePaths.Transcript = "/" + sessionPath + paths.TranscriptFileName
+-		filePaths.ContentHash = "/" + sessionPath + paths.ContentHashFileName
+-	}
++	filePaths.Transcript = "/" + sessionPath + paths.TranscriptFileName
++	filePaths.ContentHash = "/" + sessionPath + paths.ContentHashFileName
+ 
+ 	// Write prompts
+ 	if len(opts.Prompts) > 0 {
+@@ -629,9 +626,9 @@ func aggregateTokenUsage(a, b *agent.TokenUsage) *agent.TokenUsage {
+ 	return result
+ }
+ 
+-// writeTranscript writes the transcript and content hash to the checkpoint entries.
+-// Returns (true, nil) if files were written, (false, nil) if transcript was empty.
+-func (s *GitStore) writeTranscript(ctx context.Context, opts WriteCommittedOptions, basePath string, entries map[string]object.TreeEntry) (bool, error) {
++// writeTranscript writes the transcript file from in-memory content or file path.
++// If the transcript exceeds MaxChunkSize, it's split into multiple chunk files.
++func (s *GitStore) writeTranscript(ctx context.Context, opts WriteCommittedOptions, basePath string, entries map[string]object.TreeEntry) error {
+ 	logCtx := logging.WithComponent(ctx, "checkpoint")
+ 	transcriptBytes := opts.Transcript.Bytes()
+ 
+@@ -647,13 +644,13 @@ func (s *GitStore) writeTranscript(ctx context.Context, opts WriteCommittedOptio
+ 		if len(rawData) > 0 {
+ 			redacted, redactErr := redact.JSONLBytes(rawData)
+ 			if redactErr != nil {
+-				return false, fmt.Errorf("failed to redact transcript from file: %w", redactErr)
++				return fmt.Errorf("failed to redact transcript from file: %w", redactErr)
+ 			}
+ 			transcriptBytes = redacted.Bytes()
+ 		}
+ 	}
+ 	if len(transcriptBytes) == 0 {
+-		return false, nil
++		return nil
+ 	}
+ 
+ 	if opts.Agent == agent.AgentTypeCodex {
+@@ -667,7 +664,7 @@ func (s *GitStore) writeTranscript(ctx context.Context, opts WriteCommittedOptio
+ 	if err != nil {
+ 		chunkTranscriptSpan.RecordError(err)
+ 		chunkTranscriptSpan.End()
+-		return false, fmt.Errorf("failed to chunk transcript: %w", err)
++		return fmt.Errorf("failed to chunk transcript: %w", err)
+ 	}
+ 	chunkTranscriptSpan.End()
+ 	chunkDuration := time.Since(chunkStart)
+@@ -681,7 +678,7 @@ func (s *GitStore) writeTranscript(ctx context.Context, opts WriteCommittedOptio
+ 		if err != nil {
+ 			writeTranscriptBlobsSpan.RecordError(err)
+ 			writeTranscriptBlobsSpan.End()
+-			return false, err
++			return err
+ 		}
+ 		entries[chunkPath] = object.TreeEntry{
+ 			Name: chunkPath,
+@@ -700,7 +697,7 @@ func (s *GitStore) writeTranscript(ctx context.Context, opts WriteCommittedOptio
+ 	if err != nil {
+ 		contentHashSpan.RecordError(err)
+ 		contentHashSpan.End()
+-		return false, err
++		return err
+ 	}
+ 	entries[basePath+paths.ContentHashFileName] = object.TreeEntry{
+ 		Name: basePath + paths.ContentHashFileName,
+@@ -719,7 +716,7 @@ func (s *GitStore) writeTranscript(ctx context.Context, opts WriteCommittedOptio
+ 		slog.Int("transcript_bytes", len(transcriptBytes)),
+ 		slog.Int("chunk_count", len(chunks)),
+ 	)
+-	return true, nil
++	return nil
+ }
+ 
+ // mergeFilesTouched combines two file lists, removing duplicates.

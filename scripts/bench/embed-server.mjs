@@ -15,6 +15,8 @@
 //   ENTIRE_BRAIN_EMBEDDER=ollama ENTIRE_BRAIN_EMBED_URL=http://localhost:11500 \
 //     entire-brain facts eval --tasks tasks.json --branch main --semantic --json
 import http from "node:http";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { getLlama } from "node-llama-cpp";
 
 const modelPath = process.env.GGUF;
@@ -22,24 +24,53 @@ const port = Number(process.env.PORT || 11500);
 // Bind loopback by default so this compute-heavy endpoint isn't exposed on a
 // shared machine; set HOST=0.0.0.0 to opt into all interfaces.
 const host = process.env.HOST || "127.0.0.1";
+const verificationToken = process.env.ENGINE_VERIFICATION_TOKEN || "";
 if (!modelPath) {
   console.error("set GGUF=/path/to/embeddinggemma-300M-Q8_0.gguf");
   process.exit(1);
 }
 
+async function sha256File(path) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
 console.log("loading", modelPath);
+// Confirmatory verification supplies an unguessable ownership token. In that
+// mode the server hashes the model bytes it will load and exposes a loopback
+// health identity. Normal benchmark/development use does not pay this extra
+// full-file hash or expose the verification endpoint.
+const modelSha256 = verificationToken ? await sha256File(modelPath) : "";
 const llama = await getLlama();
 const model = await llama.loadModel({ modelPath });
 const ctx = await model.createEmbeddingContext();
 const probe = await ctx.getEmbeddingFor("title: none | text: probe");
 console.log("ready: dim =", probe.vector.length, "on :" + port);
+let healthRequestCount = 0;
 
 http.createServer((req, res) => {
+  const requestUrl = new URL(req.url || "/", `http://${host}:${port}`);
+  const path = requestUrl.pathname;
+  if (req.method === "GET" && path === "/health" && verificationToken) {
+    healthRequestCount += 1;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({
+      pid: process.pid,
+      verification_token: verificationToken,
+      model_path: modelPath,
+      model_sha256: modelSha256,
+      embedding_dimension: probe.vector.length,
+      node_version: process.version,
+      request_nonce: requestUrl.searchParams.get("nonce") || "",
+      health_request_count: healthRequestCount,
+    }));
+    return;
+  }
   if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
   // Accept the embed endpoint only (the brain points ENTIRE_BRAIN_EMBED_URL at the
   // root; "/api/embed" matches Ollama's shape). 404 anything else so the server
   // isn't an accidental catch-all if more endpoints are added later.
-  const path = (req.url || "/").split("?")[0];
   if (path !== "/" && path !== "/api/embed") { res.writeHead(404); res.end(); return; }
   const chunks = [];
   let size = 0;

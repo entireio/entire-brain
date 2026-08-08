@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-development-task-eligibility-scan-v1.json",
+  "title": "Agent Brain development-only task eligibility scan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "status",
+    "exposure",
+    "repository_id",
+    "selection_rule",
+    "base_oid",
+    "head_oid",
+    "generated_at",
+    "ledger_sha256",
+    "summary",
+    "candidates"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"const": "agent_brain_development_task_eligibility_scan_v1"},
+    "status": {"const": "static_screen_only"},
+    "exposure": {"const": "development_only_identity_inspected"},
+    "repository_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "selection_rule": {"const": "first_parent_source_plus_test_static_screen_v1"},
+    "base_oid": {"$ref": "#/$defs/oid"},
+    "head_oid": {"$ref": "#/$defs/oid"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "ledger_sha256": {"$ref": "#/$defs/sha256"},
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "first_parent_unit_count",
+        "source_plus_test_candidate_count",
+        "negative_control_pending_count",
+        "static_scope_band_counts"
+      ],
+      "properties": {
+        "first_parent_unit_count": {"type": "integer", "minimum": 0},
+        "source_plus_test_candidate_count": {"type": "integer", "minimum": 0},
+        "negative_control_pending_count": {"type": "integer", "minimum": 0},
+        "static_scope_band_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["low", "medium", "high"],
+          "properties": {
+            "low": {"type": "integer", "minimum": 0},
+            "medium": {"type": "integer", "minimum": 0},
+            "high": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/candidate"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "oid": {"type": "string", "pattern": "^(?!0{40}$)[0-9a-f]{40}$"},
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "first_parent_position",
+        "candidate_ref",
+        "commit_oid",
+        "parent_oid",
+        "tree_oid",
+        "committed_at",
+        "merge_parent_count",
+        "source_file_count",
+        "test_file_count",
+        "source_package_count",
+        "cross_package",
+        "changed_paths_sha256",
+        "source_paths_sha256",
+        "test_paths_sha256",
+        "source_diff_sha256",
+        "test_diff_sha256",
+        "static_scope_score",
+        "static_scope_band",
+        "negative_control_status"
+      ],
+      "properties": {
+        "first_parent_position": {"type": "integer", "minimum": 1},
+        "candidate_ref": {"$ref": "#/$defs/sha256"},
+        "commit_oid": {"$ref": "#/$defs/oid"},
+        "parent_oid": {"$ref": "#/$defs/oid"},
+        "tree_oid": {"$ref": "#/$defs/oid"},
+        "committed_at": {"type": "string", "format": "date-time"},
+        "merge_parent_count": {"type": "integer", "minimum": 1},
+        "source_file_count": {"type": "integer", "minimum": 1},
+        "test_file_count": {"type": "integer", "minimum": 1},
+        "source_package_count": {"type": "integer", "minimum": 1},
+        "cross_package": {"type": "boolean"},
+        "changed_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "source_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "test_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "source_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "test_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "static_scope_score": {"type": "integer", "minimum": 3, "maximum": 12},
+        "static_scope_band": {"enum": ["low", "medium", "high"]},
+        "negative_control_status": {"const": "pending"}
+      }
+    }
+  }
+}

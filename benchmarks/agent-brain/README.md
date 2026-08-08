@@ -3,50 +3,61 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
-## Benchmark condition contract
+For unpaid product-path latency and packet-size profiling without an agent or
+model, use `profile_brief.py` with the 114-task checked-in development corpus.
+See `BRIEF-PROFILE-BASELINE.md`. That profile is explicitly not confirmatory and
+does not measure code quality.
 
-[`CONDITIONS.md`](CONDITIONS.md) is the normative contract for what no-Brain and
-Brain agents may use, what both must avoid, how Git history is treated, how
-candidate-versus-main runs stay comparable, and which raw-session checks make a
-row valid. Read it before authoring a task, changing the harness, or running a
-comparison.
+For an unpaid, same-query comparison of the MCP `brain_brief` `legacy_json` and
+opt-in `compact_v1` packet formats, use `packet_format_ab.py`. See
+`PACKET-FORMAT-AB.md`. It checks parseability, compact-packet integrity,
+independently projected semantic parity, exact bytes, and a frozen offline token
+proxy. Report schema 2 also retains numeric-only, exact structural byte
+attribution for future packet-format design. It does not call an agent/provider,
+measure code quality, authorize a paid trial, or change either MCP or CLI
+defaults.
 
-## Current-main-only policy
+For the independently parsed `compact_v2` design, use
+`packet_format_v2_ab.py`; see `PACKET-FORMAT-V2-AB.md`. It additionally checks
+the in-band `~`/`^` legend, exact keyed schemas and types, same-opcode reference
+scope, and the deterministic strictly-shorter per-family wire-form choice.
+Its fixed 114-task byte/token-proxy gates and privacy/authorization limits are
+the same as the v1 comparison. Report schema 2 also binds the exact runner,
+corpus verifier, product contract, golden, schema/allowlist, legend, and gates
+through a path-free hash-only runner identity.
 
-Entire Brain has no released product baseline. Every `run`, `panel`, `prep`, and
-`check` invocation builds the Brain binary from this checkout and fails unless
-the checkout's `HEAD` contains the locally fetched `origin/main`. Fetch before a
-consequential run, then create or rebase the experiment branch from that mainline.
+For the smaller opt-in `compact_v3` product serializer and its scoped
+public/synthetic fixture evidence, see
+[`PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md`](PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md).
+That local measurement covers exact packet bytes and `o200k_base` tokens only;
+it is not a run over the private 114-task corpus and makes no quality claim.
 
-All causal arms in a suite use that same freshly built Brain binary. Conditions
-may vary memory delivery (`no_brain`, raw history, facts, or retrieved memory),
-but must not substitute an older Entire Brain implementation as a control. A
-task repository may intentionally pin a historical commit to reproduce a known
-bug; that does not authorize an old Brain binary.
+Checked-in historical evidence is a publication-safe derivative rather than a
+byte-identical copy of private producer artifacts. See
+[`PUBLICATION-SANITIZATION.md`](PUBLICATION-SANITIZATION.md) for the exact scope,
+integrity treatment, and retained synthetic credential fixture.
 
-The unmerged `wip/memory-lifecycle-plan-handoff-20260712` task corpus is retired:
-it was never run, its `mined-c0701` directories were not disjoint, and it is not
-an eligible source for development or holdout claims. Any successor population
-must be regenerated in GraphMark with unique task IDs and source commits across
-splits before it is referenced here.
+## Treatment-isolated tasks
 
-## Implementation canaries are real agent use
+Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or
+`oracle_queries`), and a `treatments` object keyed by condition. Treatment arms are `no_memory`,
+`placebo_packet`, `retrieved_memory`, and the upper-bound-only `oracle_retrieval`. Comparable arms
+must use the WIP harness-owned `frozen_brief` delivery; their agent-visible instruction is identical and differs only inside the
+`<frozen-memory-packet>` payload. Oracle queries are harness-owned and never written to `prompt.txt`.
 
-Fast implementation canaries must exercise the installed current Brain through
-the same documented MCP or direct-CLI surface a normal coding agent uses, on a
-real repository and a real engineering task. Start with `brain_status`, then
-`brain_brief`, then only the smallest task-driven follow-up such as
-`brain_query`, `brain_code`, or `brain_tests`. Record freshness, usefulness,
-irrelevant context, output size, latency, and any fallback to direct inspection.
+Legacy `prompt` and `brain_queries` tasks remain runnable for reproducing exploratory suites, but
+legacy `frozen_brief` delivery may still consume `brain_queries` harness-side. Those queries are not
+agent-visible, and legacy tasks fail confirmatory panel preflight. A confirmatory panel must set
+`"confirmatory": true`; every included task also needs
+an `approved_symptom_only` entry in `task-review-ledger.json`. Automated task-validity lint is triage,
+not human approval. The historical 8828752a7 and 4dd458656 prompts are retained under
+`fixtures/task-validity/` and explicitly excluded as oracle-assisted.
 
-Do not call internal retriever/ranker functions, invent synthetic caller
-adapters, or treat mocks and unit tests as canary evidence. Focused unit and
-integration tests should reproduce and protect a fix, but the canary is the
-agent-facing behavior that motivated it. Dogfood the active development task
-first; use a tiny additional development set only when one real task cannot
-separate the behavior under investigation. Do not start a long-running agent
-matrix or holdout run until repeated real-task use shows that the implementation
-and failure taxonomy are stable.
+Run deterministic triage and validate the review ledger without an agent/model call:
+
+```sh
+python3 run.py lint-tasks --tasks fixtures/task-validity/oracle-assisted-regressions.json
+```
 
 ## Stable panel (`panel`) + the stability gate
 
@@ -92,6 +103,11 @@ hard-coded home paths:
 - `path_prefix: "auto"` resolves to the directory of the host `node` (so the
   tsx-based validations work without a hard-coded node path).
 - `setup_commands` get `$BENCH_SOURCE_REPO` = the resolved source repo path.
+- External task inputs such as `frozen_session_dates_path` use the same `~` and
+  environment-variable expansion. Relative values resolve next to the task
+  config. The bundled C0701 tasks expect
+  `AGENT_BENCH_FROZEN_SESSION_DATES=/path/to/session_dates.json`; an unset
+  variable fails closed before a run starts.
 
 Caveat: the Ultron **session-history** scenarios (`mcp_history`, `full_*`) need a
 repo that actually has Entire `.entire` session data; that data is machine-local
@@ -103,10 +119,13 @@ places that state behind an unchanged synthetic first-parent baseline, runs an
 agent, validates the fix, scores the run, and writes artifacts under
 `benchmarks/agent-brain/results/`.
 
-Tasks may also define `post_brain_replacements` or `post_brain_commands`. Those
-mutations are applied and committed after brain preparation, which creates a
-stale-context scenario for semantic and semantic-history runs. Use these tasks to
-measure whether agents check brain freshness before relying on prepared context.
+Tasks may also define `post_brain_replacements`, `post_brain_patch`, or
+`post_brain_commands`. `post_brain_patch` is a UTF-8 patch path resolved relative
+to the task config; it must stay within that config directory and is applied with
+`git apply` without a shell. These mutations are applied and committed after brain
+preparation, which creates a stale-context scenario for semantic and
+semantic-history runs. Use these tasks to measure whether agents check brain
+freshness before relying on prepared context.
 
 Brain prep artifacts are cached under `benchmarks/agent-brain/cache/` by
 repo/base/setup/condition/tool hash. Each run receives its own copy of the
@@ -116,6 +135,39 @@ disposable worktree path. Use `--refresh-brain-cache` to overwrite a cache entry
 or `--no-brain-cache` to force per-run rebuilds. The cache avoids repeated prep
 after a brain has been built successfully; it does not fix slow or incomplete
 initial semantic indexing.
+
+## Order, cache, resume, and timing controls
+
+`run` and `panel` build every requested cell before execution. The default
+`--order-policy counterbalanced` uses seeded cyclic Latin-square rows inside each
+task/runner block (`AB`/`BA` for two arms); `--schedule-seed` selects the
+deterministic schedule. `--order-policy latin_square` explicitly selects the same
+Latin-square construction for preregistrations that name it that way. Unsupported
+order policies fail before suite setup.
+
+The immutable plan is written to `schedule.json` before cache setup, tool builds,
+or agent calls. `actual-order.ndjson` records actual starts, finishes, and explicit
+deviations, while `schedule-state.json` gives the current planned-versus-actual
+view. Resume a named interrupted suite with the identical arguments plus
+`--resume`. A cell with a start event but no durable record is considered
+ambiguous and is not rerun; the resulting imbalance is recorded as
+`interrupted_incomplete_not_retried`.
+
+The conservative default `--cache-policy isolated_per_cell` assigns separate
+`GOCACHE`, `GOMODCACHE`, and retrieval-vector cache paths to every cell and never
+inherits those host paths. `--cache-policy prewarmed_shared` performs an untimed
+deterministic `go mod download` prewarm and shares the suite cache paths. Cache
+path identities, prewarm commands/durations, host load/concurrency/power context,
+and resume invocations are retained in `runtime-controls.json`. This runtime
+policy is separate from the historical Brain-prep cache flags
+`--no-brain-cache`/`--refresh-brain-cache`.
+
+The primary time field is `timing.harness_agent_interval_wall_seconds`: monotonic
+harness wall time immediately around the agent CLI, including declared transient
+retries/backoff but excluding setup and validation. The harness also records
+`timing.agent_reported_api_seconds` when the provider CLI exposes it,
+`timing.cell_setup_wall_seconds`, and `timing.cell_total_wall_seconds`; missing
+provider timing remains null and is never replaced silently.
 
 Use `prep` to verify and cache brain artifacts without launching an agent:
 
@@ -136,7 +188,8 @@ Each `record.json` includes:
   tool binary hashes. If a task omits `base_commit`, the recorded source base
   must match the recorded source HEAD. If a task pins `base_commit`, the base
   commit is recorded separately from source HEAD.
-- `agent_info.seconds` for wall-clock agent duration.
+- `agent_info.seconds` for legacy harness wall-clock agent duration, plus the
+  explicit `timing` fields defined above.
 - `brain_prep.commands[].seconds` for seed/export/index setup cost.
 - `validation.results[].seconds` for validation command duration.
 - `agent_info.usage` for turns, tokens, cache tokens, and cost when the agent
@@ -324,6 +377,12 @@ therefore score above a higher-effort runner when both solve the task but the
 lower-effort run is faster or cheaper. Do not compare v1 and v2 score means
 directly; rerun retained tasks after a scoring change.
 
+The confirmatory v2 code-quality endpoint is deliberately narrower than this
+exploratory utility score: it normalizes only output `outcome` and `patch_focus`
+points. `validation_discipline` (whether the agent ran tests or checked its
+diff), runtime efficiency, token use, and brain-use behavior remain diagnostics
+and cannot improve confirmatory quality.
+
 Phase 2 scenario discovery is generated with `discover`:
 
 ```sh
@@ -399,3 +458,7 @@ JSON files with fixed base commits and cached repositories before large runs.
 
 The harness intentionally keeps generated brain artifacts and worktrees out of
 the repository. Result directories are ignored by git.
+
+Rolling-cutoff frozen-brain tasks constrain temporal eligibility before lexical
+or semantic top-K ranking. See [TEMPORAL-ELIGIBILITY-DESIGN.md](TEMPORAL-ELIGIBILITY-DESIGN.md)
+for the fail-closed provenance, immutable-cache, and audit-field contract.

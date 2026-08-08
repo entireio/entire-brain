@@ -1,0 +1,36 @@
+{
+  "id": "entire-cli-mined-cebf48a79",
+  "_mined_from_commit": "cebf48a792efd8e805a95a9c1864afab87ef2a6d",
+  "_flavor": "recall-decision",
+  "_leak_risk_selfassessed": "low",
+  "_mined_note": "Auto-mined memory-sensitive task. setup_patch reverse-applies the fix commit's SOURCE hunks (removes the guard + rationale comments); the commit's regression tests remain in the tree as hidden validation. Rationale lives in the session history that produced the fix, not the post-revert tree. Judgment/prompt drafted by a per-commit reviewer; NOT yet run.",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "`entire recap` in a logged-out state fails with a local transport error instead of showing its 'sign in to use recap' message. Make the logged-out recap flow behave correctly. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "diff --git a/cmd/entire/cli/api/client.go b/cmd/entire/cli/api/client.go\nindex 453207b36..50e39efe0 100644\n--- a/cmd/entire/cli/api/client.go\n+++ b/cmd/entire/cli/api/client.go\n@@ -66,24 +66,23 @@ func NewClientWithBaseURL(token, baseURL string) *Client {\n }\n \n // bearerTransport is an http.RoundTripper that injects the Authorization header.\n-//\n-// When token is empty, the Authorization header is omitted (rather than sent\n-// as a malformed \"Authorization: Bearer \"). This supports endpoints like\n-// recap that deliberately want the unauthenticated request to reach the\n-// server so it can return a typed 401 \u2014 callers that want a local fast-fail\n-// for missing auth should check ErrNotLoggedIn at construction time, not\n-// rely on the transport.\n type bearerTransport struct {\n \ttoken string\n \tbase  http.RoundTripper\n }\n \n+// errEmptyBearerToken surfaces at first request rather than at construction\n+// because NewClient* don't return errors. An empty bearer otherwise becomes\n+// \"Authorization: Bearer \" on the wire and produces a confusing 401.\n+var errEmptyBearerToken = errors.New(\"api: refusing to send request with empty bearer token (construct via NewAuthenticatedAPIClient)\")\n+\n func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {\n+\tif t.token == \"\" {\n+\t\treturn nil, errEmptyBearerToken\n+\t}\n \t// Clone the request to avoid mutating the caller's request.\n \tr := req.Clone(req.Context())\n-\tif t.token != \"\" {\n-\t\tr.Header.Set(\"Authorization\", \"Bearer \"+t.token)\n-\t}\n+\tr.Header.Set(\"Authorization\", \"Bearer \"+t.token)\n \tr.Header.Set(\"User-Agent\", userAgent)\n \tif r.Header.Get(\"Accept\") == \"\" {\n \t\tr.Header.Set(\"Accept\", \"application/json\")\n",
+  "validation": [
+    "go test ./cmd/entire/cli/api -run 'TestBearerTransport_EmptyTokenOmitsAuthHeader'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/api/client.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "recap logged-out flow empty token client",
+    "why does empty bearer token request reach the server",
+    "Authorization header empty token transport decision",
+    "recap sign in to use recap typed 401 handling",
+    "NewClient empty token behavior change rationale"
+  ],
+  "_prompt_descriptive_v0": "Recap's logged-out view fails locally with a transport error instead of showing its 'sign in to use recap' message. Constructing an API client without a token should let the request reach the server so it can return its typed 401, rather than failing before anything is sent. Keep the fix minimal.",
+  "copy_checkpoint_ref_from_source": true
+}

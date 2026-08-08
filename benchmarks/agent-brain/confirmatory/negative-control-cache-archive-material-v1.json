@@ -1,0 +1,81 @@
+{
+  "canonical_json_profile": "sorted_keys_indent_2_utf8_lf_v1",
+  "material": {
+    "archive_byte_count": null,
+    "archive_file": null,
+    "archive_interpretation": "opaque_bytes_content_safety_not_verified",
+    "archive_sha256": null,
+    "content_inventory_sha256": null,
+    "file_count": null,
+    "manifest_file": null,
+    "manifest_file_sha256": null,
+    "manifest_sha256": null,
+    "repository_file_counts": null,
+    "unpacked_byte_count": null
+  },
+  "material_declaration_sha256": "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852",
+  "profile": "agent_brain_negative_control_cache_archive_material_v1",
+  "review": {
+    "archive_created_by_this_slice": false,
+    "archive_extraction": false,
+    "benchmark_execution": "forbidden",
+    "candidate_execution": "forbidden",
+    "content_safety_verified": false,
+    "disposition": "pending_source_review",
+    "e0_runtime_binding": false,
+    "execution_authority": false,
+    "model_provider_execution": "forbidden",
+    "network_access": "forbidden",
+    "owner_approval_binding": false,
+    "paid_execution": "forbidden",
+    "source_review_effect": "none_pending"
+  },
+  "schema_version": 1,
+  "scope": {
+    "archive_byte_count_max": 2147483648,
+    "execution_contract": {
+      "artifact_file": "development-task-negative-control-execution-contract-v1.json",
+      "artifact_sha256": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e",
+      "contract_sha256": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef",
+      "execution_status": "forbidden_missing_all_residual_gates_and_audited_execution_adapter",
+      "profile": "agent_brain_negative_control_execution_contract_v1",
+      "schema_file": "negative-control-execution-contract-v1.schema.json",
+      "schema_sha256": "dbcb95119feeda4c436e90d8162ac0498577454ca9ccaab7a8254d55d90359f9",
+      "schema_version": 1,
+      "source_commit": "f0552070921605cd9a0165ee29ca96e100675d58",
+      "status": "contract_compiled_execution_forbidden"
+    },
+    "file_count_max": 250000,
+    "gate_primitive": {
+      "source_file": "task_negative_control_gate_v1.py",
+      "source_sha256": "f04b8634caf619cc17bb495975d2b5358164be6eae2a124ade84efebd60c51dd"
+    },
+    "manifest": {
+      "profile": "content_addressed_offline_go_cache_seed_manifest_v1",
+      "schema_file": "offline-go-cache-seed-manifest-v1.schema.json",
+      "schema_sha256": "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999"
+    },
+    "repository_order": [
+      "entire-brain",
+      "entire-db",
+      "entire-graph"
+    ],
+    "roots": [
+      "gocache",
+      "gomodcache"
+    ],
+    "run_plan": {
+      "artifact_file": "development-task-negative-control-run-plan-v2.json",
+      "artifact_sha256": "f55b6e22a25daf8016305304adf3b7ac8d31675281d97cfc9bb78cc76b619790",
+      "plan_sha256": "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e",
+      "profile": "agent_brain_development_task_negative_control_run_plan_v2",
+      "schema_file": "development-task-negative-control-run-plan-v2.schema.json",
+      "schema_sha256": "294f77f165676bec6053e9637578ca22f048a887d2a978bbf8b8e300f21a2dad",
+      "schema_version": 2,
+      "status": "pending_owner_authorization"
+    },
+    "toolchain_bindings_sha256": "e8240c5af77530079643593a7484cb0062408829bab76690b7f55d12176fc87c",
+    "unpacked_byte_count_max": 2147483648
+  },
+  "status": "pending_source_review"
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/engine-replay-checker-lock-v1.json",
+  "type": "object",
+  "required": ["schema_version", "profile", "algorithm", "files", "aggregate_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"const": "engine_replay_checker_lock_v1"},
+    "algorithm": {"const": "sha256_ordered_path_nul_sha256_newline_v1"},
+    "files": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^benchmarks/agent-brain/confirmatory/(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+          },
+          "sha256": {"$ref": "#/$defs/sha256"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "aggregate_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,55 @@
+diff --git a/cmd/entire/cli/cell_fanout_test.go b/cmd/entire/cli/cell_fanout_test.go
+index 6ae8458cb..ae49c0bfb 100644
+--- a/cmd/entire/cli/cell_fanout_test.go
++++ b/cmd/entire/cli/cell_fanout_test.go
+@@ -186,22 +186,45 @@ func TestResolveCellBaseURLs_JurisdictionFallbackForPlacements(t *testing.T) {
+ 	}
+ }
+ 
++// TestResolveCellBaseURLs_CellURLMatchOverJurisdiction verifies that when a
++// jurisdiction has multiple clusters, the resolver matches the group's cell
++// name against cluster ApiUrl hosts rather than picking an arbitrary one.
++// This prevents binding a mirror group to the wrong cell's baseURL.
++func TestResolveCellBaseURLs_CellURLMatchOverJurisdiction(t *testing.T) {
++	t.Parallel()
++	cells := []cellGroup{
++		// Mirror group whose cell name appears in the second cluster's URL.
++		{cell: "cell-eu-central", clusterSlug: "", jurisdiction: "eu"},
++	}
++	fake := &fakeCellCore{clusters: []coreapi.Cluster{
++		// Different EU cell — must NOT be picked even though it's first and default.
++		{Slug: "eu-west-example", Jurisdiction: "eu", IsDefault: true, ApiUrl: coreapi.NewOptString("https://cell-eu-west.example.invalid")},
++		// Matching cell — should be picked by cell-URL matching.
++		{Slug: "eu-central-example", Jurisdiction: "eu", ApiUrl: coreapi.NewOptString("https://cell-eu-central.example.invalid")},
++	}}
++	resolveCellBaseURLs(context.Background(), fake, cells)
++	if cells[0].baseURL != "https://cell-eu-central.example.invalid" {
++		t.Fatalf("eu baseURL = %q, want cell-matched URL, not default cluster", cells[0].baseURL)
++	}
++}
++
+ // TestResolveCellBaseURLs_JurisdictionFallbackPrefersDefault verifies that
+-// when multiple clusters exist in a jurisdiction, the fallback picks the one
+-// with IsDefault=true — matching the auth layer's resolution.
++// when cell-URL matching doesn't find a match, the jurisdiction fallback
++// picks the cluster with IsDefault=true.
+ func TestResolveCellBaseURLs_JurisdictionFallbackPrefersDefault(t *testing.T) {
+ 	t.Parallel()
+ 	cells := []cellGroup{
+-		{cell: "cell-eu-central", clusterSlug: "", jurisdiction: "eu"},
++		// Cell name doesn't appear in any cluster URL — falls through to jurisdiction.
++		{cell: "cell-eu-unknown", clusterSlug: "", jurisdiction: "eu"},
+ 	}
+ 	fake := &fakeCellCore{clusters: []coreapi.Cluster{
+ 		// Non-default listed first — must not win.
+ 		{Slug: "eu-staging-example", Jurisdiction: "eu", ApiUrl: coreapi.NewOptString("https://cell-eu-staging-example.example.invalid")},
+ 		// Default cluster — should be preferred.
+-		{Slug: "eu-example", Jurisdiction: "eu", IsDefault: true, ApiUrl: coreapi.NewOptString("https://cell-eu-central.example.invalid")},
++		{Slug: "eu-example", Jurisdiction: "eu", IsDefault: true, ApiUrl: coreapi.NewOptString("https://cell-eu-default.example.invalid")},
+ 	}}
+ 	resolveCellBaseURLs(context.Background(), fake, cells)
+-	if cells[0].baseURL != "https://cell-eu-central.example.invalid" {
++	if cells[0].baseURL != "https://cell-eu-default.example.invalid" {
+ 		t.Fatalf("eu baseURL = %q, want default cluster's URL", cells[0].baseURL)
+ 	}
+ }

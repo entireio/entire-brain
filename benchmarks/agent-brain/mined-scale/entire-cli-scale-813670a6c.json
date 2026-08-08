@@ -1,0 +1,40 @@
+{
+  "id": "entire-cli-scale-813670a6c",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The plugin upgrade command sometimes reinstalls a plugin that is already current when the recorded version and the newest remote version differ only in spelling. It also sometimes prints an upgrade line that shows the very same version on both sides after an attempt where the newest release has nothing downloadable. Make the command report that the plugin is up to date in both of these cases. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-813670a6c.patch",
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestUpgradeInstalledPlugin_AssetlessNewestTagReportsUpToDate|TestUpgradeInstalledPlugin_EquivalentTagSpellingIsUpToDate'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/plugin_install_remote.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "how does plugin upgrade decide whether to reinstall",
+    "version tag comparison causing spurious plugin reinstall",
+    "why does upgrade print the same version on both sides",
+    "handling a newest tag with no release assets during upgrade",
+    "plugin manifest tag spelling normalization"
+  ],
+  "_mined_from_commit": "813670a6ceea1427a289e40a47493aefc33e7990",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": false,
+  "_leak_risk": "medium",
+  "_subject": "Address Bugbot round-four finding: semver-aware upgrade comparison",
+  "copy_checkpoint_ref_from_source": true
+}

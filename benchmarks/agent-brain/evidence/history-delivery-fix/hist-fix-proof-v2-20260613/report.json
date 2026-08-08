@@ -285,12 +285,12 @@
    {
     "dirty": true,
     "head_commit": "699762e4bbfde9e1f3674c7e0424720338bd57ec",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+    "repo_path": "/redacted/workspace/entire-brain-histfix"
    },
    {
     "dirty": true,
     "head_commit": "beb502416aac034952af8919013b6d27ec770223",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+    "repo_path": "/redacted/workspace/entire-brain-histfix"
    }
   ],
   "missing_record_provenance": 0,
@@ -524,7 +524,7 @@
     "head_commit": "af713665091693a8301520159f3b4097a6ec36f9",
     "repo": "entire-cli",
     "repo_path_input": "cli-bench",
-    "repo_path_resolved": "/Users/suhaan/Documents/Coding/cli-bench"
+    "repo_path_resolved": "/redacted/workspace/cli-bench"
    }
   ],
   "tasks": [

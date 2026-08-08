@@ -22,14 +22,27 @@ Available tools:
   `brain_workspace_regressions`, `brain_workspace_review`
 - Pattern corpus: `brain_patterns`, `brain_patterns_status`
 
-The tool responses wrap the existing CLI `--json` output as text content. Treat
-the CLI JSON contracts as the source of truth for fields and freshness policy.
-`brain_status` and `brain_index_status` are compact by default; pass
-`details: true` for the full status JSON contract.
-`brain_code`, `brain_context`, `brain_impact`, and `brain_tests` also use compact
-semantic records by default; pass `details: true` only for the full provider
-record payload. Their default limits are 10 code results, 5 context symbols, 20
-impact symbols, and 3 test suggestions.
+Tool responses wrap the existing CLI `--json` output as text content by default.
+Treat the CLI JSON contracts as the source of truth for fields and freshness
+policy.
+
+`brain_brief` also has opt-in `packet_format: "compact_v1"`,
+`packet_format: "compact_v2"`, and `packet_format: "compact_v3"`
+representations for coding agents. Omitting `packet_format`, or setting it to
+`legacy_json`, preserves the existing pretty-JSON text response. All compact
+formats run the same retrieval and ranking and change only serialization.
+`compact_v1` is a deterministic keyed line packet. `compact_v2` adds a hashed
+in-band legend immediately after its version marker: `~` means an absent field,
+while `^` reuses the value from the previous record of the same opcode and
+column, even when records with other opcodes occur between them. V2 limits `^`
+to metadata columns. V3 retains v2's schemas, body grammar, and deterministic
+strictly-shorter family selection, but permits `^` for every exact repeated
+value, uses the compact `entire.brain_brief c3` marker, and encodes the SHA-256
+footer as canonical unpadded base64url. These packets retain safely encoded
+data, task-relevant status/trust signals, semantic relations and neighbors,
+history, facts, actions, patterns, guidance, and an end-to-end body checksum.
+They are experimental and are not selected automatically; a future
+incompatible representation will use a new version name.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
 `brain_vsearch` ranks vector-backed facts and docs (plus history when a

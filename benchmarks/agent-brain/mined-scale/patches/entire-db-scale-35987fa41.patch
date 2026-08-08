@@ -1,0 +1,30 @@
+diff --git a/cmd/entire-core/cli/client_cmds.go b/cmd/entire-core/cli/client_cmds.go
+index 84df68b37..686881b82 100644
+--- a/cmd/entire-core/cli/client_cmds.go
++++ b/cmd/entire-core/cli/client_cmds.go
+@@ -13,22 +13,17 @@ import (
+ )
+ 
+ func newClientCmds(cfg Config) *cobra.Command {
+-	// client.BaseURL is populated lazily in ensureToken, not here: cobra
+-	// hasn't parsed --base-url / --context yet at construction time, so
+-	// resolveBaseURL would freeze whatever the pre-flag default was and
+-	// silently ignore the flag. Same lazy pattern as admin.go's
+-	// adminClient. Don't reintroduce a construction-time resolve.
+-	client := &api.Client{}
++	baseURL := resolveBaseURL(cfg)
++	client := &api.Client{BaseURL: baseURL}
+ 
+ 	ensureToken := func(_ *cobra.Command, _ []string) error {
+-		client.BaseURL = resolveBaseURL(cfg)
+ 		if tok := os.Getenv("ENTIRE_TOKEN"); tok != "" {
+ 			client.Token = tok
+ 			return nil
+ 		}
+ 		tok, err := readCoreToken(cfg)
+ 		if err != nil {
+-			return fmt.Errorf("no credentials for %s: %w (or set ENTIRE_TOKEN, or run 'entire-core auth login' / 'entire-core auth login --workload-identity' / 'entire-core admin break-glass')", client.BaseURL, err)
++			return fmt.Errorf("no credentials for %s: %w (or set ENTIRE_TOKEN, or run 'entire-core auth login' / 'entire-core auth login --workload-identity' / 'entire-core admin break-glass')", baseURL, err)
+ 		}
+ 		client.Token = tok
+ 		return nil

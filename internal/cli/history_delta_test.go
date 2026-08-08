@@ -221,6 +221,50 @@ func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 	}
 }
 
+func TestShortTermLexicalOverlayPreservesDirectFTSPayloadPath(t *testing.T) {
+	brainDir, _, _ := shortTermFixture(t)
+	buildShortTerm(t, brainDir)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The direct FTS payload path must not need index.json even when a short-term
+	// overlay is present. Corrupt the truth file after the FTS generation and
+	// require both the direct access mode and the fresh overlay result.
+	indexPath := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	corrupt, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt[0] = '!'
+	if err := os.WriteFile(indexPath, corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scored, access, _, err := rankFreshHistoryLexicalFromSource(
+		brainDir,
+		manifest.Sources.History,
+		"history",
+		"exporter hot loop gzip",
+		20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access != historyIndexAccessFTSPayload {
+		t.Fatalf("history access = %q, want %q", access, historyIndexAccessFTSPayload)
+	}
+	foundFresh := false
+	for _, result := range scored {
+		if strings.Contains(result.Record.Summary, "gzip") {
+			foundFresh = true
+			break
+		}
+	}
+	if !foundFresh {
+		t.Fatalf("short-term result missing from direct FTS merge: %+v", scored)
+	}
+}
+
 func TestShortTermConsolidationClearsOverlayAndPreservesRecall(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)

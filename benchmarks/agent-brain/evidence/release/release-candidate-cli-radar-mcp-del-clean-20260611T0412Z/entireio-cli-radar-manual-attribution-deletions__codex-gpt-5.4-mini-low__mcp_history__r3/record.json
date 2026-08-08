@@ -13756,7 +13756,7 @@
         "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       "head": {
-        "author_name": "suhaanthayyil",
+        "author_name": "redacted-contributor",
         "available": true,
         "commit": "077714aee1313c5e604cb57f2eb414f322132bd9",
         "committer_date": "2026-06-11T00:01:50-04:00",
@@ -13817,7 +13817,7 @@
     "schema": 1,
     "source": {
       "base": {
-        "author_name": "Stefan Haubold",
+        "author_name": "Redacted Contributor",
         "available": true,
         "commit": "af713665091693a8301520159f3b4097a6ec36f9",
         "committer_date": "2026-06-04T21:31:15+02:00",
@@ -13840,7 +13840,7 @@
         "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       "head": {
-        "author_name": "Stefan Haubold",
+        "author_name": "Redacted Contributor",
         "available": true,
         "commit": "af713665091693a8301520159f3b4097a6ec36f9",
         "committer_date": "2026-06-04T21:31:15+02:00",

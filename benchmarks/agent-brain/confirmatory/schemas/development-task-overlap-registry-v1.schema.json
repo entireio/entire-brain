@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_ref": {"$ref": "#/$defs/sha256"},
+        "changed_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "commit_oid": {"$ref": "#/$defs/oid"},
+        "exact_identity_profile": {"const": "canonical_git_object_diff_full_index_v1"},
+        "full_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "full_ledger_diff_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "full_stable_patch_id": {"$ref": "#/$defs/oid"},
+        "identity_authority": {"const": "development_only_non_authoritative"},
+        "ledger_diff_profile": {"enum": ["canonical_git_object_diff_full_index_v1", "legacy_cli_v1_git_diff_bytes_abbrev_9"]},
+        "repository_id": {"type": "string", "pattern": "^github\\.com/.+/.+$"},
+        "source_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "source_ledger_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "source_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "source_profile": {"type": "string", "minLength": 1},
+        "source_stable_patch_id": {"$ref": "#/$defs/oid"},
+        "static_scope_band": {"enum": ["high", "low", "medium"]},
+        "test_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "test_ledger_diff_sha256": {"$ref": "#/$defs/sha256"},
+        "test_paths_sha256": {"$ref": "#/$defs/sha256"},
+        "test_stable_patch_id": {"$ref": "#/$defs/oid"},
+        "tree_oid": {"$ref": "#/$defs/oid"}
+      },
+      "required": ["candidate_ref", "changed_paths_sha256", "commit_oid", "exact_identity_profile", "full_diff_sha256", "full_ledger_diff_sha256", "full_stable_patch_id", "identity_authority", "ledger_diff_profile", "repository_id", "source_diff_sha256", "source_ledger_diff_sha256", "source_paths_sha256", "source_profile", "source_stable_patch_id", "static_scope_band", "test_diff_sha256", "test_ledger_diff_sha256", "test_paths_sha256", "test_stable_patch_id", "tree_oid"],
+      "type": "object"
+    },
+    "group": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_refs": {"items": {"$ref": "#/$defs/sha256"}, "minItems": 2, "type": "array", "uniqueItems": true},
+        "value": {"type": "string", "minLength": 1}
+      },
+      "required": ["candidate_refs", "value"],
+      "type": "object"
+    },
+    "groups": {"items": {"$ref": "#/$defs/group"}, "type": "array"},
+    "oid": {"pattern": "^(?!0{40}$)[0-9a-f]{40}$", "type": "string"},
+    "sha256": {"pattern": "^(?!0{64}$)[0-9a-f]{64}$", "type": "string"}
+  },
+  "$id": "https://entire.io/schemas/agent-brain-development-task-overlap-registry-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "benchmark_execution": {"const": "forbidden_not_executed"},
+        "calibration_membership": {"const": "forbidden_permanent_development_exposure"},
+        "confirmatory_holdout_membership": {"const": "forbidden_permanent_development_exposure"},
+        "owner_hmac": {"const": "absent_not_fabricated"},
+        "population_assignment": {"const": "absent_not_authorized"},
+        "status": {"const": "non_authoritative_development_inventory_only"}
+      },
+      "required": ["benchmark_execution", "calibration_membership", "confirmatory_holdout_membership", "owner_hmac", "population_assignment", "status"],
+      "type": "object"
+    },
+    "candidates": {"items": {"$ref": "#/$defs/candidate"}, "type": "array"},
+    "duplicate_groups": {
+      "additionalProperties": false,
+      "properties": {
+        "commit_oid": {"$ref": "#/$defs/groups"},
+        "full_diff_sha256": {"$ref": "#/$defs/groups"},
+        "full_stable_patch_id": {"$ref": "#/$defs/groups"},
+        "source_diff_sha256": {"$ref": "#/$defs/groups"},
+        "source_stable_patch_id": {"$ref": "#/$defs/groups"},
+        "test_diff_sha256": {"$ref": "#/$defs/groups"},
+        "test_stable_patch_id": {"$ref": "#/$defs/groups"},
+        "tree_oid": {"$ref": "#/$defs/groups"}
+      },
+      "required": ["commit_oid", "full_diff_sha256", "full_stable_patch_id", "source_diff_sha256", "source_stable_patch_id", "test_diff_sha256", "test_stable_patch_id", "tree_oid"],
+      "type": "object"
+    },
+    "exact_identity_profile": {"const": "canonical_git_object_diff_full_index_v1"},
+    "exposure": {"const": "permanent_development_only_identity_inspected"},
+    "generated_at": {"format": "date-time", "type": "string"},
+    "implementation": {
+      "additionalProperties": false,
+      "properties": {
+        "cli_scanner_sha256": {"$ref": "#/$defs/sha256"},
+        "cli_task_population_sha256": {"$ref": "#/$defs/sha256"},
+        "git_binary_sha256": {"$ref": "#/$defs/sha256"},
+        "git_version_output": {"type": "string", "pattern": "^git version .+$"},
+        "registry_builder_sha256": {"$ref": "#/$defs/sha256"},
+        "schema_sha256": {"$ref": "#/$defs/sha256"},
+        "v2_scanner_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["cli_scanner_sha256", "cli_task_population_sha256", "git_binary_sha256", "git_version_output", "registry_builder_sha256", "schema_sha256", "v2_scanner_sha256"],
+      "type": "object"
+    },
+    "inputs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_file": {"type": "string", "minLength": 1},
+          "artifact_sha256": {"$ref": "#/$defs/sha256"},
+          "candidate_count": {"minimum": 0, "type": "integer"},
+          "ledger_sha256": {"$ref": "#/$defs/sha256"},
+          "profile": {"type": "string", "minLength": 1},
+          "repository_id": {"type": "string", "pattern": "^github\\.com/.+/.+$"}
+        },
+        "required": ["artifact_file", "artifact_sha256", "candidate_count", "ledger_sha256", "profile", "repository_id"],
+        "type": "object"
+      },
+      "maxItems": 4,
+      "minItems": 4,
+      "type": "array"
+    },
+    "path_set_repeat_groups": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_paths_sha256": {"$ref": "#/$defs/groups"},
+        "source_paths_sha256": {"$ref": "#/$defs/groups"},
+        "test_paths_sha256": {"$ref": "#/$defs/groups"}
+      },
+      "required": ["changed_paths_sha256", "source_paths_sha256", "test_paths_sha256"],
+      "type": "object"
+    },
+    "profile": {"const": "agent_brain_global_development_task_overlap_registry_v1"},
+    "registry_sha256": {"$ref": "#/$defs/sha256"},
+    "schema_version": {"const": 1},
+    "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_count": {"minimum": 0, "type": "integer"},
+        "exact_duplicate_group_count": {"minimum": 0, "type": "integer"},
+        "repository_candidate_counts": {"additionalProperties": {"minimum": 0, "type": "integer"}, "type": "object"},
+        "static_scope_band_counts": {
+          "additionalProperties": false,
+          "properties": {"high": {"minimum": 0, "type": "integer"}, "low": {"minimum": 0, "type": "integer"}, "medium": {"minimum": 0, "type": "integer"}},
+          "required": ["high", "low", "medium"],
+          "type": "object"
+        }
+      },
+      "required": ["candidate_count", "exact_duplicate_group_count", "repository_candidate_counts", "static_scope_band_counts"],
+      "type": "object"
+    },
+    "unresolved_overlap": {
+      "additionalProperties": false,
+      "properties": {
+        "related_family": {"const": "unresolved_no_owner_family_commitment"},
+        "semantic_identity": {"const": "unresolved_no_authoritative_semantic_review"},
+        "source_session": {"const": "unresolved_no_owner_source_session_receipt"}
+      },
+      "required": ["related_family", "semantic_identity", "source_session"],
+      "type": "object"
+    }
+  },
+  "required": ["authority", "candidates", "duplicate_groups", "exact_identity_profile", "exposure", "generated_at", "implementation", "inputs", "path_set_repeat_groups", "profile", "registry_sha256", "schema_version", "summary", "unresolved_overlap"],
+  "title": "Agent Brain global development task overlap registry",
+  "type": "object"
+}

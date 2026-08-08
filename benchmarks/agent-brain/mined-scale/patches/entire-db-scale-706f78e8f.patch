@@ -1,0 +1,21 @@
+diff --git a/reqctx/reqctx.go b/reqctx/reqctx.go
+index d4ad62bcc..415ec5bcd 100644
+--- a/reqctx/reqctx.go
++++ b/reqctx/reqctx.go
+@@ -85,15 +85,7 @@ type Principal struct {
+ func (p Principal) PermitsGit(repoID, op string) bool {
+ 	switch p.Kind {
+ 	case TokenScopedJWT:
+-		if p.Scope.RepoID == "" || p.Scope.RepoID != repoID {
+-			return false
+-		}
+-		// A push token also authorizes pull, mirroring the SpiceDB schema
+-		// where `permission pull = push + ...`: any account entitled to
+-		// push is entitled to pull, so a push-scoped token resolving or
+-		// reading the same repo is not an escalation. The reverse never
+-		// holds — a pull token cannot push.
+-		return p.Scope.Action == op || (p.Scope.Action == "push" && op == "pull")
++		return p.Scope.RepoID != "" && p.Scope.RepoID == repoID && p.Scope.Action == op
+ 	case TokenBackupAccess:
+ 		switch op {
+ 		case "pull":

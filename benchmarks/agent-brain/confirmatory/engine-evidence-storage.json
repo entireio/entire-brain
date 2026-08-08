@@ -1,0 +1,155 @@
+{
+  "schema_version": 2,
+  "profile": "public_v4_restricted_replay_v1",
+  "contract_status": "pending_owner_authorization",
+  "public": {
+    "storage": {
+      "kind": "github_immutable_release_asset",
+      "repository": "entireio/entire-brain",
+      "tag": null,
+      "asset_name": null,
+      "asset_url": null,
+      "asset_size_bytes": null,
+      "asset_sha256": null,
+      "publication_disposition": "pending_owner_authorization",
+      "privacy_review": "pending_owner_authorization",
+      "published": false,
+      "release_id": null,
+      "asset_id": null,
+      "release_immutable": false,
+      "release_target_commitish": null,
+      "asset_api_digest": null,
+      "verified_at": null
+    },
+    "archive": {
+      "format": "tar_zstd",
+      "root": "public-v4-v1",
+      "regular_file_count": 6,
+      "directory_count": 2,
+      "logical_bytes": null,
+      "symlink_count": 0,
+      "hardlink_count": 0,
+      "special_file_count": 0,
+      "tree_inventory_algorithm": "sha256_ordered_type_nul_path_nul_mode_nul_sha256_nul_size_newline_v1",
+      "tree_inventory_sha256": null
+    },
+    "evidence": {
+      "manifest_path": "public-v4-v1/engine-verification-public-v4.json",
+      "manifest_schema_version": 4,
+      "manifest_sha256": null,
+      "manifest_size_bytes": null,
+      "artifact_inventory_algorithm": "sha256_ordered_relative_path_nul_sha256_nul_size_newline_v1",
+      "artifact_inventory_root_sha256": null,
+      "payload_file_count": 5,
+      "payload_logical_bytes": null
+    }
+  },
+  "restricted": {
+    "storage": {
+      "kind": "owner_managed_restricted_object",
+      "provider_id": null,
+      "object_id": null,
+      "version_id": null,
+      "retention_status": "pending_owner_authorization",
+      "access_control_status": "pending_owner_authorization",
+      "immutable": false,
+      "verified_at": null
+    },
+    "attestation": {
+      "relative_path": "restricted/replay-attestation-v1.json",
+      "schema_version": 1,
+      "profile": "restricted_engine_replay_attestation_v1",
+      "signature_scheme": "sshsig_ed25519_v1",
+      "signature_namespace": "entire-brain-engine-replay-v1",
+      "sha256": null,
+      "size_bytes": null,
+      "signed_payload_sha256": null,
+      "trust_root_id": null,
+      "signer_principal": null,
+      "public_key_sha256": null
+    }
+  },
+  "expected_bindings": {
+    "issued_at": null,
+    "private_diagnostic": {
+      "manifest_schema_version": 2,
+      "manifest_sha256": "b7c9baae2c3f0ed9b0773226ececf5bf129bd4dd487c02ffab9945cf0fc9c17d",
+      "manifest_size_bytes": null
+    },
+    "public_projection": {
+      "manifest_schema_version": 4,
+      "manifest_sha256": null,
+      "manifest_size_bytes": null,
+      "artifact_inventory_algorithm": "sha256_ordered_relative_path_nul_sha256_nul_size_newline_v1",
+      "artifact_inventory_root_sha256": null,
+      "payload_file_count": 5,
+      "payload_logical_bytes": null
+    },
+    "production_inputs": {
+      "pin_set_id": "facts-retrieval-primary-2026-07-15-darwin-arm64-v1",
+      "pin_set_authority": "production",
+      "pin_set_path": "benchmarks/agent-brain/confirmatory/engine-verification-pins.json",
+      "pin_set_sha256": "c4e4989ffe22cefa2e71211ba2baa4027634daf07d19ff5e92a8b1289243db11",
+      "matrix_path": "benchmarks/agent-brain/confirmatory/engine-matrix.json",
+      "matrix_sha256": "664093683bfb170b704958a3623445f46e20ed897681848f9f19b80504990cf7"
+    },
+    "source_identity": {
+      "repository": "entireio/entire-brain",
+      "git_object_format": "sha1",
+      "commit_oid": null,
+      "tree_oid": null,
+      "worktree_state": null,
+      "checker_lock_path": "benchmarks/agent-brain/confirmatory/engine-replay-checker-lock.json",
+      "checker_lock_sha256": "ca8b1cac121308991140836931e58235c11a1aa63dcde2d8e162627f336ac730",
+      "checker_lock_algorithm": "sha256_ordered_path_nul_sha256_newline_v1",
+      "checker_source_aggregate_sha256": "561370e7afd31a69e1cf0115d5c7df4e9d95611d16e3a5de5840369eb921d7d4",
+      "analyzer_lock_path": "benchmarks/agent-brain/confirmatory/analyzer-lock.json",
+      "analyzer_lock_sha256": "dfe21a14334104041df4b91341082eb3d848be0dc19634a21a4ee57b06f0ab31",
+      "analyzer_lock_algorithm": "sha256_ordered_path_nul_sha256_newline_v1",
+      "analyzer_source_aggregate_sha256": "7c4e37fac7f9431a28c8fafc2f226e13e54b0be574776ddeb73c3c0083887032"
+    },
+    "replay_result": {
+      "operation": "offline_exact_byte_validation_v1",
+      "private_validator": "check_protocol.validate_engine_verification/v2",
+      "private_error_count": null,
+      "public_validator": "public_engine_evidence.validate_public_bundle/v4",
+      "public_error_count": null,
+      "checker_lock_valid": null,
+      "analyzer_lock_valid": null,
+      "decision": "pending"
+    },
+    "public_archive": {
+      "format": "tar_zstd",
+      "root": "public-v4-v1",
+      "sha256": null,
+      "size_bytes": null,
+      "regular_file_count": 6,
+      "directory_count": 2,
+      "logical_bytes": null,
+      "tree_inventory_algorithm": "sha256_ordered_type_nul_path_nul_mode_nul_sha256_nul_size_newline_v1",
+      "tree_inventory_sha256": null,
+      "repository": "entireio/entire-brain",
+      "tag": null,
+      "asset_name": null,
+      "asset_url": null,
+      "release_id": null,
+      "asset_id": null,
+      "release_immutable": null,
+      "release_target_commitish": null,
+      "asset_api_digest": null,
+      "verified_at": null
+    }
+  },
+  "hydration": {
+    "repo_relative_parent": "benchmarks/agent-brain/confirmatory/.engine-evidence",
+    "public_archive_root": "public-v4-v1",
+    "public_manifest_path": "public-v4-v1/engine-verification-public-v4.json",
+    "restricted_attestation_path": "restricted/replay-attestation-v1.json"
+  },
+  "legacy_v1": {
+    "descriptor_path": "benchmarks/agent-brain/confirmatory/engine-evidence-storage-legacy-v1.json",
+    "disposition": "diagnostic_privacy_failed_not_publishable",
+    "archive_sha256": "9b893028ebcbbb6271a0179327cefc97062e25dfda4a84b5b062f010bb69d17a",
+    "private_manifest_sha256": "b7c9baae2c3f0ed9b0773226ececf5bf129bd4dd487c02ffab9945cf0fc9c17d"
+  }
+}

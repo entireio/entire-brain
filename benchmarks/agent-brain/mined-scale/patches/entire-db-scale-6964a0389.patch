@@ -1,0 +1,72 @@
+diff --git a/server/auth/cnf.go b/server/auth/cnf.go
+index 3f691cd93..426cfd945 100644
+--- a/server/auth/cnf.go
++++ b/server/auth/cnf.go
+@@ -13,21 +13,9 @@ import (
+ )
+ 
+ // CnfResult is the tri-state outcome of an RFC 8705 §3 cert-bound token
+-// check. verifyCnf runs inside the shared AuthenticateToken, so the
+-// result is recorded as a span attribute (`cnf.check.result`) on every
+-// listener — the public :8080/:443 surface as well as the mTLS :8281
+-// channel, not just :8281. Public traffic legitimately carries no cnf,
+-// so a raw `result=absent` count is dominated by off-channel requests
+-// and can't gate the COR-271 strict flip on its own.
+-//
+-// `cnf.check.peer_present` (bool) rides alongside it on every branch:
+-// an mTLS peer leaf is on ctx only on :8281, so it slices the result to
+-// that channel. The COR-271 readiness gate is therefore
+-//
+-//	COUNT WHERE cnf.check.result = "absent" AND cnf.check.peer_present = true
+-//
+-// i.e. tokens that reached the mTLS channel without a cnf claim — the
+-// exact population the strict flip will start rejecting.
++// check. Recorded as a span attribute (`cnf.check.result`) on every :8281
++// request so the strict-flip in COR-271 can gate on a clean
++// "result=absent" zero-count across envs.
+ type CnfResult string
+ 
+ const (
+@@ -78,25 +66,18 @@ func VerifyCnf(ctx context.Context, claims *authn.Claims) error {
+ // carrying cnf must be presented over an mTLS connection whose peer
+ // leaf matches; tokens with no cnf are accepted (COR-271 flips this).
+ // The result is annotated on the active span as cnf.check.result, with
+-// cnf.check.peer_present recording whether an mTLS peer leaf was on ctx
+-// (true only on :8281) so the result can be sliced to that channel, plus
+ // the expected thumbprint on non-absent results and the actual leaf
+ // thumbprint on mismatch (for forensics).
+ func verifyCnf(ctx context.Context, claims *authn.Claims, peer *x509.Certificate) error {
+ 	span := trace.SpanFromContext(ctx)
+-	peerPresent := attribute.Bool("cnf.check.peer_present", peer != nil)
+ 	if claims.Cnf == nil {
+-		span.SetAttributes(
+-			attribute.String("cnf.check.result", string(CnfResultAbsent)),
+-			peerPresent,
+-		)
++		span.SetAttributes(attribute.String("cnf.check.result", string(CnfResultAbsent)))
+ 		return nil
+ 	}
+ 	expected := claims.Cnf.X5tS256
+ 	if peer == nil {
+ 		span.SetAttributes(
+ 			attribute.String("cnf.check.result", string(CnfResultMismatch)),
+-			peerPresent,
+ 			attribute.String("cnf.check.thumbprint.expected", expected),
+ 		)
+ 		return errCnfMismatch
+@@ -105,7 +86,6 @@ func verifyCnf(ctx context.Context, claims *authn.Claims, peer *x509.Certificate
+ 	if subtle.ConstantTimeCompare([]byte(expected), []byte(actual)) != 1 {
+ 		span.SetAttributes(
+ 			attribute.String("cnf.check.result", string(CnfResultMismatch)),
+-			peerPresent,
+ 			attribute.String("cnf.check.thumbprint.expected", expected),
+ 			attribute.String("cnf.check.thumbprint.actual", actual),
+ 		)
+@@ -113,7 +93,6 @@ func verifyCnf(ctx context.Context, claims *authn.Claims, peer *x509.Certificate
+ 	}
+ 	span.SetAttributes(
+ 		attribute.String("cnf.check.result", string(CnfResultMatch)),
+-		peerPresent,
+ 		attribute.String("cnf.check.thumbprint.expected", expected),
+ 	)
+ 	return nil

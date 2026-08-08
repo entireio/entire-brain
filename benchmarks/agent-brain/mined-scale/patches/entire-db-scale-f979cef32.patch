@@ -1,0 +1,48 @@
+diff --git a/core/mirrorrepo/mirrorrepo.go b/core/mirrorrepo/mirrorrepo.go
+index 167a768bc..2ee770184 100644
+--- a/core/mirrorrepo/mirrorrepo.go
++++ b/core/mirrorrepo/mirrorrepo.go
+@@ -192,14 +192,6 @@ type Ref struct {
+ // validateMirrorRepoExchange so the audience resolver and the perms
+ // gate share one query and can't drift on the (owner, repo) tuple
+ // across a rename mid-flight.
+-//
+-// Suspended placements (mirror_repos.suspended_at IS NOT NULL) return
+-// ErrNotFound. This is the auth gate's circuit breaker for mirrors
+-// the reconciler has classified as permanently broken at GitHub:
+-// without it, cached edges in github_user_repo_access would still let
+-// existing users mint mirror-repo tokens after upstream access is
+-// revoked. Operators clear suspended_at to put the mirror back in
+-// service.
+ func (s *Service) LookupRefByURL(ctx context.Context, clusterSlug, url string) (*Ref, error) {
+ 	if clusterSlug == "" || url == "" {
+ 		return nil, errors.New("mirrorrepo: cluster_slug and url required")
+@@ -211,7 +203,7 @@ func (s *Service) LookupRefByURL(ctx context.Context, clusterSlug, url string) (
+ 		 FROM github_mirror_repo_urls u
+ 		 JOIN mirror_repos mr ON mr.id = u.mirror_repo_id
+ 		 JOIN github_repos gr ON gr.github_repo_id = mr.github_repo_id
+-		 WHERE u.cluster_slug = $1 AND u.url = $2 AND mr.suspended_at IS NULL`,
++		 WHERE u.cluster_slug = $1 AND u.url = $2`,
+ 		clusterSlug, url,
+ 	).Scan(&ref.MirrorRepoID, &ref.GitHubRepoID, &ref.OwnerLogin, &ref.RepoName, &installationID)
+ 	if err != nil {
+@@ -231,10 +223,6 @@ func (s *Service) LookupRefByURL(ctx context.Context, clusterSlug, url string) (
+ // (from the NATS sync_repo job) and needs the (owner, repo,
+ // installation_id) tuple it claims to verify against, so STS can refuse
+ // a job that names a different upstream than the row says.
+-//
+-// Suspended placements return ErrNotFound — see LookupRefByURL for
+-// the rationale. Without it the worker could still mint a fetch token
+-// for an upstream we've already classified as unreachable.
+ func (s *Service) GetRefByID(ctx context.Context, id model.RepoID) (*Ref, error) {
+ 	ref := &Ref{MirrorRepoID: id}
+ 	var installationID *int64
+@@ -242,7 +230,7 @@ func (s *Service) GetRefByID(ctx context.Context, id model.RepoID) (*Ref, error)
+ 		`SELECT mr.github_repo_id, mr.cluster_slug, gr.owner_login, gr.repo_name, gr.installation_id
+ 		 FROM mirror_repos mr
+ 		 JOIN github_repos gr ON gr.github_repo_id = mr.github_repo_id
+-		 WHERE mr.id = $1 AND mr.suspended_at IS NULL`,
++		 WHERE mr.id = $1`,
+ 		id,
+ 	).Scan(&ref.GitHubRepoID, &ref.ClusterSlug, &ref.OwnerLogin, &ref.RepoName, &installationID)
+ 	if err != nil {

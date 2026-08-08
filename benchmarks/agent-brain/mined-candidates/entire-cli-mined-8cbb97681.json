@@ -1,0 +1,36 @@
+{
+  "id": "entire-cli-mined-8cbb97681",
+  "_mined_from_commit": "8cbb976815e34f8c26e522f332d6cdba5e7fa0da",
+  "_flavor": "recall-solution",
+  "_leak_risk_selfassessed": "medium",
+  "_mined_note": "Auto-mined memory-sensitive task. setup_patch reverse-applies the fix commit's SOURCE hunks (removes the guard + rationale comments); the commit's regression tests remain in the tree as hidden validation. Rationale lives in the session history that produced the fix, not the post-revert tree. Judgment/prompt drafted by a per-commit reviewer; NOT yet run.",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When the Pi agent captures a session transcript, a crafted session ID can cause the transcript to be written outside its intended cache directory. Close that hole without changing unaffected behavior. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "diff --git a/cmd/entire/cli/agent/pi/lifecycle.go b/cmd/entire/cli/agent/pi/lifecycle.go\nindex c4225dea7..de9bdf51d 100644\n--- a/cmd/entire/cli/agent/pi/lifecycle.go\n+++ b/cmd/entire/cli/agent/pi/lifecycle.go\n@@ -15,7 +15,6 @@ import (\n \t\"github.com/entireio/cli/cmd/entire/cli/agent\"\n \t\"github.com/entireio/cli/cmd/entire/cli/logging\"\n \t\"github.com/entireio/cli/cmd/entire/cli/paths\"\n-\t\"github.com/entireio/cli/cmd/entire/cli/validation\"\n )\n \n // Hook names \u2014 these match Pi's native event names exactly (snake_case),\n@@ -287,15 +286,6 @@ func captureTranscript(ctx context.Context, sessionID, piSessionFile string) str\n \tif sessionID == \"\" || piSessionFile == \"\" {\n \t\treturn \"\"\n \t}\n-\t// sessionID comes from the hook payload (or the locally cached active\n-\t// session) and is used to build dst below, before the lifecycle dispatcher\n-\t// validates it. Validate here at the choke point so an unsafe ID cannot\n-\t// write the transcript outside the cache directory; \"\" signals no capture.\n-\tif err := validation.ValidateSessionID(sessionID); err != nil {\n-\t\tlogging.Warn(ctx, \"pi: refusing to capture transcript for unsafe session ID\",\n-\t\t\tslog.String(\"session_id\", sessionID), slog.String(\"err\", err.Error()))\n-\t\treturn \"\"\n-\t}\n \tdir := resolveSessionDir(ctx)\n \tif err := os.MkdirAll(dir, 0o750); err != nil {\n \t\tlogging.Warn(ctx, \"pi: capture transcript mkdir failed\",\n@@ -310,7 +300,7 @@ func captureTranscript(ctx context.Context, sessionID, piSessionFile string) str\n \t\t\tslog.String(\"src\", piSessionFile), slog.String(\"err\", err.Error()))\n \t\treturn \"\"\n \t}\n-\t//nolint:gosec // G703: dst is sessionID (validated above) under .entire/tmp/pi\n+\t//nolint:gosec // G703: dst constructed from validated session ID inside .entire/tmp\n \tif err := os.WriteFile(dst, data, 0o600); err != nil {\n \t\tlogging.Warn(ctx, \"pi: capture transcript write failed\",\n \t\t\tslog.String(\"dst\", dst), slog.String(\"err\", err.Error()))\n",
+  "validation": [
+    "go test ./cmd/entire/cli/agent/pi -run 'TestCaptureTranscript_RejectsTraversalSessionID'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/pi/lifecycle.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "pi captureTranscript session ID path building",
+    "hook payload session ID traversal writing outside cache directory",
+    "lifecycle dispatcher validates session ID ordering ParseHookEvent",
+    "validate session ID choke point before path construction",
+    "gosec nolint transcript write session ID validated"
+  ],
+  "_prompt_descriptive_v0": "In the Pi agent, capturing a session transcript builds a destination file path directly from the hook-supplied session ID. A crafted ID containing traversal segments like \"../\" can write the transcript outside the intended .entire/tmp/pi cache directory. Close this hole where the ID first becomes a path, matching the existing 'no capture' signal so downstream dispatch is unaffected. Keep the fix minimal.",
+  "copy_checkpoint_ref_from_source": true
+}

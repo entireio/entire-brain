@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/development-relevance-temporal-policy-receipt-v1.json",
+  "title": "Authorized development relevance temporal-policy receipt v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "purpose",
+    "created_at",
+    "label_set_id",
+    "query_count",
+    "items",
+    "receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "receipt_id": {"const": "entire-brain-development-relevance-temporal-policy-v1"},
+    "purpose": {"const": "authorized_development_temporal_policy_commitment_only"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "label_set_id": {"type": "string", "minLength": 1},
+    "query_count": {"const": 14},
+    "items": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "required": ["query_id", "task_id", "temporal_policy_sha256"],
+        "properties": {
+          "query_id": {"type": "string", "minLength": 1},
+          "task_id": {"type": "string", "minLength": 1},
+          "temporal_policy_sha256": {"$ref": "#/$defs/sha256"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "receipt_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

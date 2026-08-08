@@ -1,0 +1,134 @@
+{
+  "authority": {
+    "archive_extraction": "forbidden",
+    "archive_staging": "forbidden",
+    "atomic_consumption": false,
+    "benchmark_execution": "forbidden",
+    "candidate_execution": "forbidden",
+    "content_safety_verified": false,
+    "execution_authority": false,
+    "model_provider_execution": "forbidden",
+    "network_access": "forbidden",
+    "owner_approval": false,
+    "paid_execution": "forbidden"
+  },
+  "execution_contract_binding": {
+    "artifact_file": "development-task-negative-control-execution-contract-v1.json",
+    "artifact_sha256": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e",
+    "builder_file": "negative_control_execution_contract_v1.py",
+    "builder_sha256": "f3cfb82978b0ce98d17999ef4cb4f4089a425bb528ece4ff53b61a03a4344bcd",
+    "contract_sha256": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef",
+    "execution_status": "forbidden_missing_all_residual_gates_and_audited_execution_adapter",
+    "profile": "agent_brain_negative_control_execution_contract_v1",
+    "schema_file": "negative-control-execution-contract-v1.schema.json",
+    "schema_sha256": "dbcb95119feeda4c436e90d8162ac0498577454ca9ccaab7a8254d55d90359f9",
+    "schema_version": 1,
+    "source_commit": "f0552070921605cd9a0165ee29ca96e100675d58",
+    "status": "contract_compiled_execution_forbidden"
+  },
+  "implementation": {
+    "builder": {
+      "artifact_file": "negative_control_cache_archive_v1.py",
+      "artifact_sha256": "2f21da09c28cf2de62f808a6362f74fbc7aead07a04cfef96c15c93584540b94"
+    },
+    "draft202012_validator": {
+      "artifact_file": "draft202012.py",
+      "artifact_sha256": "8688b67468b096427f758163174432e221d8197c6b13870a6427939f6ea281eb",
+      "size_bytes": 18097
+    },
+    "execution_contract_builder": {
+      "artifact_file": "negative_control_execution_contract_v1.py",
+      "artifact_sha256": "f3cfb82978b0ce98d17999ef4cb4f4089a425bb528ece4ff53b61a03a4344bcd"
+    },
+    "execution_contract_schema": {
+      "artifact_file": "negative-control-execution-contract-v1.schema.json",
+      "artifact_sha256": "dbcb95119feeda4c436e90d8162ac0498577454ca9ccaab7a8254d55d90359f9"
+    },
+    "gate_primitive": {
+      "artifact_file": "task_negative_control_gate_v1.py",
+      "artifact_sha256": "f04b8634caf619cc17bb495975d2b5358164be6eae2a124ade84efebd60c51dd"
+    },
+    "manifest_schema": {
+      "artifact_file": "offline-go-cache-seed-manifest-v1.schema.json",
+      "artifact_sha256": "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999"
+    },
+    "material_schema": {
+      "artifact_file": "negative-control-cache-archive-material-v1.schema.json",
+      "artifact_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5"
+    },
+    "report_schema": {
+      "artifact_file": "negative-control-cache-archive-verification-report-v1.schema.json",
+      "artifact_sha256": "5827c78df73b024df32bf2853d412df428e7362e869d5d202b33dac15bbe4e5d"
+    },
+    "run_plan_builder": {
+      "artifact_file": "task_negative_control_plan_v2.py",
+      "artifact_sha256": "23d08e9d3d23935cdc86b53780b609fb35f6b3020ede6b1360af288939e34715"
+    },
+    "run_plan_schema": {
+      "artifact_file": "development-task-negative-control-run-plan-v2.schema.json",
+      "artifact_sha256": "294f77f165676bec6053e9637578ca22f048a887d2a978bbf8b8e300f21a2dad"
+    },
+    "verifier_contract_schema": {
+      "artifact_file": "negative-control-cache-archive-verifier-contract-v1.schema.json",
+      "artifact_sha256": "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914"
+    }
+  },
+  "material_binding": {
+    "archive_byte_count": null,
+    "archive_file": null,
+    "archive_sha256": null,
+    "artifact_file": "negative-control-cache-archive-material-v1.json",
+    "artifact_sha256": "7527cec7b2f1b47498845ae38710369997b7c82d2d0150761b23d2b594f68d93",
+    "content_inventory_sha256": null,
+    "file_count": null,
+    "manifest_file": null,
+    "manifest_file_sha256": null,
+    "manifest_sha256": null,
+    "material_declaration_sha256": "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852",
+    "profile": "agent_brain_negative_control_cache_archive_material_v1",
+    "repository_file_counts": null,
+    "schema_file": "negative-control-cache-archive-material-v1.schema.json",
+    "schema_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5",
+    "status": "pending_source_review",
+    "toolchain_bindings_sha256": "e8240c5af77530079643593a7484cb0062408829bab76690b7f55d12176fc87c",
+    "unpacked_byte_count": null
+  },
+  "profile": "agent_brain_negative_control_cache_archive_verifier_contract_v1",
+  "residual_gates": [
+    "actual_approved_offline_cache_seed_archive_and_authorized_binding",
+    "safe_archive_traversal_type_link_device_and_content_verifier",
+    "trusted_apfs_observer_and_atomic_capacity_reservation",
+    "clean_detached_worktree_executor_and_first_parent_reversal_proof",
+    "attested_attempt_producer_and_classifier_integration",
+    "private_log_executor_integration_retention_and_aggregate_accounting",
+    "fail_closed_cleanup_interruption_attestation_and_no_receipt_guarantee",
+    "atomic_single_use_approval_consumption_and_execution_binding"
+  ],
+  "runtime_bindings": {
+    "actual_cache_archive_sha256": null,
+    "actual_cache_manifest_sha256": null,
+    "cache_verification_report_sha256": null,
+    "owner_approval_verification_report_sha256": null,
+    "safe_archive_verification_report_sha256": null
+  },
+  "schema_version": 1,
+  "status": "verifier_compiled_material_source_review_pending_execution_forbidden",
+  "verification_policy": {
+    "archive_byte_count_max": 2147483648,
+    "archive_content_handling": "opaque_raw_bytes_only_never_parsed_or_extracted",
+    "cli_commands": [
+      "build",
+      "check",
+      "verify"
+    ],
+    "e0_runtime_binding": "identity_verified_not_bound_to_e0_runtime",
+    "file_count_max": 250000,
+    "json_depth_max": 64,
+    "json_nodes_max": 1270000,
+    "manifest_byte_count_max": 134217728,
+    "production_path_overrides": false,
+    "successful_verification_claim": "source_reviewed_actual_cache_manifest_and_archive_raw_identity",
+    "unpacked_byte_count_max": 2147483648
+  },
+  "verifier_contract_sha256": "56b5e019f65ef1afc0e4f265a705cdc1523585aad899d5c18ff7a5230463bb47"
+}

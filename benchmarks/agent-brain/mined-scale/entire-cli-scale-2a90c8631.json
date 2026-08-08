@@ -1,0 +1,40 @@
+{
+  "id": "entire-cli-scale-2a90c8631",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The Copilot CLI integration reports itself as present in repositories that merely contain a .github/hooks directory, even when no Entire hook entries are actually installed there. This causes false-positive agent detection. Presence should require that Entire hooks are genuinely configured, not just that the directory exists. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-2a90c8631.patch",
+  "validation": [
+    "go test ./cmd/entire/cli/agent/copilotcli -run 'TestDetectPresence_NoGitHubHooksDir|TestDetectPresence_WithEntireHooks|TestDetectPresence_WithGitHubHooksDirButNoEntireJSON'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/copilotcli/copilotcli.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "copilot cli presence detection false positive",
+    "detect agent github hooks directory existence",
+    "check whether entire hooks are installed",
+    "copilot hook entry command prefix check",
+    "agent presence detection delegates to install check"
+  ],
+  "_mined_from_commit": "2a90c86311dc7eca732147851991389b3d2b425d",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "fix(copilot): DetectPresence delegates to AreHooksInstalled (#590)",
+  "copy_checkpoint_ref_from_source": true
+}

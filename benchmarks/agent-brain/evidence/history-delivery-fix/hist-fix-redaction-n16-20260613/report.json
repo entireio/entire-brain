@@ -100,27 +100,27 @@
    {
     "dirty": true,
     "head_commit": "87bff6bd4c18284a8090560dcd142d9b0d1ae952",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+    "repo_path": "/redacted/workspace/entire-brain-histfix"
    },
    {
     "dirty": true,
     "head_commit": "b074d41a7899fd35c94e73256238003b19039a92",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+    "repo_path": "/redacted/workspace/entire-brain-histfix"
    },
    {
     "dirty": true,
     "head_commit": "beb502416aac034952af8919013b6d27ec770223",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+    "repo_path": "/redacted/workspace/entire-brain-histfix"
    },
    {
     "dirty": true,
     "head_commit": "f15182e1ce132f566440321ebe3e8cf03f20d6ff",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+    "repo_path": "/redacted/workspace/entire-brain-histfix"
    },
    {
     "dirty": true,
     "head_commit": "ff3c97860f723cc3c41d318dfc59b382ba010be4",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+    "repo_path": "/redacted/workspace/entire-brain-histfix"
    }
   ],
   "missing_record_provenance": 0,
@@ -913,7 +913,7 @@
     "head_commit": "af713665091693a8301520159f3b4097a6ec36f9",
     "repo": "entire-cli",
     "repo_path_input": "cli-bench",
-    "repo_path_resolved": "/Users/suhaan/Documents/Coding/cli-bench"
+    "repo_path_resolved": "/redacted/workspace/cli-bench"
    }
   ],
   "tasks": [

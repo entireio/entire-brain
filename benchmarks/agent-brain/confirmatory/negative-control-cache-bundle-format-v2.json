@@ -1,0 +1,353 @@
+{
+  "authority": {
+    "atomic_consumption": false,
+    "benchmark_execution": "forbidden",
+    "bundle_creation": "forbidden",
+    "bundle_extraction": "forbidden",
+    "bundle_staging": "forbidden",
+    "candidate_execution": "forbidden",
+    "e0_runtime_binding": false,
+    "execution_authority": false,
+    "model_provider_execution": "forbidden",
+    "network_access": "forbidden",
+    "owner_approval": false,
+    "paid_execution": "forbidden"
+  },
+  "canonical_json_profile": "sorted_keys_compact_utf8_no_float_v1",
+  "digests": {
+    "algorithm": "sha256",
+    "external_raw_identity": "plain_sha256_of_all_bundle_bytes",
+    "manifest_projection": {
+      "domain_ascii_nul_terminated": "entire-brain/cache-bundle-manifest-projection/v2\u0000",
+      "input": "domain_then_canonical_manifest_projection_utf8"
+    },
+    "prefix": {
+      "domain_ascii_nul_terminated": "entire-brain/cache-bundle-prefix/v2\u0000",
+      "input_range": "bundle_bytes_0_through_L_minus_32_exclusive",
+      "note": "includes_trailer_magic_repeated_counts_and_records_digest_excludes_only_prefix_digest"
+    },
+    "records": {
+      "domain_ascii_nul_terminated": "entire-brain/cache-bundle-records/v2\u0000",
+      "input_range": "bundle_bytes_232_through_L_minus_104_exclusive"
+    },
+    "stored_digest_encoding": "raw_32_bytes_decoded_from_lowercase_hex"
+  },
+  "format_contract_sha256": "e2231e7fae7dfdad054c770d928b549bb996b4c452169cb22abea7f8f6f0ee59",
+  "header": {
+    "byte_count": 232,
+    "fields": [
+      {
+        "byte_count": 16,
+        "encoding": "ascii",
+        "name": "magic",
+        "offset": 0,
+        "value_hex": "454e544952454341434845424e443200"
+      },
+      {
+        "byte_count": 2,
+        "encoding": "u16be",
+        "name": "format_version",
+        "offset": 16,
+        "value": 2
+      },
+      {
+        "byte_count": 2,
+        "encoding": "u16be",
+        "name": "header_byte_count",
+        "offset": 18,
+        "value": 232
+      },
+      {
+        "byte_count": 4,
+        "encoding": "u32be",
+        "name": "flags",
+        "offset": 20,
+        "value": 0
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "bundle_byte_count",
+        "offset": 24
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "file_count",
+        "offset": 32
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "unpacked_byte_count",
+        "offset": 40
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "entire_brain_file_count",
+        "offset": 48
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "entire_db_file_count",
+        "offset": 56
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "entire_graph_file_count",
+        "offset": 64
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "format_contract_sha256",
+        "offset": 72
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "manifest_projection_sha256",
+        "offset": 104
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "manifest_inventory_sha256",
+        "offset": 136
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "run_plan_sha256",
+        "offset": 168
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "toolchain_bindings_sha256",
+        "offset": 200
+      }
+    ],
+    "magic_ascii_escaped": "ENTIRECACHEBND2\\0",
+    "magic_hex": "454e544952454341434845424e443200"
+  },
+  "integer_encoding": {
+    "alternate_encodings": false,
+    "byte_order": "big_endian",
+    "fixed_width_only": true,
+    "signed": false
+  },
+  "limits": {
+    "bundle_byte_count_max": 2147483648,
+    "exact_bundle_byte_count_formula": "232 + 104 + 52*N + sum(path_utf8_byte_count) + unpacked_byte_count",
+    "file_count_max": 250000,
+    "file_count_min": 3,
+    "path_utf8_byte_count_max": 1024,
+    "repository_file_count_min": 1,
+    "unpacked_byte_count_max": 2147483648
+  },
+  "manifest_projection": {
+    "canonical_json": {
+      "allow_nan": false,
+      "ensure_ascii": false,
+      "line_feed": false,
+      "separators": [
+        ",",
+        ":"
+      ],
+      "sort_keys": true
+    },
+    "copy": "deep_copy_of_fully_validated_final_manifest_v1",
+    "mutations": [
+      {
+        "field": "archive.byte_count",
+        "value": null
+      },
+      {
+        "field": "archive.sha256",
+        "value": null
+      },
+      {
+        "field": "manifest_sha256",
+        "value": null
+      }
+    ],
+    "other_deletions_or_mutations": "forbidden",
+    "profile": "content_addressed_offline_go_cache_seed_manifest_v1"
+  },
+  "ordering": {
+    "canonical_record_order": "repository_id_then_unsigned_path_utf8_bytes",
+    "global_path_ancestor_conflicts": "forbidden",
+    "global_path_exact_and_portable_collisions": "forbidden",
+    "manifest_order_equivalence": "repository_key_then_path",
+    "manifest_record_bijection": "exact_sequential_one_to_one",
+    "repository_id_mapping": [
+      {
+        "repository_id": 0,
+        "repository_key": "entire-brain"
+      },
+      {
+        "repository_id": 1,
+        "repository_key": "entire-db"
+      },
+      {
+        "repository_id": 2,
+        "repository_key": "entire-graph"
+      }
+    ],
+    "repository_key_semantics": "deterministic_ownership_and_provenance_only_not_destination_namespace",
+    "shared_seed_semantics": "one_shared_union_seed_copied_unchanged_to_every_arm"
+  },
+  "profile": "agent_brain_negative_control_cache_bundle_format_v2",
+  "record": {
+    "fixed_byte_count": 52,
+    "fixed_fields": [
+      {
+        "byte_count": 4,
+        "encoding": "ascii",
+        "name": "marker",
+        "offset": 0,
+        "value_ascii": "FILE"
+      },
+      {
+        "byte_count": 1,
+        "encoding": "u8",
+        "name": "repository_id",
+        "offset": 4
+      },
+      {
+        "byte_count": 1,
+        "encoding": "u8",
+        "name": "flags",
+        "offset": 5,
+        "value": 0
+      },
+      {
+        "byte_count": 2,
+        "encoding": "u16be",
+        "name": "path_utf8_byte_count",
+        "offset": 6
+      },
+      {
+        "byte_count": 4,
+        "encoding": "u32be",
+        "name": "ordinal",
+        "offset": 8
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "content_byte_count",
+        "offset": 12
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "content_sha256",
+        "offset": 20
+      }
+    ],
+    "ordinal_rule": "exact_zero_based_sequence_0_through_N_minus_1",
+    "path": {
+      "allowed_roots": [
+        "gocache",
+        "gomodcache"
+      ],
+      "backslash": "forbidden",
+      "component_utf8_byte_count_max": 255,
+      "control_unicode_category_C": "forbidden",
+      "dot_or_dot_dot_component": "forbidden",
+      "encoding": "nfc_utf8",
+      "forbidden_component_ascii_casefold_values": [
+        "..namedfork"
+      ],
+      "nul": "forbidden",
+      "placement": "immediately_after_fixed_record",
+      "portable_uniqueness": "nfc_casefold_per_component"
+    },
+    "payload": {
+      "compression": "none",
+      "encoding": "raw_uncompressed_bytes",
+      "placement": "immediately_after_path_without_padding"
+    }
+  },
+  "representability": {
+    "implicit_parent_directories_only": true,
+    "record_kind": "nonempty_regular_file",
+    "structurally_unrepresentable": [
+      "explicit_directories",
+      "symlinks",
+      "hardlinks_or_inode_identity",
+      "fifos",
+      "sockets",
+      "block_devices",
+      "character_devices",
+      "other_devices",
+      "whiteouts",
+      "sparse_metadata",
+      "alternate_data_streams",
+      "resource_forks",
+      "compression",
+      "encryption",
+      "signatures",
+      "padding",
+      "concatenated_members",
+      "acls",
+      "extended_attributes",
+      "uid_gid",
+      "timestamps",
+      "mode_bits",
+      "executable_setuid_setgid_sticky_bits"
+    ]
+  },
+  "schema_version": 2,
+  "status": "wire_format_frozen_no_material_no_authority",
+  "trailer": {
+    "byte_count": 104,
+    "exact_eof_after_trailer": true,
+    "fields": [
+      {
+        "byte_count": 16,
+        "encoding": "ascii",
+        "name": "magic",
+        "offset": 0,
+        "value_hex": "454e544952454341434845454e443200"
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "bundle_byte_count",
+        "offset": 16
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "file_count",
+        "offset": 24
+      },
+      {
+        "byte_count": 8,
+        "encoding": "u64be",
+        "name": "unpacked_byte_count",
+        "offset": 32
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "records_sha256",
+        "offset": 40
+      },
+      {
+        "byte_count": 32,
+        "encoding": "sha256_raw_32",
+        "name": "prefix_sha256",
+        "offset": 72
+      }
+    ],
+    "magic_ascii_escaped": "ENTIRECACHEEND2\\0",
+    "magic_hex": "454e544952454341434845454e443200"
+  }
+}

@@ -1,0 +1,45 @@
+diff --git a/cmd/entire/cli/agent/codex/transcript.go b/cmd/entire/cli/agent/codex/transcript.go
+index 16b04f557..593107ea3 100644
+--- a/cmd/entire/cli/agent/codex/transcript.go
++++ b/cmd/entire/cli/agent/codex/transcript.go
+@@ -237,13 +237,9 @@ func classifyApplyPatchPaths(input string) (added, modified, deleted []string) {
+ 				continue
+ 			}
+ 			if lastUpdate != "" {
+-				if existing, ok := bucket[lastUpdate]; !ok || (existing != applyPatchVerbAdd && existing != applyPatchVerbDelete) {
+-					bucket[lastUpdate] = applyPatchVerbDelete
+-				}
+-			}
+-			if existing, ok := bucket[target]; !ok || (existing != applyPatchVerbAdd && existing != applyPatchVerbDelete) {
+-				bucket[target] = applyPatchVerbAdd
++				bucket[lastUpdate] = applyPatchVerbDelete
+ 			}
++			bucket[target] = applyPatchVerbAdd
+ 			lastUpdate = ""
+ 		}
+ 	}
+diff --git a/cmd/entire/cli/lifecycle.go b/cmd/entire/cli/lifecycle.go
+index 44bda39a8..30a603b5a 100644
+--- a/cmd/entire/cli/lifecycle.go
++++ b/cmd/entire/cli/lifecycle.go
+@@ -193,18 +193,14 @@ func handleLifecycleSessionStart(ctx context.Context, ag agent.Agent, event *age
+ 	}
+ 
+ 	// Fire EventSessionStart for the current session (if state exists).
+-	// SessionStart can fire before InitializeSession creates the state file,
+-	// so ErrStateNotFound is the normal first-session path — only warn on
+-	// genuinely unexpected errors, matching the rest of this file.
+-	mutErr := strategy.MutateSessionState(ctx, event.SessionID, func(state *strategy.SessionState) error {
++	if mutErr := strategy.MutateSessionState(ctx, event.SessionID, func(state *strategy.SessionState) error {
+ 		persistEventMetadataToState(event, state)
+ 		if transErr := strategy.TransitionAndLog(ctx, state, session.EventSessionStart, session.TransitionContext{}, session.NoOpActionHandler{}); transErr != nil {
+ 			logging.Warn(logCtx, "session start transition failed",
+ 				slog.String("error", transErr.Error()))
+ 		}
+ 		return nil
+-	})
+-	if mutErr != nil && !errors.Is(mutErr, strategy.ErrStateNotFound) {
++	}); mutErr != nil {
+ 		logging.Warn(logCtx, "failed to update session state on start",
+ 			slog.String("error", mutErr.Error()))
+ 	}

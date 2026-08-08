@@ -1,0 +1,120 @@
+{
+  "authority": {
+    "benchmark_execution": "forbidden_not_executed",
+    "calibration_membership": "forbidden_permanent_development_exposure",
+    "confirmatory_holdout_membership": "forbidden_permanent_development_exposure",
+    "owner_key": "absent_not_fabricated",
+    "population_assignment": "absent_not_authorized",
+    "source_session_identity": "unresolved_no_owner_source_session_receipt"
+  },
+  "profile": "agent_brain_development_repository_bindings_v2",
+  "repositories": [
+    {
+      "key": "entire-brain",
+      "remote": {
+        "name": "entireio",
+        "ref": "refs/remotes/entireio/main",
+        "url": "https://github.com/entireio/entire-brain.git"
+      },
+      "repository_id": "github.com/entireio/entire-brain",
+      "toolchain": {
+        "git": {
+          "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+          "version_output": "git version 2.53.0"
+        },
+        "go": {
+          "binary_sha256": "005640c7ff93028cb704283b0f737f2db3faf8b51b2561170c769b83905da646",
+          "cc": "clang",
+          "cgo_enabled": "1",
+          "cxx": "clang++",
+          "goarch": "arm64",
+          "goos": "darwin",
+          "version_output": "go version go1.26.2 darwin/arm64"
+        },
+        "native": {
+          "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+          "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+          "target": "arm64-apple-darwin25.5.0",
+          "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+        }
+      },
+      "window": {
+        "base_oid": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "first_parent_unit_count": 31,
+        "head_oid": "bc0203b761cbc500bfcb0acff723dad57ae37770"
+      }
+    },
+    {
+      "key": "entire-db",
+      "remote": {
+        "name": "origin",
+        "ref": "refs/remotes/origin/main",
+        "url": "https://github.com/entirehq/entiredb.git"
+      },
+      "repository_id": "github.com/entirehq/entiredb",
+      "toolchain": {
+        "git": {
+          "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+          "version_output": "git version 2.53.0"
+        },
+        "go": {
+          "binary_sha256": "e61851b2c0cde9b9ac4ae044fcce6ba9d55cb15f98ded3964793acaa8632242f",
+          "cc": "clang",
+          "cgo_enabled": "1",
+          "cxx": "clang++",
+          "goarch": "arm64",
+          "goos": "darwin",
+          "version_output": "go version go1.26.4 darwin/arm64"
+        },
+        "native": {
+          "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+          "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+          "target": "arm64-apple-darwin25.5.0",
+          "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+        }
+      },
+      "window": {
+        "base_oid": "4bde2fe4bc5bc913c35540e46cbb1d4f6fa131ab",
+        "first_parent_unit_count": 31,
+        "head_oid": "860769996e8741ff8a93cc955dadb4e7a81f4317"
+      }
+    },
+    {
+      "key": "entire-graph",
+      "remote": {
+        "name": "origin",
+        "ref": "refs/remotes/origin/main",
+        "url": "https://github.com/entireio/entire-graph.git"
+      },
+      "repository_id": "github.com/entireio/entire-graph",
+      "toolchain": {
+        "git": {
+          "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+          "version_output": "git version 2.53.0"
+        },
+        "go": {
+          "binary_sha256": "c9507e881b743649af2b8d9edd8678433b999acfe4da2f9834a08a4fcebb1861",
+          "cc": "clang",
+          "cgo_enabled": "1",
+          "cxx": "clang++",
+          "goarch": "arm64",
+          "goos": "darwin",
+          "version_output": "go version go1.24.13 darwin/arm64"
+        },
+        "native": {
+          "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+          "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+          "target": "arm64-apple-darwin25.5.0",
+          "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+        }
+      },
+      "window": {
+        "base_oid": "d3271d235a2669da67d9f6924bb31cf6fd82349c",
+        "first_parent_unit_count": 31,
+        "head_oid": "fafe92878b5e920fe161d8078ee91762fe33e9b4"
+      }
+    }
+  ],
+  "schema_version": 1,
+  "window_policy": "exact_31_first_parent_units_at_pinned_head_ancestor_of_authoritative_remote_ref"
+}

@@ -1,0 +1,104 @@
+diff --git a/cmd/entire/cli/setup_import_test.go b/cmd/entire/cli/setup_import_test.go
+index ab6361009..0f5a5efc3 100644
+--- a/cmd/entire/cli/setup_import_test.go
++++ b/cmd/entire/cli/setup_import_test.go
+@@ -1,15 +1,19 @@
+ package cli
+ 
+ import (
++	"bytes"
+ 	"context"
+ 	"errors"
+ 	"io"
++	"strings"
+ 	"testing"
+ 
+ 	"github.com/entireio/cli/cmd/entire/cli/agent"
+ 	"github.com/entireio/cli/cmd/entire/cli/agent/types"
+ 	"github.com/entireio/cli/cmd/entire/cli/agentimport"
++	"github.com/entireio/cli/cmd/entire/cli/checkpointpolicy"
+ 	"github.com/entireio/cli/cmd/entire/cli/testutil"
++	"github.com/go-git/go-git/v6/plumbing"
+ )
+ 
+ // fakeAgent satisfies agent.Agent via an embedded nil interface; only Type() is
+@@ -123,6 +127,42 @@ func TestMaybeOfferSessionImport_NonInteractiveAutoImportsAll(t *testing.T) {
+ 	}
+ }
+ 
++func TestMaybeOfferSessionImport_NonInteractiveWithoutYesSkips(t *testing.T) {
++	// Not parallel: overrides seams and chdirs into a temp repo.
++	dir := t.TempDir()
++	testutil.InitRepo(t, dir)
++	t.Chdir(dir)
++	// No ENTIRE_TEST_TTY => CanPromptInteractively() is false (non-interactive),
++	// e.g. a scripted or agent-driven enable.
++
++	promptCalled := false
++	var ran []eligibleImport
++	withImportSeams(t,
++		func(context.Context, []agent.Agent, string) []eligibleImport {
++			return []eligibleImport{{displayName: testAgentClaude, sessionCount: 3}}
++		},
++		func(context.Context, io.Writer, []eligibleImport) ([]eligibleImport, error) {
++			promptCalled = true
++			return nil, nil
++		},
++		func(_ context.Context, _ io.Writer, _ string, sel []eligibleImport) { ran = sel },
++	)
++
++	// No --yes and no TTY: neither prompt nor auto-import; just hint at the
++	// manual command.
++	var buf bytes.Buffer
++	maybeOfferSessionImport(context.Background(), &buf, nil, EnableOptions{}, true)
++	if promptCalled {
++		t.Error("prompt shown in a non-interactive context")
++	}
++	if len(ran) != 0 {
++		t.Errorf("auto-imported %d agent(s) without --yes in a non-interactive context; expected skip", len(ran))
++	}
++	if got := buf.String(); !strings.Contains(got, "entire import") {
++		t.Errorf("expected a pointer to 'entire import', got %q", got)
++	}
++}
++
+ func TestMaybeOfferSessionImport_NoEligibleIsNoOp(t *testing.T) {
+ 	dir := t.TempDir()
+ 	testutil.InitRepo(t, dir)
+@@ -188,6 +228,36 @@ func TestMaybeOfferSessionImport_EmptySelectionSkips(t *testing.T) {
+ 	}
+ }
+ 
++func TestRunSelectedImports_UnsatisfiablePolicySkips(t *testing.T) {
++	// Not parallel: chdirs into a temp repo and reads CWD-based git state.
++	dir := t.TempDir()
++	testutil.InitRepo(t, dir)
++	t.Chdir(dir)
++	ctx := context.Background()
++
++	// Install a checkpoint policy this CLI cannot satisfy (a future format).
++	// The gate must skip the import, matching the standalone `entire import`
++	// command's ensureCheckpointPolicyAllowsCheckpointData check.
++	repo, err := openRepository(ctx)
++	if err != nil {
++		t.Fatalf("open repository: %v", err)
++	}
++	future := checkpointpolicy.Policy{CheckpointVersion: "branch-v99", CheckpointMinVersion: "branch-v99"}
++	if _, err := checkpointpolicy.WriteLocal(ctx, repo, plumbing.ZeroHash, future); err != nil {
++		t.Fatalf("write local policy: %v", err)
++	}
++	repo.Close()
++
++	// A nil importer would panic if the import loop ran, so the gate returning
++	// before the loop is exactly what keeps this from blowing up.
++	var buf bytes.Buffer
++	runSelectedImports(ctx, &buf, dir, []eligibleImport{{displayName: testAgentClaude}})
++
++	if got := buf.String(); !strings.Contains(got, "skipping agent history import") {
++		t.Errorf("expected a skip note for an unsatisfiable checkpoint policy, got %q", got)
++	}
++}
++
+ func TestMaybeOfferSessionImport_PromptErrorIsBestEffort(t *testing.T) {
+ 	dir := t.TempDir()
+ 	testutil.InitRepo(t, dir)

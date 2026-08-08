@@ -1,0 +1,40 @@
+{
+  "id": "entire-db-scale-317c86889",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Console login is broken: after the OAuth redirect, the callback rejects the exchange and users see \"invalid or expired code\". It only happens for some deployments and not others, depending on how the console client's configured secret is spelled. Investigate why the authorization-code exchange fails and restore login. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-317c86889.patch",
+  "validation": [
+    "go test ./core/api -run 'TestHTTPTokenClient_BasicAuthPercentEncoded|TestHTTPTokenClient_FormFieldsCarriedThrough|TestSetBasicAuth_DoesNotEncode'"
+  ],
+  "expected_files": [
+    "core/api/token_endpoint.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "console login invalid or expired code callback",
+    "OAuth client secret authentication invalid_client",
+    "token exchange basic auth credentials",
+    "console client secret special characters",
+    "OIDC bridge client credentials round-trip"
+  ],
+  "_mined_from_commit": "317c8688930968c413520173279727e00ca8a6dd",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "api: percent-encode console client creds in Basic auth (RFC 6749 \u00a72.3.1) (#1470)",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-brain-confirmatory-analysis/v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "analyzer_entrypoint_sha256",
+    "analyzer_identity",
+    "integrity",
+    "design",
+    "bootstrap",
+    "arm_summary",
+    "correctness",
+    "tokens",
+    "wall_time"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-confirmatory-analysis/v1"},
+    "status": {"const": "complete"},
+    "analyzer_entrypoint_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "analyzer_identity": {
+      "type": "object",
+      "required": ["algorithm", "current_sha256", "source_paths", "matched"]
+    },
+    "integrity": {"type": "object", "required": ["passed", "valid_executed_attempts", "expected_attempts"]},
+    "design": {"type": "object", "required": ["task_clusters", "primary_treatments", "repetitions_per_treatment"]},
+    "bootstrap": {"type": "object", "required": ["resamples", "seed", "cluster_unit", "confidence"]},
+    "arm_summary": {"type": "object"},
+    "correctness": {"type": "object", "required": ["status", "estimand", "comparisons", "primary_gate"]},
+    "tokens": {"type": "object", "required": ["status"]},
+    "wall_time": {"type": "object", "required": ["status"]}
+  },
+  "additionalProperties": false
+}

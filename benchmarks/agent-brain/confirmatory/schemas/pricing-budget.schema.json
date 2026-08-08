@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.dev/schemas/agent-brain/pricing-budget.schema.json",
+  "title": "Confirmatory pricing quote and paid-budget approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "runner",
+    "pricing_quote",
+    "design",
+    "token_assumptions",
+    "calculation",
+    "approval"
+  ],
+  "properties": {
+    "schema_version": {"const": 3},
+    "runner": {"$ref": "#/$defs/nullableRunner"},
+    "pricing_quote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "status",
+        "quote_sha256",
+        "source_uri",
+        "source_artifact_path",
+        "source_artifact_sha256",
+        "as_of",
+        "retrieved_at",
+        "expires_at",
+        "maximum_age_days",
+        "currency",
+        "tokens_per_price_unit",
+        "prices_usd_per_unit",
+        "price_aliases",
+        "usage_semantics"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-price-quote/v2"},
+        "status": {"enum": ["pending", "pinned"]},
+        "quote_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_uri": {"type": ["string", "null"], "minLength": 1},
+        "source_artifact_path": {"type": ["string", "null"], "minLength": 1},
+        "source_artifact_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "as_of": {"type": ["string", "null"], "format": "date-time"},
+        "retrieved_at": {"type": ["string", "null"], "format": "date-time"},
+        "expires_at": {"type": ["string", "null"], "format": "date-time"},
+        "maximum_age_days": {"type": ["integer", "null"], "minimum": 1},
+        "currency": {"const": "USD"},
+        "tokens_per_price_unit": {"const": 1000000},
+        "prices_usd_per_unit": {"$ref": "#/$defs/nullablePrices"},
+        "price_aliases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
+          "properties": {
+            "uncached_input": {"type": ["string", "null"]},
+            "cache_read_input": {"type": ["string", "null"]},
+            "cache_write_input": {"type": ["string", "null"]},
+            "visible_output": {"type": ["string", "null"]},
+            "reasoning_output": {"type": ["string", "null"]}
+          }
+        },
+        "usage_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_tokens_includes",
+            "output_tokens_includes",
+            "counter_absence_means_zero"
+          ],
+          "properties": {
+            "input_tokens_includes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"enum": ["cache_read_input", "cache_write_input"]}
+            },
+            "output_tokens_includes": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"const": "reasoning_output"}
+            },
+            "counter_absence_means_zero": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "cache_read_input",
+                "cache_write_input",
+                "reasoning_output"
+              ],
+              "properties": {
+                "cache_read_input": {"type": "boolean"},
+                "cache_write_input": {"type": "boolean"},
+                "reasoning_output": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "design": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_id",
+        "power_status_at_binding",
+        "approved_for_budgeting",
+        "tasks",
+        "treatments",
+        "repetitions_per_treatment",
+        "requested_cells",
+        "retry_agent_invocations",
+        "replacement_cell_attempts",
+        "reserve_cell_attempts",
+        "maximum_agent_invocations"
+      ],
+      "properties": {
+        "protocol_id": {"type": "string", "minLength": 1},
+        "power_status_at_binding": {"type": "string", "minLength": 1},
+        "approved_for_budgeting": {"type": "boolean"},
+        "tasks": {"type": "integer", "minimum": 1},
+        "treatments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "repetitions_per_treatment": {"type": "integer", "minimum": 1},
+        "requested_cells": {"type": "integer", "minimum": 1},
+        "retry_agent_invocations": {"const": 0},
+        "replacement_cell_attempts": {"const": 0},
+        "reserve_cell_attempts": {"const": 0},
+        "maximum_agent_invocations": {"type": "integer", "minimum": 1}
+      }
+    },
+    "token_assumptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "explicit_per_agent_invocation_caps", "empirical_bound"],
+      "properties": {
+        "mode": {"enum": [null, "explicit_per_agent_invocation_caps", "empirical_bound"]},
+        "explicit_per_agent_invocation_caps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output", "rationale"],
+          "properties": {
+            "uncached_input": {"$ref": "#/$defs/nullableTokenCount"},
+            "cache_read_input": {"$ref": "#/$defs/nullableTokenCount"},
+            "cache_write_input": {"$ref": "#/$defs/nullableTokenCount"},
+            "visible_output": {"$ref": "#/$defs/nullableTokenCount"},
+            "reasoning_output": {"$ref": "#/$defs/nullableTokenCount"},
+            "rationale": {"type": ["string", "null"], "minLength": 1}
+          }
+        },
+        "empirical_bound": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runner",
+            "evidence_path",
+            "evidence_sha256",
+            "statistic",
+            "quantile",
+            "safety_multiplier",
+            "observed_tokens_per_agent_invocation"
+          ],
+          "properties": {
+            "runner": {
+              "anyOf": [
+                {"$ref": "#/$defs/nullableRunner"},
+                {"type": "null"}
+              ]
+            },
+            "evidence_path": {"type": ["string", "null"], "minLength": 1},
+            "evidence_sha256": {
+              "type": ["string", "null"],
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "statistic": {"type": ["string", "null"], "minLength": 1},
+            "quantile": {
+              "type": ["number", "null"],
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "safety_multiplier": {"$ref": "#/$defs/nullableDecimal"},
+            "observed_tokens_per_agent_invocation": {"$ref": "#/$defs/nullableTokenCounts"}
+          }
+        }
+      }
+    },
+    "calculation": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "formula_id",
+            "tokens_per_price_unit",
+            "effective_tokens_per_agent_invocation",
+            "per_agent_invocation_usd_by_category",
+            "per_agent_invocation_maximum_usd",
+            "maximum_agent_invocations",
+            "maximum_usd"
+          ],
+          "properties": {
+            "formula_id": {"const": "worst_case_agent_invocation_token_envelope_v4"},
+            "tokens_per_price_unit": {"const": 1000000},
+            "effective_tokens_per_agent_invocation": {"$ref": "#/$defs/tokenCounts"},
+            "per_agent_invocation_usd_by_category": {"$ref": "#/$defs/prices"},
+            "per_agent_invocation_maximum_usd": {"$ref": "#/$defs/decimal"},
+            "maximum_agent_invocations": {"type": "integer", "minimum": 1},
+            "maximum_usd": {"$ref": "#/$defs/decimal"}
+          }
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "approved_cap_usd",
+        "approved_by",
+        "approver_role",
+        "approved_at",
+        "expires_at",
+        "notes"
+      ],
+      "properties": {
+        "status": {"enum": ["pending", "approved"]},
+        "approved_cap_usd": {"$ref": "#/$defs/nullableDecimal"},
+        "approved_by": {"type": ["string", "null"], "minLength": 1},
+        "approver_role": {"type": ["string", "null"], "minLength": 1},
+        "approved_at": {"type": ["string", "null"], "format": "date-time"},
+        "expires_at": {"type": ["string", "null"], "format": "date-time"},
+        "notes": {"type": ["string", "null"]}
+      }
+    }
+  },
+  "$defs": {
+    "decimal": {"type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"},
+    "nullableDecimal": {
+      "type": ["string", "null"],
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "nullableTokenCount": {"type": ["integer", "null"], "minimum": 0},
+    "tokenCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
+      "properties": {
+        "uncached_input": {"type": "integer", "minimum": 0},
+        "cache_read_input": {"type": "integer", "minimum": 0},
+        "cache_write_input": {"type": "integer", "minimum": 0},
+        "visible_output": {"type": "integer", "minimum": 0},
+        "reasoning_output": {"type": "integer", "minimum": 0}
+      }
+    },
+    "nullableTokenCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
+      "properties": {
+        "uncached_input": {"$ref": "#/$defs/nullableTokenCount"},
+        "cache_read_input": {"$ref": "#/$defs/nullableTokenCount"},
+        "cache_write_input": {"$ref": "#/$defs/nullableTokenCount"},
+        "visible_output": {"$ref": "#/$defs/nullableTokenCount"},
+        "reasoning_output": {"$ref": "#/$defs/nullableTokenCount"}
+      }
+    },
+    "prices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
+      "properties": {
+        "uncached_input": {"$ref": "#/$defs/decimal"},
+        "cache_read_input": {"$ref": "#/$defs/decimal"},
+        "cache_write_input": {"$ref": "#/$defs/decimal"},
+        "visible_output": {"$ref": "#/$defs/decimal"},
+        "reasoning_output": {"$ref": "#/$defs/decimal"}
+      }
+    },
+    "nullablePrices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uncached_input", "cache_read_input", "cache_write_input", "visible_output", "reasoning_output"],
+      "properties": {
+        "uncached_input": {"$ref": "#/$defs/nullableDecimal"},
+        "cache_read_input": {"$ref": "#/$defs/nullableDecimal"},
+        "cache_write_input": {"$ref": "#/$defs/nullableDecimal"},
+        "visible_output": {"$ref": "#/$defs/nullableDecimal"},
+        "reasoning_output": {"$ref": "#/$defs/nullableDecimal"}
+      }
+    },
+    "nullableRunner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "provider",
+        "runner_id",
+        "runner_version",
+        "agent_id",
+        "agent_cli",
+        "agent_cli_version",
+        "requested_model_id",
+        "resolved_model_id",
+        "effort",
+        "schedule_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-frozen-runner-identity/v1"},
+        "provider": {"type": ["string", "null"], "minLength": 1},
+        "runner_id": {"type": ["string", "null"], "minLength": 1},
+        "runner_version": {"type": ["string", "null"], "minLength": 1},
+        "agent_id": {"type": ["string", "null"], "minLength": 1},
+        "agent_cli": {"type": ["string", "null"], "minLength": 1},
+        "agent_cli_version": {"type": ["string", "null"], "minLength": 1},
+        "requested_model_id": {"type": ["string", "null"], "minLength": 1},
+        "resolved_model_id": {"type": ["string", "null"], "minLength": 1},
+        "effort": {"type": ["string", "null"], "minLength": 1},
+        "schedule_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "identity_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

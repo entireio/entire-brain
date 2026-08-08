@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-brain-evidence-run/v1",
+  "type": "object",
+  "required": ["schema", "run_id", "identity_sha256", "executed", "artifacts", "execution_gate", "raw_metrics"],
+  "properties": {"schema": {"const": "agent-brain-evidence-run/v1"}, "run_id": {"type": "string"}, "executed": {"type": "boolean"}, "artifacts": {"type": "array"}}
+}

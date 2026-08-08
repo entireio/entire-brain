@@ -1,0 +1,75 @@
+diff --git a/cmd/entire-deploy/deploy.go b/cmd/entire-deploy/deploy.go
+index b538db9d2..4737d2b57 100644
+--- a/cmd/entire-deploy/deploy.go
++++ b/cmd/entire-deploy/deploy.go
+@@ -64,11 +64,6 @@ type swapStrategy interface {
+ 	// seconds and benefit from a tighter cadence; ASG replacement is
+ 	// minutes-scale so a slower poll is fine.
+ 	ReadinessPollInterval() time.Duration
+-	// RollbackHint is the operator-facing one-liner printed by the abort
+-	// summary describing how to recover from a failed deploy in this
+-	// strategy's domain. LT-replace points at the launch template; SSM
+-	// in-place update points at re-running with the previous --commit.
+-	RollbackHint() string
+ }
+ 
+ // EBSVolume describes an EBS volume attached to (or recently detached from) an instance.
+@@ -212,7 +207,7 @@ func runDeploy(ctx context.Context, opts DeployOptions) error {
+ 			result.Outcome = "failed"
+ 			result.Error = err.Error()
+ 			writeDeployLog(opts.LogPath, result)
+-			return printAbortState(opts.Config, nodes, i, err, opts.Strategy.RollbackHint())
++			return printAbortState(opts.Config, nodes, i, err)
+ 		}
+ 
+ 		if nr.Outcome == "skipped" {
+@@ -825,7 +820,7 @@ func printDeploySummary(result DeployResult) {
+ 
+ // Abort output
+ 
+-func printAbortState(cfg *ClusterConfig, nodes []NodeConfig, failedIdx int, err error, rollbackHint string) error {
++func printAbortState(cfg *ClusterConfig, nodes []NodeConfig, failedIdx int, err error) error {
+ 	fmt.Fprintf(os.Stderr, "\nDeploy aborted: %v\n\n", err)
+ 	fmt.Fprintf(os.Stderr, "Cluster: %s\n", cfg.Cluster)
+ 	fmt.Fprintf(os.Stderr, "Node states:\n")
+@@ -841,9 +836,7 @@ func printAbortState(cfg *ClusterConfig, nodes []NodeConfig, failedIdx int, err
+ 		}
+ 		fmt.Fprintf(os.Stderr, "  %s: %s\n", n.Name, state)
+ 	}
+-	if rollbackHint != "" {
+-		fmt.Fprintf(os.Stderr, "\nTo rollback: %s\n", rollbackHint)
+-	}
++	fmt.Fprintf(os.Stderr, "\nTo rollback: revert launch template, re-run entire-deploy\n")
+ 	return fmt.Errorf("deploy aborted at node %s", nodes[failedIdx].Name)
+ }
+ 
+diff --git a/cmd/entire-deploy/replace.go b/cmd/entire-deploy/replace.go
+index 3761c9d81..ce0cab71d 100644
+--- a/cmd/entire-deploy/replace.go
++++ b/cmd/entire-deploy/replace.go
+@@ -109,10 +109,6 @@ func (replaceStrategy) VersionLabel(v string) string {
+ 	return "launch template v" + v
+ }
+ 
+-func (replaceStrategy) RollbackHint() string {
+-	return "revert launch template, re-run entire-deploy replace-instances"
+-}
+-
+ // PreSwapVerify is a no-op for the replace strategy: TerminateInstance does
+ // not require any agent state on the target.
+ func (replaceStrategy) PreSwapVerify(_ context.Context, _ NodeConfig, _ string) error {
+diff --git a/cmd/entire-deploy/update.go b/cmd/entire-deploy/update.go
+index 369a6c0b2..12a63c987 100644
+--- a/cmd/entire-deploy/update.go
++++ b/cmd/entire-deploy/update.go
+@@ -130,10 +130,6 @@ func (ssmUpdateStrategy) VersionLabel(v string) string {
+ 	return "commit " + v
+ }
+ 
+-func (ssmUpdateStrategy) RollbackHint() string {
+-	return "re-run entire-deploy update-binaries with the previous --commit"
+-}
+-
+ // PreSwapVerify waits until the SSM agent on the target instance reports
+ // online. /status answering during drift check doesn't imply the agent is
+ // registered: the app and the SSM agent are independent daemons, and a

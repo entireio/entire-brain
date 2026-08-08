@@ -17,7 +17,7 @@ This is a **building block**, per the design split between entire-brain / entire
 The intended consumers are the cli's `entire review` and `entire labs investigate`, which gain a
 "diff-less mode" when the brain is installed — the same graceful upgrade entire-brain gets from
 entire-graph. **Those consumers live in the `entireio/cli` repo, not here.** The cli side is a moving
-target (it is being redesigned by Peyton across PRs #1241 → #1370 → #1352), so this repo owns only the
+target (it is being redesigned in the CLI repository), so this repo owns only the
 *contract*; the wiring is cross-repo and is tracked below.
 
 ## The contract (stable, versioned)
@@ -158,7 +158,7 @@ prompt — reviewing the working tree against the brain's memory instead of a di
 the in-scope checkpoint summaries + branch name (there is no diff to mine). No-op when the brain is
 absent, the scope is non-empty, or the brain returns nothing.
 
-**Status:** prototyped on a held branch (`claude/diff-less-brain`) off Peyton's `review-cutover`;
+**Status:** the producer contract is implemented here; the CLI consumer remains unlanded;
 **not landed** and not pushed, pending the redesign settling + review.
 
 ## Consumer 2 — `entire labs investigate` (DESIGNED, NOT WIRED)

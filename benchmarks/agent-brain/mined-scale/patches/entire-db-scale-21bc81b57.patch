@@ -1,0 +1,76 @@
+diff --git a/core/api/sts_token.go b/core/api/sts_token.go
+index 4a43dc703..02c8b948a 100644
+--- a/core/api/sts_token.go
++++ b/core/api/sts_token.go
+@@ -90,8 +90,7 @@ func tagSTSHandler(r *http.Request, handler string) {
+ //     (aud=https://<cluster>/admin, scope=admin). Subject must carry
+ //     entire:ops-access; gate is platform#admin.
+ //   - `urn:entire:token-type:github-access-token` → fresh GitHub access
+-//     token for mirror-push attribution. Subject must be a repo-scoped
+-//     push token (scope=push); see handleGitHubAccessTokenExchange.
++//     token for mirror-push attribution.
+ //   - `urn:ietf:params:oauth:token-type:{jwt,access_token}` → api-access
+ //     JWT (aud=jurisdiction, scope=entire:api-access). Subject must
+ //     carry entire:session + entire:api-access.
+@@ -212,11 +211,9 @@ func (s *Server) maybeForwardGitHubTokenExchange(w http.ResponseWriter, r *http.
+ }
+ 
+ // handleGitHubAccessTokenExchange returns a fresh GitHub access token
+-// for the user identified by subject_token. The subject must be a
+-// repo-scoped *push* token (scope=push) — the exact credential the
+-// mirror-push flow authenticates its git push with. Verifying the
+-// signature resolves account_id; the push scope is the authorization
+-// gate (see the scope check below for why).
++// for the user identified by subject_token. Subject can be any JWT
++// entire-core has issued — STS just needs to verify the signature and
++// resolve account_id; the JWT itself is the credential.
+ //
+ // There is no actor verification on this listener today: until ENT-595
+ // lands, network reachability gates this endpoint and a mTLS listener
+@@ -249,39 +246,20 @@ func (s *Server) handleGitHubAccessTokenExchange(w http.ResponseWriter, r *http.
+ 		return
+ 	}
+ 
+-	// Audience is checked below via the push-scope gate rather than here:
+-	// a repo-push token's aud is https://<cluster>/git/repo/<repoID>,
+-	// which varies per repo and per cluster, so there's no single value
+-	// to pin up-front. The signature against core's keystore proves the
+-	// token is ours; the scope check proves it's the *right* one.
++	// Skip audience check: this URN intentionally accepts any JWT entire-
++	// core has signed (jurisdiction-audience login/api-access/sa-session
++	// as well as cluster-audience repo/ops/debug). The signature against
++	// core's keystore is the trust gate; aud is normally a cross-service-
++	// replay defence, which doesn't apply when core is consuming its own
++	// token. To be revisited when this URN moves off the STS endpoint.
+ 	subjectClaims, err := s.jwt.Verify(r.Context(), subjectToken, nil)
+ 	if err != nil {
+ 		http.Error(w, `{"error":"invalid subject_token"}`, http.StatusUnauthorized)
+ 		return
+ 	}
+ 
+-	reason := r.PostForm.Get("reason")
+-
+-	// Least-privilege gate (COR-374). Only a repo-scoped push token may
+-	// be redeemed for the user's GitHub access token — exactly the
+-	// credential server/githttp authenticates a git push with (PermitsGit
+-	// admits only a TokenScopedJWT with action=push for git writes). Every
+-	// other shape is refused: a repo:pull token (read-only), the narrowed
+-	// entire:api-access token, login/sa-session JWTs, ops/debug. The
+-	// returned GitHub token is the user's account-wide OAuth grant, so the
+-	// caller must first prove a write capability to earn it; this stops a
+-	// leaked low-privilege token from being silently upgraded into the
+-	// user's full GitHub credential.
+-	if !subjectClaims.HasScope(authn.ScopeRepoPush) {
+-		s.domainAuditLog(r, subjectClaims.AccountID, "github_token_exchange_rejected", "account", subjectClaims.AccountID.String(), map[string]any{
+-			"reason":  reason,
+-			"outcome": "insufficient_scope",
+-		})
+-		http.Error(w, `{"error":"subject_token must be a repo push token"}`, http.StatusForbidden)
+-		return
+-	}
+-
+ 	accountID := subjectClaims.AccountID
++	reason := r.PostForm.Get("reason")
+ 
+ 	accessToken, expiresAt, err := s.githubTokens.GetAccessToken(r.Context(), accountID)
+ 	if err != nil {

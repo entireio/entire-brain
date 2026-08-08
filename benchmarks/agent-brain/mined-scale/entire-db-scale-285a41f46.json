@@ -1,0 +1,40 @@
+{
+  "id": "entire-db-scale-285a41f46",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Some clones and fetches fail on the client with \"did not receive expected object\" followed by \"fetch-pack: invalid index-pack output\". The generated packfile is missing objects that are reachable from the wanted refs, and it reproduces when a batch of requested root trees have a parent/child relationship to each other. Find why objects go missing and fix it. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-285a41f46.patch",
+  "validation": [
+    "go test ./packfile -run 'TestStreamPackfileBitmap_DeepNesting_Clone_AllObjectsPresent|TestStreamPackfileBitmap_NestedSubtree_Clone_AllObjectsPresent|TestStreamPackfileBitmap_SharedSubtreeChain_Clone_AllObjectsPresent'"
+  ],
+  "expected_files": [
+    "gitutil/tree_walk.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "did not receive expected object fetch-pack invalid index-pack",
+    "packfile missing reachable object clone",
+    "tree walk incremental diff base tree",
+    "connectivity check failed packfile partition",
+    "shared subtree not included in pack"
+  ],
+  "_mined_from_commit": "285a41f46fc80e8c2057a25f4292767d117abde6",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "gitutil: don't evict base trees that are also primary trees in the same batch (#1359)",
+  "copy_checkpoint_ref_from_source": true
+}

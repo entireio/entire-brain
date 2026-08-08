@@ -123,7 +123,7 @@
         "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       "head": {
-        "author_name": "suhaanthayyil",
+        "author_name": "redacted-contributor",
         "available": true,
         "commit": "209e5706b869443ca0ab2aaf5cc4d6fffeef4d4e",
         "committer_date": "2026-06-10T11:42:16-04:00",
@@ -134,7 +134,7 @@
         "ref": "HEAD",
         "subject": "Add harder workspace Radar candidate panel"
       },
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain"
+      "repo_path": "/redacted/workspace/entire-brain"
     },
     "run_config": {
       "brain_cache": {
@@ -182,7 +182,7 @@
     "schema": 1,
     "source": {
       "base": {
-        "author_name": "Stefan Haubold",
+        "author_name": "Redacted Contributor",
         "available": true,
         "commit": "af713665091693a8301520159f3b4097a6ec36f9",
         "committer_date": "2026-06-04T21:31:15+02:00",
@@ -205,7 +205,7 @@
         "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       "head": {
-        "author_name": "Stefan Haubold",
+        "author_name": "Redacted Contributor",
         "available": true,
         "commit": "af713665091693a8301520159f3b4097a6ec36f9",
         "committer_date": "2026-06-04T21:31:15+02:00",
@@ -220,7 +220,7 @@
       "origin_url": "https://github.com/entireio/cli.git",
       "repo": "entire-cli",
       "repo_path_input": "cli-bench",
-      "repo_path_resolved": "/Users/suhaan/Documents/Coding/cli-bench"
+      "repo_path_resolved": "/redacted/workspace/cli-bench"
     },
     "task": {
       "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
@@ -232,21 +232,21 @@
     "tools": {
       "bin": {
         "exists": true,
-        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin"
+        "path": "/redacted/workspace/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin"
       },
       "brain": {
         "exists": true,
-        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin/entire-brain",
+        "path": "/redacted/workspace/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin/entire-brain",
         "sha256": "54578d66a740736c3b394b11fbd4ede41fbf3aae4e4d109748807ab8c83f5ff3"
       },
       "entire": {
         "exists": true,
-        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin/entire",
+        "path": "/redacted/workspace/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin/entire",
         "sha256": "a5f6f79c244a7880a8db81f3c603d6482b2518ee66d74483b63471ba6ae70d27"
       },
       "sem": {
         "exists": true,
-        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin/entire-sem",
+        "path": "/redacted/workspace/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/bin/entire-sem",
         "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
       }
     }
@@ -314,5 +314,5 @@
       }
     ]
   },
-  "worktree": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/entireio-cli-transcript-reresolve__claude-haiku-xhigh__no_brain__r1/worktree"
+  "worktree": "/redacted/workspace/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh-20260610T154230Z/entireio-cli-transcript-reresolve__claude-haiku-xhigh__no_brain__r1/worktree"
 }

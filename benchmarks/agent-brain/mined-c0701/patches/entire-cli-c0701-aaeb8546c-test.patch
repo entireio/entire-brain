@@ -1,0 +1,69 @@
+diff --git a/cmd/entire/cli/api/client_test.go b/cmd/entire/cli/api/client_test.go
+index bbd3101eb..6aab7c237 100644
+--- a/cmd/entire/cli/api/client_test.go
++++ b/cmd/entire/cli/api/client_test.go
+@@ -421,3 +421,64 @@ func TestDecodeJSONResponse_LargeBodyOverOldCap(t *testing.T) {
+ 		t.Errorf("decoded %d items, want %d", len(got.Items), itemCount)
+ 	}
+ }
++
++// TestClient_RefusesCrossHostPath verifies a path that resolves to a host other
++// than the client's base is rejected before any request (and its bearer) is
++// sent — covering absolute and scheme-relative URLs.
++func TestClient_RefusesCrossHostPath(t *testing.T) {
++	t.Parallel()
++
++	var reached bool
++	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		reached = true
++		w.WriteHeader(http.StatusOK)
++	}))
++	defer other.Close()
++
++	c := NewClientWithBaseURL("secret-token", "https://api.example")
++
++	for _, path := range []string{other.URL + "/leak", "//evil.example/x", "https://evil.example/x"} {
++		resp, err := c.Get(context.Background(), path)
++		if err == nil {
++			if resp != nil {
++				_ = resp.Body.Close()
++			}
++			t.Errorf("Get(%q) = nil error, want cross-host rejection", path)
++		}
++	}
++	if reached {
++		t.Fatal("request reached another host; the bearer must not be sent off-origin")
++	}
++}
++
++// TestClient_RefusesCrossHostRedirect verifies a backend redirect to another
++// host is refused rather than followed with the bearer.
++func TestClient_RefusesCrossHostRedirect(t *testing.T) {
++	t.Parallel()
++
++	var reached bool
++	var leakedAuth string
++	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		reached = true
++		leakedAuth = r.Header.Get("Authorization")
++		w.WriteHeader(http.StatusOK)
++	}))
++	defer other.Close()
++
++	base := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		http.Redirect(w, r, other.URL+"/leak", http.StatusFound)
++	}))
++	defer base.Close()
++
++	client := NewClientWithBaseURL("secret-token", base.URL)
++	resp, err := client.Get(context.Background(), "/start")
++	if err == nil {
++		if resp != nil {
++			_ = resp.Body.Close()
++		}
++		t.Fatal("expected cross-host redirect to be refused")
++	}
++	if reached {
++		t.Fatalf("request reached the other host (Authorization=%q); bearer must not follow a cross-host redirect", leakedAuth)
++	}
++}

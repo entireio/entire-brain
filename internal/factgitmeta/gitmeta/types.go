@@ -3,7 +3,7 @@
 // upstream to dedupe (follow-up).
 
 // Package gitmeta implements the git-meta exchange format (see
-// https://git-meta.com and /Users/georgf/src/git-meta/spec). It serializes
+// https://git-meta.com and the upstream git-meta specification). It serializes
 // (target, key, value) metadata into deterministic Git trees and materializes
 // those trees back into structured rows, matching the upstream Rust reference
 // implementation byte-for-byte so the two interoperate over plain Git refs.

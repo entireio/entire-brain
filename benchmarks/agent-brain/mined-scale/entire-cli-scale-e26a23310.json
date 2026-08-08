@@ -1,0 +1,41 @@
+{
+  "id": "entire-cli-scale-e26a23310",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Deleting or logging out of the currently active account silently switches the user to a different stored account instead of leaving them with no active account. Removing the active login must never auto-select another identity. Fix the delete behavior so no other account is silently activated. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-e26a23310.patch",
+  "validation": [
+    "go test ./internal/entireclient/contexts -run 'TestDelete_OfCurrentClearsCurrent'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/auth/context_store.go",
+    "internal/entireclient/contexts/contexts.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "delete active context switches identity",
+    "current context reassignment on delete",
+    "logout leaves no active account",
+    "removing current context advances pointer",
+    "context store delete behavior"
+  ],
+  "_mined_from_commit": "e26a23310ee81dfca3f9f87033cb995fdede4e6f",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "low",
+  "_subject": "contexts: clear current_context on delete; drop dead comment",
+  "copy_checkpoint_ref_from_source": true
+}

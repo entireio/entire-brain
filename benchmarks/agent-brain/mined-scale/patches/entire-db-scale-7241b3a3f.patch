@@ -1,0 +1,76 @@
+diff --git a/core/api/sts_token.go b/core/api/sts_token.go
+index 76b075f20..dc2600ba2 100644
+--- a/core/api/sts_token.go
++++ b/core/api/sts_token.go
+@@ -10,8 +10,6 @@ import (
+ 	"time"
+ 
+ 	josejwt "github.com/go-jose/go-jose/v4/jwt"
+-	"go.opentelemetry.io/otel/attribute"
+-	"go.opentelemetry.io/otel/trace"
+ 
+ 	"entire.io/core/authn"
+ 	"entire.io/core/githubtokens"
+@@ -60,22 +58,6 @@ var validSTSSubjectTokenTypes = map[string]bool{
+ // body into ParseForm.
+ const stsMaxFormBytes = 64 * 1024
+ 
+-// stsHandlerAttrKey tags the active server span with the legacy
+-// /api/authz/sts/token branch that served the request. The endpoint
+-// fans out to several handlers on one mux route, and otelhttp opens a
+-// single server span per request — without this attribute Honeycomb can
+-// see the route's total volume but can't decompose it by
+-// requested_token_type. It's permanent, forever-useful telemetry: the
+-// only per-branch signal the endpoint emits.
+-const stsHandlerAttrKey = attribute.Key("entire.sts.handler")
+-
+-// tagSTSHandler records which dispatcher branch handled the request on
+-// the active otelhttp server span. Handlers don't open child spans, so
+-// the attribute lands on the request's server span.
+-func tagSTSHandler(r *http.Request, handler string) {
+-	trace.SpanFromContext(r.Context()).SetAttributes(stsHandlerAttrKey.String(handler))
+-}
+-
+ // handleSTSTokenExchange is POST /api/authz/sts/token implementing
+ // RFC 8693. Dispatches on `requested_token_type`:
+ //
+@@ -229,7 +211,6 @@ func (s *Server) maybeForwardGitHubTokenExchange(w http.ResponseWriter, r *http.
+ // regional mode (see serve_mode_regional.go), and the regional plane
+ // is where the linked GitHub identity is supposed to stay.
+ func (s *Server) handleGitHubAccessTokenExchange(w http.ResponseWriter, r *http.Request, subjectToken string) {
+-	tagSTSHandler(r, "github-access-token")
+ 	// Cross-region dispatch first: a foreign-iss request gets proxied
+ 	// to the peer that owns the row, and that path never touches local
+ 	// s.githubTokens. Sequencing this before the nil guard keeps a
+@@ -307,7 +288,6 @@ var internalWorkloadServiceAccounts = map[servicetoken.Workload]model.AccountID{
+ }
+ 
+ func (s *Server) handleInternalWorkloadServiceAccountExchange(w http.ResponseWriter, r *http.Request) {
+-	tagSTSHandler(r, "sa-session")
+ 	caller, ok := servicetoken.CallerFromContext(r.Context())
+ 	if !ok {
+ 		http.Error(w, `{"error":"internal exchange requires mTLS caller"}`, http.StatusBadRequest)
+@@ -459,7 +439,6 @@ func secondsToDuration(s int) time.Duration {
+ }
+ 
+ func (s *Server) handleGitHubInstallationTokenExchange(w http.ResponseWriter, r *http.Request, caller servicetoken.Principal) {
+-	tagSTSHandler(r, "github-installation-token")
+ 	// `reason` is read up-front so every audit-log call below can carry
+ 	// it, including the workload-rejection path that fires before the
+ 	// rest of the form is validated. The dispatcher (handleSTSTokenExchange)
+@@ -668,7 +647,6 @@ func (s *Server) mintGitHubInstallationToken(w http.ResponseWriter, r *http.Requ
+ //	reason        optional free-form audit string (e.g. "scheduled-backup",
+ //	              "operator-restore", "cluster-bootstrap").
+ func (s *Server) handleBackupAccessExchange(w http.ResponseWriter, r *http.Request, caller servicetoken.Principal) {
+-	tagSTSHandler(r, "backup-access-mtls")
+ 	reason := r.PostForm.Get("reason")
+ 
+ 	if caller.Kind != servicetoken.KindService || servicetoken.Workload(caller.Name) != servicetoken.WorkloadEntireBackup {
+@@ -719,7 +697,6 @@ func (s *Server) handleBackupAccessExchange(w http.ResponseWriter, r *http.Reque
+ //
+ // Form params match handleBackupAccessExchange (reason, restore_mode).
+ func (s *Server) handleBackupAccessFromLoginJWT(w http.ResponseWriter, r *http.Request, subjectToken string) {
+-	tagSTSHandler(r, "backup-access-login-jwt")
+ 	reason := r.PostForm.Get("reason")
+ 
+ 	claims, err := s.jwt.Verify(r.Context(), subjectToken, []string{s.jwt.Audience()})

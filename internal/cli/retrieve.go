@@ -246,58 +246,78 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	// brain with no history source (nil) is legitimately skipped.
 	historySem := historySemanticEmbedder(e)
 	if includeHistory && (mode != modeVector || historySem != nil) {
+		// Self-echo filtering happens after lexical ranking. Over-fetch a bounded
+		// reserve so discarded `entire brain ...` tool-call echoes do not leave
+		// the history arm artificially short.
+		historyCandidateLimit := candidateLimit
+		if candidateLimit <= int(^uint(0)>>1)/3 {
+			historyCandidateLimit = candidateLimit * 3
+		}
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
 			return nil, err
 		}
 		if manifest.Sources != nil && manifest.Sources.History != nil {
-			fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
-			if err != nil {
-				return nil, fmt.Errorf("load history index: %w", err)
-			}
-			// Semantic arms rank the long-term records minus files the
-			// short-term overlay superseded (overlay records have no vectors
-			// until consolidation; the lexical tier carries their freshness).
-			index := fresh.longTermActive()
+			source := manifest.Sources.History
 			var lexicalHistoryIDs map[string]struct{}
-			if mode != modeVector {
-				historyCandidateLimit := candidateLimit * 3
-				if historyCandidateLimit < candidateLimit {
-					historyCandidateLimit = candidateLimit
+			if mode != modeVector && historySem == nil {
+				// The common BM25-only path hydrates its small result window from
+				// the fresh FTS payload table, then merges the short-term tier.
+				// Legacy/stale/corrupt caches fall back through the verified full
+				// JSON index and substring scorer.
+				scored, _, _, rankErr := rankFreshHistoryLexicalFromSource(brainDir, source, "history", query, historyCandidateLimit)
+				if rankErr != nil {
+					return nil, fmt.Errorf("load history index: %w", rankErr)
 				}
-				scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-					return rankHistoryViaFTS(brainDir, longTerm, "history", query, historyCandidateLimit)
-				})
 				scored = filterHistoryRetrievalSelfEchoes(scored, query)
 				if len(scored) > candidateLimit {
 					scored = scored[:candidateLimit]
 				}
 				if len(scored) > 0 {
-					lexicalHistoryIDs = make(map[string]struct{}, len(scored))
-					for _, record := range scored {
-						lexicalHistoryIDs[record.Record.ID] = struct{}{}
-					}
 					lists = append(lists, historyToUnified(scored))
 				}
-			}
-			if mode != modeLexical && historySem != nil {
-				// Independently ranked history lists: the global RRF merge fuses
-				// BM25 and cosine, then gives calibrated term-disjoint evidence a
-				// second vote without triple-counting lexical hits.
-				scores := historySemanticScores(
-					brainDir, historySem, query, candidateLimit, mode == modeHybrid,
-				)
-				var sem historyVectorRanks
-				if mode == modeVector {
-					sem.ranked = rankHistorySemantic(index, scores, candidateLimit)
-				} else {
-					sem = rankHistorySemanticHybridRanks(index, scores, candidateLimit, lexicalHistoryIDs)
+			} else {
+				fresh, loadErr := loadFreshHistory(brainDir, source)
+				if loadErr != nil {
+					return nil, fmt.Errorf("load history index: %w", loadErr)
 				}
-				if len(sem.ranked) > 0 {
-					lists = append(lists, historyToUnified(sem.ranked))
+				// Semantic arms rank long-term records minus files superseded by the
+				// short-term overlay. Overlay records have no vectors until
+				// consolidation; the lexical tier carries their freshness.
+				index := fresh.longTermActive()
+				if mode != modeVector {
+					scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+						return rankHistoryViaFTS(brainDir, longTerm, "history", query, historyCandidateLimit)
+					})
+					scored = filterHistoryRetrievalSelfEchoes(scored, query)
+					if len(scored) > candidateLimit {
+						scored = scored[:candidateLimit]
+					}
+					if len(scored) > 0 {
+						lexicalHistoryIDs = make(map[string]struct{}, len(scored))
+						for _, record := range scored {
+							lexicalHistoryIDs[record.Record.ID] = struct{}{}
+						}
+						lists = append(lists, historyToUnified(scored))
+					}
 				}
-				if len(sem.calibratedSemanticOnly) > 0 {
-					lists = append(lists, historyToUnified(sem.calibratedSemanticOnly))
+				if mode != modeLexical && historySem != nil {
+					// Independently ranked history lists: global RRF fuses BM25 and
+					// cosine, then gives calibrated term-disjoint evidence a second
+					// vote without triple-counting lexical hits.
+					scores := historySemanticScores(brainDir, historySem, query, candidateLimit, mode == modeHybrid)
+					var sem historyVectorRanks
+					if mode == modeVector {
+						sem.ranked = rankHistorySemantic(index, scores, candidateLimit)
+					} else {
+						sem = rankHistorySemanticHybridRanks(index, scores, candidateLimit, lexicalHistoryIDs)
+					}
+					if len(sem.ranked) > 0 {
+						lists = append(lists, historyToUnified(sem.ranked))
+					}
+					if len(sem.calibratedSemanticOnly) > 0 {
+						lists = append(lists, historyToUnified(sem.calibratedSemanticOnly))
+					}
 				}
 			}
 		}

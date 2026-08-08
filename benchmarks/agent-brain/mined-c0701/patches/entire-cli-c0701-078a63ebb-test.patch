@@ -1,0 +1,27 @@
+diff --git a/cmd/entire/cli/search_tui_test.go b/cmd/entire/cli/search_tui_test.go
+index b77e31225..7b53859d8 100644
+--- a/cmd/entire/cli/search_tui_test.go
++++ b/cmd/entire/cli/search_tui_test.go
+@@ -1423,17 +1423,16 @@ func TestSearchModel_NewSearchRejectsMultipleExplicitRepos(t *testing.T) {
+ 	m = updateModel(t, m, tea.KeyPressMsg{Code: '/', Text: "/"})
+ 	m.input.SetValue(newQuery + " repo:entirehq/entire.io,entireio/cli")
+ 
+-	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
++	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+ 	m, ok := updated.(searchModel)
+ 	if !ok {
+ 		t.Fatalf("Update returned %T, want searchModel", updated)
+ 	}
+ 
+-	if cmd != nil {
+-		t.Fatal("expected no search command on invalid multi-repo input")
+-	}
+-	if m.mode != modeSearch {
+-		t.Errorf("mode = %d, want modeSearch", m.mode)
++	// Multi-repo filters are invalid for checkpoint search; the error is shown
++	// but the TUI transitions to browse mode (code search may still fire).
++	if m.mode != modeBrowse {
++		t.Errorf("mode = %d, want modeBrowse", m.mode)
+ 	}
+ 	if m.searchErr != "only one explicit repo filter is currently supported" {
+ 		t.Errorf("searchErr = %q", m.searchErr)

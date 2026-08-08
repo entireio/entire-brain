@@ -1,0 +1,96 @@
+diff --git a/cmd/entire-deploy/admin_client.go b/cmd/entire-deploy/admin_client.go
+index a3317a0d2..1bd380beb 100644
+--- a/cmd/entire-deploy/admin_client.go
++++ b/cmd/entire-deploy/admin_client.go
+@@ -147,15 +147,3 @@ func callStatusRPC(ctx context.Context, c adminv1connect.AdminClient) (status, c
+ type stepdownConflictError struct{ msg string }
+ 
+ func (e stepdownConflictError) Error() string { return e.msg }
+-
+-// isAuthError reports whether err is an authentication / authorization
+-// failure from the cluster. Connect maps HTTP 401 → CodeUnauthenticated
+-// and HTTP 403 → CodePermissionDenied; both are fatal for the deploy
+-// (the token won't fix itself by retrying). The caller's responsibility
+-// is to bail rather than spin: a laptop operator running with a
+-// 15-minute ops-access token whose deploy outlasts the TTL would
+-// otherwise see the readiness gate hang silently until opts.Timeout.
+-func isAuthError(err error) bool {
+-	code := connect.CodeOf(err)
+-	return code == connect.CodeUnauthenticated || code == connect.CodePermissionDenied
+-}
+diff --git a/cmd/entire-deploy/deploy.go b/cmd/entire-deploy/deploy.go
+index 9efec7ae2..680e70375 100644
+--- a/cmd/entire-deploy/deploy.go
++++ b/cmd/entire-deploy/deploy.go
+@@ -537,17 +537,10 @@ func retryNodeProbe[T any](ctx context.Context, what string, probe func(context.
+ 		if err == nil {
+ 			return result, nil
+ 		}
+-		// Auth failures (401/403) won't fix themselves by retrying —
+-		// a 15m ops-access token that expires mid-deploy would
+-		// otherwise eat the full 10-minute deadline silently. Bail
+-		// immediately and let the operator see the real cause.
+-		if isAuthError(err) {
+-			return zero, fmt.Errorf("%s: %w", what, err)
+-		}
+ 		// The first failure of a retry sequence gets info-level
+ 		// visibility; subsequent retries drop to debug to keep the
+-		// happy path quiet but real failures (wrong audience, missing
+-		// binding, instance mid-replacement) surface in operator-visible
++		// happy path quiet but real failures (auth misconfig, wrong
++		// audience, missing binding) surface in operator-visible
+ 		// output within seconds instead of after the full 10-minute
+ 		// deadline. Same lastErr is wrapped into the exhausted-retries
+ 		// error on the deadline branch, so this isn't double-reporting
+@@ -605,11 +598,7 @@ func waitForReady(ctx context.Context, opts DeployOptions, addr, expectedCommit
+ 	defer ticker.Stop()
+ 
+ 	for {
+-		ready, fatal := checkStatusReady(ctx, client, expectedCommit)
+-		if fatal != nil {
+-			return fmt.Errorf("readiness gate: %w", fatal)
+-		}
+-		if ready {
++		if checkStatusReady(ctx, client, expectedCommit) {
+ 			return nil
+ 		}
+ 
+@@ -621,31 +610,22 @@ func waitForReady(ctx context.Context, opts DeployOptions, addr, expectedCommit
+ 	}
+ }
+ 
+-// checkStatusReady does a single Status RPC. Returns ready=true when
+-// the node reports status "ok" and (if expectedCommit is non-empty) the
++// checkStatusReady does a single Status RPC. Returns true when the
++// node reports status "ok" and (if expectedCommit is non-empty) the
+ // commit matches. The commit check defeats the "old process answers
+ // ok during shutdown" race for in-place binary updates.
+-//
+-// A non-nil fatal error means the readiness gate must abort instead of
+-// continuing to poll — auth failures, for example, won't fix themselves
+-// by retrying and would otherwise mask a healthy node as "not ready" for
+-// the full deploy timeout. Transient errors (transport failures, "not
+-// ok yet") return ready=false with fatal=nil so the caller keeps polling.
+-func checkStatusReady(ctx context.Context, client adminv1connect.AdminClient, expectedCommit string) (ready bool, fatal error) {
++func checkStatusReady(ctx context.Context, client adminv1connect.AdminClient, expectedCommit string) bool {
+ 	status, commit, err := callStatusRPC(ctx, client)
+ 	if err != nil {
+-		if isAuthError(err) {
+-			return false, err
+-		}
+-		return false, nil
++		return false
+ 	}
+ 	if status != "ok" {
+-		return false, nil
++		return false
+ 	}
+ 	if expectedCommit != "" && commit != expectedCommit {
+-		return false, nil
++		return false
+ 	}
+-	return true, nil
++	return true
+ }
+ 
+ // Dry run

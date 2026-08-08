@@ -1,0 +1,40 @@
+{
+  "id": "entire-cli-scale-9d09ac52b",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When an agent deletes a file and the user commits that deletion, the commit is not getting linked to the session that did the work. Commits that only remove files end up with no associated session context. Make the logic that decides whether a commit overlaps a session's work recognize deletions as the agent's work. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-9d09ac52b.patch",
+  "validation": [
+    "go test ./cmd/entire/cli/strategy -run 'TestFilesOverlapWithContent_DeletedFile|TestStagedFilesOverlapWithContent_DeletedFile'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/content_overlap.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "commit session linking overlap detection",
+    "file deletion committed overlap",
+    "staged deletion counts as overlap",
+    "session context commit association files touched",
+    "content overlap head tree missing file"
+  ],
+  "_mined_from_commit": "9d09ac52b9e2a023b4cba3b781a448f922bc406c",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "handle deletes correctly",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,5 @@
+?   	github.com/ashtom/entire-brain	[no test files]
+?   	github.com/ashtom/entire-brain/cmd/entire-brain	[no test files]
+ok  	github.com/ashtom/entire-brain/internal/cli	93.037s
+ok  	github.com/ashtom/entire-brain/internal/config	(cached)
+ok  	github.com/ashtom/entire-brain/internal/tui	(cached)

@@ -1,0 +1,42 @@
+{
+  "id": "entire-db-scale-0a923b974",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When an in-place binary-update deploy aborts, the printed rollback instructions are wrong: they tell the operator to revert a launch template and re-run, which does not apply to that deploy path. Make the abort summary print recovery steps appropriate to whichever deploy strategy is actually running. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-0a923b974.patch",
+  "validation": [
+    "go test ./cmd/entire-deploy -run 'TestRunDeployCanary|TestSSMUpdateAbortMessageIsCommitOriented|TestWritePinnedCommitHappyPath'"
+  ],
+  "expected_files": [
+    "cmd/entire-deploy/deploy.go",
+    "cmd/entire-deploy/replace.go",
+    "cmd/entire-deploy/update.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "abort summary rollback instructions deploy",
+    "deploy strategy interface shared behavior",
+    "in-place update versus instance-replacement recovery",
+    "operator-facing message when a deploy aborts",
+    "per-strategy differences in deploy output"
+  ],
+  "_mined_from_commit": "0a923b97439fbb6084ef597c071a528d0158d0ae",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "entire-deploy: strategy-specific rollback hint in abort summary",
+  "copy_checkpoint_ref_from_source": true
+}

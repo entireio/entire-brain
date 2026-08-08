@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profile": "engine_replay_sshsig_trust_roots_v1",
+  "status": "pending_owner_authorization",
+  "signature_namespace": "entire-brain-engine-replay-v1",
+  "roots": []
+}

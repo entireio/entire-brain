@@ -1,0 +1,140 @@
+diff --git a/cmd/entire/cli/investigate/flowchart/flowchart.go b/cmd/entire/cli/investigate/flowchart/flowchart.go
+index 82f5e37b7..cc1046f80 100644
+--- a/cmd/entire/cli/investigate/flowchart/flowchart.go
++++ b/cmd/entire/cli/investigate/flowchart/flowchart.go
+@@ -100,7 +100,7 @@ func parse(src string) ([]string, map[string]string, []outEdgeWithFrom, bool) {
+ 		if isIgnorableDirective(line) {
+ 			continue
+ 		}
+-		if isBailDirective(line) || hasStructuralAmp(line) {
++		if isBailDirective(line) || strings.Contains(line, "&") {
+ 			return nil, nil, nil, false
+ 		}
+ 
+@@ -278,22 +278,6 @@ func buildForest(order []string, labels map[string]string, edges []outEdgeWithFr
+ 	return f
+ }
+ 
+-// cellShadow marks the second display column of a double-width rune in a row
+-// grid, so slice indices keep matching display columns. rowString drops it.
+-const cellShadow = '\x00'
+-
+-// rowString converts a row grid to its display string, dropping cellShadow
+-// placeholders left behind by double-width runes.
+-func rowString(row []rune) string {
+-	var b strings.Builder
+-	for _, r := range row {
+-		if r != cellShadow {
+-			b.WriteRune(r)
+-		}
+-	}
+-	return b.String()
+-}
+-
+ // block is a rendered rectangle of text plus the column at which connector
+ // lines attach (the anchor). Lines are space-padded as built; trailing
+ // whitespace is trimmed at the very end.
+@@ -391,17 +375,10 @@ func composeChildren(items []item) block {
+ 	}
+ 	put := func(row []rune, col int, s string) {
+ 		for _, r := range s {
+-			w := runewidth.RuneWidth(r)
+ 			if col >= 0 && col < width {
+ 				row[col] = r
+-				// A double-width rune (CJK, emoji) covers the next display
+-				// column too; shadow that cell so slice indices keep matching
+-				// display columns. Shadows are dropped by rowString.
+-				if w == 2 && col+1 < width {
+-					row[col+1] = cellShadow
+-				}
+ 			}
+-			col += w
++			col += runewidth.RuneWidth(r)
+ 		}
+ 	}
+ 
+@@ -429,7 +406,7 @@ func composeChildren(items []item) block {
+ 		} else {
+ 			row[anchor] = '┼'
+ 		}
+-		out = append(out, rowString(row))
++		out = append(out, string(row))
+ 	}
+ 
+ 	labelRow := newRow()
+@@ -444,7 +421,7 @@ func composeChildren(items []item) block {
+ 		}
+ 		put(labelRow, anchors[i], txt)
+ 	}
+-	out = append(out, rowString(labelRow))
++	out = append(out, string(labelRow))
+ 
+ 	arrowRow := newRow()
+ 	for i, it := range items {
+@@ -454,7 +431,7 @@ func composeChildren(items []item) block {
+ 			arrowRow[anchors[i]] = '▼'
+ 		}
+ 	}
+-	out = append(out, rowString(arrowRow))
++	out = append(out, string(arrowRow))
+ 
+ 	for r := range height {
+ 		row := newRow()
+@@ -463,7 +440,7 @@ func composeChildren(items []item) block {
+ 				put(row, starts[i], it.blk.lines[r])
+ 			}
+ 		}
+-		out = append(out, rowString(row))
++		out = append(out, string(row))
+ 	}
+ 	return block{lines: out, width: width, anchor: anchor}
+ }
+@@ -552,46 +529,13 @@ func balanced(s string) bool {
+ 	return depth <= 0 && !inQuote
+ }
+ 
+-// stripComment drops Mermaid comment lines. Mermaid comments must occupy
+-// their own line (`%% like this`); `%%` appearing mid-line — e.g. inside a
+-// quoted label like `A["50%% done"]` — is content, not a comment, so only
+-// whole lines starting with `%%` are removed.
+ func stripComment(line string) string {
+-	if strings.HasPrefix(strings.TrimSpace(line), "%%") {
+-		return ""
++	if before, _, found := strings.Cut(line, "%%"); found {
++		return before
+ 	}
+ 	return line
+ }
+ 
+-// hasStructuralAmp reports whether line contains a `&` outside quotes, shape
+-// brackets, and `|…|` edge labels — Mermaid's multi-edge shorthand
+-// (`A --> B & C`), which we don't support. A `&` inside a label (`A[R&D]`,
+-// `-->|Q&A|`) is plain content.
+-func hasStructuralAmp(line string) bool {
+-	depth := 0
+-	inQuote := false
+-	inPipe := false
+-	for _, r := range line {
+-		switch {
+-		case r == '"':
+-			inQuote = !inQuote
+-		case inQuote:
+-			// content inside quoted labels is never structural
+-		case r == '|':
+-			inPipe = !inPipe
+-		case inPipe:
+-			// content inside |…| edge labels is never structural
+-		case r == '[' || r == '(' || r == '{':
+-			depth++
+-		case r == ']' || r == ')' || r == '}':
+-			depth--
+-		case r == '&' && depth == 0:
+-			return true
+-		}
+-	}
+-	return false
+-}
+-
+ // isIgnorableDirective reports lines we can safely skip without affecting the
+ // structure: styling/interaction directives, and subgraph grouping (which we
+ // render transparently — the inner nodes and edges still parse normally).

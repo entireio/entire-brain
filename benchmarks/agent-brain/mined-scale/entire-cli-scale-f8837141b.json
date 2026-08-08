@@ -1,0 +1,41 @@
+{
+  "id": "entire-cli-scale-f8837141b",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "After the auth server discovery path was added, users who aren't logged in stopped seeing the friendly guidance telling them to log in and instead got a generic opaque error. Restore the login guidance for the not-logged-in case while keeping the context-specific message. Also, a trust-root discovery fetch currently follows HTTP redirects to other origins, which it must not do. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-f8837141b.patch",
+  "validation": [
+    "go test ./cmd/entire/cli/auth -run 'TestNewRefreshingResourceProvider_NotLoggedInPreservesSentinel'",
+    "go test ./internal/entireclient/clusterdiscovery -run 'TestNewRefreshingResourceProvider_NotLoggedInPreservesSentinel'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/auth/refresh.go",
+    "internal/entireclient/clusterdiscovery/discovery.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "auth discovery not logged in sentinel error unwrap",
+    "reauth error friendly message login hint",
+    "cluster discovery well-known fetch redirect",
+    "TokenForResource discovery regression login guidance"
+  ],
+  "_mined_from_commit": "f8837141b940a2edfdf5e925cce84332a3081679",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "auth: address PR #1377 review \u2014 preserve ErrNotLoggedIn, refuse discovery redirects",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,40 @@
+{
+  "id": "entire-db-scale-35987fa41",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The --base-url override (and --context) is silently ignored by the api subcommands: requests land on the default/localhost endpoint regardless of what the operator passes. Make the override actually take effect for those subcommands. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-35987fa41.patch",
+  "validation": [
+    "go test ./cmd/entire-core/cli -run 'TestAPISubtree_HonoursBaseURLFlag'"
+  ],
+  "expected_files": [
+    "cmd/entire-core/cli/client_cmds.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "base URL resolution for CLI subcommands",
+    "how the admin client resolves its endpoint",
+    "cobra flag values available at command build vs run time",
+    "context and base-url flag override handling",
+    "client construction before flag parsing"
+  ],
+  "_mined_from_commit": "35987fa41670a651b6cb5c48302fa04e44b36154",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "entire-core: honour --base-url in the api subtree (#1425)",
+  "copy_checkpoint_ref_from_source": true
+}

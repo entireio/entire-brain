@@ -261,9 +261,13 @@ type semanticEvidence struct {
 }
 
 type semanticIndexOptions struct {
-	force          bool
-	graphBinary    string
-	skipGraph      bool
+	force       bool
+	graphBinary string
+	skipGraph   bool
+	// Compatibility aliases for callers created before the graph-provider
+	// command rename. New code should use graphBinary and skipGraph.
+	semBinary      string
+	skipSem        bool
 	worktree       bool
 	outputDir      string
 	outputExplicit bool
@@ -369,6 +373,12 @@ func newSemanticResetCommand(opts Options) *cobra.Command {
 }
 
 func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, indexOpts semanticIndexOptions, target string) error {
+	if indexOpts.graphBinary == "" {
+		indexOpts.graphBinary = indexOpts.semBinary
+	}
+	if indexOpts.skipSem {
+		indexOpts.skipGraph = true
+	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
@@ -2514,11 +2524,21 @@ type semanticTestsOptions struct {
 type semanticTestSuggestion struct {
 	Symbol semanticRecord `json:"symbol"`
 	Reason string         `json:"reason"`
+	// weak is a bounded reservoir-only fallback. It remains available through
+	// freshness filtering, then is omitted from the emitted packet.
+	weak bool
+	// fallback inherits exact/graph evidence from a task-aligned root. It is
+	// emitted only when no candidate-local strong suggestion survives freshness.
+	fallback bool
 }
 
 type semanticTestsResult struct {
 	Roots       []semanticRecord         `json:"roots"`
 	Suggestions []semanticTestSuggestion `json:"suggestions"`
+	// synthesisSuggestions preserves the former bounded file-evidence stream
+	// for likely-file/action synthesis while Suggestions carries the ranked,
+	// higher-precision agent-facing stream. It is never serialized.
+	synthesisSuggestions []semanticTestSuggestion
 }
 
 func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, queryOpts semanticQueryOptions, query string) error {
@@ -3448,79 +3468,22 @@ func semanticTestFacts(brainDir string, source *semanticSourceManifest, query st
 	if err != nil {
 		return semanticTestsResult{}, err
 	}
-	related := map[string]struct{}{}
-	for _, root := range roots {
-		related[root.ID] = struct{}{}
-	}
-	for _, relation := range relations {
-		if _, ok := related[relation.FromID]; ok {
-			related[relation.ToID] = struct{}{}
-		}
-		if _, ok := related[relation.ToID]; ok {
-			related[relation.FromID] = struct{}{}
-		}
-	}
-	rootNames := make([]string, 0, len(roots))
-	rootFiles := make([]string, 0, len(roots))
-	for _, root := range roots {
-		if root.FilePath != "" {
-			rootFiles = append(rootFiles, root.FilePath)
-		}
-		name := strings.TrimSpace(root.Name)
-		if name != "" {
-			rootNames = append(rootNames, name)
-		}
-	}
-	result := semanticTestsResult{Roots: roots}
-	result.Suggestions = rankSemanticTestSuggestions(sortedSemanticSymbols(symbolsByID), related, rootNames, rootFiles, limit)
-	return result, nil
+	return semanticTestsResult{
+		Roots:       roots,
+		Suggestions: visibleSemanticTestSuggestions(rankSemanticTestSuggestions(symbolsByID, roots, relations, query, limit), limit),
+	}, nil
 }
 
-func rankSemanticTestSuggestions(symbols []semanticRecord, related map[string]struct{}, rootNames, rootFiles []string, limit int) []semanticTestSuggestion {
-	seen := map[string]struct{}{}
-	type candidate struct {
-		suggestion semanticTestSuggestion
-		score      int
+func semanticTestFactsReservoir(brainDir string, source *semanticSourceManifest, query string, limit int) (semanticTestsResult, error) {
+	roots, _, relations, symbolsByID, err := semanticGraphFacts(brainDir, source, query, 1, limit)
+	if err != nil {
+		return semanticTestsResult{}, err
 	}
-	var candidates []candidate
-	for _, symbol := range symbols {
-		if !isSemanticTestSymbol(symbol) {
-			continue
-		}
-		reason, score := semanticTestRelevance(symbol, related, rootNames, rootFiles)
-		if score == 0 {
-			continue
-		}
-		if _, ok := seen[symbol.ID]; ok {
-			continue
-		}
-		seen[symbol.ID] = struct{}{}
-		candidates = append(candidates, candidate{
-			suggestion: semanticTestSuggestion{Symbol: symbol, Reason: reason},
-			score:      score,
-		})
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].score != candidates[j].score {
-			return candidates[i].score > candidates[j].score
-		}
-		a, b := candidates[i].suggestion.Symbol, candidates[j].suggestion.Symbol
-		if a.FilePath != b.FilePath {
-			return a.FilePath < b.FilePath
-		}
-		if a.StartLine != b.StartLine {
-			return a.StartLine < b.StartLine
-		}
-		return a.ID < b.ID
-	})
-	var suggestions []semanticTestSuggestion
-	for _, candidate := range candidates {
-		suggestions = append(suggestions, candidate.suggestion)
-		if len(suggestions) >= limit {
-			break
-		}
-	}
-	return suggestions
+	return semanticTestsResult{
+		Roots:                roots,
+		Suggestions:          rankSemanticTestSuggestions(symbolsByID, roots, relations, query, limit),
+		synthesisSuggestions: nonNil(legacySemanticTestSuggestions(symbolsByID, roots, relations, limit)),
+	}, nil
 }
 
 func semanticGraphFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, map[string]semanticRecord, error) {
@@ -4730,14 +4693,11 @@ func sortedSemanticSymbols(symbols map[string]semanticRecord) []semanticRecord {
 }
 
 func isSemanticTestSymbol(symbol semanticRecord) bool {
-	kind := strings.ToLower(symbol.Kind)
-	path := strings.ToLower(symbol.FilePath)
-	name := strings.ToLower(symbol.Name)
-	return strings.Contains(kind, "test") ||
-		strings.HasSuffix(path, "_test.go") ||
-		strings.Contains(path, "/test/") ||
-		strings.Contains(path, "/tests/") ||
-		strings.HasPrefix(name, "test")
+	return semanticTestContainsFold(symbol.Kind, "test") ||
+		semanticTestHasSuffixFold(symbol.FilePath, "_test.go") ||
+		semanticTestContainsFold(symbol.FilePath, "/test/") ||
+		semanticTestContainsFold(symbol.FilePath, "/tests/") ||
+		semanticTestHasPrefixFold(symbol.Name, "test")
 }
 
 func semanticTestRelevance(symbol semanticRecord, related map[string]struct{}, rootNames, rootFiles []string) (string, int) {

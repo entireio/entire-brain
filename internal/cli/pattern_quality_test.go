@@ -58,7 +58,7 @@ func TestQualityConsolidationRedactionBoundary(t *testing.T) {
 		insertCorpusShape(t, db, id, "mise build", "mise deploy")
 		// A fact whose paths carry a home-dir username AND a secret token.
 		if _, err := db.Exec(`INSERT INTO episode_facts (episode_id, fact_id, kind, paths, weight) VALUES (?,?,?,?,2)`,
-			id, "fact:deploy", "architecture", "/Users/thomi/secret ghp_SECRETTOKEN0123456789abcdef"); err != nil {
+			id, "fact:deploy", "architecture", "/Users/example-user/secret ghp_SECRETTOKEN0123456789abcdef"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -74,14 +74,14 @@ func TestQualityConsolidationRedactionBoundary(t *testing.T) {
 	if err := db.QueryRow(`SELECT group_concat(json_redacted, '||') FROM dossiers`).Scan(&blob); err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"thomi", "ghp_SECRETTOKEN0123456789abcdef"} {
+	for _, secret := range []string{"example-user", "ghp_SECRETTOKEN0123456789abcdef"} {
 		if strings.Contains(blob, secret) {
 			t.Errorf("dossier JSON leaked %q:\n%s", secret, blob)
 		}
 	}
 	// And the same JSON is what the verifier would receive — redact again
 	// defensively and confirm still clean (the egress path the agent sees).
-	if got := redactText(blob); strings.Contains(got, "thomi") || strings.Contains(got, "ghp_SECRET") {
+	if got := redactText(blob); strings.Contains(got, "example-user") || strings.Contains(got, "ghp_SECRET") {
 		t.Errorf("verifier input leaked a secret: %s", got)
 	}
 }

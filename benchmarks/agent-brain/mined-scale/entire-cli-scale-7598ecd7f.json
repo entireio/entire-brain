@@ -1,0 +1,40 @@
+{
+  "id": "entire-cli-scale-7598ecd7f",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When the user disables the integration, a git hook they had replaced with their own since installation gets clobbered \u2014 an old backup is restored on top of their current custom hook, destroying it. Only restore a saved backup when doing so will not overwrite a hook the user has since changed. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-7598ecd7f.patch",
+  "validation": [
+    "go test ./cmd/entire/cli/strategy -run 'TestRemoveGitHook_DoesNotOverwriteReplacedHook'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/hooks.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "remove git hook restore backup",
+    "hook marker detect ours",
+    "disable overwrite user custom hook",
+    "pre-entire backup restore condition",
+    "install remove reinstall hook"
+  ],
+  "_mined_from_commit": "7598ecd7fa67405cf0c60a7620116d2b0f206044",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "only remove if it's really our hook",
+  "copy_checkpoint_ref_from_source": true
+}

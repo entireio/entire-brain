@@ -292,8 +292,18 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_brief",
-			"description": "Build a compact task packet from local brain context, live state, semantic context, and indexed history; use targeted follow-up tools when more detail is needed.",
-			"inputSchema": objectSchema([]string{"task"}, map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section (default 3)")}),
+			"description": "Build a bounded task packet from local brain context, live state, semantic context, and indexed history.",
+			"inputSchema": objectSchema([]string{"task"}, map[string]any{
+				"task":  stringArg("task", "Task or bug description"),
+				"limit": integerArg("limit", "Maximum records per section"),
+				"packet_format": map[string]any{
+					"type":        "string",
+					"title":       "packet_format",
+					"description": "Output format. Default: legacy_json (pretty JSON text). Use experimental compact_v3 for the smallest versioned agent packet; compact_v1 and compact_v2 remain supported.",
+					"enum":        []string{"legacy_json", "compact_v1", "compact_v2", "compact_v3"},
+					"default":     "legacy_json",
+				},
+			}),
 		},
 		{
 			"name":        "brain_query",
@@ -427,7 +437,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_review",
-			"description": "Diff-less review (versioned schema_version contract): review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The contract `entire review`'s diff-less mode and `labs investigate` are intended to bind to; those consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
+			"description": "Diff-less review (versioned schema_version contract) of the current working tree against brain memory, not a branch/base diff. Returns severity-ranked suspected regressions with provenance.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
@@ -442,7 +452,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_workspace_review",
-			"description": "Cross-repo diff-less review: review each repo's current tree in a local workspace against its brain's memory and return severity-ranked suspected-regression findings per repo. The multi-brain extension of the same versioned contract; consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
+			"description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
@@ -601,10 +611,13 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = stringErr
 			break
 		}
-		if strings.TrimSpace(task) == "" {
+		packetFormat, formatErr := mcpBrainBriefPacketFormat(params.Arguments)
+		if formatErr != nil {
+			err = formatErr
+		} else if strings.TrimSpace(task) == "" {
 			err = errors.New("task is required")
 		} else {
-			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{limit: limit, json: true, surface: "mcp:brain_brief"}, task)
+			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{limit: limit, json: true, packetFormat: packetFormat}, task)
 		}
 	case "brain_query":
 		err = requireMCPQuery(query)
@@ -1079,6 +1092,29 @@ func mcpOptionalString(args map[string]any, key string) (string, error) {
 		return typed, nil
 	}
 	return "", fmt.Errorf("%s must be string", key)
+}
+
+func mcpBrainBriefPacketFormat(args map[string]any) (brainBriefPacketFormat, error) {
+	value, ok := args["packet_format"]
+	if !ok {
+		return brainBriefPacketLegacyJSON, nil
+	}
+	format, ok := value.(string)
+	if !ok {
+		return "", errors.New("packet_format must be string")
+	}
+	switch format {
+	case "legacy_json":
+		return brainBriefPacketLegacyJSON, nil
+	case "compact_v1":
+		return brainBriefPacketCompactV1, nil
+	case "compact_v2":
+		return brainBriefPacketCompactV2, nil
+	case "compact_v3":
+		return brainBriefPacketCompactV3, nil
+	default:
+		return "", fmt.Errorf("packet_format must be legacy_json, compact_v1, compact_v2, or compact_v3: %q", format)
+	}
 }
 
 func mcpBool(args map[string]any, key string) (bool, error) {

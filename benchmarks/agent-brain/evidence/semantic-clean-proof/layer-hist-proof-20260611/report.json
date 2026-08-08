@@ -286,7 +286,7 @@
    {
     "dirty": true,
     "head_commit": "450238ec300a7002d4c4307c1f3dc0c6e0469840",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb"
+    "repo_path": "/redacted/workspace/entire-brain-layerb"
    }
   ],
   "missing_record_provenance": 0,
@@ -520,7 +520,7 @@
     "head_commit": "af713665091693a8301520159f3b4097a6ec36f9",
     "repo": "entire-cli",
     "repo_path_input": "cli-bench",
-    "repo_path_resolved": "/Users/suhaan/Documents/Coding/cli-bench"
+    "repo_path_resolved": "/redacted/workspace/cli-bench"
    }
   ],
   "tasks": [
