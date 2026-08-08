@@ -85,31 +85,45 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 	}
 	add("history_index", "ok", fmt.Sprintf("%d records (generated %s)", len(index.Records), history.GeneratedAt.UTC().Format(time.RFC3339)))
 	current := brainSessionsFingerprint(brainDir)
-	shortTerm := loadHistoryShortTerm(brainDir, history)
+	shortTerm, shortTermState := loadHistoryShortTermState(brainDir, history)
+	// "Covers the gap" is claimable only for a CURRENT overlay built against
+	// the exact current source fingerprint with nothing failed, dropped, or
+	// truncated (R0-6). Anything less is at best partial coverage.
+	shortTermCovers := shortTermState == shortTermStateCurrent && len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current
 	switch {
 	case history.SessionsFingerprint == "":
 		add("history_freshness", "warn", "index predates fingerprinting; run `entire brain refresh`")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
-	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current && !shortTerm.Truncated:
+	case shortTermCovers && shortTerm.complete():
 		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `entire brain refresh`)", len(shortTerm.Files)))
-	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current:
-		// A truncated overlay only PARTLY covers the gap (oldest changed
-		// transcripts were dropped): freshness must not claim ok (Bugbot #77).
-		add("history_freshness", "warn", "short-term memory covers the gap only partially (buffer full, oldest changed transcripts dropped); run `entire brain refresh` to consolidate")
+	case shortTermCovers:
+		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `entire brain refresh` to consolidate", shortTermIncompleteness(shortTerm)))
+	case shortTermState == shortTermStateCorrupt:
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
+	case shortTermState == shortTermStateUnsupported:
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
 	default:
 		add("history_freshness", "warn", "exported sessions changed since the last index build; run `entire brain refresh delta` for immediate freshness or `entire brain refresh` to consolidate (a missed session-end hook is repaired the same way)")
 	}
-	if len(shortTerm.Files) > 0 {
+	switch shortTermState {
+	case shortTermStateCorrupt:
+		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `entire brain refresh delta`")
+	case shortTermStateUnsupported:
+		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `entire brain refresh delta`")
+	case shortTermStateCurrent:
+		if len(shortTerm.Files) == 0 && shortTerm.complete() {
+			break
+		}
 		records := 0
 		for _, entry := range shortTerm.Files {
 			records += len(entry.Records)
 		}
 		detail := fmt.Sprintf("%d records from %d changed transcripts (built %s)", records, len(shortTerm.Files), shortTerm.GeneratedAt.UTC().Format(time.RFC3339))
 		state := "ok"
-		if shortTerm.Truncated {
+		if !shortTerm.complete() {
 			state = "warn"
-			detail += "; buffer full; consolidate with `entire brain refresh`"
+			detail += "; " + shortTermIncompleteness(shortTerm)
 		}
 		add("short_term_memory", state, detail)
 	}
@@ -170,6 +184,10 @@ type brainStatsShortTerm struct {
 	Exchanges   int    `json:"exchanges"`
 	GeneratedAt string `json:"generated_at"`
 	Truncated   bool   `json:"truncated,omitempty"`
+	// State is the typed overlay load state (R0-6); FailedFiles are the
+	// transcripts the last delta could not scan.
+	State       string   `json:"state,omitempty"`
+	FailedFiles []string `json:"failed_files,omitempty"`
 }
 
 type brainStatsSessions struct {
@@ -334,11 +352,13 @@ func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, er
 		conversation.Vectors = vectorStatus.Vectors
 	}
 	report.Conversation = &conversation
-	if shortTerm := loadHistoryShortTerm(brainDir, history); len(shortTerm.Files) > 0 {
+	if shortTerm, state := loadHistoryShortTermState(brainDir, history); state != shortTermStateAbsent && (len(shortTerm.Files) > 0 || !shortTerm.complete() || state != shortTermStateCurrent) {
 		stats := brainStatsShortTerm{
 			Files:       len(shortTerm.Files),
 			GeneratedAt: shortTerm.GeneratedAt.UTC().Format(time.RFC3339),
 			Truncated:   shortTerm.Truncated,
+			State:       state,
+			FailedFiles: shortTerm.FailedFiles,
 		}
 		for _, entry := range shortTerm.Files {
 			stats.Records += len(entry.Records)
@@ -380,8 +400,14 @@ func renderBrainStats(out io.Writer, report brainStatsReport) {
 	}
 	if s := report.ShortTerm; s != nil {
 		line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (built %s)", s.Records, s.Exchanges, s.Files, s.GeneratedAt)
+		if s.State != "" && s.State != shortTermStateCurrent {
+			line += "; state " + s.State
+		}
 		if s.Truncated {
 			line += "; buffer full, consolidate with `entire brain refresh`"
+		}
+		if len(s.FailedFiles) > 0 {
+			line += fmt.Sprintf("; %d transcripts failed to scan", len(s.FailedFiles))
 		}
 		fmt.Fprintln(out, line)
 	}

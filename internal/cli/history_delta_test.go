@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // shortTermFixture builds a brain with one indexed session (full build), then
@@ -536,5 +538,146 @@ func TestTwoTierStableIDReconciliation(t *testing.T) {
 		if r.ID == idY && r.Path != newPathY {
 			t.Fatalf("semantic view holds the wrong Y copy: %+v", r)
 		}
+	}
+}
+
+// TestShortTermOverlayStatesNeverClaimCoverage is the R0-6 acceptance
+// fixture: an unreadable transcript, an overflowed buffer, a corrupt overlay,
+// and an unknown overlay version are durably distinguishable, and none of
+// them lets doctor claim that short-term memory covers the long-term gap.
+func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brainDir := storage.BrainDir
+	writeTranscript := func(rel, request, response string) {
+		t.Helper()
+		full := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + request + `"}]}}` + "\n" +
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + response + `"}]}}` + "\n"
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	baseRel := "sessions/main/20260808T100000Z_base.jsonl"
+	writeTranscript(baseRel, "fix the exporter", "Decision: pinned the exporter version.")
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "base-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: baseRel, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
+		t.Fatal(err)
+	}
+	addSession := func(id, rel string) {
+		t.Helper()
+		onDisk, err := loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		onDisk.Sources.Sessions.Sessions = append(onDisk.Sources.Sessions.Sessions, exportSession{
+			SessionID: id, Branch: "main", Agent: "claude", LatestCheckpoint: "cp-" + id,
+			TranscriptPath: rel, CreatedAt: now.Add(-10 * time.Minute),
+		})
+		if err := writeBrainManifestAndReadme(brainDir, *onDisk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	freshness := func() (string, string, map[string]doctorCheckResult) {
+		t.Helper()
+		checks := map[string]doctorCheckResult{}
+		for _, check := range brainDoctorChecks((&cobra.Command{}).Context(), opts, repoDir) {
+			checks[check.Name] = check
+		}
+		f := checks["history_freshness"]
+		return f.State, f.Detail, checks
+	}
+
+	// New work after the build: a complete delta covers the gap.
+	newRel := "sessions/main/20260808T110000Z_new.jsonl"
+	writeTranscript(newRel, "profile the gzip loop", "Decision: gzip level 1.")
+	addSession("new-sess", newRel)
+	buildShortTerm(t, brainDir)
+	if state, detail, _ := freshness(); state != "ok" || !strings.Contains(detail, "covers the gap") {
+		t.Fatalf("complete overlay must cover the gap: %s %q", state, detail)
+	}
+
+	// One unreadable transcript: the delta must record the failure durably and
+	// doctor must stop claiming coverage.
+	badRel := "sessions/main/20260808T113000Z_bad.jsonl"
+	writeTranscript(badRel, "unreadable", "unreadable")
+	badFull := filepath.Join(brainDir, filepath.FromSlash(badRel))
+	if err := os.Chmod(badFull, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(badFull, 0o600) })
+	addSession("bad-sess", badRel)
+	stats := buildShortTerm(t, brainDir)
+	if stats.Failed != 1 {
+		t.Fatalf("stats.Failed = %d, want 1", stats.Failed)
+	}
+	onDiskManifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History)
+	if state != shortTermStateCurrent || len(overlay.FailedFiles) != 1 || overlay.FailedFiles[0] != badRel {
+		t.Fatalf("failed file identity not durable: state=%s failed=%v", state, overlay.FailedFiles)
+	}
+	if fstate, detail, checks := freshness(); fstate != "warn" || strings.Contains(detail, "covers the gap (") {
+		t.Fatalf("partial overlay must not claim coverage: %s %q %+v", fstate, detail, checks["short_term_memory"])
+	}
+
+	// Overflow: the truncated buffer is partial coverage.
+	if err := os.Chmod(badFull, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldMax := historyShortTermMaxRecords
+	historyShortTermMaxRecords = 1
+	defer func() { historyShortTermMaxRecords = oldMax }()
+	stats = buildShortTerm(t, brainDir)
+	historyShortTermMaxRecords = oldMax
+	if !stats.Truncated {
+		t.Fatalf("expected truncation: %+v", stats)
+	}
+	if fstate, detail, _ := freshness(); fstate != "warn" || !strings.Contains(detail, "partially") {
+		t.Fatalf("truncated overlay must be partial: %s %q", fstate, detail)
+	}
+
+	// Corrupt overlay JSON.
+	overlayPath := filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath))
+	if err := os.WriteFile(overlayPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History); state != shortTermStateCorrupt {
+		t.Fatalf("corrupt overlay state = %s", state)
+	}
+	if fstate, detail, checks := freshness(); fstate != "warn" || !strings.Contains(checks["short_term_memory"].Detail, "corrupt") {
+		t.Fatalf("corrupt overlay must warn: %s %q %+v", fstate, detail, checks["short_term_memory"])
+	}
+
+	// Unknown (newer) overlay version.
+	if err := os.WriteFile(overlayPath, []byte(`{"version":99,"files":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History); state != shortTermStateUnsupported {
+		t.Fatalf("unknown version state = %s", state)
+	}
+	if fstate, _, checks := freshness(); fstate != "warn" || !strings.Contains(checks["short_term_memory"].Detail, "unsupported") {
+		t.Fatalf("unsupported overlay must warn: %s %+v", fstate, checks["short_term_memory"])
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -35,7 +36,26 @@ import (
 const (
 	historyShortTermFileName = "short-term.json"
 	historyShortTermPath     = historyDirName + "/" + historyShortTermFileName
-	historyShortTermVersion  = 1
+	// historyShortTermVersion 2 adds durable completeness state (failed file
+	// identities, scan warnings, reconciler version). The overlay is
+	// disposable: an old version reads as unsupported and the next delta
+	// rebuilds it.
+	historyShortTermVersion = 2
+	// historyShortTermReconcilerVersion stamps the record-reconciliation rule
+	// the overlay was built to participate in (2 = the R0-4 newest-valid-copy
+	// winner rule).
+	historyShortTermReconcilerVersion = 2
+)
+
+// Typed overlay load states (R0-6): callers must be able to distinguish "no
+// overlay" from "unusable overlay", and doctor must never claim coverage from
+// anything but a current, complete overlay.
+const (
+	shortTermStateAbsent      = "absent"
+	shortTermStateCurrent     = "current"
+	shortTermStateStale       = "stale"
+	shortTermStateCorrupt     = "corrupt"
+	shortTermStateUnsupported = "unsupported"
 )
 
 // historyShortTermMaxRecords bounds the overlay. Short-term memory is a
@@ -57,6 +77,40 @@ type shortTermIndex struct {
 	GeneratedAt         time.Time                `json:"generated_at"`
 	Truncated           bool                     `json:"truncated,omitempty"`
 	Files               map[string]shortTermFile `json:"files"`
+	// FailedFiles are transcripts the delta scan could not read or parse this
+	// pass (R0-6): the overlay is durably partial, never silently complete.
+	FailedFiles []string `json:"failed_files,omitempty"`
+	// ScanWarnings are directory-level collection problems; like FailedFiles
+	// they void any completeness claim.
+	ScanWarnings []string `json:"scan_warnings,omitempty"`
+	// ReconcilerVersion records the cross-tier record-reconciliation rule this
+	// overlay was built for.
+	ReconcilerVersion int `json:"reconciler_version,omitempty"`
+}
+
+// complete reports whether the overlay fully represents every changed
+// transcript it was asked to cover: nothing failed, nothing dropped.
+func (o shortTermIndex) complete() bool {
+	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0
+}
+
+// shortTermIncompleteness names exactly why an overlay is not complete
+// coverage, for doctor/stats messaging.
+func shortTermIncompleteness(overlay shortTermIndex) string {
+	var parts []string
+	if overlay.Truncated {
+		parts = append(parts, "buffer full, oldest changed transcripts dropped")
+	}
+	if n := len(overlay.FailedFiles); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d transcripts failed to scan", n))
+	}
+	if n := len(overlay.ScanWarnings); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d collection warnings", n))
+	}
+	if len(parts) == 0 {
+		return "incomplete"
+	}
+	return strings.Join(parts, "; ")
 }
 
 type shortTermFile struct {
@@ -67,27 +121,43 @@ type shortTermFile struct {
 	IncompleteExchanges int             `json:"incomplete_exchanges,omitempty"`
 }
 
-// loadHistoryShortTerm returns the overlay when it is valid for the CURRENT
-// long-term build (version + base pin match); anything else; missing,
-// corrupt, or stale; reads as an empty overlay, which restores exact
-// long-term-only behavior.
-func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortTermIndex {
+// loadHistoryShortTermState loads the overlay with a typed state (R0-6):
+// absent, current, stale (base pin mismatch), corrupt (unreadable/oversized/
+// invalid JSON), or unsupported (version mismatch). Only a current overlay
+// carries records; every other state returns the empty overlay so retrieval
+// falls back to exact long-term-only behavior.
+func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)))
+	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
 	if err != nil {
-		return empty
+		if os.IsNotExist(err) {
+			return empty, shortTermStateAbsent
+		}
+		return empty, shortTermStateCorrupt
 	}
 	var overlay shortTermIndex
-	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil || overlay.Version != historyShortTermVersion {
-		return empty
+	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
+		return empty, shortTermStateCorrupt
+	}
+	if overlay.Version != historyShortTermVersion {
+		return empty, shortTermStateUnsupported
 	}
 	base := time.Time{}
 	if source != nil {
 		base = source.GeneratedAt
 	}
 	if !overlay.BaseGeneratedAt.Equal(base) {
-		return empty
+		return empty, shortTermStateStale
 	}
+	return overlay, shortTermStateCurrent
+}
+
+// loadHistoryShortTerm returns the overlay when it is valid for the CURRENT
+// long-term build; every non-current state reads as an empty overlay, which
+// restores exact long-term-only behavior. Health surfaces use
+// loadHistoryShortTermState to tell the failure modes apart.
+func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortTermIndex {
+	overlay, _ := loadHistoryShortTermState(brainDir, source)
 	return overlay
 }
 
@@ -116,6 +186,9 @@ type shortTermStats struct {
 	Reused              int  `json:"reused_files"`
 	Scanned             int  `json:"scanned_files"`
 	Truncated           bool `json:"truncated,omitempty"`
+	// Failed counts transcripts this delta could not scan; the overlay
+	// records their identities durably (R0-6).
+	Failed int `json:"failed_files,omitempty"`
 }
 
 // buildHistoryShortTermLocked rebuilds the overlay: every session transcript
@@ -160,6 +233,8 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 		GeneratedAt:         now,
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Files:               map[string]shortTermFile{},
+		ReconcilerVersion:   historyShortTermReconcilerVersion,
+		ScanWarnings:        warnings,
 	}
 	if source != nil {
 		overlay.BaseGeneratedAt = source.GeneratedAt
@@ -185,7 +260,12 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 		}
 		records, incomplete, _, ok := scanSessionFileRecords(outputDir, file.Path, rel)
 		if !ok {
-			continue // unscannable now; the next delta or full build retries
+			// Unscannable now: record the identity durably so no surface can
+			// claim complete coverage (R0-6); the next delta or full build
+			// retries it.
+			overlay.FailedFiles = append(overlay.FailedFiles, rel)
+			stats.Failed++
+			continue
 		}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
@@ -221,6 +301,7 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 			overlay.Truncated = true
 		}
 	}
+	sort.Strings(overlay.FailedFiles)
 	stats.Truncated = overlay.Truncated
 	stats.Files = len(overlay.Files)
 	for _, entry := range overlay.Files {
@@ -232,7 +313,10 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 			}
 		}
 	}
-	if len(overlay.Files) == 0 {
+	// An overlay that holds no records but DID fail or drop something must
+	// stay on disk: deleting it would erase the very state that proves
+	// coverage is incomplete (R0-6).
+	if len(overlay.Files) == 0 && overlay.complete() {
 		clearHistoryShortTerm(outputDir)
 		return stats, nil
 	}

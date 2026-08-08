@@ -191,9 +191,14 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if err != nil {
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
-			deltaHealthy = true
+			// A delta that failed to scan any transcript did NOT fully carry
+			// the new work, so it must not defer consolidation (R0-6).
+			deltaHealthy = stats.Failed == 0
 			bufferFull = stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
+			if stats.Failed > 0 {
+				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; consolidation will repair\n", stats.Failed)
+			}
 		}
 	}
 	cursor := loadWatchCursor(cursorPath)
