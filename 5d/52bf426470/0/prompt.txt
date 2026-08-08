@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bm0m4q8wg</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/cd50f07a-6a14-4eeb-ab8e-26e010985a67/tasks/bm0m4q8wg.output</output-file>
+<status>completed</status>
+<summary>Background command "Both full suites for cadence branch" completed (exit code 0)</summary>
+</task-notification>
