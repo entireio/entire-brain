@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "d0306d981f5b",
+  "session_id": "13004c3e-234f-4fde-96ff-302bb2fe5c4e",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T07:32:11.158966Z",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/session_privacy.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/session_privacy_verify.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "a0ca4e55ef28",
+  "checkpoint_transcript_start": 456,
+  "transcript_lines_at_start": 456,
+  "token_usage": {
+    "input_tokens": 106,
+    "cache_creation_tokens": 100323,
+    "cache_read_tokens": 16796158,
+    "output_tokens": 56850,
+    "api_call_count": 53
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T07:32:11.09006Z",
+    "agent_lines": 317,
+    "agent_removed": 68,
+    "human_added": 243,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 560,
+    "total_lines_changed": 628,
+    "agent_percentage": 61.30573248407644,
+    "metric_version": 2
+  }
+}

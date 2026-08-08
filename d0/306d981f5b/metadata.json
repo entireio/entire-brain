@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "d0306d981f5b",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_verify.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d0/306d981f5b/0/metadata.json",
+      "transcript": "/d0/306d981f5b/0/full.jsonl",
+      "content_hash": "/d0/306d981f5b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 106,
+    "cache_creation_tokens": 100323,
+    "cache_read_tokens": 16796158,
+    "output_tokens": 56850,
+    "api_call_count": 53
+  }
+}
