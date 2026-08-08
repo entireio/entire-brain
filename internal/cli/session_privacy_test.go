@@ -257,7 +257,7 @@ func TestSessionTombstonesRoundTripAndCorruptFallback(t *testing.T) {
 	if _, ok := reloaded.Excluded["s1"]; !ok || reloaded.Version != sessionTombstonesVersion {
 		t.Fatalf("round trip failed: %+v", reloaded)
 	}
-	// The tombstone file must never retain excluded content — only id, time,
+	// The tombstone file must never retain excluded content; only id, time,
 	// and the caller-supplied reason.
 	raw, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)))
 	var generic map[string]any
@@ -277,7 +277,7 @@ func TestSessionTombstonesRoundTripAndCorruptFallback(t *testing.T) {
 // TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts extends the canary
 // gate across the remaining derived layers: durable facts (single-source
 // deleted, corroborated facts keep their other anchors), pattern episodes,
-// derived pattern stores, and the distill cache — while skill-memory (user
+// derived pattern stores, and the distill cache; while skill-memory (user
 // curation) survives.
 func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
@@ -358,7 +358,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	}
 
 	// Canary absent from every surviving artifact under the brain dir except
-	// nothing — walk everything.
+	// nothing; walk everything.
 	assertCanaryAbsent(t, brainDir)
 	err = filepath.Walk(brainDir, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info == nil || info.IsDir() {

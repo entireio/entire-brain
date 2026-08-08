@@ -281,7 +281,7 @@ func TestBrainBriefFocusedHistoryUsesPrimarySymbol(t *testing.T) {
 	}
 	matches := brainBriefFocusedHistoryMatches(
 		brainDir,
-		index,
+		freshHistory{index: index},
 		semanticRecord{Name: "resolveConfig", QualifiedName: "resolveConfig"},
 		1,
 	)

@@ -26,12 +26,12 @@ const lockFileName = "factgitmeta.lock"
 // no transport.
 type localRepo struct {
 	store  *filesystem.Storage
-	gitDir string // absolute path to the bare repo — backs the advisory lockfile
+	gitDir string // absolute path to the bare repo; backs the advisory lockfile
 }
 
 // openLocalRepo opens the bare repository at gitDir, laying down the standard
 // git layout (objects/, refs/, HEAD, config) on first use. A missing directory
-// is created. Re-opening an already-initialized dir is not an error — that is
+// is created. Re-opening an already-initialized dir is not an error; that is
 // the steady state after the first sync.
 func openLocalRepo(gitDir string) (*localRepo, error) {
 	if gitDir == "" {
@@ -56,8 +56,8 @@ func openLocalRepo(gitDir string) (*localRepo, error) {
 // lock takes a cross-process exclusive advisory lock on a lockfile in the
 // git dir and returns an unlock func the caller must defer. It serializes the
 // whole Advance read-CAS loop across processes: go-git performs the create-path
-// ref write (CheckAndSetReference with a nil old ref) UNCONDITIONALLY — it skips
-// the absence check when old==nil — so without this, two concurrent first-syncs
+// ref write (CheckAndSetReference with a nil old ref) UNCONDITIONALLY; it skips
+// the absence check when old==nil; so without this, two concurrent first-syncs
 // would both "win" and silently drop one member's facts. The update path is
 // already ref-CAS-safe under go-git's own flock; this also closes its benign
 // read→write TOCTOU. The OS lock is released automatically if the process dies,

@@ -41,7 +41,7 @@ Enforced:
 - `matched_terms` explainability exposes why weak matches surfaced, so
   low-signal bait is diagnosable.
 
-Residual: the caveat is advisory — a consuming agent that ignores it can
+Residual: the caveat is advisory; a consuming agent that ignores it can
 still be injected. That boundary belongs to consuming harnesses; this repo's
 obligation is that no recall surface ever presents historical text as
 instructions, which is test-enforced.
@@ -51,7 +51,7 @@ instructions, which is test-enforced.
 Enforced:
 
 - Local-first by default; publish bundles contain only semantic snapshots,
-  overlays, and facts — never transcripts, history records, or conversation
+  overlays, and facts; never transcripts, history records, or conversation
   text (verified by construction: the bundle collector enumerates its
   artifact kinds).
 - `privacy exclude` (tombstone; content-free by design, fail-open on
@@ -62,7 +62,7 @@ Enforced:
   tombstone-first (crash leaves the session excluded, never resurrected),
   idempotent, survives re-export, and removes: the exported transcript, all
   index records, FTS/scan-cache/vector-store files (deleted wholesale with
-  WAL/SHM siblings — no row-remnant risk), single-source facts (multi-source
+  WAL/SHM siblings; no row-remnant risk), single-source facts (multi-source
   facts lose the purged anchor; dangling proposals pruned), pattern episodes
   and derived pattern outputs including the runs log, and distill-cache
   entries. The canary test walks EVERY file under the brain dir afterward.
@@ -80,7 +80,7 @@ Residual (tracked):
   factsync protocol change (parking lot).
 - **Canonical capture**: the checkpoints ref remains the capture layer's
   data; brain purge does not rewrite it, and a re-export restores the raw
-  transcript copy (not the projections — the tombstone holds) until a
+  transcript copy (not the projections; the tombstone holds) until a
   capture-layer exclusion contract exists (parking lot, plan open decision).
 - **Retention policies** (purge by age/branch) are not yet implemented; until
   then deletion is per-session and explicit.

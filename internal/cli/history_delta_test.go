@@ -11,7 +11,7 @@ import (
 
 // shortTermFixture builds a brain with one indexed session (full build), then
 // appends a new turn to it and adds a brand-new session WITHOUT re-running the
-// full build — the exact "in-flight work" state the short-term path serves.
+// full build; the exact "in-flight work" state the short-term path serves.
 func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string) {
 	t.Helper()
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)

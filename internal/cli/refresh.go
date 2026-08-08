@@ -292,7 +292,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			// Conversation vectors ride the same stage and gate but live in
 			// their own store (separate identity; general history KNN never
 			// spends budget on exchanges). Skipped silently when the store is
-			// unavailable — the history stage above already reported why.
+			// unavailable; the history stage above already reported why.
 			if convStore, convOK := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim()); convOK {
 				convTask := progress.Begin("conversation vectors")
 				convAdded, convDropped, convTotal, convErr := syncConversationVectors(convStore, index, e, func(done, totalNew int) {

@@ -1,5 +1,5 @@
 // Copied verbatim from github.com/entirehq/git-meta-service/internal/gitmeta @
-// feat/git-meta-service-integration (f3ec153) — do not edit; de-internalize
+// feat/git-meta-service-integration (f3ec153); do not edit; de-internalize
 // upstream to dedupe (follow-up).
 
 package gitmeta
@@ -26,7 +26,7 @@ func TestBranchChangeIDTargetValueRejectsSlash(t *testing.T) {
 			t.Errorf("ParseTarget(%q) = nil err; want rejection of '/' in target value", s)
 		}
 	}
-	// Dash/dotted branch values (no '/') still parse — we only reject '/'/'.'/NUL.
+	// Dash/dotted branch values (no '/') still parse; we only reject '/'/'.'/NUL.
 	if _, err := ParseTarget("branch:feature-x"); err != nil {
 		t.Errorf("ParseTarget(branch:feature-x) unexpected err: %v", err)
 	}

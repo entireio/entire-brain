@@ -5,7 +5,7 @@
 // filesystem ref CAS. It is the offline sibling of factsync.HTTPServer: identical
 // content-addressed refs and CAS semantics (ErrConflict on a lost swap,
 // ErrNoChange on an identical blob), but no entire-api, entiredb, Postgres, or
-// mTLS — everything lives under a cache directory.
+// mTLS; everything lives under a cache directory.
 //
 // Mapping (all records hang off the git-meta `project` target, repo-wide):
 //
@@ -13,7 +13,7 @@
 //	      val = "<version>|<contentRef>"        (moved with OpCompareAndSet)
 //	blob  key = "brain:facts:" + hex(repoKey) + ":" + hex(branch) + ":blob"
 //	      val = <full NDJSON fact-set plaintext> (OpSetString; a SINGLE per-branch
-//	            key overwritten each advance — the live tree holds only the current
+//	            key overwritten each advance; the live tree holds only the current
 //	            blob, prior versions stay in git history, keeping live state O(1))
 //
 // repoKey and branch are hex-encoded into single key segments so any slug/branch
@@ -52,7 +52,7 @@ const factsKeyPrefix = "brain:facts:"
 // maxRefCASRetries bounds the ref-level compare-and-swap retry loop. A lost ref
 // race (another writer advanced refs/meta between our read and write) is
 // mechanical and retried; exhaustion is surfaced as ErrConflict for Sync to
-// re-read and re-merge — never a silent drop.
+// re-read and re-merge; never a silent drop.
 const maxRefCASRetries = 5
 
 // projectTarget is the git-meta target for all brain fact records: repo-wide,
@@ -138,7 +138,7 @@ func (b *Backend) Current(_ context.Context, _, branch string) (string, []byte, 
 
 // Advance writes the blob and compare-and-swaps the head onto plaintext's
 // content ref. It short-circuits ErrNoChange when the new ref equals oldRef
-// (checked first, before any store write — matching FactSetStore.Advance), and
+// (checked first, before any store write; matching FactSetStore.Advance), and
 // returns ErrConflict when the head the caller advanced from is no longer
 // current (a concurrent member advanced first) or when ref contention exhausts
 // the retry budget.
@@ -175,7 +175,7 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 
 		// Value-level precondition (the fact-set CAS): the head the caller
 		// advanced from must still be current. A lost value-CAS is TERMINAL
-		// ErrConflict — the fact-set moved, so Sync must re-read and re-merge,
+		// ErrConflict; the fact-set moved, so Sync must re-read and re-merge,
 		// not blindly retry the same merged bytes.
 		cur, mismatch := b.expectedHead(st, headKey, oldRef)
 		if mismatch {
@@ -183,8 +183,8 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 		}
 
 		// Apply both records onto the freshly-materialized state:
-		//   blob — content-addressed key, immutable ⇒ a plain set.
-		//   head — value-level compare-and-swap onto "<ver+1>|<newRef>". Apply's
+		//   blob; content-addressed key, immutable ⇒ a plain set.
+		//   head; value-level compare-and-swap onto "<ver+1>|<newRef>". Apply's
 		//          OpCompareAndSet is an unconditional set; the precondition was
 		//          already enforced by expectedHead against this same state.
 		newHeadVal := formatHead(cur.version+1, newRef)
@@ -201,7 +201,7 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 		case err == nil:
 			return newRef, nil
 		case errors.Is(err, gitstorage.ErrReferenceHasChanged):
-			continue // the ref advanced between our read and write — re-read and retry
+			continue // the ref advanced between our read and write; re-read and retry
 		default:
 			return "", fmt.Errorf("factgitmeta: set %s: %w", metaRef, err)
 		}
@@ -211,7 +211,7 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 	return "", factsync.ErrConflict
 }
 
-// headState is the head record's stored value and parsed version at read time —
+// headState is the head record's stored value and parsed version at read time;
 // the swap-from side of the value-level CAS.
 type headState struct {
 	value   string // exact "<version>|<contentRef>" currently stored, "" when absent
@@ -270,7 +270,7 @@ func (b *Backend) commitState(st gitmeta.State, parent *plumbing.Reference) (plu
 }
 
 // state fetches the current metadata State from metaRef along with the ref it
-// was read from (nil when the ref does not exist yet — the create case). A
+// was read from (nil when the ref does not exist yet; the create case). A
 // missing ref yields an empty State, so a first sync merges into nothing.
 func (b *Backend) state() (gitmeta.State, *plumbing.Reference, error) {
 	ref, err := b.repo.store.Reference(plumbing.ReferenceName(metaRef))
@@ -302,7 +302,7 @@ func (b *Backend) headKey(branch string) string {
 	return factsKeyPrefix + hexSeg(b.repoKey) + ":" + hexSeg(branch) + ":head"
 }
 
-// blobKey is a SINGLE per-branch key, overwritten each Advance — the live tree
+// blobKey is a SINGLE per-branch key, overwritten each Advance; the live tree
 // holds only the current fact-set blob (prior versions remain in git history for
 // audit). A per-contentRef key would accumulate every version in the live state,
 // making Materialize/Serialize grow O(versions) per sync (cumulative O(n^2)).

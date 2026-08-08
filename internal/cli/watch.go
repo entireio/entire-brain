@@ -182,14 +182,16 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 // ticks/members so --budget caps total token spend across the whole run.
 func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps, agentCalls *int) {
 	// Short-term memory first, every tick: cheap (change detection + only
-	// changed transcripts), and it must never block or fail the tick — a delta
+	// changed transcripts), and it must never block or fail the tick; a delta
 	// failure just means the long-term path repairs freshness later.
 	bufferFull := false
+	deltaHealthy := false
 	if steps.delta != nil {
 		stats, err := steps.delta(ctx)
 		if err != nil {
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
+			deltaHealthy = true
 			bufferFull = stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
 		}
@@ -202,12 +204,13 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		return
 	}
 	// Consolidation throttle: the fingerprint includes checkpoint refs, so an
-	// active agent session flips it every turn — without a throttle the heavy
+	// active agent session flips it every turn; without a throttle the heavy
 	// full refresh would run every tick exactly when the machine is busiest.
-	// The delta above already made the new work recallable; consolidation can
-	// wait for the interval unless the short-term buffer overflowed (recall
-	// completeness is at risk) or this is the first ever refresh.
-	if w.consolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
+	// Deferral is only safe when the delta SUCCEEDED this tick (a failed delta
+	// means nothing carried the new work, so the full refresh is the repair
+	// path; Bugbot PR #78) and the buffer did not overflow (recall
+	// completeness at risk). The first ever refresh always runs.
+	if w.consolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && deltaHealthy && !bufferFull {
 		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < w.consolidateEvery {
 			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; short-term memory is current)\n",
 				since.Round(time.Second), (w.consolidateEvery - since).Round(time.Second))
@@ -275,7 +278,7 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 }
 
 // watchShortTermDelta runs the short-term memory path for one repo: quiet
-// (output discarded — the tick logs one summary line), deterministic, and
+// (output discarded; the tick logs one summary line), deterministic, and
 // token-free. The returned stats let the tick escalate to consolidation when
 // the buffer overflows.
 func watchShortTermDelta(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) (shortTermStats, error) {

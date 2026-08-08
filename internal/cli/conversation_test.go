@@ -12,7 +12,7 @@ import (
 
 // Fixture transcripts for each supported dialect. Line numbers in assertions
 // are 1-based, matching the exchange range contract; turn ordinals are 1-based
-// (documented Phase 1 choice — see conversationExchange.TurnOrdinal).
+// (documented Phase 1 choice; see conversationExchange.TurnOrdinal).
 
 const conversationClaudeFixture = `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>wrapper that must not open an exchange</system-reminder>"}]}}
 {"type":"user","message":{"role":"user","content":[{"type":"text","text":"Fix   the flaky lock test\non Windows"}]}}

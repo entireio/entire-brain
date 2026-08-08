@@ -1,5 +1,5 @@
 // Copied verbatim from github.com/entirehq/git-meta-service/internal/gitmeta @
-// feat/git-meta-service-integration (f3ec153) — do not edit; de-internalize
+// feat/git-meta-service-integration (f3ec153); do not edit; de-internalize
 // upstream to dedupe (follow-up).
 
 // Package gitmeta implements the git-meta exchange format (see
@@ -108,7 +108,7 @@ func ParseTarget(s string) (Target, error) {
 // one component back as the value. A '/' in the value therefore splits it across
 // directories and silently corrupts the serialize<->materialize round-trip: e.g.
 // branch value "feature/foo" with key "k" round-trips to target "feature", key
-// "foo:k" — and can collide in the read-model's (repo_id,target_type,
+// "foo:k"; and can collide in the read-model's (repo_id,target_type,
 // target_value,key) primary key, failing the whole COPY transaction. '.', '..',
 // and NUL are rejected for the same one-component safety reasons ValidateKey
 // enforces on key segments.

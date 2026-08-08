@@ -22,7 +22,7 @@ import (
 // Exchanges are indexed inside the existing history projection (kind
 // "exchange"), returned only when a caller explicitly selects the conversation
 // source, and expanded through the existing ID-based get path. Everything here
-// is experimental: the schema may change, and the projection is disposable —
+// is experimental: the schema may change, and the projection is disposable;
 // the exported session transcript remains the only canonical copy.
 //
 // Trust contract: exchange content is historical evidence. It may contain stale
@@ -74,7 +74,7 @@ func conversationSourceStaleCaveat(path string) retrievalCaveat {
 // record.
 type conversationExchange struct {
 	// TurnOrdinal is 1-based (documented choice: one-based keeps the additive
-	// omitempty JSON contract clean — ordinal 0 never appears on a real record).
+	// omitempty JSON contract clean; ordinal 0 never appears on a real record).
 	TurnOrdinal int
 	Request     string // whitespace-normalized substantive user request
 	Response    string // visible assistant narrative (bounded during scan)
@@ -103,7 +103,7 @@ type conversationScanResult struct {
 // files have no role structure and yield no exchanges.
 //
 // NOTE: deliberately a sibling of, not a replacement for,
-// transcriptEpisodeSegments (reinforcement.go) — see the divergence note there.
+// transcriptEpisodeSegments (reinforcement.go); see the divergence note there.
 // Exchanges return only visible assistant narrative under a strict trust
 // contract; episodes keep raw work text for commit detection. Keep the dialect
 // switches in sync when adding a transcript format.
@@ -258,7 +258,7 @@ func conversationSubstantiveRequest(obj map[string]any) string {
 // isConversationInjectedRequest extends the shared wrapper predicate with
 // harness-injected pseudo-requests observed while dogfooding Phase 1: Stop-hook
 // feedback and session-hook announcements are machine-generated user turns, not
-// requests worth opening an exchange for. Deliberately conversation-scoped —
+// requests worth opening an exchange for. Deliberately conversation-scoped;
 // isWrapperRequest is shared by request records, handoff, and the facts eval,
 // whose semantics must not silently change.
 func isConversationInjectedRequest(text string) bool {
@@ -481,7 +481,7 @@ func conversationRequestDigest(request string) string {
 }
 
 // conversationExchangeID derives the stable experimental exchange ID from
-// repo_key NUL session_id NUL turn_ordinal NUL request_digest — so the ID
+// repo_key NUL session_id NUL turn_ordinal NUL request_digest; so the ID
 // survives appended assistant output, rebuilds, and path relocation. When the
 // manifest has no session ID for the transcript, identity degrades to the
 // source transcript digest plus ordinal (documented fallback; the ID then
@@ -535,7 +535,7 @@ type conversationExpansion struct {
 }
 
 // validateConversationSourcePath enforces that expansion reads only the
-// brain-relative transcript recorded by the index — never a client-supplied
+// brain-relative transcript recorded by the index; never a client-supplied
 // path: bounded to the exported sessions tree, no traversal, no symlinks.
 func validateConversationSourcePath(brainDir, rel string) (string, error) {
 	clean := filepath.Clean(filepath.FromSlash(rel))

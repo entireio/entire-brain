@@ -22,8 +22,8 @@ import (
 //
 // Authority model: the tombstone is brain-local (the plan's resolved default
 // until a capture-layer exclusion contract exists in the Entire CLI). Purge
-// physically deletes the brain's LOCAL projections — the exported transcript
-// copy under sessions/ and every derived store built from it — and the
+// physically deletes the brain's LOCAL projections; the exported transcript
+// copy under sessions/ and every derived store built from it; and the
 // tombstone prevents re-indexing even if a later `refresh sessions` re-exports
 // the still-canonical captured material. Deleting the canonical capture itself
 // is the capture layer's job, not the brain's.
@@ -481,7 +481,7 @@ func countSessionEpisodes(brainDir, sessionID string, transcriptRels map[string]
 
 // filterEpisodesFile removes episode records belonging to the purged session
 // (by session id or transcript anchor). With write=false it only counts.
-// Unparseable lines are preserved verbatim — filtering must never corrupt what
+// Unparseable lines are preserved verbatim; filtering must never corrupt what
 // it does not understand.
 func filterEpisodesFile(brainDir, sessionID string, transcriptRels map[string]bool, write bool) (kept int, removed int, err error) {
 	data, readErr := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)))
@@ -575,7 +575,7 @@ func purgeSessionFacts(brainDir, sessionID string) (int, int, error) {
 }
 
 // purgeDistillCacheEntries drops the purged session's distill-cache entries
-// (fingerprint hashes keyed by branch/session — no content, but a purged
+// (fingerprint hashes keyed by branch/session; no content, but a purged
 // session must not look "already distilled" if it is ever re-included).
 func purgeDistillCacheEntries(brainDir, sessionID string) {
 	cache := loadDistillCache(brainDir)
@@ -638,7 +638,7 @@ func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now 
 // purgeGitmetaSyncCaveats reports fact copies a purge can NOT clean: the
 // `facts sync` git-meta store (plugin cache, shared fact-set head). Its
 // keep-both merge model has no deletion semantics yet, so purged facts synced
-// there survive — and a later `facts sync` can merge them back into the local
+// there survive; and a later `facts sync` can merge them back into the local
 // store. Surfacing this explicitly beats silently claiming complete deletion;
 // real deletion semantics for the shared store are parked (see the plan repo's
 // parking lot).
@@ -654,7 +654,7 @@ func purgeGitmetaSyncCaveats(env EntireEnv, repoKey string, plan sessionPurgePla
 		return nil
 	}
 	return []string{fmt.Sprintf(
-		"a `facts sync` git-meta store exists at %s; previously synced copies of purged facts remain there and a future `facts sync` may merge them back — the shared fact-set store has no deletion semantics yet",
+		"a `facts sync` git-meta store exists at %s; previously synced copies of purged facts remain there and a future `facts sync` may merge them back; the shared fact-set store has no deletion semantics yet",
 		gitDir,
 	)}
 }

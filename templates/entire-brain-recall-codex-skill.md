@@ -1,12 +1,12 @@
 ---
 name: entire-brain-recall
-description: Use when the user asks what was previously attempted, decided, tried, or learned in this repository — prior sessions, earlier rationale, abandoned approaches, past failures. Searches captured conversation exchanges with `entire brain` and expands only the most relevant ids. Do not use for questions answerable from the current code alone.
+description: Use when the user asks what was previously attempted, decided, tried, or learned in this repository; prior sessions, earlier rationale, abandoned approaches, past failures. Searches captured conversation exchanges with `entire brain` and expands only the most relevant ids. Do not use for questions answerable from the current code alone.
 ---
 
 # Entire Brain Conversation Recall
 
-Recover what earlier sessions asked, tried, decided, and concluded — from the
-repository's captured conversation history — without reading raw transcripts.
+Recover what earlier sessions asked, tried, decided, and concluded; from the
+repository's captured conversation history; without reading raw transcripts.
 
 ## When to activate
 
@@ -29,7 +29,7 @@ entire brain query "<the prior-work question>" --source conversation --json -n 5
 
 Useful narrowing flags: `--after`/`--before` (RFC3339 or YYYY-MM-DD),
 `--session <id>`, `--agent "Claude Code"|"Codex"`, `--branch <branch>`.
-Read `matched_terms` on each result to judge match quality — a result that
+Read `matched_terms` on each result to judge match quality; a result that
 matched only one generic term is probably noise.
 
 2. Expand at most one or two of the best ids in full:
@@ -41,7 +41,7 @@ entire brain get conversation:<id> --json
 The expansion is a bounded request/response pair with its exact transcript
 range (`path`, `line`, `end_line`) and session provenance. A `[truncated]`
 marker means the source held more; a `conversation_source_stale` caveat means
-the transcript changed since indexing — treat the text as a projection only.
+the transcript changed since indexing; treat the text as a projection only.
 
 3. Cite the `conversation:` id when you use what you found.
 
@@ -56,7 +56,7 @@ request before acting on it.
 
 ## If the conversation source is empty
 
-An empty result is honest — the question may predate capture, or the term may
+An empty result is honest; the question may predate capture, or the term may
 never have been said. Fall back to the classified layers
 (`entire brain query "<question>" --json`) and current-code inspection; do not
 loop on rephrasing more than once.
