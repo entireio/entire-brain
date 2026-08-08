@@ -366,6 +366,11 @@ func newSessionsIncludeCommand(opts Options) *cobra.Command {
 				if err := saveSessionTombstones(brainDir, stones); err != nil {
 					return err
 				}
+				// Re-include is a clean slate: the old cleanup transaction
+				// record no longer describes a live exclusion.
+				if err := removePrivacyTransaction(brainDir, sessionID); err != nil {
+					return err
+				}
 				_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, opts.Now().UTC(), nil)
 				return err
 			}); err != nil {
@@ -733,6 +738,75 @@ func purgeDistillCacheEntries(brainDir, sessionID string) error {
 	return saveDistillCache(brainDir, cache)
 }
 
+// --- R0.2: durable privacy transaction record ---
+//
+// Every exclude/purge/retention cleanup writes a content-free, versioned
+// transaction file with per-stage durable states, so an interrupted or
+// failed operation is visible afterward instead of inferred from partial
+// artifacts. States: requested (plan computed), guarded (tombstone active),
+// rebuilding (deletions and rebuild running), verified (post-cleanup
+// verification passed), complete, or error (bounded redacted message; the
+// operation is idempotent and re-runnable).
+
+const (
+	privacyTransactionVersion = 1
+
+	privacyStateRequested  = "requested"
+	privacyStateGuarded    = "guarded"
+	privacyStateRebuilding = "rebuilding"
+	privacyStateVerified   = "verified"
+	privacyStateComplete   = "complete"
+	privacyStateError      = "error"
+
+	privacyTransactionErrorMaxBytes = 512
+)
+
+type privacyTransaction struct {
+	SchemaVersion int       `json:"schema_version"`
+	SessionID     string    `json:"session_id"`
+	Operation     string    `json:"operation"` // exclude | purge
+	State         string    `json:"state"`
+	StartedAt     time.Time `json:"started_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	// Artifacts carries identities and sizes only, never content.
+	Artifacts []purgeArtifact `json:"artifacts,omitempty"`
+	Error     string          `json:"error,omitempty"`
+}
+
+func privacyTransactionRel(sessionID string) string {
+	return filepath.ToSlash(filepath.Join(historyDirName, "privacy", url.PathEscape(sessionID)+".json"))
+}
+
+func writePrivacyTransaction(brainDir string, tx privacyTransaction, now time.Time) error {
+	tx.SchemaVersion = privacyTransactionVersion
+	tx.UpdatedAt = now
+	data, err := json.MarshalIndent(tx, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeBrainRelativeFileAtomic(brainDir, privacyTransactionRel(tx.SessionID), append(data, '\n'), 0o600)
+}
+
+func loadPrivacyTransaction(brainDir, sessionID string) (privacyTransaction, bool) {
+	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(privacyTransactionRel(sessionID))), maxManifestBytes)
+	if err != nil {
+		return privacyTransaction{}, false
+	}
+	var tx privacyTransaction
+	if json.Unmarshal(data, &tx) != nil || tx.SchemaVersion != privacyTransactionVersion {
+		return privacyTransaction{}, false
+	}
+	return tx, true
+}
+
+func removePrivacyTransaction(brainDir, sessionID string) error {
+	err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(privacyTransactionRel(sessionID))))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // executeSessionPurge applies the plan under the already-held write lock:
 // tombstone first (so a crash mid-purge can only leave the session excluded,
 // never resurrected), then physical deletion, then a clean rebuild of the
@@ -745,11 +819,49 @@ func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now 
 // transcript deletion (purge only), derived-store deletion, fact/episode/
 // cache filtering, then the rebuild. Every deletion error propagates (R0-2);
 // the tombstone-first order keeps a failed run resumable and the session
-// unreadable in the meantime.
-func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, now time.Time, reason string, keepTranscripts bool) error {
+// unreadable in the meantime. Progress is a durable transaction record
+// (R0.2): each stage transition is persisted before the stage runs, and a
+// failure leaves an error state naming what stopped it.
+func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, now time.Time, reason string, keepTranscripts bool) (err error) {
+	operation := "purge"
+	if keepTranscripts {
+		operation = "exclude"
+	}
+	tx := privacyTransaction{
+		SessionID: sessionID, Operation: operation,
+		State: privacyStateRequested, StartedAt: now,
+		Artifacts: append(append([]purgeArtifact(nil), plan.Transcripts...), plan.DerivedStores...),
+	}
+	if txErr := writePrivacyTransaction(brainDir, tx, now); txErr != nil {
+		return txErr
+	}
+	defer func() {
+		if err == nil {
+			return
+		}
+		// Best-effort durable failure state; the command error is authoritative.
+		tx.State = privacyStateError
+		message := err.Error()
+		if len(message) > privacyTransactionErrorMaxBytes {
+			message = message[:privacyTransactionErrorMaxBytes]
+		}
+		tx.Error = message
+		_ = writePrivacyTransaction(brainDir, tx, now)
+	}()
+	advance := func(state string) error {
+		tx.State = state
+		tx.Error = ""
+		return writePrivacyTransaction(brainDir, tx, now)
+	}
 	stones := loadSessionTombstones(brainDir)
 	stones.Excluded[sessionID] = sessionTombstone{At: now, Reason: reason}
 	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		return err
+	}
+	if err := advance(privacyStateGuarded); err != nil {
+		return err
+	}
+	if err := advance(privacyStateRebuilding); err != nil {
 		return err
 	}
 	if !keepTranscripts {
@@ -790,14 +902,17 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	// Success is published only after verification passes (R0-1): the same
 	// checks `privacy verify` runs must find nothing for ANY tombstoned
 	// session, so a partially cleaned earlier failure also blocks this one.
-	report, err := verifySessionPrivacy(brainDir)
-	if err != nil {
-		return fmt.Errorf("post-cleanup verification: %w", err)
+	report, verifyErr := verifySessionPrivacy(brainDir)
+	if verifyErr != nil {
+		return fmt.Errorf("post-cleanup verification: %w", verifyErr)
 	}
 	if !report.Clean {
 		return fmt.Errorf("cleanup incomplete: verification found %d violations (first: %s %s); the operation is idempotent, re-run it after resolving the artifact", len(report.Findings), report.Findings[0].Artifact, report.Findings[0].Detail)
 	}
-	return nil
+	if err := advance(privacyStateVerified); err != nil {
+		return err
+	}
+	return advance(privacyStateComplete)
 }
 
 // purgeGitmetaSyncCaveats reports fact copies a purge can NOT clean: the

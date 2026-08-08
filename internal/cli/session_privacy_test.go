@@ -790,6 +790,11 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	if !report.Clean {
 		t.Fatalf("post-exclusion verify must be clean: %+v", report.Findings)
 	}
+	// R0.2: the durable transaction record ends complete.
+	tx, ok := loadPrivacyTransaction(brainDir, "secret-sess")
+	if !ok || tx.State != privacyStateComplete || tx.Operation != "exclude" {
+		t.Fatalf("transaction record = %+v ok=%v, want complete exclude", tx, ok)
+	}
 }
 
 // TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers proves R0-2: a store
@@ -832,6 +837,10 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	if !strings.Contains(err.Error(), patternCorpusPath) {
 		t.Fatalf("failure must name the artifact: %v", err)
 	}
+	// R0.2: the failure is a durable error state naming what stopped it.
+	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateError || !strings.Contains(tx.Error, patternCorpusPath) {
+		t.Fatalf("transaction record after failure = %+v ok=%v", tx, ok)
+	}
 	// Verification independently flags the survivor.
 	report, err := verifySessionPrivacy(brainDir)
 	if err != nil {
@@ -864,6 +873,9 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	}
 	if !report.Clean {
 		t.Fatalf("post-recovery verify must be clean: %+v", report.Findings)
+	}
+	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateComplete || tx.Operation != "purge" {
+		t.Fatalf("transaction record after recovery = %+v ok=%v", tx, ok)
 	}
 	assertCanaryAbsent(t, brainDir)
 }

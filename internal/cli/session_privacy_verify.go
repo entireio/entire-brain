@@ -247,6 +247,14 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			}
 		}
 	}
+	// Failed cleanup transactions stay visible until a re-run completes them
+	// (R0.2). In-flight states are not findings: this function runs inside
+	// the cleanup itself, whose own transaction is mid-transition.
+	for id := range stones.Excluded {
+		if tx, ok := loadPrivacyTransaction(brainDir, id); ok && tx.State == privacyStateError {
+			add(id, "privacy_transaction", fmt.Sprintf("%s failed (%s); re-run the operation", tx.Operation, tx.Error))
+		}
+	}
 	// Purged sessions must have no exported transcript left; excluded (not
 	// purged) sessions deliberately keep theirs.
 	for id, stone := range stones.Excluded {
