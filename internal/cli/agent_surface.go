@@ -1657,8 +1657,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 
 // brainBriefConversationHits retrieves a small, bounded set of conversation
 // exchanges for the brief packet: at most 3 (or limit, if smaller), excerpts
-// capped at 200 bytes. Hybrid mode so the gated semantic arm helps when open;
-// it degrades to lexical otherwise.
+// capped at 200 bytes. Hybrid mode: BM25 by default, fused only under the
+// ENTIRE_BRAIN_CONVERSATION_FUSION development flag (see eval ledger
+// 2026-08-07).
 func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefConversationHit {
 	count := min(3, limit)
 	if count <= 0 {

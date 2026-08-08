@@ -430,3 +430,33 @@ func TestExcludedSessionsProduceNoEpisodesOrCorpusRows(t *testing.T) {
 		}
 	}
 }
+
+// TestPurgeReportsGitmetaSyncCaveat locks the collision surface between purge
+// and the `facts sync` git-meta store: when the store exists and the purge
+// touches facts, the plan must say the synced copies are NOT cleaned.
+func TestPurgeReportsGitmetaSyncCaveat(t *testing.T) {
+	env := EntireEnv{PluginCacheDir: t.TempDir()}
+	plan := sessionPurgePlan{FactsDeleted: 1}
+
+	// No store: no caveat.
+	if got := purgeGitmetaSyncCaveats(env, "gh/o/r", plan); len(got) != 0 {
+		t.Fatalf("caveat without a store: %v", got)
+	}
+
+	gitDir, err := gitmetaDirForKey(env, "gh/o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got := purgeGitmetaSyncCaveats(env, "gh/o/r", plan)
+	if len(got) != 1 || !strings.Contains(got[0], "facts sync") || !strings.Contains(got[0], "no deletion semantics") {
+		t.Fatalf("caveat = %v", got)
+	}
+
+	// A purge that touches no facts has nothing synced to warn about.
+	if got := purgeGitmetaSyncCaveats(env, "gh/o/r", sessionPurgePlan{}); len(got) != 0 {
+		t.Fatalf("factless purge must not warn: %v", got)
+	}
+}
