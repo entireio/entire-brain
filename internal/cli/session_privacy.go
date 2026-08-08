@@ -108,6 +108,8 @@ func newPrivacyCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newSessionsExcludeCommand(opts))
 	cmd.AddCommand(newSessionsIncludeCommand(opts))
 	cmd.AddCommand(newSessionsPurgeCommand(opts))
+	cmd.AddCommand(newPrivacyVerifyCommand(opts))
+	cmd.AddCommand(newPrivacyRetentionCommand(opts))
 	return cmd
 }
 
