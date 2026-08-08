@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "d646753a9460",
+  "session_id": "13004c3e-234f-4fde-96ff-302bb2fe5c4e",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T16:54:53.98846Z",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_verify.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "97c338edf18e",
+  "checkpoint_transcript_start": 1319,
+  "transcript_lines_at_start": 1319,
+  "token_usage": {
+    "input_tokens": 25,
+    "cache_creation_tokens": 571673,
+    "cache_read_tokens": 6683813,
+    "output_tokens": 15521,
+    "api_call_count": 13
+  },
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T16:54:53.884308Z",
+    "agent_lines": 129,
+    "agent_removed": 6,
+    "human_added": 12,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 141,
+    "total_lines_changed": 147,
+    "agent_percentage": 91.83673469387756,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    }
+  ]
+}
