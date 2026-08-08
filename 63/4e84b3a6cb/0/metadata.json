@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "634e84b3a6cb",
+  "session_id": "13004c3e-234f-4fde-96ff-302bb2fe5c4e",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T07:36:57.481462Z",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/history_delta.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/watch.go",
+    "internal/cli/history_delta_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "a0ca4e55ef28",
+  "checkpoint_transcript_start": 734,
+  "transcript_lines_at_start": 734,
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 36564,
+    "cache_read_tokens": 5740918,
+    "output_tokens": 19848,
+    "api_call_count": 15
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T07:36:57.412955Z",
+    "agent_lines": 282,
+    "agent_removed": 24,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 282,
+    "total_lines_changed": 306,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
