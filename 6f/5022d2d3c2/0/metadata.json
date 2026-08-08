@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "6f5022d2d3c2",
+  "session_id": "019fd8df-5a22-7932-818a-8c685431d480",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T03:01:30.435449Z",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md",
+    "docs/brain_brief_profiling.md",
+    "docs/semantic_brain_plan.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "8c2413e19855",
+  "checkpoint_transcript_start": 6901,
+  "transcript_lines_at_start": 6901,
+  "compact_transcript_start": 1536,
+  "token_usage": {
+    "input_tokens": 25693,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1621760,
+    "output_tokens": 7072,
+    "api_call_count": 23
+  },
+  "session_metrics": {
+    "turn_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T03:01:27.77674Z",
+    "agent_lines": 61,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 61,
+    "total_lines_changed": 61,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

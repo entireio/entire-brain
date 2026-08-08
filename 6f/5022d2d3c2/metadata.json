@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "6f5022d2d3c2",
+  "strategy": "manual-commit",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md",
+    "docs/brain_brief_profiling.md",
+    "docs/semantic_brain_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6f/5022d2d3c2/0/metadata.json",
+      "transcript": "/6f/5022d2d3c2/0/full.jsonl",
+      "compact_transcript": "/6f/5022d2d3c2/0/transcript.jsonl",
+      "content_hash": "/6f/5022d2d3c2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25693,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1621760,
+    "output_tokens": 7072,
+    "api_call_count": 23
+  }
+}
