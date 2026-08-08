@@ -566,6 +566,12 @@ only provenance is the purged session (facts corroborated by other sessions
 keep their remaining anchors), filters its pattern episodes, and clears its
 distill-cache entries (`--dry-run` reports exactly what would be removed
 first). Skill-memory — your accept/decline curation — is never touched.
+`privacy verify` proves excluded/purged sessions are absent from every
+inspectable projection (exit non-zero with named violations otherwise; a
+re-purge repairs them), and `privacy retention --max-age <dur> [--branch b]
+[--purge] [--dry-run]` applies an age-based policy in one command. The full
+prompt-injection and secret-retention threat model lives in
+[docs/recall_threat_model.md](docs/recall_threat_model.md).
 Tombstones are brain-local and survive re-export: a purged session that the
 capture layer re-exports stays un-indexed until an explicit `include`. Note the
 canonical capture on `entire/checkpoints/v1` is the capture layer's data —

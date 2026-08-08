@@ -379,10 +379,13 @@ func TestWatchTickRunsShortTermDeltaEveryTick(t *testing.T) {
 	steps := watchSteps{
 		now:         func() time.Time { return time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC) },
 		fingerprint: func(ctxArg context.Context) string { return "same" },
-		delta:       func(ctxArg context.Context) error { deltas++; return nil },
-		refresh:     func(ctxArg context.Context) error { t.Fatal("refresh must not run without change"); return nil },
-		seed:        func(ctxArg context.Context) error { return nil },
-		distill:     func(ctxArg context.Context) error { return nil },
+		delta: func(ctxArg context.Context) (shortTermStats, error) {
+			deltas++
+			return shortTermStats{Records: 1, Files: 1}, nil
+		},
+		refresh: func(ctxArg context.Context) error { t.Fatal("refresh must not run without change"); return nil },
+		seed:    func(ctxArg context.Context) error { return nil },
+		distill: func(ctxArg context.Context) error { return nil },
 	}
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
 	// Seed the cursor so "no change" is reachable (a zero cursor forces refresh).
@@ -397,5 +400,73 @@ func TestWatchTickRunsShortTermDeltaEveryTick(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "short-term memory updated") {
 		t.Fatalf("tick output missing short-term line: %q", out.String())
+	}
+}
+
+// TestWatchTickConsolidationCadence locks the two-tier cadence: within
+// --consolidate-every the heavy refresh defers even when the fingerprint
+// changed (short-term carries freshness); a full short-term buffer or an
+// elapsed interval forces consolidation; 0 restores consolidate-on-every-change.
+func TestWatchTickConsolidationCadence(t *testing.T) {
+	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	newSteps := func(refreshes *int, full bool) watchSteps {
+		return watchSteps{
+			now:         func() time.Time { return now },
+			fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
+			delta: func(ctxArg context.Context) (shortTermStats, error) {
+				return shortTermStats{Records: 2, Files: 1, Truncated: full}, nil
+			},
+			refresh: func(ctxArg context.Context) error { *refreshes++; return nil },
+			seed:    func(ctxArg context.Context) error { return nil },
+			distill: func(ctxArg context.Context) error { return nil },
+		}
+	}
+	cursor := watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}
+	options := defaultWatchOptions() // consolidateEvery 30m
+
+	// Changed fingerprint, 10m since last full refresh: deferred.
+	var out strings.Builder
+	refreshes := 0
+	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
+	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	if refreshes != 0 || !strings.Contains(out.String(), "consolidation deferred") {
+		t.Fatalf("expected deferral: refreshes=%d out=%q", refreshes, out.String())
+	}
+
+	// Same state but the short-term buffer overflowed: consolidate now.
+	out.Reset()
+	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+		t.Fatal(err)
+	}
+	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, true), &calls)
+	if refreshes != 1 {
+		t.Fatalf("full buffer must force consolidation: refreshes=%d out=%q", refreshes, out.String())
+	}
+
+	// Interval elapsed: consolidate.
+	out.Reset()
+	refreshes = 0
+	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-45 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	if refreshes != 1 {
+		t.Fatalf("elapsed interval must consolidate: refreshes=%d out=%q", refreshes, out.String())
+	}
+
+	// consolidate-every 0: pre-short-term behavior (refresh on every change).
+	out.Reset()
+	refreshes = 0
+	options.consolidateEvery = 0
+	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+		t.Fatal(err)
+	}
+	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	if refreshes != 1 {
+		t.Fatalf("consolidate-every=0 must refresh on change: refreshes=%d out=%q", refreshes, out.String())
 	}
 }

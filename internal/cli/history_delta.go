@@ -395,36 +395,8 @@ recallable near-real-time.`,
 }
 
 func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
-	ctx := cmd.Context()
-	if export {
-		exportOpts := exportCommandOptions{
-			outputDir:       defaultExportDir,
-			checkpointLimit: defaultCheckpointLimit,
-			entireBinary:    "entire",
-			scope:           exportScopeAll,
-		}
-		if err := runExport(ctx, cmd, opts, exportOpts); err != nil {
-			return fmt.Errorf("delta session export: %w", err)
-		}
-	}
-	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	stats, err := runRefreshDeltaStats(cmd, opts, export)
 	if err != nil {
-		return err
-	}
-	if !local {
-		return fmt.Errorf("refresh delta requires a local repository path: %s", target)
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return err
-	}
-	var stats shortTermStats
-	if err := withBrainWriteLock(storage.BrainDir, func() error {
-		var buildErr error
-		stats, buildErr = buildHistoryShortTermLocked(storage.BrainDir, opts.Now().UTC())
-		return buildErr
-	}); err != nil {
 		return err
 	}
 	line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (%d re-scanned, %d carried over)",
@@ -434,4 +406,41 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), line)
 	return nil
+}
+
+// runRefreshDeltaStats is the delta core: incremental export (optional) plus
+// the short-term overlay build, returning the stats so watch can escalate to
+// consolidation on a full buffer.
+func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool) (shortTermStats, error) {
+	ctx := cmd.Context()
+	if export {
+		exportOpts := exportCommandOptions{
+			outputDir:       defaultExportDir,
+			checkpointLimit: defaultCheckpointLimit,
+			entireBinary:    "entire",
+			scope:           exportScopeAll,
+		}
+		if err := runExport(ctx, cmd, opts, exportOpts); err != nil {
+			return shortTermStats{}, fmt.Errorf("delta session export: %w", err)
+		}
+	}
+	target := agentSurfaceTarget(opts, nil)
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil {
+		return shortTermStats{}, err
+	}
+	if !local {
+		return shortTermStats{}, fmt.Errorf("refresh delta requires a local repository path: %s", target)
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return shortTermStats{}, err
+	}
+	var stats shortTermStats
+	err = withBrainWriteLock(storage.BrainDir, func() error {
+		var buildErr error
+		stats, buildErr = buildHistoryShortTermLocked(storage.BrainDir, opts.Now().UTC())
+		return buildErr
+	})
+	return stats, err
 }
