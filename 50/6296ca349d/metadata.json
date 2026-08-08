@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "506296ca349d",
+  "strategy": "manual-commit",
+  "branch": "fix/bugbot-review-findings",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/watch.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/50/6296ca349d/0/metadata.json",
+      "transcript": "/50/6296ca349d/0/full.jsonl",
+      "content_hash": "/50/6296ca349d/0/content_hash.txt",
+      "prompt": "/50/6296ca349d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 902036,
+    "cache_read_tokens": 21804419,
+    "output_tokens": 29684,
+    "api_call_count": 26
+  }
+}
