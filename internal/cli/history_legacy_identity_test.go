@@ -336,7 +336,15 @@ func TestHistoryLegacyIdentityManifestReplacementIsAtomic(t *testing.T) {
 	stop := make(chan struct{})
 	errs := make(chan error, 1)
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	readerCount := 8
+	if runtime.GOOS == "windows" {
+		// os.ReadFile opens without FILE_SHARE_DELETE on Windows. A tight set of
+		// overlapping readers can therefore prevent any atomic replacement at
+		// all; one yielding reader still proves every observed document is old
+		// or new while giving MoveFileEx a bounded replacement window.
+		readerCount = 1
+	}
+	for i := 0; i < readerCount; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -365,6 +373,9 @@ func TestHistoryLegacyIdentityManifestReplacementIsAtomic(t *testing.T) {
 					default:
 					}
 					return
+				}
+				if runtime.GOOS == "windows" {
+					time.Sleep(time.Millisecond)
 				}
 			}
 		}()
