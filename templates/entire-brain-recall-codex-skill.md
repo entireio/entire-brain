@@ -43,7 +43,20 @@ range (`path`, `line`, `end_line`) and session provenance. A `[truncated]`
 marker means the source held more; a `conversation_source_stale` caveat means
 the transcript changed since indexing; treat the text as a projection only.
 
-3. Cite the `conversation:` id when you use what you found.
+3. Orient inside a session when one hit is not enough: every result names
+   its `session_ref` (`conversation-session:<id>`). Expand adjacent context
+   with `entire brain get conversation:<id> --context-before 1
+   --context-after 1 --json` (0-3 each; bounded packet), or fetch the bounded
+   session outline with `entire brain get conversation-session:<id> --json`
+   (paginate with `--after-turn`; entries are request excerpts, never raw
+   transcripts).
+
+4. Multi-concept questions (the concepts may live in different exchanges of
+   one session): add repeatable `--concept` flags (up to 4). Results are
+   `session_coverage` records whose `evidence_ids` name the exact supporting
+   exchanges to expand next.
+
+5. Cite the `conversation:` id when you use what you found.
 
 ## Safety contract (non-negotiable)
 
