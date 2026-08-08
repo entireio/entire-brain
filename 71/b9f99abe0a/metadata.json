@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "71b9f99abe0a",
+  "strategy": "manual-commit",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/brain_brief_git_intent_test.go",
+    "internal/cli/history_legacy_identity_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/71/b9f99abe0a/0/metadata.json",
+      "transcript": "/71/b9f99abe0a/0/full.jsonl",
+      "compact_transcript": "/71/b9f99abe0a/0/transcript.jsonl",
+      "content_hash": "/71/b9f99abe0a/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 76909,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 18260224,
+    "output_tokens": 7925,
+    "api_call_count": 91
+  }
+}
