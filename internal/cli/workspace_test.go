@@ -3010,3 +3010,138 @@ func TestWorkspaceFullRefreshGatesAndCarriesPerMemberFailures(t *testing.T) {
 		t.Fatalf("missing identity-gate skip line:\n%s", got)
 	}
 }
+
+// TestWorkspaceConversationRecallFanOut is Phase 5's conversation increment:
+// the conversation source fans out across member brains with per-repo
+// grouping, the historical-evidence contract, filter support, namespace
+// isolation, and repo-qualified get expansion (the explicit cross-repo step).
+func TestWorkspaceConversationRecallFanOut(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }})
+
+	_, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	_, keyB := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "b.go", "package x\n")
+
+	// Member A gets a captured conversation about a deploy rollback; member B
+	// one about billing. Each member brain indexes its own sessions.
+	writeMemberConversation := func(key, sessionID, request, response string) {
+		t.Helper()
+		brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+		rel := "sessions/main/20260808T100000Z_" + sessionID + ".jsonl"
+		body := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + request + `"}]}}` + "\n" +
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + response + `"}]}}` + "\n"
+		full := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		if manifest.Sources.Sessions == nil {
+			manifest.Sources.Sessions = &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main"}
+		}
+		manifest.RepoKey = key
+		manifest.Sources.Sessions.Sessions = append(manifest.Sources.Sessions.Sessions, exportSession{
+			SessionID: sessionID, Branch: "main", Agent: "Claude Code", LatestCheckpoint: "cp",
+			TranscriptPath: rel, CreatedAt: now.Add(-time.Hour),
+		})
+		if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMemberConversation(keyA, "sess-a", "why did the deploy rollback loop", "Decision: the rollback loop came from a stale health probe; pinned the probe version.")
+	writeMemberConversation(keyB, "sess-b", "reconcile the billing ledger", "Decision: ledger drift came from double-posted credits.")
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "convspace",
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "a"}, {RepoKey: keyB, Name: "b"}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	searchOut, err := execute(t, cmd, "workspace", "search", "convspace", "deploy rollback loop", "--source", "conversation", "--json")
+	if err != nil {
+		t.Fatalf("workspace conversation search: %v", err)
+	}
+	if !strings.Contains(searchOut, "stale health probe") {
+		t.Fatalf("missing member A conversation hit:\n%s", searchOut)
+	}
+	if strings.Contains(searchOut, "billing ledger") {
+		t.Fatalf("member B's unrelated conversation leaked:\n%s", searchOut)
+	}
+	if !strings.Contains(searchOut, `"repo_key": "`+keyA+`"`) || !strings.Contains(searchOut, `"repo_key": "`+keyB+`"`) {
+		t.Fatalf("results not grouped by repo identity:\n%s", searchOut)
+	}
+	if !strings.Contains(searchOut, `"historical_conversation"`) || !strings.Contains(searchOut, `"verification_required": true`) {
+		t.Fatalf("historical-evidence contract missing in workspace fan-out:\n%s", searchOut)
+	}
+	// Source isolation per member: no fact/doc/history record in a
+	// conversation-scoped fan-out.
+	if strings.Contains(searchOut, `"source": "doc"`) || strings.Contains(searchOut, `"source": "history"`) {
+		t.Fatalf("non-conversation source leaked:\n%s", searchOut)
+	}
+
+	// Filters flow through the shared contract; a wrong-source filter is one
+	// structured error before the fan-out. Fresh root command: cobra flag
+	// values stick across executions.
+	badCmd := NewRootCommand(Options{Version: "t", Env: env, Runner: runner, Now: func() time.Time { return now }})
+	if _, err := execute(t, badCmd, "workspace", "search", "convspace", "deploy", "--agent", "Claude Code"); err == nil {
+		t.Fatal("agent filter without conversation source must error")
+	}
+	filtered, err := execute(t, NewRootCommand(Options{Version: "t", Env: env, Runner: runner, Now: func() time.Time { return now }}),
+		"workspace", "search", "convspace", "deploy rollback loop", "--source", "conversation", "--agent", "Codex", "--json")
+	if err != nil {
+		t.Fatalf("filtered search: %v", err)
+	}
+	if strings.Contains(filtered, "stale health probe") {
+		t.Fatalf("agent filter did not exclude Claude Code sessions:\n%s", filtered)
+	}
+
+	// Explicit cross-repo expansion: extract the conversation id and get it
+	// repo-qualified; an unqualified id stays rejected (tested in the base
+	// workspace test).
+	var payload struct {
+		Results []struct {
+			RepoKey string `json:"repo_key"`
+			Results []struct {
+				ID string `json:"id"`
+			} `json:"results"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(searchOut), &payload); err != nil {
+		t.Fatal(err)
+	}
+	var convID string
+	for _, group := range payload.Results {
+		if group.RepoKey == keyA && len(group.Results) > 0 {
+			convID = group.Results[0].ID
+		}
+	}
+	if !strings.HasPrefix(convID, "conversation:") {
+		t.Fatalf("no conversation id in repo A group: %+v", payload.Results)
+	}
+	getOut, err := execute(t, cmd, "workspace", "get", "convspace", keyA+"/"+convID, "--json")
+	if err != nil {
+		t.Fatalf("workspace get conversation: %v", err)
+	}
+	if !strings.Contains(getOut, "pinned the probe version") {
+		t.Fatalf("qualified conversation get missing expansion:\n%s", getOut)
+	}
+	if !strings.Contains(getOut, `"historical_conversation"`) {
+		t.Fatalf("expansion missing caveat:\n%s", getOut)
+	}
+}

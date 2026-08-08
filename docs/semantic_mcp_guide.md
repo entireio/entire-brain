@@ -135,10 +135,19 @@ exported transcript copy plus the derived stores, with `--dry-run` predicting
 the exact artifacts and bytes first. Tombstones survive re-export until an
 explicit include.
 
+Workspace recall (Phase 5): `entire brain workspace search|query <ws> <q>
+--source conversation` fans the conversation source across member brains —
+results stay grouped by `repo_key` (per-brain scores are not comparable), every
+hit carries the historical-evidence contract, the structured filters apply
+per-repo, and namespace isolation holds (only manifest members are searched).
+Cross-repo expansion stays explicit: `workspace get <ws>
+<repo-key>/conversation:<id>` is the second, repo-qualified step before any
+raw content leaves another repository's brain.
+
 Current limits: `brain_vsearch` (MCP) does not accept `source` or filters;
-current repository only; exchanges never enter default retrieval, publish, or
-bundle output (and enter `brain_brief` only under the development flag above);
-and the record schema is experimental and may change.
+exchanges never enter default retrieval, publish, or bundle output (and enter
+`brain_brief` only under the development flag above); and the record schema is
+experimental and may change.
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and
