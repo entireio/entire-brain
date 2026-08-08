@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "3b33864c20a0",
+  "strategy": "manual-commit",
+  "branch": "feat/workspace-conversation-recall",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3b/33864c20a0/0/metadata.json",
+      "transcript": "/3b/33864c20a0/0/full.jsonl",
+      "content_hash": "/3b/33864c20a0/0/content_hash.txt",
+      "prompt": "/3b/33864c20a0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 41,
+    "cache_creation_tokens": 22242,
+    "cache_read_tokens": 17596453,
+    "output_tokens": 14568,
+    "api_call_count": 21
+  }
+}
