@@ -56,3 +56,19 @@ checked-in task prompts, executes adjacent `first_observation` and
 `immediate_repeat` profiles, and retains packet hashes plus numeric profiles
 only. Those order labels make no OS-cache cold/warm claim, and the resulting
 reports are explicitly ineligible for confirmatory or quality conclusions.
+
+## Known raw-history fallback cost
+
+The August 2026 reconciliation observed a zero-match brief that scanned about
+392.7 MB of raw history and spent about 4.37 seconds in that fallback out of a
+5.07-second total. This is a local, workload-specific observation rather than a
+portable performance baseline, but it demonstrates that proving absence may
+still require reading the full available raw-history corpus.
+
+The planned product fix is to make a trustworthy negative result cheap through
+index-coverage metadata or an equivalent negative-result path. If raw scanning
+is still necessary, it should have an explicit work budget and surface a
+degraded or truncated result instead of silently implying a complete negative.
+Any optimization must retain fixtures proving that valid fallback-only matches
+are not lost. This open work is tracked with the other current limitations in
+`docs/semantic_brain_plan.md`.

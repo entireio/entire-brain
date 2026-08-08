@@ -67,3 +67,14 @@ deterministic exhaustive-v2-derived v3 fixture is 5,467 bytes with SHA-256
 The token counts exclude provider framing, cached-input policy, billing, and
 model behavior. They are packet-cost evidence only, not a code-quality result
 or a promotion decision.
+
+## Default-promotion gate
+
+`compact_v3` remains opt-in. The measurements above establish deterministic
+wire equivalence for the scoped fixtures and show packet-cost reductions; they
+do not establish decoder compatibility across consumers, field parity over
+representative production packets, or unchanged agent outcomes. Making v3 the
+default requires those proofs plus an explicit migration and default-change
+decision. Until then, `legacy_json` remains the product default. This gate is
+also recorded in `docs/semantic_brain_plan.md` alongside the current retrieval
+limitations.
