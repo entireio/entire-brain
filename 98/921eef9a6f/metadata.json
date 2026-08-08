@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "98921eef9a6f",
+  "strategy": "manual-commit",
+  "branch": "feat/short-term-memory",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/history.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/refresh.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/watch.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/98/921eef9a6f/0/metadata.json",
+      "transcript": "/98/921eef9a6f/0/full.jsonl",
+      "content_hash": "/98/921eef9a6f/0/content_hash.txt",
+      "prompt": "/98/921eef9a6f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1045,
+    "cache_creation_tokens": 1755367,
+    "cache_read_tokens": 230450729,
+    "output_tokens": 421782,
+    "api_call_count": 525
+  }
+}
