@@ -1,0 +1,144 @@
+Continue the conversational-memory work on entire-brain (~/Projects/entire-brain).
+
+Read first, in order:
+1. ../entire-plan/entire-brain-conversational-memory-improvement-plan.md — I just
+   updated it myself; treat its "Implementation status" section as current truth
+   and take direction from my edits, not from memory summaries.
+2. ../entire-plan/parking-lot.md — two parked items (session-end hook enqueue,
+   factsync deletion semantics); do not unpark without me.
+3. docs/eval_ledger.md (2026-08-07/08 rows) and docs/recall_threat_model.md —
+   measurement discipline and the five invariants no change may break.
+Your auto-memory has the full history under conversational-memory-phase1.
+
+State: Phases 1–4 complete, Phase 5 conversation scope complete, all merged to
+main through PR #81. Two-tier short-te delta + watch
+consolidate-every). Conversation fusion is dark behind
+ENTIRE_BRAIN_CONVERSATION_FUSION (two  reqw1 embedding
+scheme shipped). First action: check PR #82 (Bugbot-review fixes) — if I haven't
+merged it yet, wait; if merged, pull m
+
+Hard process rules:
+- Work in PRs off fresh main. NEVER self-merge; open the PR, wait for the
+  Cursor Bugbot CHECK-RUN (~3 min; a r if it has
+  findings — check SUCCESS with no review = clean), report, and stop.
+- No em dashes in any new prose (commeings).
+- Verify per change: gofmt, go vet, full `go test ./...`, plus the cgo suite:
+  CGO_ENABLED=1 go test -tags 'brain_c/cli/.
+- Dev-only measurements go in docs/eval_ledger.md; no product claims.
+
+Environment: ollama + EmbeddingGemma are installed locally (Intel Mac,
+~200ms/embed; start with `ollama served eval packs
+lived in a dead session's scratchpad — regenerate the retrieval pack before any
+retrieval-quality work (it was aging ahe live brain's
+exchanges, expected IDs bound to current index state).
+
+---
+
+I don't want to merge 82 yet. Kill the monitor. Instead, start your work from its branch. Complete all updated plan items, evaluate and judge the results, and only then open a new PR and have BugBot review it.
+
+---
+
+<task-notification>
+<task-id>ab896c17d76383517</task-id>
+<tool-use-id>toolu_01H29NLZsw2q9t6uZL29nzzf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/13004c3e-234f-4fde-96ff-302bb2fe5c4e/tasks/ab896c17d76383517.output</output-file>
+<status>completed</status>
+<summary>Agent "Map workspace fan-out path" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings below. All paths absolute; line numbers from the current working tree (HEAD `a30036fe`).
+
+## 1. Named-workspace search/query flow
+
+**Entry commands** — all three verbs share one constructor:
+- `/Users/thomi/Projects/entire-brain/internal/cli/workspace.go:454` `newWorkspaceSearchCommand` → `modeLexical`
+- `:458` `newWorkspaceVsearchCommand` → `modeVector`
+- `:462` `newWorkspaceQueryCommand` → `modeHybrid`
+- `:470` `newWorkspaceRetrieveCommand(opts, use, mode, short)` — registers flags `--limit` (:480), `--branch` (:481), `--json` (:482), `--source` (:483), `--after` (:484), `--before` (:485), `--session` (:486), `--agent` (:487) into `workspaceRetrieveOptions` (type at `:69`). RunE at `:477` calls `runWorkspaceRetrieve(cmd, opts, retrieveOpts, mode, args[0], args[1])`.
+- No `--patterns` flag exists on the workspace verbs (unlike the top-level verb at `/Users/thomi/Projects/entire-brain/internal/cli/retrieve_cmd.go:94`).
+- These are CLI-only. MCP exposes no workspace search/query/get tool — only `brain_workspace_regressions`, `brain_workspace_graph`, `brain_workspace_review` (`/Users/thomi/Projects/entire-brain/internal/cli/mcp.go:434,439,444` and dispatch at `:788,807,819`).
+
+**`runWorkspaceRetrieve`** — `/Users/thomi/Projects/entire-brain/internal/cli/workspace.go:2018`:
+1. `:2019` limit guard.
+2. `:2028` builds the shared contract **once, before fan-out**:
+   ```go
+   ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, "")
+   ```
+   The 6th parameter (`branch`) is hardcoded `""`. The comment at `:2024-2027` states this is deliberate.
+3. `:2032` rejects `modeVector` + conversation with `errConversationVectorUnsupported`.
+4. `:2035` rejects conversation-only filters when `Source != conversation`.
+5. `:2038` `loadWorkspaceManifest(opts.Env, workspaceName)` (definition `:2668`).
+6. `:2042` `resolvePluginDirs(opts.Env)` once, errors deferred (`dirsErr`).
+7. **Member fan-out loop `:2044-2072`**, in `manifest.Repos` order (sorted at add time by `sortWorkspaceRepos` `:2748`):
+   - `:2045` `workspaceRepoFreshnessForRepo` (`:2493`) — freshness only, never gates retrieval.
+   - `:2047` `brainDirForKey(opts.Env, repo.RepoKey)` (`/Users/thomi/Projects/entire-brain/internal/cli/env.go:162`) — a hard `return err` (aborts the whole fan-out).
+   - `:2051` `branch, err := workspaceMemberBranch(brainDir, retrieveOpts.branch)` (`:2411`): override wins, else the member brain manifest's `Sources.Sessions.DefaultBranch`, else `distillDefaultBranch`. Per-member error is recorded, loop continues.
+   - `:2060` `resolveWorkspaceMemberRepoDir(ctx, opts, dirs.Config, repo)` (`:2470`) — identity-gated checkout resolution; failure leaves `repoDir == ""`.
+   - `:2062` **the per-member call**:
+     ```go
+     found, err := retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, retrieveOpts.limit, mode, ropts)
+     ```
+     Propagated per member: `repoDir`, `brainDir`, resolved facts `branch` (positional), `query`, `retrieveOpts.limit` (per-repo limit, not a workspace budget), `mode`, and `ropts` = `{Source, After, Before, SessionID, Agent, Branch:""}`.
+   - `:2066` if `repoDir == ""`, `annotateCurrentCodeUnavailable(found)` (`/Users/thomi/Projects/entire-brain/internal/cli/retrieval_guard.go:378`) is applied to every result, including conversation results.
+   - `:2071` appends a `workspaceRetrieveResult` (type `:102`) per member — always, even when empty/errored.
+8. `:2073-2089` **post-fan-out workspace-graph append** (details in §2).
+9. `:2090` JSON envelope `{workspace, query, results}`; `:2097-2120` text render. `:2106-2109` prints `repoKey + "/" + r.ID` except when `result.RepoKey == manifest.Name &amp;&amp; strings.HasPrefix(r.ID, "graph:")`.
+
+**Downstream inside a member** — `/Users/thomi/Projects/entire-brain/internal/cli/retrieve.go:148` `retrieveUnifiedWithOptions`:
+- `:156-158` if `source == retrievalSourceConversation`, short-circuits to `retrieveConversation(brainDir, query, limit, mode, opts)` — note the positional `branch` argument is **dropped entirely** on this path; only `opts.Branch` reaches the conversation filter.
+- `:162-164` otherwise computes `includeFacts/includeHistory/includeDocs` and RRF-merges facts (`:201`), history (`:248`), docs (`:311`) `lists`.
+
+## 2. Every append/merge of another source into a workspace search
+
+- **`/Users/thomi/Projects/entire-brain/internal/cli/workspace.go:2073-2089` — the unconditional workspace-graph append.** Guarded only by `if mode != modeVector`; there is **no check on `ropts.Source`**. So `workspace search|query &lt;ws&gt; &lt;q&gt; --source conversation` still calls `retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)` (`:2242`) and appends a pseudo-member group `{RepoKey: manifest.Name, Name: "workspace graph"}` whose results carry `Source: "workspace_graph"` (set in `workspaceGraphCrossEdgeUnified` `:2335`). Two append sites:
+  - `:2076` error group (any error other than `os.ErrNotExist` from reading `graph.json`).
+  - `:2083` results group when `len(graphResults) &gt; 0`.
+  The same violation applies to `--source fact`, `--source history`, `--source doc`: the graph group is appended regardless.
+- **`retrieveWorkspaceGraphCrossEdges` `:2242`** reads the persisted `graph.json` (`loadWorkspaceGraphPayload` `:2301`, filename const `workspaceGraphName` `:25`), scores cross edges with a naive token-containment scorer `workspaceGraphSearchScore` (`:2386`), sorts and truncates to `limit`. It ignores `retrievalOptions` entirely — no source, no branch, no time/session/agent filter.
+- **Intra-member merge** — `/Users/thomi/Projects/entire-brain/internal/cli/retrieve.go:198,236,280,297,300,331,339` build `lists` from facts/history/docs and RRF-merge them. This path is correctly bypassed for conversation by the short-circuit at `retrieve.go:156`.
+- **`runWorkspaceGet` `:2172-2174`** prepends a workspace-level `workspaceGetResult` (built at `:2141`) ahead of member groups when any bare `pattern:`/`theme:`/`graph:` id was requested.
+- No pattern/theme pointer injection exists on the workspace retrieve path (`relatedPatternPointers` is only called from `runRetrieve`, `/Users/thomi/Projects/entire-brain/internal/cli/retrieve_cmd.go:161`). `workspace patterns` / `workspace skills` are separate commands (`/Users/thomi/Projects/entire-brain/internal/cli/workspace_patterns.go:30,121`).
+- `runWorkspaceContext` (`:589`) and `runWorkspaceImpact` (`:644`) are pure per-member semantic fan-outs with no workspace-level append.
+
+## 3. Where `source=conversation` is honored vs. lost
+
+| Stage | Behavior |
+|---|---|
+| Flag parse `:483` | `--source` string into `workspaceRetrieveOptions.source` |
+| `:2028` `buildRetrievalOptions` | `parseRetrievalSource` (`retrieve.go:110`) normalizes/validates; `""`→`"all"`. Honored. |
+| `:2032` | vector+conversation → `errConversationVectorUnsupported`. Honored. |
+| `:2035` | conversation-only filters with another source → structured error before fan-out. Honored. |
+| `:2062` per member | `ropts.Source` passed through → `retrieve.go:156` short-circuits to `retrieveConversation`. Honored (source isolation is real per member). |
+| `:2073` graph append | **Lost.** Only `mode` is consulted; conversation-scoped results get `workspace_graph` records appended. |
+| `:2098-2116` text render | Renders whatever is in `results`, including the graph group. |
+
+**Branch propagation (the second half of the defect):**
+- Top-level: `/Users/thomi/Projects/entire-brain/internal/cli/retrieve_cmd.go:82` passes `branch` into `buildRetrievalOptions` → `ropts.Branch` set (`:128`), so `--branch` acts as the conversation branch filter (documented at `retrieve_cmd.go:93`).
+- MCP: `/Users/thomi/Projects/entire-brain/internal/cli/mcp.go:890` also passes `branch` through.
+- Workspace: `/Users/thomi/Projects/entire-brain/internal/cli/workspace.go:2028` passes `""`. `ropts.Branch` is therefore always empty in the member fan-out. The per-member resolved `branch` (`:2051`) is passed only as the positional facts-branch argument at `:2062`, and `retrieve.go:157` discards that positional on the conversation path. Net: `workspace search --source conversation --branch X` silently applies **no** branch filter.
+- Consumers of `opts.Branch`: `retrieve.go:605` (`filtered` → candidate over-fetch 16x vs 4x) and `retrieve.go:679` in `conversationRecordMatchesFilters` (`record.Branch != branch`). Both are dead for the workspace path.
+- `retrievalOptions.hasConversationOnlyFilters` (`retrieve.go:87`) deliberately excludes `Branch`, so the `:2035` guard never notices the missing branch.
+
+## 4. `workspace get` — qualified id expansion, including conversation ids
+
+`runWorkspaceGet` — `/Users/thomi/Projects/entire-brain/internal/cli/workspace.go:2124` (command `:491`, flags `--json` `:502`, `--branch` `:503`):
+1. `:2129-2132` builds the member set from the manifest.
+2. `:2138-2153` splits input ids: bare `pattern:` / `theme:` / `graph:` go to `getWorkspaceLevelRecord` (`:2280`, which handles `graph:` from `graph.json` and delegates `pattern:`/`theme:` to `getWorkspaceCorpusRecord`, `/Users/thomi/Projects/entire-brain/internal/cli/pattern_workspace.go:304`); everything else is a member id.
+3. `:2158-2170` `splitWorkspaceID` (`:2428`) splits `&lt;repo-key&gt;/&lt;prefix&gt;…`; the recognized prefix list at `:2429` includes `"conversation:"`. Bare (unqualified) ids error at `:2431`; non-member repo keys error at `:2164`.
+4. `:2176-2210` per-repo loop: `brainDirForKey` `:2178`, `workspaceMemberBranch(brainDir, branchOverride)` `:2182`, `resolveWorkspaceMemberRepoDir` `:2191`, then `getUnifiedBatch(repoDir, brainDir, branch, idsByRepo[repoKey])` `:2193` (`/Users/thomi/Projects/entire-brain/internal/cli/retrieve.go:839`).
+5. Conversation expansion inside `getUnifiedBatch`: detection at `retrieve.go:849` (`conversationIDPrefix`, defined `/Users/thomi/Projects/entire-brain/internal/cli/conversation.go:34`), corpus load `retrieve.go:880-903` splitting `conversationKind` records into `convByID`, and resolution at `retrieve.go:953-959` via `conversationGetResult(brainDir, r)`. The resolved `branch` is used only for `loadFacts`/`loadFactProposals` (`retrieve.go:861,868`) — **conversation get is branch-independent**; `--branch` has no effect on a `conversation:` id.
+6. `:2199-2204` `annotateCurrentCodeUnavailable` when `repoDir == ""`; `:2206-2208` missing ids are re-qualified as `repoKey + "/" + id`.
+
+## 5. Existing workspace test helpers for multi-member workspaces
+
+In `/Users/thomi/Projects/entire-brain/internal/cli/workspace_test.go`:
+- `:2248` `writeWorkspaceBrainRepo(t, env, key, sessionText, repoRel, fileBody) string` — sessions-only brain at `brainDirForKey(env, key)` plus a working tree in a fresh `t.TempDir()`.
+- `:2255` `writeLocalWorkspaceBrainRepo(t, env, sessionText, repoRel, fileBody) (repoDir, key)` — the one used by nearly every multi-member test; derives `local/&lt;localRepoKey(repoDir)&gt;` (`/Users/thomi/Projects/entire-brain/internal/cli/env.go:344`).
+- `:2263` `writeWorkspaceBrainRepoAt(t, env, key, repoDir, …)` — the shared body; writes `sessions/s.jsonl` under `env.PluginDataDir/&lt;repoStoreDirName&gt;/&lt;key&gt;`.
+- `:2774` `writeWorkspaceDocIndex(t, env, key, records ...docRecord)` — seeds a per-member doc index.
+- `:2159` `indexWorkspaceGraphRepo` / `:2164` `indexWorkspaceGraphRepoWithSnapshot` plus snapshot builders `:2184`, `:2194`, `:2203`, `:2212`, `:2221`, `:2229`, `:2238` — semantic-graph member fixtures.
+- Manifest construction is inline everywhere: `workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: …, Repos: []workspaceRepo{…}}` + `writeWorkspaceManifest(env, manifest)` (e.g. `:2799`, `:2872`, `:3067`). There is no shared "build a 2-member workspace" helper.
+- Test-local closure for conversation fixtures: `writeMemberConversation` inside `TestWorkspaceConversationRecallFanOut` at `:3029-3063` — writes `sessions/main/&lt;ts&gt;_&lt;sid&gt;.jsonl`, patches the brain manifest (`Sources.Sessions`, `exportSession{Branch:"main", Agent:"Claude Code"}`), then `writeBrainManifestAndReadme` + `writeBrainHistoryIndexAndSource`. Not exported/reusable as written.
+- Shared infra: `semanticTestEnv` (`/Users/thomi/Projects/entire-brain/internal/cli/semantic_test.go:4494`), `execute` (`/Users/thomi/Projects/entire-brain/internal/cli/root_test.go:13`). Note the recurring in-test caveat that a fresh `NewRootCommand` is needed per execution because cobra flag values persist (e.g. `workspace_test.go:2825-2826`, `:3099-3101`).
+- Existing coverage most relevant to the defect: `TestWorkspaceSearchAndGetFanOutWithQualifiedIDs` `:2789`, `TestWorkspaceSearchAndGetIncludesPersistedGraphEdges` `:2864` (asserts the graph group **is** present for a default-source search/query), `TestWorkspaceConversationRecallFanOut` `:3018` (asserts source isolation only via `"source": "doc"` / `"source": "history"` absence at `:3094` — it does not assert absence of `"source": "workspace_graph"`, and its fixture writes no `graph.json`, so the defect is invisible to it). No test exercises `--source conversation --branch …` in a workspace.</result>
+<usage><subagent_tokens>78912</subagent_tokens><tool_uses>37</tool_uses><duration_ms>180361</duration_ms></usage>
+</task-notification>

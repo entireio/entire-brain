@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "1bdf4cd6552d",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1b/df4cd6552d/0/metadata.json",
+      "transcript": "/1b/df4cd6552d/0/full.jsonl",
+      "content_hash": "/1b/df4cd6552d/0/content_hash.txt",
+      "prompt": "/1b/df4cd6552d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 107,
+    "cache_creation_tokens": 285200,
+    "cache_read_tokens": 8522354,
+    "output_tokens": 66241,
+    "api_call_count": 54
+  }
+}
