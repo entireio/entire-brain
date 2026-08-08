@@ -3353,7 +3353,7 @@ func buildConversationStatus(brainDir string, manifest *exportManifest) *brainSt
 		status.VectorState = "gate_closed"
 		return status
 	}
-	store, ok := newConversationVectorStore(brainDir, e.ID(), e.Dim())
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
 	if !ok {
 		status.VectorState = "unavailable_build"
 		return status

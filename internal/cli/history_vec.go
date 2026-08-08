@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // history_vec.go is the production wiring of the history semantic arm the
@@ -330,6 +331,31 @@ func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHisto
 	return result
 }
 
+// conversationEmbeddingTextVersion versions the exchange embedding scheme.
+// Bumping it changes the store identity, so a scheme change rebuilds the
+// vectors cleanly instead of silently mixing embeddings of different texts.
+// reqw1: request-weighted — the request line plus a bounded response head,
+// instead of the full mixed 2 KiB projection (the 2026-08-07 calibration's
+// reopen avenue: response tails diluted the exchange embeddings).
+const conversationEmbeddingTextVersion = "reqw1"
+
+func conversationVectorModelID(modelID string) string {
+	return modelID + ":" + conversationEmbeddingTextVersion
+}
+
+// conversationEmbeddingText is the text an exchange embeds as: the request
+// (the summary's first line) plus at most 512 bytes of response head. Queries
+// are usually about what was asked or concluded; the long response tail mostly
+// dilutes the vector.
+func conversationEmbeddingText(r historyRecord) string {
+	request, response, _ := strings.Cut(r.Summary, "\n")
+	if strings.TrimSpace(response) == "" {
+		return request
+	}
+	head, _ := truncateUTF8Bytes(response, 512)
+	return request + "\n" + head
+}
+
 // conversationSemanticScores is historySemanticScores against the separate
 // conversation vector store. nil means the conversation semantic arm is
 // unavailable (gate closed, pure-Go build, absent/mismatched store, embedder
@@ -338,7 +364,7 @@ func conversationSemanticScores(brainDir string, e Embedder, query string, limit
 	if e == nil || limit <= 0 {
 		return nil
 	}
-	store, ok := newConversationVectorStore(brainDir, e.ID(), e.Dim())
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
 	if !ok {
 		return nil
 	}
@@ -377,16 +403,17 @@ func rankConversationFused(brainDir string, index historyIndex, query string, li
 // session lines repeat heavily, and the store is keyed by record id so KNN
 // results map straight back to records.
 func syncHistoryVectors(store historyVectorStore, index historyIndex, e Embedder, progress func(done, total int)) (added, dropped, total int, err error) {
-	return syncVectorsForKinds(store, index, e, historyGeneralRankingHiddenKind, progress)
+	return syncVectorsForKinds(store, index, e, historyGeneralRankingHiddenKind, func(r historyRecord) string { return r.Summary }, progress)
 }
 
 // syncConversationVectors maintains the separate conversation vector store:
-// exchange records only, same batching/resume semantics as history vectors.
+// exchange records only, request-weighted embedding text, same batching/resume
+// semantics as history vectors.
 func syncConversationVectors(store historyVectorStore, index historyIndex, e Embedder, progress func(done, total int)) (added, dropped, total int, err error) {
-	return syncVectorsForKinds(store, index, e, conversationSemanticHiddenKind, progress)
+	return syncVectorsForKinds(store, index, e, conversationSemanticHiddenKind, conversationEmbeddingText, progress)
 }
 
-func syncVectorsForKinds(store historyVectorStore, index historyIndex, e Embedder, hiddenKind func(string) bool, progress func(done, total int)) (added, dropped, total int, err error) {
+func syncVectorsForKinds(store historyVectorStore, index historyIndex, e Embedder, hiddenKind func(string) bool, embedText func(historyRecord) string, progress func(done, total int)) (added, dropped, total int, err error) {
 	existing, _ := store.ids() // !ok reads as empty: a fresh or mismatched store rebuilds
 	want := map[string]struct{}{}
 	for _, r := range index.Records {
@@ -419,9 +446,10 @@ func syncVectorsForKinds(store historyVectorStore, index historyIndex, e Embedde
 	bySummary := map[string][]float32{}
 	batch := map[string][]float32{}
 	for i, r := range missing {
-		v, ok := bySummary[r.Summary]
+		text := embedText(r)
+		v, ok := bySummary[text]
 		if !ok {
-			v = e.Embed(r.Summary)
+			v = e.Embed(text)
 			if len(v) != e.Dim() {
 				// Embedder fault mid-sync (server died, transient error). Flush
 				// what we have so the next sync resumes here, then surface it.
@@ -430,7 +458,7 @@ func syncVectorsForKinds(store historyVectorStore, index historyIndex, e Embedde
 				}
 				return added + len(batch), len(drop), len(want), fmt.Errorf("embedder returned no vector for record %s (embed server down mid-sync?); progress saved, re-run refresh to resume", r.ID)
 			}
-			bySummary[r.Summary] = v
+			bySummary[text] = v
 		}
 		batch[r.ID] = v
 		if len(batch) >= flushEvery {
