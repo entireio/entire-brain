@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "f9a5e9f0f29c",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/retrieve.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f9/a5e9f0f29c/0/metadata.json",
+      "transcript": "/f9/a5e9f0f29c/0/full.jsonl",
+      "content_hash": "/f9/a5e9f0f29c/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 25224,
+    "cache_read_tokens": 3272870,
+    "output_tokens": 20423,
+    "api_call_count": 13
+  }
+}
