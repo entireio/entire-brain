@@ -49,6 +49,15 @@ type unifiedResult struct {
 	Turns           []conversationTurn `json:"turns,omitempty"`
 	NextTurn        int                `json:"next_turn,omitempty"`
 	PacketTruncated bool               `json:"packet_truncated,omitempty"`
+
+	// C2 multi-concept session coverage (additive; heading session_coverage).
+	Concepts          []string       `json:"concepts,omitempty"`
+	ConceptMatches    []conceptMatch `json:"concept_matches,omitempty"`
+	EvidenceIDs       []string       `json:"evidence_ids,omitempty"`
+	WorstRank         int            `json:"worst_rank,omitempty"`
+	RankSum           int            `json:"rank_sum,omitempty"`
+	Approximate       bool           `json:"approximate,omitempty"`
+	ResponseTruncated bool           `json:"response_truncated,omitempty"`
 }
 
 type retrievalMode int
@@ -89,6 +98,10 @@ type retrievalOptions struct {
 	SessionID string
 	Agent     string
 	Branch    string
+	// Concepts are the C2 additional multi-concept queries (one to four,
+	// joined with the primary query for session-scoped AND coverage). Valid
+	// only with Source == "conversation".
+	Concepts []string
 }
 
 // hasConversationOnlyFilters reports filters that have no meaning outside the
@@ -97,7 +110,8 @@ type retrievalOptions struct {
 // filter when that source is selected.
 func (o retrievalOptions) hasConversationOnlyFilters() bool {
 	return !o.After.IsZero() || !o.Before.IsZero() ||
-		strings.TrimSpace(o.SessionID) != "" || strings.TrimSpace(o.Agent) != ""
+		strings.TrimSpace(o.SessionID) != "" || strings.TrimSpace(o.Agent) != "" ||
+		len(o.Concepts) > 0
 }
 
 // parseRetrievalTimeFilter parses a CLI/MCP time filter: RFC3339 or a plain
@@ -165,6 +179,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		source = retrievalSourceAll
 	}
 	if source == retrievalSourceConversation {
+		if len(opts.Concepts) > 0 {
+			return retrieveConversationMultiConcept(brainDir, query, limit, mode, opts)
+		}
 		return retrieveConversation(brainDir, query, limit, mode, opts)
 	}
 	if opts.hasConversationOnlyFilters() {

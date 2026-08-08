@@ -73,11 +73,12 @@ type workspaceRetrieveOptions struct {
 	// Retrieval source selector and conversation filters, mirroring the
 	// top-level verbs (Phase 5: the conversation source fans out across member
 	// brains with the same explicit opt-in and caveat contract).
-	source  string
-	after   string
-	before  string
-	session string
-	agent   string
+	source   string
+	after    string
+	before   string
+	session  string
+	agent    string
+	concepts []string
 }
 
 type workspaceImpactOptions struct {
@@ -485,6 +486,7 @@ func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, s
 	cmd.Flags().StringVar(&retrieveOpts.before, "before", "", "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)")
 	cmd.Flags().StringVar(&retrieveOpts.session, "session", "", "Conversation source only: exchanges from this session id")
 	cmd.Flags().StringVar(&retrieveOpts.agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness")
+	cmd.Flags().StringArrayVar(&retrieveOpts.concepts, "concept", nil, "Conversation source only: additional concept (repeatable, up to 4); each member repo's sessions must match the query AND every concept")
 	return cmd
 }
 
@@ -2037,7 +2039,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// to that captured branch in each member brain, exactly like the
 	// top-level verbs (R0-5). Members without that branch simply return no
 	// conversation hits.
-	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch)
+	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch, retrieveOpts.concepts)
 	if err != nil {
 		return fmt.Errorf("--%s", err.Error())
 	}

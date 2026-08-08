@@ -254,13 +254,12 @@ func mcpToolDefinitions() []map[string]any {
 			"branch": branchArg(),
 		}
 	}
-	// Same enum-valued source selector on query and search (per the
-	// conversational-memory plan: no new tool family). vsearch deliberately
-	// does not take it on MCP: the conversation vector arm exists (CLI
-	// `vsearch --source conversation` behind the embedder/cgo/refresh gates)
-	// but is not exposed here until the fused arm qualifies. The structured
-	// filters are conversation-source-only; supplying them with another
-	// source is an error.
+	// One strict retrieval schema for query, search, and vsearch (C2: no new
+	// tool family, same source selector, structured filters, and concepts on
+	// all three). The structured filters and concepts are
+	// conversation-source-only; supplying them with another source is an
+	// error. vsearch over conversation is semantic-only and returns the
+	// structured vector-state error while the arm is closed.
 	retrievalArgsWithSource := func() map[string]any {
 		args := retrievalArgs()
 		args["source"] = map[string]any{
@@ -273,6 +272,11 @@ func mcpToolDefinitions() []map[string]any {
 		args["before"] = stringArg("before", "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)")
 		args["session_id"] = stringArg("session_id", "Conversation source only: exchanges from this session id (disables the per-session diversity cap)")
 		args["agent"] = stringArg("agent", "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")")
+		args["concepts"] = map[string]any{
+			"type": "array", "title": "concepts", "minItems": 1, "maxItems": conversationConceptsMaxTotal - 1,
+			"items":       map[string]any{"type": "string"},
+			"description": "Conversation source only: additional concepts (up to 4). Returns conversation-session: results covering the query AND every concept, with evidence_ids naming the supporting exchanges.",
+		}
 		return args
 	}
 	objectSchema := func(required []string, properties map[string]any) map[string]any {
@@ -310,8 +314,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_vsearch",
-			"description": "Vector (semantic) search across the brain's facts and docs (and history when a Gemma-class embedder is configured) — conceptual/paraphrased queries.",
-			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
+			"description": "Vector (semantic) search across the brain's facts and docs (and history when a Gemma-class embedder is configured) — conceptual/paraphrased queries. Set source=\"conversation\" for semantic-only exchange search (requires the embedder opt-in, the brain_cgo build, and refresh-built conversation vectors; a structured error names what is missing when the arm is closed).",
+			"inputSchema": objectSchema([]string{"query"}, retrievalArgsWithSource()),
 		},
 		{
 			"name":        "brain_get",
@@ -641,10 +645,15 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_vsearch":
 		err = requireMCPQuery(query)
 		if err == nil {
-			// No source/filter arguments: the schema does not advertise them
-			// for vsearch (validateMCPToolArguments already rejects them);
-			// the conversation vector arm stays CLI-only until it qualifies.
-			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, retrievalOptions{}, true, false, "mcp:brain_vsearch")
+			// C2: vsearch shares the strict retrieval schema (source,
+			// structured filters, concepts). An unavailable or stale
+			// conversation vector store returns the structured vector-state
+			// error rather than an empty result.
+			var ropts retrievalOptions
+			ropts, err = mcpRetrievalOptions(params.Arguments, branch)
+			if err == nil {
+				err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, ropts, true, false, "mcp:brain_vsearch")
+			}
 		}
 	case "brain_get":
 		id, stringErr := mcpOptionalString(params.Arguments, "id")
@@ -920,7 +929,23 @@ func mcpRetrievalOptions(args map[string]any, branch string) (retrievalOptions, 
 		}
 		*dst = value
 	}
-	return buildRetrievalOptions(source, after, before, sessionID, agent, branch)
+	var concepts []string
+	if raw, present := args["concepts"]; present && raw != nil {
+		list, ok := raw.([]any)
+		if !ok {
+			return retrievalOptions{}, fmt.Errorf("concepts must be an array of strings")
+		}
+		for _, value := range list {
+			s, ok := value.(string)
+			if !ok {
+				return retrievalOptions{}, fmt.Errorf("concepts must be an array of strings")
+			}
+			// Deliberately unfiltered: an empty concept is a structured input
+			// error downstream, never silently dropped (C2).
+			concepts = append(concepts, s)
+		}
+	}
+	return buildRetrievalOptions(source, after, before, sessionID, agent, branch, concepts)
 }
 
 type mcpProjectSummary struct {

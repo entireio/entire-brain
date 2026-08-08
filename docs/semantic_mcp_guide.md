@@ -164,10 +164,24 @@ mismatch is a structured error. A legacy exchange id that resolves in more
 than one session scope returns `memory_identity_ambiguous` unless `--branch`
 selects one.
 
-Current limits: `brain_vsearch` (MCP) does not accept `source` or filters;
-exchanges never enter default retrieval, publish, or bundle output (and enter
-`brain_brief` only under the development flag above); and the record schema is
-experimental and may change.
+Multi-concept session recall (C2): `search`, `query`, and `vsearch` take
+repeatable `--concept` flags (MCP: a `concepts` array on all three retrieval
+tools, which since C2 share one strict schema including `source` and the
+structured filters on `brain_vsearch` too). Two to five total concepts
+including the query; conversation source only. Results are
+`conversation-session:` records with heading `session_coverage`: a session
+matches only when every concept has at least one matching exchange, ranked by
+worst per-concept rank, then rank sum, then session reference, with
+`evidence_ids` naming the exact supporting exchanges for `brain_get`
+expansion. Lexical mode enumerates each concept's complete in-scope match set
+up to 10,000 candidates and returns `memory_query_too_broad` beyond it;
+vector and hybrid modes are explicitly approximate (`approximate: true`) but
+never violate filters. The complete response is capped at 128 KiB with whole
+results dropped from the tail (`response_truncated`).
+
+Current limits: exchanges never enter default retrieval, publish, or bundle
+output (and enter `brain_brief` only under the development flag above); and
+the record schema is experimental and may change.
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and

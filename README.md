@@ -373,6 +373,16 @@ so one long session cannot crowd out every other trajectory; filtering to a
 session lifts the cap. Re-exported duplicate sessions are collapsed at index
 time (newest export wins).
 
+Multi-concept recall: `--concept <text>` (repeatable, up to 4, conversation
+source only) finds sessions covering the query AND every concept, even when
+the concepts live in different exchanges of the session. Results are
+`conversation-session:` records ranked by worst per-concept rank (then rank
+sum, then session reference) with `evidence_ids` naming the exact supporting
+exchanges. Lexical mode enumerates the complete in-scope match set per
+concept up to a 10,000-candidate ceiling and returns `memory_query_too_broad`
+beyond it; vector/hybrid concept ranking is explicitly approximate. MCP takes
+the same `concepts` array on all three retrieval tools.
+
 Session navigation: every conversation result carries a `session_ref`
 (a virtual `conversation-session:` identity derived from repo, branch, and
 session id; no second transcript archive exists). `get conversation:<id>

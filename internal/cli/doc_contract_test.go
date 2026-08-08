@@ -81,16 +81,18 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 	}
 	searchProps, _ := json.Marshal(searchSchema["properties"])
 	vsearchProps, _ := json.Marshal(vsearchSchema["properties"])
-	for _, arg := range []string{"source", "session_id", "agent", "after", "before"} {
+	// C2: all three retrieval tools share one strict schema (source,
+	// structured filters, concepts).
+	for _, arg := range []string{"source", "session_id", "agent", "after", "before", "concepts"} {
 		if !strings.Contains(string(searchProps), `"`+arg+`"`) {
 			t.Fatalf("brain_search schema missing %q: %s", arg, searchProps)
 		}
-		if strings.Contains(string(vsearchProps), `"`+arg+`"`) {
-			t.Fatalf("brain_vsearch schema must not advertise %q: %s", arg, vsearchProps)
+		if !strings.Contains(string(vsearchProps), `"`+arg+`"`) {
+			t.Fatalf("brain_vsearch schema missing %q: %s", arg, vsearchProps)
 		}
 	}
-	if !strings.Contains(guide, "does not accept `source` or filters") {
-		t.Fatal("semantic guide must document the brain_vsearch source/filter limit")
+	if !strings.Contains(guide, "Multi-concept session recall") {
+		t.Fatal("semantic guide must document multi-concept recall")
 	}
 	// The multi-get schema advertises the same batch cap the code enforces.
 	for _, tool := range mcpToolDefinitions() {

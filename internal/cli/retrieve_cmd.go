@@ -40,6 +40,14 @@ type compactUnifiedResult struct {
 	// SessionRef names the C1 virtual session so a caller can fetch the
 	// outline or adjacent context.
 	SessionRef string `json:"session_ref,omitempty"`
+	// C2 multi-concept session coverage (additive).
+	Concepts          []string       `json:"concepts,omitempty"`
+	ConceptMatches    []conceptMatch `json:"concept_matches,omitempty"`
+	EvidenceIDs       []string       `json:"evidence_ids,omitempty"`
+	WorstRank         int            `json:"worst_rank,omitempty"`
+	RankSum           int            `json:"rank_sum,omitempty"`
+	Approximate       bool           `json:"approximate,omitempty"`
+	ResponseTruncated bool           `json:"response_truncated,omitempty"`
 }
 
 type retrievalTaskHints struct {
@@ -73,6 +81,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var branch string
 	var patterns bool
 	var source, after, before, session, agent string
+	var concepts []string
 	cmd := &cobra.Command{
 		Use:   use + " <query>",
 		Short: short,
@@ -82,7 +91,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			ropts, err := buildRetrievalOptions(source, after, before, session, agent, branch)
+			ropts, err := buildRetrievalOptions(source, after, before, session, agent, branch, concepts)
 			if err != nil {
 				return fmt.Errorf("--%s", err.Error())
 			}
@@ -100,16 +109,31 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().StringVar(&before, "before", "", "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)")
 	cmd.Flags().StringVar(&session, "session", "", "Conversation source only: exchanges from this session id (also disables the per-session diversity cap)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")")
+	cmd.Flags().StringArrayVar(&concepts, "concept", nil, "Conversation source only: additional concept (repeatable, up to 4); sessions must match the query AND every concept")
 	return cmd
 }
 
 // buildRetrievalOptions validates and assembles the shared retrieval-options
 // contract from CLI flags or MCP arguments. branch doubles as the conversation
 // branch filter; error text names bare flag words so the CLI can prefix "--".
-func buildRetrievalOptions(source, after, before, session, agent, branch string) (retrievalOptions, error) {
+func buildRetrievalOptions(source, after, before, session, agent, branch string, concepts []string) (retrievalOptions, error) {
 	parsedSource, err := parseRetrievalSource(source)
 	if err != nil {
 		return retrievalOptions{}, err
+	}
+	trimmedConcepts := make([]string, 0, len(concepts))
+	for _, concept := range concepts {
+		concept = strings.TrimSpace(concept)
+		if concept == "" {
+			return retrievalOptions{}, fmt.Errorf("concept: concepts must be non-empty")
+		}
+		trimmedConcepts = append(trimmedConcepts, concept)
+	}
+	if len(trimmedConcepts) > conversationConceptsMaxTotal-1 {
+		return retrievalOptions{}, fmt.Errorf("concept: at most %d additional concepts (got %d)", conversationConceptsMaxTotal-1, len(trimmedConcepts))
+	}
+	if len(trimmedConcepts) > 0 && parsedSource != retrievalSourceConversation {
+		return retrievalOptions{}, fmt.Errorf(`concept: concepts require source "conversation" (got %q)`, parsedSource)
 	}
 	afterTime, err := parseRetrievalTimeFilter(after)
 	if err != nil {
@@ -129,6 +153,7 @@ func buildRetrievalOptions(source, after, before, session, agent, branch string)
 		SessionID: strings.TrimSpace(session),
 		Agent:     strings.TrimSpace(agent),
 		Branch:    strings.TrimSpace(branch),
+		Concepts:  trimmedConcepts,
 	}, nil
 }
 
@@ -314,6 +339,9 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 			EndLine: result.EndLine, Branch: result.Branch, SessionID: result.SessionID,
 			Agent: result.Agent, CreatedAt: result.CreatedAt, Truncated: result.Truncated,
 			MatchedTerms: result.MatchedTerms, SessionRef: result.SessionRef,
+			Concepts: result.Concepts, ConceptMatches: result.ConceptMatches,
+			EvidenceIDs: result.EvidenceIDs, WorstRank: result.WorstRank, RankSum: result.RankSum,
+			Approximate: result.Approximate, ResponseTruncated: result.ResponseTruncated,
 		}
 	}
 	return out
