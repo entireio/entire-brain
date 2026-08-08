@@ -257,8 +257,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			}
 			// Semantic arms rank the long-term records minus files the
 			// short-term overlay superseded (overlay records have no vectors
-			// until consolidation; the lexical tier carries their freshness).
-			index := fresh.longTermActive()
+			// until consolidation; the lexical tier carries their freshness)
+			// and minus copies a newer overlay copy supersedes (R0-4).
+			index := fresh.longTermReconciled()
 			var lexicalHistoryIDs map[string]struct{}
 			if mode != modeVector {
 				historyCandidateLimit := candidateLimit * 3
@@ -630,8 +631,11 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 			return nil, errConversationVectorUnsupported
 		}
 		// Semantic-only ranks long-term vectors; short-term records have no
-		// vectors until consolidation and are deliberately absent here.
-		semIndex := fresh.longTermActive()
+		// vectors until consolidation and are deliberately absent here. The
+		// reconciled view also drops long-term copies a newer overlay copy
+		// supersedes (R0-4): those wait for consolidation like any other
+		// short-term record instead of surfacing stale.
+		semIndex := fresh.longTermReconciled()
 		if pred != nil {
 			semIndex = historyIndex{GeneratedAt: semIndex.GeneratedAt, Records: filterHistoryRecords(semIndex.Records, pred)}
 		}
@@ -930,9 +934,10 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			if err != nil {
 				return nil, nil, fmt.Errorf("load history index: %w", err)
 			}
-			// mergedRecords appends short-term records last, so for a duplicate
-			// id the fresher short-term copy wins the map insert.
-			for _, r := range fresh.mergedRecords() {
+			// reconciledRecords collapses duplicate stable IDs to the same
+			// newest-copy winner ranking uses, so get expands exactly the
+			// record search returned (R0-4).
+			for _, r := range fresh.reconciledRecords() {
 				if r.Kind == conversationKind {
 					convByID[r.ID] = r
 					continue

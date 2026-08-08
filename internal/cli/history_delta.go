@@ -269,9 +269,84 @@ func loadFreshHistory(brainDir string, source *historySourceManifest) (freshHist
 	return fresh, nil
 }
 
-// mergedRecords is the get/multi-get view: long-term records minus superseded
-// files, plus every overlay record (overlay wins for duplicate IDs by order;
-// callers index into maps last-write-wins).
+// historyRecordSourceTime derives a record's source recency from its
+// transcript path: the exporter embeds a sortable timestamp in the filename,
+// and the full build's re-export dedupe iterates files newest-first on
+// exactly this key. Zero when the filename carries no timestamp.
+func historyRecordSourceTime(r historyRecord) time.Time {
+	return historySessionSortTime(r.Path, time.Time{})
+}
+
+// newestHistoryRecord picks the winner between two copies of one stable ID:
+// newest source time, then lexicographically greatest path (paths embed the
+// export timestamp), then greatest source digest. The rule is derived only
+// from the records themselves, never from which tier held them, so search,
+// fusion, and get cannot disagree on the winner (R0-4).
+func newestHistoryRecord(a, b historyRecord) historyRecord {
+	at, bt := historyRecordSourceTime(a), historyRecordSourceTime(b)
+	if at.After(bt) {
+		return a
+	}
+	if bt.After(at) {
+		return b
+	}
+	if a.Path != b.Path {
+		if a.Path > b.Path {
+			return a
+		}
+		return b
+	}
+	if a.SourceDigest >= b.SourceDigest {
+		return a
+	}
+	return b
+}
+
+// sameRecordCopy reports whether two records are the same physical copy of a
+// stable ID: same source path, digest, and anchor line.
+func sameRecordCopy(a, b historyRecord) bool {
+	return a.Path == b.Path && a.SourceDigest == b.SourceDigest && a.Line == b.Line
+}
+
+// duplicateIDWinners maps every stable ID that appears more than once across
+// the two tiers (or twice inside the overlay, which lacks the full build's
+// re-export dedupe) to its newest valid copy. Empty overlay means the
+// long-term index's own build-time dedupe already holds and there is nothing
+// to reconcile.
+func (f freshHistory) duplicateIDWinners() map[string]historyRecord {
+	if len(f.overlay) == 0 {
+		return nil
+	}
+	seen := map[string]historyRecord{}
+	var winners map[string]historyRecord
+	consider := func(r historyRecord) {
+		prev, ok := seen[r.ID]
+		if !ok {
+			seen[r.ID] = r
+			return
+		}
+		w := newestHistoryRecord(prev, r)
+		seen[r.ID] = w
+		if winners == nil {
+			winners = map[string]historyRecord{}
+		}
+		winners[r.ID] = w
+	}
+	for _, r := range f.index.Records {
+		if f.replaced[r.Path] {
+			continue
+		}
+		consider(r)
+	}
+	for _, r := range f.overlay {
+		consider(r)
+	}
+	return winners
+}
+
+// mergedRecords is the raw two-tier union: long-term records minus superseded
+// files, plus every overlay record. Duplicate stable IDs are NOT reconciled
+// here; readers that resolve records by ID must use reconciledRecords.
 func (f freshHistory) mergedRecords() []historyRecord {
 	if len(f.overlay) == 0 {
 		return f.index.Records
@@ -284,6 +359,49 @@ func (f freshHistory) mergedRecords() []historyRecord {
 		out = append(out, record)
 	}
 	return append(out, f.overlay...)
+}
+
+// reconciledRecords is the get/multi-get view (R0-4): the two-tier union with
+// every duplicate stable ID collapsed to its newest valid copy through the
+// same winner rule ranking uses, so expansion resolves exactly the record
+// search ranked.
+func (f freshHistory) reconciledRecords() []historyRecord {
+	merged := f.mergedRecords()
+	winners := f.duplicateIDWinners()
+	if len(winners) == 0 {
+		return merged
+	}
+	out := make([]historyRecord, 0, len(merged))
+	emitted := map[string]bool{}
+	for _, r := range merged {
+		if w, ok := winners[r.ID]; ok {
+			if !sameRecordCopy(w, r) || emitted[r.ID] {
+				continue
+			}
+			emitted[r.ID] = true
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// longTermReconciled is longTermActive minus copies superseded by a newer
+// overlay copy (R0-4). The semantic arms rank over it so a stale long-term
+// copy can never be scored while get would expand the newer overlay copy.
+func (f freshHistory) longTermReconciled() historyIndex {
+	active := f.longTermActive()
+	winners := f.duplicateIDWinners()
+	if len(winners) == 0 {
+		return active
+	}
+	kept := make([]historyRecord, 0, len(active.Records))
+	for _, r := range active.Records {
+		if w, ok := winners[r.ID]; ok && !sameRecordCopy(w, r) {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return historyIndex{GeneratedAt: active.GeneratedAt, Records: kept}
 }
 
 // longTermActive returns the long-term records minus superseded files, for
@@ -330,16 +448,31 @@ func rankFreshHistory(
 	if len(fresh.overlay) == 0 {
 		return lex
 	}
+	// One winner per stable ID across the tiers (R0-4): a superseded copy
+	// neither surfaces nor contributes a duplicate rank vote to the fusion.
+	winners := fresh.duplicateIDWinners()
+	superseded := func(r historyRecord) bool {
+		w, ok := winners[r.ID]
+		return ok && !sameRecordCopy(w, r)
+	}
 	kept := lex[:0:0]
 	for _, scored := range lex {
-		if fresh.replaced[scored.Record.Path] {
+		if fresh.replaced[scored.Record.Path] || superseded(scored.Record) {
 			continue
 		}
 		kept = append(kept, scored)
 	}
-	overlayRecords := fresh.overlay
-	if pred != nil {
-		overlayRecords = filterHistoryRecords(overlayRecords, pred)
+	overlayRecords := make([]historyRecord, 0, len(fresh.overlay))
+	seenOverlay := map[string]bool{}
+	for _, r := range fresh.overlay {
+		if pred != nil && !pred(r) {
+			continue
+		}
+		if superseded(r) || (winners[r.ID].ID != "" && seenOverlay[r.ID]) {
+			continue
+		}
+		seenOverlay[r.ID] = true
+		overlayRecords = append(overlayRecords, r)
 	}
 	overlayRanked := rankHistoryRecordsScored(historyIndex{Records: overlayRecords}, kind, query, limit, 0)
 	if len(overlayRanked) == 0 {

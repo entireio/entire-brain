@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -424,5 +425,116 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 1 {
 		t.Fatalf("consolidate-every=0 must refresh on change: refreshes=%d out=%q", refreshes, out.String())
+	}
+}
+
+// TestTwoTierStableIDReconciliation is the R0-4 adversarial fixture: the same
+// stable exchange ID exists at an old path in the long-term index and at a
+// newer path with newer text in the short-term overlay (and, for a second ID,
+// the reverse). Search and get must agree on the newer copy in both
+// directions, and a duplicated ID may contribute rank at most once.
+func TestTwoTierStableIDReconciliation(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	generated := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+	oldPathX := "sessions/main/20260801T000000Z_sess-x.jsonl"
+	newPathX := "sessions/main/20260806T000000Z_sess-x.jsonl"
+	oldPathY := "sessions/main/20260802T000000Z_sess-y.jsonl"
+	newPathY := "sessions/main/20260807T000000Z_sess-y.jsonl"
+	idX := conversationIDPrefix + "xdup"
+	idY := conversationIDPrefix + "ydup"
+	mk := func(id, path, summary, digest, session string) historyRecord {
+		return historyRecord{
+			ID: id, Kind: conversationKind, Path: path, Line: 1, EndLine: 2, TurnOrdinal: 1,
+			SessionID: session, Summary: summary, ContentRole: conversationContentRole,
+			SourceDigest: digest,
+		}
+	}
+	// Long-term: X at its OLD export path, Y already at its NEW path.
+	index := historyIndex{GeneratedAt: generated, Records: []historyRecord{
+		mk(idX, oldPathX, "lock decision stale copy", "sha256:x-old", "sess-x"),
+		mk(idY, newPathY, "cache decision current copy", "sha256:y-new", "sess-y"),
+	}}
+	data, err := json.MarshalIndent(index, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   generated,
+		Sources: &brainSources{History: &historySourceManifest{
+			GeneratedAt: generated, IndexPath: historyIndexPath, Records: len(index.Records),
+		}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	// Overlay: X re-exported at a NEWER path with newer text, Y at an OLDER
+	// path with stale text.
+	overlay := shortTermIndex{
+		Version:         historyShortTermVersion,
+		BaseGeneratedAt: generated,
+		GeneratedAt:     generated.Add(time.Hour),
+		Files: map[string]shortTermFile{
+			newPathX: {Records: []historyRecord{mk(idX, newPathX, "lock decision revised copy", "sha256:x-new", "sess-x")}},
+			oldPathY: {Records: []historyRecord{mk(idY, oldPathY, "cache decision stale copy", "sha256:y-old", "sess-y")}},
+		},
+	}
+	overlayData, err := json.MarshalIndent(overlay, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), overlayData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Search: exactly one copy per ID, and it is the newer source both ways.
+	scored := rankFreshHistory(fresh, conversationKind, "decision copy", 10, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+		return rankHistoryViaFTS(brainDir, longTerm, conversationKind, "decision copy", 10)
+	})
+	paths := map[string][]string{}
+	for _, s := range scored {
+		paths[s.Record.ID] = append(paths[s.Record.ID], s.Record.Path)
+	}
+	if got := paths[idX]; len(got) != 1 || got[0] != newPathX {
+		t.Fatalf("search winner for X must be the newer overlay copy exactly once: %v", got)
+	}
+	if got := paths[idY]; len(got) != 1 || got[0] != newPathY {
+		t.Fatalf("search winner for Y must be the newer long-term copy exactly once: %v", got)
+	}
+
+	// Get: the same winners, so search and expansion cannot disagree.
+	found, missing, err := getUnifiedBatch("", brainDir, "main", []string{idX, idY})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(missing) != 0 || len(found) != 2 {
+		t.Fatalf("get: found=%d missing=%v", len(found), missing)
+	}
+	if found[0].Path != newPathX || !strings.Contains(found[0].Text, "revised") {
+		t.Fatalf("get X resolved the stale copy: path=%s text=%q", found[0].Path, found[0].Text)
+	}
+	if found[1].Path != newPathY || !strings.Contains(found[1].Text, "current") {
+		t.Fatalf("get Y resolved the stale copy: path=%s text=%q", found[1].Path, found[1].Text)
+	}
+
+	// The semantic view drops only the superseded long-term copy.
+	semIndex := fresh.longTermReconciled()
+	for _, r := range semIndex.Records {
+		if r.ID == idX {
+			t.Fatalf("superseded long-term copy of X still in the semantic view: %+v", r)
+		}
+		if r.ID == idY && r.Path != newPathY {
+			t.Fatalf("semantic view holds the wrong Y copy: %+v", r)
+		}
 	}
 }
