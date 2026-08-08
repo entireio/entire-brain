@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "9876cada4b1e",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/live_e2e_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/98/76cada4b1e/0/metadata.json",
+      "transcript": "/98/76cada4b1e/0/full.jsonl",
+      "content_hash": "/98/76cada4b1e/0/content_hash.txt",
+      "prompt": "/98/76cada4b1e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 85,
+    "cache_creation_tokens": 67624,
+    "cache_read_tokens": 36302783,
+    "output_tokens": 44593,
+    "api_call_count": 45
+  }
+}
