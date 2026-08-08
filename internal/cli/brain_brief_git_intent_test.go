@@ -336,8 +336,9 @@ func TestBrainBriefGitIntentRejectsSymlinkAndTimeout(t *testing.T) {
 		if brainBriefPromoteGitIntentFile(context.Background(), brainBriefGitIntentBlockingRunner{}, t.TempDir(), after.Task, &after) {
 			t.Fatal("timed-out Git call promoted a file")
 		}
-		if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
-			t.Fatalf("100ms hard timeout returned after %s", elapsed)
+		timeout := brainBriefGitIntentTimeoutForPlatform()
+		if elapsed := time.Since(started); elapsed > timeout+500*time.Millisecond {
+			t.Fatalf("%s hard timeout returned after %s", timeout, elapsed)
 		}
 		assertBrainBriefGitIntentPacketIdentity(t, before, after)
 	})

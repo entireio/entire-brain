@@ -391,7 +391,7 @@ func TestHistoryLegacyIdentityManifestReplacementIsAtomic(t *testing.T) {
 	if matches, err := filepath.Glob(filepath.Join(brainDir, "."+exportManifestFileName+".tmp-*")); err != nil || len(matches) != 0 {
 		t.Fatalf("atomic manifest temp leak: matches=%v err=%v", matches, err)
 	}
-	if info, err := os.Stat(manifestPath); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(manifestPath); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("manifest mode after migration: info=%v err=%v", info, err)
 	}
 }
