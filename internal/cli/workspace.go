@@ -70,6 +70,14 @@ type workspaceRetrieveOptions struct {
 	limit  int
 	branch string
 	json   bool
+	// Retrieval source selector and conversation filters, mirroring the
+	// top-level verbs (Phase 5: the conversation source fans out across member
+	// brains with the same explicit opt-in and caveat contract).
+	source  string
+	after   string
+	before  string
+	session string
+	agent   string
 }
 
 type workspaceImpactOptions struct {
@@ -472,6 +480,11 @@ func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, s
 	cmd.Flags().IntVar(&retrieveOpts.limit, "limit", 10, "Maximum results per repo")
 	cmd.Flags().StringVar(&retrieveOpts.branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
 	cmd.Flags().BoolVar(&retrieveOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&retrieveOpts.source, "source", "", "Restrict retrieval to one source per repo: all, fact, history, conversation, or doc (conversation is experimental opt-in)")
+	cmd.Flags().StringVar(&retrieveOpts.after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
+	cmd.Flags().StringVar(&retrieveOpts.before, "before", "", "Conversation source only: sessions before this time (RFC3339 or YYYY-MM-DD)")
+	cmd.Flags().StringVar(&retrieveOpts.session, "session", "", "Conversation source only: exchanges from this session id")
+	cmd.Flags().StringVar(&retrieveOpts.agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness")
 	return cmd
 }
 
@@ -480,7 +493,7 @@ func newWorkspaceGetCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "get <workspace> <repo-key/id>...",
-		Short: "Fetch items in full by repo-qualified id (e.g. gh/owner/repo/fact:…, as printed by workspace search)",
+		Short: "Fetch items in full by repo-qualified id (e.g. gh/owner/repo/fact:… or gh/owner/repo/conversation:…, as printed by workspace search)",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceGet(cmd, opts, args[0], args[1:], branch, jsonOut)
@@ -2006,6 +2019,22 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if retrieveOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
+	// Validate the source/filter contract once, before the fan-out, so an
+	// invalid selector is one structured error rather than N per-repo copies.
+	// Note: retrieveOpts.branch is the facts-branch selector resolved per
+	// member below; the conversation branch filter is deliberately NOT wired
+	// to it here (member repos are on different branches — filter per-repo
+	// results by branch in the caller if needed).
+	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, "")
+	if err != nil {
+		return fmt.Errorf("--%s", err.Error())
+	}
+	if mode == modeVector && ropts.Source == retrievalSourceConversation {
+		return errConversationVectorUnsupported
+	}
+	if ropts.hasConversationOnlyFilters() && ropts.Source != retrievalSourceConversation {
+		return fmt.Errorf(`after/before/session/agent filters require --source conversation (got %q)`, ropts.Source)
+	}
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
@@ -2030,7 +2059,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		if dirsErr == nil {
 			repoDir, _ = resolveWorkspaceMemberRepoDir(cmd.Context(), opts, dirs.Config, repo)
 		}
-		found, err := retrieveUnified(repoDir, brainDir, branch, query, retrieveOpts.limit, mode)
+		found, err := retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, retrieveOpts.limit, mode, ropts)
 		if err != nil {
 			result.Error = err.Error()
 		} else if found != nil {
@@ -2397,7 +2426,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // into the repo key and the brain-local id. Repo keys never contain ':', so the
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
-	for _, prefix := range []string{"fact:", "review:", "history:", "doc:", "pattern:", "theme:"} {
+	for _, prefix := range []string{"fact:", "review:", "history:", "conversation:", "doc:", "pattern:", "theme:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}
@@ -2405,7 +2434,7 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 			return qualified[:i], qualified[i+1:], nil
 		}
 	}
-	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/review:…, <repo-key>/history:…, <repo-key>/doc:…, <repo-key>/pattern:…, or <repo-key>/theme:…)", qualified)
+	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/review:…, <repo-key>/history:…, <repo-key>/conversation:…, <repo-key>/doc:…, <repo-key>/pattern:…, or <repo-key>/theme:…)", qualified)
 }
 
 // workspaceFullRefresh fans the free deterministic single-repo refresh over
