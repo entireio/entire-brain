@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,16 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 	}
 	if !strings.Contains(guide, "does not accept `source` or filters") {
 		t.Fatal("semantic guide must document the brain_vsearch source/filter limit")
+	}
+	// The multi-get schema advertises the same batch cap the code enforces.
+	for _, tool := range mcpToolDefinitions() {
+		if tool["name"] != "brain_multi_get" {
+			continue
+		}
+		schema, _ := json.Marshal(tool["inputSchema"])
+		if !strings.Contains(string(schema), `"maxItems":`+fmt.Sprint(maxGetBatchIDs)) {
+			t.Fatalf("brain_multi_get schema must advertise maxItems %d: %s", maxGetBatchIDs, schema)
+		}
 	}
 
 	// CLI verbs: --source is registered on search, query, and vsearch.

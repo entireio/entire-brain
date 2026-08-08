@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -479,9 +480,10 @@ func TestTwoTierStableIDReconciliation(t *testing.T) {
 	// Overlay: X re-exported at a NEWER path with newer text, Y at an OLDER
 	// path with stale text.
 	overlay := shortTermIndex{
-		Version:         historyShortTermVersion,
-		BaseGeneratedAt: generated,
-		GeneratedAt:     generated.Add(time.Hour),
+		Version:           historyShortTermVersion,
+		ReconcilerVersion: historyShortTermReconcilerVersion,
+		BaseGeneratedAt:   generated,
+		GeneratedAt:       generated.Add(time.Hour),
 		Files: map[string]shortTermFile{
 			newPathX: {Records: []historyRecord{mk(idX, newPathX, "lock decision revised copy", "sha256:x-new", "sess-x")}},
 			oldPathY: {Records: []historyRecord{mk(idY, oldPathY, "cache decision stale copy", "sha256:y-old", "sess-y")}},
@@ -616,43 +618,47 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 		t.Fatalf("complete overlay must cover the gap: %s %q", state, detail)
 	}
 
-	// One unreadable transcript: the delta must record the failure durably and
-	// doctor must stop claiming coverage.
-	badRel := "sessions/main/20260808T113000Z_bad.jsonl"
-	writeTranscript(badRel, "unreadable", "unreadable")
-	badFull := filepath.Join(brainDir, filepath.FromSlash(badRel))
-	if err := os.Chmod(badFull, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(badFull, 0o600) })
-	addSession("bad-sess", badRel)
-	stats := buildShortTerm(t, brainDir)
-	if stats.Failed != 1 {
-		t.Fatalf("stats.Failed = %d, want 1", stats.Failed)
-	}
 	onDiskManifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	overlay, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History)
-	if state != shortTermStateCurrent || len(overlay.FailedFiles) != 1 || overlay.FailedFiles[0] != badRel {
-		t.Fatalf("failed file identity not durable: state=%s failed=%v", state, overlay.FailedFiles)
-	}
-	if fstate, detail, checks := freshness(); fstate != "warn" || strings.Contains(detail, "covers the gap (") {
-		t.Fatalf("partial overlay must not claim coverage: %s %q %+v", fstate, detail, checks["short_term_memory"])
+
+	// One unreadable transcript: the delta must record the failure durably and
+	// doctor must stop claiming coverage. POSIX permission semantics; Windows
+	// cannot express an unreadable file through chmod.
+	if runtime.GOOS != "windows" {
+		badRel := "sessions/main/20260808T113000Z_bad.jsonl"
+		writeTranscript(badRel, "unreadable", "unreadable")
+		badFull := filepath.Join(brainDir, filepath.FromSlash(badRel))
+		if err := os.Chmod(badFull, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(badFull, 0o600) })
+		addSession("bad-sess", badRel)
+		failedStats := buildShortTerm(t, brainDir)
+		if failedStats.Failed != 1 {
+			t.Fatalf("stats.Failed = %d, want 1", failedStats.Failed)
+		}
+		overlay, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History)
+		if state != shortTermStateCurrent || len(overlay.FailedFiles) != 1 || overlay.FailedFiles[0] != badRel {
+			t.Fatalf("failed file identity not durable: state=%s failed=%v", state, overlay.FailedFiles)
+		}
+		if fstate, detail, checks := freshness(); fstate != "warn" || strings.Contains(detail, "covers the gap (") {
+			t.Fatalf("partial overlay must not claim coverage: %s %q %+v", fstate, detail, checks["short_term_memory"])
+		}
+		if err := os.Chmod(badFull, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	// Overflow: the truncated buffer is partial coverage.
-	if err := os.Chmod(badFull, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	oldMax := historyShortTermMaxRecords
 	historyShortTermMaxRecords = 1
 	defer func() { historyShortTermMaxRecords = oldMax }()
-	stats = buildShortTerm(t, brainDir)
+	overflowStats := buildShortTerm(t, brainDir)
 	historyShortTermMaxRecords = oldMax
-	if !stats.Truncated {
-		t.Fatalf("expected truncation: %+v", stats)
+	if !overflowStats.Truncated {
+		t.Fatalf("expected truncation: %+v", overflowStats)
 	}
 	if fstate, detail, _ := freshness(); fstate != "warn" || !strings.Contains(detail, "partially") {
 		t.Fatalf("truncated overlay must be partial: %s %q", fstate, detail)
@@ -679,5 +685,66 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 	}
 	if fstate, _, checks := freshness(); fstate != "warn" || !strings.Contains(checks["short_term_memory"].Detail, "unsupported") {
 		t.Fatalf("unsupported overlay must warn: %s %+v", fstate, checks["short_term_memory"])
+	}
+}
+
+// TestShortTermReconcilerVersionGate proves the R0-6 refinement: an overlay
+// built for a different record-reconciliation rule reads as unsupported and
+// never joins ranking or coverage claims.
+func TestShortTermReconcilerVersionGate(t *testing.T) {
+	brainDir, _, _ := shortTermFixture(t)
+	buildShortTerm(t, brainDir)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay, state := loadHistoryShortTermState(brainDir, manifest.Sources.History)
+	if state != shortTermStateCurrent {
+		t.Fatalf("fresh overlay state = %s", state)
+	}
+	overlay.ReconcilerVersion = historyShortTermReconcilerVersion - 1
+	if err := saveHistoryShortTerm(brainDir, overlay); err != nil {
+		t.Fatal(err)
+	}
+	if _, state := loadHistoryShortTermState(brainDir, manifest.Sources.History); state != shortTermStateUnsupported {
+		t.Fatalf("old reconciler version must read unsupported: %s", state)
+	}
+}
+
+// TestConsolidationKeepsOverlayCoveringNewerSources proves the R0-6
+// fingerprint gate: a full build from an older source set must not destroy an
+// overlay that covers newer work; a build from the same set clears it.
+func TestConsolidationKeepsOverlayCoveringNewerSources(t *testing.T) {
+	brainDir, _, _ := shortTermFixture(t)
+	buildShortTerm(t, brainDir)
+	overlayPath := filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath))
+	if _, err := os.Stat(overlayPath); err != nil {
+		t.Fatalf("overlay must exist: %v", err)
+	}
+	// Simulate an overlay built against a NEWER source set than the manifest
+	// the full build is about to consume.
+	overlay, state := loadHistoryShortTermRaw(brainDir)
+	if state != shortTermStateCurrent {
+		t.Fatalf("raw overlay state = %s", state)
+	}
+	overlay.SessionsFingerprint = "sha256:newer-than-this-build"
+	if err := saveHistoryShortTerm(brainDir, overlay); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(overlayPath); err != nil {
+		t.Fatalf("consolidation from an older source set must keep the newer overlay: %v", err)
+	}
+
+	// A delta rebuild re-pins the overlay to the current sources; the next
+	// consolidation covers it and clears.
+	buildShortTerm(t, brainDir)
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 8, 16, 0, 0, 0, time.UTC), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(overlayPath); !os.IsNotExist(err) {
+		t.Fatalf("covered overlay must be cleared by consolidation: %v", err)
 	}
 }

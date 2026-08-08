@@ -84,6 +84,13 @@ Enforced:
 
 Residual (tracked):
 
+- **Pattern/theme read surfaces**: pattern outputs are cross-session
+  aggregates without per-row session identity, so they cannot be
+  tombstone-filtered at read time. Exclusion deletes the pattern stores
+  wholesale (regenerated from tombstone-filtered truth), which leaves only
+  the instants inside the locked cleanup itself; a per-row provenance schema
+  would be needed to close that fully.
+
 - **`facts sync` git-meta store**: keep-both merge retains synced copies of
   purged facts and can merge them back. The purge plan reports an explicit
   "NOT purged" caveat naming the store; real deletion semantics are a

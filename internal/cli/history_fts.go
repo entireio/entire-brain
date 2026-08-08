@@ -3,11 +3,13 @@ package cli
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // history_fts.go builds a derived FTS5 BM25 index over the history records and
@@ -235,6 +237,38 @@ func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, 
 func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool) {
 	out, _, ok := rankHistoryViaFTSFiltered(brainDir, index, kind, query, limit, cutoff, nil)
 	return out, ok
+}
+
+// historyFTSContainsPathPhrase reports whether the on-disk BM25 store holds
+// any row mentioning the given transcript path (record content indexes the
+// path text). It opens the store file directly, never through openHistoryFTS,
+// so a privacy verify pass can inspect rows without ever triggering a
+// rebuild. An absent or unreadable store returns an error; the caller falls
+// back to the deletion and mtime checks.
+func historyFTSContainsPathPhrase(brainDir, rel string) (bool, error) {
+	path := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))
+	if _, err := os.Stat(path); err != nil {
+		return false, err
+	}
+	db, err := sql.Open(sqliteDriverName, path)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	base := filepath.Base(rel)
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	fields := strings.FieldsFunc(strings.ToLower(base), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	if len(fields) == 0 {
+		return false, nil
+	}
+	phrase := `"` + strings.Join(fields, " ") + `"`
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM history_fts WHERE history_fts MATCH ?`, phrase).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // historyFTSFilteredScanCeiling bounds the exhaustive candidate scan behind a

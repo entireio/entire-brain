@@ -630,12 +630,17 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// higher-ranked out-of-scope rows. The over-fetch below is dedup/diversity
 	// headroom only. The exclusion guard joins the same predicate (R0-1): a
 	// tombstoned session is unreadable here even while its derived cleanup is
-	// still running.
+	// still running. Superseded duplicate copies join it too (R0-4): a stale
+	// copy must not even consume a candidate slot.
 	guard := loadSessionReadGuard(brainDir, manifest)
+	winners := fresh.duplicateIDWinners()
 	var pred func(historyRecord) bool
-	if filtered || !guard.empty() {
+	if filtered || !guard.empty() || len(winners) > 0 {
 		pred = func(r historyRecord) bool {
 			if guard.blocksRecord(r) {
+				return false
+			}
+			if w, ok := winners[r.ID]; ok && !sameRecordCopy(w, r) {
 				return false
 			}
 			return !filtered || conversationRecordMatchesFilters(r, opts)
@@ -731,6 +736,10 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	}
 	return out, nil
 }
+
+// maxGetBatchIDs caps one get/multi-get request across CLI, MCP, and
+// workspace surfaces (the plan's shared result-limit ceiling).
+const maxGetBatchIDs = 50
 
 // errConversationFilterScanExceeded is the structured degraded state for a
 // filtered conversation scan that hit its candidate ceiling before filling the
@@ -833,17 +842,23 @@ func conversationToUnified(record historyRecord) unifiedResult {
 
 // conversationGetResult is the bounded ID-based expansion: re-parse the exact
 // indexed range from the canonical transcript when its digest still matches;
-// otherwise degrade to the stored projection with an explicit source-integrity
-// caveat instead of presenting it as faithful full content.
+// otherwise degrade to the stored projection with a caveat naming WHICH
+// contract failed. Too-large, stale, and unreadable sources are distinct
+// states (R0-7), never one collapsed "stale" answer.
 func conversationGetResult(brainDir string, record historyRecord) unifiedResult {
 	result := conversationToUnified(record)
 	expansion, err := expandConversationExchange(brainDir, record)
-	if err != nil {
+	switch {
+	case err == nil:
+		result.Text = conversationExpansionText(expansion)
+		result.Truncated = expansion.Truncated
+	case errors.Is(err, errConversationSourceTooLarge):
+		result.Caveats = append(result.Caveats, conversationSourceTooLargeCaveat(record.Path))
+	case errors.Is(err, errConversationSourceStale):
 		result.Caveats = append(result.Caveats, conversationSourceStaleCaveat(record.Path))
-		return result
+	default:
+		result.Caveats = append(result.Caveats, conversationSourceUnreadableCaveat(record.Path))
 	}
-	result.Text = conversationExpansionText(expansion)
-	result.Truncated = expansion.Truncated
 	return result
 }
 
@@ -911,6 +926,12 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
 // pathological on large brains. Results preserve input order.
 func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {
+	// One request fans out to at most this many record resolutions; each
+	// conversation id triggers a bounded transcript read, so the batch size
+	// itself must be bounded too (R0-7).
+	if len(ids) > maxGetBatchIDs {
+		return nil, nil, fmt.Errorf("at most %d ids per get/multi-get request (got %d)", maxGetBatchIDs, len(ids))
+	}
 	var wantFact, wantReview, wantHistory, wantConversation, wantDoc bool
 	for _, id := range ids {
 		switch {

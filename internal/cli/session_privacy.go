@@ -558,7 +558,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	// one regenerates from the surviving truth (index rebuild, lazy FTS build,
 	// next vector sync, next patterns build). runs.ndjson is a build log and
 	// logs are inside the plan's deletion inventory.
-	for _, rel := range privacyDerivedStoreRels() {
+	for _, rel := range privacyDerivedStoreArtifacts(brainDir) {
 		if info, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); statErr == nil {
 			plan.DerivedStores = append(plan.DerivedStores, purgeArtifact{Path: rel, Bytes: info.Size()})
 		}
@@ -566,9 +566,10 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	return plan, nil
 }
 
-// privacyDerivedStoreRels is the one inventory of rebuildable derived stores
-// that exclude/purge delete wholesale and `privacy verify` re-checks; dry-run,
-// execution, and verification must never disagree on this list (R0-2).
+// privacyDerivedStoreRels is the static inventory of rebuildable derived
+// stores that exclude/purge delete wholesale and `privacy verify` re-checks;
+// dry-run, execution, and verification must never disagree on this list
+// (R0-2).
 func privacyDerivedStoreRels() []string {
 	return []string{
 		historyFTSDBRelPath(),
@@ -582,6 +583,29 @@ func privacyDerivedStoreRels() []string {
 		patternsPracticesPath,
 		patternRunsRelPath,
 	}
+}
+
+// privacyDerivedStoreArtifacts expands the static inventory with the
+// per-branch fact embedding caches (embeddings of distilled fact text; a
+// purged session's facts may be partially recoverable from them) and the
+// SQLite WAL/SHM siblings of every store, so dry-run reports and cleanup
+// deletes exactly the same artifact set, orphans included.
+func privacyDerivedStoreArtifacts(brainDir string) []string {
+	rels := privacyDerivedStoreRels()
+	if branches, err := filepath.Glob(filepath.Join(brainDir, "facts", "*", embedStoreDirName)); err == nil {
+		for _, dir := range branches {
+			for _, name := range []string{"vectors.bin", historyVecStoreFileNamePortable} {
+				if rel, relErr := filepath.Rel(brainDir, filepath.Join(dir, name)); relErr == nil {
+					rels = append(rels, filepath.ToSlash(rel))
+				}
+			}
+		}
+	}
+	withSiblings := make([]string, 0, len(rels)*3)
+	for _, rel := range rels {
+		withSiblings = append(withSiblings, rel, rel+"-wal", rel+"-shm")
+	}
+	return withSiblings
 }
 
 // countSessionEpisodes counts episode records that would be filtered out of
@@ -760,8 +784,20 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if err := purgeDistillCacheEntries(brainDir, sessionID); err != nil {
 		return err
 	}
-	_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil)
-	return err
+	if _, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil); err != nil {
+		return err
+	}
+	// Success is published only after verification passes (R0-1): the same
+	// checks `privacy verify` runs must find nothing for ANY tombstoned
+	// session, so a partially cleaned earlier failure also blocks this one.
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		return fmt.Errorf("post-cleanup verification: %w", err)
+	}
+	if !report.Clean {
+		return fmt.Errorf("cleanup incomplete: verification found %d violations (first: %s %s); the operation is idempotent, re-run it after resolving the artifact", len(report.Findings), report.Findings[0].Artifact, report.Findings[0].Detail)
+	}
+	return nil
 }
 
 // purgeGitmetaSyncCaveats reports fact copies a purge can NOT clean: the

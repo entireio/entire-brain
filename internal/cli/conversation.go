@@ -74,6 +74,24 @@ func conversationSourceStaleCaveat(path string) retrievalCaveat {
 	}
 }
 
+func conversationSourceTooLargeCaveat(path string) retrievalCaveat {
+	return retrievalCaveat{
+		Kind:    retrievalCaveatConversationSourceTooLarge,
+		Message: "The source transcript exceeds the bounded document read ceiling; showing the stored search projection, not faithful full content.",
+		Paths:   []string{path},
+		Action:  "Inspect the oversized transcript directly if its full content is required.",
+	}
+}
+
+func conversationSourceUnreadableCaveat(path string) retrievalCaveat {
+	return retrievalCaveat{
+		Kind:    retrievalCaveatConversationSourceUnreadable,
+		Message: "The source transcript could not be re-parsed (malformed or unreadable); showing the stored search projection, not faithful full content.",
+		Paths:   []string{path},
+		Action:  "Run `entire brain refresh` to re-index; if the state persists, inspect the transcript for corruption.",
+	}
+}
+
 // conversationExchange is one parsed exchange, before it becomes a history
 // record.
 type conversationExchange struct {

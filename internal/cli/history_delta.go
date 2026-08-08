@@ -142,6 +142,12 @@ func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (
 	if overlay.Version != historyShortTermVersion {
 		return empty, shortTermStateUnsupported
 	}
+	// An overlay built for a different record-reconciliation rule must not
+	// participate in ranking or coverage claims: the winner selection it was
+	// built to join no longer holds (R0-6).
+	if overlay.ReconcilerVersion != historyShortTermReconcilerVersion {
+		return empty, shortTermStateUnsupported
+	}
 	base := time.Time{}
 	if source != nil {
 		base = source.GeneratedAt
@@ -159,6 +165,26 @@ func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (
 func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortTermIndex {
 	overlay, _ := loadHistoryShortTermState(brainDir, source)
 	return overlay
+}
+
+// loadHistoryShortTermRaw parses the overlay file without the base-pin or
+// version checks, for the consolidation guard: it runs after the pin has
+// already moved and only needs the covered source fingerprint. Never rank
+// from this view.
+func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
+	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
+	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return empty, shortTermStateAbsent
+		}
+		return empty, shortTermStateCorrupt
+	}
+	var overlay shortTermIndex
+	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
+		return empty, shortTermStateCorrupt
+	}
+	return overlay, shortTermStateCurrent
 }
 
 func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {

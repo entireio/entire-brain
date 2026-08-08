@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -796,13 +797,23 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 // verify flags the surviving store, and re-running the (idempotent) purge
 // after the fault is removed succeeds and verifies clean.
 func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission bits do not restrict deletion on Windows")
+	}
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
 	patternsDir := filepath.Join(brainDir, "patterns")
 	if err := os.MkdirAll(patternsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
+	corpusFull := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	if err := os.WriteFile(corpusFull, []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Anchor the store's mtime firmly before the tombstone write so the verify
+	// flag does not depend on filesystem timestamp granularity.
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(corpusFull, past, past); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(patternsDir, 0o555); err != nil {
@@ -855,4 +866,63 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 		t.Fatalf("post-recovery verify must be clean: %+v", report.Findings)
 	}
 	assertCanaryAbsent(t, brainDir)
+}
+
+// TestVerifyFlagsDirtyFTSStoreByContent proves the R0-2 refinement: a BM25
+// store still holding rows for an excluded transcript is flagged by content
+// inspection even when its mtime looks fresh.
+func TestVerifyFlagsDirtyFTSStoreByContent(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Warm the FTS store from the pre-exclusion index (canary rows included).
+	if _, ok := rankHistoryViaFTS(brainDir, index, "history", "rotated", 5); !ok {
+		t.Fatal("fts warmup failed")
+	}
+	// Tombstone without cleanup, then make the dirty store LOOK newer than the
+	// tombstone write: the mtime heuristic alone would pass it.
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+	ftsPath := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(ftsPath, future, future); err != nil {
+		t.Fatal(err)
+	}
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagged := false
+	for _, finding := range report.Findings {
+		if finding.Artifact == "fts_store" {
+			flagged = true
+		}
+	}
+	if !flagged {
+		t.Fatalf("dirty FTS store not flagged by content inspection: %+v", report.Findings)
+	}
+}
+
+// TestGetBatchCapsRequestSize locks the R0-7 fan-out bound: one get/multi-get
+// request resolves at most maxGetBatchIDs ids.
+func TestGetBatchCapsRequestSize(t *testing.T) {
+	ids := make([]string, maxGetBatchIDs+1)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("doc:%03d", i)
+	}
+	if _, _, err := getUnifiedBatch("", t.TempDir(), "main", ids); err == nil {
+		t.Fatal("oversized id batch must be rejected")
+	}
+	if _, _, err := getUnifiedBatch("", t.TempDir(), "main", ids[:maxGetBatchIDs]); err != nil {
+		t.Fatalf("at-cap batch must be accepted: %v", err)
+	}
 }

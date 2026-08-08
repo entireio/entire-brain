@@ -1386,6 +1386,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if facts, factsErr := loadFacts(status.Brain.Path, branch); factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			// Exclusion guard (R0-1): the brief's fact context honors
+			// tombstones at read time like every retrieval surface.
+			facts = guardFactRecords(loadSessionReadGuard(status.Brain.Path, status.Manifest), facts)
 			// Semantic rerank on by default; nil reranker (embedder
 			// unavailable or --no-semantic) falls back to lexical ranking. The
 			// disk-backed cache avoids re-embedding the branch each brief.

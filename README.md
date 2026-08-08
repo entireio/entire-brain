@@ -165,9 +165,12 @@ checkpoint export plus an overlay index of only the transcripts that changed;
 seconds even on very large brains), so an in-flight session's earlier turns
 and parallel terminals' work are searchable near-real-time. The change-gated
 full refresh is **consolidation**: it absorbs the short-term overlay into
-long-term memory (full index, FTS, vectors) and clears the buffer. You can run
-`entire brain refresh delta` by hand any time you want immediate recall of
-just-captured work.
+long-term memory (full index, FTS, vectors) and clears the buffer. Between
+changes it is additionally throttled by `--consolidate-every` (default 30m);
+the throttle is skipped whenever the delta was incomplete (a failed scan or a
+full buffer), so partial short-term coverage always consolidates promptly. You
+can run `entire brain refresh delta` by hand any time you want immediate
+recall of just-captured work.
 
 If you also want generated seed summaries, run refresh with an agent instead of
 the deterministic seed path (`entire brain refresh --agent auto --seed-model

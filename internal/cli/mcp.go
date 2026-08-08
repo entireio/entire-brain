@@ -321,7 +321,7 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_multi_get",
 			"description": "Fetch multiple items in full by their ids.",
-			"inputSchema": objectSchema([]string{"ids"}, map[string]any{"ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "title": "ids", "description": "Prefixed item ids"}, "branch": branchArg()}),
+			"inputSchema": objectSchema([]string{"ids"}, map[string]any{"ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "maxItems": maxGetBatchIDs, "title": "ids", "description": "Prefixed item ids"}, "branch": branchArg()}),
 		},
 		{
 			"name":        "brain_context",

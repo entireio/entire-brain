@@ -4,6 +4,9 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -329,5 +332,57 @@ func TestRankConversationFusedFilteredCompleteness(t *testing.T) {
 	ranked := rankConversationSemantic(semIndex, scores, 2)
 	if len(ranked) != 1 || ranked[0].Record.ID != conversationIDPrefix+"target" {
 		t.Fatalf("filtered vector arm must return the in-scope hit: %+v", ranked)
+	}
+}
+
+// TestExclusionCleanupDeletesPopulatedConversationVectorStore is the
+// vector-store canary (R0-1/R0-2): a real vec0 store holding embeddings for a
+// tombstoned session's exchanges is deleted by the shared cleanup and the
+// operation still verifies clean.
+func TestExclusionCleanupDeletesPopulatedConversationVectorStore(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{}}
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
+	if !ok {
+		t.Fatal("conversation store unavailable on brain_cgo build")
+	}
+	if _, _, _, err := syncConversationVectors(store, index, e, nil); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	storePath := filepath.Join(brainDir, filepath.FromSlash(historyDirName), embedStoreDirName, conversationVecStoreFileNamePortable)
+	if _, err := os.Stat(storePath); err != nil {
+		t.Fatalf("populated store must exist before cleanup: %v", err)
+	}
+
+	var plan sessionPurgePlan
+	if err := withBrainWriteLock(brainDir, func() error {
+		var planErr error
+		plan, planErr = buildSessionPurgePlan(brainDir, "secret-sess")
+		if planErr != nil {
+			return planErr
+		}
+		return executeSessionCleanup(brainDir, "secret-sess", plan, time.Now().UTC(), "test", true)
+	}); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	listed := false
+	for _, artifact := range plan.DerivedStores {
+		if strings.HasSuffix(artifact.Path, conversationVecStoreFileNamePortable) {
+			listed = true
+		}
+	}
+	if !listed {
+		t.Fatalf("vector store missing from the cleanup inventory: %+v", plan.DerivedStores)
+	}
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("vector store must be deleted by exclusion cleanup: %v", err)
 	}
 }

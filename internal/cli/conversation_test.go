@@ -861,3 +861,60 @@ func TestConversationExpansionStreamsLargeTranscripts(t *testing.T) {
 		t.Fatalf("appended source must be stale: %v", err)
 	}
 }
+
+// TestConversationExpansionDistinguishesFailureStates proves R0-7's contract:
+// too-large, stale, and unreadable sources surface as distinct caveats, never
+// one collapsed stale answer.
+func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
+	brainDir := t.TempDir()
+	write := func(rel, body string) historyRecord {
+		t.Helper()
+		full := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return historyRecord{ID: conversationIDPrefix + "x", Kind: conversationKind, Path: rel,
+			Line: 1, EndLine: 4, Summary: "stored projection", ContentRole: conversationContentRole,
+			SourceDigest: conversationDigest([]byte(body))}
+	}
+
+	// Document form over the read ceiling: too-large caveat.
+	docBody := "{\n\"messages\": [\n{\"role\": \"user\", \"content\": \"why did the export fail\"},\n{\"role\": \"assistant\", \"content\": \"Decision: the cursor skipped it.\"}\n]\n}\n"
+	docRecord := write("sessions/main/20260808T000000Z_doc.jsonl", docBody)
+	oldMax := maxDocumentTranscriptBytes
+	maxDocumentTranscriptBytes = 16
+	result := conversationGetResult(brainDir, docRecord)
+	maxDocumentTranscriptBytes = oldMax
+	if !hasCaveatKind(result, retrievalCaveatConversationSourceTooLarge) {
+		t.Fatalf("expected too-large caveat: %+v", result.Caveats)
+	}
+
+	// Stale digest: stale caveat, not unreadable.
+	staleRecord := docRecord
+	staleRecord.SourceDigest = "sha256:different"
+	result = conversationGetResult(brainDir, staleRecord)
+	if !hasCaveatKind(result, retrievalCaveatConversationSourceStale) || hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+		t.Fatalf("expected stale caveat: %+v", result.Caveats)
+	}
+
+	// A line transcript with an in-range line over the scanner bound:
+	// unreadable caveat, not stale.
+	huge := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("a", historyMaxLineBytes+1024) + `"}]}}` + "\n"
+	lineRecord := write("sessions/main/20260808T000000Z_line.jsonl", huge)
+	result = conversationGetResult(brainDir, lineRecord)
+	if !hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+		t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
+	}
+}
+
+func hasCaveatKind(result unifiedResult, kind string) bool {
+	for _, caveat := range result.Caveats {
+		if caveat.Kind == kind {
+			return true
+		}
+	}
+	return false
+}

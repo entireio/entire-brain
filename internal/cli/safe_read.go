@@ -12,13 +12,16 @@ import (
 // than its ceiling is overwhelmingly more likely to be corrupt or hostile than a
 // legitimate input, so we fail loudly instead of letting a single read exhaust
 // process memory. Callers needing a different bound pass it explicitly.
+
+// maxDocumentTranscriptBytes bounds a single document-form session transcript
+// slurped into memory. Long sessions are large but never approach this. A var
+// so the oversized-fixture test can exercise the bound without a 256 MiB
+// file.
+var maxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
+
 const (
 	// defaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
 	defaultMaxReadBytes = 64 << 20 // 64 MiB
-
-	// maxDocumentTranscriptBytes bounds a single document-form session transcript
-	// slurped into memory. Long sessions are large but never approach this.
-	maxDocumentTranscriptBytes = 256 << 20 // 256 MiB
 
 	// maxSeedDocBytes bounds a single seed/markdown document read for chunking.
 	maxSeedDocBytes = 32 << 20 // 32 MiB

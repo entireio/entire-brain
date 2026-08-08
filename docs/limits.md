@@ -18,6 +18,9 @@ derived cache is rebuilt) rather than silently truncated or allowed to OOM.
 | Document transcript (full read) | 256 MiB | `maxDocumentTranscriptBytes` (`safe_read.go`) | — |
 | Conversation expansion (line transcript) | streamed; per-line 1 MiB, output 32 KiB | `expandConversationExchange` (`conversation.go`) | — |
 | Short-term overlay (`history/short-term.json`) | 64 MiB | `defaultMaxReadBytes` via `loadHistoryShortTermState` | — |
+| Filtered conversation candidate scan | 10,000 rows, then a structured degraded error | `historyFTSFilteredScanCeiling` (`history_fts.go`) | — |
+| Vector KNN neighborhood (brain_cgo) | 4,096 | `vec0KnnMaxK` (`embed_vec_cgo.go`); filtered vector search is approximate past it | — |
+| get / multi-get ids per request | 50 | `maxGetBatchIDs` (`retrieve.go`) | — |
 | Seed / markdown doc (per file) | 32 MiB | `maxSeedDocBytes` | — |
 | JSON manifest / index / cursor | 16 MiB | `maxManifestBytes` | — |
 | Full semantic snapshot (read) | 2 GiB | `defaultMaxSemanticSnapshotBytes` | `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES` |

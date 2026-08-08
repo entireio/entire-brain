@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -219,13 +220,30 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	}
 	if info, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))); statErr == nil {
 		cutoff := info.ModTime()
-		for _, rel := range privacyDerivedStoreRels() {
+		for _, rel := range privacyDerivedStoreArtifacts(brainDir) {
 			storeInfo, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel)))
 			if statErr != nil {
 				continue
 			}
 			if storeInfo.ModTime().Before(cutoff) {
 				add(newestID, "derived_store", rel+" predates the newest tombstone; its deletion failed or was skipped, re-run purge")
+			}
+		}
+	}
+	// FTS content inspection: the BM25 store indexes each record's transcript
+	// path as text, so a rebuilt-yet-dirty store is detectable by querying for
+	// the excluded transcripts' distinctive basenames. This is a real
+	// row-level check, independent of timestamps; the vector stores stay
+	// covered by deletion plus the mtime check above (their rows are
+	// embeddings, not queryable text).
+	for id, paths := range pathsBySession {
+		for rel := range paths {
+			hits, checkErr := historyFTSContainsPathPhrase(brainDir, rel)
+			if checkErr != nil {
+				break // store absent or unreadable; deletion/mtime checks cover it
+			}
+			if hits {
+				add(id, "fts_store", "rows for excluded transcript "+rel+" remain in the BM25 store; re-run purge or delete "+historyFTSDBRelPath())
 			}
 		}
 	}
@@ -324,30 +342,34 @@ func runPrivacyRetention(cmd *cobra.Command, opts Options, maxAge time.Duration,
 	}
 	sort.Slice(plan, func(i, j int) bool { return plan[i].CreatedAt < plan[j].CreatedAt })
 
+	var caveats []string
 	if !dryRun && len(plan) > 0 {
 		if err := withBrainWriteLock(brainDir, func() error {
 			for _, entry := range plan {
-				if entry.Action == "purge" {
-					purgePlan, planErr := buildSessionPurgePlan(brainDir, entry.SessionID)
-					if planErr != nil {
-						return planErr
+				// Both actions run the shared cleanup executor: retention
+				// exclude removes derived facts/episodes/patterns/caches/
+				// stores exactly like the privacy exclude command, and both
+				// paths publish success only after verification (R0-1).
+				sessionPlan, planErr := buildSessionPurgePlan(brainDir, entry.SessionID)
+				if planErr != nil {
+					return planErr
+				}
+				for _, caveat := range purgeGitmetaSyncCaveats(opts.Env, storage.Key, sessionPlan) {
+					if !slices.Contains(caveats, caveat) {
+						caveats = append(caveats, caveat)
 					}
-					if err := executeSessionPurge(brainDir, entry.SessionID, purgePlan, now); err != nil {
+				}
+				if entry.Action == "purge" {
+					if err := executeSessionPurge(brainDir, entry.SessionID, sessionPlan, now); err != nil {
 						return err
 					}
 					continue
 				}
-				stones := loadSessionTombstones(brainDir)
-				stones.Excluded[entry.SessionID] = sessionTombstone{At: now, Reason: fmt.Sprintf("retention max-age %s", maxAge)}
-				if err := saveSessionTombstones(brainDir, stones); err != nil {
+				if err := executeSessionCleanup(brainDir, entry.SessionID, sessionPlan, now, fmt.Sprintf("retention max-age %s", maxAge), true); err != nil {
 					return err
 				}
 			}
-			// One rebuild after the batch (each purge already rebuilt; this
-			// covers the exclude-only path and is a no-op-cost refresh of the
-			// projection truth otherwise).
-			_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil)
-			return err
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -356,7 +378,11 @@ func runPrivacyRetention(cmd *cobra.Command, opts Options, maxAge time.Duration,
 		if plan == nil {
 			plan = []retentionPlanEntry{}
 		}
-		return writeJSON(cmd, map[string]any{"cutoff": cutoff.Format(time.RFC3339), "dry_run": dryRun, "sessions": plan})
+		payload := map[string]any{"cutoff": cutoff.Format(time.RFC3339), "dry_run": dryRun, "sessions": plan}
+		if len(caveats) > 0 {
+			payload["caveats"] = caveats
+		}
+		return writeJSON(cmd, payload)
 	}
 	return writeText(cmd, func(out io.Writer) {
 		mode := "applied"
@@ -366,6 +392,9 @@ func runPrivacyRetention(cmd *cobra.Command, opts Options, maxAge time.Duration,
 		fmt.Fprintf(out, "%s retention (older than %s) to %d sessions\n", mode, cutoff.Format(time.RFC3339), len(plan))
 		for _, entry := range plan {
 			fmt.Fprintf(out, "  %s %s (%s, %s)\n", entry.Action, entry.SessionID, valueOrUnset(entry.Branch), valueOrUnset(entry.CreatedAt))
+		}
+		for _, caveat := range caveats {
+			fmt.Fprintf(out, "  NOT purged: %s\n", caveat)
 		}
 	})
 }

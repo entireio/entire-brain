@@ -273,8 +273,15 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 	// Consolidation: a completed full build has absorbed everything the
 	// short-term overlay held (both re-scan changed files), so the overlay is
 	// cleared here; the long-term memory is now current and the short-term
-	// buffer starts empty. See history_delta.go.
-	clearHistoryShortTerm(outputDir)
+	// buffer starts empty. Guard (R0-6): clear only when this build's source
+	// set is at least as new as the overlay's covered fingerprint. A build
+	// from an older manifest snapshot must not destroy the record that newer
+	// work existed; the overlay goes stale (base pin) and stays visible to
+	// doctor until the next delta rebuilds it. See history_delta.go.
+	if overlay, state := loadHistoryShortTermRaw(outputDir); state == shortTermStateAbsent || state == shortTermStateCorrupt ||
+		overlay.SessionsFingerprint == "" || overlay.SessionsFingerprint == brainSessionsFingerprint(outputDir) {
+		clearHistoryShortTerm(outputDir)
+	}
 	return source, nil
 }
 
