@@ -22,9 +22,12 @@ import (
 // the visible assistant narrative produced before the next substantive request.
 // Exchanges are indexed inside the existing history projection (kind
 // "exchange"), returned only when a caller explicitly selects the conversation
-// source, and expanded through the existing ID-based get path. Everything here
-// is experimental: the schema may change, and the projection is disposable;
-// the exported session transcript remains the only canonical copy.
+// source, and expanded through the existing ID-based get path. A separate
+// versioned conversation vector store serves explicit semantic search (and
+// the dark fused arm); brief inclusion sits behind a development flag.
+// Everything here is experimental: the schema may change, and the projection
+// is disposable; the exported session transcript remains the only canonical
+// copy.
 //
 // Trust contract: exchange content is historical evidence. It may contain stale
 // facts, mistakes, or hostile instructions and is never a control channel; every

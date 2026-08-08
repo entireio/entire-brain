@@ -113,8 +113,12 @@ ranking is bit-for-bit the long-term behavior. `watch` runs delta on every
 tick, so an in-flight session's earlier turns and a parallel terminal's work
 are recallable near-real-time. A completed full `refresh` is consolidation: it
 absorbs everything the overlay covered and clears it. The overlay is bounded
-(oldest files drop first, reported as truncated) and `doctor`/`stats` report
-its state, including "long-term stale but short-term covers the gap".
+(oldest files drop first, reported as truncated) and records its own
+completeness durably: transcripts that failed to scan are persisted by
+identity, and loading distinguishes absent, current, stale, corrupt, and
+unsupported states. `doctor`/`stats` report that state; "long-term stale but
+short-term covers the gap" is claimed only for a current, complete overlay
+built against the exact current session fingerprint.
 
 Lifecycle observability: `entire brain doctor --json` walks the
 capture → export → index → recall chain (exported sessions, history index
@@ -127,13 +131,19 @@ counts and ranges by branch, agent, source kind, completion state
 and index versions (scan cache, FTS schema). Automatic indexing is inherited:
 `watch` already drives the deterministic refresh that rebuilds exchanges.
 
-Privacy: `entire brain privacy exclude|include|purge <session-id>` (CLI only)
-controls which captured sessions may enter any projection. Exclusion is
-understood before derived indexing; a tombstoned session contributes no
-records, exchanges, FTS rows, or vectors; and purge physically deletes the
-exported transcript copy plus the derived stores, with `--dry-run` predicting
-the exact artifacts and bytes first. Tombstones survive re-export until an
-explicit include.
+Privacy: `entire brain privacy list|exclude|include|purge|verify|retention`
+(CLI only) controls which captured sessions may enter any projection.
+Tombstones are consulted both at build time AND at every retrieval boundary
+(conversation, history, facts, get, brief), so an excluded session becomes
+unreadable the moment the tombstone lands. Exclude removes or rebuilds every
+derived projection (index records, facts, episodes, pattern outputs, caches,
+FTS/vector stores) while keeping the exported transcript; purge additionally
+deletes the transcript copy. `--dry-run` predicts the exact artifacts and
+bytes first, deletion errors fail the command with the artifact named
+(idempotent re-run resumes), `privacy verify` proves absence across the text
+truths and flags derived stores that predate the newest tombstone, and
+`privacy retention --max-age <dur>` applies an age/branch policy. Tombstones
+survive re-export until an explicit include.
 
 Workspace recall (Phase 5): `entire brain workspace search|query <ws> <q>
 --source conversation` fans the conversation source across member brains;

@@ -56,16 +56,26 @@ Enforced:
   artifact kinds).
 - `privacy exclude` (tombstone; content-free by design, fail-open on
   corruption so corruption can only restore indexing, never delete data) is
-  understood BEFORE derived indexing everywhere: history index, short-term
-  overlay, episodes, pattern corpus.
-- `privacy purge --dry-run` predicts exact artifacts/bytes; purge is
-  tombstone-first (crash leaves the session excluded, never resurrected),
-  idempotent, survives re-export, and removes: the exported transcript, all
-  index records, FTS/scan-cache/vector-store files (deleted wholesale with
-  WAL/SHM siblings; no row-remnant risk), single-source facts (multi-source
-  facts lose the purged anchor; dangling proposals pruned), pattern episodes
-  and derived pattern outputs including the runs log, and distill-cache
-  entries. The canary test walks EVERY file under the brain dir afterward.
+  understood BEFORE derived indexing everywhere (history index, short-term
+  overlay, episodes, pattern corpus, distill) AND at retrieval time: every
+  conversation/history/fact retrieval, get, and brief boundary consults the
+  tombstone set, so an excluded session is unreadable immediately, even while
+  cleanup or a rebuild is still running. Exclude runs the same derived
+  cleanup as purge (facts, episodes, pattern outputs, caches, FTS/vector
+  stores) while keeping the exported transcript.
+- `privacy purge --dry-run` predicts exact artifacts/bytes from the same
+  shared inventory execution and verification use (including the short-term
+  overlay); purge is tombstone-first (crash leaves the session excluded,
+  never resurrected), idempotent, survives re-export, propagates every
+  deletion failure as a non-zero, resumable error naming the artifact, and
+  removes: the exported transcript, all index records, FTS/scan-cache/
+  vector-store files (deleted wholesale with WAL/SHM siblings; no
+  row-remnant risk), single-source facts (multi-source facts lose the purged
+  anchor; dangling proposals pruned), pattern episodes and derived pattern
+  outputs including the runs log, and distill-cache entries. The canary test
+  walks EVERY file under the brain dir afterward. `privacy verify`
+  additionally flags any derived store whose file predates the newest
+  tombstone write (the locked/failed-deletion case).
 - Vector stores hold embeddings of session text; embedding inversion is a
   known class of partial-content recovery, so purge deletes the store files
   rather than reasoning about per-row deletion.
@@ -82,8 +92,9 @@ Residual (tracked):
   data; brain purge does not rewrite it, and a re-export restores the raw
   transcript copy (not the projections; the tombstone holds) until a
   capture-layer exclusion contract exists (parking lot, plan open decision).
-- **Retention policies** (purge by age/branch) are not yet implemented; until
-  then deletion is per-session and explicit.
+- **Retention** (`privacy retention --max-age`, optionally per branch,
+  exclude or purge) exists for age-based policy; anything finer stays
+  per-session and explicit.
 
 ### 3. Malicious or compromised MCP client
 
@@ -96,9 +107,10 @@ Enforced:
   only, with canonical-path validation, a `sessions/` containment check, and
   symlink-component rejection.
 - Argument names are validated against each tool's declared schema (single
-  source of truth); frames, reads, parser lines, and result bytes are
-  bounded; one malformed frame answers with a parse error instead of killing
-  the server; handler panics are recovered per request.
+  source of truth); input frames, transcript reads (streamed for line
+  transcripts, bounded for document form), parser lines, and per-exchange
+  result bytes are bounded; one malformed frame answers with a parse error
+  instead of killing the server; handler panics are recovered per request.
 
 ### 4. Hostile repository content
 
@@ -117,8 +129,9 @@ hostile content cannot exfiltrate via the embedder channel.
 2. No MCP argument reaches a filesystem path or executable choice.
 3. Publish/bundle output never contains transcripts, history records, or
    conversation text.
-4. Tombstones are honored before every derived build; purge canary-absence
-   holds across every file under the brain dir.
+4. Tombstones are honored before every derived build AND consulted at every
+   retrieval boundary; purge canary-absence holds across every file under
+   the brain dir.
 5. Deterministic paths make zero network calls; embedder calls are
    loopback-pinned.
 

@@ -56,7 +56,7 @@ func newSearchCommand(opts Options) *cobra.Command {
 }
 
 func newVsearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "vsearch", modeVector, "Vector (semantic) search across facts and docs (and history when a Gemma-class embedder is configured)")
+	return newRetrieveCommand(opts, "vsearch", modeVector, "Vector (semantic) search across facts and docs (history and conversation join with a Gemma-class embedder on the brain_cgo build)")
 }
 
 func newQueryCommand(opts Options) *cobra.Command {

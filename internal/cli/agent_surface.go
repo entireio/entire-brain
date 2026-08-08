@@ -678,7 +678,7 @@ Retrieval (qmd-inspired verbs; search/vsearch/query take --json/--format json|cl
 get/multi-get take --json/--format json|cli/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
   entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
-  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs (+ history with a Gemma-class embedder)
+  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs (+ history/conversation with a Gemma-class embedder)
   entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
   entire brain multi-get <id>... --json     # fetch several by id
 

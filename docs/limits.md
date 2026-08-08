@@ -16,6 +16,8 @@ derived cache is rebuilt) rather than silently truncated or allowed to OOM.
 |---|---|---|---|
 | MCP frame | 4 MiB | `maxMCPFrameBytes` (`mcp.go`) | — |
 | Document transcript (full read) | 256 MiB | `maxDocumentTranscriptBytes` (`safe_read.go`) | — |
+| Conversation expansion (line transcript) | streamed; per-line 1 MiB, output 32 KiB | `expandConversationExchange` (`conversation.go`) | — |
+| Short-term overlay (`history/short-term.json`) | 64 MiB | `defaultMaxReadBytes` via `loadHistoryShortTermState` | — |
 | Seed / markdown doc (per file) | 32 MiB | `maxSeedDocBytes` | — |
 | JSON manifest / index / cursor | 16 MiB | `maxManifestBytes` | — |
 | Full semantic snapshot (read) | 2 GiB | `defaultMaxSemanticSnapshotBytes` | `ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES` |

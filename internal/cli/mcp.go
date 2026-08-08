@@ -255,9 +255,12 @@ func mcpToolDefinitions() []map[string]any {
 		}
 	}
 	// Same enum-valued source selector on query and search (per the
-	// conversational-memory plan Phase 1: no new tool family). vsearch does not
-	// take it; no conversation vector index exists. The structured filters are
-	// conversation-source-only; supplying them with another source is an error.
+	// conversational-memory plan: no new tool family). vsearch deliberately
+	// does not take it on MCP: the conversation vector arm exists (CLI
+	// `vsearch --source conversation` behind the embedder/cgo/refresh gates)
+	// but is not exposed here until the fused arm qualifies. The structured
+	// filters are conversation-source-only; supplying them with another
+	// source is an error.
 	retrievalArgsWithSource := func() map[string]any {
 		args := retrievalArgs()
 		args["source"] = map[string]any{
@@ -627,9 +630,9 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_vsearch":
 		err = requireMCPQuery(query)
 		if err == nil {
-			// No source/filter arguments: the schema does not advertise them for
-			// vsearch (validateMCPToolArguments already rejects them) and no
-			// conversation vector index exists yet.
+			// No source/filter arguments: the schema does not advertise them
+			// for vsearch (validateMCPToolArguments already rejects them);
+			// the conversation vector arm stays CLI-only until it qualifies.
 			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, retrievalOptions{}, true, false, "mcp:brain_vsearch")
 		}
 	case "brain_get":

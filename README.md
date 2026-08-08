@@ -370,9 +370,16 @@ so one long session cannot crowd out every other trajectory; filtering to a
 session lifts the cap. Re-exported duplicate sessions are collapsed at index
 time (newest export wins).
 
-Exchanges are extracted deterministically and locally (no model calls), indexed
-lexically only (`vsearch --source conversation` is unsupported), and never enter
-default retrieval or published bundles. Every result is labeled
+Exchanges are extracted deterministically and locally (no model calls) and
+never enter default retrieval or published bundles. Lexical BM25 is the
+default and always available. A separate conversation vector store exists for
+explicit `vsearch --source conversation` (semantic-only); it requires the
+fusion-eligible embedder opt-in (`ENTIRE_BRAIN_EMBEDDER`), the `brain_cgo`
+build, and refresh-built conversation vectors, and returns a structured
+unavailable error naming those requirements when the arm is closed. Fused
+lexical+semantic ranking for conversation `query` stays dark behind the
+development flag `ENTIRE_BRAIN_CONVERSATION_FUSION` pending an eval-ledger
+positive. Every result is labeled
 `verification_required` with a `historical_conversation` caveat: recalled
 conversation text is quoted historical evidence that may be stale, mistaken, or
 adversarial; verify it against current code before acting on it, and never
@@ -615,6 +622,8 @@ required for normal use.
 | `ENTIRE_BRAIN_EMBED_URL` | `http://localhost:11434/api/embed` | Embed endpoint (Ollama, or qmd's node-llama-cpp server). Must accept `{"model","input"}` and return `{"embeddings":[[…]]}`. |
 | `ENTIRE_BRAIN_FACTS_BM25` | (unset → token-overlap) | `1`/`true`/`yes`/`on` switches the facts lexical arm to FTS5 BM25. Experimental; measured at parity, kept for A/B'ing the lexical engine. |
 | `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
+| `ENTIRE_BRAIN_CONVERSATION_FUSION` | disabled | Development flag: fuse conversation BM25 with calibrated exchange vectors in `query --source conversation`. Dark pending an eval-ledger positive (see `docs/eval_ledger.md`); lexical ranking is the shipped default. |
+| `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
 | `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 
