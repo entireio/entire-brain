@@ -101,6 +101,21 @@ unchanged until this section qualifies for the compact budget); each hit
 carries `content_role: historical_evidence` and the packet gains an explicit
 verify-before-acting guidance line.
 
+Short-term memory (`entire brain refresh delta`): the brain has a two-tier
+memory. The long-term tier is the full index (complete, expensive to rebuild);
+the short-term tier is a small overlay (`history/short-term.json`) holding only
+the transcripts that changed since the last full build — an incremental
+checkpoint export plus a scan of just those files, seconds even on very large
+brains. Retrieval (query/search/get, the brief, conversation and history arms)
+searches both tiers, with a re-scanned file's short-term records superseding
+its long-term ones exactly as a rebuild would; when the overlay is empty,
+ranking is bit-for-bit the long-term behavior. `watch` runs delta on every
+tick, so an in-flight session's earlier turns and a parallel terminal's work
+are recallable near-real-time. A completed full `refresh` is consolidation: it
+absorbs everything the overlay covered and clears it. The overlay is bounded
+(oldest files drop first, reported as truncated) and `doctor`/`stats` report
+its state, including "long-term stale but short-term covers the gap".
+
 Lifecycle observability: `entire brain doctor --json` walks the
 capture → export → index → recall chain (exported sessions, history index
 health, conversation freshness against the current session fingerprint — a

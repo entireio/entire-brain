@@ -270,6 +270,11 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 	if err := writeBrainManifestAndReadme(outputDir, *manifest); err != nil {
 		return nil, err
 	}
+	// Consolidation: a completed full build has absorbed everything the
+	// short-term overlay held (both re-scan changed files), so the overlay is
+	// cleared here — the long-term memory is now current and the short-term
+	// buffer starts empty. See history_delta.go.
+	clearHistoryShortTerm(outputDir)
 	return source, nil
 }
 
@@ -334,25 +339,16 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			records = cached.Records
 			incomplete = cached.IncompleteExchanges
 		} else {
-			scanned, scanErr := scanHistoryFile(outputDir, file.Path)
-			if scanErr != nil {
-				index.Warnings = append(index.Warnings, scanErr.Error())
+			scanned, scannedIncomplete, warnings, ok := scanSessionFileRecords(outputDir, file.Path, rel)
+			index.Warnings = append(index.Warnings, warnings...)
+			if !ok {
 				if progress != nil {
 					progress(i+1, total)
 				}
 				continue
 			}
 			records = scanned
-			// Conversation exchanges are an additive experimental projection; an
-			// extraction failure downgrades to classic records with a warning
-			// rather than dropping the whole file.
-			conversationScan, convErr := scanConversationTranscript(file.Path)
-			if convErr != nil {
-				index.Warnings = append(index.Warnings, fmt.Sprintf("conversation exchanges skipped for %s: %v", rel, convErr))
-			} else {
-				records = append(records, conversationExchangeRecords(rel, conversationScan)...)
-				incomplete = conversationScan.Incomplete
-			}
+			incomplete = scannedIncomplete
 		}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
@@ -417,6 +413,28 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		}
 	}
 	return index, source, nil
+}
+
+// scanSessionFileRecords scans one exported transcript into classic history
+// records plus conversation exchanges. ok=false means the whole file failed to
+// scan (retried on the next build); a conversation-extraction failure only
+// downgrades to classic records with a warning. Shared by the full (long-term)
+// index build and the short-term delta path so both always extract
+// identically.
+func scanSessionFileRecords(outputDir, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
+	scanned, scanErr := scanHistoryFile(outputDir, path)
+	if scanErr != nil {
+		return nil, 0, []string{scanErr.Error()}, false
+	}
+	records = scanned
+	conversationScan, convErr := scanConversationTranscript(path)
+	if convErr != nil {
+		warnings = append(warnings, fmt.Sprintf("conversation exchanges skipped for %s: %v", rel, convErr))
+	} else {
+		records = append(records, conversationExchangeRecords(rel, conversationScan)...)
+		incomplete = conversationScan.Incomplete
+	}
+	return records, incomplete, warnings, true
 }
 
 // historySessionByTranscriptPath maps each exported transcript path to its
