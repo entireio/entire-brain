@@ -109,10 +109,13 @@ places that state behind an unchanged synthetic first-parent baseline, runs an
 agent, validates the fix, scores the run, and writes artifacts under
 `benchmarks/agent-brain/results/`.
 
-Tasks may also define `post_brain_replacements` or `post_brain_commands`. Those
-mutations are applied and committed after brain preparation, which creates a
-stale-context scenario for semantic and semantic-history runs. Use these tasks to
-measure whether agents check brain freshness before relying on prepared context.
+Tasks may also define `post_brain_replacements`, `post_brain_patch`, or
+`post_brain_commands`. `post_brain_patch` is a UTF-8 patch path resolved relative
+to the task config; it must stay within that config directory and is applied with
+`git apply` without a shell. These mutations are applied and committed after brain
+preparation, which creates a stale-context scenario for semantic and
+semantic-history runs. Use these tasks to measure whether agents check brain
+freshness before relying on prepared context.
 
 Brain prep artifacts are cached under `benchmarks/agent-brain/cache/` by
 repo/base/setup/condition/tool hash. Each run receives its own copy of the

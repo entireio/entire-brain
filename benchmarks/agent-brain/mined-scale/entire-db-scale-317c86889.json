@@ -1,7 +1,7 @@
 {
   "id": "entire-db-scale-317c86889",
   "repo": "entire-db",
-  "repo_path": "/Users/thomi/Projects/entire-db",
+  "repo_path": "entire-db",
   "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
   "conditions": [
     "no_brain",
@@ -13,9 +13,7 @@
   "setup_patch": "",
   "setup_replacements": [],
   "setup_commands": [],
-  "post_brain_commands": [
-    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-317c86889.patch"
-  ],
+  "post_brain_patch": "patches/entire-db-scale-317c86889.patch",
   "validation": [
     "go test ./core/api -run 'TestHTTPTokenClient_BasicAuthPercentEncoded|TestHTTPTokenClient_FormFieldsCarriedThrough|TestSetBasicAuth_DoesNotEncode'"
   ],

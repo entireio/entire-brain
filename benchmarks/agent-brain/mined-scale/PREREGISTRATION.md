@@ -27,6 +27,21 @@ materialization deviation, not a result-based task exclusion.
 - Prompts are **symptom-only** (no fix location, invariant, file, or test names).
 - Analysis population: N = 73 runnable tasks (52 entire-cli, 21 entire-db).
 
+## Frozen corpus contract
+
+[`manifest.json`](manifest.json) binds the 73 runnable task configs one-to-one to
+their 73 regression patches. It records the repository counts, mined source and
+base commits, exact relative paths, and SHA-256 hashes of every config and patch,
+plus a self-hash over the manifest. Task repos use portable logical names and each
+`post_brain_patch` is resolved relative to its task config without invoking a
+shell.
+
+Run `python3 benchmarks/agent-brain/mined-scale/check_manifest.py` from the
+repository root before execution. The validator fails closed on count drift,
+orphaned or missing patches, path escape, absolute repo paths, shell-based patch
+commands, commit mismatch, content-hash mismatch, or manifest tampering. CI runs
+the same check and verifies the dependent brief-profile corpus hashes.
+
 ## Design
 - Conditions: `no_brain` vs `full_brain` (product brain: history + semantic + facts).
 - Shared brain prep: base = repo HEAD, guard reverted `post_brain` → brain built once

@@ -408,6 +408,7 @@ AGENT_VISIBLE_SECRET_PATTERNS = (
     '"setup_commands"',
     '"setup_replacements"',
     '"post_brain_commands"',
+    '"post_brain_patch"',
     '"post_brain_replacements"',
     "hide_validation_from_agent",
     "benchmarks/agent-brain/tasks",
@@ -2391,9 +2392,30 @@ def ignore_benchmark_plugin(worktree: pathlib.Path) -> None:
 def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool:
     changed = False
     replacements = task.get("post_brain_replacements", [])
+    patch_rel = task.get("post_brain_patch")
     commands = task.get("post_brain_commands", [])
     if replacements:
         apply_replacements(worktree, replacements, "post-brain")
+        changed = True
+    if patch_rel is not None:
+        if not isinstance(patch_rel, str) or not patch_rel:
+            raise ValueError("post_brain_patch must be a nonempty relative path")
+        task_path_raw = task.get("_path")
+        if not task_path_raw:
+            raise ValueError("post_brain_patch requires the task config path")
+        task_path = pathlib.Path(str(task_path_raw)).expanduser()
+        if not task_path.is_absolute():
+            task_path = pathlib.Path.cwd() / task_path
+        patch_path = safe_child_path(task_path.resolve().parent, patch_rel, label="post_brain_patch")
+        if not patch_path.is_file():
+            raise ValueError(f"post_brain_patch is not a readable file: {patch_rel}")
+        try:
+            patch = patch_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise ValueError(f"post_brain_patch is not readable UTF-8: {patch_rel}") from exc
+        if not patch.strip():
+            raise ValueError(f"post_brain_patch is empty: {patch_rel}")
+        run_cmd(["git", "apply", "-"], cwd=worktree, input_text=patch, check=True)
         changed = True
     for command in commands:
         proc = shell_cmd(command, cwd=worktree, env=os.environ.copy(), timeout=120)
@@ -2866,6 +2888,8 @@ def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
         texts.append(("fix_location", str(replacement.get("path", ""))))
     for command in task.get("setup_commands", []) + task.get("post_brain_commands", []):
         texts.append(("fix_command", str(command)))
+    if task.get("post_brain_patch"):
+        texts.append(("fix_command", str(task["post_brain_patch"])))
     if task.get("hide_expected_from_agent"):
         for expected in task.get("expected_files", []):
             texts.append(("hidden_expected_file", str(expected)))

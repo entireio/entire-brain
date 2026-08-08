@@ -238,9 +238,9 @@ class BriefProfileCorpusTest(unittest.TestCase):
     def test_checked_in_inventory_is_exact_deduped_and_prompt_free(self) -> None:
         corpus = profile.load_verified_corpus()
         self.assertTrue(profile.verify_self_hash(corpus, "corpus_sha256"))
-        self.assertEqual(corpus["selection"]["source_file_count"], 118)
+        self.assertEqual(corpus["selection"]["source_file_count"], 119)
         self.assertEqual(corpus["selection"]["deduplicated_task_count"], 114)
-        self.assertEqual(corpus["selection"]["duplicates_removed"], 4)
+        self.assertEqual(corpus["selection"]["duplicates_removed"], 5)
         self.assertEqual(
             corpus["selection"]["unique_count_by_repo"],
             {"entire-brain": 25, "entire-cli": 68, "entire-db": 21},

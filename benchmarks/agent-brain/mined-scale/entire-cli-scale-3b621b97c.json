@@ -1,7 +1,7 @@
 {
   "id": "entire-cli-scale-3b621b97c",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "repo_path": "entire-cli",
   "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
   "conditions": [
     "no_brain",
@@ -13,9 +13,7 @@
   "setup_patch": "",
   "setup_replacements": [],
   "setup_commands": [],
-  "post_brain_commands": [
-    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-3b621b97c.patch"
-  ],
+  "post_brain_patch": "patches/entire-cli-scale-3b621b97c.patch",
   "validation": [
     "go test ./cmd/entire/cli/agent/pi -run 'TestParseHookEvent_SessionShutdown_ClearsCache|TestParseHookEvent_SessionShutdown_NoLifecycleEvent'"
   ],

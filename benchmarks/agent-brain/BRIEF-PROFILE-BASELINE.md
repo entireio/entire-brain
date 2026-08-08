@@ -15,10 +15,10 @@ checked-in corpus and every report set both `confirmatory_eligible` and
 - every `mined-scale/entire-cli-scale-*.json` entry; and
 - every `mined-scale/entire-db-scale-*.json` entry.
 
-The 118 selected source configs are sorted by checked-in relative path and
+The 119 selected source configs are sorted by checked-in relative path and
 deduplicated by `(logical repo, SHA-256 of the exact prompt UTF-8 bytes)`. The
 lexicographically first checked-in path owns a duplicate. This produces 114
-profile tasks: 25 `entire-brain`, 68 `entire-cli`, and 21 `entire-db`; four
+profile tasks: 25 `entire-brain`, 68 `entire-cli`, and 21 `entire-db`; five
 duplicate source prompts are removed.
 
 The corpus stores only the logical repo, checked-in relative config path, exact

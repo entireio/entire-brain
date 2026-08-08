@@ -3131,6 +3131,70 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("brain_validation_not_clean", verdict["verdict_reasons"])
 
 
+class PostBrainSetupTests(unittest.TestCase):
+    PATCH = """diff --git a/value.txt b/value.txt
+--- a/value.txt
++++ b/value.txt
+@@ -1 +1 @@
+-before
++after
+"""
+
+    def test_relative_post_brain_patch_is_applied_from_task_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_dir = root / "tasks"
+            patch_dir = task_dir / "patches"
+            worktree = root / "worktree"
+            patch_dir.mkdir(parents=True)
+            worktree.mkdir()
+            task_path = task_dir / "task.json"
+            task_path.write_text("{}\n")
+            (patch_dir / "task.patch").write_text(self.PATCH)
+            (worktree / "value.txt").write_text("before\n")
+
+            changed = run.apply_post_brain_setup(
+                {"_path": str(task_path), "post_brain_patch": "patches/task.patch"},
+                worktree,
+            )
+
+            self.assertTrue(changed)
+            self.assertEqual((worktree / "value.txt").read_text(), "after\n")
+
+    def test_post_brain_patch_rejects_absolute_and_escaping_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_dir = root / "tasks"
+            task_dir.mkdir()
+            task_path = task_dir / "task.json"
+            task_path.write_text("{}\n")
+            worktree = root / "worktree"
+            worktree.mkdir()
+            outside = root / "outside.patch"
+            outside.write_text(self.PATCH)
+
+            for patch_path in (str(outside), "../outside.patch"):
+                with self.subTest(patch_path=patch_path):
+                    with self.assertRaisesRegex(ValueError, "relative path|escapes"):
+                        run.apply_post_brain_setup(
+                            {"_path": str(task_path), "post_brain_patch": patch_path},
+                            worktree,
+                        )
+
+    def test_post_brain_patch_fails_closed_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_path = root / "task.json"
+            task_path.write_text("{}\n")
+            worktree = root / "worktree"
+            worktree.mkdir()
+            with self.assertRaisesRegex(ValueError, "not a readable file"):
+                run.apply_post_brain_setup(
+                    {"_path": str(task_path), "post_brain_patch": "missing.patch"},
+                    worktree,
+                )
+
+
 class RunnerIndependentPromptTests(unittest.TestCase):
     TASK = {"id": "t", "prompt": "Fix it.", "brain_queries": ["X"], "expected_files": ["a.go"], "validation": ["go test ./..."]}
 
