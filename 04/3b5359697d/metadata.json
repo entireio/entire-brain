@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "043b5359697d",
+  "strategy": "manual-commit",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/atomic_replace_windows.go",
+    "internal/cli/history_legacy_identity_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/04/3b5359697d/0/metadata.json",
+      "transcript": "/04/3b5359697d/0/full.jsonl",
+      "compact_transcript": "/04/3b5359697d/0/transcript.jsonl",
+      "content_hash": "/04/3b5359697d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 76185,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17412352,
+    "output_tokens": 10419,
+    "api_call_count": 79
+  }
+}

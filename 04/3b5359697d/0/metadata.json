@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "043b5359697d",
+  "session_id": "019fd8df-5a22-7932-818a-8c685431d480",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T00:30:51.222305Z",
+  "branch": "codex/benchmark-repair-integration",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/atomic_replace_windows.go",
+    "internal/cli/history_legacy_identity_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "59be21065e37",
+  "checkpoint_transcript_start": 4951,
+  "transcript_lines_at_start": 4951,
+  "compact_transcript_start": 1094,
+  "token_usage": {
+    "input_tokens": 76185,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17412352,
+    "output_tokens": 10419,
+    "api_call_count": 79
+  },
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T00:30:50.76259Z",
+    "agent_lines": 44,
+    "agent_removed": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 44,
+    "total_lines_changed": 51,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
