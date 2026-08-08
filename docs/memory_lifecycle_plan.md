@@ -4,7 +4,7 @@ Status: proposed (2026-07-03). Owner: TBD.
 
 Four features that close the loop between what the brain serves and what it
 should keep serving, designed for entire-brain's constraint: **no human in the
-loop in steady state**. 
+loop in steady state**.
 
 Decisions locked by the sponsor:
 

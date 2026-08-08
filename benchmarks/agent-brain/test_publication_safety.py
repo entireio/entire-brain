@@ -31,9 +31,9 @@ BANNED: tuple[tuple[bytes, str], ...] = (
     (joined(b"\\Users\\", b"Victor"), "private contributor home path"),
     (joined(b"/private/var/", b"folders/"), "host-specific temporary path"),
     (joined(b"eu-staging", b".api.entire.io"), "internal service endpoint"),
-    (joined(b"aws-us-east-2", b".api.entire.io"), "internal service endpoint"),
-    (joined(b"aws-eu-central-1", b".api.entire.io"), "internal service endpoint"),
-    (joined(b"aws-eu-west-1", b".api.entire.io"), "internal service endpoint"),
+    (joined(b"aws-us-", b"east-2", b".api.entire.io"), "internal service endpoint"),
+    (joined(b"aws-eu-", b"central-1", b".api.entire.io"), "internal service endpoint"),
+    (joined(b"aws-eu-", b"west-1", b".api.entire.io"), "internal service endpoint"),
     (joined(b"claude/diff-less-", b"brain"), "private held-branch name"),
     (joined(b"review-", b"cutover"), "private cross-repository branch name"),
 )

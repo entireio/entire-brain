@@ -9,4 +9,4 @@ internal/cli/testdata/*.golden* text eol=lf
 
 # Unified-diff context markers intentionally put one space before tab-indented
 # source. Do not report that patch syntax as a whitespace defect in outer diffs.
-*.patch whitespace=-space-before-tab
+*.patch -whitespace
