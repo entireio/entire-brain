@@ -2021,11 +2021,12 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	}
 	// Validate the source/filter contract once, before the fan-out, so an
 	// invalid selector is one structured error rather than N per-repo copies.
-	// Note: retrieveOpts.branch is the facts-branch selector resolved per
-	// member below; the conversation branch filter is deliberately NOT wired
-	// to it here (member repos are on different branches; filter per-repo
-	// results by branch in the caller if needed).
-	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, "")
+	// The complete retrieval-options contract, including the branch filter,
+	// reaches every member: an explicit --branch bounds conversation results
+	// to that captured branch in each member brain, exactly like the
+	// top-level verbs (R0-5). Members without that branch simply return no
+	// conversation hits.
+	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch)
 	if err != nil {
 		return fmt.Errorf("--%s", err.Error())
 	}
@@ -2070,7 +2071,11 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		}
 		results = append(results, result)
 	}
-	if mode != modeVector {
+	// The workspace-graph group joins only the default source set. An explicit
+	// single-source selection (conversation, fact, history, doc) is a source
+	// isolation contract: no fan-out or append stage may add records from any
+	// other source (R0-5).
+	if mode != modeVector && ropts.Source == retrievalSourceAll {
 		graphResults, err := retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			results = append(results, workspaceRetrieveResult{

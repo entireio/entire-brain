@@ -3145,3 +3145,129 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 		t.Fatalf("expansion missing caveat:\n%s", getOut)
 	}
 }
+
+// R0-5 adversarial fixture: a workspace holding both graph matches and
+// conversation matches for the same query must keep source=conversation
+// results conversation-only, and the branch filter must reach every member
+// brain in the fan-out.
+func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+
+	_, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+
+	writeMemberConversation := func(key, sessionID, request, response string) {
+		t.Helper()
+		brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+		rel := "sessions/main/20260808T100000Z_" + sessionID + ".jsonl"
+		body := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + request + `"}]}}` + "\n" +
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + response + `"}]}}` + "\n"
+		full := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		if manifest.Sources.Sessions == nil {
+			manifest.Sources.Sessions = &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main"}
+		}
+		manifest.RepoKey = key
+		manifest.Sources.Sessions.Sessions = append(manifest.Sources.Sessions.Sessions, exportSession{
+			SessionID: sessionID, Branch: "main", Agent: "Claude Code", LatestCheckpoint: "cp",
+			TranscriptPath: rel, CreatedAt: now.Add(-time.Hour),
+		})
+		if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMemberConversation(keyA, "sess-a", "why did the deploy rollback loop", "Decision: the rollback loop came from a stale health probe; pinned the probe version.")
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "isospace",
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "a"}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
+	// A persisted graph edge whose text matches the same query terms.
+	edge := workspaceGraphCrossEdge{
+		Endpoint:     "external:deploy:rollback",
+		Type:         "http",
+		FromRepo:     keyA,
+		ToRepo:       keyA,
+		FromSymbol:   workspaceGraphSymbolRef{RepoKey: keyA, ID: "symbol:deployRollback", Kind: "function", Name: "deployRollback", QualifiedName: "ops.deployRollback", FilePath: "a.go"},
+		ToSymbol:     workspaceGraphSymbolRef{RepoKey: keyA, ID: "symbol:rollbackLoop", Kind: "function", Name: "rollbackLoop", QualifiedName: "ops.rollbackLoop", FilePath: "a.go"},
+		SharedCount:  1,
+		RelationKind: "cross_repo_http_call",
+	}
+	if _, err := writeWorkspaceGraphPayload(env, workspaceGraphPayload{
+		Workspace:   manifest.Name,
+		GeneratedAt: now,
+		CrossEdges:  []workspaceGraphCrossEdge{edge},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Source isolation: conversation-scoped search must not append the
+	// workspace-graph group even though the edge matches the query.
+	convOut, err := execute(t, NewRootCommand(opts), "workspace", "search", "isospace", "deploy rollback loop", "--source", "conversation", "--json")
+	if err != nil {
+		t.Fatalf("conversation search: %v", err)
+	}
+	if !strings.Contains(convOut, "stale health probe") {
+		t.Fatalf("missing conversation hit:\n%s", convOut)
+	}
+	if strings.Contains(convOut, `"source": "workspace_graph"`) {
+		t.Fatalf("workspace graph leaked into source=conversation results:\n%s", convOut)
+	}
+
+	// Any explicit single source keeps the same isolation.
+	histOut, err := execute(t, NewRootCommand(opts), "workspace", "search", "isospace", "deploy rollback loop", "--source", "history", "--json")
+	if err != nil {
+		t.Fatalf("history search: %v", err)
+	}
+	if strings.Contains(histOut, `"source": "workspace_graph"`) {
+		t.Fatalf("workspace graph leaked into source=history results:\n%s", histOut)
+	}
+
+	// Default source keeps the graph group (existing behavior).
+	allOut, err := execute(t, NewRootCommand(opts), "workspace", "search", "isospace", "deploy rollback loop", "--json")
+	if err != nil {
+		t.Fatalf("default search: %v", err)
+	}
+	if !strings.Contains(allOut, `"source": "workspace_graph"`) {
+		t.Fatalf("default-source search lost the workspace graph group:\n%s", allOut)
+	}
+
+	// Branch propagation: the captured branch is main, so a release-branch
+	// filter must exclude the exchange in every member, and a main filter must
+	// keep it.
+	missOut, err := execute(t, NewRootCommand(opts), "workspace", "search", "isospace", "deploy rollback loop", "--source", "conversation", "--branch", "release", "--json")
+	if err != nil {
+		t.Fatalf("branch-filtered search: %v", err)
+	}
+	if strings.Contains(missOut, "stale health probe") {
+		t.Fatalf("branch filter did not reach the member fan-out:\n%s", missOut)
+	}
+	hitOut, err := execute(t, NewRootCommand(opts), "workspace", "search", "isospace", "deploy rollback loop", "--source", "conversation", "--branch", "main", "--json")
+	if err != nil {
+		t.Fatalf("branch-matched search: %v", err)
+	}
+	if !strings.Contains(hitOut, "stale health probe") {
+		t.Fatalf("matching branch filter dropped the exchange:\n%s", hitOut)
+	}
+}
