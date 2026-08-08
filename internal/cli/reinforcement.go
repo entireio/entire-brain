@@ -204,6 +204,20 @@ type episodeSegment struct {
 // the next substantive user turn. Document-form (opencode) transcripts expose
 // only conversation text via the shared parser, so tool output — and thus commit
 // detection — is best-effort there; JSONL dialects (Codex, Claude, pi) carry it.
+//
+// NOTE: this deliberately DIVERGES from the conversation exchange parser
+// (scanConversationTranscript) even though both split on substantive user
+// turns. Episodes keep RAW work text (verbatim tool output feeds commit
+// detection) and count hook-injected requests as turn boundaries; exchanges
+// keep only visible assistant narrative and filter hook injections and
+// API-error envelopes (isConversationInjectedRequest /
+// isConversationNoiseNarrative). The shared kernel is a dozen lines of loop
+// scaffolding — converging them would either change one side's measured
+// semantics or produce an abstraction with more parameters than shared code
+// (the Phase 2 convergence question was evaluated and closed this way; see
+// also the intentionally-divergent query stopword regimes for the precedent).
+// Keep the two parsers' dialect switches in sync when adding a transcript
+// format: transcriptUserText covers requests for both.
 func transcriptEpisodeSegments(transcript string) []episodeSegment {
 	var (
 		segments []episodeSegment

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,8 +29,11 @@ import (
 
 const (
 	historyFTSFileName = "index-fts.sqlite"
-	historyFTSSchema   = "2"
-	historyFTSPayload  = "1"
+	// v3 combines payload-backed direct hydration with conversation exchange
+	// indexing. General history ranking excludes exchanges unless callers select
+	// the conversation kind explicitly.
+	historyFTSSchema  = "3"
+	historyFTSPayload = "1"
 )
 
 // historyFTSRelevanceCutoff keeps only matches scoring at least this fraction of
@@ -318,7 +320,7 @@ func buildHistoryFTSIdentity(db *sql.DB, index historyIndex, identity historyFTS
 
 // rebuildHistoryFTSFromTruth force-replaces a corrupt derived payload after the
 // authoritative JSON index has been verified and loaded. Normal stale caches use
-// openHistoryFTS's cheaper double-checked rebuild; this path is only for a v2
+// openHistoryFTS's cheaper double-checked rebuild; this path is only for a v3
 // database whose metadata claimed freshness but whose hydrated rows were invalid.
 func rebuildHistoryFTSFromTruth(brainDir string, index historyIndex) error {
 	return withBrainWriteLock(brainDir, func() error {
@@ -397,7 +399,7 @@ func openHistoryFTSReadOnly(brainDir string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
-	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}).String()
+	dsn := sqliteLiveReadOnlyDSN(path)
 	db, err := sql.Open(sqliteDriverName, dsn)
 	if err != nil {
 		return nil, err
@@ -412,7 +414,7 @@ func openHistoryFTSReadOnly(brainDir string) (*sql.DB, error) {
 	return db, nil
 }
 
-// rankHistoryViaFreshFTS hydrates BM25 matches directly from schema-v2 SQLite
+// rankHistoryViaFreshFTS hydrates BM25 matches directly from schema-v3 SQLite
 // payload rows. Metadata validation and ranking share one read transaction, so
 // a concurrent refresh cannot commit a new generation between the two reads.
 // used=false is a soft cache miss and requires the caller to load index.json;
@@ -659,7 +661,8 @@ func appendHistoryFTSKindFilter(sb *strings.Builder, args *[]any, kind, column s
 		sb.WriteString(" AND " + column + " IN (" + strings.Join(placeholders, ",") + ")")
 		return
 	}
-	sb.WriteString(" AND " + column + " != 'request'")
+	sb.WriteString(" AND " + column + " NOT IN ('request', ?)")
+	*args = append(*args, conversationKind)
 }
 
 const (

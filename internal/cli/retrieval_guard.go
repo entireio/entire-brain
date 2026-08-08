@@ -14,6 +14,8 @@ const (
 	retrievalCaveatProposalStateUnavailable = "proposal_state_unavailable"
 	retrievalCaveatCurrentCodeUnavailable   = "current_code_unavailable"
 	retrievalCaveatHistoricalDocument       = "historical_document"
+	retrievalCaveatHistoricalConversation   = "historical_conversation"
+	retrievalCaveatConversationSourceStale  = "conversation_source_stale"
 )
 
 // retrievalCaveat is a machine-readable reason an agent must verify a memory

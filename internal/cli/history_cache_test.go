@@ -117,18 +117,18 @@ func cacheContainsRecordID(cache historyScanCache, id string) bool {
 	return false
 }
 
-// TestHistoryScanCacheV5AnnotatedEntriesIgnored ensures old entries whose
-// Branch may already contain manifest inference cannot masquerade as v6 raw
+// TestHistoryScanCacheV6AnnotatedEntriesIgnored ensures old entries whose
+// Branch may already contain manifest inference cannot masquerade as v7 raw
 // scanner records.
-func TestHistoryScanCacheV5AnnotatedEntriesIgnored(t *testing.T) {
-	if historyScanCacheVersion != 6 {
-		t.Fatalf("test pins the v5 -> v6 raw-record migration; version = %d", historyScanCacheVersion)
+func TestHistoryScanCacheV6AnnotatedEntriesIgnored(t *testing.T) {
+	if historyScanCacheVersion != 7 {
+		t.Fatalf("test pins the incompatible v6 -> v7 cache migration; version = %d", historyScanCacheVersion)
 	}
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, historyDirName), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	stale := historyScanCache{Version: 5, Files: map[string]historyScanCacheEntry{
+	stale := historyScanCache{Version: 6, Files: map[string]historyScanCacheEntry{
 		"sessions/main/old.jsonl": {Records: []historyRecord{{ID: "stale", Branch: "main"}}},
 	}}
 	var buf bytes.Buffer

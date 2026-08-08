@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 )
@@ -178,6 +179,9 @@ func TestBrainBriefGoTestSourceCompanionsRequireSafeRegularSource(t *testing.T) 
 	})
 
 	t.Run("source socket", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Unix-domain socket fixture is not portable to Windows")
+		}
 		repoDir, err := os.MkdirTemp("/tmp", "brain-go-source-")
 		if err != nil {
 			t.Fatalf("create short socket root: %v", err)

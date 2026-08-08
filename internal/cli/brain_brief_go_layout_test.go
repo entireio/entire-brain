@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -365,6 +366,9 @@ func TestBrainBriefGoPrefixTestFallbackRequiresSafeRegularRepoFile(t *testing.T)
 	})
 
 	t.Run("socket file", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Unix-domain socket fixture is not portable to Windows")
+		}
 		repoDir, err := os.MkdirTemp("/tmp", "brain-go-test-")
 		if err != nil {
 			t.Fatalf("create short socket root: %v", err)

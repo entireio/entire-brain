@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,11 +15,12 @@ import (
 )
 
 const (
-	brainBriefGitIntentTermLimit   = 6
-	brainBriefGitIntentCommitLimit = 16
-	brainBriefGitIntentPathLimit   = 64
-	brainBriefGitIntentOutputLimit = 64 * 1024
-	brainBriefGitIntentTimeout     = 100 * time.Millisecond
+	brainBriefGitIntentTermLimit      = 6
+	brainBriefGitIntentCommitLimit    = 16
+	brainBriefGitIntentPathLimit      = 64
+	brainBriefGitIntentOutputLimit    = 64 * 1024
+	brainBriefGitIntentTimeout        = 100 * time.Millisecond
+	brainBriefGitIntentWindowsTimeout = time.Second
 )
 
 type brainBriefGitIntentCommit struct {
@@ -141,7 +143,7 @@ func brainBriefGitIntentFile(
 		return "", false
 	}
 
-	boundedCtx, cancel := context.WithTimeout(ctx, brainBriefGitIntentTimeout)
+	boundedCtx, cancel := context.WithTimeout(ctx, brainBriefGitIntentTimeoutForPlatform())
 	defer cancel()
 	logArgs := []string{
 		"-c", "core.quotepath=false", "log", "--no-merges",
@@ -197,6 +199,13 @@ func brainBriefGitIntentFile(
 		return "", false
 	}
 	return brainBriefGitIntentBestPath(repoRoot, task, terms, paths)
+}
+
+func brainBriefGitIntentTimeoutForPlatform() time.Duration {
+	if runtime.GOOS == "windows" {
+		return brainBriefGitIntentWindowsTimeout
+	}
+	return brainBriefGitIntentTimeout
 }
 
 func brainBriefGitIntentRead(

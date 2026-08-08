@@ -30,6 +30,7 @@ import (
 // process buys nothing and leaks on early exits.
 type vecStore struct {
 	path      string // absolute path to vectors.sqlite
+	brainDir  string // brain root used to serialize cache publication
 	modelID   string
 	dim       int
 	validated bool // every persisted fact vector passed validSemanticEmbedding
@@ -258,6 +259,20 @@ type historyVecStore struct {
 func newHistoryVectorStore(brainDir, modelID string, dim int) (historyVectorStore, bool) {
 	dir := filepath.Join(brainDir, historyDirName, embedStoreDirName)
 	return &historyVecStore{path: filepath.Join(dir, vecStoreFileName), modelID: modelID, dim: dim}, true
+}
+
+// conversationVecStoreFileName keeps conversation-exchange vectors in their own
+// vec0 file beside the history vectors: the stores share machinery but not
+// identity — general history KNN must never spend budget on exchanges, and a
+// conversation model migration must not invalidate history vectors (or vice
+// versa).
+const conversationVecStoreFileName = "conversation-vectors.sqlite"
+
+// newConversationVectorStore is newHistoryVectorStore for the conversation
+// exchange projection (same vec0 schema, separate file and identity).
+func newConversationVectorStore(brainDir, modelID string, dim int) (historyVectorStore, bool) {
+	dir := filepath.Join(brainDir, historyDirName, embedStoreDirName)
+	return &historyVecStore{path: filepath.Join(dir, conversationVecStoreFileName), modelID: modelID, dim: dim}, true
 }
 
 func (s *historyVecStore) open() (*sql.DB, error) {

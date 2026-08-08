@@ -71,7 +71,7 @@ func BenchmarkHistoryFTSQueryPaths(b *testing.B) {
 			}
 		}
 	})
-	b.Run("direct_v2_payload", func(b *testing.B) {
+	b.Run("direct_v3_payload", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			if _, used, err := rankHistoryViaFreshFTS(brainDir, source, "history", query, 10); err != nil || !used {
@@ -84,7 +84,7 @@ func BenchmarkHistoryFTSQueryPaths(b *testing.B) {
 // BenchmarkHistoryLegacyIdentityUpgrade measures the one-time legacy fallback
 // against the next invocation's direct payload path. Manifest reset is outside
 // the timed region; the first arm includes full truth load, identity derivation,
-// schema-v2 cache validation and ranking, locking, revalidation, and atomic
+// schema-v3 cache validation and ranking, locking, revalidation, and atomic
 // migration.
 func BenchmarkHistoryLegacyIdentityUpgrade(b *testing.B) {
 	index := benchmarkHistoryFTSIndex(b)

@@ -46,13 +46,16 @@ const (
 	// opening request and the history eval's midtask stratum mines follow-up
 	// questions as queries. The v3 noise concern is unchanged and unaffected:
 	// both rankers still exclude kind=request from general ranking.
-	// v5: bind cache reuse to transcript content, not only size/mtime. This keeps
-	// same-path rewrites (including restored mtimes) from resurrecting stale
-	// parsed records after freshness detection triggers a rebuild.
-	// v6: cache raw scanner records before branch inference. Branch is manifest
-	// context and must be re-applied on every build; v5 entries may already hold
-	// an inferred branch and cannot be distinguished from an explicit one.
-	historyScanCacheVersion = 6
+	// v5: extract experimental conversation "exchange" records (conversation.go)
+	// during the scan; older caches do not contain them.
+	// v6: conversation-scoped wrapper filtering (hook-injected pseudo-requests)
+	// and API-error narrative exclusion changed exchange extraction; cached v5
+	// exchanges would keep the noise.
+	// v7: bind cache reuse to transcript content instead of size/mtime, and cache
+	// raw scanner/exchange records before manifest-derived branch and conversation
+	// identity annotation. The two v6 cache formats developed independently and
+	// are deliberately invalidated rather than guessed apart.
+	historyScanCacheVersion = 7
 )
 
 type historySourceManifest struct {
@@ -69,7 +72,12 @@ type historySourceManifest struct {
 	Validations            int       `json:"validations"`
 	ToolCalls              int       `json:"tool_calls"`
 	CodeFacts              int       `json:"code_facts"`
-	Warnings               []string  `json:"warnings,omitempty"`
+	Exchanges              int       `json:"exchanges,omitempty"`
+	IncompleteExchanges    int       `json:"incomplete_exchanges,omitempty"`
+	// ExcludedSessions counts tombstoned sessions skipped before derived
+	// indexing (their content is never retained; see session_privacy.go).
+	ExcludedSessions int      `json:"excluded_sessions,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
 }
 
 type historyIndex struct {
@@ -90,6 +98,27 @@ type historyRecord struct {
 	Line    int      `json:"line"`
 	Summary string   `json:"summary"`
 	Terms   []string `json:"terms,omitempty"`
+
+	// Experimental conversation-exchange extension (kind "exchange", see
+	// conversation.go). All fields are additive and omitted for classic
+	// records, so the established history JSON is byte-identical for them.
+	// Summary holds the bounded deterministic search projection — the only
+	// conversation body stored in the index; full text lives only in the
+	// exported transcript and is re-parsed by get.
+	SessionID   string `json:"session_id,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"` // RFC3339 session time
+	EndLine     int    `json:"end_line,omitempty"`   // inclusive 1-based range end
+	TurnOrdinal int    `json:"turn_ordinal,omitempty"`
+	// RangeIncomplete is set when the exact source range could not be proven
+	// (range_complete=false in the contract; inverted so omitempty works).
+	RangeIncomplete     bool     `json:"range_incomplete,omitempty"`
+	ContentRole         string   `json:"content_role,omitempty"` // "historical_evidence"
+	ProjectionTruncated bool     `json:"projection_truncated,omitempty"`
+	SourceDigest        string   `json:"source_digest,omitempty"` // transcript digest at extraction
+	RequestDigest       string   `json:"request_digest,omitempty"`
+	IdentityDegraded    bool     `json:"identity_degraded,omitempty"`
+	ToolNames           []string `json:"tool_names,omitempty"`
 }
 
 type scoredHistoryRecord struct {
@@ -129,6 +158,9 @@ type historyScanCache struct {
 type historyScanCacheEntry struct {
 	ContentSHA256 string          `json:"content_sha256"`
 	Records       []historyRecord `json:"records"`
+	// IncompleteExchanges preserves the per-file diagnostic (exchanges opened
+	// with no visible assistant narrative) across cache reuse.
+	IncompleteExchanges int `json:"incomplete_exchanges,omitempty"`
 }
 
 func newHistoryIndexCommand(opts Options) *cobra.Command {
@@ -193,6 +225,15 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 				return serr
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "history vectors: %d embedded, %d pruned (%d total)\n", added, dropped, total)
+			if convStore, convOK := newConversationVectorStore(storage.BrainDir, e.ID(), e.Dim()); convOK {
+				convAdded, convDropped, convTotal, convErr := syncConversationVectors(convStore, index, e, func(done, totalNew int) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "conversation vectors: %d/%d new %s embedded\n", done, totalNew, pluralUnit("exchange", totalNew))
+				})
+				if convErr != nil {
+					return convErr
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "conversation vectors: %d embedded, %d pruned (%d total)\n", convAdded, convDropped, convTotal)
+			}
 		}
 	}
 	return nil
@@ -290,20 +331,30 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		}
 		return index, nil, err
 	}
+	manifest, _ := loadBrainManifest(outputDir)
+	branchByPath := historyBranchByTranscriptPath(manifest)
+	sessionByPath := historySessionByTranscriptPath(manifest)
+	// Session tombstones are resolved before transcript collection so excluded
+	// content is neither hashed nor parsed for any derived history artifact.
+	excludedByPath := excludedTranscriptPaths(manifest, loadSessionTombstones(outputDir))
+	repoKey := ""
+	if manifest != nil {
+		repoKey = manifest.RepoKey
+	}
 	prevCache := loadHistoryScanCache(outputDir)
 	var files []historySessionCandidate
 	if len(prevCache.Files) == 0 {
 		// A cache-empty rebuild needs every transcript parsed. Collect metadata
 		// only so parsing and SHA-256 can share one forward-only file read.
 		var err error
-		files, err = collectHistorySessionFileCandidates(sessionsRoot, &index.Warnings)
+		files, err = collectHistorySessionFileCandidatesForIndex(outputDir, sessionsRoot, excludedByPath, &index.Warnings)
 		if err != nil {
 			return index, nil, err
 		}
 	} else {
-		// Preserve v6's hash-only cache-hit path exactly. Content SHA remains the
+		// Preserve the hash-only cache-hit path exactly. Content SHA remains the
 		// authority, including for same-size/restored-mtime rewrites.
-		hashed, err := collectHistorySessionFiles(sessionsRoot, &index.Warnings)
+		hashed, err := collectHistorySessionFilesForIndex(outputDir, sessionsRoot, excludedByPath, &index.Warnings)
 		if err != nil {
 			return index, nil, err
 		}
@@ -313,8 +364,6 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		}
 	}
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
-	manifest, _ := loadBrainManifest(outputDir)
-	branchByPath := historyBranchByTranscriptPath(manifest)
 	// On a cache-empty build, total is the metadata-eligible candidate set.
 	// Every candidate advances progress exactly once even when a later open or
 	// identity check fails. Only complete identity-stable reads are fingerprinted;
@@ -327,19 +376,32 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		progress(0, total)
 	}
 	seenDecisions := map[string]struct{}{}
+	// Re-exported sessions (the same session written under multiple transcript
+	// paths) produce byte-identical exchanges with identical IDs — measured at
+	// 17–31% of exchange records on real brains. Files iterate newest-first, so
+	// keeping the first occurrence of each exchange ID retains the newest
+	// export's copy (which also carries any appended assistant output).
+	seenExchanges := map[string]struct{}{}
+	incompleteExchanges := 0
+	excludedSessions := map[string]struct{}{}
+	for _, sessionID := range excludedByPath {
+		excludedSessions[sessionID] = struct{}{}
+	}
 	for i, file := range files {
 		rel, relErr := filepath.Rel(outputDir, file.Path)
 		if relErr != nil {
 			rel = file.Path
 		}
 		rel = filepath.ToSlash(rel)
-
 		var records []historyRecord
+		var incomplete int
 		cached, hasCached := prevCache.Files[rel]
+		scannedFresh := false
 		if file.ContentSHA256 != "" {
 			fingerprintedFiles = append(fingerprintedFiles, file.historySessionFile)
 			if hasCached && cached.ContentSHA256 != "" && cached.ContentSHA256 == file.ContentSHA256 {
 				records = cached.Records
+				incomplete = cached.IncompleteExchanges
 			} else {
 				scanned, scannedSHA256, scanErr := scanHistoryFileWithContentSHA(outputDir, file.Path, nil)
 				switch {
@@ -363,6 +425,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 					continue
 				}
 				records = scanned
+				scannedFresh = true
 			}
 		} else {
 			// Cache-empty files take this path: parsing and SHA-256 consume the
@@ -387,15 +450,34 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 				continue
 			}
 			records = scanned
+			scannedFresh = true
+		}
+		if scannedFresh {
+			// Conversation exchanges are an additive experimental projection; an
+			// extraction failure downgrades to classic records with a warning
+			// rather than dropping the whole file.
+			conversationScan, convErr := scanConversationTranscript(file.Path)
+			if convErr != nil {
+				index.Warnings = append(index.Warnings, fmt.Sprintf("conversation exchanges skipped for %s: %v", rel, convErr))
+			} else if conversationScan.SourceDigest != file.ContentSHA256 {
+				index.Warnings = append(index.Warnings, fmt.Sprintf("history transcript changed between history and conversation scan: %s", file.Path))
+			} else {
+				records = append(records, conversationExchangeRecords(rel, conversationScan)...)
+				incomplete = conversationScan.Incomplete
+			}
 		}
 		// Only files that scanned cleanly (or were reused) are cached; a file
-		// that errored is left out so the next refresh retries it. Branch is
-		// build context, so v6 stores the raw records and annotates a copy below.
+		// that errored is left out so the next refresh retries it. Branch and
+		// conversation identity are build context, so v7 stores raw records and
+		// annotates a copy below.
 		newCache.Files[rel] = historyScanCacheEntry{
-			ContentSHA256: file.ContentSHA256,
-			Records:       records,
+			ContentSHA256:       file.ContentSHA256,
+			Records:             records,
+			IncompleteExchanges: incomplete,
 		}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
+		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
+		incompleteExchanges += incomplete
 
 		for _, record := range records {
 			if record.Kind == "decision" {
@@ -404,6 +486,12 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 					continue
 				}
 				seenDecisions[dedupeKey] = struct{}{}
+			}
+			if record.Kind == conversationKind {
+				if _, ok := seenExchanges[record.ID]; ok {
+					continue
+				}
+				seenExchanges[record.ID] = struct{}{}
 			}
 			index.Records = append(index.Records, record)
 		}
@@ -428,6 +516,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		SessionsFingerprint:    brainSessionsFingerprint(outputDir),
 		TranscriptsFingerprint: transcriptsFingerprint,
 		Records:                len(index.Records),
+		IncompleteExchanges:    incompleteExchanges,
+		ExcludedSessions:       len(excludedSessions),
 		Warnings:               append([]string(nil), index.Warnings...),
 	}
 	for _, record := range index.Records {
@@ -442,6 +532,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			source.ToolCalls++
 		case "code_fact":
 			source.CodeFacts++
+		case conversationKind:
+			source.Exchanges++
 		}
 	}
 	return index, source, nil
@@ -452,6 +544,62 @@ func historyScanFingerprintError(path string, err error) error {
 		return err
 	}
 	return fmt.Errorf("history transcript scan returned no content fingerprint: %s", path)
+}
+
+// historySessionByTranscriptPath maps each exported transcript path to its
+// session manifest entry so exchange records can carry session identity.
+func historySessionByTranscriptPath(manifest *exportManifest) map[string]exportSession {
+	out := map[string]exportSession{}
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return out
+	}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		rel := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
+		if rel == "" {
+			continue
+		}
+		out[rel] = session
+	}
+	return out
+}
+
+// annotateConversationIdentity fills the manifest-derived identity of exchange
+// records: session id, agent, session time, and the stable conversation: ID.
+// Like branch annotation it only fills empty fields. The scan cache deliberately
+// stores raw exchange records so identity is re-applied from the current manifest.
+func annotateConversationIdentity(records []historyRecord, rel, repoKey string, sessionByPath map[string]exportSession) []historyRecord {
+	needsAnnotation := false
+	for i := range records {
+		if records[i].Kind == conversationKind && records[i].ID == "" {
+			needsAnnotation = true
+			break
+		}
+	}
+	if !needsAnnotation {
+		return records
+	}
+	session, hasSession := sessionByPath[rel]
+	out := append([]historyRecord(nil), records...)
+	for i := range out {
+		if out[i].Kind != conversationKind || out[i].ID != "" {
+			continue
+		}
+		sessionID := ""
+		if hasSession {
+			sessionID = strings.TrimSpace(session.SessionID)
+			if out[i].Agent == "" {
+				out[i].Agent = session.Agent
+			}
+			if out[i].CreatedAt == "" && !session.CreatedAt.IsZero() {
+				out[i].CreatedAt = session.CreatedAt.UTC().Format(time.RFC3339)
+			}
+		}
+		out[i].SessionID = sessionID
+		id, degraded := conversationExchangeID(repoKey, sessionID, out[i].TurnOrdinal, out[i].RequestDigest, out[i].SourceDigest)
+		out[i].ID = id
+		out[i].IdentityDegraded = degraded
+	}
+	return out
 }
 
 func historyBranchByTranscriptPath(manifest *exportManifest) map[string]string {
@@ -688,9 +836,16 @@ func validateHistoryTranscriptRead(f *os.File, path string, opened fs.FileInfo) 
 }
 
 func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]historySessionFile, error) {
+	return collectHistorySessionFilesForIndex("", sessionsRoot, nil, warnings)
+}
+
+func collectHistorySessionFilesForIndex(outputDir, sessionsRoot string, excludedByPath map[string]string, warnings *[]string) ([]historySessionFile, error) {
 	var files []historySessionFile
 	hashScratch := make([]byte, 64*1024)
 	err := walkHistorySessionFiles(sessionsRoot, warnings, func(path string, info fs.FileInfo) {
+		if historyTranscriptExcluded(outputDir, path, excludedByPath) {
+			return
+		}
 		contentSHA256, hashErr := historyTranscriptContentSHA(path, info, hashScratch)
 		if hashErr != nil {
 			*warnings = append(*warnings, hashErr.Error())
@@ -715,8 +870,15 @@ func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]hist
 }
 
 func collectHistorySessionFileCandidates(sessionsRoot string, warnings *[]string) ([]historySessionCandidate, error) {
+	return collectHistorySessionFileCandidatesForIndex("", sessionsRoot, nil, warnings)
+}
+
+func collectHistorySessionFileCandidatesForIndex(outputDir, sessionsRoot string, excludedByPath map[string]string, warnings *[]string) ([]historySessionCandidate, error) {
 	var files []historySessionCandidate
 	err := walkHistorySessionFiles(sessionsRoot, warnings, func(path string, info fs.FileInfo) {
+		if historyTranscriptExcluded(outputDir, path, excludedByPath) {
+			return
+		}
 		files = append(files, historySessionCandidate{
 			historySessionFile: historySessionFile{
 				Path:     path,
@@ -735,6 +897,18 @@ func collectHistorySessionFileCandidates(sessionsRoot string, warnings *[]string
 		return files[i].Path < files[j].Path
 	})
 	return files, nil
+}
+
+func historyTranscriptExcluded(outputDir, path string, excludedByPath map[string]string) bool {
+	if outputDir == "" || len(excludedByPath) == 0 {
+		return false
+	}
+	rel, err := filepath.Rel(outputDir, path)
+	if err != nil {
+		return false
+	}
+	_, excluded := excludedByPath[filepath.ToSlash(rel)]
+	return excluded
 }
 
 func walkHistorySessionFiles(sessionsRoot string, warnings *[]string, visit func(string, fs.FileInfo)) error {
@@ -1522,9 +1696,10 @@ func rankHistoryRecordsScored(index historyIndex, kind, query string, limit, min
 			if _, ok := allowed[record.Kind]; !ok {
 				continue
 			}
-		} else if record.Kind == "request" {
-			// Keep user-prompt records out of general ranking (they add noise);
-			// they surface only via the explicit `requests` kind.
+		} else if historyGeneralRankingHiddenKind(record.Kind) {
+			// Keep user-prompt and conversation-exchange records out of general
+			// ranking (requests are measured noise; exchanges are opt-in via the
+			// explicit conversation source only).
 			continue
 		}
 		score := historyRecordQueryScoreMin(record, query, minMatches)
@@ -1710,6 +1885,15 @@ func historyRequiredQueryMatches(termCount int) int {
 	default:
 		return 3
 	}
+}
+
+// historyGeneralRankingHiddenKind reports the record kinds every general
+// (non-kind-scoped) history surface must skip: user-prompt requests (measured
+// ranking noise) and conversation exchanges (returned only when the caller
+// explicitly selects the conversation source; excluded from history vectors in
+// Phase 1 — no semantic exchange arm exists yet).
+func historyGeneralRankingHiddenKind(kind string) bool {
+	return kind == "request" || kind == conversationKind
 }
 
 func historyKindRank(kind string) int {

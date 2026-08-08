@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -100,7 +101,7 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	if err != nil {
 		t.Fatalf("stat profile: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("profile mode = %o, want 600", got)
 	}
 	for _, private := range []string{task, "PRIVATE_TASK_PAYLOAD", "ALPHA_ONE", "PRIVATE_HISTORY_PAYLOAD", "PRIVATE_FACT_PAYLOAD", fixture.repoDir, fixture.brainDir, "private-session.jsonl"} {

@@ -157,6 +157,37 @@ func rankHistorySemanticFiltered(
 	alwaysKeep map[string]struct{},
 	collectCalibrationArm bool,
 ) historyVectorRanks {
+	return rankSemanticFilteredKinds(index, scores, limit, requireRelevance, alwaysKeep, collectCalibrationArm, historyGeneralRankingHiddenKind)
+}
+
+// rankConversationSemantic ranks ONLY exchange records by cosine — the
+// explicit conversation vector arm. Mirrors rankHistorySemantic: no relevance
+// calibration for explicit vector search.
+func rankConversationSemantic(index historyIndex, scores map[string]float64, limit int) []scoredHistoryRecord {
+	return rankSemanticFilteredKinds(index, scores, limit, false, nil, false, conversationSemanticHiddenKind).ranked
+}
+
+// rankConversationSemanticHybridRanks is the conversation arm's calibrated
+// hybrid ranking, mirroring rankHistorySemanticHybridRanks over exchanges only.
+func rankConversationSemanticHybridRanks(index historyIndex, scores map[string]float64, limit int, lexicalIDs map[string]struct{}) historyVectorRanks {
+	return rankSemanticFilteredKinds(index, scores, limit, true, lexicalIDs, true, conversationSemanticHiddenKind)
+}
+
+// conversationSemanticHiddenKind inverts the general gate: for the
+// conversation arm, everything EXCEPT exchange records is hidden.
+func conversationSemanticHiddenKind(kind string) bool {
+	return kind != conversationKind
+}
+
+func rankSemanticFilteredKinds(
+	index historyIndex,
+	scores map[string]float64,
+	limit int,
+	requireRelevance bool,
+	alwaysKeep map[string]struct{},
+	collectCalibrationArm bool,
+	hiddenKind func(string) bool,
+) historyVectorRanks {
 	if len(scores) == 0 || limit <= 0 {
 		return historyVectorRanks{}
 	}
@@ -170,7 +201,7 @@ func rankHistorySemanticFiltered(
 	cands := make([]cand, 0, min(limit, len(scores)))
 	seen := map[string]struct{}{}
 	for i, r := range index.Records {
-		if r.Kind == "request" {
+		if hiddenKind(r.Kind) {
 			continue
 		}
 		cos, ok := scores[r.ID]
@@ -255,12 +286,19 @@ func rankHistoryFused(brainDir string, index historyIndex, kind, query string, l
 		lexicalIDs[scored.Record.ID] = struct{}{}
 	}
 	sem := rankHistorySemanticHybridRanks(index, scores, limit*4, lexicalIDs)
+	return fuseScoredRankLists([][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly}, limit), true
+}
+
+// fuseScoredRankLists is the shared RRF merge over already-ranked record lists
+// (k=60, equal weight, ties broken by record ID). Used by history fusion and
+// the conversation fused arm.
+func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHistoryRecord {
 	type fusedRec struct {
 		s     scoredHistoryRecord
 		score float64
 	}
 	fused := map[string]*fusedRec{}
-	for _, list := range [][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly} {
+	for _, list := range lists {
 		for rank, s := range list {
 			f, ok := fused[s.Record.ID]
 			if !ok {
@@ -289,7 +327,45 @@ func rankHistoryFused(brainDir string, index historyIndex, kind, query string, l
 		// small; ordering is carried by list position, Score is informational).
 		result[i] = scoredHistoryRecord{Record: f.s.Record, Score: int(f.score*1000 + 0.5), Order: f.s.Order}
 	}
-	return result, true
+	return result
+}
+
+// conversationSemanticScores is historySemanticScores against the separate
+// conversation vector store. nil means the conversation semantic arm is
+// unavailable (gate closed, pure-Go build, absent/mismatched store, embedder
+// down) and callers stay lexical.
+func conversationSemanticScores(brainDir string, e Embedder, query string, limit int, calibrate bool) map[string]float64 {
+	if e == nil || limit <= 0 {
+		return nil
+	}
+	store, ok := newConversationVectorStore(brainDir, e.ID(), e.Dim())
+	if !ok {
+		return nil
+	}
+	return historySemanticScoresWithStore(store, e, query, limit, calibrate)
+}
+
+// rankConversationFused is the conversation arm's hybrid ranking: exchange-kind
+// BM25 fused with calibrated exchange vectors via the shared RRF merge. When
+// the semantic arm is unavailable it degrades to exactly the lexical ranking —
+// same list, same ok contract — so lexical-only operation stays fully
+// supported.
+func rankConversationFused(brainDir string, index historyIndex, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
+	scores := conversationSemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)
+	if len(scores) == 0 {
+		return rankHistoryViaFTS(brainDir, index, conversationKind, query, limit)
+	}
+	lex, lexOK := rankHistoryViaFTS(brainDir, index, conversationKind, query, limit*4)
+	if !lexOK {
+		sem := rankConversationSemantic(index, scores, limit)
+		return sem, len(sem) > 0
+	}
+	lexicalIDs := make(map[string]struct{}, len(lex))
+	for _, scored := range lex {
+		lexicalIDs[scored.Record.ID] = struct{}{}
+	}
+	sem := rankConversationSemanticHybridRanks(index, scores, limit*4, lexicalIDs)
+	return fuseScoredRankLists([][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly}, limit), true
 }
 
 // syncHistoryVectors brings the persisted store in line with the index:
@@ -301,10 +377,20 @@ func rankHistoryFused(brainDir string, index historyIndex, kind, query string, l
 // session lines repeat heavily, and the store is keyed by record id so KNN
 // results map straight back to records.
 func syncHistoryVectors(store historyVectorStore, index historyIndex, e Embedder, progress func(done, total int)) (added, dropped, total int, err error) {
+	return syncVectorsForKinds(store, index, e, historyGeneralRankingHiddenKind, progress)
+}
+
+// syncConversationVectors maintains the separate conversation vector store:
+// exchange records only, same batching/resume semantics as history vectors.
+func syncConversationVectors(store historyVectorStore, index historyIndex, e Embedder, progress func(done, total int)) (added, dropped, total int, err error) {
+	return syncVectorsForKinds(store, index, e, conversationSemanticHiddenKind, progress)
+}
+
+func syncVectorsForKinds(store historyVectorStore, index historyIndex, e Embedder, hiddenKind func(string) bool, progress func(done, total int)) (added, dropped, total int, err error) {
 	existing, _ := store.ids() // !ok reads as empty: a fresh or mismatched store rebuilds
 	want := map[string]struct{}{}
 	for _, r := range index.Records {
-		if r.Kind == "request" {
+		if hiddenKind(r.Kind) {
 			continue
 		}
 		want[r.ID] = struct{}{}
@@ -317,7 +403,7 @@ func syncHistoryVectors(store historyVectorStore, index historyIndex, e Embedder
 	}
 	var missing []historyRecord
 	for _, r := range index.Records {
-		if r.Kind == "request" {
+		if hiddenKind(r.Kind) {
 			continue
 		}
 		if _, ok := existing[r.ID]; !ok {

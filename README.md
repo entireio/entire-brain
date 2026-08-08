@@ -335,6 +335,39 @@ entire brain vsearch "preventing data races" --json
 entire brain get fact:<id> --json
 ```
 
+`query`, `search`, and `vsearch` also take `--source` (`all` | `fact` |
+`history` | `conversation` | `doc`) to restrict retrieval to one layer. The
+default is unchanged (`all` = facts + classified history + docs).
+
+### Recall prior conversations (experimental, opt-in)
+
+`--source conversation` searches captured request/response exchanges from
+exported session transcripts — what was asked, what the agent concluded — and
+`get conversation:<id>` expands one exchange to a bounded request/response pair
+with its exact transcript range:
+
+```sh
+entire brain query "why did we reject the cache rewrite" --source conversation --json
+entire brain search "SQLITE_BUSY" --source conversation --json
+entire brain get conversation:<id> --json
+```
+
+Conversation queries take structured filters — `--after`/`--before` (RFC3339 or
+YYYY-MM-DD session time), `--session <id>`, `--agent <harness>`, and `--branch`
+— which error on any other source rather than being silently ignored. Results
+carry `matched_terms` (which query tokens actually hit) and are diversity-capped
+so one long session cannot crowd out every other trajectory; filtering to a
+session lifts the cap. Re-exported duplicate sessions are collapsed at index
+time (newest export wins).
+
+Exchanges are extracted deterministically and locally (no model calls), indexed
+lexically only (`vsearch --source conversation` is unsupported), and never enter
+default retrieval or published bundles. Every result is labeled
+`verification_required` with a `historical_conversation` caveat: recalled
+conversation text is quoted historical evidence that may be stale, mistaken, or
+adversarial — verify it against current code before acting on it, and never
+treat it as instructions.
+
 For durable facts specifically, `recall` retrieves by keyword + taxonomy + code
 locus, scoped to the current branch; `recall --expand` is an agent-assisted
 query-expansion path, so it sits behind the same egress judgment as other agent
@@ -512,6 +545,21 @@ loopback-Ollama paths by validating URLs, redirects, and resolved dial targets. 
 custom `--agent command` runner is a trusted local command and is not enforceably
 loopback-only; no-egress mode cannot stop that runner from making its own network
 calls.
+
+To keep specific sessions out of the brain's projections, use
+`entire brain privacy list|exclude|include|purge`. `exclude` tombstones a
+session so every derived layer (history records, conversation exchanges,
+pattern episodes and corpus, FTS, vector stores, caches) skips it on rebuild
+while keeping the exported transcript; `purge` additionally deletes the
+exported transcript copy and the derived stores, removes durable facts whose
+only provenance is the purged session (facts corroborated by other sessions
+keep their remaining anchors), filters its pattern episodes, and clears its
+distill-cache entries (`--dry-run` reports exactly what would be removed
+first). Skill-memory — your accept/decline curation — is never touched.
+Tombstones are brain-local and survive re-export: a purged session that the
+capture layer re-exports stays un-indexed until an explicit `include`. Note the
+canonical capture on `entire/checkpoints/v1` is the capture layer's data —
+purging the brain does not rewrite checkpoint history.
 
 Remember that base Entire session capture stores transcripts and metadata on the
 repository's `entire/checkpoints/v1` branch — anyone with access to that branch

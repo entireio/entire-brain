@@ -1661,3 +1661,233 @@ func assertMCPRetrievalResult(t *testing.T, response map[string]any, branch, id,
 	}
 	t.Fatalf("result %q containing %q not found in %+v", id, text, payload)
 }
+
+// mcpConversationFixture writes a session transcript, manifest, and history
+// index into the repo's brain dir so the MCP retrieval tools can exercise the
+// experimental conversation source end to end.
+func mcpConversationFixture(t *testing.T, repoDir string, env EntireEnv, runner CommandRunner, now time.Time) string {
+	t.Helper()
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	rel := "sessions/main/20260801T120000Z_mcp.jsonl"
+	transcript := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Why did the export cursor skip the nightly session?"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"The cursor reuses unchanged transcripts; the nightly session had no new checkpoint."}]}}
+`
+	full := filepath.Join(storage.BrainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "mcp-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
+		t.Fatalf("history index: %v", err)
+	}
+	return storage.BrainDir
+}
+
+// TestMCPToolsListSourceEnumOnQueryAndSearchOnly locks the Phase 1 schema
+// contract: brain_query and brain_search advertise the enum-valued source
+// argument (including "conversation"); brain_vsearch does not.
+func TestMCPToolsListSourceEnumOnQueryAndSearchOnly(t *testing.T) {
+	defs := mcpToolDefinitions()
+	sourceEnum := func(name string) ([]string, bool) {
+		for _, def := range defs {
+			if def["name"] != name {
+				continue
+			}
+			schema, _ := def["inputSchema"].(map[string]any)
+			props, _ := schema["properties"].(map[string]any)
+			source, ok := props["source"].(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			enum, _ := source["enum"].([]string)
+			return enum, true
+		}
+		t.Fatalf("tool %s not found", name)
+		return nil, false
+	}
+	for _, tool := range []string{"brain_query", "brain_search"} {
+		enum, ok := sourceEnum(tool)
+		if !ok {
+			t.Fatalf("%s missing source argument", tool)
+		}
+		want := []string{"all", "fact", "history", "conversation", "doc"}
+		if len(enum) != len(want) {
+			t.Fatalf("%s source enum = %v, want %v", tool, enum, want)
+		}
+		for i, value := range want {
+			if enum[i] != value {
+				t.Fatalf("%s source enum = %v, want %v", tool, enum, want)
+			}
+		}
+	}
+	if _, ok := sourceEnum("brain_vsearch"); ok {
+		t.Fatal("brain_vsearch must not advertise a source argument in Phase 1")
+	}
+}
+
+// TestMCPConversationQueryThenGet is the Phase 1 MCP E2E: brain_search with
+// source=conversation finds an exchange, brain_get expands its id with the
+// historical-evidence contract intact; invalid sources and a source argument on
+// brain_vsearch are structured errors.
+func TestMCPConversationQueryThenGet(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	mcpConversationFixture(t, repoDir, env, runner, now)
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly session","source":"conversation"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":"export cursor nightly session","source":"conversation"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"anything","source":"everything"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"anything","source":"conversation"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly session"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 5 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+
+	// 1+2: conversation-scoped search and query both return the exchange with
+	// the historical-evidence contract.
+	var exchangeID string
+	for i := range 2 {
+		payload := mcpTextJSONPayload(t, responses[i])
+		results, ok := payload["results"].([]any)
+		if !ok || len(results) == 0 {
+			t.Fatalf("response %d: no conversation results: %+v", i+1, payload)
+		}
+		row := results[0].(map[string]any)
+		if row["source"] != "conversation" {
+			t.Fatalf("response %d: source = %v", i+1, row["source"])
+		}
+		id, _ := row["id"].(string)
+		if !strings.HasPrefix(id, "conversation:") {
+			t.Fatalf("response %d id = %q", i+1, id)
+		}
+		exchangeID = id
+		if row["verification_required"] != true {
+			t.Fatalf("response %d missing verification_required: %+v", i+1, row)
+		}
+		caveats, _ := json.Marshal(row["caveats"])
+		if !strings.Contains(string(caveats), "historical_conversation") {
+			t.Fatalf("response %d missing historical-evidence caveat: %s", i+1, caveats)
+		}
+	}
+
+	// 3: invalid source enum is a structured error.
+	if responses[2]["error"] == nil {
+		t.Fatalf("invalid source must error: %+v", responses[2])
+	}
+	// 4: vsearch does not accept a source argument at all.
+	if responses[3]["error"] == nil {
+		t.Fatalf("brain_vsearch with source must error: %+v", responses[3])
+	}
+	// 5: default search (source omitted) must not surface conversation records.
+	payload := mcpTextJSONPayload(t, responses[4])
+	if results, ok := payload["results"].([]any); ok {
+		for _, result := range results {
+			row, _ := result.(map[string]any)
+			if row["source"] == "conversation" {
+				t.Fatalf("default search leaked a conversation record: %+v", row)
+			}
+		}
+	}
+
+	// brain_get expands the id with the caveat intact.
+	getInput := frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 6, "method": "tools/call",
+		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": exchangeID}},
+	})
+	out.Reset()
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(getInput), &out, opts); err != nil {
+		t.Fatalf("mcp get: %v", err)
+	}
+	getResponses := readMCPResponses(t, out.String())
+	if len(getResponses) != 1 || getResponses[0]["error"] != nil {
+		t.Fatalf("get error: %+v", getResponses)
+	}
+	getPayload := mcpTextJSONPayload(t, getResponses[0])
+	results, ok := getPayload["results"].([]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("get results: %+v", getPayload)
+	}
+	row := results[0].(map[string]any)
+	text, _ := row["text"].(string)
+	if !strings.Contains(text, "Why did the export cursor skip the nightly session?") ||
+		!strings.Contains(text, "The cursor reuses unchanged transcripts") {
+		t.Fatalf("expanded text = %q", text)
+	}
+	if row["verification_required"] != true {
+		t.Fatalf("expanded result missing verification_required: %+v", row)
+	}
+	caveats, _ := json.Marshal(row["caveats"])
+	if !strings.Contains(string(caveats), "historical_conversation") {
+		t.Fatalf("expanded result missing caveat: %s", caveats)
+	}
+}
+
+// TestMCPConversationFilterArguments locks the Phase 2 filter contract:
+// after/before/session_id/agent are accepted on brain_search/brain_query,
+// validated (bad dates and non-conversation sources are structured errors),
+// and rejected as unknown arguments on brain_vsearch.
+func TestMCPConversationFilterArguments(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	mcpConversationFixture(t, repoDir, env, runner, now)
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly","source":"conversation","agent":"claude","after":"2026-07-01"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly","source":"conversation","after":"not-a-date"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"export cursor nightly","agent":"claude"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"x","after":"2026-07-01"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 4 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+	// 1: valid filters return the exchange (session created_at is within range,
+	// agent matches case-insensitively).
+	if responses[0]["error"] != nil {
+		t.Fatalf("valid filter call errored: %+v", responses[0])
+	}
+	payload := mcpTextJSONPayload(t, responses[0])
+	results, ok := payload["results"].([]any)
+	if !ok || len(results) == 0 {
+		t.Fatalf("filtered search returned nothing: %+v", payload)
+	}
+	// 2: invalid date is a structured error.
+	if responses[1]["error"] == nil {
+		t.Fatalf("bad after must error: %+v", responses[1])
+	}
+	// 3: filters without source=conversation are a structured error.
+	if responses[2]["error"] == nil {
+		t.Fatalf("filter without conversation source must error: %+v", responses[2])
+	}
+	// 4: vsearch does not accept filter arguments at all.
+	if responses[3]["error"] == nil {
+		t.Fatalf("brain_vsearch with a filter must error: %+v", responses[3])
+	}
+}
