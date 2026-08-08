@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "86477435d17d",
+  "session_id": "13004c3e-234f-4fde-96ff-302bb2fe5c4e",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-08T07:42:31.873291Z",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/eval_ledger.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "a0ca4e55ef28",
+  "checkpoint_transcript_start": 917,
+  "transcript_lines_at_start": 917,
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 12777,
+    "cache_read_tokens": 2987215,
+    "output_tokens": 5147,
+    "api_call_count": 7
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-08T07:42:30.106735Z",
+    "agent_lines": 1,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 1,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
