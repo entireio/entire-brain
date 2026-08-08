@@ -209,7 +209,7 @@ func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 	}
 	// And ranking must not duplicate: the original decision exists in both
 	// tiers (same content), but only the overlay copy may surface.
-	scored := rankFreshHistory(fresh, "history", "lock timeout windows", 20, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	scored := rankFreshHistory(fresh, "history", "lock timeout windows", 20, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 		return rankHistoryViaFTS(brainDir, longTerm, "history", "lock timeout windows", 20)
 	})
 	seen := map[string]int{}
@@ -259,7 +259,7 @@ func TestShortTermEmptyOverlayPreservesRankingExactly(t *testing.T) {
 	if !ok {
 		t.Fatal("fts unavailable")
 	}
-	wrapped := rankFreshHistory(fresh, "history", "flaky lock test", 10, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	wrapped := rankFreshHistory(fresh, "history", "flaky lock test", 10, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 		return rankHistoryViaFTS(brainDir, longTerm, "history", "flaky lock test", 10)
 	})
 	if len(direct) != len(wrapped) {

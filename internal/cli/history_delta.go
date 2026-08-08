@@ -306,16 +306,26 @@ func (f freshHistory) longTermActive() historyIndex {
 // long-term index (so the FTS freshness identity is untouched), superseded
 // files' hits are dropped, the overlay is ranked in-memory, and the two lists
 // RRF-fuse. With an empty overlay the long-term ranking is returned unchanged
-// ; bit-for-bit default preservation.
+// ; bit-for-bit default preservation. A non-nil pred applies the structured
+// filters to the in-memory arms (overlay and substring fallback) during
+// candidate generation; the longTermRank closure is responsible for pushing
+// the same predicate into its own arm (R0-3). Superseded long-term hits are
+// dropped even when the filtered overlay is empty: their file was re-scanned,
+// so they are stale copies either way.
 func rankFreshHistory(
 	fresh freshHistory,
 	kind, query string,
 	limit int,
+	pred func(historyRecord) bool,
 	longTermRank func(historyIndex) ([]scoredHistoryRecord, bool),
 ) []scoredHistoryRecord {
 	lex, ok := longTermRank(fresh.index)
 	if !ok {
-		lex = rankHistoryRecordsScored(fresh.index, kind, query, limit, 0)
+		fallback := fresh.index
+		if pred != nil {
+			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, pred)}
+		}
+		lex = rankHistoryRecordsScored(fallback, kind, query, limit, 0)
 	}
 	if len(fresh.overlay) == 0 {
 		return lex
@@ -327,11 +337,28 @@ func rankFreshHistory(
 		}
 		kept = append(kept, scored)
 	}
-	overlayRanked := rankHistoryRecordsScored(historyIndex{Records: fresh.overlay}, kind, query, limit, 0)
+	overlayRecords := fresh.overlay
+	if pred != nil {
+		overlayRecords = filterHistoryRecords(overlayRecords, pred)
+	}
+	overlayRanked := rankHistoryRecordsScored(historyIndex{Records: overlayRecords}, kind, query, limit, 0)
 	if len(overlayRanked) == 0 {
 		return kept
 	}
 	return fuseScoredRankLists([][]scoredHistoryRecord{kept, overlayRanked}, limit)
+}
+
+// filterHistoryRecords returns the records passing pred, for the in-memory
+// ranking arms. Never feed a filtered slice to the FTS ranker: the shared
+// store's freshness identity must only ever see the on-disk index.
+func filterHistoryRecords(records []historyRecord, pred func(historyRecord) bool) []historyRecord {
+	kept := make([]historyRecord, 0, len(records))
+	for _, r := range records {
+		if pred(r) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }
 
 // --- refresh delta verb ---

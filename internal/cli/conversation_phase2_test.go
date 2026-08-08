@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -339,7 +340,7 @@ func TestRankConversationFusedDegradesToLexicalWhenGateClosed(t *testing.T) {
 	}
 	// nil embedder = gate closed: fused ranking must equal the lexical ranking
 	// exactly (same list, same ok contract).
-	fused, fusedOK := rankConversationFused(brainDir, index, "deploy pipeline", 10, nil)
+	fused, _, fusedOK := rankConversationFused(brainDir, index, "deploy pipeline", 10, nil, nil)
 	lex, lexOK := rankHistoryViaFTS(brainDir, index, conversationKind, "deploy pipeline", 10)
 	if fusedOK != lexOK || len(fused) != len(lex) {
 		t.Fatalf("degraded fusion differs from lexical: ok %v/%v len %d/%d", fusedOK, lexOK, len(fused), len(lex))
@@ -374,6 +375,130 @@ func TestConversationVectorModeExplicitUnavailable(t *testing.T) {
 		if hybrid[i].ID != lexical[i].ID {
 			t.Fatalf("hybrid order differs at %d: %s vs %s", i, hybrid[i].ID, lexical[i].ID)
 		}
+	}
+}
+
+// writeConversationWindowFixture is the R0-3 adversarial fixture: far more
+// than 16x the requested limit of out-of-scope exchanges that outrank the
+// single in-scope exchange lexically, so any bounded unfiltered candidate
+// window drops the in-scope hit before post-filtering.
+func writeConversationWindowFixture(t *testing.T) string {
+	t.Helper()
+	brainDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	records := make([]historyRecord, 0, 41)
+	for i := 0; i < 40; i++ {
+		records = append(records, historyRecord{
+			ID: fmt.Sprintf("%snoise%02d", conversationIDPrefix, i), Kind: conversationKind,
+			Path: "sessions/main/20260801T000000Z_noise-sess.jsonl", Line: i*2 + 1, EndLine: i*2 + 2,
+			TurnOrdinal: i + 1, SessionID: "noise-sess", Agent: "Claude Code", Branch: "main",
+			CreatedAt: "2026-08-01T10:00:00Z", ContentRole: conversationContentRole,
+			Summary: fmt.Sprintf("lock timeout lock timeout lock timeout retry storm attempt %02d", i),
+		})
+	}
+	records = append(records, historyRecord{
+		ID: conversationIDPrefix + "target", Kind: conversationKind,
+		Path: "sessions/release/20260805T000000Z_target-sess.jsonl", Line: 1, EndLine: 2,
+		TurnOrdinal: 1, SessionID: "target-sess", Agent: "Codex", Branch: "release",
+		CreatedAt: "2026-08-05T10:00:00Z", ContentRole: conversationContentRole,
+		Summary: "one lock timeout observed while tracing an unrelated widget cache warmup in the renderer startup path",
+	})
+	index := historyIndex{GeneratedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Records: records}
+	data, err := json.MarshalIndent(index, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   index.GeneratedAt,
+		Sources: &brainSources{History: &historySourceManifest{
+			GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records),
+		}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	return brainDir
+}
+
+// TestConversationFilteredCandidateWindowCompleteness proves R0-3: exact
+// structured filters cannot false-empty because an in-scope match fell below
+// a bounded unfiltered candidate window.
+func TestConversationFilteredCandidateWindowCompleteness(t *testing.T) {
+	brainDir := writeConversationWindowFixture(t)
+	query := "lock timeout"
+
+	// The fixture is genuinely adversarial: unfiltered top-k at this limit is
+	// noise only.
+	unfiltered, err := retrieveConversation(brainDir, query, 2, modeLexical, retrievalOptions{})
+	if err != nil {
+		t.Fatalf("unfiltered: %v", err)
+	}
+	for _, r := range unfiltered {
+		if r.ID == conversationIDPrefix+"target" {
+			t.Fatalf("fixture not adversarial: target ranked into unfiltered top-k")
+		}
+	}
+
+	after := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+	cases := map[string]retrievalOptions{
+		"session": {SessionID: "target-sess"},
+		"agent":   {Agent: "codex"},
+		"branch":  {Branch: "release"},
+		"after":   {After: after},
+	}
+	for _, mode := range []retrievalMode{modeLexical, modeHybrid} {
+		for name, opts := range cases {
+			results, err := retrieveConversation(brainDir, query, 2, mode, opts)
+			if err != nil {
+				t.Fatalf("mode %v filter %s: %v", mode, name, err)
+			}
+			found := false
+			for _, r := range results {
+				if r.ID == conversationIDPrefix+"target" {
+					found = true
+				}
+				if r.SessionID == "noise-sess" {
+					t.Fatalf("mode %v filter %s leaked out-of-scope record: %+v", mode, name, r)
+				}
+			}
+			if !found {
+				t.Fatalf("mode %v filter %s: in-scope hit displaced out of the candidate window: %v", mode, name, conversationResultIDs(results))
+			}
+		}
+	}
+
+	// A filter matching nothing stays a proven-complete empty result, not an
+	// error: the scan exhausted the match set below the ceiling.
+	empty, err := retrieveConversation(brainDir, query, 2, modeLexical, retrievalOptions{SessionID: "absent-sess"})
+	if err != nil {
+		t.Fatalf("proven-empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected proven-complete empty result: %v", conversationResultIDs(empty))
+	}
+}
+
+// TestConversationFilteredScanDegradedState proves the ceiling contract: when
+// the filtered scan cannot enumerate the complete match set, the caller gets
+// a structured degraded error, never a silently partial result.
+func TestConversationFilteredScanDegradedState(t *testing.T) {
+	brainDir := writeConversationWindowFixture(t)
+	old := historyFTSFilteredScanCeiling
+	historyFTSFilteredScanCeiling = 8
+	defer func() { historyFTSFilteredScanCeiling = old }()
+
+	_, err := retrieveConversation(brainDir, "lock timeout", 2, modeLexical, retrievalOptions{SessionID: "absent-sess"})
+	if err == nil {
+		t.Fatal("ceiling-truncated filtered scan must return a structured degraded state")
+	}
+	if !strings.Contains(err.Error(), "narrow the query") {
+		t.Fatalf("degraded error message: %v", err)
 	}
 }
 

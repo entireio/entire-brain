@@ -371,27 +371,54 @@ func conversationSemanticScores(brainDir string, e Embedder, query string, limit
 	return historySemanticScoresWithStore(store, e, query, limit, calibrate)
 }
 
+// conversationSemanticScoresExhaustive scores a KNN neighborhood large enough
+// to cover every stored conversation vector up to the filtered-scan ceiling
+// (the store clamps to its row count). Structured filters require it: a
+// bounded semantic candidate window has the same false-empty defect as the
+// bounded lexical window (R0-3).
+func conversationSemanticScoresExhaustive(brainDir string, e Embedder, query string, calibrate bool) map[string]float64 {
+	if e == nil {
+		return nil
+	}
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
+	if !ok {
+		return nil
+	}
+	return historySemanticScoresWithStore(store, e, query, historyFTSFilteredScanCeiling, calibrate)
+}
+
 // rankConversationFused is the conversation arm's hybrid ranking: exchange-kind
 // BM25 fused with calibrated exchange vectors via the shared RRF merge. When
 // the semantic arm is unavailable it degrades to exactly the lexical ranking;
 // same list, same ok contract; so lexical-only operation stays fully
-// supported.
-func rankConversationFused(brainDir string, index historyIndex, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
-	scores := conversationSemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)
-	if len(scores) == 0 {
-		return rankHistoryViaFTS(brainDir, index, conversationKind, query, limit)
+// supported. A non-nil pred pushes structured filters into both arms: the
+// lexical arm filters during candidate generation against the full index (the
+// FTS store identity must never see a filtered view), the semantic arms rank
+// a filtered in-memory record slice over an exhaustive score neighborhood.
+// complete=false reports a lexical scan that hit the filtered-scan ceiling.
+func rankConversationFused(brainDir string, index historyIndex, query string, limit int, e Embedder, pred func(historyRecord) bool) ([]scoredHistoryRecord, bool, bool) {
+	semIndex := index
+	var scores map[string]float64
+	if pred != nil {
+		semIndex = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, pred)}
+		scores = conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(e), query, true)
+	} else {
+		scores = conversationSemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)
 	}
-	lex, lexOK := rankHistoryViaFTS(brainDir, index, conversationKind, query, limit*4)
+	if len(scores) == 0 {
+		return rankHistoryViaFTSFiltered(brainDir, index, conversationKind, query, limit, historyFTSRelevanceCutoff, pred)
+	}
+	lex, complete, lexOK := rankHistoryViaFTSFiltered(brainDir, index, conversationKind, query, limit*4, historyFTSRelevanceCutoff, pred)
 	if !lexOK {
-		sem := rankConversationSemantic(index, scores, limit)
-		return sem, len(sem) > 0
+		sem := rankConversationSemantic(semIndex, scores, limit)
+		return sem, true, len(sem) > 0
 	}
 	lexicalIDs := make(map[string]struct{}, len(lex))
 	for _, scored := range lex {
 		lexicalIDs[scored.Record.ID] = struct{}{}
 	}
-	sem := rankConversationSemanticHybridRanks(index, scores, limit*4, lexicalIDs)
-	return fuseScoredRankLists([][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly}, limit), true
+	sem := rankConversationSemanticHybridRanks(semIndex, scores, limit*4, lexicalIDs)
+	return fuseScoredRankLists([][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly}, limit), complete, true
 }
 
 // syncHistoryVectors brings the persisted store in line with the index:

@@ -224,7 +224,8 @@ func buildHistoryFTS(db *sql.DB, index historyIndex) error {
 // match is MORE NEGATIVE and `ORDER BY bm25()` ASC returns best-first. We negate it
 // back to a positive display score (higher = better) for the cutoff and Score.
 func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, limit int) ([]scoredHistoryRecord, bool) {
-	return rankHistoryViaFTSCutoff(brainDir, index, kind, query, limit, historyFTSRelevanceCutoff)
+	out, _, ok := rankHistoryViaFTSFiltered(brainDir, index, kind, query, limit, historyFTSRelevanceCutoff, nil)
+	return out, ok
 }
 
 // rankHistoryViaFTSCutoff is rankHistoryViaFTS with the relevance cutoff as a
@@ -232,16 +233,38 @@ func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, 
 // inspection, "tunable once a history eval lands"). Production callers go
 // through rankHistoryViaFTS and always get the shipped constant.
 func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool) {
+	out, _, ok := rankHistoryViaFTSFiltered(brainDir, index, kind, query, limit, cutoff, nil)
+	return out, ok
+}
+
+// historyFTSFilteredScanCeiling bounds the exhaustive candidate scan behind a
+// structured-filter predicate. A var so tests can lower it to prove the
+// degraded state.
+var historyFTSFilteredScanCeiling = 10000
+
+// rankHistoryViaFTSFiltered pushes a structured-filter predicate into
+// candidate generation (R0-3): a matching row that fails pred is skipped
+// before the relevance cutoff, the summary dedup, and the limit apply, so an
+// in-scope hit can never be displaced out of a bounded candidate window by
+// higher-ranked out-of-scope rows. The cutoff then compares in-scope rows
+// only against the best in-scope row. With pred set, the SQL scan is
+// exhausted up to historyFTSFilteredScanCeiling rows; complete=false reports
+// a scan that hit the ceiling before filling the limit, and the caller must
+// return a structured degraded state rather than a silently partial result.
+// The index passed here must be the same index the shared FTS store was built
+// from; filtering happens Go-side exactly so a filtered view can never
+// rebuild the store.
+func rankHistoryViaFTSFiltered(brainDir string, index historyIndex, kind, query string, limit int, cutoff float64, pred func(historyRecord) bool) (out []scoredHistoryRecord, complete bool, ok bool) {
 	if limit <= 0 {
-		return nil, false
+		return nil, false, false
 	}
 	expr := historyFTSMatchExpr(query)
 	if expr == "" {
-		return nil, false
+		return nil, false, false
 	}
 	db, err := openHistoryFTS(brainDir, index)
 	if err != nil {
-		return nil, false
+		return nil, false, false
 	}
 	defer db.Close()
 
@@ -268,23 +291,35 @@ func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query st
 		sb.WriteString(" AND kind NOT IN ('request', '" + conversationKind + "')")
 	}
 	sb.WriteString(" ORDER BY bm25(history_fts) LIMIT ?")
-	args = append(args, limit*4) // over-fetch so summary dedup still fills limit
+	scanLimit := limit * 4 // over-fetch so summary dedup still fills limit
+	if pred != nil {
+		// Exhaust the match set up to the ceiling: with a filter active, a
+		// fixed multiplier is exactly the bounded-window defect being repaired.
+		scanLimit = historyFTSFilteredScanCeiling
+	}
+	args = append(args, scanLimit)
 
 	rows, err := db.Query(sb.String(), args...)
 	if err != nil {
-		return nil, false
+		return nil, false, false
 	}
 	defer rows.Close()
-	out := make([]scoredHistoryRecord, 0, limit)
+	out = make([]scoredHistoryRecord, 0, limit)
 	seen := map[string]struct{}{}
 	var topScore float64
+	scanned := 0
 	for rows.Next() {
 		var order int
 		var bm float64
 		if err := rows.Scan(&order, &bm); err != nil {
-			return nil, false
+			return nil, false, false
 		}
+		scanned++
 		if order < 0 || order >= len(index.Records) {
+			continue
+		}
+		rec := index.Records[order]
+		if pred != nil && !pred(rec) {
 			continue
 		}
 		// Rows arrive best-first (bm25 ascending), so the first kept row is the
@@ -295,7 +330,6 @@ func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query st
 		} else if score < cutoff*topScore {
 			break
 		}
-		rec := index.Records[order]
 		key := normalizeHistorySearchText(rec.Summary)
 		if _, ok := seen[key]; ok {
 			continue
@@ -307,7 +341,8 @@ func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query st
 		}
 	}
 	if rows.Err() != nil {
-		return nil, false
+		return nil, false, false
 	}
-	return out, true
+	complete = pred == nil || scanned < scanLimit || len(out) >= limit
+	return out, complete, true
 }

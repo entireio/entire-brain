@@ -265,7 +265,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				if historyCandidateLimit < candidateLimit {
 					historyCandidateLimit = candidateLimit
 				}
-				scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+				scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 					return rankHistoryViaFTS(brainDir, longTerm, "history", query, historyCandidateLimit)
 				})
 				scored = filterHistoryRetrievalSelfEchoes(scored, query)
@@ -603,25 +603,39 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
 	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
-	// Filters and the diversity cap discard ranked candidates, so over-fetch
-	// enough for the survivors to still fill the limit.
-	candidateLimit := limit * 4
+	// Structured filters are pushed into candidate generation (R0-3): every
+	// arm ranks only in-scope records, so a valid session/agent/time/branch
+	// match can never be displaced out of a bounded candidate window by
+	// higher-ranked out-of-scope rows. The over-fetch below is dedup/diversity
+	// headroom only.
+	var pred func(historyRecord) bool
 	if filtered {
-		candidateLimit = limit * 16
+		pred = func(r historyRecord) bool { return conversationRecordMatchesFilters(r, opts) }
 	}
+	candidateLimit := limit * 4
 	if candidateLimit < limit { // overflow guard
 		candidateLimit = limit
 	}
+	scanComplete := true
 	var scored []scoredHistoryRecord
 	switch mode {
 	case modeVector:
-		scores := conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
+		var scores map[string]float64
+		if filtered {
+			scores = conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(defaultEmbedder()), query, false)
+		} else {
+			scores = conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
+		}
 		if len(scores) == 0 {
 			return nil, errConversationVectorUnsupported
 		}
 		// Semantic-only ranks long-term vectors; short-term records have no
 		// vectors until consolidation and are deliberately absent here.
-		scored = rankConversationSemantic(fresh.longTermActive(), scores, candidateLimit)
+		semIndex := fresh.longTermActive()
+		if pred != nil {
+			semIndex = historyIndex{GeneratedAt: semIndex.GeneratedAt, Records: filterHistoryRecords(semIndex.Records, pred)}
+		}
+		scored = rankConversationSemantic(semIndex, scores, candidateLimit)
 	case modeHybrid:
 		// Conversation fusion is OFF by default pending a validated positive:
 		// the 2026-08-07 calibration on the entire-brain corpus (22-task exact
@@ -632,17 +646,34 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		// fusion. Same discipline as historyFusionEligible: the fused arm
 		// ships dark behind a development flag until an eval-ledger row
 		// validates it (see docs/eval_ledger.md).
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
-				return rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder())
+				fused, complete, ok := rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder(), pred)
+				if !complete {
+					scanComplete = false
+				}
+				return fused, ok
 			}
-			return rankHistoryViaFTS(brainDir, longTerm, conversationKind, query, candidateLimit)
+			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
+			if !complete {
+				scanComplete = false
+			}
+			return lex, ok
 		})
 	default:
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-			return rankHistoryViaFTS(brainDir, longTerm, conversationKind, query, candidateLimit)
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
+			if !complete {
+				scanComplete = false
+			}
+			return lex, ok
 		})
 	}
+	if !scanComplete {
+		return nil, errConversationFilterScanExceeded()
+	}
+	// Defense in depth: every arm already generated in-scope candidates; this
+	// re-check keeps the contract obvious and cheap.
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {
 		if conversationRecordMatchesFilters(s.Record, opts) {
@@ -664,6 +695,14 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		out[i].Score = 1.0 / (rrfK + float64(i+1))
 	}
 	return out, nil
+}
+
+// errConversationFilterScanExceeded is the structured degraded state for a
+// filtered conversation scan that hit its candidate ceiling before filling the
+// requested limit: completeness cannot be proven, so the caller gets an
+// explicit error rather than a silently partial (possibly false-empty) result.
+func errConversationFilterScanExceeded() error {
+	return fmt.Errorf("conversation filter scan exceeded %d candidates before the requested limit was met; results would be incomplete, narrow the query or the filters", historyFTSFilteredScanCeiling)
 }
 
 // conversationRecordMatchesFilters applies the structured conversation filters.

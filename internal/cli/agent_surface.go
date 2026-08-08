@@ -1347,7 +1347,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			// surface serves is exactly where fusion measured strongest. The
 			// short-term overlay fuses in on top either way (rankFreshHistory
 			// is a no-op passthrough when the overlay is empty).
-			scored := rankFreshHistory(fresh, "history", task, briefOpts.limit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+			scored := rankFreshHistory(fresh, "history", task, briefOpts.limit, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 				return rankHistoryFused(status.Brain.Path, longTerm, "history", task, briefOpts.limit, defaultEmbedder())
 			})
 			for _, s := range scored {
@@ -3788,7 +3788,7 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
 	// merged index here rebuilt or misresolved the BM25 store).
-	scored := rankFreshHistory(fresh, "history", query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	scored := rankFreshHistory(fresh, "history", query, candidateLimit, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 		return rankHistoryFused(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder())
 	})
 	records := make([]historyRecord, 0, len(scored))

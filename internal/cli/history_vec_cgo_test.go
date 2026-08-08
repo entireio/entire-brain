@@ -232,7 +232,7 @@ func TestRankConversationFusedSemanticArmEndToEnd(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 
-	fused, ok := rankConversationFused(brainDir, index, query, 10, e)
+	fused, _, ok := rankConversationFused(brainDir, index, query, 10, e, nil)
 	if !ok || len(fused) == 0 {
 		t.Fatalf("fused: ok=%v len=%d", ok, len(fused))
 	}
@@ -258,5 +258,76 @@ func TestRankConversationFusedSemanticArmEndToEnd(t *testing.T) {
 	ranked := rankConversationSemantic(index, scores, 10)
 	if len(ranked) == 0 || ranked[0].Record.ID != conversationIDPrefix+"sem" {
 		t.Fatalf("vector mode order wrong: %+v", ranked)
+	}
+}
+
+// TestRankConversationFusedFilteredCompleteness proves R0-3 on the semantic
+// and fused arms against the real vec0 store: an in-scope exchange that both
+// arms rank far below a wall of out-of-scope candidates is still returned
+// when a structured filter selects it, because filters reach candidate
+// generation instead of trimming an already-bounded window.
+func TestRankConversationFusedFilteredCompleteness(t *testing.T) {
+	brainDir := t.TempDir()
+	query := "lock timeout retry storm"
+	vecs := map[string][]float32{query: {0, 1}}
+	records := make([]historyRecord, 0, 41)
+	for i := 0; i < 40; i++ {
+		summary := fmt.Sprintf("lock timeout lock timeout retry storm attempt %02d", i)
+		vecs[summary] = []float32{0, 1} // cosine 1.0 with the query
+		records = append(records, historyRecord{
+			ID: fmt.Sprintf("%snoise%02d", conversationIDPrefix, i), Kind: conversationKind,
+			SessionID: "noise-sess", Path: "sessions/main/noise.jsonl", Line: i*2 + 1,
+			Summary: summary,
+		})
+	}
+	targetSummary := "one lock timeout observed in an unrelated renderer warmup trace"
+	vecs[targetSummary] = []float32{1, 0} // cosine 0 with the query
+	records = append(records, historyRecord{
+		ID: conversationIDPrefix + "target", Kind: conversationKind,
+		SessionID: "target-sess", Path: "sessions/release/target.jsonl", Line: 1,
+		Summary: targetSummary,
+	})
+	index := historyIndex{GeneratedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Records: records}
+	e := &fakeFusionEmbedder{vecs: vecs}
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
+	if !ok {
+		t.Fatal("conversation store unavailable on brain_cgo build")
+	}
+	if _, _, _, err := syncConversationVectors(store, index, e, nil); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+
+	pred := func(r historyRecord) bool { return r.SessionID == "target-sess" }
+
+	// Adversarial property: without the filter, the target is nowhere near
+	// the top of the fused list at this limit.
+	unfiltered, _, ok := rankConversationFused(brainDir, index, query, 2, e, nil)
+	if !ok {
+		t.Fatal("unfiltered fused ranking unavailable")
+	}
+	for _, s := range unfiltered {
+		if s.Record.ID == conversationIDPrefix+"target" {
+			t.Fatal("fixture not adversarial: target ranked into unfiltered fused top-k")
+		}
+	}
+
+	fused, complete, ok := rankConversationFused(brainDir, index, query, 2, e, pred)
+	if !ok || !complete {
+		t.Fatalf("filtered fused: ok=%v complete=%v", ok, complete)
+	}
+	if len(fused) != 1 || fused[0].Record.ID != conversationIDPrefix+"target" {
+		t.Fatalf("filtered fused must return exactly the in-scope hit: %+v", fused)
+	}
+
+	// The exhaustive semantic neighborhood covers every stored vector, so the
+	// filtered vector arm also reaches the target despite its cosine 0.
+	scores := conversationSemanticScoresExhaustive(brainDir, e, query, false)
+	if _, ok := scores[conversationIDPrefix+"target"]; !ok {
+		t.Fatalf("exhaustive scores missed the in-scope vector: %d scores", len(scores))
+	}
+	semIndex := historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, pred)}
+	ranked := rankConversationSemantic(semIndex, scores, 2)
+	if len(ranked) != 1 || ranked[0].Record.ID != conversationIDPrefix+"target" {
+		t.Fatalf("filtered vector arm must return the in-scope hit: %+v", ranked)
 	}
 }
