@@ -4,7 +4,7 @@ Frozen **before** running any `full_brain` agent. Purpose: a big-N, cherry-pick-
 test of whether entire-brain's project memory improves a coding agent on real,
 history-derived tasks.
 
-## Reconciliation addendum (2026-08-08)
+## Reconciliation addendum (2026-08-07)
 
 The frozen plan targeted all 75 candidates that passed the negative control. During
 pre-treatment task materialization, prompt-generation JSON handling failed to
