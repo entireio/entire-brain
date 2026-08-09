@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -254,9 +256,12 @@ func writeBrainPracticesFile(outputDir string, practices []practiceRecord) error
 }
 
 func loadBrainPractices(brainDir string) ([]practiceRecord, error) {
-	content, err := readBrainRelativeFile(brainDir, patternsPracticesPath)
+	content, err := readBrainRelativeStateFile(brainDir, patternsPracticesPath)
 	if err != nil {
-		return nil, nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var practices []practiceRecord
 	for _, line := range strings.Split(content, "\n") {

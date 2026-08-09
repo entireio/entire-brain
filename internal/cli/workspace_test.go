@@ -63,6 +63,103 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 	}
 }
 
+func TestWorkspaceWatchMemoryQueuesStayIsolatedAcrossRepoCopies(t *testing.T) {
+	parent := t.TempDir()
+	repoA := filepath.Join(parent, "repo-a")
+	repoB := filepath.Join(parent, "repo-b")
+	if err := os.MkdirAll(repoA, 0o700); err != nil {
+		t.Fatalf("mkdir repo A: %v", err)
+	}
+	if err := os.MkdirAll(repoB, 0o700); err != nil {
+		t.Fatalf("mkdir repo B: %v", err)
+	}
+	aliasA := filepath.Join(parent, "repo-a-alias")
+	if err := os.Symlink(repoA, aliasA); err != nil {
+		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
+	}
+	env := EntireEnv{
+		RepoRoot:        aliasA,
+		PluginConfigDir: t.TempDir(),
+		PluginDataDir:   t.TempDir(),
+		PluginStateDir:  t.TempDir(),
+		PluginCacheDir:  t.TempDir(),
+	}
+	opts := Options{Version: "test", Env: env, Now: func() time.Time {
+		return time.Date(2026, 8, 9, 15, 0, 0, 0, time.UTC)
+	}}
+
+	storageA, err := repoStoragePaths(context.Background(), nil, env, aliasA)
+	if err != nil {
+		t.Fatalf("repo A storage: %v", err)
+	}
+	storageB, err := repoStoragePaths(context.Background(), nil, env, repoB)
+	if err != nil {
+		t.Fatalf("repo B storage: %v", err)
+	}
+	if storageA.Key == storageB.Key || storageA.BrainDir == storageB.BrainDir || storageA.HeadPath == storageB.HeadPath {
+		t.Fatalf("workspace repos share storage: A=%+v B=%+v", storageA, storageB)
+	}
+	writeQueueManifest := func(storage repoStorage, sessionID string) {
+		t.Helper()
+		manifest := exportManifest{
+			SchemaVersion: brainManifestSchemaVersion,
+			RepoKey:       storage.Key,
+			Sources: &brainSources{Sessions: &sessionSourceManifest{
+				DefaultBranch: "main",
+				Sessions: []exportSession{{
+					SessionID:      sessionID,
+					Branch:         "main",
+					TranscriptPath: filepath.ToSlash(filepath.Join("sessions", "main", sessionID+".jsonl")),
+				}},
+			}},
+		}
+		if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+			t.Fatalf("write %s manifest: %v", sessionID, err)
+		}
+	}
+	writeQueueManifest(storageA, "session-a")
+	writeQueueManifest(storageB, "session-b")
+
+	oldLaunch := memoryWorkerLaunch
+	defer func() { memoryWorkerLaunch = oldLaunch }()
+	var launched []string
+	memoryWorkerLaunch = func(repoDir string) error {
+		launched = append(launched, repoDir)
+		return nil
+	}
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	w := defaultWatchOptions()
+	for _, repoDir := range []string{aliasA, repoB} {
+		steps := watchStepsForRepo(cmd, opts, w, repoDir, opts.Now)
+		if err := steps.reconcile(context.Background()); err != nil {
+			t.Fatalf("reconcile %s: %v", repoDir, err)
+		}
+	}
+	if len(launched) != 2 || launched[0] != aliasA || launched[1] != repoB {
+		t.Fatalf("worker launches = %v, want [%s %s]", launched, aliasA, repoB)
+	}
+
+	for _, check := range []struct {
+		storage   repoStorage
+		sessionID string
+	}{
+		{storage: storageA, sessionID: "session-a"},
+		{storage: storageB, sessionID: "session-b"},
+	} {
+		jobs, issues := loadMemoryJobsChecked(check.storage.BrainDir)
+		if len(issues) != 0 || len(jobs) == 0 {
+			t.Fatalf("queue %s jobs=%+v issues=%+v", check.storage.Key, jobs, issues)
+		}
+		for _, job := range jobs {
+			if job.RepoKey != check.storage.Key || job.SessionID != check.sessionID {
+				t.Fatalf("cross-repo queue contamination in %s: %+v", check.storage.BrainDir, job)
+			}
+		}
+	}
+}
+
 func TestWorkspaceWatchOnceSkipsStaleLocalPathHintBeforeTick(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	repoB := t.TempDir()
@@ -2809,7 +2906,7 @@ func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace search: %v", err)
 	}
-	if !strings.Contains(searchOut, `"id": "doc:guide"`) {
+	if !strings.Contains(searchOut, `"id": "`+keyA+`/doc:guide"`) {
 		t.Fatalf("search output missing doc hit from repo A:\n%s", searchOut)
 	}
 	// Results stay grouped per repo: repo B has no "checkout" hit, but its group
@@ -2817,7 +2914,7 @@ func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 	if !strings.Contains(searchOut, `"repo_key": "`+keyB+`"`) {
 		t.Fatalf("search output missing repo B group:\n%s", searchOut)
 	}
-	if strings.Contains(searchOut, `"id": "doc:other"`) {
+	if strings.Contains(searchOut, `"id": "`+keyB+`/doc:other"`) {
 		t.Fatalf("search output leaked repo B's unrelated doc:\n%s", searchOut)
 	}
 
@@ -2838,7 +2935,7 @@ func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace query: %v", err)
 	}
-	if !strings.Contains(queryOut, `"id": "doc:guide"`) {
+	if !strings.Contains(queryOut, `"id": "`+keyA+`/doc:guide"`) {
 		t.Fatalf("query output missing doc hit:\n%s", queryOut)
 	}
 
@@ -3131,10 +3228,10 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 			convID = group.Results[0].ID
 		}
 	}
-	if !strings.HasPrefix(convID, "conversation:") {
+	if !strings.HasPrefix(convID, keyA+"/conversation:") {
 		t.Fatalf("no conversation id in repo A group: %+v", payload.Results)
 	}
-	getOut, err := execute(t, cmd, "workspace", "get", "convspace", keyA+"/"+convID, "--json")
+	getOut, err := execute(t, cmd, "workspace", "get", "convspace", convID, "--json")
 	if err != nil {
 		t.Fatalf("workspace get conversation: %v", err)
 	}

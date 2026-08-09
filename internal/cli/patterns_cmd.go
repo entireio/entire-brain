@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"sort"
@@ -51,9 +52,20 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		return err
+	}
+	privacyPolicy.RequireDerivedClean = true
+	if err := requirePrivacyDerivedRead(brainDir); err != nil {
+		return err
+	}
 	// Primary analytical source is the V2 corpus; the legacy procedure/practice
 	// JSON views remain only as a fallback when no corpus has been built yet.
-	views, _, corpusBacked := loadCorpusPatternViews(brainDir)
+	views, _, corpusBacked, err := loadCorpusPatternViewsChecked(brainDir)
+	if err != nil {
+		return err
+	}
 	if !corpusBacked {
 		var verr error
 		if views, _, verr = loadPatternViews(brainDir); verr != nil {
@@ -63,11 +75,19 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		// Themes are a verifier-gated channel: only verified-accepted themes
 		// surface (matching brief/overview and the stated contract). Unverified
 		// candidates are processed by `patterns verify --themes`, not listed here.
-		for _, th := range loadThemeViews(brainDir, true) {
+		themes, err := loadThemeViewsChecked(brainDir, true)
+		if err != nil {
+			return err
+		}
+		for _, th := range themes {
 			views = append(views, themePatternView(th))
 		}
 	}
-	memIdx := skillMemoryByPatternID(mustLoadSkillMemory(brainDir))
+	memoryRecords, err := loadBrainSkillMemory(brainDir)
+	if err != nil {
+		return err
+	}
+	memIdx := skillMemoryByPatternID(memoryRecords)
 
 	filtered := views[:0:0]
 	for _, v := range views {
@@ -93,23 +113,33 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if listOpts.limit > 0 && len(filtered) > listOpts.limit {
 		filtered = filtered[:listOpts.limit]
 	}
-
-	if listOpts.asJSON {
-		return writeJSON(cmd, filtered)
-	}
-	out := cmd.OutOrStdout()
+	patternsPresent := true
 	if len(filtered) == 0 {
-		if !buildPatternsStatusReport(brainDir).Present {
-			fmt.Fprintln(out, "patterns: not built (run `entire brain patterns refresh`)")
-		} else {
-			fmt.Fprintln(out, "patterns: none detected yet")
+		status, err := buildPatternsStatusReportChecked(brainDir)
+		if err != nil {
+			return err
+		}
+		patternsPresent = status.Present
+	}
+
+	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+		if listOpts.asJSON {
+			return writeJSON(cmd, filtered)
+		}
+		out := cmd.OutOrStdout()
+		if len(filtered) == 0 {
+			if !patternsPresent {
+				fmt.Fprintln(out, "patterns: not built (run `entire brain patterns refresh`)")
+			} else {
+				fmt.Fprintln(out, "patterns: none detected yet")
+			}
+			return nil
+		}
+		for _, v := range filtered {
+			renderPatternView(out, v)
 		}
 		return nil
-	}
-	for _, v := range filtered {
-		renderPatternView(out, v)
-	}
-	return nil
+	})
 }
 
 // patternView is the unified listing shape for both pattern families, so
@@ -164,15 +194,23 @@ func loadPatternViews(brainDir string) ([]patternView, map[string]patternView, e
 
 // strongestPatterns loads the top-N patterns by strength for the overview.
 func strongestPatterns(brainDir string, limit int) []patternView {
+	views, _ := strongestPatternsChecked(brainDir, limit)
+	return views
+}
+
+func strongestPatternsChecked(brainDir string, limit int) ([]patternView, error) {
 	views, _, err := loadPatternViews(brainDir)
-	if err != nil || len(views) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if len(views) == 0 {
+		return nil, nil
 	}
 	sort.SliceStable(views, func(i, j int) bool { return views[i].Strength > views[j].Strength })
 	if limit > 0 && len(views) > limit {
 		views = views[:limit]
 	}
-	return views
+	return views, nil
 }
 
 // brainBriefPatternsCount caps how many task-relevant patterns the brief carries.
@@ -389,41 +427,50 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if err != nil {
 		return err
 	}
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		return err
+	}
+	privacyPolicy.RequireDerivedClean = true
+	if err := requirePrivacyDerivedRead(brainDir); err != nil {
+		return err
+	}
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
-	db, err := openPatternCorpusDB(brainDir)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	run := defaultDistillAgentRunner(agent)
-	verify := verifyDossiers
-	mode := "dossier"
-	switch {
-	case themes:
-		verify = verifyThemes
-		mode = "theme"
-	case lessons:
-		verify = proposeSkillLessons
-		mode = "lesson"
-	case conventions:
-		verify = proposeSkillConventions
-		mode = "convention"
-	case deep:
-		verify = verifyDeepDossiers
-		mode = "deep dossier"
-	}
-	stats, err := verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())
-	if err != nil {
-		return err
-	}
-	if asJSON {
-		return writeJSON(cmd, stats)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "patterns verify: %d %s(s) — %d verified, %d cached, %d failed\n",
-		stats.Considered, mode, stats.Verified, stats.Cached, stats.Failed)
-	return nil
+	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+		run := defaultDistillAgentRunner(agent)
+		verify := verifyDossiers
+		mode := "dossier"
+		switch {
+		case themes:
+			verify = verifyThemes
+			mode = "theme"
+		case lessons:
+			verify = proposeSkillLessons
+			mode = "lesson"
+		case conventions:
+			verify = proposeSkillConventions
+			mode = "convention"
+		case deep:
+			verify = verifyDeepDossiers
+			mode = "deep dossier"
+		}
+		var stats dossierVerifyStats
+		if err := withPatternCorpusMutationLocked(brainDir, func(db *sql.DB) error {
+			var verifyErr error
+			stats, verifyErr = verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())
+			return verifyErr
+		}); err != nil {
+			return err
+		}
+		if asJSON {
+			return writeJSON(cmd, stats)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "patterns verify: %d %s(s) — %d verified, %d cached, %d failed\n",
+			stats.Considered, mode, stats.Verified, stats.Cached, stats.Failed)
+		return nil
+	})
 }
 
 // targetFromArgs resolves the repo path argument, defaulting to the env repo root
@@ -505,30 +552,43 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if err != nil {
 		return err
 	}
-	report := buildPatternsStatusReport(brainDir)
-	if asJSON {
-		return writeJSON(cmd, report)
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		return err
 	}
-	if !report.Present {
-		fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `entire brain patterns refresh`)")
+	privacyPolicy.RequireDerivedClean = true
+	if err := requirePrivacyDerivedRead(brainDir); err != nil {
+		return err
+	}
+	report, err := buildPatternsStatusReportChecked(brainDir)
+	if err != nil {
+		return err
+	}
+	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+		if asJSON {
+			return writeJSON(cmd, report)
+		}
+		if !report.Present {
+			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `entire brain patterns refresh`)")
+			return nil
+		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "patterns: %s\n", report.Freshness)
+		fmt.Fprintf(out, "episodes: %d\n", report.Episodes)
+		if r := report.Reinforcement; r != nil {
+			fmt.Fprintf(out, "reinforcement: %d success, %d corrected, %d neutral\n", r.Success, r.Corrected, r.Neutral)
+		}
+		fmt.Fprintf(out, "procedures: %d\n", report.Procedures)
+		fmt.Fprintf(out, "practices: %d\n", report.Practices)
+		fmt.Fprintf(out, "accepted skills: %d\n", report.AcceptedSkills)
+		fmt.Fprintf(out, "declined patterns: %d\n", report.DeclinedPatterns)
+		fmt.Fprintf(out, "updates available: %d\n", report.UpdatesAvailable)
+		if lr := report.LastRun; lr != nil {
+			fmt.Fprintf(out, "last run: %s — %d episode(s), %d pattern(s), %d dossier(s), %d symbol link(s), %d commit(s), %d synapse(s)\n",
+				lr.At, lr.Episodes, lr.Patterns, lr.Dossiers, lr.SymbolLinks, lr.Commits, lr.Synapses)
+		}
 		return nil
-	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "patterns: %s\n", report.Freshness)
-	fmt.Fprintf(out, "episodes: %d\n", report.Episodes)
-	if r := report.Reinforcement; r != nil {
-		fmt.Fprintf(out, "reinforcement: %d success, %d corrected, %d neutral\n", r.Success, r.Corrected, r.Neutral)
-	}
-	fmt.Fprintf(out, "procedures: %d\n", report.Procedures)
-	fmt.Fprintf(out, "practices: %d\n", report.Practices)
-	fmt.Fprintf(out, "accepted skills: %d\n", report.AcceptedSkills)
-	fmt.Fprintf(out, "declined patterns: %d\n", report.DeclinedPatterns)
-	fmt.Fprintf(out, "updates available: %d\n", report.UpdatesAvailable)
-	if lr := report.LastRun; lr != nil {
-		fmt.Fprintf(out, "last run: %s — %d episode(s), %d pattern(s), %d dossier(s), %d symbol link(s), %d commit(s), %d synapse(s)\n",
-			lr.At, lr.Episodes, lr.Patterns, lr.Dossiers, lr.SymbolLinks, lr.Commits, lr.Synapses)
-	}
-	return nil
+	})
 }
 
 // buildPatternsStatusReport reads the patterns source from the manifest and
@@ -536,9 +596,29 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 // the history source uses — no re-extraction required. Skill-memory counts are
 // computed by evaluating each user decision against the current pattern set.
 func buildPatternsStatusReport(brainDir string) patternsStatusReport {
+	report, _ := buildPatternsStatusReportChecked(brainDir)
+	return report
+}
+
+func buildPatternsStatusReportChecked(brainDir string) (patternsStatusReport, error) {
 	manifest, err := loadBrainManifest(brainDir)
-	if err != nil || manifest.Sources == nil || manifest.Sources.Patterns == nil {
-		return patternsStatusReport{Present: false, Freshness: "missing"}
+	if err != nil {
+		return patternsStatusReport{}, err
+	}
+	lastRun, hasLastRun, err := lastPatternRunChecked(brainDir)
+	if err != nil {
+		return patternsStatusReport{}, err
+	}
+	_, byID, err := loadPatternViews(brainDir)
+	if err != nil {
+		return patternsStatusReport{}, err
+	}
+	memoryRecords, err := loadBrainSkillMemory(brainDir)
+	if err != nil {
+		return patternsStatusReport{}, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Patterns == nil {
+		return patternsStatusReport{Present: false, Freshness: "missing"}, nil
 	}
 	src := manifest.Sources.Patterns
 	freshness := "current"
@@ -555,12 +635,11 @@ func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 		Practices:     src.Practices,
 		Patterns:      src.Patterns,
 	}
-	if run, ok := lastPatternRun(brainDir); ok {
-		report.LastRun = &run
+	if hasLastRun {
+		report.LastRun = &lastRun
 	}
 
-	_, byID, _ := loadPatternViews(brainDir)
-	for _, rec := range mustLoadSkillMemory(brainDir) {
+	for _, rec := range memoryRecords {
 		var cur *patternView
 		if v, ok := byID[rec.PatternID]; ok {
 			cur = &v
@@ -575,5 +654,5 @@ func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 			report.UpdatesAvailable++
 		}
 	}
-	return report
+	return report, nil
 }

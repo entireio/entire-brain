@@ -1108,7 +1108,7 @@ func TestReadBrainRelativeFileRejectsSymlinkComponents(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	content, err := readBrainRelativeFile(brainDir, "sessions/secret.jsonl")
+	content, err := readBrainRelativeStateFile(brainDir, "sessions/secret.jsonl")
 	if err == nil {
 		t.Fatalf("expected symlink rejection, read %q", content)
 	}

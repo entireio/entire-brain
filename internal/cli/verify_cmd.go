@@ -332,11 +332,11 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 		if session.TranscriptPath != "" && anchor.Transcript != "" && filepath.ToSlash(session.TranscriptPath) != filepath.ToSlash(anchor.Transcript) {
 			result.addCheck(verifyCheck{Name: "transcript_path", Verdict: verifyVerdictStale, Reason: fmt.Sprintf("exported session now points at %s", session.TranscriptPath)})
 		}
-		content, err := readBrainRelativeFile(v.brainDir, transcriptRel)
+		data, err := readCanonicalHistoryTranscript(v.ctx, v.brainDir, transcriptRel)
 		if err != nil {
 			result.addCheck(verifyCheck{Name: "transcript", Verdict: verifyVerdictOrphaned, Reason: err.Error()})
 		} else {
-			transcriptContent = content
+			transcriptContent = string(data)
 			result.addCheck(verifyCheck{Name: "transcript", Verdict: verifyVerdictVerified, Reason: transcriptRel})
 		}
 	}

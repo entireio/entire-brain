@@ -64,7 +64,7 @@ func TestDeepSkillEvidenceFromDossier(t *testing.T) {
 // shallow evidence — the form must require deep verification first.
 func TestFormRequiresAcceptedDeepDossier(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestFormRequiresAcceptedDeepDossier(t *testing.T) {
 
 	// With an accepted deep dossier, the dossier-driven synthesis runs and the
 	// agent receives the dossier (not shallow snippets).
-	db2, _ := openPatternCorpusDB(brainDir)
+	db2, _ := openPatternCorpusMutableDB(brainDir)
 	seedAcceptedDeepDossier(t, db2, pid, deployDeepDossier(), nil)
 	db2.Close()
 	in, ok := loadAcceptedDeepDossier(brainDir, pid)

@@ -3,6 +3,7 @@ package cli
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sort"
 )
 
@@ -27,7 +28,12 @@ import (
 // LISTING uses loadSkillProposals instead, which additionally requires an
 // accepted deep dossier.
 func loadCorpusTaskCandidates(brainDir string) ([]taskCandidate, bool) {
-	return queryTaskCandidates(brainDir, false)
+	candidates, present, _ := loadCorpusTaskCandidatesChecked(brainDir)
+	return candidates, present
+}
+
+func loadCorpusTaskCandidatesChecked(brainDir string) ([]taskCandidate, bool, error) {
+	return queryTaskCandidatesChecked(brainDir, false)
 }
 
 // loadSkillProposals returns the formable skill proposals: a promotable task
@@ -37,11 +43,23 @@ func loadCorpusTaskCandidates(brainDir string) ([]taskCandidate, bool) {
 // archetypes that actually earn being a skill). Skill-memory suppression is
 // applied by the caller.
 func loadSkillProposals(brainDir string) ([]taskCandidate, bool) {
-	cands, ok := queryTaskCandidates(brainDir, true)
-	if !ok {
-		return nil, false
+	candidates, present, _ := loadSkillProposalsChecked(brainDir)
+	return candidates, present
+}
+
+func loadSkillProposalsChecked(brainDir string) ([]taskCandidate, bool, error) {
+	cands, ok, err := queryTaskCandidatesChecked(brainDir, true)
+	if err != nil {
+		return nil, false, err
 	}
-	return append(cands, loadKnowledgeSkillProposals(brainDir)...), true
+	if !ok {
+		return nil, false, nil
+	}
+	knowledge, err := loadKnowledgeSkillProposalsChecked(brainDir)
+	if err != nil {
+		return nil, false, err
+	}
+	return append(cands, knowledge...), true, nil
 }
 
 // loadKnowledgeSkillProposals returns proposals sourced from non-obvious
@@ -50,27 +68,35 @@ func loadSkillProposals(brainDir string) ([]taskCandidate, bool) {
 // are synthesized by converting the verified record, not by re-inferring from
 // raw rows.
 func loadKnowledgeSkillProposals(brainDir string) []taskCandidate {
-	db, err := openPatternCorpusDB(brainDir)
+	proposals, _ := loadKnowledgeSkillProposalsChecked(brainDir)
+	return proposals
+}
+
+func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if !present {
+		return nil, nil
 	}
 	defer db.Close()
 	rows, err := db.Query(`SELECT pattern_id, json_redacted FROM deep_dossiers
 		WHERE verdict='accepted' AND (pattern_id LIKE 'lesson:%' OR pattern_id LIKE 'convention:%')
 		ORDER BY pattern_id`)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []taskCandidate
 	for rows.Next() {
 		var id, blob string
-		if rows.Scan(&id, &blob) != nil {
-			continue
+		if err := rows.Scan(&id, &blob); err != nil {
+			return out, err
 		}
 		var rec deepDossierRecord
-		if json.Unmarshal([]byte(blob), &rec) != nil {
-			continue
+		if err := json.Unmarshal([]byte(blob), &rec); err != nil {
+			return nil, fmt.Errorf("%s: parse accepted knowledge skill proposal: %w", memoryErrStateCorrupt, err)
 		}
 		support := rec.EvidenceEpisodes
 		strength := supportScoreV2(support)
@@ -80,13 +106,21 @@ func loadKnowledgeSkillProposals(brainDir string) []taskCandidate {
 			SampleIntents: []string{rec.Trigger},
 		})
 	}
-	return out
+	return out, rows.Err()
 }
 
 func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandidate, bool) {
-	db, err := openPatternCorpusDB(brainDir)
+	candidates, present, _ := queryTaskCandidatesChecked(brainDir, requireAcceptedDeep)
+	return candidates, present
+}
+
+func queryTaskCandidatesChecked(brainDir string, requireAcceptedDeep bool) ([]taskCandidate, bool, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return nil, false
+		return nil, false, err
+	}
+	if !present {
+		return nil, false, nil
 	}
 	defer db.Close()
 
@@ -104,7 +138,7 @@ func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandi
 	q += ` ORDER BY p.strength DESC`
 	rows, err := db.Query(q)
 	if err != nil {
-		return nil, false
+		return nil, true, err
 	}
 	defer rows.Close()
 	var cands []taskCandidate
@@ -116,7 +150,7 @@ func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandi
 		)
 		if err := rows.Scan(&id, &repoKey, &intentSig, &title, &gram, &strength, &strengthLabel,
 			&support, &succ, &corr, &neut); err != nil {
-			return nil, false
+			return nil, true, err
 		}
 		c := taskCandidate{
 			ID: id, RepoKey: repoKey, IntentSignature: intentSig, Label: title,
@@ -125,13 +159,13 @@ func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandi
 			Commands:      splitGramHeads(gram),
 			Strength:      strength, StrengthLabel: strengthLabel,
 		}
-		enrichCandidateFromCorpus(db, &c, id)
+		enrichCandidateFromCorpus(db.DB, &c, id)
 		cands = append(cands, c)
 	}
 	if rows.Err() != nil {
-		return nil, false
+		return nil, true, rows.Err()
 	}
-	return cands, true
+	return cands, true, nil
 }
 
 // enrichCandidateFromCorpus fills the evidence the synthesis agent needs: sample
@@ -175,9 +209,18 @@ func enrichCandidateFromCorpus(db *sql.DB, c *taskCandidate, patternID string) {
 // (reconsider) or a drifted active skill (update) stays visible. This is the
 // dedupe/drift gate for the skill listing.
 func filterSkillCandidatesByMemory(brainDir string, cands []taskCandidate) []taskCandidate {
-	mem := skillMemoryByPatternID(mustLoadSkillMemory(brainDir))
+	filtered, _ := filterSkillCandidatesByMemoryChecked(brainDir, cands)
+	return filtered
+}
+
+func filterSkillCandidatesByMemoryChecked(brainDir string, cands []taskCandidate) ([]taskCandidate, error) {
+	records, err := loadBrainSkillMemory(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	mem := skillMemoryByPatternID(records)
 	if len(mem) == 0 {
-		return cands
+		return cands, nil
 	}
 	out := cands[:0:0]
 	for _, c := range cands {
@@ -189,19 +232,27 @@ func filterSkillCandidatesByMemory(brainDir string, cands []taskCandidate) []tas
 		}
 		out = append(out, c)
 	}
-	return out
+	return out, nil
 }
 
 // corpusTaskCandidateByID resolves one corpus task candidate by id for `form`.
 func corpusTaskCandidateByID(brainDir, id string) (*taskCandidate, bool) {
-	cands, ok := loadCorpusTaskCandidates(brainDir)
+	candidate, present, _ := corpusTaskCandidateByIDChecked(brainDir, id)
+	return candidate, present
+}
+
+func corpusTaskCandidateByIDChecked(brainDir, id string) (*taskCandidate, bool, error) {
+	cands, ok, err := loadCorpusTaskCandidatesChecked(brainDir)
+	if err != nil {
+		return nil, false, err
+	}
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 	for i := range cands {
 		if cands[i].ID == id {
-			return &cands[i], true
+			return &cands[i], true, nil
 		}
 	}
-	return nil, true // corpus exists but id not among task candidates
+	return nil, true, nil // corpus exists but id not among task candidates
 }

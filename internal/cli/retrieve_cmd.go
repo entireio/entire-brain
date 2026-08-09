@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -79,7 +80,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var format string
 	var limit int
 	var branch string
-	var patterns bool
+	var patterns, includeAbstract bool
 	var source, after, before, session, agent string
 	var concepts []string
 	cmd := &cobra.Command{
@@ -95,6 +96,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return fmt.Errorf("--%s", err.Error())
 			}
+			ropts.IncludeAbstract = includeAbstract
 			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, ropts, wantJSON, patterns, use)
 		},
 	}
@@ -110,6 +112,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().StringVar(&session, "session", "", "Conversation source only: exchanges from this session id (also disables the per-session diversity cap)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")")
 	cmd.Flags().StringArrayVar(&concepts, "concept", nil, "Conversation source only: additional concept (repeatable, up to 4); sessions must match the query AND every concept")
+	cmd.Flags().BoolVar(&includeAbstract, "include-abstract", false, "Conversation source only: include bounded evidence-linked session previews (never affects ranking)")
 	return cmd
 }
 
@@ -121,6 +124,9 @@ func buildRetrievalOptions(source, after, before, session, agent, branch string,
 	if err != nil {
 		return retrievalOptions{}, err
 	}
+	if len(concepts) > conversationConceptsMaxTotal-1 {
+		return retrievalOptions{}, fmt.Errorf("concept: at most %d additional concepts (got %d)", conversationConceptsMaxTotal-1, len(concepts))
+	}
 	trimmedConcepts := make([]string, 0, len(concepts))
 	for _, concept := range concepts {
 		concept = strings.TrimSpace(concept)
@@ -128,9 +134,6 @@ func buildRetrievalOptions(source, after, before, session, agent, branch string,
 			return retrievalOptions{}, fmt.Errorf("concept: concepts must be non-empty")
 		}
 		trimmedConcepts = append(trimmedConcepts, concept)
-	}
-	if len(trimmedConcepts) > conversationConceptsMaxTotal-1 {
-		return retrievalOptions{}, fmt.Errorf("concept: at most %d additional concepts (got %d)", conversationConceptsMaxTotal-1, len(trimmedConcepts))
 	}
 	if len(trimmedConcepts) > 0 && parsedSource != retrievalSourceConversation {
 		return retrievalOptions{}, fmt.Errorf(`concept: concepts require source "conversation" (got %q)`, parsedSource)
@@ -168,14 +171,34 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if limit <= 0 {
 		return fmt.Errorf("--limit must be greater than 0")
 	}
+	if len(ropts.Concepts) > 0 {
+		if err := validateRetrievalLimit(limit); err != nil {
+			return fmt.Errorf("--%s", err.Error())
+		}
+	}
 	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
 		return err
+	}
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		return err
+	}
+	if patterns {
+		privacyPolicy.RequireDerivedClean = true
+		if err := requirePrivacyDerivedRead(brainDir); err != nil {
+			return err
+		}
+		if err := requirePatternCorpusAvailable(brainDir); err != nil {
+			return err
+		}
 	}
 	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, resolvedBranch, query, limit, mode, ropts)
 	if err != nil {
 		return err
 	}
+	multiConcept := len(ropts.Concepts) > 0
+	policyIdentityBeforeExtras := privacyPolicy.Identity
 	factIDs := unifiedFactIDs(results)
 	recordReceipt := func() {
 		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
@@ -186,32 +209,110 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	// retrieval quality is unchanged by construction.
 	var related []relatedPatternRef
 	if patterns {
-		related = relatedPatternPointers(brainDir, query, patternPointerCap)
+		related, err = relatedPatternPointersChecked(brainDir, query, patternPointerCap)
+		if err != nil {
+			return err
+		}
 	}
-	if jsonOut {
-		// Preserve the established JSON `text` field on both CLI and MCP
-		// surfaces. Excerpt is additive; existing consumers must not be forced to
-		// switch to a second brain_get round trip.
-		out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
-		hints := retrievalHintsForResults(repoDir, results, query)
-		if len(hints.LikelyEditFiles) > 0 {
-			out["likely_edit_files"] = hints.LikelyEditFiles
+	var abstractPreviews []sessionAbstractPreview
+	var abstractPreviewsTruncated bool
+	if ropts.IncludeAbstract {
+		if ropts.Source != retrievalSourceConversation {
+			return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
 		}
-		if len(hints.LikelyTestFiles) > 0 {
-			out["likely_test_files"] = hints.LikelyTestFiles
+		abstractPreviews, abstractPreviewsTruncated, err = abstractPreviewsForResults(brainDir, results)
+		if err != nil {
+			return err
 		}
-		if len(hints.ActionChecklist) > 0 {
-			out["action_checklist"] = hints.ActionChecklist
-		}
-		if len(related) > 0 {
-			out["related_patterns"] = related
-		}
-		if len(results) == 0 {
-			if note := emptyResultBlindSpot(brainDir); note != "" {
-				out["blind_spot"] = note
+	}
+	if !multiConcept {
+		// Preserve the pre-C2 payload byte-for-byte, but buffer it so the shared
+		// final privacy check runs after assembly and before the first write. The
+		// 128 KiB response contract and proof rendering still belong only to
+		// multi-concept coverage.
+		if jsonOut {
+			out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
+			if ropts.IncludeAbstract {
+				out["abstract_previews"] = abstractPreviews
+				out["abstract_previews_truncated"] = abstractPreviewsTruncated
 			}
+			hints := retrievalHintsForResults(repoDir, results, query)
+			if len(hints.LikelyEditFiles) > 0 {
+				out["likely_edit_files"] = hints.LikelyEditFiles
+			}
+			if len(hints.LikelyTestFiles) > 0 {
+				out["likely_test_files"] = hints.LikelyTestFiles
+			}
+			if len(hints.ActionChecklist) > 0 {
+				out["action_checklist"] = hints.ActionChecklist
+			}
+			if len(related) > 0 {
+				out["related_patterns"] = related
+			}
+			if len(results) == 0 {
+				if note := emptyResultBlindSpot(brainDir); note != "" {
+					out["blind_spot"] = note
+				}
+			}
+			serialized, err := jsonOutputBytes(out)
+			if err != nil {
+				return err
+			}
+			if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
+				return err
+			}
+			if len(factIDs) > 0 {
+				recordReceipt()
+			}
+			return nil
 		}
-		if err := writeJSON(cmd, out); err != nil {
+		var rendered bytes.Buffer
+		if err := writeTextToWriter(&rendered, func(out io.Writer) {
+			if len(results) == 0 {
+				fmt.Fprintf(out, "no results for %q\n", query)
+				if note := emptyResultBlindSpot(brainDir); note != "" {
+					fmt.Fprintln(out, note)
+				}
+			}
+			hints := retrievalHintsForResults(repoDir, results, query)
+			for _, file := range hints.LikelyEditFiles {
+				fmt.Fprintf(out, "edit_file %s\n", file)
+			}
+			for _, file := range hints.LikelyTestFiles {
+				fmt.Fprintf(out, "test_file %s\n", file)
+			}
+			for _, action := range hints.ActionChecklist {
+				fmt.Fprintf(out, "action %s %s: %s\n", action.File, action.Symbol, action.Action)
+			}
+			for _, result := range results {
+				ex := truncateString(strings.Join(strings.Fields(result.Text), " "), 200)
+				label := result.Source
+				if result.VerificationRequired {
+					label += " verify"
+				}
+				fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, result.ID, unifiedResultLocation(result), ex)
+				printRetrievalCaveats(out, result)
+			}
+			for _, pattern := range related {
+				fmt.Fprintf(out, "related [%s] %s  %s\n", pattern.Type, pattern.ID, pattern.Title)
+			}
+			for _, preview := range abstractPreviews {
+				text := ""
+				if preview.Overview != nil {
+					text = "  " + strings.Join(strings.Fields(preview.Overview.Text), " ")
+				}
+				fmt.Fprintf(out, "abstract [%s] %s%s\n", preview.AbstractStatus, preview.SessionRef, text)
+				if preview.AbstractIssue != "" {
+					fmt.Fprintf(out, "  automatic enqueue issue: %s\n", preview.AbstractIssue)
+				}
+			}
+			if abstractPreviewsTruncated {
+				fmt.Fprintln(out, "abstract previews truncated")
+			}
+		}); err != nil {
+			return err
+		}
+		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
 			return err
 		}
 		if len(factIDs) > 0 {
@@ -219,37 +320,55 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		}
 		return nil
 	}
-	if err := writeText(cmd, func(out io.Writer) {
-		if len(results) == 0 {
-			fmt.Fprintf(out, "no results for %q\n", query)
-			if note := emptyResultBlindSpot(brainDir); note != "" {
-				fmt.Fprintln(out, note)
-			}
-			// still show related pattern pointers if any
+	// Ranking may be slow enough for a concurrent exclusion to land after its
+	// first guard snapshot. Revalidate immediately before transport assembly;
+	// no JSON, text, or MCP bytes are emitted before this check succeeds.
+	results, policyAfter, err := revalidateRetrievalResponsePrivacy(brainDir, results)
+	if err != nil {
+		return err
+	}
+	if policyAfter != policyIdentityBeforeExtras {
+		// Optional derived material was read under a superseded privacy policy.
+		// Rows were freshly revalidated above; discard the stale extras instead
+		// of allowing a completed fast cleanup to make them look current.
+		related = nil
+		abstractPreviews = nil
+		abstractPreviewsTruncated = true
+	}
+	extras := retrievalTransportExtras{
+		AbstractPreviews:          abstractPreviews,
+		AbstractPreviewsTruncated: abstractPreviewsTruncated,
+		Hints:                     retrievalHintsForResults(repoDir, results, query),
+		Related:                   related,
+	}
+	if len(results) == 0 {
+		extras.BlindSpot = emptyResultBlindSpot(brainDir)
+	}
+	if jsonOut {
+		// Preserve the established JSON `text` field on both CLI and MCP
+		// surfaces. Excerpt is additive; existing consumers must not be forced to
+		// switch to a second brain_get round trip.
+		out, err := boundedRetrievalJSONPayload(ctx, query, resolvedBranch, results, extras, surface)
+		if err != nil {
+			return err
 		}
-		hints := retrievalHintsForResults(repoDir, results, query)
-		for _, file := range hints.LikelyEditFiles {
-			fmt.Fprintf(out, "edit_file %s\n", file)
+		serialized, err := jsonOutputBytes(out)
+		if err != nil {
+			return err
 		}
-		for _, file := range hints.LikelyTestFiles {
-			fmt.Fprintf(out, "test_file %s\n", file)
+		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter}); err != nil {
+			return err
 		}
-		for _, action := range hints.ActionChecklist {
-			fmt.Fprintf(out, "action %s %s: %s\n", action.File, action.Symbol, action.Action)
+		if len(factIDs) > 0 {
+			recordReceipt()
 		}
-		for _, r := range results {
-			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
-			label := r.Source
-			if r.VerificationRequired {
-				label += " verify"
-			}
-			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, r.ID, unifiedResultLocation(r), ex)
-			printRetrievalCaveats(out, r)
-		}
-		for _, p := range related {
-			fmt.Fprintf(out, "related [%s] %s  %s\n", p.Type, p.ID, p.Title)
-		}
-	}); err != nil {
+		return nil
+	}
+	text, err := boundedSingleRepoRetrievalText(query, results, extras)
+	if err != nil {
+		return err
+	}
+	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), text, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter}); err != nil {
 		return err
 	}
 	if len(factIDs) > 0 {
@@ -498,6 +617,26 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if err != nil {
 		return err
 	}
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		return err
+	}
+	requestedPattern := false
+	for _, id := range ids {
+		if strings.HasPrefix(id, "pattern:") || strings.HasPrefix(id, "theme:") {
+			privacyPolicy.RequireDerivedClean = true
+			requestedPattern = true
+			break
+		}
+	}
+	if requestedPattern {
+		if err := requirePrivacyDerivedRead(brainDir); err != nil {
+			return err
+		}
+		if err := requirePatternCorpusAvailable(brainDir); err != nil {
+			return err
+		}
+	}
 	found, missing, err := getUnifiedBatchOptions(repoDir, brainDir, resolvedBranch, ids, gopts)
 	if err != nil {
 		return err
@@ -516,7 +655,11 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		missing = []string{}
 	}
 	if jsonOut {
-		if err := writeJSON(cmd, map[string]any{"branch": resolvedBranch, "results": found, "missing": missing}); err != nil {
+		serialized, err := jsonOutputBytes(map[string]any{"branch": resolvedBranch, "results": found, "missing": missing})
+		if err != nil {
+			return err
+		}
+		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
 			return err
 		}
 		if len(factIDs) > 0 {
@@ -524,7 +667,8 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		}
 		return nil
 	}
-	if err := writeText(cmd, func(out io.Writer) {
+	var rendered bytes.Buffer
+	if err := writeTextToWriter(&rendered, func(out io.Writer) {
 		for _, r := range found {
 			label := r.Source
 			if r.VerificationRequired {
@@ -539,6 +683,9 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 			fmt.Fprintf(out, "not found: %s\n", id)
 		}
 	}); err != nil {
+		return err
+	}
+	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
 		return err
 	}
 	if len(factIDs) > 0 {

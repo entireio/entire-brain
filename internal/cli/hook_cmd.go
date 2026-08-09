@@ -63,10 +63,11 @@ func newHookCommand(opts Options) *cobra.Command {
 // closing the write loop. Batch distill is expensive and run occasionally, so
 // today's insights are invisible to tomorrow's session unless someone
 // remembers to run it. Wired to a session-lifecycle hook, this distills the
-// just-ended session — deterministic refresh first (free), then distill
-// bounded to that one session (--session), proposals queueing through the
-// existing reconcile/review pipeline unchanged. The incremental cache makes
-// re-firing for the same session free.
+// just-ended session — incremental export/overlay first (free), then a durable
+// lifecycle hint, then distill bounded to that one session (--session).
+// Long-term projection work is owned by the memory coordinator; the hook only
+// reduces latency and correctness never depends on it firing. The incremental
+// cache makes re-firing for the same session free.
 //
 // Unlike pre-edit/post-failure this verb may legitimately take minutes and
 // spend tokens — the session is over, nobody is waiting — but it keeps the
@@ -76,6 +77,7 @@ func newHookCommand(opts Options) *cobra.Command {
 func newHookSessionEndCommand(opts Options) *cobra.Command {
 	var (
 		sessionID string
+		branch    string
 		agent     string
 		model     string
 		effort    string
@@ -88,20 +90,47 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			if strings.TrimSpace(sessionID) == "" {
 				return fmt.Errorf("--session <id> is required")
 			}
+			if memoryWorkerOrigin() {
+				return nil
+			}
 			target := agentSurfaceTarget(opts, nil)
 			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
 			if err != nil || !local {
 				return nil // no local repo: silence, never an error
 			}
-			// Deterministic refresh (agent=none, zero tokens) exports the new
-			// session so distill can see it. Refresh chatter goes to stderr;
-			// stdout stays empty per the hook contract.
+			perRepo := opts
+			perRepo.Env.RepoRoot = repoDir
+			// Export only changed sessions and publish the short-term overlay so
+			// recall and distill can see the just-ended session immediately. The
+			// durable coordinator performs the heavier long-term consolidation.
 			sub := &cobra.Command{}
 			sub.SetContext(cmd.Context())
 			sub.SetOut(cmd.ErrOrStderr())
 			sub.SetErr(cmd.ErrOrStderr())
-			if err := watchDeterministicRefresh(cmd.Context(), sub, opts, repoDir); err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: refresh failed: %v\n", err)
+			_, deltaErr := watchShortTermDelta(cmd.Context(), sub, perRepo, repoDir)
+
+			// Record the lifecycle event even when export failed. The hint is
+			// content-free and durable; startup/watch reconciliation or a later
+			// worker pass can repair the missed export without retaining content.
+			storage, storageErr := repoStoragePaths(cmd.Context(), perRepo.Runner, perRepo.Env, repoDir)
+			if storageErr == nil {
+				resolvedBranch := strings.TrimSpace(branch)
+				if resolvedBranch == "" {
+					if current, gitErr := gitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+						resolvedBranch = strings.TrimSpace(current)
+					}
+				}
+				_, warning, hintErr := recordMemoryLifecycleAndLaunch(
+					storage.BrainDir, repoDir, storage.Key, sessionID, resolvedBranch, "session_end", perRepo.Now().UTC(),
+				)
+				if hintErr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "session-end: memory hint failed: %v\n", hintErr)
+				} else if warning != "" {
+					fmt.Fprintf(cmd.ErrOrStderr(), "session-end: %s\n", warning)
+				}
+			}
+			if deltaErr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: incremental export failed: %v\n", deltaErr)
 				return nil
 			}
 			distillOpts := distillCommandOptions{
@@ -122,6 +151,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&sessionID, "session", "", "The just-ended session's id")
+	cmd.Flags().StringVar(&branch, "branch", "", "Captured branch when the host knows it")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Distill agent: auto, codex, claude-code, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Cheap/fast model override for the distill agent (recommended)")
 	cmd.Flags().StringVar(&effort, "effort", "", "Reasoning-effort override (e.g. low) — pairs with --model for a cheap run")

@@ -62,7 +62,7 @@ func TestSkillQualityGenericGitNotASkill(t *testing.T) {
 // formable.
 func TestSkillQualityShallowOnlyNotFormable(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	var pid string
 	db.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&pid)
 	db.Close()
@@ -79,7 +79,7 @@ func TestSkillQualityShallowOnlyNotFormable(t *testing.T) {
 // intent_sig.
 func TestSkillQualityThemeCitesPracticeNotIntentSig(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	// An accepted theme with an agent description (no intent_sig label).
 	db.Exec(`INSERT INTO themes (id, scope, title, description, shape, member_keys, support, fingerprint, strength, status, verdict, created_at, updated_at)
 		VALUES ('theme:rev','repo','reviewing the current branch','recurring practice of auditing branch changes for regressions','conversation','[]',5,'sha256:t',0.7,'active','accepted','t','t')`)

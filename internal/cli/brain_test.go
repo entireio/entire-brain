@@ -284,6 +284,7 @@ func TestBrainBriefFocusedHistoryUsesPrimarySymbol(t *testing.T) {
 		freshHistory{index: index},
 		semanticRecord{Name: "resolveConfig", QualifiedName: "resolveConfig"},
 		1,
+		sessionReadGuard{},
 	)
 	if len(matches) != 1 || !strings.Contains(matches[0].Excerpt, "strict_mode") {
 		t.Fatalf("focused history did not recover the primary symbol contract: %+v", matches)

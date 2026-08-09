@@ -56,7 +56,7 @@ type handoffPacket struct {
 // embedder, warm path only. Sessions are attributed their history records via
 // TranscriptPath == record.Path (the same provenance link history-eval-gen
 // labels through).
-func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []factRecord, branch string, sessionCount int, now time.Time) handoffPacket {
+func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []factRecord, branch string, sessionCount int, now time.Time, guard sessionReadGuard) handoffPacket {
 	if sessionCount <= 0 {
 		sessionCount = handoffDefaultSessions
 	}
@@ -78,6 +78,9 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		return sr
 	}
 	for _, r := range index.Records {
+		if guard.blocksRecord(r) {
+			continue
+		}
 		switch r.Kind {
 		case "request":
 			// The session's opening request is the lowest-line request record
@@ -98,7 +101,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		}
 	}
 
-	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
+	sessions := guardExportSessions(guard, append([]exportSession(nil), manifest.Sources.Sessions.Sessions...))
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.After(sessions[j].CreatedAt) })
 	branches := map[string]bool{}
 	// A session continued across branches is exported once per branch with the
@@ -132,6 +135,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 	}
 	sort.Strings(p.Branches)
 
+	facts = guardFactRecords(guard, facts)
 	active := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if f.Status == factStatusActive {
@@ -144,9 +148,13 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 	}
 	p.RecentFacts = active
 
-	if last, undigested, ok := distillCoverage(manifest); ok {
+	if last, _, ok := distillCoverage(manifest); ok {
 		p.LastDistilledAt = last
-		p.SessionsSinceDistill = undigested
+		for _, session := range sessions {
+			if session.CreatedAt.After(last) {
+				p.SessionsSinceDistill++
+			}
+		}
 	} else {
 		p.SessionsSinceDistill = len(sessions)
 		p.Warnings = append(p.Warnings, "no distilled facts yet; run `entire brain distill`")
@@ -189,6 +197,15 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
 		return fmt.Errorf("no exported sessions; run `entire brain refresh` first")
 	}
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return err
+	}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}
+	privacyPolicy.RequireDerivedClean = true
+	if err := requirePrivacyDerivedRead(brainDir); err != nil {
+		return err
+	}
 	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		index = historyIndex{} // a handoff without history detail beats no handoff
@@ -197,13 +214,18 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		facts = nil
 	}
-	packet := buildHandoffPacket(manifest, index, facts, branch, sessionCount, opts.Now().UTC())
-	packet.Consolidations = handoffConsolidations(brainDir, 5)
-	if jsonOut {
-		return writeJSON(cmd, packet)
+	packet := buildHandoffPacket(manifest, index, facts, branch, sessionCount, opts.Now().UTC(), guard)
+	packet.Consolidations, err = handoffConsolidationsChecked(brainDir, 5)
+	if err != nil {
+		return err
 	}
-	renderHandoff(cmd, packet)
-	return nil
+	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+		if jsonOut {
+			return writeJSON(cmd, packet)
+		}
+		renderHandoff(cmd, packet)
+		return nil
+	})
 }
 
 func renderHandoff(cmd *cobra.Command, p handoffPacket) {

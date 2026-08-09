@@ -75,12 +75,12 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 			var tasks []evalTask
 			switch strings.TrimSpace(source) {
 			case "", evalGenSourceFacts:
-				tasks, err = generateEvalTasks(brainDir, manifest, branch, minFacts, maxFacts, limit)
+				tasks, err = generateEvalTasksContext(cmd.Context(), brainDir, manifest, branch, minFacts, maxFacts, limit)
 			case evalGenSourceSessions:
 				if refine {
 					return fmt.Errorf("--refine requires --source facts; session-derived tasks have no fact labels to refine")
 				}
-				tasks, err = generateSessionEvalTasks(brainDir, manifest, branch, limit)
+				tasks, err = generateSessionEvalTasksContext(cmd.Context(), brainDir, manifest, branch, limit)
 			default:
 				return fmt.Errorf("--source must be facts or sessions")
 			}
@@ -194,6 +194,10 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 // at least minFacts facts and a recoverable opening request. branch filters to
 // a single branch; limit caps the set with even sampling across strata.
 func generateEvalTasks(brainDir string, manifest *exportManifest, branch string, minFacts, maxFacts, limit int) ([]evalTask, error) {
+	return generateEvalTasksContext(context.Background(), brainDir, manifest, branch, minFacts, maxFacts, limit)
+}
+
+func generateEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, minFacts, maxFacts, limit int) ([]evalTask, error) {
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		return nil, err
@@ -237,10 +241,11 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 		if maxFacts > 0 && len(uniqueFactIDs(facts)) > maxFacts {
 			continue // broad session: too many facts to be a focused retrieval target
 		}
-		content, readErr := readBrainRelativeFile(brainDir, s.TranscriptPath)
+		data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, s.TranscriptPath)
 		if readErr != nil {
 			continue
 		}
+		content := string(data)
 		request := firstUserRequest(content)
 		if request == "" {
 			continue
@@ -365,6 +370,10 @@ func sourceLinesForSessionFacts(facts []factRecord, session exportSession) []int
 }
 
 func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
+	return generateSessionEvalTasksContext(context.Background(), brainDir, manifest, branch, limit)
+}
+
+func generateSessionEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return nil, fmt.Errorf("no exported sessions; run `entire brain refresh` first")
 	}
@@ -375,10 +384,11 @@ func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch 
 		if branch != "" && resolvedBranch != branch {
 			continue
 		}
-		content, readErr := readBrainRelativeFile(brainDir, s.TranscriptPath)
+		data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, s.TranscriptPath)
 		if readErr != nil {
 			continue
 		}
+		content := string(data)
 		request := firstUserRequest(content)
 		if request == "" {
 			continue

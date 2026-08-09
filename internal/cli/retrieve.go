@@ -53,6 +53,7 @@ type unifiedResult struct {
 	// C4 abstract status on session outlines (additive; never a generation
 	// call).
 	AbstractStatus string           `json:"abstract_status,omitempty"`
+	AbstractIssue  string           `json:"abstract_issue,omitempty"`
 	Abstract       *sessionAbstract `json:"abstract,omitempty"`
 
 	// C2 multi-concept session coverage (additive; heading session_coverage).
@@ -107,6 +108,9 @@ type retrievalOptions struct {
 	// joined with the primary query for session-scoped AND coverage). Valid
 	// only with Source == "conversation".
 	Concepts []string
+	// IncludeAbstract adds a bounded top-level preview envelope after ranking.
+	// It never changes rank and never invokes a provider.
+	IncludeAbstract bool
 }
 
 // hasConversationOnlyFilters reports filters that have no meaning outside the
@@ -183,6 +187,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	if source == "" {
 		source = retrievalSourceAll
 	}
+	if opts.IncludeAbstract && source != retrievalSourceConversation {
+		return nil, fmt.Errorf(`include_abstract requires source "conversation" (got %q)`, source)
+	}
 	if source == retrievalSourceConversation {
 		if len(opts.Concepts) > 0 {
 			return retrieveConversationMultiConcept(brainDir, query, limit, mode, opts)
@@ -206,7 +213,10 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	// Exclusion guard (R0-1): consulted at this retrieval boundary so a
 	// tombstoned session's derived records are unreadable immediately, even
 	// mid-cleanup. Empty guard (the normal case) changes nothing.
-	guard := loadSessionReadGuard(brainDir, nil)
+	guard, err := loadSessionReadGuard(brainDir, nil)
+	if err != nil {
+		return nil, err
+	}
 	var guardPred func(historyRecord) bool
 	if !guard.empty() {
 		guardPred = func(r historyRecord) bool { return !guard.blocksRecord(r) }
@@ -301,7 +311,10 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			// their session id still block by transcript path; guardPred
 			// closes over the same variable and picks the paths up.
 			if !guard.empty() {
-				guard = loadSessionReadGuard(brainDir, manifest)
+				guard, err = loadSessionReadGuard(brainDir, manifest)
+				if err != nil {
+					return nil, err
+				}
 			}
 			// Semantic arms rank the long-term records minus files the
 			// short-term overlay superseded (overlay records have no vectors
@@ -665,15 +678,18 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// tombstoned session is unreadable here even while its derived cleanup is
 	// still running. Superseded duplicate copies join it too (R0-4): a stale
 	// copy must not even consume a candidate slot.
-	guard := loadSessionReadGuard(brainDir, manifest)
-	winners := fresh.duplicateIDWinners()
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return nil, err
+	}
+	winners := fresh.duplicateRecordWinners()
 	var pred func(historyRecord) bool
 	if filtered || !guard.empty() || len(winners) > 0 {
 		pred = func(r historyRecord) bool {
 			if guard.blocksRecord(r) {
 				return false
 			}
-			if w, ok := winners[r.ID]; ok && !sameRecordCopy(w, r) {
+			if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
 				return false
 			}
 			return !filtered || conversationRecordMatchesFilters(r, opts)
@@ -975,7 +991,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	if err := validateGetOptions(gopts); err != nil {
 		return nil, nil, err
 	}
-	var wantFact, wantReview, wantHistory, wantConversation, wantSession, wantDoc bool
+	var wantFact, wantReview, wantHistory, wantConversation, wantSession, wantDoc, wantPatternDerived bool
 	for _, id := range ids {
 		switch {
 		case strings.HasPrefix(id, "fact:"):
@@ -990,6 +1006,13 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			wantConversation = true
 		case strings.HasPrefix(id, "doc:"):
 			wantDoc = true
+		case strings.HasPrefix(id, "pattern:"), strings.HasPrefix(id, "theme:"):
+			wantPatternDerived = true
+		}
+	}
+	if wantPatternDerived {
+		if err := requirePrivacyDerivedRead(brainDir); err != nil {
+			return nil, nil, err
 		}
 	}
 	// Navigation arguments are type-specific (C1): context counts belong to a
@@ -1010,7 +1033,10 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	}
 	// Exclusion guard (R0-1): a tombstoned session's records resolve as "not
 	// found" on every get surface immediately, even before cleanup finishes.
-	guard := loadSessionReadGuard(brainDir, nil)
+	guard, err := loadSessionReadGuard(brainDir, nil)
+	if err != nil {
+		return nil, nil, err
+	}
 	factByID := map[string]factRecord{}
 	var reviewByID map[string]factReviewGroup
 	var reviewByFactID map[string]factReviewGroup
@@ -1038,6 +1064,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	histByID := map[string]historyRecord{}
 	convByID := map[string]historyRecord{}
 	var sessionViews map[string]conversationSessionView
+	var abstractResolver *sessionAbstractResolver
 	// convScopes maps a conversation id to its session scopes (ref -> newest
 	// record in that scope), so a legacy id colliding across scopes is a
 	// structured ambiguity, never a silent last-write-wins pick (C1).
@@ -1058,7 +1085,10 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			}
 			// Re-resolve the guard with the manifest so records that lost
 			// their session id still block by transcript path.
-			guard = loadSessionReadGuard(brainDir, manifest)
+			guard, err = loadSessionReadGuard(brainDir, manifest)
+			if err != nil {
+				return nil, nil, err
+			}
 			if wantConversation || wantSession {
 				sessionViews = buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
 				for ref, view := range sessionViews {
@@ -1090,6 +1120,9 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 				histByID[r.ID] = r
 			}
 		}
+	}
+	if wantSession {
+		abstractResolver = newSessionAbstractResolver(brainDir)
 	}
 	docByID := map[string]docRecord{}
 	if wantDoc {
@@ -1142,7 +1175,17 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		case strings.HasPrefix(id, conversationSessionIDPrefix):
 			if view, ok := sessionViews[id]; ok {
 				outline := conversationSessionOutline(view, gopts.AfterTurn, gopts.OutlineLimit)
-				outline.AbstractStatus, outline.Abstract = sessionAbstractStatus(brainDir, view)
+				outline.AbstractStatus, outline.Abstract = abstractResolver.status(view)
+				outline = boundSessionAbstractEnvelope(outline)
+				if outline.AbstractStatus == abstractStatusStale || outline.AbstractStatus == abstractStatusMissing {
+					if err := enqueueAutomaticAbstractReconciliationHook(brainDir, "session_get", time.Now().UTC()); err != nil {
+						// Automatic generation is an optional acceleration. Exact
+						// session recall remains valid even when its durable work
+						// enqueue is temporarily unavailable; expose the issue instead
+						// of converting a successful get into a failure.
+						outline.AbstractIssue = memoryOperationalError(err)
+					}
+				}
 				found = append(found, outline)
 				continue
 			}
@@ -1189,12 +1232,16 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		case strings.HasPrefix(id, "pattern:"):
 			// Consolidation dossier addressed by its pattern id (v2). Corpus is
 			// rebuildable/optional, so a missing corpus is "not found", not an error.
-			if r, ok := getCorpusConsolidation(brainDir, id); ok {
+			if r, ok, err := getCorpusConsolidationChecked(brainDir, id); err != nil {
+				return nil, nil, err
+			} else if ok {
 				found = append(found, r)
 				continue
 			}
 		case strings.HasPrefix(id, "theme:"):
-			if r, ok := getCorpusTheme(brainDir, id); ok {
+			if r, ok, err := getCorpusThemeChecked(brainDir, id); err != nil {
+				return nil, nil, err
+			} else if ok {
 				found = append(found, r)
 				continue
 			}

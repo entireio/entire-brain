@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -82,12 +83,19 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 	if err != nil {
 		return stats, err
 	}
-	db, err := openPatternCorpusDB(wsBrainDir)
+	err = withPatternCorpusMutationLocked(wsBrainDir, func(db *sql.DB) error {
+		var mutationErr error
+		stats, mutationErr = proposeWorkspaceFamiliesInDB(ctx, db, env, manifest, repoDir, agent, model, effort, run, now)
+		return mutationErr
+	})
 	if err != nil {
 		return stats, fmt.Errorf("workspace corpus not built (run `entire brain workspace patterns refresh %s`): %w", manifest.Name, err)
 	}
-	defer db.Close()
+	return stats, nil
+}
 
+func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspaceManifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
+	var stats dossierVerifyStats
 	// Gather each member's promotable task candidates (the cheap exact signal feeds
 	// the agent, which merges across repos by meaning).
 	perRepo := map[string][]map[string]any{}
@@ -99,7 +107,10 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 		if err != nil {
 			continue
 		}
-		cands, ok := loadCorpusTaskCandidates(memberDir)
+		cands, ok, err := loadCorpusTaskCandidatesChecked(memberDir)
+		if err != nil {
+			return stats, err
+		}
 		if !ok || len(cands) == 0 {
 			continue
 		}
@@ -155,9 +166,7 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 		members[k] = true
 	}
 	ts := now.UTC().Format(time.RFC3339)
-	if _, err := db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`); err != nil {
-		return stats, err
-	}
+	prepared := make([]workspaceFamily, 0, len(families))
 	for _, f := range families {
 		stats.Considered++
 		// Curate per-repo variants to real members; require >=2 distinct repos.
@@ -180,18 +189,35 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 		}
 		f.ID = "family:" + hexSHA(manifest.Name+"\x00"+f.Title+"\x00"+familyRepoKeysJoined(f))
 		f.Title = redactText(f.Title)
-		blob, _ := json.Marshal(f)
-		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
-			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
-			VALUES (?,?,?,?, 'current', ?, ?)`, f.ID, fp, redactText(string(blob)), f.Verdict, ts, ts); err != nil {
-			return stats, err
-		}
+		prepared = append(prepared, f)
 		if f.Verdict == "accepted" {
 			stats.Verified++
 		}
 	}
-	_ = setCorpusMeta(db, map[string]string{"workspace_families_fingerprint": fp})
-	return stats, nil
+	tx, err := db.Begin()
+	if err != nil {
+		return stats, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`); err != nil {
+		return stats, err
+	}
+	for _, f := range prepared {
+		blob, err := json.Marshal(f)
+		if err != nil {
+			return stats, err
+		}
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO deep_dossiers
+			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
+			VALUES (?,?,?,?, 'current', ?, ?)`, f.ID, fp, redactText(string(blob)), f.Verdict, ts, ts); err != nil {
+			return stats, err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('workspace_families_fingerprint', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, fp); err != nil {
+		return stats, err
+	}
+	return stats, tx.Commit()
 }
 
 func parseWorkspaceFamilies(out string) ([]workspaceFamily, error) {
@@ -221,38 +247,55 @@ func familyRepoKeysJoined(f workspaceFamily) string {
 
 // loadAcceptedWorkspaceFamilies returns the accepted cross-repo families.
 func loadAcceptedWorkspaceFamilies(wsBrainDir string) []workspaceFamily {
-	db, err := openPatternCorpusDB(wsBrainDir)
+	families, _ := loadAcceptedWorkspaceFamiliesChecked(wsBrainDir)
+	return families
+}
+
+func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]workspaceFamily, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(wsBrainDir)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if !present {
+		return nil, nil
 	}
 	defer db.Close()
 	rows, err := db.Query(`SELECT json_redacted FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND verdict='accepted' ORDER BY pattern_id`)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []workspaceFamily
 	for rows.Next() {
 		var blob string
-		if rows.Scan(&blob) != nil {
-			continue
+		if err := rows.Scan(&blob); err != nil {
+			return out, err
 		}
 		var f workspaceFamily
 		if json.Unmarshal([]byte(blob), &f) == nil {
 			out = append(out, f)
 		}
 	}
-	return out
+	return out, rows.Err()
 }
 
 // getAcceptedWorkspaceFamily returns one accepted family by id.
 func getAcceptedWorkspaceFamily(wsBrainDir, id string) (workspaceFamily, bool) {
-	for _, f := range loadAcceptedWorkspaceFamilies(wsBrainDir) {
+	family, ok, _ := getAcceptedWorkspaceFamilyChecked(wsBrainDir, id)
+	return family, ok
+}
+
+func getAcceptedWorkspaceFamilyChecked(wsBrainDir, id string) (workspaceFamily, bool, error) {
+	families, err := loadAcceptedWorkspaceFamiliesChecked(wsBrainDir)
+	if err != nil {
+		return workspaceFamily{}, false, err
+	}
+	for _, f := range families {
 		if f.ID == id {
-			return f, true
+			return f, true, nil
 		}
 	}
-	return workspaceFamily{}, false
+	return workspaceFamily{}, false, nil
 }
 
 const workspaceFamilySkillSystemPrompt = `You convert a VERIFIED cross-repo workspace family into a SKILL.md for a multi-repo workspace. The family was assembled from real per-repo evidence and accepted by a verifier.

@@ -634,7 +634,7 @@ func validateEvalSemanticRetriever(semantic bool, retriever string) error {
 	return nil
 }
 
-func retrieveEvalItems(brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker, arm retrievalArm) ([]evalRetrievedItem, error) {
+func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker, arm retrievalArm) ([]evalRetrievedItem, error) {
 	switch retriever {
 	case evalRetrieverFacts:
 		if arm == nil {
@@ -662,7 +662,7 @@ func retrieveEvalItems(brainDir, branch, query string, limit int, retriever stri
 		}
 		return unifiedToEvalItems(results), nil
 	case evalRetrieverRawSessions:
-		return rankRawSessionChunks(brainDir, branch, query, limit)
+		return rankRawSessionChunks(ctx, brainDir, branch, query, limit)
 	default:
 		return nil, fmt.Errorf("unsupported retriever %q", retriever)
 	}
@@ -763,7 +763,7 @@ type scoredEvalItem struct {
 	Order int
 }
 
-func rankRawSessionChunks(brainDir, branch, query string, limit int) ([]evalRetrievedItem, error) {
+func rankRawSessionChunks(ctx context.Context, brainDir, branch, query string, limit int) ([]evalRetrievedItem, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err
@@ -787,10 +787,11 @@ func rankRawSessionChunks(brainDir, branch, query string, limit int) ([]evalRetr
 		if branch != "" && sessionBranch != branch {
 			continue
 		}
-		content, err := readBrainRelativeFile(brainDir, session.TranscriptPath)
+		data, err := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath)
 		if err != nil {
 			return nil, fmt.Errorf("read raw session transcript %s: %w", session.TranscriptPath, err)
 		}
+		content := string(data)
 		for _, chunk := range chunkLines(preprocessTranscriptForDistill(content), defaultDistillChunkSize, false) {
 			record := historyRecord{
 				ID:      rawSessionChunkID(session, chunk),
@@ -1098,7 +1099,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			}
 		}
 		started := time.Now()
-		surfaced, err := retrieveEvalItems(brainDir, branch, query, k, retriever, facts, rr, runOpts.Arm)
+		surfaced, err := retrieveEvalItems(ctx, brainDir, branch, query, k, retriever, facts, rr, runOpts.Arm)
 		if err != nil {
 			return nil, fmt.Errorf("retrieve task %s: %w", task.ID, err)
 		}

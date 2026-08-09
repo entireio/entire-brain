@@ -11,7 +11,7 @@ import (
 func p6Brain(t *testing.T) string {
 	t.Helper()
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestRelatedPatternPointers(t *testing.T) {
 
 func TestHandoffConsolidationsIncludesStaleNotRejected(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestHandoffConsolidationsIncludesStaleNotRejected(t *testing.T) {
 		t.Fatal("handoff should include stale consolidations")
 	}
 
-	db2, _ := openPatternCorpusDB(brainDir)
+	db2, _ := openPatternCorpusMutableDB(brainDir)
 	db2.Exec(`UPDATE dossiers SET verdict='rejected'`)
 	db2.Close()
 	if c := handoffConsolidations(brainDir, 5); len(c) != 0 {

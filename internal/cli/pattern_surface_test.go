@@ -3,6 +3,8 @@ package cli
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -12,6 +14,13 @@ import (
 func promotableCorpusDir(t *testing.T, now time.Time) string {
 	t.Helper()
 	brainDir := t.TempDir()
+	transcriptPath := filepath.Join(brainDir, "sessions", "main", "x.jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, []byte("deploy release\nmise build\nmise deploy\nverify release\ndone\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +85,7 @@ func TestBriefConsolidationsTaskGated(t *testing.T) {
 
 func TestBriefConsolidationsSuppressRejected(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +124,7 @@ func TestStrongestConsolidationsForOverview(t *testing.T) {
 	}
 
 	// Stale dossiers are excluded from the overview (they no longer hold).
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +139,7 @@ func TestStrongestConsolidationsForOverview(t *testing.T) {
 
 func TestGetConsolidationByPatternID(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

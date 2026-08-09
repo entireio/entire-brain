@@ -265,4 +265,64 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 	if found[0].Branch != "release" {
 		t.Fatalf("branch selector picked the wrong scope: %+v", found[0])
 	}
+
+	// Search and multi-concept retrieval must preserve both logical session
+	// scopes before and after an unrelated short-term overlay activates the
+	// cross-tier reconciliation path. A legacy ID collision is ambiguity, not
+	// permission to choose a global winner.
+	assertBothScopesVisible := func(stage string) {
+		t.Helper()
+		results, err := retrieveConversation(brainDir, "shared request", 10, modeLexical, retrievalOptions{})
+		if err != nil {
+			t.Fatalf("%s search: %v", stage, err)
+		}
+		branches := map[string]bool{}
+		for _, result := range results {
+			if result.ID == sharedID {
+				branches[result.Branch] = true
+			}
+		}
+		if !branches["main"] || !branches["release"] || len(branches) != 2 {
+			t.Fatalf("%s search hid a colliding session scope: results=%+v", stage, results)
+		}
+
+		coverage, err := retrieveConversationMultiConcept(brainDir, "shared", 10, modeLexical, retrievalOptions{
+			Concepts: []string{"request"},
+		})
+		if err != nil {
+			t.Fatalf("%s multi-concept: %v", stage, err)
+		}
+		refs := map[string]bool{}
+		for _, result := range coverage {
+			refs[result.SessionRef] = true
+		}
+		if len(refs) != 2 {
+			t.Fatalf("%s multi-concept hid a colliding session scope: results=%+v", stage, coverage)
+		}
+	}
+	assertBothScopesVisible("without overlay")
+
+	unrelatedPath := "sessions/main/20260803T000000Z_unrelated.jsonl"
+	overlay := shortTermIndex{
+		Version:           historyShortTermVersion,
+		ReconcilerVersion: historyShortTermReconcilerVersion,
+		BaseGeneratedAt:   generated,
+		GeneratedAt:       generated.Add(time.Hour),
+		Files: map[string]shortTermFile{
+			unrelatedPath: {Records: []historyRecord{{
+				ID: conversationIDPrefix + "unrelated", Kind: conversationKind,
+				Path: unrelatedPath, Line: 1, EndLine: 2, TurnOrdinal: 1,
+				SessionID: "unrelated-session", Branch: "main", Summary: "unrelated overlay exchange",
+				ContentRole: conversationContentRole, SourceDigest: "sha256:unrelated",
+			}}},
+		},
+	}
+	overlayData, err := json.MarshalIndent(overlay, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), overlayData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertBothScopesVisible("with unrelated overlay")
 }

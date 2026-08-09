@@ -104,6 +104,43 @@ func TestWatchLoopNoChangeIsNoop(t *testing.T) {
 	}
 }
 
+func TestWatchTickQueuesDeltaWorkWhenFingerprintIsUnchanged(t *testing.T) {
+	now := time.Date(2026, 8, 9, 14, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		stats shortTermStats
+		err   error
+	}{
+		{name: "changed transcript", stats: shortTermStats{Files: 1, Records: 2}},
+		{name: "failed transcript", stats: shortTermStats{Failed: 1}},
+		{name: "overflow", stats: shortTermStats{Files: 1, Truncated: true}},
+		{name: "delta error", err: errors.New("overlay unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cursorPath := filepath.Join(t.TempDir(), "watch.json")
+			if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "same", LastRefreshAt: now.Add(-time.Hour)}); err != nil {
+				t.Fatal(err)
+			}
+			var reconciled, refreshed int
+			steps := watchSteps{
+				now:         func() time.Time { return now },
+				fingerprint: func(context.Context) string { return "same" },
+				delta:       func(context.Context) (shortTermStats, error) { return tc.stats, tc.err },
+				reconcile:   func(context.Context) error { reconciled++; return nil },
+				refresh:     func(context.Context) error { refreshed++; return nil },
+			}
+			calls := 0
+			watchTick(context.Background(), io.Discard, defaultWatchOptions(), cursorPath, steps, &calls)
+			if reconciled != 1 {
+				t.Fatalf("reconcile calls = %d, want 1", reconciled)
+			}
+			if refreshed != 0 {
+				t.Fatalf("unchanged fingerprint must not force seed/semantic refresh, got %d", refreshed)
+			}
+		})
+	}
+}
+
 func TestWatchLoopDistillWhenEnabledAndElapsed(t *testing.T) {
 	cursor := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled int

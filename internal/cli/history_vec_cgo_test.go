@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,112 @@ import (
 	"testing"
 	"time"
 )
+
+func TestMultiConceptHybridIncludesShortTermLexicalEvidence(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_CONVERSATION_FUSION", "1")
+	brainDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	longTerm := historyRecord{
+		ID: conversationIDPrefix + "zz-long", Kind: conversationKind,
+		Path: "sessions/main/20260808T000000Z_split.jsonl", Line: 1, EndLine: 2,
+		TurnOrdinal: 1, SessionID: "split-session", Branch: "main", Agent: "Codex",
+		CreatedAt: "2026-08-08T00:00:00Z", ContentRole: conversationContentRole,
+		Summary: "alpha rollout plan for the ingest service",
+	}
+	index := historyIndex{GeneratedAt: now, Records: []historyRecord{longTerm}}
+	indexBytes, err := json.MarshalIndent(index, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexPath := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	if err := os.WriteFile(indexPath, indexBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	indexDigest := fileSHA256Hex(indexPath)
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/split",
+		Sources: &brainSources{History: &historySourceManifest{
+			GeneratedAt: now, IndexPath: historyIndexPath, IndexDigest: indexDigest,
+			PrivacyIdentity: "absent", Records: 1, Exchanges: 1,
+		}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{
+		"alpha rollout":                     {0, 1},
+		"beta cache eviction":               {1, 0},
+		conversationEmbeddingText(longTerm): {0, 1},
+	}}
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
+	if !ok {
+		t.Fatal("conversation store unavailable on brain_cgo build")
+	}
+	if _, _, _, err := syncConversationVectors(store, index, e, nil); err != nil {
+		t.Fatalf("sync conversation vectors: %v", err)
+	}
+	if err := saveMemoryVectorProgress(brainDir, memoryVectorProgress{
+		ModelID: e.ID(), SourceDigest: indexDigest, CompleteSourceDigest: indexDigest,
+		ResetComplete: true, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	overlayRecord := historyRecord{
+		ID: conversationIDPrefix + "aa-overlay", Kind: conversationKind,
+		Path: "sessions/main/20260809T000000Z_split-delta.jsonl", Line: 1, EndLine: 2,
+		TurnOrdinal: 2, SessionID: "split-session", Branch: "main", Agent: "Codex",
+		CreatedAt: "2026-08-09T00:00:00Z", ContentRole: conversationContentRole,
+		Summary: "beta cache eviction completed after the ingest rollout",
+	}
+	overlayBytes, err := json.MarshalIndent(shortTermIndex{
+		Version: historyShortTermVersion, ReconcilerVersion: historyShortTermReconcilerVersion,
+		BaseGeneratedAt: now, GeneratedAt: now.Add(time.Hour),
+		Files: map[string]shortTermFile{overlayRecord.Path: {Records: []historyRecord{overlayRecord}}},
+	}, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), overlayBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	originalEmbedder := conversationMultiConceptEmbedder
+	conversationMultiConceptEmbedder = func() Embedder { return e }
+	t.Cleanup(func() { conversationMultiConceptEmbedder = originalEmbedder })
+	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeHybrid, retrievalOptions{
+		Source: retrievalSourceConversation, Concepts: []string{"beta cache eviction"},
+	})
+	if err != nil {
+		t.Fatalf("hybrid multi-concept retrieval: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results=%d, want split session: %+v", len(results), results)
+	}
+	if !results[0].Approximate || len(results[0].ConceptMatches) != 2 {
+		t.Fatalf("hybrid coverage envelope: %+v", results[0])
+	}
+	if got := results[0].ConceptMatches[1]; got.ConversationID != overlayRecord.ID || got.Arm != "fused" {
+		t.Fatalf("overlay lexical evidence was dropped from fused coverage: %+v", got)
+	}
+}
+
+func markVectorGenerationCurrentForTest(t *testing.T, brainDir string, e Embedder) {
+	t.Helper()
+	digest := "sha256:" + strings.Repeat("1", 64)
+	now := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/vector", Sources: &brainSources{History: &historySourceManifest{IndexDigest: digest, PrivacyIdentity: "absent"}}}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveMemoryVectorProgress(brainDir, memoryVectorProgress{ModelID: e.ID(), SourceDigest: digest, CompleteSourceDigest: digest, ResetComplete: true, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestHistoryVecStoreRoundtrip(t *testing.T) {
 	brainDir := t.TempDir()
@@ -101,6 +208,7 @@ func TestRankHistoryFusedSemanticRescue(t *testing.T) {
 	if _, _, _, err := syncHistoryVectors(store, index, e, nil); err != nil {
 		t.Fatal(err)
 	}
+	markVectorGenerationCurrentForTest(t, brainDir, e)
 
 	// Sanity: plain FTS does not surface "sem" for this query.
 	ftsOnly, ok := rankHistoryViaFTS(brainDir, index, "history", "embeddings backend", 5)
@@ -144,6 +252,7 @@ func TestHistorySemanticScoresUseStableCalibrationNeighborhood(t *testing.T) {
 	if err := store.upsert(vectors, nil); err != nil {
 		t.Fatal(err)
 	}
+	markVectorGenerationCurrentForTest(t, brainDir, e)
 	rawScores := historySemanticScores(brainDir, e, "calibration query", 1, false)
 	if len(rawScores) != 4 {
 		t.Fatalf("explicit display limit 1 produced %d scores, want the 4x raw-search budget", len(rawScores))
@@ -234,6 +343,7 @@ func TestRankConversationFusedSemanticArmEndToEnd(t *testing.T) {
 	if _, _, _, err := syncConversationVectors(store, index, e, nil); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
+	markVectorGenerationCurrentForTest(t, brainDir, e)
 
 	fused, _, ok := rankConversationFused(brainDir, index, query, 10, e, nil)
 	if !ok || len(fused) == 0 {
@@ -299,6 +409,7 @@ func TestRankConversationFusedFilteredCompleteness(t *testing.T) {
 	if _, _, _, err := syncConversationVectors(store, index, e, nil); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
+	markVectorGenerationCurrentForTest(t, brainDir, e)
 
 	pred := func(r historyRecord) bool { return r.SessionID == "target-sess" }
 

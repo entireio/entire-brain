@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +25,8 @@ const (
 	historyDirName           = "history"
 	historyIndexFileName     = "index.json"
 	historyIndexPath         = historyDirName + "/" + historyIndexFileName
+	historyGenerationsDir    = historyDirName + "/generations"
+	historyStagingDir        = historyDirName + "/staging"
 	historyScanCacheFileName = "scan-cache.json.gz"
 	historyScanCachePath     = historyDirName + "/" + historyScanCacheFileName
 	historyMaxLineBytes      = 1024 * 1024
@@ -50,21 +51,32 @@ const (
 	// v6: conversation-scoped wrapper filtering (hook-injected pseudo-requests)
 	// and API-error narrative exclusion changed exchange extraction; cached v5
 	// exchanges would keep the noise.
-	historyScanCacheVersion = 6
+	// v7: bind cache reuse to the descriptor-rooted transcript content digest;
+	// size+mtime alone misses atomic same-metadata leaf replacement.
+	historyScanCacheVersion = 7
 )
 
 type historySourceManifest struct {
-	GeneratedAt         time.Time `json:"generated_at"`
-	IndexPath           string    `json:"index_path"`
-	SessionsFingerprint string    `json:"sessions_fingerprint,omitempty"`
-	Records             int       `json:"records"`
-	Decisions           int       `json:"decisions"`
-	Learnings           int       `json:"learnings"`
-	Validations         int       `json:"validations"`
-	ToolCalls           int       `json:"tool_calls"`
-	CodeFacts           int       `json:"code_facts"`
-	Exchanges           int       `json:"exchanges,omitempty"`
-	IncompleteExchanges int       `json:"incomplete_exchanges,omitempty"`
+	GeneratedAt time.Time `json:"generated_at"`
+	IndexPath   string    `json:"index_path"`
+	// IndexDigest commits the exact bounded index bytes selected by IndexPath.
+	// It is optional only for manifests written before generation integrity was
+	// introduced; every new projection publishes it with the manifest-last
+	// commit so readers can distinguish legacy from corrupt state.
+	IndexDigest string `json:"index_digest,omitempty"`
+	// PrivacyIdentity binds this generation to the exact tombstone bytes used
+	// while building it. Vector backfill refuses to consume an index whose
+	// privacy epoch is not the current one.
+	PrivacyIdentity     string `json:"privacy_identity,omitempty"`
+	SessionsFingerprint string `json:"sessions_fingerprint,omitempty"`
+	Records             int    `json:"records"`
+	Decisions           int    `json:"decisions"`
+	Learnings           int    `json:"learnings"`
+	Validations         int    `json:"validations"`
+	ToolCalls           int    `json:"tool_calls"`
+	CodeFacts           int    `json:"code_facts"`
+	Exchanges           int    `json:"exchanges,omitempty"`
+	IncompleteExchanges int    `json:"incomplete_exchanges,omitempty"`
 	// ExcludedSessions counts tombstoned sessions skipped before derived
 	// indexing (their content is never retained; see session_privacy.go).
 	ExcludedSessions int      `json:"excluded_sessions,omitempty"`
@@ -80,6 +92,13 @@ type historyIndex struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 	Records     []historyRecord `json:"records"`
 	Warnings    []string        `json:"warnings,omitempty"`
+	// storageIdentity is the manifest-addressed immutable generation path when
+	// this index was loaded from one. It is not serialized into the index; local
+	// accelerators use it to distinguish equal-time/equal-count generations.
+	storageIdentity string
+	// contentIdentity hashes the bounded bytes read from disk. It detects local
+	// corruption/tampering within an otherwise immutable generation path.
+	contentIdentity string
 }
 
 type historyRecord struct {
@@ -126,26 +145,77 @@ type historyFragment struct {
 
 type historySessionFile struct {
 	Path        string
+	Rel         string
 	SortTime    time.Time
 	Size        int64
 	ModUnixNano int64
+	info        os.FileInfo
 }
 
-// historyScanCache memoizes the parsed history records for each session
-// transcript so a refresh only re-scans files whose size or mtime changed.
-// Session transcripts are content-stable across refreshes (the export step
-// reuses unchanged transcripts via the export cursor), so the (size, mtime)
-// pair is a reliable change signal and lets the index skip both the I/O and
-// the parse for the vast majority of files on every run.
+// historyProjectionIdentity retains both the serializable state identities and
+// the exact descriptor-rooted Brain/session-tree membership observed during
+// capture. os.SameFile comparisons catch same-size/same-mtime inode replacement
+// of the root, directories, supported transcripts, and irrelevant entries.
+type historyProjectionIdentity struct {
+	SessionsFingerprint string
+	SessionFiles        string
+	SessionContents     string
+	Tombstones          string
+	Overlay             string
+	brainRoot           os.FileInfo
+	sessionEntries      []historySessionTreeEntry
+}
+
+func (i historyProjectionIdentity) same(other historyProjectionIdentity) bool {
+	return i.SessionContents == other.SessionContents && i.sameMetadata(other)
+}
+
+func (i historyProjectionIdentity) sameMetadata(other historyProjectionIdentity) bool {
+	if i.SessionsFingerprint != other.SessionsFingerprint || i.SessionFiles != other.SessionFiles || i.Tombstones != other.Tombstones || i.Overlay != other.Overlay {
+		return false
+	}
+	return sameHistorySessionMembership(i.brainRoot, i.sessionEntries, other.brainRoot, other.sessionEntries)
+}
+
+// preparedHistoryProjection is an immutable build-beside result. Its history
+// index and receipt set are written to generation-addressed, unreferenced paths
+// during preparation. Publishing only revalidates identity and atomically
+// switches manifest.json to those paths while holding the Brain write lock.
+type preparedHistoryProjection struct {
+	identity    historyProjectionIdentity
+	index       historyIndex
+	source      historySourceManifest
+	cacheData   []byte
+	indexPath   string
+	receiptPath string
+	stagingDir  string
+	generation  string
+}
+
+type historyProjectionPublishGuard func() error
+
+var historyProjectionWriteFile = writeBrainRelativeFileAtomic
+
+// beforeHistoryProjectionContentDigest is a deterministic audit seam used to
+// prove the commit boundary never performs O(corpus bytes) work.
+var beforeHistoryProjectionContentDigest = func(string) {}
+
+// historyScanCache memoizes parsed records for each session transcript. Reuse
+// requires size, mtime, and the digest of the exact descriptor-rooted bytes;
+// the digest prevents atomic same-metadata replacement from serving stale
+// searchable records. Unchanged files still skip parsing, which is the costly
+// part of refresh even though the bytes are streamed once for identity.
 type historyScanCache struct {
-	Version int                              `json:"version"`
-	Files   map[string]historyScanCacheEntry `json:"files"`
+	Version         int                              `json:"version"`
+	Files           map[string]historyScanCacheEntry `json:"files"`
+	contentIdentity string
 }
 
 type historyScanCacheEntry struct {
-	Size        int64           `json:"size"`
-	ModUnixNano int64           `json:"mod_unix_nano"`
-	Records     []historyRecord `json:"records"`
+	Size          int64           `json:"size"`
+	ModUnixNano   int64           `json:"mod_unix_nano"`
+	ContentDigest string          `json:"content_digest"`
+	Records       []historyRecord `json:"records"`
 	// IncompleteExchanges preserves the per-file diagnostic (exchanges opened
 	// with no visible assistant narrative) across cache reuse.
 	IncompleteExchanges int `json:"incomplete_exchanges,omitempty"`
@@ -182,7 +252,7 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
-	source, err := writeBrainHistoryIndexAndSource(storage.BrainDir, opts.Now().UTC(), nil)
+	source, err := writeBrainHistoryIndexAndSourceContext(ctx, storage.BrainDir, opts.Now().UTC(), nil)
 	if err != nil {
 		return err
 	}
@@ -199,29 +269,15 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		case !storeOK:
 			fmt.Fprintln(cmd.OutOrStdout(), "history vectors: skipped (requires the brain_cgo build)")
 		default:
-			index, ierr := loadBrainHistoryIndex(storage.BrainDir, source)
-			if ierr != nil {
-				return ierr
-			}
-			// Flush-batch progress to stderr: the first sync of a large repo
-			// embeds every record and can run for hours — silence would read
-			// as a hang.
-			added, dropped, total, serr := syncHistoryVectors(store, index, e, func(done, totalNew int) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "history vectors: %d/%d new %s embedded\n", done, totalNew, pluralUnit("record", totalNew))
+			_ = store // availability was checked above; the guarded writer reopens it.
+			vectors, serr := syncMemoryProjectionVectorsFully(ctx, storage.BrainDir, opts.Now().UTC(), e, func(progress memoryVectorSyncPass) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "history vectors: %d new %s embedded\n", progress.HistoryAdded, pluralUnit("record", progress.HistoryAdded))
 			})
 			if serr != nil {
 				return serr
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "history vectors: %d embedded, %d pruned (%d total)\n", added, dropped, total)
-			if convStore, convOK := newConversationVectorStore(storage.BrainDir, conversationVectorModelID(e.ID()), e.Dim()); convOK {
-				convAdded, convDropped, convTotal, convErr := syncConversationVectors(convStore, index, e, func(done, totalNew int) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "conversation vectors: %d/%d new %s embedded\n", done, totalNew, pluralUnit("exchange", totalNew))
-				})
-				if convErr != nil {
-					return convErr
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "conversation vectors: %d embedded, %d pruned (%d total)\n", convAdded, convDropped, convTotal)
-			}
+			fmt.Fprintf(cmd.OutOrStdout(), "history vectors: %d embedded, %d pruned (%d total)\n", vectors.HistoryAdded, vectors.HistoryDropped, vectors.HistoryTotal)
+			fmt.Fprintf(cmd.OutOrStdout(), "conversation vectors: %d embedded, %d pruned (%d total)\n", vectors.ConversationAdded, vectors.ConversationDrop, vectors.ConversationTotal)
 		}
 	}
 	return nil
@@ -233,95 +289,831 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 type historyIndexProgress func(done, total int)
 
 func writeBrainHistoryIndexAndSource(outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
+	return writeBrainHistoryIndexAndSourceContext(context.Background(), outputDir, now, progress)
+}
+
+func writeBrainHistoryIndexAndSourceContext(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
+	prepared, err := prepareBrainHistoryProjectionContext(ctx, outputDir, now, progress)
+	if err != nil {
+		return nil, err
+	}
 	var source *historySourceManifest
-	err := withBrainWriteLock(outputDir, func() error {
+	err = withBrainWriteLock(outputDir, func() error {
 		var runErr error
-		source, runErr = writeBrainHistoryIndexAndSourceLocked(outputDir, now, progress)
+		source, runErr = publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
 		return runErr
 	})
+	if err == nil {
+		finalizePreparedHistoryProjection(outputDir, prepared)
+	}
 	return source, err
 }
 
+// writeBrainHistoryIndexAndSourceLocked is the compatibility path for callers
+// that already hold the Brain lock. New worker/maintenance paths must use the
+// explicit prepare/publish API so transcript scanning never monopolizes the
+// lock. This wrapper cannot provide that property because its caller chose the
+// lock boundary before entering it.
 func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
-	index, source, err := buildBrainHistoryIndex(outputDir, now, progress)
+	prepared, err := prepareBrainHistoryProjection(outputDir, now, progress)
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.MarshalIndent(index, "", "  ")
+	source, err := publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
+	if err == nil {
+		finalizePreparedHistoryProjectionLocked(outputDir, prepared)
+	}
+	return source, err
+}
+
+// prepareBrainHistoryProjection performs every source scan and all JSON/gzip
+// encoding without the Brain write lock. The generated files are immutable and
+// unreferenced until manifest.json commits them, so a crash or cancellation in
+// this phase leaves the previously published projection readable.
+func prepareBrainHistoryProjection(outputDir string, now time.Time, progress historyIndexProgress) (*preparedHistoryProjection, error) {
+	return prepareBrainHistoryProjectionContext(context.Background(), outputDir, now, progress)
+}
+
+func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress) (*preparedHistoryProjection, error) {
+	// The build itself reads and hashes every non-excluded transcript. The
+	// opening capture therefore needs only the exact metadata membership; the
+	// strong post-capture below binds the build digest without a redundant full
+	// corpus read.
+	identity, manifest, stones, err := captureHistoryProjectionIdentityMode(ctx, outputDir, false)
 	if err != nil {
 		return nil, err
 	}
-	data = append(data, '\n')
-	if err := writeBrainRelativeFileAtomic(outputDir, historyIndexPath, data, 0o600); err != nil {
-		return nil, fmt.Errorf("write history index: %w", err)
+	index, source, cache, err := buildBrainHistoryIndexSnapshotContext(ctx, outputDir, now, progress, manifest, stones)
+	if err != nil {
+		return nil, err
 	}
-	// Build the derived BM25 index alongside its truth so the search/query verbs
-	// do not pay a first-query rebuild. Best-effort: the query path rebuilds it
-	// lazily on any failure, so this must never fail the refresh.
-	if db, ftsErr := openHistoryFTSLocked(outputDir, index); ftsErr == nil {
-		_ = db.Close()
+	identity.SessionContents = cache.contentIdentity
+	source.PrivacyIdentity = identity.Tombstones
+	receipts := buildProjectionReceiptsFromSnapshot(outputDir, manifest, stones, index, now)
+	after, _, _, err := captureHistoryProjectionIdentityContext(ctx, outputDir)
+	if err != nil {
+		return nil, err
+	}
+	if !identity.same(after) {
+		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed while preparing history")
+	}
+	// Retain the exact post-scan descriptor/root/tree snapshot for the short
+	// commit revalidation. The content aggregate already equals the immutable
+	// bytes parsed by the build.
+	identity = after
+	indexData, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	indexData = append(indexData, '\n')
+	indexSum := sha256.Sum256(indexData)
+	indexDigest := "sha256:" + hex.EncodeToString(indexSum[:])
+	receiptData, receiptDigest, err := encodeProjectionState(receipts)
+	if err != nil {
+		return nil, err
+	}
+	generationHash := sha256.New()
+	_, _ = generationHash.Write(indexData)
+	_, _ = generationHash.Write(receiptData)
+	generation := hex.EncodeToString(generationHash.Sum(nil))[:40]
+	indexPath := historyGenerationArtifactPath(generation, historyIndexFileName)
+	receiptPath := historyGenerationArtifactPath(generation, projectionStateFileName)
+	stagingDir := filepath.ToSlash(filepath.Join(historyStagingDir, generation))
+	stagedIndexPath := filepath.ToSlash(filepath.Join(stagingDir, historyIndexFileName))
+	stagedReceiptPath := filepath.ToSlash(filepath.Join(stagingDir, projectionStateFileName))
+	if err := historyProjectionWriteFile(outputDir, stagedIndexPath, indexData, 0o600); err != nil {
+		return nil, fmt.Errorf("stage history index: %w", err)
+	}
+	if err := historyProjectionWriteFile(outputDir, stagedReceiptPath, receiptData, 0o600); err != nil {
+		_ = removeHistoryProjectionDirectory(outputDir, stagingDir)
+		return nil, fmt.Errorf("stage projection receipts: %w", err)
+	}
+	cacheData, _ := encodeHistoryScanCache(cache)
+	source.IndexPath = indexPath
+	source.IndexDigest = indexDigest
+	source.ProjectionStatePath = receiptPath
+	source.ProjectionStateDigest = receiptDigest
+	return &preparedHistoryProjection{
+		identity: identity, index: index, source: *source, cacheData: cacheData,
+		indexPath: indexPath, receiptPath: receiptPath, stagingDir: stagingDir, generation: generation,
+	}, nil
+}
+
+// publishBrainHistoryProjectionLocked is the short commit boundary. Caller
+// holds the Brain write lock. guard is checked both before validation and at
+// the final linearization point; the coordinator uses it for cancellation.
+func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHistoryProjection, guard historyProjectionPublishGuard) (*historySourceManifest, error) {
+	if prepared == nil {
+		return nil, errors.New("history projection preparation is missing")
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = discardPreparedHistoryProjection(outputDir, prepared)
+		}
+	}()
+	if guard != nil {
+		if err := guard(); err != nil {
+			return nil, err
+		}
+	}
+	current, _, _, err := captureHistoryProjectionMetadataIdentity(outputDir)
+	if err != nil {
+		return nil, err
+	}
+	if !current.sameMetadata(prepared.identity) {
+		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed before history commit")
 	}
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
 		return nil, err
 	}
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		_, receiptState, receiptErr := loadProjectionStateChecked(outputDir, manifest.Sources.History)
+		if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
+			if receiptErr != nil {
+				return nil, receiptErr
+			}
+			return nil, fmt.Errorf("active history projection receipts are %s and read-only", receiptState)
+		}
+	}
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
-	// C3 projection receipts: the durable record of which canonical sessions
-	// this consolidation represented, published through the manifest commit.
-	receipts := buildProjectionReceipts(outputDir, manifest, index, now)
-	receiptDigest, receiptErr := writeProjectionState(outputDir, receipts)
-	if receiptErr != nil {
-		return nil, fmt.Errorf("write projection receipts: %w", receiptErr)
-	}
-	source.ProjectionStatePath = projectionStateRel
-	source.ProjectionStateDigest = receiptDigest
-	manifest.Sources.History = source
+	source := prepared.source
+	manifest.Sources.History = &source
 	if manifest.GeneratedAt.IsZero() {
-		manifest.GeneratedAt = now
+		manifest.GeneratedAt = source.GeneratedAt
 	}
-	if err := writeBrainManifestAndReadme(outputDir, *manifest); err != nil {
+	if guard != nil {
+		if err := guard(); err != nil {
+			return nil, err
+		}
+	}
+	current, _, _, err = captureHistoryProjectionMetadataIdentity(outputDir)
+	if err != nil {
 		return nil, err
 	}
-	// Consolidation: a completed full build has absorbed everything the
-	// short-term overlay held (both re-scan changed files), so the overlay is
-	// cleared here; the long-term memory is now current and the short-term
-	// buffer starts empty. Guard (R0-6): clear only when this build's source
-	// set is at least as new as the overlay's covered fingerprint. A build
-	// from an older manifest snapshot must not destroy the record that newer
-	// work existed; the overlay goes stale (base pin) and stays visible to
-	// doctor until the next delta rebuilds it. See history_delta.go.
+	if !current.sameMetadata(prepared.identity) {
+		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed at history commit")
+	}
+	normalizeBrainManifest(manifest)
+	// Normalization may fill default fields on the canonical sessions source.
+	// Publish the fingerprint of the exact normalized source written below so
+	// checked receipt readers do not mistake our own commit for source drift.
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		manifest.Sources.History.SessionsFingerprint = sessionSourceFingerprint(manifest.Sources.Sessions)
+		source = *manifest.Sources.History
+	}
+	manifest.SchemaVersion = brainManifestSchemaVersion
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+	}
+	if err := promotePreparedHistoryProjection(outputDir, prepared); err != nil {
+		return nil, err
+	}
+	if err := withBrainManifestWriteLock(outputDir, func() error {
+		// Reclassify the exact manifest leaf while every cooperative manifest
+		// writer is excluded. The projection's outer Brain lock supplies its
+		// source/identity serialization; this leaf lock prevents a different
+		// writer family from down-converting vNext state at the commit point.
+		if _, err := loadBrainManifest(outputDir); err != nil {
+			return err
+		}
+		return historyProjectionWriteFile(outputDir, exportManifestFileName, append(manifestData, '\n'), 0o600)
+	}); err != nil {
+		return nil, fmt.Errorf("write %s: %w", exportManifestFileName, err)
+	}
+	committed = true
+	// README is descriptive, not a projection pointer. Refresh it best-effort
+	// after the manifest linearization point; a crash here can leave stale prose
+	// but never a torn readable projection or a false operation failure.
+	_ = historyProjectionWriteFile(outputDir, exportReadmeFileName, []byte(renderBrainReadme(*manifest)), 0o600)
+	// The overlay is no longer readable after the manifest switch because its
+	// base generation pin differs. Clear it when it represented the source this
+	// build absorbed; a crash here only leaves a harmless stale overlay.
 	if overlay, state := loadHistoryShortTermRaw(outputDir); state == shortTermStateAbsent || state == shortTermStateCorrupt ||
-		overlay.SessionsFingerprint == "" || overlay.SessionsFingerprint == brainSessionsFingerprint(outputDir) {
+		overlay.SessionsFingerprint == "" || overlay.SessionsFingerprint == source.SessionsFingerprint {
 		clearHistoryShortTerm(outputDir)
 	}
-	return source, nil
+	return &source, nil
+}
+
+// finalizePreparedHistoryProjection writes disposable accelerators after the
+// manifest commit. Pruning briefly reacquires the write lock so a later writer
+// cannot make a generation active between the manifest check and quarantine.
+// FTS remains lazy: its fingerprint makes the old store unreadable for the new
+// index until a query rebuilds it.
+func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHistoryProjection) {
+	if prepared == nil {
+		return
+	}
+	if len(prepared.cacheData) > 0 {
+		_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
+	}
+	_ = withBrainWriteLock(outputDir, func() error {
+		pruneInactiveHistoryGenerations(outputDir)
+		return nil
+	})
+}
+
+// finalizePreparedHistoryProjectionLocked is for the compatibility callers
+// that already own the Brain write lock.
+func finalizePreparedHistoryProjectionLocked(outputDir string, prepared *preparedHistoryProjection) {
+	if prepared == nil {
+		return
+	}
+	if len(prepared.cacheData) > 0 {
+		_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
+	}
+	pruneInactiveHistoryGenerations(outputDir)
+}
+
+func promotePreparedHistoryProjection(outputDir string, prepared *preparedHistoryProjection) error {
+	if prepared == nil || prepared.stagingDir == "" || prepared.generation == "" {
+		return errors.New("history projection staging identity is missing")
+	}
+	if !validHistoryGenerationArtifactPath(prepared.indexPath, historyIndexFileName) ||
+		!validHistoryGenerationArtifactPath(prepared.receiptPath, projectionStateFileName) {
+		return errors.New("history projection generation path is invalid")
+	}
+	if err := recoverHistoryProjectionQuarantines(outputDir); err != nil {
+		return fmt.Errorf("recover interrupted history projection cleanup: %w", err)
+	}
+	finalRel := filepath.ToSlash(filepath.Join(historyGenerationsDir, prepared.generation))
+	wantStagingRel := filepath.ToSlash(filepath.Join(historyStagingDir, prepared.generation))
+	if prepared.stagingDir != wantStagingRel || !validHistoryProjectionDirectoryPath(prepared.stagingDir) || !validHistoryProjectionDirectoryPath(finalRel) {
+		return errors.New("history projection directory path is invalid")
+	}
+	staging := filepath.Join(outputDir, filepath.FromSlash(prepared.stagingDir))
+	final := filepath.Join(outputDir, filepath.FromSlash(finalRel))
+	if err := rejectExistingSymlinkPathComponents(outputDir, historyStagingDir); err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
+		return err
+	}
+	if err := validateHistoryProjectionDirectory(outputDir, prepared.stagingDir, true); err != nil {
+		return fmt.Errorf("validate staged history generation: %w", err)
+	}
+	if info, err := os.Lstat(final); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("history projection generation must be an exact directory, not a symlink or special file: %s", finalRel)
+		}
+		manifest, manifestErr := loadBrainManifest(outputDir)
+		if manifestErr != nil {
+			return manifestErr
+		}
+		if manifest.Sources != nil && manifest.Sources.History != nil {
+			currentSource := manifest.Sources.History
+			referencesFinal := filepath.ToSlash(currentSource.IndexPath) == prepared.indexPath || filepath.ToSlash(currentSource.ProjectionStatePath) == prepared.receiptPath
+			if referencesFinal {
+				if _, indexErr := loadBrainHistoryIndex(outputDir, currentSource); indexErr != nil {
+					return fmt.Errorf("current history generation is unreadable and was left untouched: %w", indexErr)
+				}
+				if _, receiptState, receiptErr := loadProjectionStateChecked(outputDir, currentSource); receiptState != projectionStateCurrent {
+					if receiptErr != nil {
+						return receiptErr
+					}
+					return fmt.Errorf("current history generation has %s projection receipts and was left untouched", receiptState)
+				}
+				if err := removeHistoryProjectionDirectory(outputDir, prepared.stagingDir); err != nil {
+					return fmt.Errorf("discard duplicate staged history generation: %w", err)
+				}
+				return nil
+			}
+		}
+		// An unreferenced directory is an orphan from an interrupted publish.
+		// Quarantine and remove it only after proving that it contains no
+		// symlinks, special files, or unknown content.
+		if err := removeHistoryProjectionDirectory(outputDir, finalRel); err != nil {
+			return fmt.Errorf("replace orphaned history generation: %w", err)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	// Re-check immediately before the rename. If an untrusted actor replaced
+	// staging after preparation, the manifest must remain on the prior
+	// generation and no path below the replacement may be touched.
+	if err := validateHistoryProjectionDirectory(outputDir, prepared.stagingDir, true); err != nil {
+		return fmt.Errorf("validate staged history generation at promotion: %w", err)
+	}
+	if err := os.Rename(staging, final); err != nil {
+		return fmt.Errorf("promote history generation: %w", err)
+	}
+	if err := validateHistoryProjectionDirectory(outputDir, finalRel, true); err != nil {
+		return fmt.Errorf("validate promoted history generation: %w", err)
+	}
+	return nil
+}
+
+func discardPreparedHistoryProjection(outputDir string, prepared *preparedHistoryProjection) error {
+	if prepared == nil || prepared.stagingDir == "" {
+		return nil
+	}
+	var cleanupErr error
+	if err := removeHistoryProjectionDirectory(outputDir, prepared.stagingDir); err != nil {
+		cleanupErr = err
+	}
+	manifest, err := loadBrainManifest(outputDir)
+	if err == nil && manifest.Sources != nil && manifest.Sources.History != nil &&
+		filepath.ToSlash(manifest.Sources.History.IndexPath) == prepared.indexPath {
+		return cleanupErr
+	}
+	finalRel := filepath.ToSlash(filepath.Join(historyGenerationsDir, prepared.generation))
+	if err := removeHistoryProjectionDirectory(outputDir, finalRel); err != nil && cleanupErr == nil {
+		cleanupErr = err
+	}
+	return cleanupErr
+}
+
+func pruneInactiveHistoryGenerations(outputDir string) {
+	manifest, err := loadBrainManifest(outputDir)
+	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
+		return
+	}
+	// Never enumerate or remove below an aliased history directory. This check
+	// covers both legacy fixed-path cleanup and the generations root.
+	if err := rejectExistingSymlinkPathComponents(outputDir, historyDirName); err != nil {
+		return
+	}
+	if err := recoverHistoryProjectionQuarantines(outputDir); err != nil {
+		return
+	}
+	active := filepath.ToSlash(strings.TrimSpace(manifest.Sources.History.IndexPath))
+	activeReceipt := filepath.ToSlash(strings.TrimSpace(manifest.Sources.History.ProjectionStatePath))
+	if active != historyIndexPath {
+		_ = os.Remove(filepath.Join(outputDir, filepath.FromSlash(historyIndexPath)))
+	}
+	if activeReceipt != projectionStateRel {
+		legacyReceipt := filepath.Join(outputDir, filepath.FromSlash(projectionStateRel))
+		newer, schemaErr := projectionFileHasNewerSchema(legacyReceipt)
+		if schemaErr == nil && !newer {
+			_ = os.Remove(legacyReceipt)
+		}
+	}
+	activeParts := strings.Split(active, "/")
+	if len(activeParts) != 4 || !validHistoryGenerationArtifactPath(active, historyIndexFileName) {
+		return
+	}
+	if err := rejectSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
+		return
+	}
+	directory, err := readMemoryStateDirectory(outputDir, historyGenerationsDir, "history generation directory", memoryStateInventoryMaxEntries)
+	if err != nil || directory.Truncated {
+		return
+	}
+	entries := directory.Entries
+	for _, entry := range entries {
+		generation := entry.Name()
+		candidateIndex := historyGenerationArtifactPath(generation, historyIndexFileName)
+		if generation == activeParts[2] || !validHistoryGenerationArtifactPath(candidateIndex, historyIndexFileName) {
+			continue
+		}
+		dirRel := filepath.ToSlash(filepath.Join(historyGenerationsDir, generation))
+		dir := filepath.Join(outputDir, filepath.FromSlash(dirRel))
+		if err := validateHistoryProjectionDirectory(outputDir, dirRel, false); err != nil {
+			continue
+		}
+		receiptPath := filepath.Join(dir, projectionStateFileName)
+		newer, schemaErr := projectionFileHasNewerSchema(receiptPath)
+		if schemaErr != nil || newer {
+			continue // unknown-newer generations are never removed by this binary
+		}
+		_ = removeHistoryProjectionDirectory(outputDir, dirRel)
+	}
+}
+
+func projectionFileHasNewerSchema(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, fmt.Errorf("projection receipt must be a regular file and must not be a symlink: %s", path)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	if err := rejectOpenFileAlias(path, f, "projection receipt"); err != nil {
+		return false, err
+	}
+	data, err := safeReadAll(f, maxManifestBytes, path)
+	if err != nil {
+		return false, err
+	}
+	var header struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil || header.SchemaVersion < 1 {
+		return false, fmt.Errorf("projection receipt has an unreadable schema header: %s", path)
+	}
+	return header.SchemaVersion > projectionSchemaVersion, nil
+}
+
+// validHistoryProjectionDirectoryPath accepts only an exact immutable
+// generation or staging directory. Cleanup never operates on an arbitrary
+// caller-supplied subtree.
+func validHistoryProjectionDirectoryPath(rel string) bool {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) != 3 || parts[0] != historyDirName || (parts[1] != "generations" && parts[1] != "staging") || len(parts[2]) != 40 {
+		return false
+	}
+	_, err := hex.DecodeString(parts[2])
+	return err == nil
+}
+
+// validateHistoryProjectionDirectory uses Lstat for the directory and each
+// child. Only the two immutable projection artifacts are recognized; a
+// symlink, special file, or unknown name makes the directory untouchable.
+func validateHistoryProjectionDirectory(outputDir, rel string, requireComplete bool) error {
+	if !validHistoryProjectionDirectoryPath(rel) {
+		return fmt.Errorf("invalid history projection directory: %s", rel)
+	}
+	parentRel := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
+	if err := rejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
+		return err
+	}
+	abs := filepath.Join(outputDir, filepath.FromSlash(rel))
+	_, _, err := inspectHistoryProjectionDirectory(abs, rel, requireComplete)
+	return err
+}
+
+func inspectHistoryProjectionDirectory(abs, display string, requireComplete bool) (os.FileInfo, []string, error) {
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, nil, fmt.Errorf("history projection path must be a directory and must not be a symlink: %s", display)
+	}
+	dir, err := os.OpenFile(abs, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer dir.Close()
+	opened, err := dir.Stat()
+	if err != nil || !opened.IsDir() || !os.SameFile(info, opened) {
+		return nil, nil, fmt.Errorf("history projection directory changed while opening: %s", display)
+	}
+	entries, err := dir.ReadDir(3)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, nil, err
+	}
+	found := map[string]bool{}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if name != historyIndexFileName && name != projectionStateFileName {
+			return nil, nil, fmt.Errorf("history projection directory contains unknown entry %q: %s", name, display)
+		}
+		childInfo, err := entry.Info()
+		if err != nil {
+			return nil, nil, err
+		}
+		if childInfo.Mode()&os.ModeSymlink != 0 || !childInfo.Mode().IsRegular() {
+			return nil, nil, fmt.Errorf("history projection artifact must be a regular file and must not be a symlink: %s", filepath.ToSlash(filepath.Join(display, name)))
+		}
+		found[name] = true
+		names = append(names, name)
+	}
+	if requireComplete && (!found[historyIndexFileName] || !found[projectionStateFileName]) {
+		return nil, nil, fmt.Errorf("history projection directory is incomplete: %s", display)
+	}
+	current, err := os.Lstat(abs)
+	if err != nil || current.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, current) {
+		return nil, nil, fmt.Errorf("history projection directory changed during inspection: %s", display)
+	}
+	return info, names, nil
+}
+
+// removeHistoryProjectionDirectory first renames the exact directory to an
+// inert sibling. Renaming a hostile symlink moves the link itself rather than
+// traversing its target; the subsequent Lstat validation therefore cannot
+// delete an external canary. Unknown content is restored and left untouched.
+func removeHistoryProjectionDirectory(outputDir, rel string) error {
+	if !validHistoryProjectionDirectoryPath(rel) {
+		return fmt.Errorf("refuse cleanup of invalid history projection directory: %s", rel)
+	}
+	parentRel := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
+	if err := rejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
+		return err
+	}
+	abs := filepath.Join(outputDir, filepath.FromSlash(rel))
+	info, err := os.Lstat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("refuse cleanup of symlink or non-directory history projection: %s", rel)
+	}
+	quarantine := abs + ".removing"
+	if _, err := os.Lstat(quarantine); err == nil {
+		return fmt.Errorf("history projection cleanup quarantine already exists: %s", filepath.ToSlash(rel)+".removing")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(abs, quarantine); err != nil {
+		return err
+	}
+	restore := func(cause error) error {
+		if _, currentErr := os.Lstat(abs); os.IsNotExist(currentErr) {
+			if renameErr := os.Rename(quarantine, abs); renameErr != nil {
+				return fmt.Errorf("%v (also could not restore quarantined projection: %w)", cause, renameErr)
+			}
+		}
+		return cause
+	}
+	quarantineInfo, names, err := inspectHistoryProjectionDirectory(quarantine, filepath.ToSlash(rel)+".removing", false)
+	if err != nil {
+		return restore(err)
+	}
+	if !os.SameFile(info, quarantineInfo) {
+		return restore(fmt.Errorf("history projection changed during cleanup: %s", rel))
+	}
+	if err := removeKnownHistoryProjectionContents(quarantine, filepath.ToSlash(rel)+".removing", quarantineInfo, names); err != nil {
+		return restore(err)
+	}
+	return nil
+}
+
+// removeKnownHistoryProjectionContents unlinks only the closed two-file set
+// after revalidating the quarantined directory and each regular child. A raced
+// unknown entry makes the final rmdir fail and remains available for diagnosis.
+func removeKnownHistoryProjectionContents(abs, display string, expected os.FileInfo, names []string) error {
+	for _, name := range names {
+		current, _, err := inspectHistoryProjectionDirectory(abs, display, false)
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(expected, current) {
+			return fmt.Errorf("history projection changed during cleanup: %s", display)
+		}
+		child := filepath.Join(abs, name)
+		childInfo, err := os.Lstat(child)
+		if err != nil {
+			return err
+		}
+		if childInfo.Mode()&os.ModeSymlink != 0 || !childInfo.Mode().IsRegular() {
+			return fmt.Errorf("history projection artifact changed during cleanup: %s", filepath.ToSlash(filepath.Join(display, name)))
+		}
+		if err := os.Remove(child); err != nil {
+			return err
+		}
+	}
+	current, remaining, err := inspectHistoryProjectionDirectory(abs, display, false)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, current) {
+		return fmt.Errorf("history projection changed during cleanup: %s", display)
+	}
+	if len(remaining) != 0 {
+		return fmt.Errorf("history projection gained content during cleanup: %s", display)
+	}
+	return os.Remove(abs)
+}
+
+// recoverHistoryProjectionQuarantines completes or rolls back cleanup that
+// stopped after the atomic rename. A manifest-referenced generation is
+// restored; every other valid quarantine is deleted through the same closed
+// two-file remover. Invalid or unknown contents fail closed.
+func recoverHistoryProjectionQuarantines(outputDir string) error {
+	manifest, err := loadBrainManifest(outputDir)
+	if err != nil {
+		return err
+	}
+	active := map[string]bool{}
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		source := manifest.Sources.History
+		for _, artifact := range []struct {
+			path string
+			name string
+		}{{source.IndexPath, historyIndexFileName}, {source.ProjectionStatePath, projectionStateFileName}} {
+			path := filepath.ToSlash(strings.TrimSpace(artifact.path))
+			if validHistoryGenerationArtifactPath(path, artifact.name) {
+				active[filepath.ToSlash(filepath.Dir(path))] = true
+			}
+		}
+	}
+	for _, rootRel := range []string{historyGenerationsDir, historyStagingDir} {
+		directory, err := readMemoryStateDirectory(outputDir, rootRel, "history projection root", memoryStateInventoryMaxEntries)
+		if err != nil {
+			return err
+		}
+		if !directory.Present {
+			continue
+		}
+		if directory.Truncated {
+			return fmt.Errorf("%s: history projection root %s exceeds the bounded inventory", memoryErrStateUnsafe, rootRel)
+		}
+		root := filepath.Join(outputDir, filepath.FromSlash(rootRel))
+		entries := directory.Entries
+		for _, entry := range entries {
+			if !strings.HasSuffix(entry.Name(), ".removing") {
+				continue
+			}
+			generation := strings.TrimSuffix(entry.Name(), ".removing")
+			originalRel := filepath.ToSlash(filepath.Join(rootRel, generation))
+			if !validHistoryProjectionDirectoryPath(originalRel) {
+				return fmt.Errorf("invalid history projection cleanup quarantine: %s", filepath.ToSlash(filepath.Join(rootRel, entry.Name())))
+			}
+			quarantine := filepath.Join(root, entry.Name())
+			requireComplete := active[originalRel]
+			quarantineInfo, names, err := inspectHistoryProjectionDirectory(quarantine, filepath.ToSlash(filepath.Join(rootRel, entry.Name())), requireComplete)
+			if err != nil {
+				return err
+			}
+			original := filepath.Join(outputDir, filepath.FromSlash(originalRel))
+			_, originalErr := os.Lstat(original)
+			switch {
+			case active[originalRel] && os.IsNotExist(originalErr):
+				if err := os.Rename(quarantine, original); err != nil {
+					return fmt.Errorf("restore active history projection %s: %w", originalRel, err)
+				}
+				if err := validateHistoryProjectionDirectory(outputDir, originalRel, true); err != nil {
+					return fmt.Errorf("validate restored history projection %s: %w", originalRel, err)
+				}
+			case originalErr != nil && !os.IsNotExist(originalErr):
+				return originalErr
+			default:
+				newer, schemaErr := projectionFileHasNewerSchema(filepath.Join(quarantine, projectionStateFileName))
+				if schemaErr != nil || newer {
+					// Downgrades and unreadable state are diagnostic, not cleanup
+					// authority. Leave the quarantine intact for a compatible binary
+					// or explicit repair.
+					continue
+				}
+				if err := removeKnownHistoryProjectionContents(quarantine, filepath.ToSlash(filepath.Join(rootRel, entry.Name())), quarantineInfo, names); err != nil {
+					return fmt.Errorf("finish interrupted history projection cleanup %s: %w", originalRel, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func historyGenerationArtifactPath(generation, name string) string {
+	return filepath.ToSlash(filepath.Join(historyGenerationsDir, generation, name))
+}
+
+func captureHistoryProjectionIdentity(outputDir string) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+	return captureHistoryProjectionIdentityContext(context.Background(), outputDir)
+}
+
+func captureHistoryProjectionIdentityContext(ctx context.Context, outputDir string) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+	return captureHistoryProjectionIdentityMode(ctx, outputDir, true)
+}
+
+func captureHistoryProjectionMetadataIdentity(outputDir string) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+	return captureHistoryProjectionIdentityMode(context.Background(), outputDir, false)
+}
+
+// captureHistoryProjectionIdentityMode performs the complete bounded session
+// inventory in both modes. Preparation additionally hashes non-excluded
+// transcript bytes. Commit runs metadata-only under the Brain lock: supported
+// exporters take that lock and publish transcripts by atomic replacement, so
+// retained SameFile root/tree membership plus manifest/privacy/overlay identity
+// binds the post-scan content snapshot without O(corpus bytes) lock hold time.
+// A hostile local process that mutates an inode in place while forging its size
+// and timestamps is local store compromise, outside the cooperative-store
+// guarantee; canonical input is not a cross-process filesystem transaction.
+func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string, includeContents bool) (historyProjectionIdentity, *exportManifest, sessionTombstones, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	manifest, err := loadBrainManifest(outputDir)
+	if err != nil {
+		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+	}
+	inventory, err := collectHistorySessionInventory(ctx, outputDir)
+	if err != nil {
+		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+	}
+	defer inventory.Close()
+	stones, tombstonesIdentity, err := historyProjectionTombstoneSnapshot(outputDir)
+	if err != nil {
+		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+	}
+	fileHash := sha256.New()
+	for _, entry := range inventory.entries {
+		if err := ctx.Err(); err != nil {
+			return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+		}
+		fmt.Fprintf(fileHash, "%s\x00%d\x00%d\x00%d\n", entry.Rel, uint32(entry.Mode), entry.Size, entry.ModUnixNano)
+	}
+	contentIdentity := ""
+	if includeContents {
+		excludedByPath := excludedTranscriptPaths(manifest, stones)
+		contentCache := historyScanCache{Files: make(map[string]historyScanCacheEntry, len(inventory.files))}
+		for _, file := range inventory.files {
+			if _, excluded := excludedByPath[file.Rel]; excluded {
+				continue
+			}
+			digest, digestErr := digestHistorySessionInventoryFile(ctx, inventory, file)
+			if digestErr != nil {
+				return historyProjectionIdentity{}, nil, sessionTombstones{}, digestErr
+			}
+			contentCache.Files[file.Rel] = historyScanCacheEntry{ContentDigest: digest}
+		}
+		contentIdentity = historyScanCacheContentIdentity(contentCache)
+	}
+	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, defaultMaxReadBytes)
+	if err != nil {
+		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
+	}
+	return historyProjectionIdentity{
+		SessionsFingerprint: func() string {
+			if manifest.Sources == nil {
+				return ""
+			}
+			return sessionSourceFingerprint(manifest.Sources.Sessions)
+		}(),
+		SessionFiles:    "sha256:" + hex.EncodeToString(fileHash.Sum(nil)),
+		SessionContents: contentIdentity,
+		Tombstones:      tombstonesIdentity,
+		Overlay:         overlayIdentity,
+		brainRoot:       inventory.rootInfo,
+		sessionEntries:  append([]historySessionTreeEntry(nil), inventory.entries...),
+	}, manifest, stones, nil
+}
+
+func historyProjectionTombstoneSnapshot(outputDir string) (sessionTombstones, string, error) {
+	stones, state, err := loadSessionTombstonesChecked(outputDir)
+	if err != nil {
+		return sessionTombstones{}, state.Identity, err
+	}
+	return stones, state.Identity, nil
+}
+
+func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, error) {
+	data, present, err := readMemoryStateFile(outputDir, filepath.ToSlash(rel), "history projection input", limit)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return "absent", nil
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {
-	sessionsRoot := filepath.Join(outputDir, exportSessionsDirectory)
-	index := historyIndex{GeneratedAt: now}
-	if _, err := os.Stat(sessionsRoot); err != nil {
-		if os.IsNotExist(err) {
-			return index, nil, errors.New("session history missing; run `entire brain refresh sessions` first")
-		}
-		return index, nil, err
-	}
-	files, err := collectHistorySessionFiles(sessionsRoot, &index.Warnings)
+	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
-		return index, nil, err
+		return historyIndex{}, nil, err
 	}
+	stones, _, err := loadSessionTombstonesChecked(outputDir)
+	if err != nil {
+		return historyIndex{}, nil, err
+	}
+	index, source, cache, err := buildBrainHistoryIndexSnapshot(outputDir, now, progress, manifest, stones)
+	if err == nil {
+		saveHistoryScanCache(outputDir, cache)
+	}
+	return index, source, err
+}
+
+func buildBrainHistoryIndexSnapshot(outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, stones sessionTombstones) (historyIndex, *historySourceManifest, historyScanCache, error) {
+	return buildBrainHistoryIndexSnapshotContext(context.Background(), outputDir, now, progress, manifest, stones)
+}
+
+func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, stones sessionTombstones) (historyIndex, *historySourceManifest, historyScanCache, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	index := historyIndex{GeneratedAt: now}
+	inventory, err := collectHistorySessionInventory(ctx, outputDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return index, nil, historyScanCache{}, errors.New("session history missing; run `entire brain refresh sessions` first")
+		}
+		return index, nil, historyScanCache{}, err
+	}
+	defer inventory.Close()
+	files := inventory.files
 
 	prevCache := loadHistoryScanCache(outputDir)
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
-	manifest, _ := loadBrainManifest(outputDir)
+	contentIdentities := historyScanCache{Files: make(map[string]historyScanCacheEntry, len(files))}
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
 	// Session tombstones (Phase 4): excluded sessions are understood BEFORE
 	// derived indexing; their transcripts are skipped entirely (no records,
 	// no exchanges, no cache entry), counted without retaining content.
-	excludedByPath := excludedTranscriptPaths(manifest, loadSessionTombstones(outputDir))
+	excludedByPath := excludedTranscriptPaths(manifest, stones)
 	repoKey := ""
 	if manifest != nil {
 		repoKey = manifest.RepoKey
@@ -337,15 +1129,14 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	// 17–31% of exchange records on real brains. Files iterate newest-first, so
 	// keeping the first occurrence of each exchange ID retains the newest
 	// export's copy (which also carries any appended assistant output).
-	seenExchanges := map[string]struct{}{}
+	seenExchanges := map[historyRecordReplacementKey]struct{}{}
 	incompleteExchanges := 0
 	excludedSessions := map[string]struct{}{}
 	for i, file := range files {
-		rel, relErr := filepath.Rel(outputDir, file.Path)
-		if relErr != nil {
-			rel = file.Path
+		if err := ctx.Err(); err != nil {
+			return index, nil, historyScanCache{}, err
 		}
-		rel = filepath.ToSlash(rel)
+		rel := file.Rel
 		if sessionID, excluded := excludedByPath[rel]; excluded {
 			excludedSessions[sessionID] = struct{}{}
 			if progress != nil {
@@ -356,11 +1147,19 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 
 		var records []historyRecord
 		var incomplete int
-		if cached, ok := prevCache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano {
-			records = cached.Records
+		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if readErr != nil {
+			return index, nil, historyScanCache{}, readErr
+		}
+		contentIdentities.Files[rel] = historyScanCacheEntry{ContentDigest: contentDigest}
+		if cached, ok := prevCache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano && cached.ContentDigest == contentDigest {
+			if err := inventory.validateFileMembership(ctx, file); err != nil {
+				return index, nil, historyScanCache{}, err
+			}
+			records = historyRecordsWithoutManifestAnnotations(cached.Records)
 			incomplete = cached.IncompleteExchanges
 		} else {
-			scanned, scannedIncomplete, warnings, ok := scanSessionFileRecords(outputDir, file.Path, rel)
+			scanned, scannedIncomplete, warnings, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
 			index.Warnings = append(index.Warnings, warnings...)
 			if !ok {
 				if progress != nil {
@@ -374,9 +1173,10 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
 		incompleteExchanges += incomplete
-		// Only files that scanned cleanly (or were reused) are cached; a file
-		// that errored is left out so the next refresh retries it.
-		newCache.Files[rel] = historyScanCacheEntry{Size: file.Size, ModUnixNano: file.ModUnixNano, Records: records, IncompleteExchanges: incomplete}
+		// Cache the externally established annotated shape. On reuse, annotations
+		// are stripped and recomputed from the captured manifest, so metadata
+		// changes cannot be hidden by a size+mtime cache hit.
+		newCache.Files[rel] = historyScanCacheEntry{Size: file.Size, ModUnixNano: file.ModUnixNano, ContentDigest: contentDigest, Records: records, IncompleteExchanges: incomplete}
 
 		for _, record := range records {
 			if record.Kind == "decision" {
@@ -387,10 +1187,11 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 				seenDecisions[dedupeKey] = struct{}{}
 			}
 			if record.Kind == conversationKind {
-				if _, ok := seenExchanges[record.ID]; ok {
+				replacementKey := recordReplacementKey(record)
+				if _, ok := seenExchanges[replacementKey]; ok {
 					continue
 				}
-				seenExchanges[record.ID] = struct{}{}
+				seenExchanges[replacementKey] = struct{}{}
 			}
 			index.Records = append(index.Records, record)
 		}
@@ -398,7 +1199,10 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			progress(i+1, total)
 		}
 	}
-	saveHistoryScanCache(outputDir, newCache)
+	if err := inventory.validateAll(ctx); err != nil {
+		return index, nil, historyScanCache{}, err
+	}
+	newCache.contentIdentity = historyScanCacheContentIdentity(contentIdentities)
 	sort.Slice(index.Records, func(i, j int) bool {
 		if index.Records[i].Kind != index.Records[j].Kind {
 			return index.Records[i].Kind < index.Records[j].Kind
@@ -409,9 +1213,14 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		return index.Records[i].Line < index.Records[j].Line
 	})
 	source := &historySourceManifest{
-		GeneratedAt:         now,
-		IndexPath:           historyIndexPath,
-		SessionsFingerprint: brainSessionsFingerprint(outputDir),
+		GeneratedAt: now,
+		IndexPath:   historyIndexPath,
+		SessionsFingerprint: func() string {
+			if manifest == nil || manifest.Sources == nil {
+				return ""
+			}
+			return sessionSourceFingerprint(manifest.Sources.Sessions)
+		}(),
 		Records:             len(index.Records),
 		IncompleteExchanges: incompleteExchanges,
 		ExcludedSessions:    len(excludedSessions),
@@ -433,7 +1242,84 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			source.Exchanges++
 		}
 	}
-	return index, source, nil
+	return index, source, newCache, nil
+}
+
+// digestHistorySessionInventoryFile binds cache reuse to the complete bounded
+// contents of the exact descriptor-rooted leaf captured by the inventory. It
+// streams into the hash so large line-oriented transcripts do not require a
+// second in-memory copy.
+func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (string, error) {
+	beforeHistoryProjectionContentDigest(file.Rel)
+	if file.Size > maxDocumentTranscriptBytes {
+		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
+	}
+	f, err := inventory.open(ctx, file)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	limit := maxDocumentTranscriptBytes + 1
+	written, readErr := io.Copy(h, io.LimitReader(contextCheckingReader{ctx: ctx, r: f}, limit))
+	if written > maxDocumentTranscriptBytes {
+		readErr = errors.Join(readErr, fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes))
+	}
+	finishErr := inventory.validateAfterRead(file, f)
+	if readErr != nil || finishErr != nil {
+		return "", errors.Join(readErr, finishErr)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func readHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) ([]byte, string, error) {
+	if file.Size > maxDocumentTranscriptBytes {
+		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
+	}
+	f, err := inventory.open(ctx, file)
+	if err != nil {
+		return nil, "", err
+	}
+	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "canonical transcript "+file.Rel)
+	finishErr := inventory.validateAfterRead(file, f)
+	closeErr := f.Close()
+	if readErr != nil || finishErr != nil || closeErr != nil {
+		combined := errors.Join(readErr, finishErr, closeErr)
+		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
+			return nil, "", fmt.Errorf("%s: %w", memoryErrInputTooLarge, combined)
+		}
+		return nil, "", combined
+	}
+	sum := sha256.Sum256(data)
+	return data, "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func historyScanCacheContentIdentity(cache historyScanCache) string {
+	paths := make([]string, 0, len(cache.Files))
+	for rel := range cache.Files {
+		paths = append(paths, rel)
+	}
+	sort.Strings(paths)
+	h := sha256.New()
+	for _, rel := range paths {
+		fmt.Fprintf(h, "%s\x00%s\n", rel, cache.Files[rel].ContentDigest)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+func historyRecordsWithoutManifestAnnotations(records []historyRecord) []historyRecord {
+	out := append([]historyRecord(nil), records...)
+	for i := range out {
+		out[i].Branch = ""
+		if out[i].Kind == conversationKind {
+			out[i].ID = ""
+			out[i].SessionID = ""
+			out[i].Agent = ""
+			out[i].CreatedAt = ""
+			out[i].IdentityDegraded = false
+		}
+	}
+	return out
 }
 
 // scanSessionFileRecords scans one exported transcript into classic history
@@ -442,13 +1328,43 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 // downgrades to classic records with a warning. Shared by the full (long-term)
 // index build and the short-term delta path so both always extract
 // identically.
-func scanSessionFileRecords(outputDir, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
-	scanned, scanErr := scanHistoryFile(outputDir, path)
+func scanSessionInventoryFileRecords(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (records []historyRecord, incomplete int, warnings []string, ok bool, containmentErr error) {
+	data, _, err := readHistorySessionInventoryFile(ctx, inventory, file)
+	if err != nil {
+		if errors.Is(err, errHistorySessionInventoryDegraded) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), memoryErrSourceStale) {
+			return nil, 0, nil, false, err
+		}
+		// A size-bound failure means this projection cannot completely consume the
+		// canonical input; it is a refusal, not a skippable parse warning.
+		if strings.Contains(err.Error(), "exceeds maximum size") {
+			return nil, 0, nil, false, err
+		}
+		return nil, 0, []string{err.Error()}, false, nil
+	}
+	records, incomplete, warnings, ok = scanSessionFileReaderRecords(ctx, bytes.NewReader(data), file.Path, file.Rel)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, 0, nil, false, ctxErr
+	}
+	return records, incomplete, warnings, ok, nil
+}
+
+func scanSessionFileDescriptorRecords(ctx context.Context, f *os.File, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
+	return scanSessionFileReaderRecords(ctx, f, path, rel)
+}
+
+func scanSessionFileReaderRecords(ctx context.Context, f io.ReadSeeker, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, []string{err.Error()}, false
+	}
+	scanned, scanErr := scanHistoryFileReader(ctx, f, rel, filepath.Ext(path))
 	if scanErr != nil {
 		return nil, 0, []string{scanErr.Error()}, false
 	}
 	records = scanned
-	conversationScan, convErr := scanConversationTranscript(path)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, []string{err.Error()}, false
+	}
+	conversationScan, convErr := scanConversationTranscriptFileContext(ctx, f, path)
 	if convErr != nil {
 		warnings = append(warnings, fmt.Sprintf("conversation exchanges skipped for %s: %v", rel, convErr))
 	} else {
@@ -610,15 +1526,24 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 // saveHistoryScanCache persists the per-file scan cache. Failures are
 // non-fatal: a missing or unwritable cache only costs a full rebuild next time.
 func saveHistoryScanCache(outputDir string, cache historyScanCache) {
+	data, err := encodeHistoryScanCache(cache)
+	if err != nil {
+		return
+	}
+	_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, data, 0o600)
+}
+
+func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	if err := json.NewEncoder(gz).Encode(cache); err != nil {
-		return
+		_ = gz.Close()
+		return nil, err
 	}
 	if err := gz.Close(); err != nil {
-		return
+		return nil, err
 	}
-	_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, buf.Bytes(), 0o600)
+	return buf.Bytes(), nil
 }
 
 func brainSessionsFingerprint(outputDir string) string {
@@ -668,45 +1593,6 @@ func sessionSourceFingerprint(source *sessionSourceManifest) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]historySessionFile, error) {
-	var files []historySessionFile
-	err := filepath.WalkDir(sessionsRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			*warnings = append(*warnings, err.Error())
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		ext := filepath.Ext(path)
-		if ext != ".jsonl" && ext != ".json" && ext != ".md" && ext != ".txt" {
-			return nil
-		}
-		info, statErr := d.Info()
-		if statErr != nil {
-			*warnings = append(*warnings, statErr.Error())
-			return nil
-		}
-		files = append(files, historySessionFile{
-			Path:        path,
-			SortTime:    historySessionSortTime(path, info.ModTime()),
-			Size:        info.Size(),
-			ModUnixNano: info.ModTime().UnixNano(),
-		})
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(files, func(i, j int) bool {
-		if !files[i].SortTime.Equal(files[j].SortTime) {
-			return files[i].SortTime.After(files[j].SortTime)
-		}
-		return files[i].Path < files[j].Path
-	})
-	return files, nil
-}
-
 func historySessionSortTime(path string, fallback time.Time) time.Time {
 	base := filepath.Base(path)
 	if len(base) >= len("20060102T150405Z") {
@@ -718,18 +1604,41 @@ func historySessionSortTime(path string, fallback time.Time) time.Time {
 }
 
 func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
-	f, err := os.Open(path)
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("history transcript is not a regular file: %s", path)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || !os.SameFile(before, info) {
+		return nil, fmt.Errorf("history transcript changed or became unsafe while opening: %s", path)
+	}
 	rel, _ := filepath.Rel(outputDir, path)
 	rel = filepath.ToSlash(rel)
+	records, scanErr := scanHistoryFileReader(context.Background(), f, rel, filepath.Ext(path))
+	after, statErr := os.Lstat(path)
+	if statErr != nil || after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || !os.SameFile(info, after) || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
+		return nil, fmt.Errorf("history transcript changed or became unsafe while reading: %s", path)
+	}
+	return records, scanErr
+}
+
+func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string) ([]historyRecord, error) {
 	// Document-form transcripts (e.g. opencode: one pretty-printed JSON
 	// document) have no individually parseable lines, so the line scanner
 	// below indexes nothing from them. Probe the first line the same way
 	// distill does and route them through the shared document parser instead.
-	if records, isDocument, err := scanDocumentHistoryFile(f, rel); err != nil {
+	if records, isDocument, err := scanDocumentHistoryFileContext(ctx, f, rel); err != nil {
 		return nil, err
 	} else if isDocument {
 		return records, nil
@@ -741,8 +1650,11 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
 	var records []historyRecord
 	lineNumber := 0
-	allowRawText := filepath.Ext(path) == ".md" || filepath.Ext(path) == ".txt"
+	allowRawText := ext == ".md" || ext == ".txt"
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		lineNumber++
 		text := strings.TrimSpace(scanner.Text())
 		if text == "" {
@@ -796,8 +1708,12 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 // assistant text is narrative, user turns are skipped; record lines anchor to
 // the document line each message object opens on.
 func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, isDocument bool, err error) {
+	return scanDocumentHistoryFileContext(context.Background(), f, rel)
+}
+
+func scanDocumentHistoryFileContext(ctx context.Context, f io.Reader, rel string) (records []historyRecord, isDocument bool, err error) {
 	probe := make([]byte, 4096)
-	n, readErr := f.Read(probe)
+	n, readErr := contextCheckingReader{ctx: ctx, r: f}.Read(probe)
 	if readErr != nil && readErr != io.EOF {
 		return nil, false, readErr
 	}
@@ -805,7 +1721,7 @@ func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, i
 	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
 		return nil, false, nil // JSONL or non-JSON: the line scanner's job
 	}
-	data, err := safeReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f), maxDocumentTranscriptBytes, "document transcript "+rel)
+	data, err := safeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, maxDocumentTranscriptBytes, "document transcript "+rel)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1773,8 +2689,37 @@ func historyQueryStopword(term string) bool {
 }
 
 func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (historyIndex, error) {
+	index, err := loadBrainHistoryIndexOnce(brainDir, source)
+	if err == nil || source == nil || !validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName) {
+		return index, err
+	}
+
+	// A reader may have loaded the previous manifest immediately before a
+	// writer committed and pruned that generation. Resolve the manifest again
+	// and retry once only when it names a different index. A corrupt current
+	// generation is never hidden by this race recovery path.
+	manifest, manifestErr := loadBrainManifest(brainDir)
+	if manifestErr != nil || manifest.Sources == nil || manifest.Sources.History == nil {
+		return historyIndex{}, err
+	}
+	current := manifest.Sources.History
+	if current.IndexPath == source.IndexPath {
+		return historyIndex{}, err
+	}
+	retried, retryErr := loadBrainHistoryIndexOnce(brainDir, current)
+	if retryErr != nil {
+		return historyIndex{}, fmt.Errorf("history generation changed while reading; current generation is also unreadable: %w", retryErr)
+	}
+	return retried, nil
+}
+
+func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {
 	if source == nil || source.IndexPath == "" {
 		return historyIndex{}, errors.New("history index missing; run `entire brain refresh`")
+	}
+	generationAddressed := validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName)
+	if generationAddressed && source.IndexDigest == "" {
+		return historyIndex{}, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `entire brain refresh`", memoryErrMigrationRequired)
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {
@@ -1783,13 +2728,43 @@ func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (hist
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return historyIndex{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(brainDir, clean))
+	path := filepath.Join(brainDir, clean)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return historyIndex{}, err
 	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return historyIndex{}, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	if err != nil {
+		return historyIndex{}, err
+	}
+	defer f.Close()
+	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
+		return historyIndex{}, fmt.Errorf("%s: %w", memoryErrStateCorrupt, err)
+	}
+	data, err := safeReadAll(f, semanticSnapshotMaxBytes(), path)
+	if err != nil {
+		return historyIndex{}, err
+	}
+	contentSum := sha256.Sum256(data)
+	contentDigest := "sha256:" + hex.EncodeToString(contentSum[:])
+	if source.IndexDigest != "" {
+		if !validSHA256Identity(source.IndexDigest) {
+			return historyIndex{}, fmt.Errorf("%s: history index digest in manifest is invalid", memoryErrStateCorrupt)
+		}
+		if source.IndexDigest != contentDigest {
+			return historyIndex{}, fmt.Errorf("%s: history index digest does not match the manifest commit", memoryErrStateCorrupt)
+		}
+	}
 	var index historyIndex
 	if err := json.Unmarshal(data, &index); err != nil {
-		return historyIndex{}, err
+		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", memoryErrStateCorrupt, err)
+	}
+	index.contentIdentity = contentDigest
+	if generationAddressed {
+		index.storageIdentity = source.IndexPath
 	}
 	return index, nil
 }
@@ -1800,8 +2775,27 @@ func validateHistoryIndexPath(indexPath string) (string, error) {
 	if cleanSlash != indexPath {
 		return "", fmt.Errorf("history index_path must be canonical: %s", indexPath)
 	}
-	if strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) || cleanSlash != historyIndexPath {
+	if strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) ||
+		(cleanSlash != historyIndexPath && !validHistoryGenerationArtifactPath(cleanSlash, historyIndexFileName)) {
 		return "", fmt.Errorf("history index_path is unsafe: %s", indexPath)
 	}
 	return clean, nil
+}
+
+func validHistoryGenerationArtifactPath(rel, fileName string) bool {
+	parts := strings.Split(rel, "/")
+	if len(parts) != 4 || parts[0] != historyDirName || parts[1] != "generations" || parts[3] != fileName || len(parts[2]) != 40 {
+		return false
+	}
+	_, err := hex.DecodeString(parts[2])
+	return err == nil
+}
+
+func validHistoryStagingArtifactPath(rel, fileName string) bool {
+	parts := strings.Split(rel, "/")
+	if len(parts) != 4 || parts[0] != historyDirName || parts[1] != "staging" || parts[3] != fileName || len(parts[2]) != 40 {
+		return false
+	}
+	_, err := hex.DecodeString(parts[2])
+	return err == nil
 }

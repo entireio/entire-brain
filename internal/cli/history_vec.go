@@ -82,7 +82,7 @@ func historyVectorStoreFor(brainDir string, e Embedder) (historyVectorStore, boo
 // upstream, no store, model/dim mismatch, embedder down) — every caller falls
 // back to lexical-only, so a degraded arm never breaks ranking.
 func historySemanticScores(brainDir string, e Embedder, query string, limit int, calibrate bool) map[string]float64 {
-	if e == nil || limit <= 0 {
+	if e == nil || limit <= 0 || !memoryProjectionVectorsCurrent(brainDir, e) {
 		return nil
 	}
 	store, ok := newHistoryVectorStore(brainDir, e.ID(), e.Dim())
@@ -291,20 +291,21 @@ func rankHistoryFused(brainDir string, index historyIndex, kind, query string, l
 }
 
 // fuseScoredRankLists is the shared RRF merge over already-ranked record lists
-// (k=60, equal weight, ties broken by record ID). Used by history fusion and
-// the conversation fused arm.
+// (k=60, equal weight). Conversation records fuse by replacement-scoped
+// identity, not globally by a potentially legacy/colliding ID.
 func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHistoryRecord {
 	type fusedRec struct {
 		s     scoredHistoryRecord
 		score float64
 	}
-	fused := map[string]*fusedRec{}
+	fused := map[historyRecordReplacementKey]*fusedRec{}
 	for _, list := range lists {
 		for rank, s := range list {
-			f, ok := fused[s.Record.ID]
+			key := recordReplacementKey(s.Record)
+			f, ok := fused[key]
 			if !ok {
 				f = &fusedRec{s: s}
-				fused[s.Record.ID] = f
+				fused[key] = f
 			}
 			f.score += 1.0 / (rrfK + float64(rank+1))
 		}
@@ -317,7 +318,20 @@ func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHisto
 		if out[a].score != out[b].score {
 			return out[a].score > out[b].score
 		}
-		return out[a].s.Record.ID < out[b].s.Record.ID
+		left, right := out[a].s.Record, out[b].s.Record
+		if left.ID != right.ID {
+			return left.ID < right.ID
+		}
+		if left.Branch != right.Branch {
+			return left.Branch < right.Branch
+		}
+		if left.SessionID != right.SessionID {
+			return left.SessionID < right.SessionID
+		}
+		if left.Path != right.Path {
+			return left.Path < right.Path
+		}
+		return left.Line < right.Line
 	})
 	if len(out) > limit {
 		out = out[:limit]
@@ -361,7 +375,7 @@ func conversationEmbeddingText(r historyRecord) string {
 // unavailable (gate closed, pure-Go build, absent/mismatched store, embedder
 // down) and callers stay lexical.
 func conversationSemanticScores(brainDir string, e Embedder, query string, limit int, calibrate bool) map[string]float64 {
-	if e == nil || limit <= 0 {
+	if e == nil || limit <= 0 || !memoryProjectionVectorsCurrent(brainDir, e) {
 		return nil
 	}
 	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
@@ -380,7 +394,7 @@ func conversationSemanticScores(brainDir string, e Embedder, query string, limit
 // as the plan's vector-mode contract allows; exact-filter completeness is
 // carried by the lexical arm.
 func conversationSemanticScoresExhaustive(brainDir string, e Embedder, query string, calibrate bool) map[string]float64 {
-	if e == nil {
+	if e == nil || !memoryProjectionVectorsCurrent(brainDir, e) {
 		return nil
 	}
 	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())

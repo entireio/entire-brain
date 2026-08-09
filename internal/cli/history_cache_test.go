@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +91,68 @@ func TestHistoryIndexReusesScanCache(t *testing.T) {
 	rescanned := loadHistoryScanCache(storage.BrainDir)
 	if cacheContainsRecordID(rescanned, "sentinel") {
 		t.Fatalf("changed file was not re-scanned: stale sentinel survived: %+v", rescanned.Files)
+	}
+}
+
+func TestHistoryScanCacheRejectsSameSizeSameMtimeReplacement(t *testing.T) {
+	brainDir := t.TempDir()
+	rel := "sessions/main/session.jsonl"
+	path := filepath.Join(brainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldLine := `{"type":"agent_message","message":"Decision: retain old searchable token."}` + "\n"
+	newLine := `{"type":"agent_message","message":"Decision: retain new searchable token."}` + "\n"
+	if len(oldLine) != len(newLine) {
+		t.Fatal("cache replacement fixture must preserve byte length")
+	}
+	if err := os.WriteFile(path, []byte(oldLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{Sessions: &sessionSourceManifest{
+		DefaultBranch: "main", Sessions: []exportSession{{SessionID: "s1", Branch: "main", TranscriptPath: rel}},
+	}}}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := buildBrainHistoryIndex(brainDir, time.Now().UTC(), nil); err != nil {
+		t.Fatal(err)
+	}
+	oldInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(newLine), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, oldInfo.ModTime(), oldInfo.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	newInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newInfo.Size() != oldInfo.Size() || !newInfo.ModTime().Equal(oldInfo.ModTime()) {
+		t.Fatal("replacement did not preserve cache-visible metadata")
+	}
+	index, _, err := buildBrainHistoryIndex(brainDir, time.Now().UTC(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := ""
+	for _, record := range index.Records {
+		joined += record.Summary + "\n"
+	}
+	if strings.Contains(joined, "old searchable token") || !strings.Contains(joined, "new searchable token") {
+		t.Fatalf("same-metadata replacement reused stale cache records: %q", joined)
+	}
+	cache := loadHistoryScanCache(brainDir)
+	entry := cache.Files[rel]
+	if entry.ContentDigest == "" {
+		t.Fatal("v7 cache entry omitted its content digest")
 	}
 }
 

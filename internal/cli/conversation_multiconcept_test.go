@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,9 +145,9 @@ func TestMultiConceptInputValidation(t *testing.T) {
 
 func TestMultiConceptTooBroadIsStructured(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
-	old := historyFTSFilteredScanCeiling
-	historyFTSFilteredScanCeiling = 2
-	defer func() { historyFTSFilteredScanCeiling = old }()
+	old := conversationConceptScanCeiling
+	conversationConceptScanCeiling = 2
+	defer func() { conversationConceptScanCeiling = old }()
 	opts := retrievalOptions{Source: retrievalSourceConversation, Concepts: []string{"ingest"}}
 	_, err := retrieveConversationMultiConcept(brainDir, "rollout", 10, modeLexical, opts)
 	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") {
@@ -209,4 +210,312 @@ func TestMultiConceptUsesShortTermEvidence(t *testing.T) {
 	if !foundThree {
 		t.Fatalf("short-term evidence must complete the session coverage: %+v", results)
 	}
+}
+
+func replaceMultiConceptLongTermRecords(t *testing.T, brainDir string, records []historyRecord) {
+	t.Helper()
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := historyIndex{GeneratedAt: manifest.Sources.History.GeneratedAt, Records: records}
+	data, err := json.MarshalIndent(index, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Sources.History.Records = len(records)
+	manifest.Sources.History.Exchanges = len(records)
+	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func multiConceptOverflowRecord(id string, ordinal int) historyRecord {
+	return historyRecord{
+		ID: conversationIDPrefix + id, Kind: conversationKind,
+		Path: fmt.Sprintf("sessions/main/20260808T120000Z_%s.jsonl", id), Line: 1, EndLine: 2,
+		TurnOrdinal: ordinal, SessionID: id, Agent: "Claude Code", Branch: "main",
+		CreatedAt: "2026-08-08T12:00:00Z", ContentRole: conversationContentRole,
+		Summary: fmt.Sprintf("alpha deployment item %d with beta verification", ordinal),
+	}
+}
+
+// The C2 lexical contract measures the ceiling after the in-scope winner
+// rules, not at an arbitrary FTS SQL window. Every record in this fixture is
+// in scope and distinct, so a complete scan must reject rather than return a
+// partial session intersection.
+func TestMultiConceptTooBroadForAllInScopeLongTermMatches(t *testing.T) {
+	brainDir := writeMultiConceptFixture(t)
+	oldCeiling := conversationConceptScanCeiling
+	conversationConceptScanCeiling = 3
+	defer func() { conversationConceptScanCeiling = oldCeiling }()
+	records := make([]historyRecord, 0, conversationConceptScanCeiling+1)
+	for i := 0; i <= conversationConceptScanCeiling; i++ {
+		records = append(records, multiConceptOverflowRecord(fmt.Sprintf("long-%d", i), i+1))
+	}
+	replaceMultiConceptLongTermRecords(t, brainDir, records)
+
+	_, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
+		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") {
+		t.Fatalf("all in-scope long-term overflow must reject, got %v", err)
+	}
+}
+
+// A large global match set is not itself an overflow. The cap applies only
+// after the caller's scope predicate, so unrelated sessions cannot force an
+// in-scope query to fail or push its one valid result beyond a raw FTS window.
+func TestMultiConceptCeilingCountsOnlyInScopeLongTermMatches(t *testing.T) {
+	brainDir := writeMultiConceptFixture(t)
+	oldCeiling := conversationConceptScanCeiling
+	conversationConceptScanCeiling = 1
+	defer func() { conversationConceptScanCeiling = oldCeiling }()
+	oldRawCeiling := historyFTSExhaustiveRawScanCeiling
+	historyFTSExhaustiveRawScanCeiling = 3
+	defer func() { historyFTSExhaustiveRawScanCeiling = oldRawCeiling }()
+	outsideOne := multiConceptOverflowRecord("outside-one", 1)
+	outsideOne.Agent = "Codex"
+	outsideTwo := multiConceptOverflowRecord("outside-two", 2)
+	outsideTwo.Agent = "Codex"
+	inside := multiConceptOverflowRecord("inside", 3)
+	replaceMultiConceptLongTermRecords(t, brainDir, []historyRecord{outsideOne, outsideTwo, inside})
+
+	results, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
+		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	})
+	if err != nil {
+		t.Fatalf("out-of-scope candidates must not cause an overflow: %v", err)
+	}
+	if len(results) != 1 || len(results[0].EvidenceIDs) != 1 || results[0].EvidenceIDs[0] != conversationIDPrefix+"inside" {
+		t.Fatalf("expected only the in-scope session, got %+v", results)
+	}
+}
+
+// The exhaustive path has a separate, intentionally high raw-row guard. It
+// is not a result window: the preceding test proves an in-scope hit can occur
+// after out-of-scope rows within this allowance. Beyond it C2 refuses with a
+// typed error instead of reading an unbounded FTS result set.
+func TestMultiConceptRawFTSScanCeilingIsStructured(t *testing.T) {
+	brainDir := writeMultiConceptFixture(t)
+	oldRawCeiling := historyFTSExhaustiveRawScanCeiling
+	historyFTSExhaustiveRawScanCeiling = 2
+	defer func() { historyFTSExhaustiveRawScanCeiling = oldRawCeiling }()
+	records := make([]historyRecord, 0, 3)
+	for i := 0; i < 3; i++ {
+		record := multiConceptOverflowRecord(fmt.Sprintf("raw-%d", i), i+1)
+		record.Agent = "Codex"
+		records = append(records, record)
+	}
+	replaceMultiConceptLongTermRecords(t, brainDir, records)
+
+	_, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
+		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") || !strings.Contains(err.Error(), "scanning more than 2") {
+		t.Fatalf("raw scan guard must return a typed refusal, got %v", err)
+	}
+}
+
+func unavailableExhaustiveFTS(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int) {
+	return nil, historyExhaustiveRankComplete, false, 0
+}
+
+func TestMultiConceptRawScanCeilingAppliesToPureGoFallback(t *testing.T) {
+	oldRawCeiling := historyFTSExhaustiveRawScanCeiling
+	historyFTSExhaustiveRawScanCeiling = 2
+	defer func() { historyFTSExhaustiveRawScanCeiling = oldRawCeiling }()
+	records := []historyRecord{
+		multiConceptOverflowRecord("fallback-1", 1),
+		multiConceptOverflowRecord("fallback-2", 2),
+		multiConceptOverflowRecord("fallback-3", 3),
+	}
+
+	ranked, state := rankFreshHistoryExhaustive(
+		freshHistory{index: historyIndex{Records: records}}, conversationKind, "alpha", 10,
+		func(historyRecord) bool { return false }, unavailableExhaustiveFTS,
+	)
+	if state != historyExhaustiveRankRawScanOverflow || len(ranked) != 0 {
+		t.Fatalf("pure-Go fallback must refuse before returning partial results: state=%v ranked=%+v", state, ranked)
+	}
+}
+
+func TestMultiConceptRawScanCeilingAppliesToOverlay(t *testing.T) {
+	oldRawCeiling := historyFTSExhaustiveRawScanCeiling
+	historyFTSExhaustiveRawScanCeiling = 2
+	defer func() { historyFTSExhaustiveRawScanCeiling = oldRawCeiling }()
+	overlay := []historyRecord{
+		multiConceptOverflowRecord("overlay-raw-1", 1),
+		multiConceptOverflowRecord("overlay-raw-2", 2),
+		multiConceptOverflowRecord("overlay-raw-3", 3),
+	}
+
+	ranked, state := rankFreshHistoryExhaustive(
+		freshHistory{index: historyIndex{}, overlay: overlay}, conversationKind, "alpha", 10,
+		nil, unavailableExhaustiveFTS,
+	)
+	if state != historyExhaustiveRankRawScanOverflow || len(ranked) != 0 {
+		t.Fatalf("overlay scan must refuse before returning partial results: state=%v ranked=%+v", state, ranked)
+	}
+}
+
+func TestMultiConceptRawScanBudgetIsSharedAcrossLongTermAndOverlay(t *testing.T) {
+	oldRawCeiling := historyFTSExhaustiveRawScanCeiling
+	historyFTSExhaustiveRawScanCeiling = 3
+	defer func() { historyFTSExhaustiveRawScanCeiling = oldRawCeiling }()
+	longTerm := []historyRecord{
+		multiConceptOverflowRecord("union-long-1", 1),
+		multiConceptOverflowRecord("union-long-2", 2),
+	}
+	overlay := []historyRecord{
+		multiConceptOverflowRecord("union-overlay-1", 3),
+		multiConceptOverflowRecord("union-overlay-2", 4),
+	}
+
+	ranked, state := rankFreshHistoryExhaustive(
+		freshHistory{index: historyIndex{Records: longTerm}, overlay: overlay}, conversationKind, "alpha", 10,
+		nil, unavailableExhaustiveFTS,
+	)
+	if state != historyExhaustiveRankRawScanOverflow || len(ranked) != 0 {
+		t.Fatalf("two-tier scan must share one budget: state=%v ranked=%+v", state, ranked)
+	}
+}
+
+func TestMultiConceptExhaustiveFTSAndFallbackUseSameMatchContract(t *testing.T) {
+	brainDir := t.TempDir()
+	index := historyIndex{Records: []historyRecord{
+		{ID: conversationIDPrefix + "one-term", Kind: conversationKind, Path: "sessions/main/one.jsonl", Line: 1, Summary: "alpha only"},
+		{ID: conversationIDPrefix + "both-terms", Kind: conversationKind, Path: "sessions/main/both.jsonl", Line: 1, Summary: "alpha and beta"},
+	}}
+	fresh := freshHistory{index: index}
+	viaFTS, ftsState := rankFreshHistoryExhaustive(
+		fresh, conversationKind, "alpha beta", 10, nil,
+		func(longTerm historyIndex, pred func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int) {
+			return rankHistoryViaFTSExhaustiveFiltered(brainDir, longTerm, conversationKind, "alpha beta", 10, pred)
+		},
+	)
+	viaFallback, fallbackState := rankFreshHistoryExhaustive(
+		fresh, conversationKind, "alpha beta", 10, nil, unavailableExhaustiveFTS,
+	)
+	if ftsState != historyExhaustiveRankComplete || fallbackState != historyExhaustiveRankComplete {
+		t.Fatalf("exhaustive states differ: fts=%v fallback=%v", ftsState, fallbackState)
+	}
+	if len(viaFTS) != 1 || len(viaFallback) != 1 ||
+		viaFTS[0].Record.ID != conversationIDPrefix+"both-terms" || viaFallback[0].Record.ID != viaFTS[0].Record.ID {
+		t.Fatalf("FTS/fallback match-set mismatch: fts=%+v fallback=%+v", viaFTS, viaFallback)
+	}
+}
+
+// Short-term records are not in the FTS store. They must nevertheless be
+// counted before C2 produces coverage, otherwise a busy in-flight session can
+// make an AND query silently partial even when the long-term index is empty.
+func TestMultiConceptTooBroadForOverlayMatches(t *testing.T) {
+	brainDir := writeMultiConceptFixture(t)
+	oldCeiling := conversationConceptScanCeiling
+	conversationConceptScanCeiling = 3
+	defer func() { conversationConceptScanCeiling = oldCeiling }()
+	replaceMultiConceptLongTermRecords(t, brainDir, nil)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make(map[string]shortTermFile, conversationConceptScanCeiling+1)
+	for i := 0; i <= conversationConceptScanCeiling; i++ {
+		record := multiConceptOverflowRecord(fmt.Sprintf("overlay-%d", i), i+1)
+		files[record.Path] = shortTermFile{Records: []historyRecord{record}}
+	}
+	overlay := shortTermIndex{
+		Version:             historyShortTermVersion,
+		ReconcilerVersion:   historyShortTermReconcilerVersion,
+		BaseGeneratedAt:     manifest.Sources.History.GeneratedAt,
+		SessionsFingerprint: brainSessionsFingerprint(brainDir),
+		Files:               files,
+	}
+	if err := saveHistoryShortTerm(brainDir, overlay); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
+		Source: retrievalSourceConversation, Agent: "Claude Code", Concepts: []string{"beta"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "memory_query_too_broad") {
+		t.Fatalf("overlay overflow must reject, got %v", err)
+	}
+}
+
+// Equal prose is not duplicate session evidence. C2 must preserve both stable
+// exchange identities in the FTS path and in its in-memory overlay/fallback
+// path, otherwise one session silently loses AND coverage.
+func TestMultiConceptPreservesIdenticalSummariesAcrossSessions(t *testing.T) {
+	const sharedSummary = "alpha deployment completed with beta verification"
+	makeRecords := func() []historyRecord {
+		left := multiConceptOverflowRecord("same-left", 1)
+		left.Summary = sharedSummary
+		right := multiConceptOverflowRecord("same-right", 1)
+		right.Summary = sharedSummary
+		return []historyRecord{left, right}
+	}
+	assertBoth := func(t *testing.T, brainDir string) {
+		t.Helper()
+		results, err := retrieveConversationMultiConcept(brainDir, "alpha", 10, modeLexical, retrievalOptions{
+			Source: retrievalSourceConversation, Concepts: []string{"beta"},
+		})
+		if err != nil {
+			t.Fatalf("identical-summary coverage: %v", err)
+		}
+		seen := map[string]bool{}
+		for _, result := range results {
+			for _, id := range result.EvidenceIDs {
+				seen[id] = true
+			}
+		}
+		if len(results) != 2 || !seen[conversationIDPrefix+"same-left"] || !seen[conversationIDPrefix+"same-right"] {
+			t.Fatalf("both sessions must retain independent evidence: %+v", results)
+		}
+	}
+
+	t.Run("long-term FTS", func(t *testing.T) {
+		brainDir := writeMultiConceptFixture(t)
+		replaceMultiConceptLongTermRecords(t, brainDir, makeRecords())
+		assertBoth(t, brainDir)
+	})
+
+	t.Run("long-term in-memory fallback", func(t *testing.T) {
+		ranked, state := rankFreshHistoryExhaustive(
+			freshHistory{index: historyIndex{Records: makeRecords()}},
+			conversationKind, "alpha", 10, nil,
+			func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int) {
+				return nil, historyExhaustiveRankComplete, false, 0
+			},
+		)
+		if state != historyExhaustiveRankComplete || len(ranked) != 2 {
+			t.Fatalf("fallback collapsed independent equal summaries: state=%v ranked=%+v", state, ranked)
+		}
+	})
+
+	t.Run("short-term in-memory", func(t *testing.T) {
+		brainDir := writeMultiConceptFixture(t)
+		replaceMultiConceptLongTermRecords(t, brainDir, nil)
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files := map[string]shortTermFile{}
+		for _, record := range makeRecords() {
+			files[record.Path] = shortTermFile{Records: []historyRecord{record}}
+		}
+		if err := saveHistoryShortTerm(brainDir, shortTermIndex{
+			Version:             historyShortTermVersion,
+			ReconcilerVersion:   historyShortTermReconcilerVersion,
+			BaseGeneratedAt:     manifest.Sources.History.GeneratedAt,
+			SessionsFingerprint: brainSessionsFingerprint(brainDir),
+			Files:               files,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		assertBoth(t, brainDir)
+	})
 }

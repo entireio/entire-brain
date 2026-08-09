@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -73,12 +74,13 @@ type workspaceRetrieveOptions struct {
 	// Retrieval source selector and conversation filters, mirroring the
 	// top-level verbs (Phase 5: the conversation source fans out across member
 	// brains with the same explicit opt-in and caveat contract).
-	source   string
-	after    string
-	before   string
-	session  string
-	agent    string
-	concepts []string
+	source          string
+	after           string
+	before          string
+	session         string
+	agent           string
+	concepts        []string
+	includeAbstract bool
 }
 
 type workspaceImpactOptions struct {
@@ -101,12 +103,14 @@ type workspaceContextResult struct {
 }
 
 type workspaceRetrieveResult struct {
-	RepoKey   string                 `json:"repo_key"`
-	Name      string                 `json:"name,omitempty"`
-	Branch    string                 `json:"branch,omitempty"`
-	Freshness workspaceRepoFreshness `json:"freshness"`
-	Results   []unifiedResult        `json:"results"`
-	Error     string                 `json:"error,omitempty"`
+	RepoKey                   string                   `json:"repo_key"`
+	Name                      string                   `json:"name,omitempty"`
+	Branch                    string                   `json:"branch,omitempty"`
+	Freshness                 workspaceRepoFreshness   `json:"freshness"`
+	Results                   []unifiedResult          `json:"results"`
+	AbstractPreviews          []sessionAbstractPreview `json:"abstract_previews,omitempty"`
+	AbstractPreviewsTruncated bool                     `json:"abstract_previews_truncated,omitempty"`
+	Error                     string                   `json:"error,omitempty"`
 }
 
 type workspaceGetResult struct {
@@ -487,6 +491,7 @@ func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, s
 	cmd.Flags().StringVar(&retrieveOpts.session, "session", "", "Conversation source only: exchanges from this session id")
 	cmd.Flags().StringVar(&retrieveOpts.agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness")
 	cmd.Flags().StringArrayVar(&retrieveOpts.concepts, "concept", nil, "Conversation source only: additional concept (repeatable, up to 4); each member repo's sessions must match the query AND every concept")
+	cmd.Flags().BoolVar(&retrieveOpts.includeAbstract, "include-abstract", false, "Conversation source only: include bounded evidence-linked session previews per member repo")
 	return cmd
 }
 
@@ -529,14 +534,11 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	if !local {
 		return fmt.Errorf("workspace repo must be an existing local path: %s", repoPath)
 	}
-	dirs, err := resolvePluginDirs(opts.Env)
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		return err
 	}
-	key, err := repoStorageKey(ctx, opts.Runner, dirs.Config, repoDir)
-	if err != nil {
-		return err
-	}
+	key := storage.Key
 	repo := workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir}
 	replaced := false
 	for i := range manifest.Repos {
@@ -2032,6 +2034,11 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if retrieveOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
+	if len(retrieveOpts.concepts) > 0 {
+		if err := validateRetrievalLimit(retrieveOpts.limit); err != nil {
+			return fmt.Errorf("--%s", err.Error())
+		}
+	}
 	// Validate the source/filter contract once, before the fan-out, so an
 	// invalid selector is one structured error rather than N per-repo copies.
 	// The complete retrieval-options contract, including the branch filter,
@@ -2043,6 +2050,10 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if err != nil {
 		return fmt.Errorf("--%s", err.Error())
 	}
+	ropts.IncludeAbstract = retrieveOpts.includeAbstract
+	if ropts.IncludeAbstract && ropts.Source != retrievalSourceConversation {
+		return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
+	}
 	if mode == modeVector && ropts.Source == retrievalSourceConversation {
 		return errConversationVectorUnsupported
 	}
@@ -2050,6 +2061,10 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		return fmt.Errorf(`after/before/session/agent filters require --source conversation (got %q)`, ropts.Source)
 	}
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	privacyPolicies, policyByRepo, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}
@@ -2076,11 +2091,22 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		found, err := retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, retrieveOpts.limit, mode, ropts)
 		if err != nil {
 			result.Error = err.Error()
-		} else if found != nil {
-			if repoDir == "" {
-				found = annotateCurrentCodeUnavailable(found)
+		} else {
+			if found != nil {
+				if repoDir == "" {
+					found = annotateCurrentCodeUnavailable(found)
+				}
+				result.Results = found
 			}
-			result.Results = found
+			if ropts.IncludeAbstract {
+				previews, truncated, previewErr := abstractPreviewsForResults(brainDir, found)
+				if previewErr != nil {
+					result.Error = previewErr.Error()
+				} else {
+					result.AbstractPreviews = previews
+					result.AbstractPreviewsTruncated = truncated
+				}
+			}
 		}
 		results = append(results, result)
 	}
@@ -2105,14 +2131,61 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			})
 		}
 	}
+	if len(ropts.Concepts) > 0 {
+		// Recheck every member after the complete fan-out, immediately before
+		// assembling the workspace response. No member's bytes are emitted until
+		// all guards succeed.
+		for i := range results {
+			if results[i].RepoKey == manifest.Name {
+				continue
+			}
+			brainDir, brainErr := brainDirForKey(opts.Env, results[i].RepoKey)
+			if brainErr != nil {
+				return brainErr
+			}
+			filtered, policyAfter, privacyErr := revalidateRetrievalResponsePrivacy(brainDir, results[i].Results)
+			if privacyErr != nil {
+				return privacyErr
+			}
+			results[i].Results = filtered
+			if policyAfter != policyByRepo[results[i].RepoKey] {
+				results[i].AbstractPreviews = nil
+				results[i].AbstractPreviewsTruncated = true
+			}
+		}
+	}
 	if retrieveOpts.json {
-		return writeJSON(cmd, struct {
+		if len(ropts.Concepts) > 0 {
+			payload, budgetErr := boundedWorkspaceRetrievalJSONPayload(manifest.Name, query, results)
+			if budgetErr != nil {
+				return budgetErr
+			}
+			serialized, marshalErr := jsonOutputBytes(payload)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
+		}
+		qualified := qualifyWorkspaceRetrieveGroups(manifest.Name, results)
+		serialized, marshalErr := jsonOutputBytes(struct {
 			Workspace string                    `json:"workspace"`
 			Query     string                    `json:"query"`
 			Results   []workspaceRetrieveResult `json:"results"`
-		}{Workspace: manifest.Name, Query: query, Results: results})
+		}{Workspace: manifest.Name, Query: query, Results: qualified})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
 	}
-	out := cmd.OutOrStdout()
+	if len(ropts.Concepts) > 0 {
+		text, budgetErr := boundedWorkspaceRetrievalText(manifest.Name, results)
+		if budgetErr != nil {
+			return budgetErr
+		}
+		return writeRetrievalResponseBytes(cmd.OutOrStdout(), text, privacyPolicies...)
+	}
+	var rendered bytes.Buffer
+	out := io.Writer(&rendered)
 	for _, result := range results {
 		for _, r := range result.Results {
 			loc := r.Path
@@ -2136,13 +2209,99 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
 		}
 	}
-	return nil
+	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicies...)
+}
+
+func captureWorkspaceRetrievalPrivacyPolicies(env EntireEnv, manifest workspaceManifest) ([]retrievalPrivacyPolicy, map[string]string, error) {
+	policies := make([]retrievalPrivacyPolicy, 0, len(manifest.Repos))
+	byRepo := make(map[string]string, len(manifest.Repos))
+	for _, repo := range manifest.Repos {
+		if _, exists := byRepo[repo.RepoKey]; exists {
+			continue
+		}
+		brainDir, err := brainDirForKey(env, repo.RepoKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		policy, err := captureRetrievalPrivacyPolicy(brainDir)
+		if err != nil {
+			return nil, nil, err
+		}
+		policies = append(policies, policy)
+		byRepo[repo.RepoKey] = policy.Identity
+	}
+	return policies, byRepo, nil
+}
+
+// captureWorkspaceDerivedReadPolicies additionally proves every member's
+// transcript-derived projections are clean before a workspace aggregate is
+// read. Policy capture alone only proves the tombstone file did not change; it
+// cannot make a corpus built before an already-present tombstone safe.
+func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspaceManifest) ([]retrievalPrivacyPolicy, error) {
+	policies, _, err := captureWorkspaceRetrievalPrivacyPolicies(env, manifest)
+	if err != nil {
+		return nil, err
+	}
+	for i := range policies {
+		policy := &policies[i]
+		policy.RequireDerivedClean = true
+		allowed, gateErr := privacyDerivedReadGate(policy.BrainDir)
+		if gateErr != nil {
+			return nil, gateErr
+		}
+		if !allowed {
+			return nil, fmt.Errorf("%s: workspace member has unverified transcript-derived projections: %s", memoryErrPrivacyDirty, policy.BrainDir)
+		}
+	}
+	// Workspace pattern/theme/family rows live in their own aggregate corpus.
+	// Give that Brain the same final-emission proof as every member so a corpus
+	// alias or replacement after assembly cannot be collapsed into empty output.
+	wsDir, err := workspaceDir(env, manifest.Name)
+	if err != nil {
+		return nil, err
+	}
+	wsPolicy, err := captureRetrievalPrivacyPolicy(wsDir)
+	if err != nil {
+		return nil, err
+	}
+	wsPolicy.RequireDerivedClean = true
+	if err := requirePrivacyDerivedRead(wsDir); err != nil {
+		return nil, err
+	}
+	policies = append(policies, wsPolicy)
+	return policies, nil
 }
 
 func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool, gopts getOptions) error {
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
+	}
+	derivedAggregate := false
+	for _, id := range qualifiedIDs {
+		if strings.HasPrefix(id, "pattern:") || strings.HasPrefix(id, "theme:") ||
+			strings.Contains(id, "/pattern:") || strings.Contains(id, "/theme:") {
+			derivedAggregate = true
+			break
+		}
+	}
+	var privacyPolicies []retrievalPrivacyPolicy
+	if derivedAggregate {
+		privacyPolicies, err = captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
+	} else {
+		privacyPolicies, _, err = captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	}
+	if err != nil {
+		return err
+	}
+	if derivedAggregate {
+		wsDir, dirErr := workspaceDir(opts.Env, workspaceName)
+		if dirErr != nil {
+			return dirErr
+		}
+		if safetyErr := validatePatternCorpusReadSafety(wsDir); safetyErr != nil {
+			return safetyErr
+		}
 	}
 	members := make(map[string]workspaceRepo, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
@@ -2227,12 +2386,25 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		results = append(results, result)
 	}
 	if jsonOut {
-		return writeJSON(cmd, struct {
+		qualified := make([]workspaceGetResult, len(results))
+		for i, result := range results {
+			qualified[i] = result
+			qualified[i].Results = make([]unifiedResult, len(result.Results))
+			for j, item := range result.Results {
+				qualified[i].Results[j] = qualifyWorkspaceUnifiedResult(result.RepoKey, manifest.Name, item)
+			}
+		}
+		serialized, marshalErr := jsonOutputBytes(struct {
 			Workspace string               `json:"workspace"`
 			Results   []workspaceGetResult `json:"results"`
-		}{Workspace: manifest.Name, Results: results})
+		}{Workspace: manifest.Name, Results: qualified})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
 	}
-	out := cmd.OutOrStdout()
+	var rendered bytes.Buffer
+	out := io.Writer(&rendered)
 	for _, result := range results {
 		for _, r := range result.Results {
 			loc := r.Path
@@ -2254,7 +2426,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
 		}
 	}
-	return nil
+	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicies...)
 }
 
 func retrieveWorkspaceGraphCrossEdges(env EntireEnv, workspaceName, query string, limit int) ([]unifiedResult, error) {
@@ -2312,8 +2484,7 @@ func getWorkspaceLevelRecord(env EntireEnv, workspaceName, id string) (unifiedRe
 		}
 		return unifiedResult{}, false, nil
 	}
-	result, ok := getWorkspaceCorpusRecord(env, workspaceName, id)
-	return result, ok, nil
+	return getWorkspaceCorpusRecordChecked(env, workspaceName, id)
 }
 
 func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGraphPayload, error) {
@@ -2486,15 +2657,16 @@ func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, mani
 // repo key must still match the member's. This is the gate every workspace
 // fan-out that touches a member's working tree (watch, refresh --full) applies
 // before acting on a repo.
-func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, configDir string, repo workspaceRepo) (string, error) {
+func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, _ string, repo workspaceRepo) (string, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil || !local {
 		return "", errors.New("no resolvable local path")
 	}
-	hintKey, err := repoStorageKey(ctx, opts.Runner, configDir, repoDir)
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		return "", fmt.Errorf("unsafe: %w", err)
 	}
+	hintKey := storage.Key
 	if hintKey != repo.RepoKey {
 		return "", fmt.Errorf("unsafe: local_path_hint repo_key mismatch: %s", hintKey)
 	}
@@ -2545,13 +2717,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = "local_path_hint unavailable"
 		return status
 	}
-	dirs, err := resolvePluginDirs(opts.Env)
-	if err != nil {
-		status.State = "unsafe"
-		status.Detail = err.Error()
-		return status
-	}
-	hintKey, err := repoStorageKey(ctx, opts.Runner, dirs.Config, repoDir)
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		// Can't derive the tree's repo_key → can't verify the pairing → unsafe to scan.
 		status.State = "unsafe"
@@ -2559,6 +2725,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = err.Error()
 		return status
 	}
+	hintKey := storage.Key
 	if workspaceRepoKeyMismatch(repo.RepoKey, hintKey) {
 		// The tree the hint points at is a DIFFERENT repo than the registered brain → scanning would
 		// manufacture bogus regressions. This is the genuine block case.
@@ -2804,7 +2971,11 @@ func writeText(cmd *cobra.Command, render func(io.Writer)) error {
 	// large multi-get/fact output must not be held in memory in full. The
 	// sticky writer short-circuits after the first failure and preserves the
 	// error, so callers still skip receipt recording when output fails.
-	out := &stickyErrorWriter{writer: cmd.OutOrStdout()}
+	return writeTextToWriter(cmd.OutOrStdout(), render)
+}
+
+func writeTextToWriter(writer io.Writer, render func(io.Writer)) error {
+	out := &stickyErrorWriter{writer: writer}
 	render(out)
 	return out.err
 }

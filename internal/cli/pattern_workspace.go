@@ -2,7 +2,9 @@ package cli
 
 import (
 	"database/sql"
+	"errors"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,15 +54,33 @@ type wsAgg struct {
 
 // buildWorkspacePatternCorpus rebuilds the workspace corpus from member corpora.
 func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now time.Time) (workspaceCorpusCounts, error) {
+	policies, err := captureWorkspaceDerivedReadPolicies(env, manifest)
+	if err != nil {
+		return workspaceCorpusCounts{}, err
+	}
+	var counts workspaceCorpusCounts
+	err = withLockedRetrievalPrivacyPolicies(policies, func() error {
+		var buildErr error
+		counts, buildErr = buildWorkspacePatternCorpusLocked(env, manifest, now)
+		return buildErr
+	})
+	return counts, err
+}
+
+func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest, now time.Time) (workspaceCorpusCounts, error) {
 	var counts workspaceCorpusCounts
 	wsBrainDir, err := workspaceDir(env, manifest.Name)
 	if err != nil {
 		return counts, err
 	}
-	path, err := prepareBrainRelativeSQLiteFile(wsBrainDir, patternCorpusPath)
+	if err := recoverPatternCorpusPublicationLocked(wsBrainDir); err != nil {
+		return counts, err
+	}
+	path, cleanup, err := preparePatternCorpusStaging(wsBrainDir)
 	if err != nil {
 		return counts, err
 	}
+	defer cleanup()
 	db, err := sql.Open(sqliteDriverName, path)
 	if err != nil {
 		return counts, err
@@ -88,14 +108,17 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 			counts.Warnings = append(counts.Warnings, repo.RepoKey+": "+err.Error())
 			continue
 		}
-		mdb, err := openPatternCorpusDB(memberBrainDir)
+		mdb, err := openPatternCorpusReadDB(memberBrainDir)
 		if err != nil {
-			// Missing/stale member corpus degrades gracefully (refresh that repo).
-			counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `entire brain refresh` there)")
-			continue
+			if errors.Is(err, os.ErrNotExist) {
+				// A genuinely absent member corpus degrades gracefully (refresh that repo).
+				counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `entire brain refresh` there)")
+				continue
+			}
+			return counts, err
 		}
 		counts.WithCorpus++
-		if err := collectMemberPatterns(mdb, repo.RepoKey, aggs); err != nil {
+		if err := collectMemberPatterns(mdb.DB, repo.RepoKey, aggs); err != nil {
 			counts.Warnings = append(counts.Warnings, repo.RepoKey+": "+err.Error())
 		}
 		mdb.Close()
@@ -144,7 +167,14 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 	if err := buildSynapses(db, now); err != nil {
 		return counts, err
 	}
-	recordPatternRun(db, wsBrainDir, now)
+	run, err := patternRunFromStaging(db, now)
+	if err != nil {
+		return counts, err
+	}
+	if err := finalizePatternCorpusStagingLocked(wsBrainDir, path, db); err != nil {
+		return counts, err
+	}
+	_ = appendPatternRun(wsBrainDir, run)
 	return counts, nil
 }
 
@@ -302,26 +332,39 @@ func workspaceStrengthV2(typ string, repos, memberCount, support, succ, corr, ne
 // theme:) from the workspace corpus, so the ids `workspace patterns` prints are
 // directly fetchable via `workspace get <ws> <id>`. Graceful: false when absent.
 func getWorkspaceCorpusRecord(env EntireEnv, workspaceName, id string) (unifiedResult, bool) {
+	result, ok, _ := getWorkspaceCorpusRecordChecked(env, workspaceName, id)
+	return result, ok
+}
+
+func getWorkspaceCorpusRecordChecked(env EntireEnv, workspaceName, id string) (unifiedResult, bool, error) {
 	wsBrainDir, err := workspaceDir(env, workspaceName)
 	if err != nil {
-		return unifiedResult{}, false
+		return unifiedResult{}, false, err
 	}
 	switch {
 	case strings.HasPrefix(id, "pattern:"):
-		return getWorkspacePattern(wsBrainDir, id)
+		return getWorkspacePatternChecked(wsBrainDir, id)
 	case strings.HasPrefix(id, "theme:"):
-		return getCorpusTheme(wsBrainDir, id)
+		return getCorpusThemeChecked(wsBrainDir, id)
 	default:
-		return unifiedResult{}, false
+		return unifiedResult{}, false, nil
 	}
 }
 
 // getWorkspacePattern renders a workspace-scope aggregate pattern (with its
 // per-repo breakdown) as a unifiedResult.
 func getWorkspacePattern(wsBrainDir, patternID string) (unifiedResult, bool) {
-	db, err := openPatternCorpusDB(wsBrainDir)
+	result, ok, _ := getWorkspacePatternChecked(wsBrainDir, patternID)
+	return result, ok
+}
+
+func getWorkspacePatternChecked(wsBrainDir, patternID string) (unifiedResult, bool, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(wsBrainDir)
 	if err != nil {
-		return unifiedResult{}, false
+		return unifiedResult{}, false, err
+	}
+	if !present {
+		return unifiedResult{}, false, nil
 	}
 	defer db.Close()
 	var typ, title, intentSig, gram, metaID string
@@ -330,7 +373,10 @@ func getWorkspacePattern(wsBrainDir, patternID string) (unifiedResult, bool) {
 	err = db.QueryRow(`SELECT type, title, COALESCE(intent_sig,''), COALESCE(gram,''), COALESCE(meta_id,''), strength, n_repos
 		FROM patterns WHERE id=? AND scope='workspace'`, patternID).Scan(&typ, &title, &intentSig, &gram, &metaID, &strength, &nRepos)
 	if err != nil {
-		return unifiedResult{}, false
+		if err == sql.ErrNoRows {
+			return unifiedResult{}, false, nil
+		}
+		return unifiedResult{}, false, err
 	}
 	var b strings.Builder
 	b.WriteString(redactText(title) + "\n")
@@ -347,28 +393,34 @@ func getWorkspacePattern(wsBrainDir, patternID string) (unifiedResult, bool) {
 		}
 		rows.Close()
 	}
-	return unifiedResult{Source: "workspace_pattern", ID: patternID, Text: redactText(strings.TrimRight(b.String(), "\n"))}, true
+	return unifiedResult{Source: "workspace_pattern", ID: patternID, Text: redactText(strings.TrimRight(b.String(), "\n"))}, true, nil
 }
 
 // loadWorkspaceRepoBreakdown returns the per-repo breakdown for workspace
 // patterns, keyed by pattern id.
 func loadWorkspaceRepoBreakdown(db *sql.DB) map[string][]patternRepoStat {
+	breakdown, _ := loadWorkspaceRepoBreakdownChecked(db)
+	return breakdown
+}
+
+func loadWorkspaceRepoBreakdownChecked(db *sql.DB) (map[string][]patternRepoStat, error) {
 	out := map[string][]patternRepoStat{}
 	rows, err := db.Query(`SELECT pattern_id, repo_key, support, outcome_success, outcome_corrected, outcome_neutral
 		FROM workspace_pattern_repos ORDER BY repo_key`)
 	if err != nil {
-		return out
+		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var pid, rk string
 		var support, succ, corr, neut int
-		if rows.Scan(&pid, &rk, &support, &succ, &corr, &neut) == nil {
-			out[pid] = append(out[pid], patternRepoStat{
-				RepoKey: rk, Support: support,
-				Reinforcement: reinforcementCounts{Success: succ, Corrected: corr, Neutral: neut},
-			})
+		if err := rows.Scan(&pid, &rk, &support, &succ, &corr, &neut); err != nil {
+			return nil, err
 		}
+		out[pid] = append(out[pid], patternRepoStat{
+			RepoKey: rk, Support: support,
+			Reinforcement: reinforcementCounts{Success: succ, Corrected: corr, Neutral: neut},
+		})
 	}
-	return out
+	return out, rows.Err()
 }

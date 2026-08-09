@@ -2203,11 +2203,8 @@ func TestSemanticChangesDefaultDoesNotAcquireIndexLock(t *testing.T) {
 	if err := os.Remove(filepath.Join(lockDir, semanticIndexLockName)); err != nil {
 		t.Fatalf("remove index lock file: %v", err)
 	}
-	if err := os.Remove(lockDir); err != nil {
-		t.Fatalf("remove lock directory: %v", err)
-	}
-	if err := os.Symlink(t.TempDir(), lockDir); err != nil {
-		t.Fatalf("replace lock directory with symlink: %v", err)
+	if err := os.Symlink(t.TempDir(), filepath.Join(lockDir, semanticIndexLockName)); err != nil {
+		t.Fatalf("replace index lock with symlink: %v", err)
 	}
 	changesCmd := &cobra.Command{Use: "changes"}
 	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {

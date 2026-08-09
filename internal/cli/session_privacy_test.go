@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,7 +57,11 @@ func writePrivacyFixture(t *testing.T) (brainDir string) {
 // and the sessions tree.
 func assertCanaryAbsent(t *testing.T, brainDir string) {
 	t.Helper()
-	indexBytes, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)))
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexBytes, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.History.IndexPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,10 +75,6 @@ func assertCanaryAbsent(t *testing.T, brainDir string) {
 				t.Fatalf("canary survived in scan cache entry %s", rel)
 			}
 		}
-	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		t.Fatal(err)
 	}
 	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 	if err != nil {
@@ -138,7 +139,7 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 
 	// Derived records are gone; the exported transcript survives (exclude,
 	// not purge).
-	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)))
+	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.IndexPath)))
 	if strings.Contains(string(indexBytes), privacyCanary) {
 		t.Fatal("excluded session still indexed")
 	}
@@ -232,16 +233,17 @@ func TestSessionPurgeCanaryAbsentEverywhereAndIdempotent(t *testing.T) {
 	if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writeBrainHistoryIndexAndSource(brainDir, now.Add(2*time.Minute), nil); err != nil {
+	source, err := writeBrainHistoryIndexAndSource(brainDir, now.Add(2*time.Minute), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)))
+	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.IndexPath)))
 	if strings.Contains(string(indexBytes), privacyCanary) {
 		t.Fatal("tombstone failed: re-exported session was re-indexed")
 	}
 }
 
-func TestSessionTombstonesRoundTripAndCorruptFallback(t *testing.T) {
+func TestSessionTombstonesRoundTripAndCorruptFailClosed(t *testing.T) {
 	brainDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
 		t.Fatal(err)
@@ -265,13 +267,15 @@ func TestSessionTombstonesRoundTripAndCorruptFallback(t *testing.T) {
 	if err := json.Unmarshal(raw, &generic); err != nil {
 		t.Fatal(err)
 	}
-	// Corrupt file fails open to "nothing excluded" (an explicit action model:
-	// corruption can only restore indexing, never delete data).
+	// A present corrupt policy is not equivalent to an absent policy: failing
+	// open here could disclose or re-index a session excluded before restart.
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)), []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := loadSessionTombstones(brainDir); len(got.Excluded) != 0 {
-		t.Fatalf("corrupt tombstones must read as empty: %+v", got)
+	_, state, err := loadSessionTombstonesChecked(brainDir)
+	var loadErr *sessionTombstoneLoadError
+	if !errors.As(err, &loadErr) || loadErr.Code != memoryErrStateCorrupt || state.State != sessionTombstoneCorrupt {
+		t.Fatalf("corrupt tombstones state=%+v err=%v, want typed %s", state, err, memoryErrStateCorrupt)
 	}
 }
 
@@ -692,6 +696,23 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 8, 11, 0, 0, 0, time.UTC)
+	if _, err := writeMemoryHint(brainDir, "test/privacy", "secret-sess", "main", "session_end", now); err != nil {
+		t.Fatal(err)
+	}
+	secretJob := memoryJob{
+		Kind: memoryJobKindProjection, RepoKey: "test/privacy", SessionID: "secret-sess",
+		SessionRef: "conversation-session:secret", InputDigest: "sha256:secret", Trigger: "session_end",
+		State: memoryJobStateRunning, Attempt: 1, CreatedAt: now, AvailableAt: now,
+	}
+	secretJob.JobID = memoryJobID(secretJob.RepoKey, secretJob.SessionRef, secretJob.InputDigest, secretJob.Kind)
+	secretJob.OwnerToken = "privacy-test-owner"
+	secretJob.HeartbeatAt = &now
+	if err := saveMemoryJob(brainDir, secretJob); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMemoryCancellationRequest(brainDir, secretJob, now); err != nil {
+		t.Fatal(err)
+	}
 	single := factRecord{
 		ID: factRecordID("the leaked key "+privacyCanary+" was rotated", nil), Text: "the leaked key " + privacyCanary + " was rotated",
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
@@ -753,6 +774,9 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	if !overlayListed {
 		t.Fatalf("short-term overlay missing from the cleanup inventory: %+v", plan.DerivedStores)
 	}
+	if len(plan.WorkMetadata) != 3 {
+		t.Fatalf("session hint, job, and cancellation marker must be inventoried: %+v", plan.WorkMetadata)
+	}
 
 	// The transcript survives exclusion.
 	if _, err := os.Stat(filepath.Join(brainDir, "sessions/main/20260802T000000Z_secret.jsonl")); err != nil {
@@ -782,6 +806,19 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	}
 	if len(facts) != 1 || facts[0].ID != multi.ID || len(facts[0].Provenance) != 1 {
 		t.Fatalf("exclusion fact cleanup wrong: %+v", facts)
+	}
+	for _, hint := range loadMemoryHints(brainDir) {
+		if hint.SessionID == "secret-sess" {
+			t.Fatalf("excluded session hint survived cleanup: %+v", hint)
+		}
+	}
+	for _, job := range loadMemoryJobs(brainDir) {
+		if job.SessionID == "secret-sess" {
+			t.Fatalf("excluded session job survived cleanup: %+v", job)
+		}
+	}
+	if request, err := loadMemoryCancellationRequest(brainDir, secretJob.JobID); err != nil || request != nil {
+		t.Fatalf("excluded session cancellation marker survived cleanup: request=%+v err=%v", request, err)
 	}
 	report, err := verifySessionPrivacy(brainDir)
 	if err != nil {

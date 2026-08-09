@@ -1,11 +1,18 @@
 package cli
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -41,18 +48,140 @@ func newMemoryCommand(opts Options) *cobra.Command {
 
 // memoryWorkerLaunch is the best-effort, non-blocking worker launch used by
 // notify. Injectable for tests; a launch failure never fails the host.
-var memoryWorkerLaunch = func() error {
+var memoryWorkerLaunch = func(repoDir string) error {
+	return memoryWorkerLaunchAfter(repoDir, 0)
+}
+
+var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	command := exec.Command(exe, "memory", "worker", "--once")
+	args := []string{"memory", "worker", "--once"}
+	if delay > 0 {
+		args = append(args, "--delay", delay.String())
+	}
+	command := exec.Command(exe, args...)
+	command.Dir = repoDir
+	command.Env = memoryWorkerChildEnvironment(os.Environ(), repoDir)
 	command.Stdout = nil
 	command.Stderr = nil
 	if err := command.Start(); err != nil {
 		return err
 	}
 	return command.Process.Release()
+}
+
+// memoryAbstractCancellationPollInterval bounds how long a running abstract
+// provider can miss a durable cancellation request. It is a variable only so
+// race tests can prove cancellation without sleeping for production time.
+var memoryAbstractCancellationPollInterval = 5 * time.Second
+
+// memoryWorkerChildEnvironment replaces inherited routing values instead of
+// appending duplicates. Workspace/watch processes can be bound to repo A while
+// launching a worker for repo B; the child must resolve only B's Brain and work
+// queue. Windows environment keys are case-insensitive.
+func memoryWorkerChildEnvironment(environ []string, repoDir string) []string {
+	replacements := []struct{ key, value string }{
+		{key: envRepoRoot, value: repoDir},
+		{key: memoryWorkerOriginEnv, value: "1"},
+	}
+	out := make([]string, 0, len(environ)+len(replacements))
+	for _, entry := range environ {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		replaced := false
+		for _, replacement := range replacements {
+			if key == replacement.key || (runtime.GOOS == "windows" && strings.EqualFold(key, replacement.key)) {
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			out = append(out, entry)
+		}
+	}
+	for _, replacement := range replacements {
+		out = append(out, replacement.key+"="+replacement.value)
+	}
+	return out
+}
+
+var memoryWorkerPrepass = func(ctx context.Context, opts Options, repoDir string) error {
+	perRepo := opts
+	perRepo.Env.RepoRoot = repoDir
+	cmd := &cobra.Command{Use: "memory-worker-prepass"}
+	cmd.SetContext(ctx)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	_, err := runRefreshDeltaStats(cmd, perRepo, true)
+	return err
+}
+
+// recordMemoryLifecycleAndLaunch is the host/startup/watch integration seam.
+// It durably records the content-free event before best-effort launch, so a
+// launch failure can never lose work or fail the host lifecycle operation.
+func recordMemoryLifecycleAndLaunch(brainDir, repoDir, repoKey, sessionID, branch, event string, now time.Time) (memoryLifecycleHint, string, error) {
+	var hint memoryLifecycleHint
+	err := withBrainWriteLock(brainDir, func() error {
+		var writeErr error
+		hint, writeErr = writeMemoryHint(brainDir, repoKey, sessionID, strings.TrimSpace(branch), event, now)
+		return writeErr
+	})
+	if err != nil {
+		return memoryLifecycleHint{}, "", err
+	}
+	if err := memoryWorkerLaunch(repoDir); err != nil {
+		return hint, "worker launch failed (reconciliation will repair): " + err.Error(), nil
+	}
+	return hint, "", nil
+}
+
+func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigger string) (int, string, error) {
+	perRepo := opts
+	perRepo.Env.RepoRoot = repoDir
+	storage, err := resolveSessionsBrain(ctx, perRepo)
+	if err != nil {
+		return 0, "", err
+	}
+	created := 0
+	now := time.Now
+	if opts.Now != nil {
+		now = opts.Now
+	}
+	created, err = reconcileMemoryJobs(ctx, storage.BrainDir, trigger, now().UTC())
+	if err != nil {
+		return created, "", err
+	}
+	if err := memoryWorkerLaunch(repoDir); err != nil {
+		return created, "worker launch failed (reconciliation will repair): " + err.Error(), nil
+	}
+	return created, "", nil
+}
+
+func nudgeMemoryAtStartup(ctx context.Context, opts Options) {
+	if memoryWorkerOrigin() {
+		return
+	}
+	target := agentSurfaceTarget(opts, nil)
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil || !local {
+		return
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(storage.BrainDir, exportManifestFileName)); err != nil {
+		return
+	}
+	// Process start is non-blocking and the worker owns reconciliation. Do not
+	// hash transcripts on the MCP startup path; the launched worker performs the
+	// bounded prepass and precomputes reconciliation outside its write lock.
+	_ = memoryWorkerLaunch(repoDir)
 }
 
 func newMemoryNotifyCommand(opts Options) *cobra.Command {
@@ -63,28 +192,32 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 		Short: "Record a content-free host lifecycle hint (session_start | checkpoint | session_end) and nudge the worker",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if memoryWorkerOrigin() {
+				if jsonOut {
+					return writeJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "ignored memory notification from worker origin")
+				return nil
+			}
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
 				return err
+			}
+			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			if err != nil {
+				return err
+			}
+			if !local {
+				return fmt.Errorf("memory worker requires a local repository")
 			}
 			// The supplied repository key must match the resolved canonical
 			// brain; it can never select a path.
 			if strings.TrimSpace(repoKey) != storage.Key {
 				return fmt.Errorf("repo-key %q does not match the resolved repository %q", repoKey, storage.Key)
 			}
-			var hint memoryLifecycleHint
-			if err := withBrainWriteLock(storage.BrainDir, func() error {
-				var hintErr error
-				hint, hintErr = writeMemoryHint(storage.BrainDir, storage.Key, session, strings.TrimSpace(branch), event, opts.Now().UTC())
-				return hintErr
-			}); err != nil {
+			hint, warning, err := recordMemoryLifecycleAndLaunch(storage.BrainDir, repoDir, storage.Key, session, branch, event, opts.Now().UTC())
+			if err != nil {
 				return err
-			}
-			warning := ""
-			if err := memoryWorkerLaunch(); err != nil {
-				// Durable hint plus reconciliation repairs this; the host is
-				// never blocked.
-				warning = "worker launch failed (reconciliation will repair): " + err.Error()
 			}
 			if jsonOut {
 				payload := map[string]any{"recorded": hint.LastEvent, "session_id": hint.SessionID, "generation": hint.Generation}
@@ -114,18 +247,105 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 // never recreated (an invalid job stays visible for repair); a newer digest
 // supersedes older non-excluded jobs for the same session scope. Caller
 // holds the brain write lock.
-func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time) (created int, err error) {
+type memoryTranscriptDigest struct {
+	digest string
+	err    error
+}
+
+type memoryReconcileSnapshot struct {
+	manifestIdentity string
+	digests          map[string]memoryTranscriptDigest
+}
+
+var memoryReconcileTranscriptDigest = sessionTranscriptDigest
+
+func memoryManifestIdentity(manifest *exportManifest) (string, error) {
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func prepareMemoryReconcileSnapshot(ctx context.Context, brainDir string) (*memoryReconcileSnapshot, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	identity, err := memoryManifestIdentity(manifest)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := &memoryReconcileSnapshot{manifestIdentity: identity, digests: map[string]memoryTranscriptDigest{}}
+	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return snapshot, nil
+	}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		rel := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
+		if rel == "" {
+			continue
+		}
+		if _, exists := snapshot.digests[rel]; exists {
+			continue
+		}
+		digest, digestErr := memoryReconcileTranscriptDigest(brainDir, rel)
+		snapshot.digests[rel] = memoryTranscriptDigest{digest: digest, err: digestErr}
+	}
+	return snapshot, nil
+}
+
+func reconcileMemoryJobs(ctx context.Context, brainDir, trigger string, now time.Time) (int, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		snapshot, err := prepareMemoryReconcileSnapshot(ctx, brainDir)
+		if err != nil {
+			return 0, err
+		}
+		created := 0
+		err = withBrainWriteLock(brainDir, func() error {
+			var applyErr error
+			created, applyErr = reconcileMemoryJobsLocked(brainDir, trigger, now, snapshot)
+			return applyErr
+		})
+		if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+			return created, err
+		}
+	}
+	return 0, fmt.Errorf("%s: manifest changed during reconciliation", memoryErrSourceStale)
+}
+
+func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time, snapshot *memoryReconcileSnapshot) (created int, err error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return 0, err
+	}
+	identity, err := memoryManifestIdentity(manifest)
+	if err != nil {
+		return 0, err
+	}
+	if snapshot == nil || identity != snapshot.manifestIdentity {
+		return 0, fmt.Errorf("%s: manifest changed during reconciliation", memoryErrSourceStale)
 	}
 	var source *historySourceManifest
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	receipts, _ := loadProjectionState(brainDir, source)
-	stones := loadSessionTombstones(brainDir)
-	jobs := loadMemoryJobs(brainDir)
+	receipts, receiptState, receiptErr := loadProjectionStateChecked(brainDir, source)
+	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
+		return 0, receiptErr
+	}
+	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	if err != nil {
+		return 0, err
+	}
+	inventory := loadMemoryJobInventory(brainDir)
+	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+		return 0, err
+	}
+	jobs := inventory.Jobs
 	byID := map[string]memoryJob{}
 	for _, job := range jobs {
 		byID[job.JobID] = job
@@ -137,9 +357,11 @@ func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time) (created
 		}
 		switch job.State {
 		case memoryJobStatePending, memoryJobStateRunning, memoryJobStateRetryable, memoryJobStateInvalid:
-			if updated, terr := transitionMemoryJob(brainDir, job, memoryJobStateExcluded, now, ""); terr == nil {
-				byID[updated.JobID] = updated
+			updated, terr := transitionMemoryJob(brainDir, job, memoryJobStateExcluded, now, "")
+			if terr != nil {
+				return created, terr
 			}
+			byID[updated.JobID] = updated
 		}
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
@@ -154,20 +376,69 @@ func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time) (created
 		if rel == "" {
 			continue
 		}
-		digest, digestErr := sessionTranscriptDigest(brainDir, rel)
-		if digestErr != nil {
-			continue // unreadable source: rediscovered next reconcile
-		}
 		branch := strings.TrimSpace(session.Branch)
 		if branch == "" {
 			branch = strings.TrimSpace(manifest.Sources.Sessions.DefaultBranch)
 		}
+		preparedDigest, ok := snapshot.digests[rel]
+		if !ok {
+			return created, fmt.Errorf("%s: transcript set changed during reconciliation", memoryErrSourceStale)
+		}
+		digest, digestErr := preparedDigest.digest, preparedDigest.err
+		if digestErr != nil {
+			fallback := sha256.Sum256([]byte(manifest.RepoKey + "\x00" + branch + "\x00" + id + "\x00" + rel))
+			digest = "sha256:" + hex.EncodeToString(fallback[:])
+			ref, _ := conversationSessionRef(manifest.RepoKey, branch, id, digest)
+			jobID := memoryJobID(manifest.RepoKey, ref, digest, memoryJobKindProjection)
+			if _, blocked := inventory.issueForJobID(jobID); blocked {
+				continue
+			}
+			if _, exists := byID[jobID]; exists {
+				continue
+			}
+			finished := now
+			job := memoryJob{
+				SchemaVersion: memoryJobSchemaVersion, JobID: jobID, Kind: memoryJobKindProjection,
+				RepoKey: manifest.RepoKey, SessionID: id, SessionRef: ref, Branch: branch,
+				InputDigest: digest, Trigger: trigger, State: memoryJobStateInvalid,
+				CreatedAt: now, AvailableAt: now, FinishedAt: &finished,
+				Error: newMemoryJobError("memory_source_unreadable"),
+			}
+			if err := saveMemoryJob(brainDir, job); err != nil {
+				return created, err
+			}
+			byID[jobID] = job
+			created++
+			continue
+		}
 		ref, _ := conversationSessionRef(manifest.RepoKey, branch, id, digest)
+		jobID := memoryJobID(manifest.RepoKey, ref, digest, memoryJobKindProjection)
 		if receipt, ok := receipts.receiptFor(ref); ok && receipt.InputDigest == digest {
+			if existing, exists := byID[jobID]; exists && existing.State != memoryJobStateComplete && existing.State != memoryJobStateExcluded {
+				updated, settleErr := completeMemoryJobFromProof(brainDir, existing, now)
+				if settleErr != nil {
+					return created, settleErr
+				}
+				byID[jobID] = updated
+			}
 			continue // current: receipts, not jobs, are the proof
 		}
-		jobID := memoryJobID(manifest.RepoKey, ref, digest, memoryJobKindProjection)
-		if _, exists := byID[jobID]; exists {
+		if _, blocked := inventory.issueForJobID(jobID); blocked {
+			continue
+		}
+		if existing, exists := byID[jobID]; exists {
+			// A completed job is history, not proof. If its receipt is missing
+			// or stale, reactivate the same identity immediately so loss of a
+			// disposable receipt cannot suppress repair until pruning.
+			if existing.State == memoryJobStateComplete {
+				existing.AvailableAt = now
+				existing.AbstractOverride = nil // automatic retry uses current repository configuration
+				updated, terr := transitionMemoryJob(brainDir, existing, memoryJobStatePending, now, "")
+				if terr != nil {
+					return created, terr
+				}
+				byID[jobID] = updated
+			}
 			continue
 		}
 		// A new digest supersedes every older non-excluded job for the scope.
@@ -177,9 +448,11 @@ func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time) (created
 			}
 			switch job.State {
 			case memoryJobStatePending, memoryJobStateRunning, memoryJobStateRetryable, memoryJobStateInvalid, memoryJobStateComplete:
-				if updated, terr := transitionMemoryJob(brainDir, job, memoryJobStateSuperseded, now, ""); terr == nil {
-					byID[updated.JobID] = updated
+				updated, terr := transitionMemoryJob(brainDir, job, memoryJobStateSuperseded, now, "")
+				if terr != nil {
+					return created, terr
 				}
+				byID[updated.JobID] = updated
 			}
 		}
 		job := memoryJob{
@@ -197,85 +470,163 @@ func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time) (created
 	return created, nil
 }
 
-type memoryWorkerStats struct {
-	JobsCreated   int `json:"jobs_created"`
-	JobsCompleted int `json:"jobs_completed"`
-	JobsRetried   int `json:"jobs_retried"`
-	HintsConsumed int `json:"hints_consumed"`
-}
-
-// runMemoryWorkerOnce is the bounded synchronous worker pass: reconcile,
-// claim runnable deterministic jobs, run one consolidation that absorbs them
-// all, then settle each job against the published receipts and consume
-// satisfied hints. Caller holds the brain write lock.
-func runMemoryWorkerOnce(brainDir string, now time.Time) (memoryWorkerStats, error) {
-	var stats memoryWorkerStats
-	created, err := reconcileMemoryJobsLocked(brainDir, "worker", now)
+func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (created int, err error) {
+	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
-		return stats, err
+		return 0, err
 	}
-	stats.JobsCreated = created
-	runnable := runnableMemoryJobs(loadMemoryJobs(brainDir), now)
-	if len(runnable) > 0 {
-		claimed := make([]memoryJob, 0, len(runnable))
-		for _, job := range runnable {
-			running, terr := transitionMemoryJob(brainDir, job, memoryJobStateRunning, now, "")
-			if terr != nil {
+	if manifest.Sources == nil || manifest.Sources.History == nil {
+		return 0, nil
+	}
+	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
+	if err != nil {
+		return 0, nil // deterministic projection is not current yet
+	}
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return 0, err
+	}
+	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+	inventory := loadMemoryJobInventory(brainDir)
+	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+		return 0, err
+	}
+	jobs := inventory.Jobs
+	byID := make(map[string]memoryJob, len(jobs))
+	for _, job := range jobs {
+		byID[job.JobID] = job
+	}
+	abstracts := newSessionAbstractResolver(brainDir)
+	refs := make([]string, 0, len(views))
+	for ref := range views {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	for _, ref := range refs {
+		view := views[ref]
+		if len(view.Records) == 0 {
+			continue
+		}
+		request, requestErr := automaticAbstractWorkRequestWithResolver(brainDir, view, abstracts)
+		if requestErr != nil {
+			return created, requestErr
+		}
+		if request == nil {
+			continue
+		}
+		jobID := memoryJobID(manifest.RepoKey, request.SessionRef, request.SessionDigest, memoryJobKindSessionAbstract)
+		if _, blocked := inventory.issueForJobID(jobID); blocked {
+			continue
+		}
+		if existing, exists := byID[jobID]; exists {
+			// The current abstract artifact, not a terminal work record, is the
+			// proof. Missing/corrupt disposable output reactivates its job.
+			if existing.State == memoryJobStateComplete {
+				existing.AvailableAt = now
+				updated, terr := transitionMemoryJob(brainDir, existing, memoryJobStatePending, now, "")
+				if terr != nil {
+					return created, terr
+				}
+				byID[jobID] = updated
+			}
+			continue
+		}
+		for _, old := range byID {
+			if old.Kind != memoryJobKindSessionAbstract || old.SessionRef != request.SessionRef || old.InputDigest == request.SessionDigest {
 				continue
 			}
-			claimed = append(claimed, running)
-		}
-		// One full consolidation covers every pending projection: it rebuilds
-		// the index from the canonical sessions and publishes the receipts.
-		_, buildErr := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil)
-		manifest, manifestErr := loadBrainManifest(brainDir)
-		var receipts projectionState
-		if buildErr == nil && manifestErr == nil && manifest.Sources != nil {
-			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)
-		}
-		stones := loadSessionTombstones(brainDir)
-		for _, job := range claimed {
-			switch {
-			case buildErr != nil:
-				if _, terr := transitionMemoryJob(brainDir, job, memoryJobStateRetryable, now, "consolidation failed: "+buildErr.Error()); terr == nil {
-					stats.JobsRetried++
+			switch old.State {
+			case memoryJobStatePending, memoryJobStateRunning, memoryJobStateRetryable, memoryJobStateInvalid, memoryJobStateComplete:
+				updated, terr := transitionMemoryJob(brainDir, old, memoryJobStateSuperseded, now, "")
+				if terr != nil {
+					return created, terr
 				}
-			case func() bool { _, excluded := stones.Excluded[job.SessionID]; return excluded }():
-				_, _ = transitionMemoryJob(brainDir, job, memoryJobStateExcluded, now, "")
-			default:
-				receipt, ok := receipts.receiptFor(job.SessionRef)
-				if ok && receipt.InputDigest == job.InputDigest {
-					if _, terr := transitionMemoryJob(brainDir, job, memoryJobStateComplete, now, ""); terr == nil {
-						stats.JobsCompleted++
-					}
-				} else if _, terr := transitionMemoryJob(brainDir, job, memoryJobStateRetryable, now, "source not represented after rebuild (changed or unreadable)"); terr == nil {
-					stats.JobsRetried++
-				}
+				byID[updated.JobID] = updated
 			}
 		}
+		job := memoryJob{
+			SchemaVersion: memoryJobSchemaVersion,
+			JobID:         jobID,
+			Kind:          memoryJobKindSessionAbstract,
+			RepoKey:       manifest.RepoKey,
+			SessionID:     view.Records[0].SessionID,
+			SessionRef:    request.SessionRef,
+			Branch:        conversationCanonicalBranch(view.Records[0], manifest),
+			InputDigest:   request.SessionDigest,
+			Trigger:       trigger,
+			State:         memoryJobStatePending,
+			CreatedAt:     now,
+			AvailableAt:   now,
+		}
+		if err := saveMemoryJob(brainDir, job); err != nil {
+			return created, err
+		}
+		byID[jobID] = job
+		created++
 	}
-	// Consume hints whose every matching canonical scope is represented by a
-	// current receipt or a tombstone; generation-checked so a racing event is
-	// never lost.
+	return created, nil
+}
+
+type memoryWorkerStats struct {
+	JobsCreated    int      `json:"jobs_created"`
+	JobsCompleted  int      `json:"jobs_completed"`
+	JobsRetried    int      `json:"jobs_retried"`
+	JobsRecovered  int      `json:"jobs_recovered"`
+	JobsCancelled  int      `json:"jobs_cancelled"`
+	JobsPruned     int      `json:"jobs_pruned"`
+	HintsConsumed  int      `json:"hints_consumed"`
+	AlreadyActive  bool     `json:"already_active,omitempty"`
+	PrepassFailed  bool     `json:"prepass_failed,omitempty"`
+	VectorPending  bool     `json:"vector_pending,omitempty"`
+	HealthDegraded bool     `json:"health_degraded,omitempty"`
+	HealthIssues   []string `json:"health_issues,omitempty"`
+}
+
+func memoryHintConsumable(hint memoryLifecycleHint, scopes int, satisfied bool) bool {
+	return scopes > 0 && satisfied && (hint.Branch != "" || scopes == 1)
+}
+
+func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *memoryReconcileSnapshot) (memoryWorkerStats, error) {
+	var stats memoryWorkerStats
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return stats, err
+	}
+	identity, err := memoryManifestIdentity(manifest)
+	if err != nil {
+		return stats, err
+	}
+	if snapshot == nil || identity != snapshot.manifestIdentity {
+		return stats, fmt.Errorf("%s: manifest changed during maintenance", memoryErrSourceStale)
 	}
 	var source *historySourceManifest
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	receipts, _ := loadProjectionState(brainDir, source)
-	stones := loadSessionTombstones(brainDir)
-	for _, hint := range loadMemoryHints(brainDir) {
+	receipts, receiptState, receiptErr := loadProjectionStateChecked(brainDir, source)
+	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
+		return stats, receiptErr
+	}
+	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	if err != nil {
+		return stats, err
+	}
+	hints, issues := loadMemoryHintsChecked(brainDir)
+	if err := memoryStateError(issues); err != nil {
+		return stats, err
+	}
+	for _, hint := range hints {
 		if _, excluded := stones.Excluded[hint.SessionID]; excluded {
-			if removeMemoryHint(brainDir, hint) == nil {
+			removed, err := removeMemoryHintIfCurrent(brainDir, hint)
+			if err != nil {
+				return stats, err
+			}
+			if removed {
 				stats.HintsConsumed++
 			}
 			continue
 		}
-		scopes := 0
-		satisfied := true
+		scopes, satisfied := 0, true
 		if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 			for _, session := range manifest.Sources.Sessions.Sessions {
 				if strings.TrimSpace(session.SessionID) != hint.SessionID {
@@ -290,11 +641,12 @@ func runMemoryWorkerOnce(brainDir string, now time.Time) (memoryWorkerStats, err
 				}
 				scopes++
 				rel := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
-				digest, digestErr := sessionTranscriptDigest(brainDir, rel)
-				if digestErr != nil {
+				prepared, ok := snapshot.digests[rel]
+				if !ok || prepared.err != nil {
 					satisfied = false
 					break
 				}
+				digest := prepared.digest
 				ref, _ := conversationSessionRef(manifest.RepoKey, branch, hint.SessionID, digest)
 				receipt, ok := receipts.receiptFor(ref)
 				if !ok || receipt.InputDigest != digest {
@@ -303,21 +655,691 @@ func runMemoryWorkerOnce(brainDir string, now time.Time) (memoryWorkerStats, err
 				}
 			}
 		}
-		// A hint for a session the manifest does not expose yet stays until a
-		// canonical source appears; an ambiguous branchless hint stays
-		// visible while scoped reconciliation proceeds independently.
-		if scopes == 0 || !satisfied {
+		if !memoryHintConsumable(hint, scopes, satisfied) {
 			continue
 		}
-		if removeMemoryHint(brainDir, hint) == nil {
+		removed, err := removeMemoryHintIfCurrent(brainDir, hint)
+		if err != nil {
+			return stats, err
+		}
+		if removed {
 			stats.HintsConsumed++
 		}
+	}
+	inventory := loadMemoryJobInventory(brainDir)
+	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+		return stats, err
+	}
+	if _, err := reconcileStaleAbstractEgressReceiptsLocked(brainDir, now); err != nil {
+		return stats, err
+	}
+	stats.JobsPruned, err = pruneMemoryJobsLocked(brainDir, inventory.Jobs, now)
+	return stats, err
+}
+
+func runMemoryMaintenance(brainDir string, now time.Time) (memoryWorkerStats, error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		snapshot, err := prepareMemoryReconcileSnapshot(context.Background(), brainDir)
+		if err != nil {
+			return memoryWorkerStats{}, err
+		}
+		var stats memoryWorkerStats
+		err = withBrainWriteLock(brainDir, func() error {
+			var applyErr error
+			stats, applyErr = maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
+			return applyErr
+		})
+		if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+			return stats, err
+		}
+	}
+	return memoryWorkerStats{}, fmt.Errorf("%s: manifest changed during maintenance", memoryErrSourceStale)
+}
+
+// runMemoryProjectionLane performs source scanning outside the Brain write
+// lock, then revalidates and publishes through the short atomic commit API.
+type memoryClock func() time.Time
+
+func fixedMemoryClock(now time.Time) memoryClock {
+	return func() time.Time { return now }
+}
+
+func memoryClockNow(clock memoryClock) time.Time {
+	if clock == nil {
+		return time.Now().UTC()
+	}
+	return clock().UTC()
+}
+
+func runMemoryProjectionLane(ctx context.Context, brainDir string, now time.Time, owner string) (memoryWorkerStats, error) {
+	return runMemoryProjectionLaneWithClock(ctx, brainDir, fixedMemoryClock(now), owner)
+}
+
+const memoryProjectionClaimsPerPass = 64
+
+func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
+	var stats memoryWorkerStats
+	if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+		return stats, err
+	}
+	reconcileSnapshot, err := prepareMemoryReconcileSnapshot(ctx, brainDir)
+	if err != nil {
+		return stats, err
+	}
+	var claimed []memoryJob
+	claimAt := memoryClockNow(clock)
+	err = withBrainWriteLock(brainDir, func() error {
+		inventory := loadMemoryJobInventory(brainDir)
+		if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+			return err
+		}
+		jobs := inventory.Jobs
+		recovered, err := recoverStaleMemoryJobsLocked(brainDir, jobs, claimAt, owner)
+		if err != nil {
+			return err
+		}
+		stats.JobsRecovered = recovered
+		created, err := reconcileMemoryJobsLocked(brainDir, "worker", claimAt, reconcileSnapshot)
+		if err != nil {
+			return err
+		}
+		stats.JobsCreated = created
+		inventory = loadMemoryJobInventory(brainDir)
+		if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+			return err
+		}
+		jobs = inventory.Jobs
+		for _, job := range runnableMemoryJobs(jobs, claimAt) {
+			if job.Kind != memoryJobKindProjection {
+				continue
+			}
+			if len(claimed) >= memoryProjectionClaimsPerPass {
+				break
+			}
+			if job.State == memoryJobStateRetryable {
+				job, err = transitionMemoryJob(brainDir, job, memoryJobStatePending, claimAt, "")
+				if err != nil {
+					return err
+				}
+			}
+			running, err := transitionMemoryJob(brainDir, job, memoryJobStateRunning, claimAt, "")
+			if err != nil {
+				return err
+			}
+			running.OwnerToken = owner
+			heartbeat := claimAt
+			running.HeartbeatAt = &heartbeat
+			if err := saveMemoryJob(brainDir, running); err != nil {
+				return err
+			}
+			request, err := loadMemoryCancellationRequest(brainDir, running.JobID)
+			if err != nil {
+				return err
+			}
+			if request != nil {
+				running.CancelRequestedAt = &request.RequestedAt
+				if _, err := transitionMemoryJob(brainDir, running, memoryJobStateCancelled, memoryClockNow(clock), ""); err != nil {
+					return err
+				}
+				if err := removeMemoryCancellationRequest(brainDir, running.JobID); err != nil {
+					return err
+				}
+				stats.JobsCancelled++
+				for _, prior := range claimed {
+					if _, restoreErr := restoreClaimedMemoryJob(brainDir, prior, memoryClockNow(clock)); restoreErr != nil {
+						return restoreErr
+					}
+				}
+				claimed = nil
+				break
+			}
+			claimed = append(claimed, running)
+		}
+		return nil
+	})
+	if err != nil {
+		return stats, err
+	}
+	if len(claimed) == 0 {
+		maintenance, err := runMemoryMaintenance(brainDir, memoryClockNow(clock))
+		stats.add(maintenance)
+		return stats, err
+	}
+
+	prepared, prepareErr := prepareBrainHistoryProjectionContext(ctx, brainDir, memoryClockNow(clock), nil)
+	published := false
+	err = withBrainWriteLock(brainDir, func() error {
+		cancelled := map[string]*memoryCancellationRequest{}
+		for _, job := range claimed {
+			request, err := loadMemoryCancellationRequest(brainDir, job.JobID)
+			if err != nil {
+				return err
+			}
+			if request != nil {
+				cancelled[job.JobID] = request
+			}
+		}
+		publishErr := prepareErr
+		if publishErr == nil {
+			_, publishErr = publishBrainHistoryProjectionLocked(brainDir, prepared, func() error {
+				if err := ctx.Err(); err != nil {
+					return errMemoryCancellationRequested
+				}
+				for _, job := range claimed {
+					request, requestErr := loadMemoryCancellationRequest(brainDir, job.JobID)
+					if requestErr != nil {
+						return requestErr
+					}
+					if request != nil {
+						return errMemoryCancellationRequested
+					}
+				}
+				return nil
+			})
+			published = publishErr == nil
+		}
+		settledAt := memoryClockNow(clock)
+		manifest, manifestErr := loadBrainManifest(brainDir)
+		var receipts projectionState
+		if published && manifestErr == nil && manifest.Sources != nil {
+			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)
+		}
+		stones, _, err := loadSessionTombstonesChecked(brainDir)
+		if err != nil {
+			return err
+		}
+		for _, claimedJob := range claimed {
+			current, err := memoryJobByID(brainDir, claimedJob.JobID)
+			if err != nil {
+				return err
+			}
+			if current.State != memoryJobStateRunning || current.OwnerToken != owner {
+				return fmt.Errorf("memory_state_corrupt: projection job ownership changed during execution")
+			}
+			request := cancelled[current.JobID]
+			if request == nil {
+				request, err = loadMemoryCancellationRequest(brainDir, current.JobID)
+				if err != nil {
+					return err
+				}
+			}
+			if request != nil && !published {
+				current.CancelRequestedAt = &request.RequestedAt
+				if _, err := transitionMemoryJob(brainDir, current, memoryJobStateCancelled, settledAt, ""); err != nil {
+					return err
+				}
+				if err := removeMemoryCancellationRequest(brainDir, current.JobID); err != nil {
+					return err
+				}
+				stats.JobsCancelled++
+				continue
+			}
+			if request != nil {
+				// The commit callback already crossed the atomic replacement
+				// boundary. Completion wins; the late marker is only cleanup.
+				if err := removeMemoryCancellationRequest(brainDir, current.JobID); err != nil {
+					return err
+				}
+			}
+			switch {
+			case !published && errors.Is(publishErr, errMemoryCancellationRequested):
+				if _, err := restoreClaimedMemoryJob(brainDir, current, settledAt); err != nil {
+					return err
+				}
+			case !published:
+				if _, err := transitionMemoryJob(brainDir, current, memoryJobStateRetryable, settledAt, memoryOperationalError(publishErr)); err != nil {
+					return err
+				}
+				stats.JobsRetried++
+			case func() bool { _, excluded := stones.Excluded[current.SessionID]; return excluded }():
+				if _, err := transitionMemoryJob(brainDir, current, memoryJobStateExcluded, settledAt, ""); err != nil {
+					return err
+				}
+			default:
+				receipt, ok := receipts.receiptFor(current.SessionRef)
+				if ok && receipt.InputDigest == current.InputDigest {
+					if _, err := transitionMemoryJob(brainDir, current, memoryJobStateComplete, settledAt, ""); err != nil {
+						return err
+					}
+					stats.JobsCompleted++
+				} else {
+					if _, err := transitionMemoryJob(brainDir, current, memoryJobStateRetryable, settledAt, "memory_source_stale"); err != nil {
+						return err
+					}
+					stats.JobsRetried++
+				}
+			}
+		}
+		if published {
+			inventory := loadMemoryJobInventory(brainDir)
+			if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+				return err
+			}
+			for _, job := range inventory.Jobs {
+				if job.Kind != memoryJobKindProjection || job.State == memoryJobStateComplete || job.State == memoryJobStateExcluded {
+					continue
+				}
+				receipt, ok := receipts.receiptFor(job.SessionRef)
+				if !ok || receipt.InputDigest != job.InputDigest {
+					continue
+				}
+				if _, err := completeMemoryJobFromProof(brainDir, job, settledAt); err != nil {
+					return err
+				}
+				stats.JobsCompleted++
+			}
+		}
+		return nil
+	})
+	if published {
+		finalizePreparedHistoryProjection(brainDir, prepared)
+	}
+	if err == nil {
+		maintenance, maintenanceErr := runMemoryMaintenance(brainDir, memoryClockNow(clock))
+		stats.add(maintenance)
+		if maintenanceErr != nil {
+			err = maintenanceErr
+		}
+	}
+	return stats, err
+}
+
+func syncMemoryProjectionVectors(ctx context.Context, brainDir string, now time.Time) (bool, error) {
+	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
+		return false, nil
+	}
+	e := historySemanticEmbedder(defaultEmbedder())
+	if e == nil {
+		return false, nil
+	}
+	_, pending, err := syncMemoryProjectionVectorsWithEmbedder(ctx, brainDir, now, e, memoryVectorBatchRecords)
+	return pending, err
+}
+
+// syncMemoryProjectionVectorsWithEmbedder is the only writer for projection
+// vector stores. Every destructive reset and every incremental upsert is bound
+// to the exact manifest and tombstone identities captured before embedding,
+// plus the exact current progress leaf owned by this pass. The pass advances
+// that ownership after each of its progress writes. This makes a concurrent
+// privacy purge, projection replacement, or progress takeover a closed failure:
+// stale vectors cannot be published after any authority changes.
+func syncMemoryProjectionVectorsWithEmbedder(ctx context.Context, brainDir string, now time.Time, e Embedder, batchRecords int) (memoryVectorSyncPass, bool, error) {
+	var pass memoryVectorSyncPass
+	if e == nil {
+		return pass, false, nil
+	}
+	if batchRecords <= 0 {
+		batchRecords = memoryVectorBatchRecords
+	}
+	epoch, manifest, err := captureMemoryVectorEpoch(brainDir)
+	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
+		return pass, false, err
+	}
+	privacyIdentity := manifest.Sources.History.PrivacyIdentity
+	if privacyIdentity != epoch.tombstoneIdentity && !(privacyIdentity == "" && epoch.tombstoneIdentity == "absent") {
+		return pass, true, fmt.Errorf("%s: history generation does not match the current privacy epoch", memoryErrSourceStale)
+	}
+	targetDigest := manifest.Sources.History.IndexDigest
+	prior, present, ownership, progressErr := loadMemoryVectorProgressWithOwnership(brainDir)
+	if progressErr != nil {
+		// Content-free progress is still durable state. Unknown-newer, unsafe,
+		// and corrupt leaves remain byte-for-byte read-only until an explicit
+		// repair/migration action replaces them.
+		return pass, true, progressErr
+	}
+	rawHistoryStore, ok := historyVectorStoreFor(brainDir, e)
+	if !ok {
+		return pass, false, nil
+	}
+	historyStore := &memoryGuardedVectorStore{brainDir: brainDir, epoch: epoch, ownership: ownership, store: rawHistoryStore}
+	var conversationStore historyVectorStore
+	if rawConversationStore, available := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim()); available {
+		conversationStore = &memoryGuardedVectorStore{brainDir: brainDir, epoch: epoch, ownership: ownership, store: rawConversationStore}
+	}
+	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	if err != nil {
+		return pass, false, err
+	}
+	needsReset := memoryVectorProgressNeedsReset(prior, present, e.ID(), targetDigest)
+	progress := memoryVectorProgress{ModelID: e.ID(), SourceDigest: targetDigest, UpdatedAt: now, Pending: true}
+	if !needsReset {
+		progress = prior
+		progress.HistoryAdded = 0
+		progress.ConversationAdded = 0
+		progress.ErrorCode = ""
+		progress.UpdatedAt = now
+	}
+	if needsReset {
+		// Persist the reset intent before deleting anything. A crash at any point
+		// leaves reset_complete=false, so the next pass finishes clearing stale
+		// vectors before it can treat stable IDs as reusable.
+		if err := saveMemoryVectorProgressAtEpochOwned(brainDir, epoch, ownership, progress); err != nil {
+			return pass, true, err
+		}
+		pass.HistoryDropped, err = clearMemoryVectorStore(ctx, historyStore)
+		if err != nil {
+			return pass, true, err
+		}
+		if conversationStore != nil {
+			pass.ConversationDrop, err = clearMemoryVectorStore(ctx, conversationStore)
+			if err != nil {
+				return pass, true, err
+			}
+		}
+		progress.ResetComplete = true
+		if err := saveMemoryVectorProgressAtEpochOwned(brainDir, epoch, ownership, progress); err != nil {
+			return pass, true, err
+		}
+	}
+	historyAdded, historyDropped, historyTotal, historyPending, syncErr := syncVectorsForKindsContextBatch(ctx, historyStore, index, e, historyGeneralRankingHiddenKind, func(r historyRecord) string { return r.Summary }, batchRecords)
+	pass.HistoryAdded = historyAdded
+	pass.HistoryDropped += historyDropped
+	pass.HistoryTotal = historyTotal
+	progress.HistoryAdded = historyAdded
+	remainingBudget := batchRecords - historyAdded
+	if remainingBudget < 0 {
+		remainingBudget = 0
+	}
+	conversationPending := false
+	if syncErr == nil && conversationStore != nil {
+		if remainingBudget == 0 {
+			conversationPending = vectorStoreHasMissing(conversationStore, index, conversationSemanticHiddenKind)
+		} else {
+			conversationAdded, conversationDropped, conversationTotal, pending, conversationErr := syncVectorsForKindsContextBatch(ctx, conversationStore, index, e, conversationSemanticHiddenKind, conversationEmbeddingText, remainingBudget)
+			pass.ConversationAdded = conversationAdded
+			pass.ConversationDrop += conversationDropped
+			pass.ConversationTotal = conversationTotal
+			progress.ConversationAdded = conversationAdded
+			conversationPending = pending
+			if conversationErr != nil {
+				syncErr = conversationErr
+			}
+		}
+	}
+	progress.Pending = historyPending || conversationPending || syncErr != nil
+	if syncErr != nil {
+		progress.ErrorCode = "memory_vector_sync_failed"
+	} else if !progress.Pending {
+		progress.CompleteSourceDigest = targetDigest
+	}
+	if progressErr := saveMemoryVectorProgressAtEpochOwned(brainDir, epoch, ownership, progress); progressErr != nil {
+		syncErr = errors.Join(syncErr, fmt.Errorf("memory_vector_progress_write_failed: %w", progressErr))
+	}
+	return pass, progress.Pending, syncErr
+}
+
+func syncMemoryProjectionVectorsFully(ctx context.Context, brainDir string, now time.Time, e Embedder, progress func(memoryVectorSyncPass)) (memoryVectorSyncPass, error) {
+	var total memoryVectorSyncPass
+	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+		pass, pending, err := syncMemoryProjectionVectorsWithEmbedder(ctx, brainDir, now, e, memoryVectorBatchRecords)
+		total.HistoryAdded += pass.HistoryAdded
+		total.HistoryDropped += pass.HistoryDropped
+		total.HistoryTotal = pass.HistoryTotal
+		total.ConversationAdded += pass.ConversationAdded
+		total.ConversationDrop += pass.ConversationDrop
+		total.ConversationTotal = pass.ConversationTotal
+		if progress != nil {
+			progress(total)
+		}
+		if err != nil {
+			return total, err
+		}
+		if !pending {
+			return total, nil
+		}
+		if pass.HistoryAdded+pass.ConversationAdded == 0 {
+			return total, errors.New("memory_vector_sync_failed: vector sync made no progress")
+		}
+	}
+}
+
+func runMemoryVectorLane(ctx context.Context, brainDir string, now time.Time, owner string) memoryWorkerStats {
+	var stats memoryWorkerStats
+	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
+		return stats
+	}
+	// This lane always runs after deterministic and abstract work. The overall
+	// deadline, in addition to each call timeout, caps coordinator occupancy and
+	// guarantees a prompt opportunity for shutdown or newly exported work.
+	laneCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	pending, err := syncMemoryProjectionVectors(laneCtx, brainDir, now)
+	stats.VectorPending = pending || errors.Is(laneCtx.Err(), context.DeadlineExceeded)
+	if err != nil {
+		stats.addHealthIssue("memory_vector_sync_failed")
+		if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_failed", owner); logErr != nil {
+			stats.addHealthIssue("memory_worker_log_write_failed")
+		}
+	} else if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_complete", owner); logErr != nil {
+		stats.addHealthIssue("memory_worker_log_write_failed")
+	}
+	return stats
+}
+
+func runMemoryAbstractLane(ctx context.Context, repoDir, brainDir string, now time.Time, owner string) (memoryWorkerStats, error) {
+	return runMemoryAbstractLaneWithClock(ctx, repoDir, brainDir, fixedMemoryClock(now), owner)
+}
+
+func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
+	var stats memoryWorkerStats
+	if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+		return stats, err
+	}
+	var claimed *memoryJob
+	claimAt := memoryClockNow(clock)
+	err := withBrainWriteLock(brainDir, func() error {
+		created, err := reconcileAbstractJobsLocked(brainDir, "worker", claimAt)
+		if err != nil {
+			return err
+		}
+		stats.JobsCreated = created
+		inventory := loadMemoryJobInventory(brainDir)
+		if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+			return err
+		}
+		jobs := inventory.Jobs
+		for _, candidate := range runnableMemoryJobs(jobs, claimAt) {
+			if candidate.Kind != memoryJobKindSessionAbstract {
+				continue
+			}
+			if candidate.State == memoryJobStateRetryable {
+				candidate, err = transitionMemoryJob(brainDir, candidate, memoryJobStatePending, claimAt, "")
+				if err != nil {
+					return err
+				}
+			}
+			running, err := transitionMemoryJob(brainDir, candidate, memoryJobStateRunning, claimAt, "")
+			if err != nil {
+				return err
+			}
+			running.OwnerToken = owner
+			heartbeat := claimAt
+			running.HeartbeatAt = &heartbeat
+			if err := saveMemoryJob(brainDir, running); err != nil {
+				return err
+			}
+			if request, err := loadMemoryCancellationRequest(brainDir, running.JobID); err != nil {
+				return err
+			} else if request != nil {
+				running.CancelRequestedAt = &request.RequestedAt
+				if _, err := transitionMemoryJob(brainDir, running, memoryJobStateCancelled, memoryClockNow(clock), ""); err != nil {
+					return err
+				}
+				if err := removeMemoryCancellationRequest(brainDir, running.JobID); err != nil {
+					return err
+				}
+				stats.JobsCancelled++
+				return nil
+			}
+			claimed = &running
+			break // one bounded abstract lane item per pass
+		}
+		return nil
+	})
+	if err != nil || claimed == nil {
+		return stats, err
+	}
+
+	// The provider holds only the dedicated privacy-side-effect lock. Ordinary
+	// Brain-locked deterministic work and cancellation requests can therefore
+	// continue while egress is in flight; privacy mutations serialize before
+	// their Brain lock so they cannot cross the irreversible provider boundary.
+	providerCtx, cancelProvider := context.WithCancel(ctx)
+	defer cancelProvider()
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runSessionAbstractJobGuardedWithOverride(providerCtx, repoDir, brainDir, claimed.SessionRef, claimed.InputDigest, claimAt, claimed.AbstractOverride, func() error {
+			current, err := memoryJobByID(brainDir, claimed.JobID)
+			if err != nil {
+				return err
+			}
+			if current.State != memoryJobStateRunning || current.OwnerToken != owner || !equalMemoryAbstractJobOverride(current.AbstractOverride, claimed.AbstractOverride) {
+				return fmt.Errorf("%s: abstract job ownership or provider selection changed before publication", memoryErrStateCorrupt)
+			}
+			request, err := loadMemoryCancellationRequest(brainDir, claimed.JobID)
+			if err != nil {
+				return err
+			}
+			if request != nil {
+				return errMemoryCancellationRequested
+			}
+			return nil
+		})
+	}()
+	runDeterministicPass := func() error {
+		pass, err := runMemoryProjectionLaneWithClock(ctx, brainDir, clock, owner)
+		stats.add(pass)
+		return err
+	}
+	ticker := time.NewTicker(memoryAbstractCancellationPollInterval)
+	defer ticker.Stop()
+	var runErr error
+	var deterministicErr error
+	waiting := true
+	for waiting {
+		select {
+		case runErr = <-runDone:
+			waiting = false
+		case <-ticker.C:
+			request, cancelErr := loadMemoryCancellationRequest(brainDir, claimed.JobID)
+			if cancelErr != nil {
+				deterministicErr = cancelErr
+				cancelProvider()
+				runErr = <-runDone
+				waiting = false
+				continue
+			}
+			if request != nil {
+				cancelProvider()
+				runErr = <-runDone
+				waiting = false
+				continue
+			}
+			if err := runDeterministicPass(); err != nil {
+				deterministicErr = err
+				cancelProvider()
+				runErr = <-runDone
+				waiting = false
+			}
+		case <-ctx.Done():
+			cancelProvider()
+			runErr = <-runDone
+			waiting = false
+		}
+	}
+	if deterministicErr == nil {
+		if err := runDeterministicPass(); err != nil {
+			deterministicErr = err
+		}
+	}
+	settleErr := runErr
+	if deterministicErr != nil {
+		settleErr = errors.Join(deterministicErr, runErr)
+	}
+	err = withBrainWriteLock(brainDir, func() error {
+		if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+			return err
+		}
+		settledAt := memoryClockNow(clock)
+		current, err := memoryJobByID(brainDir, claimed.JobID)
+		if err != nil {
+			return err
+		}
+		if current.State != memoryJobStateRunning || current.OwnerToken != owner {
+			return fmt.Errorf("memory_state_corrupt: abstract job ownership changed during execution")
+		}
+		cancelRequest, err := loadMemoryCancellationRequest(brainDir, current.JobID)
+		if err != nil {
+			return err
+		}
+		if errors.Is(settleErr, errMemoryCancellationRequested) || (cancelRequest != nil && settleErr != nil) {
+			requestedAt := settledAt
+			if cancelRequest != nil {
+				requestedAt = cancelRequest.RequestedAt
+			}
+			current.CancelRequestedAt = &requestedAt
+			_, err = transitionMemoryJob(brainDir, current, memoryJobStateCancelled, settledAt, "")
+			if err != nil {
+				return err
+			}
+			if err := removeMemoryCancellationRequest(brainDir, current.JobID); err != nil {
+				return err
+			}
+			stats.JobsCancelled++
+			return nil
+		}
+		if cancelRequest != nil {
+			if err := removeMemoryCancellationRequest(brainDir, current.JobID); err != nil {
+				return err
+			} // publish already committed: cancellation is too late
+		}
+		if settleErr != nil {
+			_, err = transitionMemoryJob(brainDir, current, memoryJobStateRetryable, settledAt, memoryOperationalError(settleErr))
+			if err == nil {
+				stats.JobsRetried++
+			}
+			return err
+		}
+		_, err = transitionMemoryJob(brainDir, current, memoryJobStateComplete, settledAt, "")
+		if err == nil {
+			stats.JobsCompleted++
+		}
+		return err
+	})
+	if err != nil {
+		return stats, err
+	}
+	if deterministicErr != nil {
+		return stats, settleErr
 	}
 	return stats, nil
 }
 
+func runMemoryAbstractDrain(ctx context.Context, repoDir, brainDir string, now time.Time, owner string, limit int) (memoryWorkerStats, error) {
+	return runMemoryAbstractDrainWithClock(ctx, repoDir, brainDir, fixedMemoryClock(now), owner, limit)
+}
+
+func runMemoryAbstractDrainWithClock(ctx context.Context, repoDir, brainDir string, clock memoryClock, owner string, limit int) (memoryWorkerStats, error) {
+	var total memoryWorkerStats
+	for i := 0; i < limit; i++ {
+		item, err := runMemoryAbstractLaneWithClock(ctx, repoDir, brainDir, clock, owner)
+		if err != nil {
+			return total, err
+		}
+		total.add(item)
+		if item.JobsCompleted+item.JobsRetried+item.JobsCancelled == 0 {
+			break
+		}
+	}
+	return total, nil
+}
+
 func newMemoryWorkerCommand(opts Options) *cobra.Command {
 	var once bool
+	var delay time.Duration
 	cmd := &cobra.Command{
 		Use:    "worker",
 		Short:  "Run one bounded deterministic projection pass (hidden; hints/watch/startup launch it)",
@@ -327,23 +1349,145 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			if !once {
 				return fmt.Errorf("only --once is supported")
 			}
+			if delay < 0 || delay > 2*time.Hour {
+				return fmt.Errorf("worker delay must be between 0 and 2h")
+			}
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
-			var stats memoryWorkerStats
-			if err := withBrainWriteLock(storage.BrainDir, func() error {
-				var runErr error
-				stats, runErr = runMemoryWorkerOnce(storage.BrainDir, opts.Now().UTC())
-				return runErr
-			}); err != nil {
+			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			if err != nil {
 				return err
+			}
+			if !local {
+				return fmt.Errorf("memory worker requires a local repository")
+			}
+			// Privacy policy is an input to every worker lane, including the
+			// export/delta prepass. Validate it before coordinator metadata or
+			// any derived state can be written.
+			if _, _, err := loadSessionTombstonesChecked(storage.BrainDir); err != nil {
+				return err
+			}
+			coordinator, err := acquireMemoryCoordinator(storage.BrainDir, opts.Now().UTC(), opts.Version)
+			if err != nil {
+				if strings.Contains(err.Error(), "memory_worker_active") {
+					return writeJSON(cmd, memoryWorkerStats{AlreadyActive: true})
+				}
+				return err
+			}
+			outcome := "complete"
+			var relaunchDelay *time.Duration
+			defer func() {
+				coordinator.close(opts.Now().UTC(), outcome)
+				if relaunchDelay != nil {
+					_ = memoryWorkerLaunchAfter(repoDir, *relaunchDelay)
+				}
+			}()
+			clock := memoryClock(opts.Now)
+			stopHeartbeat := coordinator.startHeartbeat(5*time.Second, clock)
+			heartbeatStopped := false
+			defer func() {
+				if !heartbeatStopped {
+					stopHeartbeat()
+				}
+			}()
+			if err := coordinator.heartbeat(opts.Now().UTC()); err != nil {
+				outcome = "failed"
+				return err
+			}
+			// A delayed retry owns the coordinator before it sleeps. This is the
+			// scheduler lease: repeated startup/watch notifications can launch
+			// contenders, but they fail fast instead of accumulating detached
+			// sleepers that all wake for the same retry.
+			if delay > 0 {
+				timer := time.NewTimer(delay)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+				case <-cmd.Context().Done():
+					outcome = "cancelled"
+					return cmd.Context().Err()
+				}
+			}
+			var stats memoryWorkerStats
+			if err := memoryWorkerPrepass(cmd.Context(), opts, repoDir); err != nil {
+				// The durable hint remains. Continue with already-exported work and
+				// schedule another bounded prepass instead of hiding the failure.
+				stats.PrepassFailed = true
+				_ = appendMemoryWorkerLog(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token)
+				retry := time.Minute
+				relaunchDelay = &retry
+			}
+			projectionStats, err := runMemoryProjectionLaneWithClock(cmd.Context(), storage.BrainDir, clock, coordinator.token)
+			if err != nil {
+				outcome = "failed"
+				return err
+			}
+			stats.add(projectionStats)
+			if err := coordinator.heartbeat(opts.Now().UTC()); err != nil {
+				outcome = "failed"
+				return err
+			}
+			const abstractJobsPerPass = 8
+			abstractStats, err := runMemoryAbstractDrainWithClock(cmd.Context(), repoDir, storage.BrainDir, clock, coordinator.token, abstractJobsPerPass)
+			if err != nil {
+				outcome = "failed"
+				return err
+			}
+			stats.add(abstractStats)
+			stats.add(runMemoryVectorLane(cmd.Context(), storage.BrainDir, opts.Now().UTC(), coordinator.token))
+			if stats.VectorPending {
+				vectorDelay := 100 * time.Millisecond
+				relaunchDelay = &vectorDelay
+			}
+			if next, ok, err := nextMemoryWorkerDelay(storage.BrainDir, opts.Now().UTC()); err != nil {
+				outcome = "failed"
+				return err
+			} else if ok && (relaunchDelay == nil || next < *relaunchDelay) {
+				relaunchDelay = &next
+			}
+			stopHeartbeat()
+			heartbeatStopped = true
+			for _, issue := range coordinator.healthIssuesSnapshot() {
+				stats.addHealthIssue(issue)
 			}
 			return writeJSON(cmd, stats)
 		},
 	}
 	cmd.Flags().BoolVar(&once, "once", false, "Run one pass and exit")
+	cmd.Flags().DurationVar(&delay, "delay", 0, "Delay before running (internal retry scheduler)")
 	return cmd
+}
+
+func (s *memoryWorkerStats) add(other memoryWorkerStats) {
+	s.JobsCreated += other.JobsCreated
+	s.JobsCompleted += other.JobsCompleted
+	s.JobsRetried += other.JobsRetried
+	s.JobsRecovered += other.JobsRecovered
+	s.JobsCancelled += other.JobsCancelled
+	s.JobsPruned += other.JobsPruned
+	s.HintsConsumed += other.HintsConsumed
+	s.AlreadyActive = s.AlreadyActive || other.AlreadyActive
+	s.PrepassFailed = s.PrepassFailed || other.PrepassFailed
+	s.VectorPending = s.VectorPending || other.VectorPending
+	s.HealthDegraded = s.HealthDegraded || other.HealthDegraded
+	for _, issue := range other.HealthIssues {
+		s.addHealthIssue(issue)
+	}
+}
+
+func (s *memoryWorkerStats) addHealthIssue(code string) {
+	if code == "" {
+		return
+	}
+	s.HealthDegraded = true
+	for _, existing := range s.HealthIssues {
+		if existing == code {
+			return
+		}
+	}
+	s.HealthIssues = append(s.HealthIssues, code)
 }
 
 func newMemoryReconcileCommand(opts Options) *cobra.Command {
@@ -357,12 +1501,8 @@ func newMemoryReconcileCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var created int
-			if err := withBrainWriteLock(storage.BrainDir, func() error {
-				var rerr error
-				created, rerr = reconcileMemoryJobsLocked(storage.BrainDir, "manual", opts.Now().UTC())
-				return rerr
-			}); err != nil {
+			created, err := reconcileMemoryJobs(cmd.Context(), storage.BrainDir, "manual", opts.Now().UTC())
+			if err != nil {
 				return err
 			}
 			if jsonOut {
@@ -396,31 +1536,35 @@ func newMemoryStatusCommand(opts Options) *cobra.Command {
 			if manifest.Sources != nil {
 				source = manifest.Sources.History
 			}
-			receipts, receiptsOK := loadProjectionState(brainDir, source)
-			jobs := loadMemoryJobs(brainDir)
-			byState := map[string]int{}
-			for _, job := range jobs {
-				byState[job.State]++
+			payload := memoryAggregateHealth(brainDir, source)
+			if coordinator, coordinatorErr := loadMemoryCoordinatorState(brainDir); coordinatorErr == nil {
+				payload["coordinator"] = memoryCoordinatorHealth(coordinator, opts.Now().UTC())
 			}
-			payload := map[string]any{
-				"hints":            len(loadMemoryHints(brainDir)),
-				"jobs_by_state":    byState,
-				"receipts":         len(receipts.Sessions),
-				"receipts_current": receiptsOK,
-				"install":          memoryInstallHealth(brainDir),
-				"migrations":       detectMemoryMigrations(brainDir, source),
-			}
-			if receiptsOK {
-				payload["receipts_generated_at"] = receipts.GeneratedAt.UTC().Format(time.RFC3339)
+			if projection, ok := payload["projection_receipts"].(map[string]any); ok {
+				if generated, ok := projection["generated_at"]; ok {
+					payload["receipts_generated_at"] = generated
+				}
 			}
 			if jsonOut {
 				return writeJSON(cmd, payload)
 			}
 			return writeText(cmd, func(out io.Writer) {
 				fmt.Fprintf(out, "hints: %d\n", payload["hints"])
-				fmt.Fprintf(out, "receipts: %d (current: %v)\n", len(receipts.Sessions), receiptsOK)
-				for state, count := range byState {
+				fmt.Fprintf(out, "receipts: %v (current: %v)\n", payload["receipts"], payload["receipts_current"])
+				byState, _ := payload["jobs_by_state"].(map[string]int)
+				states := make([]string, 0, len(byState))
+				for state := range byState {
+					states = append(states, state)
+				}
+				sort.Strings(states)
+				for _, state := range states {
+					count := byState[state]
 					fmt.Fprintf(out, "jobs %s: %d\n", state, count)
+				}
+				if issues, ok := payload["state_issues"].([]memoryHealthIssue); ok {
+					for _, issue := range issues {
+						fmt.Fprintf(out, "%s %s: %s (%s)\n", issue.Code, issue.Path, issue.Kind, issue.Action)
+					}
 				}
 			})
 		},
@@ -430,47 +1574,116 @@ func newMemoryStatusCommand(opts Options) *cobra.Command {
 }
 
 func newMemoryJobsCommand(opts Options) *cobra.Command {
-	var state string
+	var state, sessionRef, sessionID, kind string
+	var limit int
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "jobs",
 		Short: "List content-free work metadata",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if limit < 1 || limit > 1000 {
+				return fmt.Errorf("limit must be between 1 and 1000")
+			}
+			if kind != "" && !validMemoryJobKind(kind) {
+				return fmt.Errorf("unknown memory job kind %q", kind)
+			}
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
-			jobs := loadMemoryJobs(storage.BrainDir)
-			if state != "" {
-				kept := jobs[:0:0]
-				for _, job := range jobs {
-					if job.State == state {
-						kept = append(kept, job)
-					}
+			// This is a deliberately partial leaf-read surface: directory names
+			// are inventoried to the shared ceiling, but job files are opened only
+			// until the requested number of matching records has been decoded.
+			inventory := loadMemoryJobInventoryPage(storage.BrainDir, limit, func(job memoryJob) bool {
+				if state != "" && job.State != state {
+					return false
 				}
-				jobs = kept
+				if sessionRef != "" && job.SessionRef != sessionRef {
+					return false
+				}
+				if sessionID != "" && job.SessionID != sessionID {
+					return false
+				}
+				return kind == "" || job.Kind == kind
+			})
+			jobs := inventory.Jobs
+			if len(jobs) > limit {
+				jobs = jobs[:limit]
 			}
 			if jobs == nil {
 				jobs = []memoryJob{}
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"jobs": jobs})
+				return writeJSON(cmd, map[string]any{"jobs": jobs, "state_issues": inventory.Issues, "inventory_entries_observed": inventory.EntriesObserved, "inventory_entries_scanned": inventory.EntriesScanned, "inventory_truncated": inventory.Truncated, "inventory_scan_complete": inventory.ScanComplete, "inventory_degraded": inventory.Degraded})
 			}
 			return writeText(cmd, func(out io.Writer) {
 				for _, job := range jobs {
-					fmt.Fprintf(out, "%-16s %s  session %s  attempt %d  %s\n", job.State, job.JobID, job.SessionID, job.Attempt, job.Error)
+					errorCode := ""
+					if job.Error != nil {
+						errorCode = job.Error.Code
+					}
+					fmt.Fprintf(out, "%-16s %s  session %s  attempt %d  %s\n", job.State, job.JobID, job.SessionID, job.Attempt, errorCode)
+				}
+				for _, issue := range inventory.Issues {
+					fmt.Fprintf(out, "%-16s %s  %s\n", issue.Code, issue.File, "left untouched")
+				}
+				if !inventory.ScanComplete {
+					fmt.Fprintf(out, "showing a bounded partial inventory (%d entries observed, %d leaves scanned)\n", inventory.EntriesObserved, inventory.EntriesScanned)
 				}
 			})
 		},
 	}
 	cmd.Flags().StringVar(&state, "state", "", "Filter by job state")
+	cmd.Flags().StringVar(&sessionRef, "session-ref", "", "Filter by canonical session reference")
+	cmd.Flags().StringVar(&sessionID, "session-id", "", "Filter by raw session id")
+	cmd.Flags().StringVar(&kind, "kind", "", "Filter by job kind")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum jobs to return (1-1000)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
 
+func memoryJobsForSelector(brainDir, jobID, sessionRef string) ([]memoryJob, error) {
+	jobID = strings.TrimSpace(jobID)
+	sessionRef = strings.TrimSpace(sessionRef)
+	if (jobID == "") == (sessionRef == "") {
+		return nil, fmt.Errorf("provide exactly one job id or --session-ref")
+	}
+	inventory := loadMemoryJobInventory(brainDir)
+	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+		return nil, err
+	}
+	if jobID != "" {
+		if issue, affected := inventory.issueForJobID(jobID); affected {
+			return nil, &memoryStateLoadError{Issues: []memoryStateIssue{issue}}
+		}
+	} else if issue, affected := inventory.issueForSessionRef(sessionRef); affected {
+		return nil, &memoryStateLoadError{Issues: []memoryStateIssue{issue}}
+	}
+	var selected []memoryJob
+	for _, job := range inventory.Jobs {
+		if (jobID != "" && job.JobID == jobID) || (sessionRef != "" && job.SessionRef == sessionRef) {
+			selected = append(selected, job)
+		}
+	}
+	if len(selected) == 0 {
+		if jobID != "" {
+			return nil, fmt.Errorf("job %s not found", jobID)
+		}
+		return nil, fmt.Errorf("no jobs found for session-ref %s", sessionRef)
+	}
+	return selected, nil
+}
+
 func memoryJobByID(brainDir, jobID string) (memoryJob, error) {
-	for _, job := range loadMemoryJobs(brainDir) {
+	inventory := loadMemoryJobInventory(brainDir)
+	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+		return memoryJob{}, err
+	}
+	if issue, affected := inventory.issueForJobID(jobID); affected {
+		return memoryJob{}, &memoryStateLoadError{Issues: []memoryStateIssue{issue}}
+	}
+	for _, job := range inventory.Jobs {
 		if job.JobID == jobID {
 			return job, nil
 		}
@@ -478,57 +1691,111 @@ func memoryJobByID(brainDir, jobID string) (memoryJob, error) {
 	return memoryJob{}, fmt.Errorf("job %s not found", jobID)
 }
 
+func requestRunningMemoryJobCancellationVerified(brainDir string, observed memoryJob, now time.Time) error {
+	return withBrainWriteLock(brainDir, func() error {
+		current, err := memoryJobByID(brainDir, observed.JobID)
+		if err != nil {
+			return err
+		}
+		if current.State != memoryJobStateRunning || current.OwnerToken != observed.OwnerToken {
+			if err := removeMemoryCancellationRequest(brainDir, observed.JobID); err != nil {
+				return err
+			}
+			return fmt.Errorf("%s: job %s already crossed its commit boundary", memoryErrCancelTooLate, observed.JobID)
+		}
+		_, err = requestMemoryJobCancellation(brainDir, current, now)
+		return err
+	})
+}
+
 func newMemoryRetryCommand(opts Options) *cobra.Command {
+	var sessionRef string
 	cmd := &cobra.Command{
-		Use:   "retry <job-id>",
+		Use:   "retry [job-id]",
 		Short: "Move an eligible failed or invalid job back to pending (attempt history retained)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
 			return withBrainWriteLock(storage.BrainDir, func() error {
-				job, err := memoryJobByID(storage.BrainDir, args[0])
+				jobID := ""
+				if len(args) == 1 {
+					jobID = args[0]
+				}
+				jobs, err := memoryJobsForSelector(storage.BrainDir, jobID, sessionRef)
 				if err != nil {
 					return err
 				}
-				if job.State != memoryJobStateRetryable && job.State != memoryJobStateInvalid {
-					return fmt.Errorf("job %s is %s; only retryable_error or invalid jobs can be retried", job.JobID, job.State)
+				eligible := 0
+				for _, job := range jobs {
+					if job.State != memoryJobStateRetryable && job.State != memoryJobStateInvalid {
+						continue
+					}
+					job.AvailableAt = opts.Now().UTC()
+					if _, err = transitionMemoryJob(storage.BrainDir, job, memoryJobStatePending, opts.Now().UTC(), ""); err != nil {
+						return err
+					}
+					eligible++
 				}
-				job.AvailableAt = opts.Now().UTC()
-				_, err = transitionMemoryJob(storage.BrainDir, job, memoryJobStatePending, opts.Now().UTC(), "")
-				return err
+				if eligible == 0 {
+					return fmt.Errorf("no retryable_error or invalid jobs matched")
+				}
+				return nil
 			})
 		},
 	}
+	cmd.Flags().StringVar(&sessionRef, "session-ref", "", "Retry eligible jobs for this canonical session reference")
 	return cmd
 }
 
 func newMemoryCancelCommand(opts Options) *cobra.Command {
+	var sessionRef string
 	cmd := &cobra.Command{
-		Use:   "cancel <job-id>",
+		Use:   "cancel [job-id]",
 		Short: "Cancel eligible pending or failed work",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
-			return withBrainWriteLock(storage.BrainDir, func() error {
-				job, err := memoryJobByID(storage.BrainDir, args[0])
+			jobID := ""
+			if len(args) == 1 {
+				jobID = args[0]
+			}
+			err = withBrainWriteLock(storage.BrainDir, func() error {
+				jobs, err := memoryJobsForSelector(storage.BrainDir, jobID, sessionRef)
 				if err != nil {
 					return err
 				}
-				switch job.State {
-				case memoryJobStatePending, memoryJobStateRetryable, memoryJobStateInvalid:
-					_, err = transitionMemoryJob(storage.BrainDir, job, memoryJobStateCancelled, opts.Now().UTC(), "")
-					return err
-				default:
-					return fmt.Errorf("job %s is %s and cannot be cancelled", job.JobID, job.State)
+				eligible := 0
+				for _, job := range jobs {
+					switch job.State {
+					case memoryJobStatePending, memoryJobStateRetryable, memoryJobStateInvalid:
+						_, err = transitionMemoryJob(storage.BrainDir, job, memoryJobStateCancelled, opts.Now().UTC(), "")
+					case memoryJobStateRunning:
+						_, err = requestMemoryJobCancellation(storage.BrainDir, job, opts.Now().UTC())
+					default:
+						if err := removeMemoryCancellationRequest(storage.BrainDir, job.JobID); err != nil {
+							return err
+						}
+						continue
+					}
+					if err != nil {
+						return err
+					}
+					eligible++
 				}
+				if eligible == 0 {
+					return fmt.Errorf("no cancellable jobs matched")
+				}
+				return nil
 			})
+			return err
 		},
 	}
+	cmd.Flags().StringVar(&sessionRef, "session-ref", "", "Cancel eligible jobs for this canonical session reference")
 	return cmd
 }

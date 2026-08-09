@@ -18,7 +18,24 @@ func openCorpus(t *testing.T, brainDir string) *sql.DB {
 	return db
 }
 
-func corpusCount(t *testing.T, db *sql.DB, table string) int {
+// openCorpusReadSnapshot follows the production reader contract: each call
+// pins one immutable published generation. Tests that rebuild must close and
+// reopen it to observe the newly published generation.
+func openCorpusReadSnapshot(t *testing.T, brainDir string) *patternCorpusReadDB {
+	t.Helper()
+	db, err := openPatternCorpusReadDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+type corpusRowQueryer interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func corpusCount(t *testing.T, db corpusRowQueryer, table string) int {
 	t.Helper()
 	var n int
 	if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
@@ -41,7 +58,7 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	db := openCorpus(t, brainDir)
+	db := openCorpusReadSnapshot(t, brainDir)
 	ep1 := corpusCount(t, db, "episodes")
 	cmd1 := corpusCount(t, db, "episode_commands")
 	gram1 := corpusCount(t, db, "grams")
@@ -53,9 +70,11 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 	}
 
 	// Idempotent: a second build over unchanged input duplicates nothing.
+	_ = db.Close()
 	if err := buildPatternCorpus(brainDir, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	db = openCorpusReadSnapshot(t, brainDir)
 	if ep2 := corpusCount(t, db, "episodes"); ep2 != ep1 {
 		t.Errorf("episodes after re-build = %d, want %d (no duplication)", ep2, ep1)
 	}
@@ -63,13 +82,22 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 		t.Errorf("episode_commands after re-build = %d, want %d", cmd2, cmd1)
 	}
 
-	// An indexer-version bump forces a clean re-index (no duplication).
-	if _, err := db.Exec(`UPDATE meta SET value='0' WHERE key='pattern_indexer_version'`); err != nil {
+	// An indexer-version bump forces a clean re-index (no duplication). Apply
+	// the fixture mutation through the same private-staging publisher used by
+	// production; never write through the live SQLite pathname.
+	_ = db.Close()
+	if err := withBrainWriteLock(brainDir, func() error {
+		return withPatternCorpusMutationLocked(brainDir, func(staged *sql.DB) error {
+			_, err := staged.Exec(`UPDATE meta SET value='0' WHERE key='pattern_indexer_version'`)
+			return err
+		})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := buildPatternCorpus(brainDir, now.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	db = openCorpusReadSnapshot(t, brainDir)
 	if ep3 := corpusCount(t, db, "episodes"); ep3 != ep1 {
 		t.Errorf("episodes after version-bump rebuild = %d, want %d", ep3, ep1)
 	}
@@ -83,7 +111,7 @@ func TestPatternCorpusChangedSessionReplaces(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	db := openCorpus(t, brainDir)
+	db := openCorpusReadSnapshot(t, brainDir)
 	before := corpusCount(t, db, "episodes")
 
 	// Rewrite the transcript with a single user turn → one episode, no commands.
@@ -91,9 +119,11 @@ func TestPatternCorpusChangedSessionReplaces(t *testing.T) {
 	if err := os.WriteFile(tp, []byte(`{"type":"event_msg","payload":{"type":"user_message","message":"just one request now"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	_ = db.Close()
 	if err := buildPatternCorpus(brainDir, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	db = openCorpusReadSnapshot(t, brainDir)
 	after := corpusCount(t, db, "episodes")
 	if after >= before {
 		t.Errorf("changed session should replace rows: before=%d after=%d", before, after)
@@ -113,7 +143,7 @@ func TestPatternCorpusPrunesDeletedSession(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	db := openCorpus(t, brainDir)
+	db := openCorpusReadSnapshot(t, brainDir)
 	if n := corpusCount(t, db, "indexed_sessions"); n != 2 {
 		t.Fatalf("indexed_sessions=%d, want 2", n)
 	}
@@ -127,9 +157,11 @@ func TestPatternCorpusPrunesDeletedSession(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
+	_ = db.Close()
 	if err := buildPatternCorpus(brainDir, now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	db = openCorpusReadSnapshot(t, brainDir)
 	if n := corpusCount(t, db, "indexed_sessions"); n != 1 {
 		t.Errorf("indexed_sessions after prune = %d, want 1", n)
 	}

@@ -16,8 +16,9 @@ import (
 )
 
 // watch keeps the brain fresh automatically. Token-frugality is structural, not a quota:
-// the deterministic refresh (sessions + semantic index + history index, seed agent ALWAYS "none") spends
-// ZERO agent tokens and runs whenever the checkpoint/HEAD fingerprint changes. The ONLY token-spending
+// the deterministic refresh (sessions + semantic index + durable history reconciliation, seed agent
+// ALWAYS "none") spends ZERO agent tokens and runs whenever the checkpoint/HEAD fingerprint changes.
+// The ONLY token-spending
 // work — distill and/or agent seed synthesis (--seed-agent) — is OFF by default and, when enabled, runs
 // at most once per --distill-every, on the cheap --model/--effort, capped by --budget, and a persisted
 // cursor means a restart never re-spends within the interval. Both token steps share the one gate, so
@@ -65,10 +66,14 @@ type watchSteps struct {
 	// gate, so an in-flight session's turns are recallable near-real-time; the
 	// full refresh below is consolidation and is throttled by
 	// --consolidate-every unless the delta reports the buffer full.
-	delta   func(context.Context) (shortTermStats, error)
-	refresh func(context.Context) error
-	seed    func(context.Context) error
-	distill func(context.Context) error
+	delta func(context.Context) (shortTermStats, error)
+	// reconcile durably queues long-term conversation work independently of
+	// the git/checkpoint fingerprint. Exported transcripts can change while
+	// that fingerprint stays stable (for example, a late host export).
+	reconcile func(context.Context) error
+	refresh   func(context.Context) error
+	seed      func(context.Context) error
+	distill   func(context.Context) error
 }
 
 // defaultWatchOptions are the shared defaults for `watch` and `workspace watch`.
@@ -186,19 +191,32 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	// failure just means the long-term path repairs freshness later.
 	bufferFull := false
 	deltaHealthy := false
+	deltaNeedsReconcile := false
 	if steps.delta != nil {
 		stats, err := steps.delta(ctx)
 		if err != nil {
+			deltaNeedsReconcile = true
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
 			// A delta that failed to scan any transcript did NOT fully carry
 			// the new work, so it must not defer consolidation (R0-6).
 			deltaHealthy = stats.Failed == 0
 			bufferFull = stats.Truncated
+			deltaNeedsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
 			if stats.Failed > 0 {
 				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; consolidation will repair\n", stats.Failed)
 			}
+		}
+	}
+	// Delta state is itself a source-change signal. Do this before the git
+	// fingerprint gate so a changed/failed/overflowed export is never stranded
+	// in the short-term overlay waiting for an unrelated commit or restart.
+	if deltaNeedsReconcile && steps.reconcile != nil {
+		if err := steps.reconcile(ctx); err != nil {
+			fmt.Fprintf(out, "[watch] memory reconciliation failed (durable overlay retained): %v\n", err)
+		} else {
+			fmt.Fprintln(out, "[watch] long-term memory reconciliation queued")
 		}
 	}
 	cursor := loadWatchCursor(cursorPath)
@@ -276,9 +294,16 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 		now:         now,
 		fingerprint: func(c context.Context) string { return watchFingerprint(c, opts.Runner, repoDir) },
 		delta:       func(c context.Context) (shortTermStats, error) { return watchShortTermDelta(c, cmd, opts, repoDir) },
-		refresh:     func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
-		seed:        func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
-		distill:     func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
+		reconcile: func(c context.Context) error {
+			_, warning, err := reconcileMemoryAndLaunch(c, opts, repoDir, "watch")
+			if warning != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
+			}
+			return err
+		},
+		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
+		seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
+		distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
 	}
 }
 
@@ -382,9 +407,10 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 	return rev(v1MainRef) + ":" + rev(v1OriginRef) + ":" + rev("HEAD")
 }
 
-// watchDeterministicRefresh refreshes sessions + semantic + history index with the seed agent ALWAYS
-// "none" — so it spends ZERO agent tokens and is safe to run on every change. Agent seed synthesis is a
-// separate, gated step (watchSeed). It reuses runRefresh, pointing it at repoDir via the env.
+// watchDeterministicRefresh refreshes sessions + semantic state with the seed
+// agent ALWAYS "none", then durably reconciles long-term conversation work.
+// The coordinator owns projection publication, retries, and crash recovery;
+// watch only nudges it. Agent seed synthesis remains a separate gated step.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
@@ -394,8 +420,11 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 		entireBinary:    "entire",
 		graphBinary:     "entire",
 		scope:           exportScopeAll,
-		historyIndex:    true,
-		semantic:        true,
+		// The history projection must not bypass the durable C3 ledger. The
+		// per-tick delta above already makes new conversations recallable while
+		// the coordinator consolidates asynchronously.
+		historyIndex: false,
+		semantic:     true,
 		seed: seedCommandOptions{
 			includeTests:       true,
 			maxFileBytes:       defaultSeedMaxFileBytes,
@@ -412,7 +441,14 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())
 	sub.SetErr(cmd.ErrOrStderr())
-	return runRefresh(ctx, sub, perRepo, refreshOpts)
+	if err := runRefresh(ctx, sub, perRepo, refreshOpts); err != nil {
+		return err
+	}
+	_, warning, err := reconcileMemoryAndLaunch(ctx, perRepo, repoDir, "watch")
+	if warning != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
+	}
+	return err
 }
 
 // watchSeed is the GATED agent seed synthesis step: it re-synthesizes the seed on the cheap --model/

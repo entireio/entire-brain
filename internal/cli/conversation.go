@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -130,20 +131,50 @@ type conversationScanResult struct {
 // contract; episodes keep raw work text for commit detection. Keep the dialect
 // switches in sync when adding a transcript format.
 func scanConversationTranscript(path string) (conversationScanResult, error) {
-	f, err := os.Open(path)
+	return scanConversationTranscriptContext(context.Background(), path)
+}
+
+func scanConversationTranscriptContext(ctx context.Context, path string) (conversationScanResult, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return conversationScanResult{}, err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return conversationScanResult{}, fmt.Errorf("transcript is not a regular file: %s", path)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return conversationScanResult{}, err
 	}
 	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return conversationScanResult{}, fmt.Errorf("transcript changed or became unsafe while opening: %s", path)
+	}
+	result, scanErr := scanConversationTranscriptFileContext(ctx, f, path)
+	after, statErr := os.Lstat(path)
+	if statErr != nil || after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || !os.SameFile(opened, after) || after.Size() != opened.Size() || !after.ModTime().Equal(opened.ModTime()) {
+		return conversationScanResult{}, fmt.Errorf("transcript changed or became unsafe while reading: %s", path)
+	}
+	return result, scanErr
+}
+
+func scanConversationTranscriptFileContext(ctx context.Context, f io.ReadSeeker, path string) (conversationScanResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return conversationScanResult{}, err
+	}
 	probe := make([]byte, 4096)
-	n, readErr := f.Read(probe)
+	n, readErr := contextCheckingReader{ctx: ctx, r: f}.Read(probe)
 	if readErr != nil && readErr != io.EOF {
 		return conversationScanResult{}, readErr
 	}
 	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe[:n])), "\n")
 	if strings.HasPrefix(firstLine, "{") && !json.Valid([]byte(firstLine)) {
 		// Document-form candidate: one pretty-printed JSON document.
-		data, err := safeReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f), maxDocumentTranscriptBytes, "document transcript "+path)
+		data, err := safeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, maxDocumentTranscriptBytes, "document transcript "+path)
 		if err != nil {
 			return conversationScanResult{}, err
 		}
@@ -154,20 +185,24 @@ func scanConversationTranscript(path string) (conversationScanResult, error) {
 		}
 		// Not our document shape: fall through to the line scanner over the
 		// already-read bytes.
-		return scanLineConversation(bytes.NewReader(data))
+		return scanLineConversationContext(ctx, bytes.NewReader(data))
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return conversationScanResult{}, err
 	}
-	return scanLineConversation(f)
+	return scanLineConversationContext(ctx, f)
 }
 
 // scanLineConversation walks a line-oriented transcript, hashing the exact
 // bytes it consumes so the stored source digest can later prove the expansion
 // re-parses the same content.
 func scanLineConversation(r io.Reader) (conversationScanResult, error) {
+	return scanLineConversationContext(context.Background(), r)
+}
+
+func scanLineConversationContext(ctx context.Context, r io.Reader) (conversationScanResult, error) {
 	hasher := sha256.New()
-	scanner := bufio.NewScanner(io.TeeReader(r, hasher))
+	scanner := bufio.NewScanner(io.TeeReader(contextCheckingReader{ctx: ctx, r: r}, hasher))
 	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
 
 	var result conversationScanResult
@@ -187,6 +222,9 @@ func scanLineConversation(r io.Reader) (conversationScanResult, error) {
 		open = nil
 	}
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return conversationScanResult{}, err
+		}
 		lineNumber++
 		text := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(text, "{") {
@@ -568,13 +606,13 @@ type conversationExpansion struct {
 func validateConversationSourcePath(brainDir, rel string) (string, error) {
 	clean := filepath.Clean(filepath.FromSlash(rel))
 	if filepath.ToSlash(clean) != rel || filepath.IsAbs(clean) {
-		return "", fmt.Errorf("conversation source path must be canonical brain-relative: %s", rel)
+		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must be canonical and Brain-relative"}
 	}
 	if !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
-		return "", fmt.Errorf("conversation source path must be under %s/: %s", exportSessionsDirectory, rel)
+		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must remain under sessions/"}
 	}
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return "", err
+		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path is unsafe", Err: err}
 	}
 	return filepath.Join(brainDir, clean), nil
 }
@@ -593,20 +631,36 @@ var errConversationSourceTooLarge = errors.New("conversation source transcript e
 // errConversationSourceStale rather than presenting re-parsed content as the
 // indexed exchange.
 func expandConversationExchange(brainDir string, record historyRecord) (conversationExpansion, error) {
-	path, err := validateConversationSourcePath(brainDir, record.Path)
+	return expandConversationExchangeContext(context.Background(), brainDir, record)
+}
+
+func expandConversationExchangeContext(ctx context.Context, brainDir string, record historyRecord) (expansion conversationExpansion, returnErr error) {
+	_, err := validateConversationSourcePath(brainDir, record.Path)
 	if err != nil {
 		return conversationExpansion{}, err
 	}
-	f, err := os.Open(path)
+	f, finish, err := openCanonicalHistoryTranscript(ctx, brainDir, record.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return conversationExpansion{}, errConversationSourceStale
 		}
 		return conversationExpansion{}, err
 	}
-	defer f.Close()
+	defer func() {
+		if finishErr := finish(); returnErr == nil && finishErr != nil {
+			expansion = conversationExpansion{}
+			returnErr = finishErr
+		}
+	}()
+	info, statErr := f.Stat()
+	if statErr != nil {
+		return conversationExpansion{}, statErr
+	}
+	if info.Size() > maxDocumentTranscriptBytes {
+		return conversationExpansion{}, fmt.Errorf("%w: document transcript %s exceeds maximum size of %d bytes", errConversationSourceTooLarge, record.Path, maxDocumentTranscriptBytes)
+	}
 	hasher := sha256.New()
-	br := bufio.NewReaderSize(io.TeeReader(f, hasher), 64*1024)
+	br := bufio.NewReaderSize(io.TeeReader(contextCheckingReader{ctx: ctx, r: f}, hasher), 64*1024)
 
 	// Bounded probe for the transcript dialect, mirroring index-time scanning:
 	// a first line that starts with "{" but is not one valid JSON object marks
@@ -636,7 +690,7 @@ func expandConversationExchange(brainDir string, record historyRecord) (conversa
 		return expandLineConversationRange(bytes.NewReader(data), record)
 	}
 
-	expansion, err := expandLineConversationRange(br, record)
+	expansion, err = expandLineConversationRange(br, record)
 	if err != nil {
 		return conversationExpansion{}, err
 	}

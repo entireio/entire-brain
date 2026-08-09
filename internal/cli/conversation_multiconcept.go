@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -17,14 +16,24 @@ const (
 	// conversationConceptsMaxTotal bounds primary query plus extra concepts.
 	conversationConceptsMaxTotal = 5
 	conversationConceptMaxBytes  = 512
-	// conversationConceptScanCeiling is the per-concept complete-enumeration
-	// bound for lexical mode; past it the query is memory_query_too_broad
-	// rather than silently partial AND semantics.
-	conversationConceptScanCeiling = 10000
+	// conversationConceptResultMax is shared by the core, CLI, workspace,
+	// and MCP transports. It bounds candidate/result allocations before any
+	// ranking work starts; transport byte budgets are enforced separately on
+	// the exact serialized response shape.
+	conversationConceptResultMax = 50
 	// conversationConceptResponseMaxBytes caps the complete multi-concept
 	// response; whole tail results drop, never a cut record.
 	conversationConceptResponseMaxBytes = 128 * 1024
 )
+
+// conversationConceptScanCeiling is a var so focused tests can prove the
+// overflow contract without building ten thousand-record fixtures.
+var conversationConceptScanCeiling = 10000
+
+// conversationMultiConceptEmbedder is a narrow test seam: production always
+// resolves the configured process embedder, while the vec0 integration test
+// can exercise the complete hybrid path with deterministic vectors.
+var conversationMultiConceptEmbedder = defaultEmbedder
 
 // conceptMatch names the best supporting exchange for one concept inside a
 // matching session.
@@ -40,6 +49,9 @@ type conceptMatch struct {
 // concepts: whitespace-normalized, case-insensitively deduplicated, bounded,
 // two to five total. Every violation is a structured input error.
 func normalizeConversationConcepts(query string, extras []string) ([]string, error) {
+	if len(extras) > conversationConceptsMaxTotal-1 {
+		return nil, fmt.Errorf("multi-concept search takes at most %d additional concepts (got %d)", conversationConceptsMaxTotal-1, len(extras))
+	}
 	all := append([]string{query}, extras...)
 	seen := map[string]bool{}
 	out := make([]string, 0, len(all))
@@ -80,12 +92,12 @@ type conceptRankList struct {
 // (memory_query_too_broad) beyond it; vector and hybrid modes are explicitly
 // approximate but never violate filters.
 func retrieveConversationMultiConcept(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+	if err := validateRetrievalLimit(limit); err != nil {
+		return nil, err
+	}
 	concepts, err := normalizeConversationConcepts(query, opts.Concepts)
 	if err != nil {
 		return nil, err
-	}
-	if limit <= 0 {
-		limit = 10
 	}
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -101,8 +113,11 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	if err != nil {
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
-	guard := loadSessionReadGuard(brainDir, manifest)
-	winners := fresh.duplicateIDWinners()
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return nil, err
+	}
+	winners := fresh.duplicateRecordWinners()
 	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
 	// The predicate is always non-nil here: complete enumeration rides the
 	// same exhaustive-scan machinery as filtered single-concept search.
@@ -110,7 +125,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		if guard.blocksRecord(r) {
 			return false
 		}
-		if w, ok := winners[r.ID]; ok && !sameRecordCopy(w, r) {
+		if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
 			return false
 		}
 		if !filtered {
@@ -120,7 +135,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	}
 
 	semanticAvailable := func() (map[string]float64, bool) {
-		scores := conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(defaultEmbedder()), concepts[0], mode == modeHybrid)
+		scores := conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(conversationMultiConceptEmbedder()), concepts[0], mode == modeHybrid)
 		return scores, len(scores) > 0
 	}
 
@@ -128,7 +143,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		list := conceptRankList{concept: concept}
 		switch mode {
 		case modeVector:
-			scores := conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(defaultEmbedder()), concept, false)
+			scores := conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(conversationMultiConceptEmbedder()), concept, false)
 			if len(scores) == 0 {
 				return list, errConversationVectorUnsupported
 			}
@@ -141,12 +156,18 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		case modeHybrid:
 			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
 				if _, ok := semanticAvailable(); ok {
-					fused, complete, ok := rankConversationFused(brainDir, fresh.index, concept, conversationConceptScanCeiling/4, defaultEmbedder(), pred)
-					if ok {
+					complete := true
+					embedder := conversationMultiConceptEmbedder()
+					fused := rankFreshHistory(fresh, conversationKind, concept, conversationConceptScanCeiling/4, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+						ranked, conceptComplete, rankOK := rankConversationFused(brainDir, longTerm, concept, conversationConceptScanCeiling/4, embedder, pred)
+						complete = conceptComplete
+						return ranked, rankOK
+					})
+					if len(fused) > 0 {
 						if !complete {
 							return list, errConversationConceptTooBroad(concept)
 						}
-						list.ranked = filterScoredByPathReplacement(fused, fresh)
+						list.ranked = fused
 						list.arm = "fused"
 						list.approximate = true
 						return list, nil
@@ -155,16 +176,15 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 			}
 			fallthrough
 		default:
-			complete := true
-			list.ranked = rankFreshHistory(fresh, conversationKind, concept, conversationConceptScanCeiling, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-				lex, lexComplete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, concept, conversationConceptScanCeiling, 0, pred)
-				if !lexComplete {
-					complete = false
-				}
-				return lex, ok
+			var exhaustiveState historyExhaustiveRankState
+			list.ranked, exhaustiveState = rankFreshHistoryExhaustive(fresh, conversationKind, concept, conversationConceptScanCeiling, pred, func(longTerm historyIndex, longTermPred func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int) {
+				return rankHistoryViaFTSExhaustiveFiltered(brainDir, longTerm, conversationKind, concept, conversationConceptScanCeiling, longTermPred)
 			})
-			if !complete {
+			if exhaustiveState == historyExhaustiveRankCandidateOverflow {
 				return list, errConversationConceptTooBroad(concept)
+			}
+			if exhaustiveState == historyExhaustiveRankRawScanOverflow {
+				return list, errConversationConceptRawScanTooBroad(concept)
 			}
 			list.arm = "lexical"
 			return list, nil
@@ -257,8 +277,6 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	}
 
 	out := make([]unifiedResult, 0, len(sessions))
-	totalBytes := 0
-	truncated := false
 	for _, session := range sessions {
 		result := unifiedResult{
 			Source:               retrievalSourceConversation,
@@ -275,40 +293,22 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 			RankSum:              session.sum,
 			Approximate:          session.approx,
 		}
-		encoded, err := json.Marshal(result)
-		if err != nil {
-			return nil, err
-		}
-		if totalBytes+len(encoded) > conversationConceptResponseMaxBytes {
-			truncated = true
-			break
-		}
-		totalBytes += len(encoded)
 		out = append(out, result)
 	}
-	if truncated && len(out) > 0 {
-		out[len(out)-1].ResponseTruncated = true
-	}
 	return out, nil
+}
+
+func validateRetrievalLimit(limit int) error {
+	if limit < 1 || limit > conversationConceptResultMax {
+		return fmt.Errorf("limit must be between 1 and %d (got %d)", conversationConceptResultMax, limit)
+	}
+	return nil
 }
 
 func errConversationConceptTooBroad(concept string) error {
 	return fmt.Errorf("memory_query_too_broad: concept %q matched more than %d in-scope exchanges; narrow the concept or the filters", concept, conversationConceptScanCeiling)
 }
 
-// filterScoredByPathReplacement drops fused hits whose file the short-term
-// overlay superseded, mirroring rankFreshHistory's replaced-path rule for the
-// fused arm that ranked the on-disk long-term index directly.
-func filterScoredByPathReplacement(scored []scoredHistoryRecord, fresh freshHistory) []scoredHistoryRecord {
-	if len(fresh.replaced) == 0 {
-		return scored
-	}
-	kept := scored[:0:0]
-	for _, s := range scored {
-		if fresh.replaced[s.Record.Path] {
-			continue
-		}
-		kept = append(kept, s)
-	}
-	return kept
+func errConversationConceptRawScanTooBroad(concept string) error {
+	return fmt.Errorf("memory_query_too_broad: concept %q requires scanning more than %d lexical candidates; narrow the concept or the filters", concept, historyFTSExhaustiveRawScanCeiling)
 }

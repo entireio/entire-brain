@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func TestBuildHandoffPacket(t *testing.T) {
 	// fixture's own clock; a distill at 10:30 leaves exactly s2 undigested.
 	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: time.Date(2026, 6, 10, 10, 30, 0, 0, time.UTC)}
 
-	p := buildHandoffPacket(manifest, index, facts, "main", 5, now)
+	p := buildHandoffPacket(manifest, index, facts, "main", 5, now, sessionReadGuard{})
 
 	if len(p.Sessions) != 2 {
 		t.Fatalf("expected both sessions, got %d", len(p.Sessions))
@@ -50,6 +51,36 @@ func TestBuildHandoffPacket(t *testing.T) {
 	}
 	if len(p.Branches) != 1 || p.Branches[0] != "main" {
 		t.Fatalf("active branches = %v, want [main]", p.Branches)
+	}
+}
+
+func TestBuildHandoffPacketOmitsExcludedSessionCanary(t *testing.T) {
+	_, manifest, index := historyEvalFixture(t)
+	const canary = "PRIVATE-HANDOFF-CANARY"
+	excluded := manifest.Sources.Sessions.Sessions[1]
+	for i := range index.Records {
+		if index.Records[i].Path == excluded.TranscriptPath {
+			index.Records[i].Summary += " " + canary
+		}
+	}
+	facts := []factRecord{{
+		ID: "fact:private", Status: factStatusActive, Text: canary,
+		Provenance: []factAnchor{{SessionID: excluded.SessionID, Transcript: excluded.TranscriptPath}},
+	}}
+	stones := sessionTombstones{Version: sessionTombstonesVersion, Excluded: map[string]sessionTombstone{
+		excluded.SessionID: {At: time.Now().UTC()},
+	}}
+	guard := sessionReadGuard{ids: stones.Excluded, paths: excludedTranscriptPaths(manifest, stones)}
+	packet := buildHandoffPacket(manifest, index, facts, "main", 5, time.Now().UTC(), guard)
+	data, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), canary) || strings.Contains(string(data), excluded.SessionID) {
+		t.Fatalf("handoff exposed excluded session: %s", data)
+	}
+	if len(packet.Sessions) != len(manifest.Sources.Sessions.Sessions)-1 || len(packet.RecentFacts) != 0 {
+		t.Fatalf("handoff did not filter excluded session/facts: %+v", packet)
 	}
 }
 

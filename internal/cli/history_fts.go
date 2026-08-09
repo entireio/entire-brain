@@ -1,14 +1,14 @@
 package cli
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 	"unicode"
 )
 
@@ -82,7 +82,22 @@ func historyFTSMatchExpr(query string) string {
 }
 
 func historyFTSFingerprint(index historyIndex) string {
-	return index.GeneratedAt.UTC().Format(time.RFC3339Nano) + ":" + strconv.Itoa(len(index.Records))
+	if index.storageIdentity != "" {
+		return "generation:" + index.storageIdentity + ":" + index.contentIdentity
+	}
+	// Legacy fixed-path indexes and unit-constructed indexes have no immutable
+	// generation path. Hash exactly the ordered inputs persisted in the FTS
+	// store, so equal timestamps/counts with different rows cannot reuse stale
+	// BM25 content. Generation-addressed production reads take the cheap path
+	// above and avoid this O(records) fallback.
+	h := sha256.New()
+	for _, record := range index.Records {
+		h.Write([]byte(record.Kind))
+		h.Write([]byte{0})
+		h.Write([]byte(historyFTSContent(record)))
+		h.Write([]byte{0})
+	}
+	return "content:sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
 // openHistoryFTS opens (and rebuilds if stale) the derived BM25 index. The index
@@ -250,6 +265,10 @@ func historyFTSContainsPathPhrase(brainDir, rel string) (bool, error) {
 	if _, err := os.Stat(path); err != nil {
 		return false, err
 	}
+	return historyFTSContainsPathPhraseAt(path, rel)
+}
+
+func historyFTSContainsPathPhraseAt(path, rel string) (bool, error) {
 	db, err := sql.Open(sqliteDriverName, path)
 	if err != nil {
 		return false, err
@@ -275,6 +294,21 @@ func historyFTSContainsPathPhrase(brainDir, rel string) (bool, error) {
 // structured-filter predicate. A var so tests can lower it to prove the
 // degraded state.
 var historyFTSFilteredScanCeiling = 10000
+
+// historyFTSExhaustiveRawScanCeiling is a resource guard for C2's complete
+// lexical enumeration. It is deliberately much larger than the in-scope
+// candidate ceiling: rows that fail a scope predicate must never recreate the
+// old bounded-window false negative. Reaching this guard is a conservative
+// typed refusal, never a partial result. A var keeps the boundary testable.
+var historyFTSExhaustiveRawScanCeiling = 100000
+
+type historyExhaustiveRankState uint8
+
+const (
+	historyExhaustiveRankComplete historyExhaustiveRankState = iota
+	historyExhaustiveRankCandidateOverflow
+	historyExhaustiveRankRawScanOverflow
+)
 
 // rankHistoryViaFTSFiltered pushes a structured-filter predicate into
 // candidate generation (R0-3): a matching row that fails pred is skipped
@@ -379,4 +413,100 @@ func rankHistoryViaFTSFiltered(brainDir string, index historyIndex, kind, query 
 	}
 	complete = pred == nil || scanned < scanLimit || len(out) >= limit
 	return out, complete, true
+}
+
+// rankHistoryViaFTSExhaustiveFiltered is the complete-enumeration variant used
+// by multi-concept lexical retrieval. Unlike the normal ranker, it does not
+// impose a SQL candidate window: a record that is outside the caller's scope
+// must not conceal a later in-scope match. It stops only after finding one more
+// in-scope, deduplicated result than ceiling, so candidate overflow is exact
+// for the ranking semantics rather than an artifact of FTS ordering. A
+// separate high raw-row guard protects the process from an unbounded global
+// match set and reports a conservative refusal.
+//
+// The normal single-concept path deliberately keeps its bounded candidate
+// behavior; this more expensive mode is reserved for the explicit AND query
+// whose contract promises complete lexical coverage or a typed refusal.
+func rankHistoryViaFTSExhaustiveFiltered(brainDir string, index historyIndex, kind, query string, ceiling int, pred func(historyRecord) bool) (out []scoredHistoryRecord, state historyExhaustiveRankState, ok bool, scanned int) {
+	if ceiling <= 0 {
+		return nil, historyExhaustiveRankComplete, false, 0
+	}
+	expr := historyFTSMatchExpr(query)
+	if expr == "" {
+		return nil, historyExhaustiveRankComplete, false, 0
+	}
+	db, err := openHistoryFTS(brainDir, index)
+	if err != nil {
+		return nil, historyExhaustiveRankComplete, false, 0
+	}
+	defer db.Close()
+
+	args := []any{expr}
+	var sb strings.Builder
+	sb.WriteString(`SELECT CAST(rec_order AS INTEGER), bm25(history_fts) FROM history_fts WHERE history_fts MATCH ?`)
+	if allowed := historyInspectKinds(kind); len(allowed) > 0 {
+		kinds := make([]string, 0, len(allowed))
+		for k := range allowed {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		placeholders := make([]string, len(kinds))
+		for i, k := range kinds {
+			placeholders[i] = "?"
+			args = append(args, k)
+		}
+		sb.WriteString(" AND kind IN (" + strings.Join(placeholders, ",") + ")")
+	} else {
+		sb.WriteString(" AND kind NOT IN ('request', '" + conversationKind + "')")
+	}
+	sb.WriteString(" ORDER BY bm25(history_fts), CAST(rec_order AS INTEGER)")
+
+	rows, err := db.Query(sb.String(), args...)
+	if err != nil {
+		return nil, historyExhaustiveRankComplete, false, 0
+	}
+	defer rows.Close()
+	out = make([]scoredHistoryRecord, 0, ceiling)
+	seen := map[historyRecordReplacementKey]struct{}{}
+	for rows.Next() {
+		scanned++
+		if scanned > historyFTSExhaustiveRawScanCeiling {
+			return nil, historyExhaustiveRankRawScanOverflow, true, scanned
+		}
+		var order int
+		var bm float64
+		if err := rows.Scan(&order, &bm); err != nil {
+			return nil, historyExhaustiveRankComplete, false, scanned
+		}
+		if order < 0 || order >= len(index.Records) {
+			continue
+		}
+		rec := index.Records[order]
+		if pred != nil && !pred(rec) {
+			continue
+		}
+		// FTS uses an OR expression to enumerate possible rows efficiently, but
+		// C2's exact lexical match contract is the shared canonical scorer. Apply
+		// it after scope filtering so SQLite and the pure-Go/overlay paths admit
+		// the same exchanges (an any-one-term FTS hit is not sufficient).
+		if historyRecordQueryScoreMin(rec, query, 0) == 0 {
+			continue
+		}
+		// C2 coverage is session/evidence exact. Two exchanges with identical
+		// text but different stable identities are both candidates; only an
+		// already-reconciled copy of the same identity may be collapsed.
+		key := exhaustiveHistoryRecordIdentity(rec)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		if len(out) >= ceiling {
+			return nil, historyExhaustiveRankCandidateOverflow, true, scanned
+		}
+		out = append(out, scoredHistoryRecord{Record: rec, Score: int((-bm)*1000 + 0.5), Order: order})
+	}
+	if rows.Err() != nil {
+		return nil, historyExhaustiveRankComplete, false, scanned
+	}
+	return out, historyExhaustiveRankComplete, true, scanned
 }

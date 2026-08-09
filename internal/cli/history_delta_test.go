@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -12,6 +13,49 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+func replaceDeltaTranscriptSameMetadata(t *testing.T, path, oldText, newText string) {
+	t.Helper()
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := bytes.Replace(body, []byte(oldText), []byte(newText), 1)
+	if bytes.Equal(replaced, body) || len(replaced) != len(body) {
+		t.Fatalf("same-metadata replacement fixture invalid: old=%q new=%q bytes=%d/%d", oldText, newText, len(body), len(replaced))
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, replaced, before.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) || os.SameFile(before, after) {
+		t.Fatalf("replacement did not preserve size+mtime while changing membership: before=%+v after=%+v", before, after)
+	}
+}
+
+func buildShortTermResult(t *testing.T, brainDir string) (shortTermStats, error) {
+	t.Helper()
+	var stats shortTermStats
+	err := withBrainWriteLock(brainDir, func() error {
+		var buildErr error
+		stats, buildErr = buildHistoryShortTermLocked(brainDir, time.Now().UTC())
+		return buildErr
+	})
+	return stats, err
+}
 
 // shortTermFixture builds a brain with one indexed session (full build), then
 // appends a new turn to it and adds a brand-new session WITHOUT re-running the
@@ -89,6 +133,101 @@ func buildShortTerm(t *testing.T, brainDir string) shortTermStats {
 		t.Fatal(err)
 	}
 	return stats
+}
+
+func TestShortTermDeltaRejectsLongTermCacheOnSameMetadataReplacement(t *testing.T) {
+	brainDir, rel, _ := historyProjectionFixture(t)
+	target := filepath.Join(brainDir, filepath.FromSlash(rel))
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
+
+	stats, err := buildShortTermResult(t, brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Scanned != 1 || stats.Reused != 0 {
+		t.Fatalf("same-metadata long-term replacement stats = %+v, want one scan", stats)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
+	entry, ok := overlay.Files[rel]
+	if !ok || entry.ContentDigest == "" {
+		t.Fatalf("replacement missing from digest-bound overlay: %+v", overlay.Files)
+	}
+	joined := ""
+	for _, record := range entry.Records {
+		joined += record.Summary + "\n"
+	}
+	if !strings.Contains(joined, "content first") || strings.Contains(joined, "manifest last") {
+		t.Fatalf("overlay retained stale long-term records: %q", joined)
+	}
+}
+
+func TestShortTermDeltaRejectsPriorOverlayOnSameMetadataReplacement(t *testing.T) {
+	brainDir, rel, _ := historyProjectionFixture(t)
+	target := filepath.Join(brainDir, filepath.FromSlash(rel))
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
+	firstStats, err := buildShortTermResult(t, brainDir)
+	if err != nil || firstStats.Scanned != 1 {
+		t.Fatalf("first delta stats=%+v err=%v", firstStats, err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := loadHistoryShortTerm(brainDir, manifest.Sources.History).Files[rel]
+	if first.ContentDigest == "" {
+		t.Fatal("first overlay omitted content digest")
+	}
+
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the content first", "commit the records first")
+	secondStats, err := buildShortTermResult(t, brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondStats.Scanned != 1 || secondStats.Reused != 0 {
+		t.Fatalf("same-metadata prior-overlay replacement stats = %+v, want rescan", secondStats)
+	}
+	second := loadHistoryShortTerm(brainDir, manifest.Sources.History).Files[rel]
+	if second.ContentDigest == "" || second.ContentDigest == first.ContentDigest {
+		t.Fatalf("overlay digest did not change: first=%q second=%q", first.ContentDigest, second.ContentDigest)
+	}
+	joined := ""
+	for _, record := range second.Records {
+		joined += record.Summary + "\n"
+	}
+	if !strings.Contains(joined, "records first") || strings.Contains(joined, "content first") {
+		t.Fatalf("prior overlay records were reused after content replacement: %q", joined)
+	}
+}
+
+func TestShortTermDeltaBoundFailurePreservesPriorOverlay(t *testing.T) {
+	brainDir, rel, _ := historyProjectionFixture(t)
+	target := filepath.Join(brainDir, filepath.FromSlash(rel))
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
+	if _, err := buildShortTermResult(t, brainDir); err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath))
+	before, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldMax := maxDocumentTranscriptBytes
+	maxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	if _, err := buildShortTermResult(t, brainDir); err == nil || !strings.Contains(err.Error(), memoryErrInputTooLarge) {
+		t.Fatalf("bounded delta error = %v", err)
+	}
+	after, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("bounded delta failure changed the prior overlay")
+	}
 }
 
 func TestShortTermDeltaIndexesOnlyChangedTranscripts(t *testing.T) {

@@ -148,3 +148,36 @@ func TestHistoryFTSRebuildDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryFTSRebuildsForEqualTimeAndCountGeneration(t *testing.T) {
+	brainDir := t.TempDir()
+	generatedAt := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	first := historyIndex{
+		GeneratedAt: generatedAt,
+		Records: []historyRecord{{
+			ID: "old", Kind: "decision", Path: "sessions/main/old.jsonl", Line: 1,
+			Summary: "PRIVATE-OLD-GENERATION-CANARY alpha",
+		}},
+		storageIdentity: "history/generations/v1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/index.json",
+		contentIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	if scored, ok := rankHistoryViaFTS(brainDir, first, "decisions", "alpha", 10); !ok || len(scored) != 1 || scored[0].Record.ID != "old" {
+		t.Fatalf("seed generation ranking: ok=%v scored=%+v", ok, scored)
+	}
+
+	second := historyIndex{
+		GeneratedAt: generatedAt,
+		Records: []historyRecord{{
+			ID: "new", Kind: "decision", Path: "sessions/main/new.jsonl", Line: 1,
+			Summary: "replacement generation beta",
+		}},
+		storageIdentity: "history/generations/v1/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/index.json",
+		contentIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	if scored, ok := rankHistoryViaFTS(brainDir, second, "decisions", "beta", 10); !ok || len(scored) != 1 || scored[0].Record.ID != "new" {
+		t.Fatalf("replacement generation did not rebuild FTS: ok=%v scored=%+v", ok, scored)
+	}
+	if stale, ok := rankHistoryViaFTS(brainDir, second, "decisions", "alpha", 10); !ok || len(stale) != 0 {
+		t.Fatalf("old generation canary survived replacement: ok=%v scored=%+v", ok, stale)
+	}
+}

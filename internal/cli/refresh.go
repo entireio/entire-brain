@@ -243,7 +243,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 			historyTask.Update(fmt.Sprintf("history index: %d/%d %s scanned", done, total, pluralUnit("session", total)))
 		}
-		historySource, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now().UTC(), historyProgress)
+		historySource, err := writeBrainHistoryIndexAndSourceContext(ctx, brainDir, opts.Now().UTC(), historyProgress)
 		if err != nil {
 			historyTask.Finish(err)
 			return err
@@ -274,35 +274,24 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		case !storeOK:
 			progress.Skip("history vectors: requires the brain_cgo build")
 		default:
+			_ = store // availability was checked above; the guarded writer reopens it.
 			vecTask := progress.Begin("history vectors")
-			index, ierr := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
-			if ierr != nil {
-				vecTask.Finish(ierr)
-				return ierr
-			}
-			added, droppedVecs, total, serr := syncHistoryVectors(store, index, e, func(done, totalNew int) {
-				vecTask.Update(fmt.Sprintf("history vectors: %d/%d new %s embedded", done, totalNew, pluralUnit("record", totalNew)))
+			vectors, serr := syncMemoryProjectionVectorsFully(ctx, brainDir, opts.Now().UTC(), e, func(current memoryVectorSyncPass) {
+				vecTask.Update(fmt.Sprintf("history vectors: %d new %s embedded", current.HistoryAdded, pluralUnit("record", current.HistoryAdded)))
 			})
 			if serr != nil {
 				vecTask.Finish(serr)
 				return serr
 			}
-			vecTask.Update(fmt.Sprintf("history vectors: %d embedded, %d pruned (%d total)", added, droppedVecs, total))
+			vecTask.Update(fmt.Sprintf("history vectors: %d embedded, %d pruned (%d total)", vectors.HistoryAdded, vectors.HistoryDropped, vectors.HistoryTotal))
 			vecTask.Finish(nil)
 			// Conversation vectors ride the same stage and gate but live in
 			// their own store (separate identity; general history KNN never
 			// spends budget on exchanges). Skipped silently when the store is
 			// unavailable; the history stage above already reported why.
-			if convStore, convOK := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim()); convOK {
+			if _, convOK := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim()); convOK {
 				convTask := progress.Begin("conversation vectors")
-				convAdded, convDropped, convTotal, convErr := syncConversationVectors(convStore, index, e, func(done, totalNew int) {
-					convTask.Update(fmt.Sprintf("conversation vectors: %d/%d new %s embedded", done, totalNew, pluralUnit("exchange", totalNew)))
-				})
-				if convErr != nil {
-					convTask.Finish(convErr)
-					return convErr
-				}
-				convTask.Update(fmt.Sprintf("conversation vectors: %d embedded, %d pruned (%d total)", convAdded, convDropped, convTotal))
+				convTask.Update(fmt.Sprintf("conversation vectors: %d embedded, %d pruned (%d total)", vectors.ConversationAdded, vectors.ConversationDrop, vectors.ConversationTotal))
 				convTask.Finish(nil)
 			}
 		}

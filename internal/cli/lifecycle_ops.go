@@ -84,12 +84,18 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 		return checks
 	}
 	add("history_index", "ok", fmt.Sprintf("%d records (generated %s)", len(index.Records), history.GeneratedAt.UTC().Format(time.RFC3339)))
+	if history.IndexDigest == "" {
+		add("history_integrity", "warn", "index predates manifest content digests; run `entire brain refresh`")
+	} else {
+		add("history_integrity", "ok", "index bytes match the manifest content digest")
+	}
 	current := brainSessionsFingerprint(brainDir)
 	shortTerm, shortTermState := loadHistoryShortTermState(brainDir, history)
 	// "Covers the gap" is claimable only for a CURRENT overlay built against
 	// the exact current source fingerprint with nothing failed, dropped, or
 	// truncated (R0-6). Anything less is at best partial coverage.
-	shortTermCovers := shortTermState == shortTermStateCurrent && len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current
+	shortTermCurrentForSources := shortTermState == shortTermStateCurrent && shortTerm.SessionsFingerprint == current
+	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
 	switch {
 	case history.SessionsFingerprint == "":
 		add("history_freshness", "warn", "index predates fingerprinting; run `entire brain refresh`")
@@ -97,7 +103,7 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
 	case shortTermCovers && shortTerm.complete():
 		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `entire brain refresh`)", len(shortTerm.Files)))
-	case shortTermCovers:
+	case shortTermCurrentForSources && !shortTerm.complete():
 		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `entire brain refresh` to consolidate", shortTermIncompleteness(shortTerm)))
 	case shortTermState == shortTermStateCorrupt:
 		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
