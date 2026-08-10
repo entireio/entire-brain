@@ -9,10 +9,12 @@ what it does, how to install it, and how humans and agents actually use it.
 Entire is a Git-native platform for AI-assisted software work. Its base layer is
 session capture: `entire-cli` installs Git and agent hooks for supported coding
 agents, records prompts, transcripts, tool activity, files touched, token usage,
-and checkpoint metadata, then stores that context on a dedicated Entire-managed
-ref (`entire/checkpoints/v1`) instead of mixing it into normal code history. A
-checkpoint is the retained link between an agent session and the commit or
-intermediate work state it produced.
+and checkpoint metadata, then stores that context outside normal code history.
+Current repositories use one Entire-managed ref per checkpoint under
+`refs/entire/checkpoints/`; repositories created with the legacy backend retain
+the aggregate `entire/checkpoints/v1` branch. Brain reads both during a backend
+transition. A checkpoint is the retained link between an agent session and the
+commit or intermediate work state it produced.
 
 `entire-graph` and `entire-brain` add the local reasoning layer on top of that
 captured history. `entire-graph` is the semantic provider: it parses source code
@@ -579,6 +581,7 @@ model or by fetching over the network:
 - fact distillation with `distill --agent ...`
 - query expansion with `recall --expand`
 - pattern verification and skill synthesis
+- explicitly configured session-abstract generation
 - judged evaluation commands
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
@@ -600,19 +603,22 @@ keep their remaining anchors), filters its pattern episodes, and clears its
 distill-cache entries (`--dry-run` reports exactly what would be removed
 first). Skill-memory; your accept/decline curation; is never touched.
 `privacy verify` proves excluded/purged sessions are absent from every
-inspectable projection (exit non-zero with named violations otherwise; a
-re-purge repairs them), and `privacy retention --max-age <dur> [--branch b]
+inspectable projection and from their lifecycle jobs, cancellation markers,
+optional abstracts, and metadata-only egress receipts (exit non-zero with named
+violations otherwise; a re-purge repairs them), and `privacy retention
+--max-age <dur> [--branch b]
 [--purge] [--dry-run]` applies an age-based policy in one command. The full
 prompt-injection and secret-retention threat model lives in
 [docs/recall_threat_model.md](docs/recall_threat_model.md).
 Tombstones are brain-local and survive re-export: a purged session that the
 capture layer re-exports stays un-indexed until an explicit `include`. Note the
-canonical capture on `entire/checkpoints/v1` is the capture layer's data;
-purging the brain does not rewrite checkpoint history.
+canonical capture in Entire's configured checkpoint backend is the capture
+layer's data; purging the brain does not rewrite checkpoint history.
 
 Remember that base Entire session capture stores transcripts and metadata on the
-repository's `entire/checkpoints/v1` branch — anyone with access to that branch
-can read captured prompts, tool activity, and retained transcript data. Entire
+repository's Entire-managed per-checkpoint refs (or the legacy
+`entire/checkpoints/v1` branch) — anyone with access to those refs can read
+captured prompts, tool activity, and retained transcript data. Entire
 redacts detected secrets before writing checkpoint metadata, but redaction is
 best-effort and does not cover every local working artifact. Entire also writes
 temporary shadow branches such as `entire/<short-hash>` whose code-file snapshots

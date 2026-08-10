@@ -57,6 +57,22 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 	if !strings.Contains(threat, "retention") {
 		t.Fatal("threat model must describe the retention policy surface")
 	}
+	if strings.Contains(strings.ToLower(threat), "fail-open") || strings.Contains(strings.ToLower(threat), "fail open") {
+		t.Fatal("threat model must not describe tombstone corruption as fail-open")
+	}
+	for _, want := range []string{"fails closed", "unknown-newer", "lifecycle jobs", "egress"} {
+		if !strings.Contains(threat, want) {
+			t.Fatalf("threat model missing hardened privacy contract %q", want)
+		}
+	}
+	if strings.Contains(guide, "(`history/projection-state-v1.json`, published through the manifest commit)") {
+		t.Fatal("semantic guide still describes the pre-generation projection receipt path")
+	}
+	for _, want := range []string{"generation-addressed projection receipt", "manifest switches", "present_unproven", "[--repo-key <key>]", "repository identity"} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("semantic guide missing current lifecycle contract %q", want)
+		}
+	}
 	privacy := newPrivacyCommand(Options{Version: "test"})
 	for _, sub := range privacy.Commands() {
 		name := strings.Fields(sub.Use)[0]

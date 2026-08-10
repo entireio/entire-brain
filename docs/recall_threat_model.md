@@ -54,10 +54,12 @@ Enforced:
   overlays, and facts; never transcripts, history records, or conversation
   text (verified by construction: the bundle collector enumerates its
   artifact kinds).
-- `privacy exclude` (tombstone; content-free by design, fail-open on
-  corruption so corruption can only restore indexing, never delete data) is
-  understood BEFORE derived indexing everywhere (history index, short-term
-  overlay, episodes, pattern corpus, distill) AND at retrieval time: every
+- `privacy exclude` uses a content-free tombstone policy that fails closed:
+  an absent policy means no exclusions, while an unreadable, malformed, unsafe,
+  or unknown-newer policy blocks conversation reads and derivation until it is
+  repaired. The policy is understood BEFORE derived indexing everywhere
+  (history index, short-term overlay, episodes, pattern corpus, distill) AND at
+  retrieval time: every
   conversation/history/fact retrieval, get, and brief boundary consults the
   tombstone set, so an excluded session is unreadable immediately, even while
   cleanup or a rebuild is still running. Exclude runs the same derived
@@ -68,14 +70,16 @@ Enforced:
   overlay); purge is tombstone-first (crash leaves the session excluded,
   never resurrected), idempotent, survives re-export, propagates every
   deletion failure as a non-zero, resumable error naming the artifact, and
-  removes: the exported transcript, all index records, FTS/scan-cache/
-  vector-store files (deleted wholesale with WAL/SHM siblings; no
-  row-remnant risk), single-source facts (multi-source facts lose the purged
-  anchor; dangling proposals pruned), pattern episodes and derived pattern
-  outputs including the runs log, and distill-cache entries. The canary test
-  walks EVERY file under the brain dir afterward. `privacy verify`
-  additionally flags any derived store whose file predates the newest
-  tombstone write (the locked/failed-deletion case).
+  removes: the exported transcript, all index generations, FTS/scan-cache/
+  vector-store files and known SQLite sidecars, single-source facts
+  (multi-source facts lose the purged anchor; dangling proposals pruned),
+  pattern episodes and derived pattern outputs including publication recovery
+  state and the runs log, distill-cache entries, content-free lifecycle jobs and
+  cancellation markers, optional abstracts, and their metadata-only egress
+  receipts. The canary test walks EVERY file under the brain dir afterward.
+  `privacy verify` also treats surviving work/generated state, incomplete
+  pattern publication, or any derived store older than the newest tombstone as
+  dirty rather than success.
 - Vector stores hold embeddings of session text; embedding inversion is a
   known class of partial-content recovery, so purge deletes the store files
   rather than reasoning about per-row deletion.
@@ -85,11 +89,10 @@ Enforced:
 Residual (tracked):
 
 - **Pattern/theme read surfaces**: pattern outputs are cross-session
-  aggregates without per-row session identity, so they cannot be
-  tombstone-filtered at read time. Exclusion deletes the pattern stores
-  wholesale (regenerated from tombstone-filtered truth), which leaves only
-  the instants inside the locked cleanup itself; a per-row provenance schema
-  would be needed to close that fully.
+  aggregates without per-row session identity, so they cannot be filtered by
+  tombstone at row-read time. Exclusion closes those surfaces while the derived
+  store is dirty, then republishes the complete corpus from tombstone-filtered
+  truth under the shared privacy/publication boundary.
 
 - **`facts sync` git-meta store**: keep-both merge retains synced copies of
   purged facts and can merge them back. The purge plan reports an explicit

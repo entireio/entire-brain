@@ -133,16 +133,22 @@ and index versions (scan cache, FTS schema). Automatic indexing is inherited:
 
 Durable freshness coordination (C3): `entire brain memory` is the CLI-only
 work-record surface. `memory notify --event session_start|checkpoint|session_end
---session <id> --repo-key <key>` records a content-free, generation-coalesced
-lifecycle hint (the endpoint a host adapter calls; hint loss never loses
-memory) and makes one best-effort non-blocking worker launch. `memory
+--session <id> [--branch <branch>] [--repo-key <key>]` records a content-free,
+generation-coalesced lifecycle hint (the endpoint a host adapter calls; hint
+loss never loses memory) and makes one best-effort non-blocking worker launch.
+The Entire CLI adapter omits `--repo-key`; Brain remains the repository identity
+authority. An explicit administrative key is validation-only and must
+match the already-resolved Brain. `memory
 reconcile` compares canonical sessions with the projection receipts
-(`history/projection-state-v1.json`, published through the manifest commit)
+from the generation-addressed projection receipt selected by the manifest
+(immutable index/receipt leaves are published first; the manifest switches
+last)
 and enqueues durable, content-free jobs
 (`pending|running|complete|retryable_error|invalid|excluded|superseded|cancelled`,
 retry backoff 1m/5m/30m/2h then manual-only); `memory status`, `memory jobs
-[--state]`, `memory retry <job-id>`, and `memory cancel <job-id>` inspect and
-repair the record. The hidden `memory worker --once` runs one bounded pass:
+[--state]`, `memory retry`, and `memory cancel` inspect and repair the record
+through content-free receipts. The hidden `memory worker --once` runs one
+bounded pass:
 reconcile, claim, one consolidation, settle jobs against the receipts,
 consume satisfied hints. Reconciliation remains the correctness authority
 throughout; jobs are operational history, receipts are the durable proof.
@@ -153,8 +159,10 @@ dependencies and performs the smallest deterministic rebuild; `memory rebuild
 migrate` upgrades derived schemas (build beside, atomic switch, never delete
 first; unknown newer versions stay read-only) — each mutation returns a
 versioned content-free receipt with stable `memory_*` error codes, and
-`memory status` reports install health (build capabilities, writable
-directories, schema versions, pending migrations). Session abstracts are
+`memory status` reports read-only install health (build capabilities,
+containment and `present_unproven|creatable_unproven|unsafe|unavailable`
+directory states, schema versions, pending migrations, host-adapter authority,
+and the bounded log path). Session abstracts are
 OFF by default: `memory configure abstracts --enable --provider <name>
 [--allow-hosted-egress]` stores content-free feature selection (never
 credentials), `memory abstract <conversation-session:id>` explicitly

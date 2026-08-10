@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,36 @@ type liveE2EHarness struct {
 	t        *testing.T
 }
 
+type liveE2EEnvValue struct {
+	key   string
+	value string
+}
+
+func liveE2EEnvironment(parent []string, replacements ...liveE2EEnvValue) []string {
+	out := make([]string, 0, len(parent)+len(replacements))
+	for _, entry := range parent {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		replace := false
+		for _, candidate := range replacements {
+			if key == candidate.key || (runtime.GOOS == "windows" && strings.EqualFold(key, candidate.key)) {
+				replace = true
+				break
+			}
+		}
+		if !replace {
+			out = append(out, entry)
+		}
+	}
+	for _, replacement := range replacements {
+		out = append(out, replacement.key+"="+replacement.value)
+	}
+	return out
+}
+
 func newLiveE2EHarness(t *testing.T) *liveE2EHarness {
 	t.Helper()
 	if os.Getenv("ENTIRE_BRAIN_LIVE_E2E") != "1" {
@@ -48,14 +79,26 @@ func newLiveE2EHarness(t *testing.T) *liveE2EHarness {
 	if err := os.MkdirAll(repoDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	h := &liveE2EHarness{repoDir: repoDir, brainBin: filepath.Join(root, "entire-brain"), t: t}
-	h.env = append(os.Environ(),
-		"ENTIRE_REPO_ROOT="+repoDir,
-		"ENTIRE_PLUGIN_CONFIG_DIR="+filepath.Join(root, "config"),
-		"ENTIRE_PLUGIN_DATA_DIR="+filepath.Join(root, "data"),
-		"ENTIRE_PLUGIN_STATE_DIR="+filepath.Join(root, "state"),
-		"ENTIRE_PLUGIN_CACHE_DIR="+filepath.Join(root, "cache"),
-		"ACCESSIBLE=1",
+	pluginRoot := filepath.Join(root, "plugins")
+	pluginBinDir := filepath.Join(pluginRoot, "bin")
+	if err := os.MkdirAll(pluginBinDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	brainName := "entire-brain"
+	if runtime.GOOS == "windows" {
+		brainName += ".exe"
+	}
+	h := &liveE2EHarness{repoDir: repoDir, brainBin: filepath.Join(pluginBinDir, brainName), t: t}
+	h.env = liveE2EEnvironment(os.Environ(),
+		liveE2EEnvValue{key: "ENTIRE_REPO_ROOT", value: repoDir},
+		liveE2EEnvValue{key: "ENTIRE_PLUGIN_DIR", value: pluginRoot},
+		liveE2EEnvValue{key: "ENTIRE_PLUGIN_CONFIG_DIR", value: filepath.Join(root, "config")},
+		// Match Entire's managed per-plugin data directory so direct harness
+		// calls and lifecycle-adapter `entire brain ...` calls share one Brain.
+		liveE2EEnvValue{key: "ENTIRE_PLUGIN_DATA_DIR", value: filepath.Join(pluginRoot, "data", "brain")},
+		liveE2EEnvValue{key: "ENTIRE_PLUGIN_STATE_DIR", value: filepath.Join(root, "state")},
+		liveE2EEnvValue{key: "ENTIRE_PLUGIN_CACHE_DIR", value: filepath.Join(root, "cache")},
+		liveE2EEnvValue{key: "ACCESSIBLE", value: "1"},
 	)
 	// The brain binary under test is THIS tree's binary.
 	repoRoot, err := os.Getwd()
@@ -115,6 +158,15 @@ func (h *liveE2EHarness) brain(args ...string) string {
 func (h *liveE2EHarness) commitAll(message string) {
 	h.run(time.Minute, "git", "add", "-A")
 	h.run(time.Minute, "git", "commit", "-qm", message)
+}
+
+func (h *liveE2EHarness) headHasCheckpointTrailer() bool {
+	h.t.Helper()
+	command := exec.Command("git", "log", "-1", "--format=%B")
+	command.Dir = h.repoDir
+	command.Env = h.env
+	out, err := command.Output()
+	return err == nil && strings.Contains(string(out), "Entire-Checkpoint:")
 }
 
 func (h *liveE2EHarness) searchConversation(query string) []map[string]any {
@@ -178,6 +230,11 @@ func (h *liveE2EHarness) diagnose() {
 	fold.Dir = h.repoDir
 	if out, err := fold.CombinedOutput(); err == nil {
 		h.t.Logf("checkpoint fold commits:\n%s", string(out))
+	}
+	refs := exec.Command("git", "for-each-ref", "--format=%(refname)", "refs/entire/checkpoints/")
+	refs.Dir = h.repoDir
+	if out, err := refs.CombinedOutput(); err == nil {
+		h.t.Logf("checkpoint refs (names only):\n%s", string(out))
 	}
 	trailer := exec.Command("git", "log", "-3", "--format=%s|%(trailers:key=Entire-Checkpoint,valueonly)")
 	trailer.Dir = h.repoDir
@@ -265,11 +322,10 @@ func TestLiveCaptureLoopClaudeCode(t *testing.T) {
 	h.assertRecallJourney("MANGO_E2E_9")
 }
 
-// TestLiveCaptureLoopCodex is the Codex journey. As of entire
-// 0.6.3-nightly's codex integration the hooks it installs are not loaded by
-// codex 0.139 (no codex lifecycle events reach the entire log), so the test
-// skips with the exact host-integration gap named; it activates automatically
-// once the host pairing captures codex sessions.
+// TestLiveCaptureLoopCodex is the sanctioned Codex journey. Missing binaries
+// still mean the harness is unavailable; once explicitly enabled with both
+// binaries present, missing lifecycle capture is a product failure rather than
+// a skip that could make the acceptance gate appear green.
 func TestLiveCaptureLoopCodex(t *testing.T) {
 	h := newLiveE2EHarness(t)
 	if _, err := exec.LookPath("codex"); err != nil {
@@ -281,9 +337,12 @@ func TestLiveCaptureLoopCodex(t *testing.T) {
 	h.run(10*time.Minute, "codex", "exec", "--sandbox", "workspace-write",
 		"Create a file named CODEX_NOTES.md whose entire content is exactly this one line: KIWI_E2E_5 came from the codex probe.")
 	if !h.hookLogContains("codex") {
-		t.Skip("host integration gap: entire's codex hooks are not loaded by this codex CLI (no codex lifecycle events); journey activates when the host pairing captures codex sessions")
+		t.Fatal("Codex completed but no Codex lifecycle event reached Entire")
 	}
 	h.commitAll("codex probe turn")
+	if !h.headHasCheckpointTrailer() {
+		t.Fatal("Codex work committed without an Entire-Checkpoint trailer")
+	}
 	h.brain("refresh", "--semantic=false")
 	h.assertRecallJourney("KIWI_E2E_5")
 }

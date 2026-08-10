@@ -449,13 +449,28 @@ func TestConfigureAbstractsReturnsValidatedMutationReceipt(t *testing.T) {
 	oldFactory := memoryAbstractorFactory
 	defer func() { memoryAbstractorFactory = oldFactory }()
 	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return &fakeAbstractor{}, nil }
-	out, err := execute(t, newMemoryConfigureCommand(opts), "abstracts", "--enable", "--provider", "codex")
+	out, err := execute(t, newMemoryConfigureCommand(opts), "abstracts", "--enable", "--provider", "codex", "--dry-run", "--json")
 	if err != nil {
-		t.Fatalf("configure: %v\n%s", err, out)
+		t.Fatalf("configure dry-run: %v\n%s", err, out)
 	}
 	var payload struct {
 		Receipt memoryOperationReceipt `json:"receipt"`
 		Config  memoryConfig           `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil || !payload.Receipt.DryRun || payload.Config.Abstracts.Provider != "codex" {
+		t.Fatalf("configure dry-run payload=%+v err=%v\n%s", payload, err, out)
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, state, err := loadMemoryConfigChecked(storage.BrainDir); err != nil || state != memoryConfigAbsent {
+		t.Fatalf("configure dry-run persisted state=%s err=%v", state, err)
+	}
+
+	out, err = execute(t, newMemoryConfigureCommand(opts), "abstracts", "--enable", "--provider", "codex", "--json")
+	if err != nil {
+		t.Fatalf("configure: %v\n%s", err, out)
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatal(err)
@@ -463,13 +478,16 @@ func TestConfigureAbstractsReturnsValidatedMutationReceipt(t *testing.T) {
 	if payload.Receipt.Operation != "configure_abstracts" || payload.Receipt.FinishedAt.IsZero() || len(payload.Receipt.Artifacts) != 1 || payload.Receipt.Artifacts[0].Path != memoryConfigRel {
 		t.Fatalf("receipt=%+v", payload.Receipt)
 	}
-	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
-	if err != nil {
-		t.Fatal(err)
-	}
 	stored, state, err := loadMemoryConfigChecked(storage.BrainDir)
 	if err != nil || state != memoryConfigCurrent || stored != payload.Config || !stored.Abstracts.Enabled {
 		t.Fatalf("stored=%+v state=%s err=%v payload=%+v", stored, state, err, payload.Config)
+	}
+	out, err = execute(t, newMemoryConfigureCommand(opts), "abstracts", "--enable", "--provider", "codex")
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "configure_abstracts completed") {
+		t.Fatalf("idempotent configure plain: err=%v\n%s", err, out)
+	}
+	if repeated, repeatedState, repeatedErr := loadMemoryConfigChecked(storage.BrainDir); repeatedErr != nil || repeatedState != memoryConfigCurrent || repeated != stored {
+		t.Fatalf("idempotent configure changed selection=%+v state=%s err=%v", repeated, repeatedState, repeatedErr)
 	}
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
@@ -499,7 +517,17 @@ func TestConfigureAbstractsReturnsValidatedMutationReceipt(t *testing.T) {
 	if inventory := loadMemoryJobInventory(storage.BrainDir); len(inventory.Jobs) != 1 || len(inventory.Issues) != 0 {
 		t.Fatalf("automatic pre-disable inventory=%+v", inventory)
 	}
-	out, err = execute(t, newMemoryConfigureCommand(opts), "abstracts", "--disable")
+	out, err = execute(t, newMemoryConfigureCommand(opts), "abstracts", "--disable", "--dry-run")
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "configure_abstracts completed") || !strings.Contains(out, "dry_run=true") {
+		t.Fatalf("disable plain dry-run: err=%v\n%s", err, out)
+	}
+	if stored, _, loadErr := loadMemoryConfigChecked(storage.BrainDir); loadErr != nil || !stored.Abstracts.Enabled {
+		t.Fatalf("disable dry-run changed config=%+v err=%v", stored, loadErr)
+	}
+	if job, loadErr := memoryJobByID(storage.BrainDir, automatic.JobID); loadErr != nil || job.State != memoryJobStatePending {
+		t.Fatalf("disable dry-run changed job=%+v err=%v", job, loadErr)
+	}
+	out, err = execute(t, newMemoryConfigureCommand(opts), "abstracts", "--disable", "--json")
 	if err != nil {
 		t.Fatalf("disable: %v\n%s", err, out)
 	}

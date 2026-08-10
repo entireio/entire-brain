@@ -12,6 +12,21 @@ import (
 	"time"
 )
 
+var errMemoryReceiptOutput = errors.New("memory receipt output failed")
+
+type failOnceMemoryReceiptWriter struct {
+	failed bool
+	output strings.Builder
+}
+
+func (w *failOnceMemoryReceiptWriter) Write(p []byte) (int, error) {
+	if !w.failed {
+		w.failed = true
+		return 0, errMemoryReceiptOutput
+	}
+	return w.output.Write(p)
+}
+
 func runMemoryProjectionLaneTest(t *testing.T, brainDir string, now time.Time) memoryWorkerStats {
 	t.Helper()
 	coordinator, err := acquireMemoryCoordinator(brainDir, now, "test")
@@ -32,6 +47,119 @@ func reconcileMemoryJobsForTestLocked(brainDir, trigger string, now time.Time) (
 		return 0, err
 	}
 	return reconcileMemoryJobsLocked(brainDir, trigger, now, snapshot)
+}
+
+func TestMemoryReconcileCommandReceiptDryRunIdempotenceAndOutputFailure(t *testing.T) {
+	opts, brainDir := memoryAdminCommandFixture(t)
+	addSession := func(sessionID string) {
+		t.Helper()
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rel := filepath.ToSlash(filepath.Join("sessions", "main", sessionID+".jsonl"))
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{\"type\":\"user\",\"message\":\"reconcile me\"}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		manifest.Sources.Sessions.Sessions = append(manifest.Sources.Sessions.Sessions, exportSession{
+			SessionID: sessionID, Branch: "main", TranscriptPath: rel, CreatedAt: manifest.GeneratedAt,
+		})
+		if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addSession("reconcile-one")
+	snapshotTree := func() string {
+		t.Helper()
+		var snapshot strings.Builder
+		err := filepath.WalkDir(brainDir, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			rel, relErr := filepath.Rel(brainDir, path)
+			if relErr != nil {
+				return relErr
+			}
+			fmt.Fprintf(&snapshot, "%s %s\n", filepath.ToSlash(rel), entry.Type())
+			if entry.Type().IsRegular() {
+				data, readErr := os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				fmt.Fprintf(&snapshot, "%x\n", data)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snapshot.String()
+	}
+	beforeDryRun := snapshotTree()
+
+	type reconcilePayload struct {
+		Receipt         memoryOperationReceipt `json:"receipt"`
+		JobsCreated     int                    `json:"jobs_created"`
+		JobsWouldCreate int                    `json:"jobs_would_create"`
+		JobsChanged     int                    `json:"jobs_changed"`
+	}
+	out, err := execute(t, newMemoryReconcileCommand(opts), "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("reconcile dry-run: %v\n%s", err, out)
+	}
+	var payload reconcilePayload
+	if decodeErr := json.Unmarshal([]byte(out), &payload); decodeErr != nil || payload.Receipt.Operation != "reconcile" || !payload.Receipt.DryRun || payload.Receipt.FinishedAt.IsZero() || payload.JobsCreated != 0 || payload.JobsWouldCreate != 1 || payload.JobsChanged != 1 || len(payload.Receipt.Artifacts) != 1 || payload.Receipt.Artifacts[0].PriorState != "absent" || payload.Receipt.Artifacts[0].NewState != memoryJobStatePending {
+		t.Fatalf("dry-run payload=%+v decode=%v\n%s", payload, decodeErr, out)
+	}
+	if jobs := loadMemoryJobs(brainDir); len(jobs) != 0 {
+		t.Fatalf("dry-run created jobs: %+v", jobs)
+	}
+	if afterDryRun := snapshotTree(); afterDryRun != beforeDryRun {
+		t.Fatalf("dry-run changed the Brain tree\nbefore:\n%s\nafter:\n%s", beforeDryRun, afterDryRun)
+	}
+	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(memoryJobsDirRel))); !os.IsNotExist(statErr) {
+		t.Fatalf("dry-run created work directory: %v", statErr)
+	}
+
+	out, err = execute(t, newMemoryReconcileCommand(opts))
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "reconcile completed schema_version=1") || !strings.Contains(out, "reconcile enqueued 1 jobs") {
+		t.Fatalf("plain reconcile receipt: err=%v\n%s", err, out)
+	}
+	if jobs := loadMemoryJobs(brainDir); len(jobs) != 1 || jobs[0].State != memoryJobStatePending {
+		t.Fatalf("reconcile jobs = %+v", jobs)
+	}
+
+	out, err = execute(t, newMemoryReconcileCommand(opts), "--json")
+	payload = reconcilePayload{}
+	if decodeErr := json.Unmarshal([]byte(out), &payload); err != nil || decodeErr != nil || payload.JobsCreated != 0 || payload.JobsWouldCreate != 0 || payload.JobsChanged != 0 || len(payload.Receipt.Artifacts) != 0 {
+		t.Fatalf("idempotent reconcile payload=%+v err=%v decode=%v\n%s", payload, err, decodeErr, out)
+	}
+	if jobs := loadMemoryJobs(brainDir); len(jobs) != 1 {
+		t.Fatalf("idempotent reconcile duplicated jobs: %+v", jobs)
+	}
+
+	addSession("reconcile-output-failure")
+	writer := &failOnceMemoryReceiptWriter{}
+	cmd := newMemoryReconcileCommand(opts)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetOut(writer)
+	cmd.SetErr(&strings.Builder{})
+	cmd.SetArgs([]string{"--json"})
+	err = cmd.Execute()
+	if !errors.Is(err, errMemoryReceiptOutput) {
+		t.Fatalf("writer failure = %v, want original output error", err)
+	}
+	var failure memoryOperationReceipt
+	if decodeErr := json.Unmarshal([]byte(writer.output.String()), &failure); decodeErr != nil || failure.Operation != "reconcile" || failure.ErrorCode != memoryErrStateCorrupt || failure.FinishedAt.IsZero() || len(failure.Artifacts) != 1 || failure.Artifacts[0].NewState != memoryJobStatePending {
+		t.Fatalf("output failure receipt=%+v decode=%v\n%s", failure, decodeErr, writer.output.String())
+	}
+	if jobs := loadMemoryJobs(brainDir); len(jobs) != 2 {
+		t.Fatalf("writer failure lost successful mutation: %+v", jobs)
+	}
 }
 
 func TestMemoryHintCoalescingAndGenerationSafeRemoval(t *testing.T) {
@@ -625,6 +753,9 @@ func TestMemoryManualMutationIgnoresUnrelatedJobIssue(t *testing.T) {
 	if err != nil || len(selected) != 1 {
 		t.Fatalf("valid retry selection blocked: jobs=%+v err=%v", selected, err)
 	}
+	if _, err := memoryJobsForSelector(brainDir, "", job.SessionRef); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		t.Fatalf("incomplete bulk session selection was not rejected: %v", err)
+	}
 	pending, err := transitionMemoryJob(brainDir, selected[0], memoryJobStatePending, now, "")
 	if err != nil {
 		t.Fatal(err)
@@ -1009,6 +1140,7 @@ func TestMemoryJobAdministrationSelectors(t *testing.T) {
 		{Kind: memoryJobKindProjection, RepoKey: storage.Key, SessionID: "sess", SessionRef: ref, InputDigest: "sha256:a", State: memoryJobStateRetryable, Attempt: 1, CreatedAt: now, AvailableAt: now},
 		{Kind: memoryJobKindSessionAbstract, RepoKey: storage.Key, SessionID: "sess", SessionRef: ref, InputDigest: "sha256:b", State: memoryJobStateInvalid, CreatedAt: now.Add(time.Second), AvailableAt: now},
 		{Kind: memoryJobKindProjection, RepoKey: storage.Key, SessionID: "other", SessionRef: "conversation-session:other", InputDigest: "sha256:c", State: memoryJobStatePending, CreatedAt: now.Add(2 * time.Second), AvailableAt: now},
+		{Kind: memoryJobKindProjection, RepoKey: storage.Key, SessionID: "sess", SessionRef: ref, InputDigest: "sha256:d", State: memoryJobStateComplete, CreatedAt: now.Add(3 * time.Second), AvailableAt: now},
 	}
 	for i := range jobs {
 		jobs[i].JobID = memoryJobID(jobs[i].RepoKey, jobs[i].SessionRef, jobs[i].InputDigest, jobs[i].Kind)
@@ -1030,22 +1162,224 @@ func TestMemoryJobAdministrationSelectors(t *testing.T) {
 	if err != nil || !strings.Contains(out, jobs[2].JobID) || strings.Contains(out, jobs[0].JobID) {
 		t.Fatalf("jobs text selector: err=%v\n%s", err, out)
 	}
-	if _, err := execute(t, NewRootCommand(opts), "memory", "retry", "--session-ref", ref); err != nil {
-		t.Fatal(err)
+	out, err = execute(t, NewRootCommand(opts), "memory", "retry", "--session-ref", ref, "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("retry dry-run: %v\n%s", err, out)
+	}
+	var mutation struct {
+		Receipt      memoryOperationReceipt `json:"receipt"`
+		JobsMatched  int                    `json:"jobs_matched"`
+		JobsEligible int                    `json:"jobs_eligible"`
+	}
+	if err := json.Unmarshal([]byte(out), &mutation); err != nil || !mutation.Receipt.DryRun || mutation.Receipt.FinishedAt.IsZero() || mutation.JobsMatched != 3 || mutation.JobsEligible != 2 || len(mutation.Receipt.JobIDs) != 3 || len(mutation.Receipt.Artifacts) != 3 {
+		t.Fatalf("retry dry-run payload=%+v err=%v\n%s", mutation, err, out)
 	}
 	for _, job := range loadMemoryJobs(storage.BrainDir) {
-		if job.SessionRef == ref && job.State != memoryJobStatePending {
+		if job.SessionRef == ref && job.JobID != jobs[3].JobID && job.State != memoryJobStateRetryable && job.State != memoryJobStateInvalid {
+			t.Fatalf("retry dry-run changed job: %+v", job)
+		}
+	}
+	out, err = execute(t, NewRootCommand(opts), "memory", "retry", "--session-ref", ref, "--json")
+	if err != nil {
+		t.Fatalf("retry json: %v\n%s", err, out)
+	}
+	mutation = struct {
+		Receipt      memoryOperationReceipt `json:"receipt"`
+		JobsMatched  int                    `json:"jobs_matched"`
+		JobsEligible int                    `json:"jobs_eligible"`
+	}{}
+	if err := json.Unmarshal([]byte(out), &mutation); err != nil || mutation.Receipt.Operation != "retry" || mutation.Receipt.DryRun || mutation.Receipt.FinishedAt.IsZero() || len(mutation.Receipt.Artifacts) != 3 {
+		t.Fatalf("retry payload=%+v err=%v\n%s", mutation, err, out)
+	}
+	for _, job := range loadMemoryJobs(storage.BrainDir) {
+		if job.SessionRef == ref && job.JobID != jobs[3].JobID && job.State != memoryJobStatePending {
 			t.Fatalf("retry selector left job in %s: %+v", job.State, job)
 		}
 	}
-	if _, err := execute(t, NewRootCommand(opts), "memory", "cancel", "--session-ref", ref); err != nil {
-		t.Fatal(err)
+	out, err = execute(t, NewRootCommand(opts), "memory", "retry", jobs[0].JobID, "--json")
+	if err != nil {
+		t.Fatalf("repeat retry: %v\n%s", err, out)
+	}
+	mutation = struct {
+		Receipt      memoryOperationReceipt `json:"receipt"`
+		JobsMatched  int                    `json:"jobs_matched"`
+		JobsEligible int                    `json:"jobs_eligible"`
+	}{}
+	if err := json.Unmarshal([]byte(out), &mutation); err != nil || mutation.JobsMatched != 1 || mutation.JobsEligible != 1 || len(mutation.Receipt.Artifacts) != 1 || mutation.Receipt.Artifacts[0].PriorState != memoryJobStatePending || mutation.Receipt.Artifacts[0].NewState != memoryJobStatePending {
+		t.Fatalf("repeat retry receipt=%+v err=%v\n%s", mutation, err, out)
+	}
+	out, err = execute(t, NewRootCommand(opts), "memory", "cancel", "--session-ref", ref, "--dry-run")
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "cancel completed") || !strings.Contains(out, "dry_run=true") || !strings.Contains(out, "jobs_eligible=2") {
+		t.Fatalf("cancel dry-run text: err=%v\n%s", err, out)
 	}
 	for _, job := range loadMemoryJobs(storage.BrainDir) {
-		if job.SessionRef == ref && job.State != memoryJobStateCancelled {
+		if job.SessionRef == ref && job.JobID != jobs[3].JobID && job.State != memoryJobStatePending {
+			t.Fatalf("cancel dry-run changed job: %+v", job)
+		}
+	}
+	out, err = execute(t, NewRootCommand(opts), "memory", "cancel", "--session-ref", ref, "--json")
+	if err != nil {
+		t.Fatalf("cancel json: %v\n%s", err, out)
+	}
+	if err := json.Unmarshal([]byte(out), &mutation); err != nil || mutation.Receipt.Operation != "cancel" || mutation.Receipt.FinishedAt.IsZero() || mutation.JobsMatched != 3 || mutation.JobsEligible != 2 || len(mutation.Receipt.Artifacts) != 3 {
+		t.Fatalf("cancel payload=%+v err=%v\n%s", mutation, err, out)
+	}
+	for _, job := range loadMemoryJobs(storage.BrainDir) {
+		if job.SessionRef == ref && job.JobID != jobs[3].JobID && job.State != memoryJobStateCancelled {
 			t.Fatalf("cancel selector left job in %s: %+v", job.State, job)
 		}
 	}
+	out, err = execute(t, NewRootCommand(opts), "memory", "cancel", "--session-ref", ref, "--json")
+	if err != nil {
+		t.Fatalf("repeat cancel error=%v out=%s", err, out)
+	}
+	mutation = struct {
+		Receipt      memoryOperationReceipt `json:"receipt"`
+		JobsMatched  int                    `json:"jobs_matched"`
+		JobsEligible int                    `json:"jobs_eligible"`
+	}{}
+	if decodeErr := json.Unmarshal([]byte(out), &mutation); decodeErr != nil || mutation.JobsMatched != 3 || mutation.JobsEligible != 0 || len(mutation.Receipt.Artifacts) != 3 {
+		t.Fatalf("repeat cancel receipt=%+v decode=%v\n%s", mutation, decodeErr, out)
+	}
+	for _, artifact := range mutation.Receipt.Artifacts {
+		if artifact.PriorState != artifact.NewState {
+			t.Fatalf("repeat cancel was not idempotent: %+v", artifact)
+		}
+	}
+
+	exactComplete := newMemoryCancelCommand(opts)
+	exactComplete.SilenceErrors, exactComplete.SilenceUsage = true, true
+	out, err = execute(t, exactComplete, jobs[3].JobID, "--json")
+	if err == nil || !strings.Contains(err.Error(), memoryErrCancelTooLate) {
+		t.Fatalf("completed exact cancel error=%v out=%s", err, out)
+	}
+	var failure memoryOperationReceipt
+	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "cancel" || failure.ErrorCode != memoryErrCancelTooLate || failure.FinishedAt.IsZero() || len(failure.JobIDs) != 1 {
+		t.Fatalf("completed exact cancel receipt=%+v decode=%v\n%s", failure, decodeErr, out)
+	}
+	missingRetry := newMemoryRetryCommand(opts)
+	missingRetry.SilenceErrors, missingRetry.SilenceUsage = true, true
+	out, err = execute(t, missingRetry, "job:does-not-exist", "--json")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing retry error=%v out=%s", err, out)
+	}
+	failure = memoryOperationReceipt{}
+	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "retry" || failure.ErrorCode != memoryErrSourceStale || failure.FinishedAt.IsZero() {
+		t.Fatalf("missing retry receipt=%+v decode=%v\n%s", failure, decodeErr, out)
+	}
+}
+
+func TestMemoryJobAdministrationReceiptsPreserveAmbiguousAtomicOutcomes(t *testing.T) {
+	now := time.Date(2026, 8, 9, 19, 30, 0, 0, time.UTC)
+	fixture := func(t *testing.T, state string) (Options, string, memoryJob) {
+		t.Helper()
+		repoDir := t.TempDir()
+		env := semanticTestEnv(t, repoDir)
+		runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+		storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		job := memoryJob{
+			Kind: memoryJobKindProjection, RepoKey: storage.Key, SessionID: "atomic", SessionRef: "conversation-session:atomic",
+			InputDigest: "sha256:atomic", State: state, Attempt: 1, CreatedAt: now, AvailableAt: now,
+		}
+		job.JobID = memoryJobID(job.RepoKey, job.SessionRef, job.InputDigest, job.Kind)
+		if err := saveMemoryJob(storage.BrainDir, job); err != nil {
+			t.Fatal(err)
+		}
+		opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+		return opts, storage.BrainDir, job
+	}
+	assertUnknown := func(t *testing.T, out, path string) memoryOperationReceipt {
+		t.Helper()
+		var receipt memoryOperationReceipt
+		if err := json.Unmarshal([]byte(out), &receipt); err != nil {
+			t.Fatalf("decode failure receipt: %v\n%s", err, out)
+		}
+		for _, artifact := range receipt.Artifacts {
+			if artifact.Path == path {
+				if artifact.NewState != "write_outcome_unknown" {
+					t.Fatalf("atomic outcome was overstated: %+v", artifact)
+				}
+				return receipt
+			}
+		}
+		t.Fatalf("missing atomic artifact %s in %+v", path, receipt.Artifacts)
+		return memoryOperationReceipt{}
+	}
+
+	t.Run("transition", func(t *testing.T) {
+		opts, brainDir, job := fixture(t, memoryJobStateRetryable)
+		old := memoryAdminTransitionJob
+		memoryAdminTransitionJob = func(brainDir string, job memoryJob, state string, at time.Time, detail string) (memoryJob, error) {
+			updated, err := transitionMemoryJob(brainDir, job, state, at, detail)
+			if err != nil {
+				return updated, err
+			}
+			return updated, errors.New("injected post-rename sync failure")
+		}
+		t.Cleanup(func() { memoryAdminTransitionJob = old })
+		cmd := newMemoryRetryCommand(opts)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		out, err := execute(t, cmd, job.JobID, "--json")
+		if err == nil {
+			t.Fatalf("retry unexpectedly succeeded: %s", out)
+		}
+		assertUnknown(t, out, memoryJobRel(job.JobID))
+		stored, loadErr := memoryJobByID(brainDir, job.JobID)
+		if loadErr != nil || stored.State != memoryJobStatePending {
+			t.Fatalf("injected transition did not commit: job=%+v err=%v", stored, loadErr)
+		}
+	})
+
+	t.Run("cancellation request", func(t *testing.T) {
+		opts, brainDir, job := fixture(t, memoryJobStateRunning)
+		old := memoryAdminRequestCancellation
+		memoryAdminRequestCancellation = func(brainDir string, job memoryJob, at time.Time) (memoryJob, error) {
+			updated, err := requestMemoryJobCancellation(brainDir, job, at)
+			if err != nil {
+				return updated, err
+			}
+			return updated, errors.New("injected post-rename sync failure")
+		}
+		t.Cleanup(func() { memoryAdminRequestCancellation = old })
+		cmd := newMemoryCancelCommand(opts)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		out, err := execute(t, cmd, job.JobID, "--json")
+		if err == nil {
+			t.Fatalf("cancel unexpectedly succeeded: %s", out)
+		}
+		assertUnknown(t, out, memoryCancellationRel(job.JobID))
+		if request, loadErr := loadMemoryCancellationRequest(brainDir, job.JobID); loadErr != nil || request == nil {
+			t.Fatalf("injected cancellation request did not commit: request=%+v err=%v", request, loadErr)
+		}
+	})
+
+	t.Run("cancellation removal", func(t *testing.T) {
+		opts, brainDir, job := fixture(t, memoryJobStateCancelled)
+		if err := writeMemoryCancellationRequest(brainDir, job, now); err != nil {
+			t.Fatal(err)
+		}
+		old := memoryAdminRemoveCancellation
+		memoryAdminRemoveCancellation = func(brainDir, jobID string) error {
+			if err := removeMemoryCancellationRequest(brainDir, jobID); err != nil {
+				return err
+			}
+			return errors.New("injected post-remove sync failure")
+		}
+		t.Cleanup(func() { memoryAdminRemoveCancellation = old })
+		cmd := newMemoryCancelCommand(opts)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		out, err := execute(t, cmd, job.JobID, "--json")
+		if err == nil {
+			t.Fatalf("cancel cleanup unexpectedly succeeded: %s", out)
+		}
+		assertUnknown(t, out, memoryCancellationRel(job.JobID))
+		if request, loadErr := loadMemoryCancellationRequest(brainDir, job.JobID); loadErr != nil || request != nil {
+			t.Fatalf("injected cancellation removal did not commit: request=%+v err=%v", request, loadErr)
+		}
+	})
 }
 
 func TestMemoryPruneRequiresReplacementTruthProof(t *testing.T) {

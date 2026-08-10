@@ -71,6 +71,7 @@ type brainStatusReport struct {
 	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
 	Memory      map[string]any        `json:"memory,omitempty"`
 	Live        brainLiveState        `json:"live"`
+	Issues      []memoryHealthIssue   `json:"issues,omitempty"`
 	Warnings    []string              `json:"warnings,omitempty"`
 	// Manifest is for in-process consumers (brief, overview, regressions). It is
 	// deliberately not part of the JSON contract: it duplicates the structured
@@ -149,9 +150,11 @@ type brainStatusRepo struct {
 }
 
 type brainStatusBrain struct {
-	Path        string `json:"path"`
-	Schema      int    `json:"schema_version"`
-	GeneratedAt string `json:"generated_at,omitempty"`
+	Path            string `json:"path"`
+	Schema          int    `json:"schema_version"`
+	SupportedSchema int    `json:"supported_schema_version"`
+	ManifestState   string `json:"manifest_state"`
+	GeneratedAt     string `json:"generated_at,omitempty"`
 }
 
 type brainStatusSources struct {
@@ -1029,16 +1032,11 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
-	report, err := buildBrainStatusReport(ctx, opts, target)
+	report, err := buildAvailableBrainStatusReport(ctx, opts, target)
 	if err != nil {
 		return err
 	}
 	populateBrainStatusVerification(ctx, opts, &report)
-	var historySource *historySourceManifest
-	if report.Manifest != nil && report.Manifest.Sources != nil {
-		historySource = report.Manifest.Sources.History
-	}
-	report.Memory = memoryAggregateHealth(report.Brain.Path, historySource)
 	if statusOpts.compact && !statusOpts.details {
 		// MCP owns the explicitly compact transport. The CLI remains backward
 		// compatible and emits the established detailed JSON by default.
@@ -1173,6 +1171,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 	fmt.Fprintln(out, "Brain")
 	fmt.Fprintf(out, "  path: %s\n", report.Brain.Path)
 	fmt.Fprintf(out, "  repo: %s (key %s)\n", report.Repo.Root, report.Repo.Key)
+	fmt.Fprintf(out, "  manifest: %s (schema %d; supported %d)\n", report.Brain.ManifestState, report.Brain.Schema, report.Brain.SupportedSchema)
 	if report.Brain.GeneratedAt != "" {
 		fmt.Fprintf(out, "  generated: %s\n", report.Brain.GeneratedAt)
 	}
@@ -1290,6 +1289,16 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 	}
 	for _, symbol := range report.Live.ChangedSymbolHints {
 		fmt.Fprintf(out, "  changed symbol: %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
+	}
+	if len(report.Issues) > 0 {
+		fmt.Fprintln(out, "\nHealth issues")
+		for _, issue := range report.Issues {
+			fmt.Fprintf(out, "  %s %s: %s", issue.Code, issue.Path, issue.Kind)
+			if issue.Action != "" {
+				fmt.Fprintf(out, " (%s)", issue.Action)
+			}
+			fmt.Fprintln(out)
+		}
 	}
 	warnings := append(append([]string(nil), report.Warnings...), report.Live.Warnings...)
 	if len(warnings) > 0 {
@@ -3269,6 +3278,17 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 }
 
 func buildBrainStatusReport(ctx context.Context, opts Options, target string) (brainStatusReport, error) {
+	return buildBrainStatusReportWithAvailability(ctx, opts, target, false)
+}
+
+// buildAvailableBrainStatusReport is the health-only variant used by status
+// and brain_status. Other read surfaces retain the strict loader so a damaged
+// or forward-version manifest cannot be mistaken for an empty Brain.
+func buildAvailableBrainStatusReport(ctx context.Context, opts Options, target string) (brainStatusReport, error) {
+	return buildBrainStatusReportWithAvailability(ctx, opts, target, true)
+}
+
+func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, partialHealth bool) (brainStatusReport, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return brainStatusReport{}, err
@@ -3280,24 +3300,43 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	if err != nil {
 		return brainStatusReport{}, err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		return brainStatusReport{}, err
+	generatedAt := opts.Now().UTC()
+	manifestState := "current"
+	manifestSchema := brainManifestSchemaVersion
+	var manifest *exportManifest
+	var memoryHealth map[string]any
+	var healthIssues []memoryHealthIssue
+	if partialHealth {
+		snapshot := memoryReadOnlyHealth(storage.BrainDir, generatedAt)
+		manifest = snapshot.Manifest
+		manifestState = snapshot.ManifestHealth.State
+		manifestSchema = snapshot.ManifestHealth.SchemaVersion
+		memoryHealth = snapshot.Payload
+		healthIssues = snapshot.Issues
+	} else {
+		manifest, err = loadBrainManifest(storage.BrainDir)
+		if err != nil {
+			return brainStatusReport{}, err
+		}
+		manifestSchema = manifest.SchemaVersion
 	}
 	report := brainStatusReport{
-		GeneratedAt: opts.Now().UTC(),
+		GeneratedAt: generatedAt,
 		Repo:        brainStatusRepo{Root: repoDir, Key: storage.Key},
 		Brain: brainStatusBrain{
-			Path:        storage.BrainDir,
-			Schema:      manifest.SchemaVersion,
-			GeneratedAt: manifest.GeneratedAt.Format(time.RFC3339),
+			Path:            storage.BrainDir,
+			Schema:          manifestSchema,
+			SupportedSchema: brainManifestSchemaVersion,
+			ManifestState:   manifestState,
 		},
 		Manifest: manifest,
+		Memory:   memoryHealth,
+		Issues:   healthIssues,
 	}
-	if manifest.GeneratedAt.IsZero() {
-		report.Brain.GeneratedAt = ""
+	if manifest != nil && !manifest.GeneratedAt.IsZero() {
+		report.Brain.GeneratedAt = manifest.GeneratedAt.Format(time.RFC3339)
 	}
-	if manifest.Sources != nil {
+	if manifest != nil && manifest.Sources != nil {
 		report.Sources.Seed = manifest.Sources.Seed != nil
 		report.Sources.Sessions = manifest.Sources.Sessions != nil
 		report.Sources.Semantic = manifest.Sources.Semantic != nil
@@ -3333,7 +3372,7 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	} else {
 		report.Live = live
 	}
-	if manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
+	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
 		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, repoDir, manifest, report.Live)
 		if report.Retrieval != nil {
 			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)

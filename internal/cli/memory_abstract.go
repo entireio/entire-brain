@@ -302,7 +302,7 @@ func readAbstractEgressReceiptExpected(brainDir, rel string, version int, expect
 	}
 	receipt, err := decodeAbstractEgressReceipt(data, version, expectedRef)
 	if err != nil {
-		return abstractEgressReceiptFile{}, true, err
+		return abstractEgressReceiptFile{Path: rel, Receipt: receipt, Info: expected, Legacy: version == abstractEgressLegacyVersion}, true, err
 	}
 	info, err := memoryStateLstat(filepath.Join(brainDir, filepath.FromSlash(rel)))
 	if err != nil || !info.Mode().IsRegular() {
@@ -431,9 +431,13 @@ type abstractEgressInventory struct {
 	Degraded       bool
 }
 
-func (inventory *abstractEgressInventory) issue(path, code string) {
+func (inventory *abstractEgressInventory) issue(path, code string, version ...int) {
 	inventory.Degraded = true
-	inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "abstract_egress", File: path, Code: code})
+	observedVersion := 0
+	if len(version) > 0 {
+		observedVersion = version[0]
+	}
+	inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "abstract_egress", File: path, Code: code, Version: observedVersion})
 }
 
 // loadAbstractEgressInventory is intentionally bounded and suitable for
@@ -472,7 +476,7 @@ func loadAbstractEgressInventory(brainDir string) abstractEgressInventory {
 			}
 			file, present, readErr := readAbstractEgressReceiptExpected(brainDir, rel, abstractEgressLegacyVersion, "", info)
 			if readErr != nil || !present || first.Name() != file.Receipt.OperationID+".json" {
-				inventory.issue(rel, memoryErrorCode(readErr))
+				inventory.issue(rel, memoryErrorCode(readErr), file.Receipt.SchemaVersion)
 				continue
 			}
 			inventory.Receipts = append(inventory.Receipts, file)
@@ -528,7 +532,7 @@ func loadAbstractEgressInventory(brainDir string) abstractEgressInventory {
 				}
 				file, present, readErr := readAbstractEgressReceiptExpected(brainDir, rel, abstractEgressSchemaVersion, "", info)
 				if readErr != nil || !present {
-					inventory.issue(rel, memoryErrorCode(readErr))
+					inventory.issue(rel, memoryErrorCode(readErr), file.Receipt.SchemaVersion)
 					continue
 				}
 				if rel != abstractEgressReceiptRel(file.Receipt.SessionRef) {
@@ -1245,7 +1249,8 @@ func newSessionAbstractResolver(brainDir string) *sessionAbstractResolver {
 			resolver.jobStatus[job.SessionRef+"\x00"+job.InputDigest] = status
 		}
 	}
-	if resolver.configErr == nil && resolver.config.Abstracts.Enabled && memoryAbstractorFactory != nil {
+	policyAllowed := rejectAbstractProviderNameForGlobalNoEgress(resolver.config.Abstracts.Provider) == nil
+	if resolver.configErr == nil && resolver.config.Abstracts.Enabled && policyAllowed && memoryAbstractorFactory != nil {
 		_, err := memoryAbstractorFactory(resolver.config.Abstracts)
 		resolver.providerAvailable = err == nil
 	}
@@ -1613,6 +1618,9 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 	if !config.Abstracts.Enabled {
 		return sessionAbstract{}, fmt.Errorf("%s: session abstracts are disabled; enable them with `memory configure abstracts --enable --provider <name>`", memoryErrProviderUnavail)
 	}
+	if err := rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider); err != nil {
+		return sessionAbstract{}, err
+	}
 	if memoryAbstractorFactory == nil {
 		return sessionAbstract{}, fmt.Errorf("%s: no abstract provider is available in this build", memoryErrProviderUnavail)
 	}
@@ -1621,6 +1629,9 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		return sessionAbstract{}, fmt.Errorf("%s: %s", memoryErrProviderUnavail, err.Error())
 	}
 	kind, providerName, model := provider.Identity()
+	if err := rejectAbstractProviderForGlobalNoEgress(kind, providerName); err != nil {
+		return sessionAbstract{}, err
+	}
 	if kind == "hosted" && !config.Abstracts.HostedEgressAllowed {
 		return sessionAbstract{}, fmt.Errorf("%s: provider %s is hosted and hosted egress is not acknowledged (--allow-hosted-egress)", memoryErrProviderUnavail, providerName)
 	}
@@ -1759,6 +1770,73 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 	return artifact, nil
 }
 
+// rejectAbstractProviderForGlobalNoEgress is the common fail-closed boundary
+// for configuration, durable manual enqueue, and provider execution. Under a
+// global local-only policy, only the explicitly local Ollama provider is
+// accepted; unknown identities are denied like hosted providers.
+func rejectAbstractProviderForGlobalNoEgress(kind, provider string) error {
+	if !brainNoEgressMode() {
+		return nil
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if kind == "local" && provider == "ollama" {
+		return nil
+	}
+	if provider == "" {
+		provider = "unknown"
+	}
+	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY or select provider ollama", memoryErrProviderUnavail, provider)
+}
+
+func rejectAbstractProviderNameForGlobalNoEgress(provider string) error {
+	if !brainNoEgressMode() {
+		return nil
+	}
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "ollama" {
+		return nil
+	}
+	if provider == "" {
+		provider = "unknown"
+	}
+	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY or select provider ollama", memoryErrProviderUnavail, provider)
+}
+
+// rejectAutomaticAbstractReconciliationForGlobalNoEgress runs before the
+// automatic resolver or queue planner. A repository configured for hosted (or
+// unknown) abstracts cannot resolve a provider or create durable automatic
+// work while a process-wide local-only policy is active.
+func rejectAutomaticAbstractReconciliationForGlobalNoEgress(brainDir string) error {
+	if !brainNoEgressMode() {
+		return nil
+	}
+	config, _, err := loadMemoryConfigChecked(brainDir)
+	if err != nil {
+		return err
+	}
+	if !config.Abstracts.Enabled || !config.Abstracts.Automatic {
+		return nil
+	}
+	return rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider)
+}
+
+// rejectMemoryAbstractJobForGlobalNoEgress applies the durable per-job
+// override before policy evaluation. It is called before retry normalization,
+// ownership, or heartbeat writes, so a policy refusal leaves the exact job
+// bytes untouched.
+func rejectMemoryAbstractJobForGlobalNoEgress(brainDir string, job memoryJob) error {
+	if !brainNoEgressMode() {
+		return nil
+	}
+	config, _, err := loadMemoryConfigChecked(brainDir)
+	if err != nil {
+		return err
+	}
+	config = applyMemoryAbstractJobOverride(config, job.AbstractOverride)
+	return rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider)
+}
+
 // runSessionAbstractJob executes one durable C3 session_abstract job. The
 // coordinator lease and Brain write lock remain available while the dedicated
 // privacy-side-effect lock spans provider egress and durable publication.
@@ -1808,7 +1886,7 @@ func loadConversationSessionViewByRef(brainDir, ref string) (conversationSession
 	}
 	view, ok := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)[ref]
 	if !ok {
-		return conversationSessionView{}, fmt.Errorf("session %s not found", ref)
+		return conversationSessionView{}, fmt.Errorf("%s: session %s not found", memoryErrSourceStale, ref)
 	}
 	return view, nil
 }
@@ -1875,6 +1953,9 @@ func automaticAbstractWorkRequestWithResolver(brainDir string, view conversation
 	}
 	if !config.Abstracts.Enabled || !config.Abstracts.Automatic {
 		return nil, nil
+	}
+	if err := rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(config.Abstracts.Provider) == "" {
 		return nil, nil // enabled but unconfigured is visible as provider_unavailable; not runnable work
@@ -1990,7 +2071,7 @@ func purgeSessionAbstractsForRefs(brainDir string, refs map[string]bool) error {
 // from being claimed between inventory and cancellation.
 func cancelAutomaticAbstractJobsLocked(brainDir string, now time.Time) ([]memoryReceiptArtifact, error) {
 	inventory := loadMemoryJobInventory(brainDir)
-	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
+	if err := memoryStateError(inventory.Issues); err != nil {
 		return nil, err
 	}
 	artifacts := make([]memoryReceiptArtifact, 0)
@@ -1998,24 +2079,83 @@ func cancelAutomaticAbstractJobsLocked(brainDir string, now time.Time) ([]memory
 		if job.Kind != memoryJobKindSessionAbstract || job.Trigger == "manual" || job.AbstractOverride != nil {
 			continue
 		}
-		prior := job.State
+		switch job.State {
+		case memoryJobStatePending, memoryJobStateRetryable, memoryJobStateInvalid:
+			artifactIndex := len(artifacts)
+			artifacts = append(artifacts, memoryReceiptArtifact{
+				Path: memoryJobRel(job.JobID), PriorState: job.State, NewState: "write_outcome_unknown",
+			})
+			if _, err := transitionMemoryJob(brainDir, job, memoryJobStateCancelled, now, ""); err != nil {
+				return artifacts, err
+			}
+			artifacts[artifactIndex].NewState = memoryJobStateCancelled
+			continue
+		case memoryJobStateRunning:
+			request, err := loadMemoryCancellationRequest(brainDir, job.JobID)
+			if err != nil {
+				return artifacts, err
+			}
+			priorState := "absent"
+			if request != nil {
+				priorState = "requested"
+			}
+			newState := "requested"
+			if request == nil {
+				newState = "write_outcome_unknown"
+			}
+			artifactIndex := len(artifacts)
+			artifacts = append(artifacts, memoryReceiptArtifact{
+				Path: memoryCancellationRel(job.JobID), PriorState: priorState, NewState: newState,
+			})
+			if request == nil {
+				if _, err := requestMemoryJobCancellation(brainDir, job, now); err != nil {
+					return artifacts, err
+				}
+				artifacts[artifactIndex].NewState = "requested"
+			}
+			continue
+		default:
+			continue
+		}
+	}
+	return artifacts, nil
+}
+
+// planAutomaticAbstractJobCancellation mirrors the disable transition
+// selection without writing job, cancellation, or lock state. The inventory
+// is a point-in-time dry-run report; the real operation reselects under lock.
+func planAutomaticAbstractJobCancellation(brainDir string) ([]memoryReceiptArtifact, error) {
+	inventory := loadMemoryJobInventory(brainDir)
+	if err := memoryStateError(inventory.Issues); err != nil {
+		return nil, err
+	}
+	artifacts := make([]memoryReceiptArtifact, 0)
+	for _, job := range inventory.Jobs {
+		if job.Kind != memoryJobKindSessionAbstract || job.Trigger == "manual" || job.AbstractOverride != nil {
+			continue
+		}
 		newState := ""
 		switch job.State {
 		case memoryJobStatePending, memoryJobStateRetryable, memoryJobStateInvalid:
-			if _, err := transitionMemoryJob(brainDir, job, memoryJobStateCancelled, now, ""); err != nil {
-				return nil, err
-			}
 			newState = memoryJobStateCancelled
 		case memoryJobStateRunning:
-			if _, err := requestMemoryJobCancellation(brainDir, job, now); err != nil {
-				return nil, err
+			request, err := loadMemoryCancellationRequest(brainDir, job.JobID)
+			if err != nil {
+				return artifacts, err
 			}
-			newState = "cancellation_requested"
+			priorState := "absent"
+			if request != nil {
+				priorState = "requested"
+			}
+			artifacts = append(artifacts, memoryReceiptArtifact{
+				Path: memoryCancellationRel(job.JobID), PriorState: priorState, NewState: "requested",
+			})
+			continue
 		default:
 			continue
 		}
 		artifacts = append(artifacts, memoryReceiptArtifact{
-			Path: memoryJobRel(job.JobID), PriorState: prior, NewState: newState,
+			Path: memoryJobRel(job.JobID), PriorState: job.State, NewState: newState,
 		})
 	}
 	return artifacts, nil
@@ -2025,8 +2165,9 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 	abstracts := &cobra.Command{
 		Use:   "abstracts",
 		Short: "Manage the optional session-abstract feature selection (content-free; never stores credentials)",
+		Args:  cobra.NoArgs,
 	}
-	var enable, disable, automatic, allowEgress bool
+	var enable, disable, automatic, allowEgress, dryRun, jsonOut bool
 	var provider, model string
 	abstracts.Flags().BoolVar(&enable, "enable", false, "Enable session abstracts")
 	abstracts.Flags().BoolVar(&disable, "disable", false, "Disable session abstracts")
@@ -2034,6 +2175,8 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 	abstracts.Flags().StringVar(&provider, "provider", "", "Provider name (explicit; no implicit fallback)")
 	abstracts.Flags().StringVar(&model, "model", "", "Model identity")
 	abstracts.Flags().BoolVar(&allowEgress, "allow-hosted-egress", false, "Acknowledge that a hosted provider sends bounded session projections off-machine")
+	abstracts.Flags().BoolVar(&dryRun, "dry-run", false, "Validate and report the configuration and job transitions without writing them")
+	abstracts.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	abstracts.RunE = func(cmd *cobra.Command, args []string) error {
 		if enable == disable {
 			return fmt.Errorf("pass exactly one of --enable or --disable")
@@ -2044,12 +2187,17 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 		}
 		startedAt := opts.Now().UTC()
 		receipt := newMemoryOperationReceipt("configure_abstracts", startedAt)
+		receipt.DryRun = dryRun
+		fail := func(cause error) error {
+			return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
+		}
 		var config memoryConfig
-		err = withBrainWriteLock(storage.BrainDir, func() error {
+		configure := func() error {
 			current, priorState, err := loadMemoryConfigChecked(storage.BrainDir)
 			if err != nil {
 				return err
 			}
+			receipt.Artifacts = []memoryReceiptArtifact{{Path: memoryConfigRel, PriorState: string(priorState), NewState: string(priorState)}}
 			config = current
 			config.Abstracts.Enabled = enable
 			config.Abstracts.Automatic = automatic && enable
@@ -2061,6 +2209,9 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 			}
 			config.Abstracts.HostedEgressAllowed = allowEgress
 			if enable {
+				if err := rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider); err != nil {
+					return err
+				}
 				if memoryAbstractorFactory == nil {
 					return fmt.Errorf("%s: no abstract provider is available in this build", memoryErrProviderUnavail)
 				}
@@ -2069,45 +2220,87 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 					return fmt.Errorf("%s: %w", memoryErrProviderUnavail, err)
 				}
 				kind, providerName, _ := resolved.Identity()
+				if err := rejectAbstractProviderForGlobalNoEgress(kind, providerName); err != nil {
+					return err
+				}
 				if kind == "hosted" && !config.Abstracts.HostedEgressAllowed {
 					return fmt.Errorf("%s: provider %s is hosted; enabling it requires --allow-hosted-egress", memoryErrProviderUnavail, providerName)
 				}
 			}
+			if dryRun {
+				receipt.Artifacts[0].NewState = string(memoryConfigCurrent)
+				if disable {
+					jobArtifacts, planErr := planAutomaticAbstractJobCancellation(storage.BrainDir)
+					receipt.Artifacts = append(receipt.Artifacts, jobArtifacts...)
+					return planErr
+				}
+				return nil
+			}
+			receipt.Artifacts[0].NewState = "write_outcome_unknown"
 			if err := saveMemoryConfig(storage.BrainDir, config); err != nil {
 				return err
 			}
+			receipt.Artifacts[0].NewState = "written"
 			var jobArtifacts []memoryReceiptArtifact
 			if disable {
 				jobArtifacts, err = cancelAutomaticAbstractJobsLocked(storage.BrainDir, startedAt)
+				receipt.Artifacts = append(receipt.Artifacts, jobArtifacts...)
 				if err != nil {
 					return err
 				}
 			}
 			stored, postState, err := loadMemoryConfigChecked(storage.BrainDir)
-			if err != nil || postState != memoryConfigCurrent || stored != config {
+			if postState != "" {
+				receipt.Artifacts[0].NewState = string(postState)
+			}
+			if err != nil {
+				return err
+			}
+			if postState != memoryConfigCurrent || stored != config {
 				return fmt.Errorf("%s: abstract configuration did not pass post-write validation", memoryErrStateCorrupt)
 			}
-			receipt.Artifacts = append([]memoryReceiptArtifact{{Path: memoryConfigRel, PriorState: string(priorState), NewState: string(postState)}}, jobArtifacts...)
 			return nil
-		})
-		if err != nil {
-			return err
 		}
-		receipt.FinishedAt = opts.Now().UTC()
-		return writeJSON(cmd, map[string]any{"receipt": receipt, "config": config})
+		if dryRun {
+			err = configure()
+		} else {
+			err = withBrainWriteLock(storage.BrainDir, configure)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
+			return map[string]any{"receipt": receipt, "config": config}
+		}, func(out io.Writer, receipt memoryOperationReceipt) {
+			renderMemoryOperationReceiptText(out, receipt, "completed")
+			fmt.Fprintf(out, "config abstracts_enabled=%v automatic=%v provider=%q model=%q hosted_egress_allowed=%v\n",
+				config.Abstracts.Enabled, config.Abstracts.Automatic, config.Abstracts.Provider, config.Abstracts.Model, config.Abstracts.HostedEgressAllowed)
+		})
 	}
 	cmd := &cobra.Command{Use: "configure", Short: "Manage optional memory feature selection"}
 	cmd.AddCommand(abstracts)
 	return cmd
 }
 
+type manualAbstractEnqueueReceipt struct {
+	JobID    string
+	Artifact memoryReceiptArtifact
+}
+
 func enqueueManualAbstractJob(brainDir, sessionRef string, override memoryAbstractJobOverride, now time.Time) (memoryJob, bool, error) {
+	return enqueueManualAbstractJobWithReceipt(brainDir, sessionRef, override, now, nil, false)
+}
+
+func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override memoryAbstractJobOverride, now time.Time, detail *manualAbstractEnqueueReceipt, dryRun bool) (memoryJob, bool, error) {
 	if !validMemoryAbstractJobOverride(&override) {
 		return memoryJob{}, false, fmt.Errorf("%s: invalid manual abstract provider selection", memoryErrProviderUnavail)
 	}
 	// Resolve the provider before creating durable work. Retries remain durable
 	// once accepted, while an impossible selection never creates queue churn.
 	config := applyMemoryAbstractJobOverride(memoryConfig{SchemaVersion: memoryConfigSchemaVersion}, &override)
+	if err := rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider); err != nil {
+		return memoryJob{}, false, err
+	}
 	if memoryAbstractorFactory == nil {
 		return memoryJob{}, false, fmt.Errorf("%s: no abstract provider is available in this build", memoryErrProviderUnavail)
 	}
@@ -2116,13 +2309,16 @@ func enqueueManualAbstractJob(brainDir, sessionRef string, override memoryAbstra
 		return memoryJob{}, false, fmt.Errorf("%s: %w", memoryErrProviderUnavail, err)
 	}
 	kind, providerName, _ := provider.Identity()
+	if err := rejectAbstractProviderForGlobalNoEgress(kind, providerName); err != nil {
+		return memoryJob{}, false, err
+	}
 	if kind == "hosted" && !override.HostedEgressAllowed {
 		return memoryJob{}, false, fmt.Errorf("%s: provider %s is hosted and requires --allow-hosted-egress", memoryErrProviderUnavail, providerName)
 	}
 
 	var accepted memoryJob
 	created := false
-	err = withBrainWriteLock(brainDir, func() error {
+	enqueue := func() error {
 		view, err := loadConversationSessionViewByRef(brainDir, sessionRef)
 		if err != nil {
 			return err
@@ -2142,6 +2338,9 @@ func enqueueManualAbstractJob(brainDir, sessionRef string, override memoryAbstra
 		}
 		digest := sessionViewDigest(view)
 		jobID := memoryJobID(manifest.RepoKey, view.Ref, digest, memoryJobKindSessionAbstract)
+		if detail != nil {
+			detail.JobID = jobID
+		}
 		inventory := loadMemoryJobInventory(brainDir)
 		if err := memoryJobEnumerationError(inventory.Issues); err != nil {
 			return err
@@ -2163,6 +2362,9 @@ func enqueueManualAbstractJob(brainDir, sessionRef string, override memoryAbstra
 				if !equalMemoryAbstractJobOverride(existing.AbstractOverride, &override) {
 					return fmt.Errorf("%s: abstract job %s is already running with a different provider selection", memoryErrLockBusy, jobID)
 				}
+				if detail != nil {
+					detail.Artifact = memoryReceiptArtifact{Path: memoryJobRel(jobID), PriorState: memoryJobStateRunning, NewState: memoryJobStateRunning}
+				}
 				accepted = existing
 				return nil
 			}
@@ -2170,17 +2372,51 @@ func enqueueManualAbstractJob(brainDir, sessionRef string, override memoryAbstra
 			existing.Trigger = "manual"
 			existing.AvailableAt = now
 			if existing.State == memoryJobStatePending {
-				if err := saveMemoryJob(brainDir, existing); err != nil {
-					return err
+				if detail != nil {
+					detail.Artifact = memoryReceiptArtifact{Path: memoryJobRel(jobID), PriorState: memoryJobStatePending, NewState: memoryJobStatePending}
+				}
+				if !dryRun {
+					if detail != nil {
+						detail.Artifact.NewState = "write_outcome_unknown"
+					}
+					if err := saveMemoryJob(brainDir, existing); err != nil {
+						return err
+					}
+					if detail != nil {
+						detail.Artifact.NewState = memoryJobStatePending
+					}
 				}
 				accepted = existing
 				return nil
 			}
 			switch existing.State {
 			case memoryJobStateComplete, memoryJobStateRetryable, memoryJobStateInvalid, memoryJobStateCancelled:
-				updated, err := transitionMemoryJob(brainDir, existing, memoryJobStatePending, now, "")
-				if err != nil {
-					return err
+				priorState := existing.State
+				if detail != nil {
+					detail.Artifact = memoryReceiptArtifact{Path: memoryJobRel(jobID), PriorState: priorState, NewState: "write_outcome_unknown"}
+				}
+				updated := existing
+				if dryRun {
+					updated.State = memoryJobStatePending
+					updated.AvailableAt = now
+					updated.StartedAt = nil
+					updated.FinishedAt = nil
+					updated.CancelRequestedAt = nil
+					updated.OwnerToken = ""
+					updated.HeartbeatAt = nil
+					updated.Error = nil
+					if detail != nil {
+						detail.Artifact.NewState = memoryJobStatePending
+					}
+				} else {
+					var err error
+					updated, err = transitionMemoryJob(brainDir, existing, memoryJobStatePending, now, "")
+					if err != nil {
+						return err
+					}
+					if detail != nil {
+						detail.Artifact.NewState = memoryJobStatePending
+					}
 				}
 				accepted = updated
 				return nil
@@ -2195,12 +2431,27 @@ func enqueueManualAbstractJob(brainDir, sessionRef string, override memoryAbstra
 			Trigger: "manual", State: memoryJobStatePending, CreatedAt: now, AvailableAt: now,
 			AbstractOverride: &override,
 		}
-		if err := saveMemoryJob(brainDir, accepted); err != nil {
-			return err
+		if detail != nil {
+			detail.Artifact = memoryReceiptArtifact{Path: memoryJobRel(jobID), PriorState: "absent", NewState: "write_outcome_unknown"}
+		}
+		if !dryRun {
+			if err := saveMemoryJob(brainDir, accepted); err != nil {
+				return err
+			}
+			if detail != nil {
+				detail.Artifact.NewState = memoryJobStatePending
+			}
+		} else if detail != nil {
+			detail.Artifact.NewState = memoryJobStatePending
 		}
 		created = true
 		return nil
-	})
+	}
+	if dryRun {
+		err = enqueue()
+	} else {
+		err = withBrainWriteLock(brainDir, enqueue)
+	}
 	return accepted, created, err
 }
 
@@ -2234,7 +2485,7 @@ func driveManualAbstractJob(ctx context.Context, repoDir, brainDir string, opts 
 }
 
 func newMemoryAbstractCommand(opts Options) *cobra.Command {
-	var jsonOut, generate, allowEgress bool
+	var jsonOut, generate, dryRun, allowEgress bool
 	var provider, model string
 	cmd := &cobra.Command{
 		Use:   "abstract <conversation-session:id>",
@@ -2245,6 +2496,8 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 			if !strings.HasPrefix(ref, conversationSessionIDPrefix) {
 				return fmt.Errorf("argument must be a %s id", conversationSessionIDPrefix)
 			}
+			oneOff := strings.TrimSpace(provider) != "" || strings.TrimSpace(model) != "" || allowEgress
+			mutating := generate || oneOff || dryRun
 			target := agentSurfaceTarget(opts, nil)
 			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
 			if err != nil {
@@ -2258,9 +2511,23 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
+			var receipt memoryOperationReceipt
+			receiptReady := false
+			if mutating {
+				receipt = newMemoryOperationReceipt("abstract_generate", opts.Now().UTC())
+				receipt.SessionRef = ref
+				receipt.DryRun = dryRun
+				receiptReady = true
+			}
+			fail := func(cause error) error {
+				if !receiptReady {
+					return cause
+				}
+				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
+			}
 			responsePolicy, err := captureRetrievalPrivacyPolicy(brainDir)
 			if err != nil {
-				return err
+				return fail(err)
 			}
 			// Abstracts are derived from transcript content. The final response
 			// boundary must prove both the tombstone identity and the fully-clean
@@ -2268,15 +2535,15 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 			responsePolicy.RequireDerivedClean = true
 			view, err := loadConversationSessionViewByRef(brainDir, ref)
 			if err != nil {
-				return err
+				return fail(err)
 			}
 			config, _, err := loadMemoryConfigChecked(brainDir)
 			if err != nil {
-				return err
+				return fail(err)
 			}
 			status, current := sessionAbstractStatus(brainDir, view)
-			oneOff := strings.TrimSpace(provider) != "" || strings.TrimSpace(model) != "" || allowEgress
-			if !generate && !oneOff {
+			priorAbstractStatus := status
+			if !mutating {
 				payload := map[string]any{"session_ref": ref, "abstract_status": status}
 				if current != nil {
 					payload["abstract"] = current
@@ -2303,19 +2570,57 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				Provider: config.Abstracts.Provider, Model: config.Abstracts.Model,
 				HostedEgressAllowed: config.Abstracts.HostedEgressAllowed,
 			}
-			job, created, err := enqueueManualAbstractJob(brainDir, ref, override, opts.Now().UTC())
+			enqueueReceipt := manualAbstractEnqueueReceipt{}
+			job, created, err := enqueueManualAbstractJobWithReceipt(brainDir, ref, override, receipt.StartedAt, &enqueueReceipt, dryRun)
+			if enqueueReceipt.JobID != "" {
+				receipt.JobIDs = append(receipt.JobIDs, enqueueReceipt.JobID)
+			}
+			if enqueueReceipt.Artifact.Path != "" {
+				receipt.Artifacts = append(receipt.Artifacts, enqueueReceipt.Artifact)
+			}
 			if err != nil {
-				return err
+				return fail(err)
+			}
+			if dryRun {
+				err = bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
+					return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
+						return map[string]any{
+							"session_ref": ref, "abstract_status": status, "job_id": job.JobID,
+							"job_created": false, "job_would_create": created, "job_completed": false,
+							"worker": memoryWorkerStats{}, "receipt": receipt,
+						}
+					}, func(out io.Writer, receipt memoryOperationReceipt) {
+						renderMemoryOperationReceiptText(out, receipt, "completed")
+						fmt.Fprintf(out, "abstract dry-run for %s (would enqueue durable job %s)\n", ref, job.JobID)
+					})
+				})
+				if err != nil {
+					return fail(err)
+				}
+				return nil
+			}
+			if len(receipt.Artifacts) > 0 {
+				receipt.Artifacts[0].NewState = "write_outcome_unknown"
 			}
 			stats, completed, err := driveManualAbstractJob(cmd.Context(), repoDir, brainDir, opts, job)
 			if err != nil {
-				return err
+				if currentJob, loadErr := memoryJobByID(brainDir, job.JobID); loadErr == nil && len(receipt.Artifacts) > 0 {
+					receipt.Artifacts[0].NewState = currentJob.State
+				}
+				return fail(err)
+			}
+			currentJob, err := memoryJobByID(brainDir, job.JobID)
+			if err != nil {
+				return fail(err)
+			}
+			if len(receipt.Artifacts) > 0 {
+				receipt.Artifacts[0].NewState = currentJob.State
 			}
 			// Reload the canonical view and resolver after the durable worker path;
 			// no command-local provider result is ever published or returned.
 			view, err = loadConversationSessionViewByRef(brainDir, ref)
 			if err != nil {
-				return err
+				return fail(err)
 			}
 			status, artifact := sessionAbstractStatus(brainDir, view)
 			if completed && artifact == nil {
@@ -2327,28 +2632,39 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 					status = abstractStatusCurrent
 				}
 			}
-			payload := map[string]any{
-				"session_ref": ref, "abstract_status": status, "job_id": job.JobID,
-				"job_created": created, "job_completed": completed, "worker": stats,
-			}
 			if artifact != nil {
-				payload["abstract"] = artifact
+				receipt.Artifacts = append(receipt.Artifacts, memoryReceiptArtifact{
+					Path: abstractRel(sessionViewDigest(view)), PriorState: priorAbstractStatus, NewState: status,
+				})
 			}
-			return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
-				if jsonOut {
-					return writeJSON(cmd, payload)
-				}
-				if artifact != nil {
-					_, err := fmt.Fprintf(cmd.OutOrStdout(), "abstract %s for %s (%d/%d turns covered)\n", status, ref, artifact.Coverage.IncludedTurns, artifact.Coverage.TotalTurns)
-					return err
-				}
-				_, err := fmt.Fprintf(cmd.OutOrStdout(), "abstract %s for %s (durable job %s)\n", status, ref, job.JobID)
-				return err
+			err = bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
+				return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
+					payload := map[string]any{
+						"session_ref": ref, "abstract_status": status, "job_id": job.JobID,
+						"job_created": created, "job_completed": completed, "worker": stats, "receipt": receipt,
+					}
+					if artifact != nil {
+						payload["abstract"] = artifact
+					}
+					return payload
+				}, func(out io.Writer, receipt memoryOperationReceipt) {
+					renderMemoryOperationReceiptText(out, receipt, "completed")
+					if artifact != nil {
+						fmt.Fprintf(out, "abstract %s for %s (%d/%d turns covered)\n", status, ref, artifact.Coverage.IncludedTurns, artifact.Coverage.TotalTurns)
+						return
+					}
+					fmt.Fprintf(out, "abstract %s for %s (durable job %s)\n", status, ref, job.JobID)
+				})
 			})
+			if err != nil {
+				return fail(err)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&generate, "generate", false, "Generate now using the configured provider")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate and report manual generation without enqueueing work or calling the provider")
 	cmd.Flags().StringVar(&provider, "provider", "", "One-off provider override (ollama, codex, or claude-code; does not change configuration)")
 	cmd.Flags().StringVar(&model, "model", "", "One-off provider model override (does not change configuration)")
 	cmd.Flags().BoolVar(&allowEgress, "allow-hosted-egress", false, "Acknowledge hosted egress for this generation only")

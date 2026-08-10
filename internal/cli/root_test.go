@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -128,18 +129,23 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	}
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
-		"plugin config dir: writable (" + filepath.Join(xdg, "config", "entire") + ")",
-		"plugin data dir: writable (" + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName) + ")",
-		"plugin state dir: writable (" + filepath.Join(xdg, "state", "entire") + ")",
-		"plugin cache dir: writable (" + filepath.Join(xdg, "cache", "entire") + ")",
+		"plugin config dir: warn (creatable_unproven: " + filepath.Join(xdg, "config", "entire"),
+		"plugin data dir: warn (creatable_unproven: " + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName),
+		"plugin state dir: warn (creatable_unproven: " + filepath.Join(xdg, "state", "entire"),
+		"plugin cache dir: warn (creatable_unproven: " + filepath.Join(xdg, "cache", "entire"),
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}
 	}
+	for _, path := range []string{filepath.Join(xdg, "config", "entire"), filepath.Join(xdg, "data", "entire"), filepath.Join(xdg, "state", "entire"), filepath.Join(xdg, "cache", "entire")} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("doctor must not create %s: %v", path, err)
+		}
+	}
 }
 
-func TestDoctorCreatesWritablePluginDataDir(t *testing.T) {
+func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 	dirs := t.TempDir()
 	cmd := NewRootCommand(Options{
 		Version: "test-version",
@@ -155,8 +161,13 @@ func TestDoctorCreatesWritablePluginDataDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("doctor: %v", err)
 	}
-	if !strings.Contains(out, "plugin data dir: writable") {
-		t.Fatalf("doctor output missing writable status:\n%s", out)
+	if !strings.Contains(out, "plugin data dir: warn (creatable_unproven:") {
+		t.Fatalf("doctor output missing read-only directory status:\n%s", out)
+	}
+	for _, suffix := range []string{"config", "data", "state", "cache"} {
+		if _, err := os.Lstat(filepath.Join(dirs, suffix)); !os.IsNotExist(err) {
+			t.Fatalf("doctor must not create or probe %s: %v", suffix, err)
+		}
 	}
 }
 

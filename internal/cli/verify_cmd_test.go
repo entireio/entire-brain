@@ -178,6 +178,141 @@ func TestVerifyDistilledFactAtCheckpointGranularity(t *testing.T) {
 	}
 }
 
+func TestVerifyDistilledFactFromGitRefsCheckpoint(t *testing.T) {
+	f := newVerifyFixture(t)
+	const checkpointID = "01KVBJCWYA4YW6J5M9GP655HZN"
+	settingsDir := filepath.Join(f.repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{"checkpoints":{"primary":{"type":"git-refs"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ref := checkpointRefPrefix + checkpointID[len(checkpointID)-2:] + "/" + checkpointID
+	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
+	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
+	f.runner.responses[fakeCommandKey("git", "for-each-ref", "--format=%(refname)", checkpointRefPrefix)] = fakeCommandResponse{stdout: ref + "\n"}
+	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", ref)] = fakeCommandResponse{stdout: "metadata.json\n0/metadata.json\n0/full.jsonl\n"}
+	f.runner.responses[fakeCommandKey("git", "cat-file", "-p", ref+":metadata.json")] = fakeCommandResponse{
+		stdout: `{"branch":"main","sessions":[{"metadata":"/0/metadata.json","transcript":"/0/full.jsonl"}]}`,
+	}
+	f.runner.responses[fakeCommandKey("git", "cat-file", "-p", ref+":0/metadata.json")] = fakeCommandResponse{
+		stdout: `{"checkpoint_id":"` + checkpointID + `","session_id":"sess-refs","branch":"main","turn_id":"turn-refs","created_at":"2026-06-09T11:00:00Z"}`,
+	}
+	transcript := `{"type":"user_message","message":"Verify the per-checkpoint ref."}` + "\n"
+	f.runner.responses[fakeCommandKey("git", "cat-file", "-p", ref+":0/full.jsonl")] = fakeCommandResponse{stdout: transcript}
+
+	const transcriptRel = "sessions/main/git-refs.jsonl"
+	f.writeBrainFile(t, transcriptRel, transcript)
+	f.writeSessions(t, []exportSession{{
+		SessionID:        "sess-refs",
+		Branch:           "main",
+		LatestCheckpoint: checkpointID,
+		SessionIndex:     0,
+		CreatedAt:        f.now,
+		TurnID:           "turn-refs",
+		TranscriptPath:   transcriptRel,
+	}})
+	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:git-refs", "Git-refs checkpoints are verifiable locally.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+		SessionID: "sess-refs", CheckpointID: checkpointID, TurnID: "turn-refs", Transcript: transcriptRel, Line: 1,
+	}})})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "fact:git-refs", "--json")
+	if err != nil {
+		t.Fatalf("verify git-refs fact: %v\n%s", err, out)
+	}
+	report := parseVerifyReport(t, out)
+	if report.Summary.Verified != 1 || report.Results[0].Verdict != verifyVerdictVerified {
+		t.Fatalf("expected verified git-refs anchor, got %+v", report)
+	}
+	for _, call := range f.runner.calls {
+		if call.name == "entire" || (call.name == "git" && len(call.args) > 0 && call.args[0] == "fetch") {
+			t.Fatalf("local verification crossed an egress boundary: %+v", call)
+		}
+		if call.name == "git" && len(call.args) > 0 && (call.args[0] == "ls-tree" || call.args[0] == "for-each-ref" || call.args[0] == "cat-file") && call.env[gitNoLazyFetchEnv] != "1" {
+			t.Fatalf("local verification object read lacks lazy-fetch guard: %+v", call)
+		}
+	}
+}
+
+func TestVerifyTranscriptFallbackRetainsCheckpointSource(t *testing.T) {
+	const (
+		oldID = "aaa111aaa111"
+		newID = "bbb222bbb222"
+	)
+	oldPath := snapshotTranscriptPath(oldID, 0, v1TranscriptFileName)
+	newPath := snapshotTranscriptPath(newID, 0, v1TranscriptFileName)
+	snapshot := &checkpointSnapshot{
+		TranscriptFileName: v1TranscriptFileName,
+		Selected: map[string]selectedSession{
+			selectedSessionKey("main", "same-session"): {
+				CheckpointID: newID,
+				SessionID:    "same-session",
+				SessionIndex: 0,
+				SourceKey:    "new-source",
+			},
+		},
+		TreePaths: map[string]struct{}{oldPath: {}, newPath: {}},
+		Sources: map[string]checkpointSnapshotSource{
+			"old-source": {TreePaths: map[string]struct{}{oldPath: {}}},
+			"new-source": {TreePaths: map[string]struct{}{newPath: {}}},
+		},
+	}
+	v := verifyContext{}
+	path, sourceKey := v.snapshotSourceTranscriptPath(snapshot, factAnchor{SessionID: "same-session", CheckpointID: oldID}, exportSession{SessionIndex: 0})
+	if path != oldPath || sourceKey != "old-source" {
+		t.Fatalf("old checkpoint fallback = (%q, %q), want (%q, old-source)", path, sourceKey, oldPath)
+	}
+}
+
+func TestVerifyCheckpointDistinguishesUnreadableFromMissing(t *testing.T) {
+	const (
+		readableID = "aaa111aaa111"
+		corruptID  = "bbb222bbb222"
+	)
+	v := verifyContext{
+		snapshotLoaded: true,
+		snapshot: &checkpointSnapshot{
+			Sources: map[string]checkpointSnapshotSource{
+				"source\x00" + readableID: {TreePaths: map[string]struct{}{}},
+			},
+			UnreadableCheckpoints: map[string]struct{}{corruptID: {}},
+		},
+	}
+	if got := v.verifyCheckpoint(readableID); got.Verdict != verifyVerdictVerified {
+		t.Fatalf("readable sibling = %+v", got)
+	}
+	if got := v.verifyCheckpoint(corruptID); got.Verdict != verifyVerdictUnverifiableHere || !strings.Contains(got.Reason, "unreadable") {
+		t.Fatalf("corrupt checkpoint = %+v", got)
+	}
+	if got := v.verifyCheckpoint("ccc333ccc333"); got.Verdict != verifyVerdictOrphaned {
+		t.Fatalf("missing checkpoint = %+v", got)
+	}
+}
+
+func TestVerifyCommitDisablesLazyObjectFetch(t *testing.T) {
+	const commit = "aaa111aaa111"
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "cat-file", "-e", commit+"^{commit}"): {},
+		fakeCommandKey("git", "for-each-ref", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes", "refs/tags"): {
+			stdout: "refs/heads/main\n",
+		},
+	}}
+	v := verifyContext{ctx: context.Background(), opts: Options{Runner: runner}, repoDir: "/repo"}
+	if got := v.verifyCommitUncached(commit); got.Verdict != verifyVerdictVerified {
+		t.Fatalf("commit verification = %+v", got)
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("verification calls = %+v", runner.calls)
+	}
+	for _, call := range runner.calls {
+		if call.env[gitNoLazyFetchEnv] != "1" {
+			t.Fatalf("verification object read lacks lazy-fetch guard: %+v", call)
+		}
+	}
+}
+
 func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
 	f := newVerifyFixture(t)
 	const checkpointID = "aaa111aaa111"
