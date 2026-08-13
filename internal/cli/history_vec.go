@@ -373,8 +373,8 @@ func conversationSemanticScores(brainDir string, e Embedder, query string, limit
 
 // rankConversationFused is the conversation arm's hybrid ranking: exchange-kind
 // BM25 fused with calibrated exchange vectors via the shared RRF merge. When
-// the semantic arm is unavailable it degrades to exactly the lexical ranking;
-// same list, same ok contract; so lexical-only operation stays fully
+// the semantic arm is unavailable it degrades to exactly the lexical ranking
+// (same list, same ok contract), so lexical-only operation stays fully
 // supported.
 func rankConversationFused(brainDir string, index historyIndex, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
 	scores := conversationSemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)

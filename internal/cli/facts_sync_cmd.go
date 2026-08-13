@@ -242,8 +242,8 @@ func resolveSyncMemberID(ctx context.Context, runner CommandRunner, repoDir, ove
 	return "local"
 }
 
-// gitmetaDirForKey resolves the local git-meta store path for a repo key;
-// <cache>/brain/<key>/gitmeta.git; mirroring brainDirForKey's key handling but
+// gitmetaDirForKey resolves the local git-meta store path for a repo key
+// (<cache>/brain/<key>/gitmeta.git), mirroring brainDirForKey's key handling but
 // rooted in the plugin CACHE tree (the store is a local, rebuildable sync
 // staging area, not authoritative brain data).
 func gitmetaDirForKey(env EntireEnv, key string) (string, error) {

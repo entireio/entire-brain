@@ -12,8 +12,8 @@ import (
 
 // lifecycle_ops.go is Phase 3 (lifecycle reliability and operations) of the
 // conversational-memory plan: observability for the capture -> export -> index
-// -> recall chain. Automatic indexing itself is inherited; `watch` already
-// drives the deterministic refresh that builds exchanges; so what lives here
+// -> recall chain. Automatic indexing itself is inherited (`watch` already
+// drives the deterministic refresh that builds exchanges), so what lives here
 // is the explanation layer: doctor's capture-to-recall checks and the stats
 // surface (counts/ranges by branch, agent, source, completion state, and index
 // version).

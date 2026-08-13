@@ -21,7 +21,7 @@ func newDoctorCommand(opts Options) *cobra.Command {
 }
 
 // doctorReport is the machine-readable doctor contract: environment values,
-// plugin-dir writability, and; when run inside a repository; the
+// plugin-dir writability, and, when run inside a repository, the
 // capture -> export -> index -> recall chain checks (brainDoctorChecks).
 type doctorReport struct {
 	Env    map[string]string   `json:"env"`

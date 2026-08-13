@@ -22,8 +22,8 @@ import (
 //
 // Authority model: the tombstone is brain-local (the plan's resolved default
 // until a capture-layer exclusion contract exists in the Entire CLI). Purge
-// physically deletes the brain's LOCAL projections; the exported transcript
-// copy under sessions/ and every derived store built from it; and the
+// physically deletes the brain's LOCAL projections (the exported transcript
+// copy under sessions/ and every derived store built from it), and the
 // tombstone prevents re-indexing even if a later `refresh sessions` re-exports
 // the still-canonical captured material. Deleting the canonical capture itself
 // is the capture layer's job, not the brain's.

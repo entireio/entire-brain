@@ -6,8 +6,8 @@ tools: Bash, Read
 
 # Entire Brain Conversation Recall
 
-Recover what earlier sessions asked, tried, decided, and concluded; from this
-repository's captured conversation history; without reading raw transcripts.
+Recover what earlier sessions asked, tried, decided, and concluded, from this
+repository's captured conversation history, without reading raw transcripts.
 
 ## When to activate
 

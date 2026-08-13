@@ -68,8 +68,8 @@ type shortTermFile struct {
 }
 
 // loadHistoryShortTerm returns the overlay when it is valid for the CURRENT
-// long-term build (version + base pin match); anything else; missing,
-// corrupt, or stale; reads as an empty overlay, which restores exact
+// long-term build (version + base pin match); anything else (missing,
+// corrupt, or stale) reads as an empty overlay, which restores exact
 // long-term-only behavior.
 func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortTermIndex {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
@@ -101,7 +101,7 @@ func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
 }
 
 // clearHistoryShortTerm removes the overlay (called after a completed full
-// build; consolidation; under the brain write lock). Best-effort: a missing
+// build (consolidation) under the brain write lock). Best-effort: a missing
 // file is the desired state, and a leftover stale overlay is voided by the
 // BaseGeneratedAt pin anyway.
 func clearHistoryShortTerm(brainDir string) {
@@ -305,8 +305,8 @@ func (f freshHistory) longTermActive() historyIndex {
 // rankFreshHistory ranks the two tiers: longTermRank runs against the on-disk
 // long-term index (so the FTS freshness identity is untouched), superseded
 // files' hits are dropped, the overlay is ranked in-memory, and the two lists
-// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged
-// ; bit-for-bit default preservation.
+// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged:
+// bit-for-bit default preservation.
 func rankFreshHistory(
 	fresh freshHistory,
 	kind, query string,
