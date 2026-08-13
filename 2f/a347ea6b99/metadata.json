@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.9.1-nightly.202608080619.caa0c9be9",
+  "checkpoint_id": "2fa347ea6b99",
+  "strategy": "manual-commit",
+  "branch": "fix/bugbot-review-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/doctor.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/history_vec.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/watch.go",
+    "internal/factgitmeta/backend.go",
+    "internal/factgitmeta/backend_test.go",
+    "internal/factgitmeta/gitmeta/apply.go",
+    "internal/factgitmeta/gitmeta/apply_test.go",
+    "internal/factgitmeta/gitmeta/commit.go",
+    "internal/factgitmeta/gitmeta/golden_test.go",
+    "internal/factgitmeta/gitmeta/materialize.go",
+    "internal/factgitmeta/gitmeta/serialize.go",
+    "internal/factgitmeta/gitmeta/target_value_test.go",
+    "internal/factgitmeta/gitmeta/treepath.go",
+    "internal/factgitmeta/gitmeta/treepath_test.go",
+    "internal/factgitmeta/gitmeta/types.go",
+    "internal/factgitmeta/localrepo.go",
+    "templates/entire-brain-recall-claude-agent.md",
+    "templates/entire-brain-recall-codex-skill.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2f/a347ea6b99/0/metadata.json",
+      "transcript": "/2f/a347ea6b99/0/full.jsonl",
+      "compact_transcript": "/2f/a347ea6b99/0/transcript.jsonl",
+      "content_hash": "/2f/a347ea6b99/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 85,
+    "cache_creation_tokens": 161662,
+    "cache_read_tokens": 5549400,
+    "output_tokens": 43534,
+    "api_call_count": 43
+  }
+}
