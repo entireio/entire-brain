@@ -3646,8 +3646,16 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 	}
 	// Exclusion guard (R0-1): the raw walk reads exported transcripts, so a
 	// tombstoned session's transcript (kept on exclude, deleted on purge)
-	// must be skipped here.
-	rawManifest, _ := loadBrainManifest(brainDir)
+	// must be skipped here. rawGuard.paths is the ONLY exclusion mechanism in
+	// this walk (there is no session id to match against a bare file), and it
+	// is populated only from the manifest, so a manifest that fails to load
+	// must fail the scan rather than silently scanning excluded transcripts.
+	// An absent manifest is not an error: loadBrainManifest returns an empty
+	// one, and a brain with no manifest has no exported sessions to exclude.
+	rawManifest, manifestErr := loadBrainManifest(brainDir)
+	if manifestErr != nil {
+		return report, manifestErr
+	}
 	rawGuard, guardErr := loadSessionReadGuard(brainDir, rawManifest)
 	if guardErr != nil {
 		return report, guardErr

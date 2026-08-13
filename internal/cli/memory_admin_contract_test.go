@@ -690,7 +690,10 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if got := checks["memory_coordinator"]; got.State != "warn" || !strings.Contains(got.Detail, "stale heartbeat") {
 		t.Fatalf("coordinator check = %+v", got)
 	}
-	if got := checks["write_lock"]; got.State != "warn" || !strings.Contains(got.Detail, "present_unproven") {
+	// A persistent lock leaf is the normal steady state (it is never unlinked
+	// on release), so it reports ok with the unproven state named. The stuck-
+	// refresh signal is memory_coordinator's stale heartbeat, asserted above.
+	if got := checks["write_lock"]; got.State != "ok" || !strings.Contains(got.Detail, "present_unproven") {
 		t.Fatalf("write lock check = %+v", got)
 	}
 	if got := checks["memory_provider_egress"]; got.State != "ok" || !strings.Contains(got.Detail, "hosted") || !strings.Contains(got.Detail, "global policy default") || !strings.Contains(got.Detail, "effective available_unverified") {

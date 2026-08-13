@@ -271,8 +271,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			return err
 		}
 		var transcriptWarnings []string
+		transcriptsComplete := true
 		if snapshot != nil {
-			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			sessions, transcriptWarnings, transcriptsComplete, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
 			if err != nil {
 				return err
 			}
@@ -297,6 +298,18 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
+			if !transcriptsComplete {
+				// At least one requested transcript was unreadable, so the
+				// session list is a SUBSET of what this export covers. Sweeping
+				// against a subset would delete the copies a previous export
+				// wrote for exactly those sessions, silently destroying
+				// recallable history behind a scope-incomplete warning. Leave
+				// the stale files in place; the next complete export removes
+				// them. Before the skip-and-continue behavior an unreadable
+				// transcript aborted the export outright and left the brain
+				// untouched, so holding the sweep back is no worse than that.
+				return nil
+			}
 			return cleanupStaleSessionFiles(outputDir, sessions)
 		}); err != nil {
 			return err
@@ -311,7 +324,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 		var transcriptWarnings []string
 		if snapshot != nil {
-			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			sessions, transcriptWarnings, _, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
 			if err != nil {
 				return err
 			}
@@ -2618,7 +2631,17 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 	return warnings, nil
 }
 
-func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]exportSession, []string, error) {
+// writeSnapshotSessionTranscripts returns the sessions it actually wrote, any
+// warnings, and whether EVERY requested transcript was readable. A session
+// whose source blob cannot be read (for example a promisor-absent blob in a
+// partial clone under no-egress) is skipped with a scope-incomplete warning
+// rather than failing the whole export, so the returned session list is a
+// subset of the requested one. Callers must not treat that subset as the
+// complete session set for garbage-collection purposes: cleanupStaleSessionFiles
+// deletes every transcript the list does not claim, which would destroy the
+// copies a previous export already wrote for exactly the sessions that just
+// failed to read.
+func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]exportSession, []string, bool, error) {
 	var warnings []string
 	written := make([]exportSession, 0, len(sessions))
 	var firstSourceErr error
@@ -2639,6 +2662,10 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 
 		transcript, err := readSnapshotTranscriptFromSource(ctx, runner, snapshot, session.SourceKey, sourcePath)
 		if err != nil {
+			// Skipping keeps the rest of the export usable, but it also drops
+			// this session from the returned list, which is what the caller
+			// hands to the stale-file sweep. Report the incompleteness so the
+			// caller can hold that sweep back.
 			if firstSourceErr == nil {
 				firstSourceErr = err
 			}
@@ -2647,15 +2674,15 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 		}
 
 		if err := writeTranscriptFile(outputDir, relPath, transcript); err != nil {
-			return nil, warnings, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
+			return nil, warnings, false, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
 		}
 		session.TranscriptPath = filepath.ToSlash(relPath)
 		written = append(written, *session)
 	}
 	if len(sessions) > 0 && len(written) == 0 && firstSourceErr != nil {
-		return nil, warnings, fmt.Errorf("%w: %s: none of the requested checkpoint transcripts were readable: %v", errCheckpointSnapshotUnavailable, checkpointScopeIncompleteCode, firstSourceErr)
+		return nil, warnings, false, fmt.Errorf("%w: %s: none of the requested checkpoint transcripts were readable: %v", errCheckpointSnapshotUnavailable, checkpointScopeIncompleteCode, firstSourceErr)
 	}
-	return written, warnings, nil
+	return written, warnings, firstSourceErr == nil, nil
 }
 
 func reuseTranscriptFromCursor(outputDir string, cursor *exportCursor, session exportSession, relPath, transcriptMode string) bool {

@@ -222,7 +222,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(memoryHintsDirRel, entry.Name()))
-		data, present, err := readMemoryStateFileExpected(brainDir, rel, "lifecycle hint", maxManifestBytes, info)
+		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "lifecycle hint", maxManifestBytes, info)
 		if err != nil || !present {
 			inventory.Degraded = true
 			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: memoryErrorCode(err)})
@@ -490,6 +490,11 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 	dirRel := filepath.FromSlash(memoryJobsDirRel)
 	directory, err := readMemoryStateDirectory(brainDir, filepath.ToSlash(dirRel), "job directory", memoryStateInventoryMaxEntries)
 	if err != nil {
+		// Nothing was enumerated at all, so this is the LEAST complete scan
+		// there is. Returning with the initialised ScanComplete = true made
+		// `memory jobs --json` report an empty queue as fully observed and
+		// suppressed the "bounded partial inventory" warning.
+		inventory.ScanComplete = false
 		inventory.recordIssue(memoryStateIssue{Kind: "job_directory", File: filepath.Base(memoryJobsDirRel), Code: memoryErrorCode(err)})
 		return inventory
 	}
@@ -530,7 +535,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrStateUnsafe})
 			continue
 		}
-		data, present, err := readMemoryStateFileExpected(brainDir, rel, "memory job", maxManifestBytes, info)
+		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "memory job", maxManifestBytes, info)
 		if err != nil || !present {
 			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrorCode(err)})
 			continue

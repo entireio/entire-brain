@@ -72,12 +72,22 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 		if writeLock, ok := locks["write"].(map[string]any); ok {
 			lockState, _ := writeLock["state"].(string)
 			state := "ok"
-			if lockState == "present_unproven" {
-				state = "warn"
-			} else if lockState == "unsafe" || lockState == "unavailable" {
+			detail := lockState + "; read-only inspection does not probe-acquire the lock"
+			switch lockState {
+			case "unsafe", "unavailable":
 				state = "error"
+			case "present_unproven":
+				// NOT a warning. The lock file is created with O_CREATE and is
+				// never unlinked on release, so it exists permanently after the
+				// very first refresh; warning on its presence made every
+				// healthy brain report write_lock: warn forever, and since a
+				// genuinely held lock produces the identical read-only state,
+				// the warning carried no information either way. Liveness is
+				// reported by memory_coordinator (stale heartbeat), which is
+				// the signal that can actually distinguish a stuck refresh.
+				detail += "; the lock leaf persists after release, so presence alone is normal (see memory_coordinator for liveness)"
 			}
-			add("write_lock", state, lockState+"; read-only inspection does not probe-acquire the lock")
+			add("write_lock", state, detail)
 		}
 	}
 	if provider, ok := install["provider_egress"].(map[string]any); ok {

@@ -81,6 +81,11 @@ func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error
 		return nil, nil
 	}
 	defer db.Close()
+	// A corpus that predates the additive deep_dossiers table has no accepted
+	// dossiers, not a broken read.
+	if ok, err := patternCorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
+		return nil, err
+	}
 	rows, err := db.Query(`SELECT pattern_id, json_redacted FROM deep_dossiers
 		WHERE verdict='accepted' AND (pattern_id LIKE 'lesson:%' OR pattern_id LIKE 'convention:%')
 		ORDER BY pattern_id`)
@@ -124,14 +129,27 @@ func queryTaskCandidatesChecked(brainDir string, requireAcceptedDeep bool) ([]ta
 	}
 	defer db.Close()
 
+	hasDeep, err := patternCorpusHasTable(db.DB, "deep_dossiers")
+	if err != nil {
+		return nil, false, err
+	}
+	if requireAcceptedDeep && !hasDeep {
+		// A corpus predating deep_dossiers can have no accepted dossier, so the
+		// accepted-only request is legitimately empty rather than a failed read.
+		return nil, true, nil
+	}
 	q := `
 		SELECT p.id, p.repo_key, COALESCE(p.intent_sig,''), p.title, p.gram, p.strength, p.strength_label,
 		       p.support, p.outcome_success, p.outcome_corrected, p.outcome_neutral
-		FROM patterns p JOIN dossiers d ON d.pattern_id = p.id
-		LEFT JOIN deep_dossiers dd ON dd.pattern_id = p.id
+		FROM patterns p JOIN dossiers d ON d.pattern_id = p.id`
+	if hasDeep {
+		q += `
+		LEFT JOIN deep_dossiers dd ON dd.pattern_id = p.id`
+	}
+	q += `
 		WHERE p.type='task' AND p.scope='repo'`
 	if requireAcceptedDeep {
-		// A proposal must be backed by an accepted deep dossier — the verified,
+		// A proposal must be backed by an accepted deep dossier: the verified,
 		// evidence-deep record skills are synthesized from.
 		q += ` AND COALESCE(dd.verdict,'') = 'accepted'`
 	}

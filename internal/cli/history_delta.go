@@ -268,7 +268,12 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	}
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		// Match the explicit sentinel, not fs.ErrNotExist: a transcript
+		// directory that vanishes DEEPER in the walk also carries an ENOENT,
+		// and treating that as an empty Brain would silently clear the overlay
+		// on a real integrity failure. os.IsNotExist never matched either,
+		// because it does not unwrap.
+		if errors.Is(err, errHistorySessionsRootMissing) {
 			// No exported sessions at all: an empty overlay is correct.
 			clearHistoryShortTerm(outputDir)
 			return stats, nil

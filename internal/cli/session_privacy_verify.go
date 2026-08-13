@@ -792,25 +792,34 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		report.Findings = append(report.Findings, corpusFindings...)
 	}
-	if source != nil {
-		vectorRels := []struct {
-			rel        string
-			hiddenKind func(string) bool
-		}{
-			{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)), hiddenKind: historyGeneralRankingHiddenKind},
-			{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)), hiddenKind: conversationSemanticHiddenKind},
+	vectorRels := []struct {
+		rel        string
+		hiddenKind func(string) bool
+	}{
+		{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)), hiddenKind: historyGeneralRankingHiddenKind},
+		{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)), hiddenKind: conversationSemanticHiddenKind},
+	}
+	for _, vectorStore := range vectorRels {
+		if !currentArtifacts[vectorStore.rel] {
+			continue
 		}
-		for _, vectorStore := range vectorRels {
-			if !currentArtifacts[vectorStore.rel] {
-				continue
-			}
-			wanted, _ := vectorEligibleRecordIDs(activeIndex, vectorStore.hiddenKind)
-			findings, inspectErr := inspectPrivacyVectorIDsSnapshot(sqliteSnapshots[vectorStore.rel], vectorStore.rel, wanted, newestID)
-			if inspectErr != nil {
-				return report, inspectErr
-			}
-			report.Findings = append(report.Findings, findings...)
+		if source == nil {
+			// The store is newer than the newest tombstone, but the manifest
+			// declares no history source, so there is no active index to
+			// attribute its rows against. Skipping it (the previous behavior)
+			// still published Clean = true for a store whose membership was
+			// never checked, and requirePrivacyDerivedRead then allowed every
+			// retrieval and pattern mutation to proceed against it. An
+			// un-attributable store is a finding, not a pass.
+			add("", vectorStore.rel, "vector store is newer than the newest tombstone but the manifest declares no history source, so its rows cannot be attributed; rebuild the history projection then re-verify")
+			continue
 		}
+		wanted, _ := vectorEligibleRecordIDs(activeIndex, vectorStore.hiddenKind)
+		findings, inspectErr := inspectPrivacyVectorIDsSnapshot(sqliteSnapshots[vectorStore.rel], vectorStore.rel, wanted, newestID)
+		if inspectErr != nil {
+			return report, inspectErr
+		}
+		report.Findings = append(report.Findings, findings...)
 	}
 	// Hosted-provider egress receipts retain content-free session identity and
 	// digest metadata. They are still session-linked records and must disappear

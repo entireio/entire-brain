@@ -740,7 +740,7 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 	checks := states()
 	for name, want := range map[string]string{
 		"manifest": "ok", "capture": "ok", "history_index": "ok",
-		"history_freshness": "ok", "conversation": "ok", "write_lock": "warn",
+		"history_freshness": "ok", "conversation": "ok", "write_lock": "ok",
 	} {
 		if checks[name].State != want {
 			t.Fatalf("%s = %+v, want state %s (all: %+v)", name, checks[name], want, checks)
@@ -771,14 +771,17 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 
 	// Doctor is strictly read-only. It reports the persistent lock leaf as
 	// present_unproven and does not probe-acquire it, whether or not another
-	// process currently owns the OS lock.
+	// process currently owns the OS lock. Presence alone is NOT a warning: the
+	// leaf is never unlinked on release, so it exists on every healthy brain
+	// after the first refresh, and the read-only state is identical whether the
+	// lock is free or held. Liveness belongs to memory_coordinator.
 	unlock, err := acquireBrainWriteLock(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := states()["write_lock"]
 	unlock()
-	if got.State != "warn" || !strings.Contains(got.Detail, "present_unproven") || !strings.Contains(got.Detail, "does not probe-acquire") {
+	if got.State != "ok" || !strings.Contains(got.Detail, "present_unproven") || !strings.Contains(got.Detail, "does not probe-acquire") {
 		t.Fatalf("held lock check = %+v", got)
 	}
 }

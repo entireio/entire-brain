@@ -52,8 +52,33 @@ type wsAgg struct {
 	repos                     map[string]*wsRepoStat
 }
 
+// recoverWorkspacePatternCorpusPublication clears an interrupted publication on
+// the WORKSPACE brain before any derived-read gate runs.
+//
+// Every workspace entry point gates on captureWorkspaceDerivedReadPolicies,
+// which fails closed while the publication marker survives ("run a locked
+// pattern refresh to recover"). Recovery is what removes that marker, so if it
+// only ran inside the gated build, refresh would be blocked by the very state
+// it exists to repair and the workspace corpus would be permanently stuck. The
+// repo path gets this ordering for free: buildPatternCorpusLocked recovers
+// first, under the brain write lock, with no gate ahead of it. Read-only
+// workspace commands deliberately keep failing closed; only the repair path is
+// allowed through.
+func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspaceManifest) error {
+	wsBrainDir, err := workspaceDir(env, manifest.Name)
+	if err != nil {
+		return err
+	}
+	return withBrainWriteLock(wsBrainDir, func() error {
+		return recoverPatternCorpusPublicationLocked(wsBrainDir)
+	})
+}
+
 // buildWorkspacePatternCorpus rebuilds the workspace corpus from member corpora.
 func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now time.Time) (workspaceCorpusCounts, error) {
+	if err := recoverWorkspacePatternCorpusPublication(env, manifest); err != nil {
+		return workspaceCorpusCounts{}, err
+	}
 	policies, err := captureWorkspaceDerivedReadPolicies(env, manifest)
 	if err != nil {
 		return workspaceCorpusCounts{}, err

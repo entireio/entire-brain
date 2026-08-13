@@ -1000,6 +1000,12 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	}
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
+		if errors.Is(err, errHistorySessionsRootMissing) {
+			// This runs ahead of buildBrainHistoryIndexSnapshotContext in the
+			// prepare path, so without the same empty-Brain branch it would
+			// swallow that function's actionable guidance.
+			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `entire brain refresh sessions` first")
+		}
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
 	defer inventory.Close()
@@ -1097,7 +1103,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	index := historyIndex{GeneratedAt: now}
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, errHistorySessionsRootMissing) {
 			return index, nil, historyScanCache{}, errors.New("session history missing; run `entire brain refresh sessions` first")
 		}
 		return index, nil, historyScanCache{}, err

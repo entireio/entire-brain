@@ -917,7 +917,7 @@ func TestCheckpointRootSummaryRejectsDuplicatePathOwnership(t *testing.T) {
 			if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
 				t.Fatal(err)
 			}
-			written, _, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs, nil)
+			written, _, _, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs, nil)
 			if err != nil || len(written) != 1 || written[0].LatestCheckpoint != goodID {
 				t.Fatalf("written sessions = %+v err=%v", written, err)
 			}
@@ -967,7 +967,7 @@ func TestWriteSnapshotTranscriptsSkipsUnreadableSibling(t *testing.T) {
 	if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
 		t.Fatal(err)
 	}
-	written, warnings, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs, nil)
+	written, warnings, _, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs, nil)
 	if err != nil || len(written) != 1 || written[0].LatestCheckpoint != goodID {
 		t.Fatalf("partial transcript write = written:%+v warnings:%v err:%v", written, warnings, err)
 	}

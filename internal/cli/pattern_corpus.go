@@ -365,6 +365,29 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 	return &patternCorpusReadDB{DB: db, cleanup: cleanup}, nil
 }
 
+// patternCorpusHasTable reports whether a table exists in this snapshot.
+//
+// Reads open an immutable snapshot and deliberately never apply schema, so an
+// on-disk corpus written before an ADDITIVE table (themes, deep_dossiers) still
+// has to answer queries against it. The read path previously opened read-write
+// and ran the CREATE TABLE IF NOT EXISTS schema for exactly this reason; with
+// that gone, a legacy corpus made `patterns list` and `patterns skills` fail
+// with "no such table" where they used to return an empty set. There is no
+// read-time version gate to lean on (schema_version is written but never
+// compared), so the readers check for the table and treat absent as empty. The
+// next `patterns refresh` creates it.
+func patternCorpusHasTable(db *sql.DB, table string) (bool, error) {
+	var name string
+	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("%s: inspect pattern corpus schema: %w", memoryErrStateCorrupt, err)
+	}
+	return true, nil
+}
+
 // openPatternCorpusReadDBIfPresent preserves the only graceful fallback: a
 // genuinely absent rebuildable corpus. Unsafe aliases, inconsistent snapshots,
 // corruption, and permission failures remain errors and must reach the command

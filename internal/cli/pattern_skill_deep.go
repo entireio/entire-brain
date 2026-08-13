@@ -39,6 +39,9 @@ func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput,
 		return deepSkillInput{}, false, nil
 	}
 	defer db.Close()
+	if ok, err := patternCorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
+		return deepSkillInput{}, false, err
+	}
 	var jsonRedacted, verifierJSON, verdict string
 	err = db.QueryRow(`SELECT json_redacted, COALESCE(verifier_json_redacted,''), COALESCE(verdict,'')
 		FROM deep_dossiers WHERE pattern_id=?`, patternID).Scan(&jsonRedacted, &verifierJSON, &verdict)

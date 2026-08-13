@@ -1559,7 +1559,20 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 // session must not look "already distilled" if it is ever re-included).
 // A failed write propagates (R0-2).
 func purgeDistillCacheEntries(brainDir, sessionID string) error {
-	cache := loadDistillCache(brainDir)
+	// Read with the SAME checked loader post-cleanup verification uses. The
+	// legacy loadDistillCache swallows every read/parse/version failure and
+	// returns an empty cache, so a version-mismatched or unreadable file made
+	// this purge silently do nothing and then fail moments later inside
+	// verifySessionPrivacy, after the tombstone and all deletions were already
+	// committed. Because verify enumerates every tombstoned session, that left
+	// the brain in a state where all later exclude/purge/retention runs failed
+	// too, blaming verification rather than the stale cache. Every other loader
+	// in this cleanup path was converted to the checked form; this one was
+	// missed.
+	cache, err := loadDistillCacheForPrivacy(brainDir)
+	if err != nil {
+		return err
+	}
 	if len(cache.Sessions) == 0 {
 		return nil
 	}

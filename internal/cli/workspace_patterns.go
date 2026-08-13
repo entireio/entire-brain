@@ -413,6 +413,12 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err != nil {
 		return err
 	}
+	// Refresh IS the documented recovery for an interrupted corpus publication,
+	// so it must clear the marker before the derived-read gate below fails
+	// closed on it.
+	if err := recoverWorkspacePatternCorpusPublication(opts.Env, manifest); err != nil {
+		return err
+	}
 	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
 	if err != nil {
 		return err

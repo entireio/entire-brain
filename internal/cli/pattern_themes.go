@@ -193,6 +193,11 @@ func queryThemeViews(db *sql.DB, verifiedOnly bool) []themeView {
 }
 
 func queryThemeViewsChecked(db *sql.DB, verifiedOnly bool) ([]themeView, error) {
+	// A corpus that predates the additive themes table has no themes, not a
+	// broken read.
+	if ok, err := patternCorpusHasTable(db, "themes"); err != nil || !ok {
+		return nil, err
+	}
 	q := `SELECT id, title, description, shape, support, strength, status, COALESCE(verdict,'') FROM themes WHERE COALESCE(verdict,'') != 'rejected'`
 	if verifiedOnly {
 		q += ` AND verdict='accepted'`
@@ -265,6 +270,9 @@ func loadAcceptedThemeAsDeepChecked(brainDir, themeID string) (deepSkillInput, b
 		return deepSkillInput{}, false, nil
 	}
 	defer db.Close()
+	if ok, err := patternCorpusHasTable(db.DB, "themes"); err != nil || !ok {
+		return deepSkillInput{}, false, err
+	}
 	var title, desc, shape, verdict string
 	err = db.QueryRow(`SELECT title, COALESCE(description,''), COALESCE(shape,''), COALESCE(verdict,'')
 		FROM themes WHERE id=?`, themeID).Scan(&title, &desc, &shape, &verdict)
@@ -300,6 +308,9 @@ func getCorpusThemeChecked(brainDir, themeID string) (unifiedResult, bool, error
 		return unifiedResult{}, false, nil
 	}
 	defer db.Close()
+	if ok, err := patternCorpusHasTable(db.DB, "themes"); err != nil || !ok {
+		return unifiedResult{}, false, err
+	}
 	var v themeView
 	var members string
 	err = db.QueryRow(`SELECT id, title, description, shape, support, strength, status, COALESCE(verdict,''), COALESCE(member_keys,'')

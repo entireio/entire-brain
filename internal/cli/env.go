@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -166,7 +167,18 @@ func (e *localRepoIdentityConflictError) Error() string {
 type repoStorageIdentity struct {
 	Key       string
 	LegacyKey string
-	Local     bool
+	// PhysicalKey is the key of the FULLY symlink-resolved repository root. It
+	// differs from Key only when an ANCESTOR of the root is a symlink, where
+	// Key deliberately preserves the caller's lexical spelling so an explicit
+	// alias keeps addressing its established brain. A relative invocation from
+	// inside the working tree can only ever produce the physical spelling, so
+	// without carrying both, one repository would silently split across two
+	// brains depending on how it was addressed. Treating the physical spelling
+	// as an alternate identity means an existing physical-key brain is
+	// recovered in place and a genuine both-exist collision is reported rather
+	// than guessed, exactly like LegacyKey.
+	PhysicalKey string
+	Local       bool
 }
 
 func repoStoragePaths(ctx context.Context, runner CommandRunner, env EntireEnv, repoDir string) (repoStorage, error) {
@@ -183,32 +195,55 @@ func repoStoragePaths(ctx context.Context, runner CommandRunner, env EntireEnv, 
 	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(canonical.Key)); err != nil {
 		return repoStorage{}, err
 	}
-	if !identity.Local || identity.LegacyKey == "" || identity.LegacyKey == identity.Key {
+	if !identity.Local {
 		return canonical, nil
 	}
-
-	legacy := repoStorageForKey(dirs, identity.LegacyKey)
-	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(legacy.Key)); err != nil {
-		return repoStorage{}, err
+	// Alternate spellings of the same local repository: the pre-upgrade lexical
+	// alias and the fully symlink-resolved physical root. Either may already
+	// hold this repository's brain.
+	var alternateKeys []string
+	for _, key := range []string{identity.LegacyKey, identity.PhysicalKey} {
+		if key == "" || key == identity.Key || slices.Contains(alternateKeys, key) {
+			continue
+		}
+		alternateKeys = append(alternateKeys, key)
+	}
+	if len(alternateKeys) == 0 {
+		return canonical, nil
 	}
 	canonicalExists, err := repoStorageContainsState(canonical)
 	if err != nil {
 		return repoStorage{}, err
 	}
-	legacyExists, err := repoStorageContainsState(legacy)
-	if err != nil {
-		return repoStorage{}, err
+	var populated []repoStorage
+	for _, key := range alternateKeys {
+		alternate := repoStorageForKey(dirs, key)
+		if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(alternate.Key)); err != nil {
+			return repoStorage{}, err
+		}
+		exists, err := repoStorageContainsState(alternate)
+		if err != nil {
+			return repoStorage{}, err
+		}
+		if exists {
+			populated = append(populated, alternate)
+		}
 	}
-	if canonicalExists && legacyExists {
-		return repoStorage{}, &localRepoIdentityConflictError{Canonical: canonical, Legacy: legacy}
+	if len(populated) == 0 {
+		return canonical, nil
 	}
-	if legacyExists {
-		// Preserve the exact pre-upgrade key in place. This is atomic because no
-		// files move, and it avoids a cross-root brain/head migration that could
-		// only be partially committed if the process or filesystem fails.
-		return legacy, nil
+	// Refuse to guess whenever more than one spelling holds state: picking
+	// either would hide the other repository history.
+	if canonicalExists {
+		return repoStorage{}, &localRepoIdentityConflictError{Canonical: canonical, Legacy: populated[0]}
 	}
-	return canonical, nil
+	if len(populated) > 1 {
+		return repoStorage{}, &localRepoIdentityConflictError{Canonical: populated[0], Legacy: populated[1]}
+	}
+	// Preserve the exact established key in place. This is atomic because no
+	// files move, and it avoids a cross-root brain/head migration that could
+	// only be partially committed if the process or filesystem fails.
+	return populated[0], nil
 }
 
 func repoStorageForKey(dirs pluginDirs, key string) repoStorage {
@@ -284,11 +319,32 @@ func resolveRepoStorageIdentity(ctx context.Context, runner CommandRunner, confi
 			}
 		}
 	}
-	return repoStorageIdentity{
+	identity := repoStorageIdentity{
 		Key:       filepath.ToSlash(filepath.Join("local", localRepoKey(canonicalRepoDir))),
 		LegacyKey: filepath.ToSlash(filepath.Join("local", localRepoKey(legacyRepoDir))),
 		Local:     true,
-	}, nil
+	}
+	if physical := physicalLocalRepoDir(canonicalRepoDir); physical != "" {
+		identity.PhysicalKey = filepath.ToSlash(filepath.Join("local", localRepoKey(physical)))
+	}
+	return identity, nil
+}
+
+// physicalLocalRepoDir resolves EVERY path component, so a repository reached
+// through a symlinked ancestor maps to the same spelling that a relative
+// invocation from inside the working tree produces (git reports the physical
+// root). It returns "" when the path does not exist or cannot be resolved:
+// there is then no physical identity to compare against, and the durable
+// missing-path hint must survive untouched.
+func physicalLocalRepoDir(repoDir string) string {
+	if repoDir == "" {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(repoDir)
+	if err != nil {
+		return ""
+	}
+	return filepath.Clean(resolved)
 }
 
 // canonicalExistingLocalRepoDir resolves only a symlink in the repository

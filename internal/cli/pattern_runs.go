@@ -70,7 +70,20 @@ func patternRunFromStaging(db *sql.DB, now time.Time) (patternRun, error) {
 func appendPatternRun(brainDir string, run patternRun) error {
 	runs, err := loadPatternRunsChecked(brainDir)
 	if err != nil {
-		return err
+		// A corrupt run log must not be permanent. appendPatternRun is the ONLY
+		// writer and it rewrites the file wholesale, so returning here left the
+		// file unrepairable: `patterns status` and `patterns list` failed
+		// forever, and the `patterns refresh` that is supposed to repair them
+		// bailed out before writing. The log was also written non-atomically by
+		// older builds, so a truncated final line is reachable on any existing
+		// brain. Run history is bounded, disposable telemetry and never a
+		// source of truth, so recover by starting a fresh log. An UNSAFE path
+		// (alias, symlink, irregular file) is not content corruption and still
+		// fails closed.
+		if memoryErrorCode(err) != memoryErrStateCorrupt {
+			return err
+		}
+		runs = nil
 	}
 	runs = append(runs, run)
 	if len(runs) > patternRunsKeep {

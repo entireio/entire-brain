@@ -433,6 +433,17 @@ type abstractEgressInventory struct {
 
 func (inventory *abstractEgressInventory) issue(path, code string, version ...int) {
 	inventory.Degraded = true
+	if code == "" {
+		// Several call sites pass memoryErrorCode(readErr) on branches that are
+		// also reachable with readErr == nil (a legacy filename that disagrees
+		// with its own operation id; an absent receipt), and memoryErrorCode(nil)
+		// is "". An empty-coded issue is silently discarded by
+		// memoryReadOnlyHealth's recordIssue WITHOUT incrementing
+		// hiddenIssueCount, so the finding disappeared from the reported issues
+		// array while hosted_egress still read corrupt with issue_count 1.
+		// Every issue must carry a stable taxonomy code.
+		code = memoryErrStateCorrupt
+	}
 	observedVersion := 0
 	if len(version) > 0 {
 		observedVersion = version[0]
@@ -1340,19 +1351,47 @@ func (r *sessionAbstractResolver) status(view conversationSessionView) (string, 
 func abstractWindowTurn(record historyRecord) conversationTurn {
 	entry := conversationOutlineEntry(record)
 	alreadyTruncated := entry.Truncated
-	entry.Text = ""
-	// Budget with the truncation field present (the larger encoding) and with
-	// the enclosing JSON array brackets. This makes even a one-turn window fit
-	// the advertised byte ceiling exactly.
-	entry.Truncated = true
-	overhead := turnJSONBytes(entry)
-	textBudget := abstractWindowMaxBytes - overhead - 2
-	if textBudget < 0 {
-		textBudget = 0
+	// Budget against the ENCODED turn rather than the raw byte length.
+	// Subtracting a fixed overhead and then filling it with raw bytes
+	// overshot the ceiling two ways: `json:"text,omitempty"` omits the key
+	// entirely when Text is "", so the `,"text":""` framing went unmeasured,
+	// and JSON escaping expands the payload itself (a quote becomes two bytes,
+	// a control character becomes six). A quote-heavy summary produced a turn
+	// about twice the advertised limit, and control characters up to six times
+	// it, defeating the per-window contract that bounds provider input.
+	//
+	// Search the largest raw prefix whose ENCODED turn fits. The encoding is
+	// never smaller than the raw text, so the raw prefix can never need to
+	// exceed the limit itself, which bounds the search.
+	entry.Truncated = true // the larger encoding
+	limit := abstractWindowMaxBytes - 2
+	if limit < 0 {
+		limit = 0
+	}
+	fits := func(n int) bool {
+		candidate, _ := truncateUTF8Bytes(record.Summary, n)
+		entry.Text = candidate
+		return turnJSONBytes(entry) <= limit
+	}
+	hi := len(record.Summary)
+	if hi > limit {
+		hi = limit
+	}
+	if !fits(hi) {
+		lo := 0
+		for lo < hi {
+			mid := (lo + hi + 1) / 2
+			if fits(mid) {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+		hi = lo
 	}
 	var cut bool
-	entry.Text, cut = truncateUTF8Bytes(record.Summary, textBudget)
-	entry.Truncated = alreadyTruncated || cut || record.ProjectionTruncated
+	entry.Text, cut = truncateUTF8Bytes(record.Summary, hi)
+	entry.Truncated = alreadyTruncated || cut || record.ProjectionTruncated || hi < len(record.Summary)
 	return entry
 }
 

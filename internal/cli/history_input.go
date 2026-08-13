@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -41,6 +42,16 @@ var beforeCanonicalHistoryTranscriptFinish = func() {}
 // errHistorySessionInventoryDegraded is the stable typed refusal returned when
 // the canonical transcript inventory cannot be proven complete and safe.
 var errHistorySessionInventoryDegraded = errors.New(memoryErrSessionInventory)
+
+// errHistorySessionsRootMissing reports that the Brain has no sessions/
+// directory at all: a fresh Brain, or an export that selected zero sessions
+// (ensureExportDirectories only creates branch directories). That is a NORMAL
+// state, not a degraded inventory, so callers take their empty-Brain branch.
+// It needs its own error because historySessionInventoryError deliberately
+// does not unwrap (its Is matches only the degraded sentinel), so an ENOENT
+// wrapped in one can never satisfy an fs.ErrNotExist test. Callers must use
+// errors.Is, not os.IsNotExist, which does not unwrap either.
+var errHistorySessionsRootMissing = fmt.Errorf("history sessions directory: %w", fs.ErrNotExist)
 
 type historySessionInventoryError struct {
 	Path   string
@@ -128,6 +139,16 @@ func collectHistorySessionInventory(ctx context.Context, brainDir string) (*hist
 	}()
 	if err := inventory.validateBrainRoot(before); err != nil {
 		return nil, err
+	}
+	// An absent sessions/ ROOT is an empty Brain, not a degraded inventory.
+	// Probe it separately so that case gets a plain not-exist error; a
+	// directory that vanishes DEEPER in the walk stays degraded, because that
+	// is a real integrity signal rather than an empty Brain.
+	if _, err := root.Lstat(exportSessionsDirectory); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, errHistorySessionsRootMissing
+		}
+		return nil, &historySessionInventoryError{Path: exportSessionsDirectory, Reason: "inspect transcript directory", Err: err}
 	}
 	count := 0
 	if err := inventory.walkDirectory(ctx, exportSessionsDirectory, nil, &count); err != nil {

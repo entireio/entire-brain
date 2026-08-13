@@ -69,7 +69,17 @@ var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration) error {
 	if err := command.Start(); err != nil {
 		return err
 	}
-	return command.Process.Release()
+	// Reap the child instead of releasing the handle. Process.Release() drops
+	// the Go-side handle but the process stays this process's child at the OS
+	// level, and the Go runtime installs no SIGCHLD reaper, so every launch
+	// left a <defunct> entry for the parent's whole lifetime. A long-lived
+	// `entire watch` or MCP server launches one worker per tick with changes
+	// and accumulated a PID each time, up to RLIMIT_NPROC. Waiting in a
+	// goroutine keeps the launch non-blocking and does not tie the child's
+	// lifetime to ours: if this process exits first, the child is reparented
+	// and keeps running exactly as before.
+	go func() { _ = command.Wait() }()
+	return nil
 }
 
 // memoryAbstractCancellationPollInterval bounds how long a running abstract
@@ -478,6 +488,15 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 	}
 	for _, session := range manifest.Sources.Sessions.Sessions {
 		id := strings.TrimSpace(session.SessionID)
+		if id == "" {
+			// Mirror buildProjectionReceiptsFromSnapshot, which skips sessions
+			// with no canonical receipt identity. Enqueueing one here created a
+			// job the receipt builder can never satisfy: the worker rebuilt and
+			// republished the whole history projection, found no receipt, and
+			// settled retryable_error, once per attempt, before parking the job
+			// permanently and leaving `memory status` degraded forever.
+			continue
+		}
 		if _, excluded := stones.Excluded[id]; excluded {
 			continue
 		}
@@ -692,6 +711,17 @@ type memoryWorkerStats struct {
 	VectorPending  bool     `json:"vector_pending,omitempty"`
 	HealthDegraded bool     `json:"health_degraded,omitempty"`
 	HealthIssues   []string `json:"health_issues,omitempty"`
+	// VectorContinue reports that vector work remains AND the pass ended in a
+	// state worth continuing immediately: either it completed a batch or it hit
+	// the deliberate lane deadline. It is deliberately narrower than
+	// VectorPending, which is also true after a FAILED sync. The fast relaunch
+	// exists to keep embedding batches after a lane yield, never as a retry
+	// mechanism: retrying a permanent failure (embed server down, corrupt
+	// progress leaf, privacy-epoch mismatch) at that cadence re-spawns the
+	// worker about ten times a second for as long as the failure lasts. Real
+	// retries come from the next trigger (watch tick, lifecycle hint, job
+	// schedule), which are all rate-limited.
+	VectorContinue bool `json:"-"`
 }
 
 func memoryHintConsumable(hint memoryLifecycleHint, scopes int, satisfied bool) bool {
@@ -920,6 +950,22 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 
 	prepared, prepareErr := prepareBrainHistoryProjectionContext(ctx, brainDir, memoryClockNow(clock), nil)
 	published := false
+	// publishBrainHistoryProjectionLocked is the ONLY caller of
+	// discardPreparedHistoryProjection, so every path that never reaches it
+	// leaked the staged generation: withBrainWriteLock timing out with
+	// memory_lock_busy, or an early return inside the closure below.
+	// pruneInactiveHistoryGenerations walks only the generations directory,
+	// never history/staging, so each contended worker pass left behind a full
+	// copy of the history index permanently.
+	publishAttempted := false
+	defer func() {
+		if prepareErr != nil || publishAttempted {
+			return
+		}
+		_ = withBrainWriteLock(brainDir, func() error {
+			return discardPreparedHistoryProjection(brainDir, prepared)
+		})
+	}()
 	err = withBrainWriteLock(brainDir, func() error {
 		cancelled := map[string]*memoryCancellationRequest{}
 		for _, job := range claimed {
@@ -933,6 +979,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		}
 		publishErr := prepareErr
 		if publishErr == nil {
+			publishAttempted = true
 			_, publishErr = publishBrainHistoryProjectionLocked(brainDir, prepared, func() error {
 				if err := ctx.Err(); err != nil {
 					return errMemoryCancellationRequested
@@ -1092,6 +1139,19 @@ func syncMemoryProjectionVectorsWithEmbedder(ctx context.Context, brainDir strin
 		return pass, true, fmt.Errorf("%s: history generation does not match the current privacy epoch", memoryErrSourceStale)
 	}
 	targetDigest := manifest.Sources.History.IndexDigest
+	if !validSHA256Identity(targetDigest) {
+		// A history source published before generation-addressed projections
+		// carries no index_digest, and the codebase models that as a supported
+		// state. SourceDigest is the vector store's binding to the exact
+		// projection it was built from, and decodeMemoryVectorProgress requires
+		// a valid sha256, so writing a digest-less progress leaf would create a
+		// file this very process can never read back: the next ownership
+		// validation fails memory_state_corrupt and every later pass refuses to
+		// run, wedging vector sync with its own output. There is nothing to
+		// bind to yet, so do no work and stay un-pending; the next projection
+		// publish stamps a digest and the pass resumes normally.
+		return pass, false, nil
+	}
 	prior, present, ownership, progressErr := loadMemoryVectorProgressWithOwnership(brainDir)
 	if progressErr != nil {
 		// Content-free progress is still durable state. Unknown-newer, unsafe,
@@ -1219,7 +1279,11 @@ func runMemoryVectorLane(ctx context.Context, brainDir string, now time.Time, ow
 	laneCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	pending, err := syncMemoryProjectionVectors(laneCtx, brainDir, now)
-	stats.VectorPending = pending || errors.Is(laneCtx.Err(), context.DeadlineExceeded)
+	laneYielded := errors.Is(laneCtx.Err(), context.DeadlineExceeded)
+	stats.VectorPending = pending || laneYielded
+	// Only a clean batch or a deliberate lane yield earns the fast relaunch; a
+	// failed sync must wait for the next trigger instead of self-spinning.
+	stats.VectorContinue = stats.VectorPending && (err == nil || laneYielded)
 	if err != nil {
 		stats.addHealthIssue("memory_vector_sync_failed")
 		if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_failed", owner); logErr != nil {
@@ -1370,10 +1434,16 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 			deterministicErr = err
 		}
 	}
+	// The abstract job's outcome is the PROVIDER result alone. The deterministic
+	// pass runs alongside it as a liveness and cancellation check, and its
+	// failure is reported through this lane's return value below; folding it
+	// into the settle decision marked a job whose artifact was already
+	// published (and whose hosted egress was already paid) as retryable_error,
+	// so the next pass re-ran it and paid the provider a second time for
+	// identical content. Where a deterministic failure genuinely aborted the
+	// run, it cancelled the provider first, so runErr is itself non-nil and the
+	// retryable path still fires.
 	settleErr := runErr
-	if deterministicErr != nil {
-		settleErr = errors.Join(deterministicErr, runErr)
-	}
 	err = withBrainWriteLock(brainDir, func() error {
 		if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
 			return err
@@ -1428,7 +1498,9 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 		return stats, err
 	}
 	if deterministicErr != nil {
-		return stats, settleErr
+		// The lane still REPORTS both failures; only the job's settle decision
+		// above is provider-only.
+		return stats, errors.Join(deterministicErr, runErr)
 	}
 	return stats, nil
 }
@@ -1552,7 +1624,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			}
 			stats.add(abstractStats)
 			stats.add(runMemoryVectorLane(cmd.Context(), storage.BrainDir, opts.Now().UTC(), coordinator.token))
-			if stats.VectorPending {
+			if stats.VectorContinue {
 				vectorDelay := 100 * time.Millisecond
 				relaunchDelay = &vectorDelay
 			}
@@ -1586,6 +1658,7 @@ func (s *memoryWorkerStats) add(other memoryWorkerStats) {
 	s.AlreadyActive = s.AlreadyActive || other.AlreadyActive
 	s.PrepassFailed = s.PrepassFailed || other.PrepassFailed
 	s.VectorPending = s.VectorPending || other.VectorPending
+	s.VectorContinue = s.VectorContinue || other.VectorContinue
 	s.HealthDegraded = s.HealthDegraded || other.HealthDegraded
 	for _, issue := range other.HealthIssues {
 		s.addHealthIssue(issue)

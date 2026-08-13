@@ -219,6 +219,22 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	}
 	var guardPred func(historyRecord) bool
 	if !guard.empty() {
+		// Path-based exclusion needs the manifest: blocksFactAnchor falls back
+		// to the transcript path when a record lost its session id, and that
+		// map is populated only from the manifest. Resolve it HERE, before the
+		// facts arm filters below. This used to happen inside the history arm,
+		// after guardFactRecords had already run, so an excluded session's fact
+		// whose only anchor had no session id survived on query/search/vsearch
+		// while brief, dash, handoff, viz, and the pattern corpus all hid it.
+		// Only tombstoned brains pay the manifest read.
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil, err
+		}
+		guard, err = loadSessionReadGuard(brainDir, manifest)
+		if err != nil {
+			return nil, err
+		}
 		guardPred = func(r historyRecord) bool { return !guard.blocksRecord(r) }
 	}
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
@@ -307,15 +323,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			if err != nil {
 				return nil, fmt.Errorf("load history index: %w", err)
 			}
-			// Re-resolve the guard with the manifest so records that lost
-			// their session id still block by transcript path; guardPred
-			// closes over the same variable and picks the paths up.
-			if !guard.empty() {
-				guard, err = loadSessionReadGuard(brainDir, manifest)
-				if err != nil {
-					return nil, err
-				}
-			}
+			// The guard already carries the manifest-derived transcript paths
+			// (resolved before the facts arm ran), so records that lost their
+			// session id block by path on every arm.
 			// Semantic arms rank the long-term records minus files the
 			// short-term overlay superseded (overlay records have no vectors
 			// until consolidation; the lexical tier carries their freshness)
@@ -735,13 +745,13 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
 				fused, complete, ok := rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder(), pred)
-				if !complete {
+				if ok && !complete {
 					scanComplete = false
 				}
 				return fused, ok
 			}
 			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
-			if !complete {
+			if ok && !complete {
 				scanComplete = false
 			}
 			return lex, ok
@@ -749,12 +759,20 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	default:
 		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
-			if !complete {
+			if ok && !complete {
 				scanComplete = false
 			}
 			return lex, ok
 		})
 	}
+	// complete is only meaningful when the arm actually ran. On ok == false the
+	// FTS/fused arm was UNAVAILABLE (no match expression, open/query failure),
+	// and rankFreshHistory falls back to the in-memory scorer, which filters
+	// the complete long-term record slice and therefore cannot be partial.
+	// Honoring a stale complete=false there turned every FTS outage into a
+	// bogus "filter scan exceeded" error on the default (unfiltered) path,
+	// contradicting this file's own contract that FTS is an optimization and
+	// never load-bearing.
 	if !scanComplete {
 		return nil, errConversationFilterScanExceeded()
 	}
@@ -1037,6 +1055,20 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	if err != nil {
 		return nil, nil, err
 	}
+	if !guard.empty() {
+		// Resolve the manifest-derived transcript paths BEFORE the facts arm
+		// filters below, so a fact whose only anchor lost its session id blocks
+		// by path here too. The history arm's later re-resolution ran after
+		// guardFactRecords and therefore never protected `get fact:`.
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil, nil, err
+		}
+		guard, err = loadSessionReadGuard(brainDir, manifest)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	factByID := map[string]factRecord{}
 	var reviewByID map[string]factReviewGroup
 	var reviewByFactID map[string]factReviewGroup
@@ -1083,12 +1115,9 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			if err != nil {
 				return nil, nil, fmt.Errorf("load history index: %w", err)
 			}
-			// Re-resolve the guard with the manifest so records that lost
-			// their session id still block by transcript path.
-			guard, err = loadSessionReadGuard(brainDir, manifest)
-			if err != nil {
-				return nil, nil, err
-			}
+			// The guard already carries the manifest-derived transcript paths
+			// (resolved above, before the facts arm), so records that lost
+			// their session id block by path on every surface here.
 			if wantConversation || wantSession {
 				sessionViews = buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
 				for ref, view := range sessionViews {

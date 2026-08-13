@@ -160,7 +160,14 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 					embedder := conversationMultiConceptEmbedder()
 					fused := rankFreshHistory(fresh, conversationKind, concept, conversationConceptScanCeiling/4, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 						ranked, conceptComplete, rankOK := rankConversationFused(brainDir, longTerm, concept, conversationConceptScanCeiling/4, embedder, pred)
-						complete = conceptComplete
+						// conceptComplete is only meaningful when the fused arm
+						// ran; on rankOK == false rankFreshHistory falls back to
+						// the exhaustive in-memory scorer, which cannot be
+						// partial. Reporting "concept too broad" for an FTS
+						// outage would be a false alarm.
+						if rankOK {
+							complete = conceptComplete
+						}
 						return ranked, rankOK
 					})
 					if len(fused) > 0 {

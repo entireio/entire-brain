@@ -27,6 +27,32 @@ func readMemoryStateFile(brainDir, rel, label string, maxBytes int64) ([]byte, b
 	return readMemoryStateFileExpected(brainDir, rel, label, maxBytes, nil)
 }
 
+// errMemoryStateEnumerationStale marks the one failure an UNLOCKED scanner may
+// legitimately see: the file's identity changed between directory enumeration
+// and open. For a reader holding the Brain write lock that is a genuine
+// tampering signal. For an unlocked reader it is also the ordinary outcome of a
+// lock-holding writer's writeFileAtomic rename landing mid-scan.
+var errMemoryStateEnumerationStale = errors.New("memory state entry changed after directory enumeration")
+
+// readMemoryStateFileRefreshed reads a just-enumerated file, tolerating exactly
+// ONE benign identity change by re-reading against the current identity.
+//
+// The unlocked job/hint scanners (memory jobs, the job selectors, the worker
+// relaunch delay) race the worker's own transitionMemoryJob -> writeFileAtomic
+// rename. Treating that fresh inode as corruption reported memory_state_unsafe
+// for a perfectly healthy file, which aborted whole --session-ref commands and
+// silently dropped runnable jobs from relaunch scheduling. The retry drops only
+// the enumeration binding: every path-safety, regular-file, descriptor-identity,
+// and open-alias check still applies, which is the strongest promise an unlocked
+// reader can honestly make. A second mismatch propagates.
+func readMemoryStateFileRefreshed(brainDir, rel, label string, maxBytes int64, expected os.FileInfo) ([]byte, bool, error) {
+	data, present, err := readMemoryStateFileExpected(brainDir, rel, label, maxBytes, expected)
+	if err != nil && errors.Is(err, errMemoryStateEnumerationStale) {
+		return readMemoryStateFileExpected(brainDir, rel, label, maxBytes, nil)
+	}
+	return data, present, err
+}
+
 func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, expected os.FileInfo) ([]byte, bool, error) {
 	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {
@@ -47,7 +73,7 @@ func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, ex
 		return nil, true, fmt.Errorf("%s: %s is not a regular file: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
 	}
 	if expected != nil && !os.SameFile(expected, before) {
-		return nil, true, fmt.Errorf("%s: %s changed after directory enumeration: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
+		return nil, true, fmt.Errorf("%s: %s changed after directory enumeration: %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), errMemoryStateEnumerationStale)
 	}
 	f, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
 	if err != nil {
