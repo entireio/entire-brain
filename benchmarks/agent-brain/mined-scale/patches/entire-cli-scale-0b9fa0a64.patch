@@ -1,0 +1,13 @@
+diff --git a/cmd/entire/cli/api/client.go b/cmd/entire/cli/api/client.go
+index ae4a10f12..9be47f45e 100644
+--- a/cmd/entire/cli/api/client.go
++++ b/cmd/entire/cli/api/client.go
+@@ -12,7 +12,7 @@ import (
+ )
+ 
+ const (
+-	maxResponseBytes = 16 << 20
++	maxResponseBytes = 1 << 20
+ 	userAgent        = "entire-cli"
+ )
+ 

@@ -1,0 +1,78 @@
+diff --git a/cmd/entire/cli/auth/refresh.go b/cmd/entire/cli/auth/refresh.go
+index d852833c1..171c09588 100644
+--- a/cmd/entire/cli/auth/refresh.go
++++ b/cmd/entire/cli/auth/refresh.go
+@@ -140,41 +140,19 @@ func newContextTokenManager(c *contexts.Context, transport http.RoundTripper, al
+ 	return mgr, nil
+ }
+ 
+-// reauthError carries a friendly, context-named re-login message while still
+-// unwrapping to the underlying tokenmanager sentinel. Callers that branch on
+-// errors.Is(err, ErrNotLoggedIn) (NewAuthenticatedAPIClient, search, dispatch)
+-// keep matching — without this, the discovery path turned a missing keyring
+-// token into an opaque string and those callers fell through to their generic
+-// error, a regression vs the pre-discovery TokenForResource path. Error()
+-// returns only msg so the sentinel's terse text ("not logged in") doesn't leak
+-// into the rendered message.
+-type reauthError struct {
+-	msg      string
+-	sentinel error
+-}
+-
+-func (e *reauthError) Error() string { return e.msg }
+-func (e *reauthError) Unwrap() error { return e.sentinel }
+-
+ // contextReauthError maps the two re-auth sentinels a per-context manager can
+-// return into a friendly message that names the context and its core (so a
+-// multi-core user logs back into the right one — matching
+-// clusterdiscovery.RenderLoginHint's idiom), preserving the sentinel for
+-// errors.Is. Returns nil when err is neither sentinel, leaving the caller to
+-// wrap the residual error in its own terms (refresh vs exchange).
++// return into a single friendly message that names the context and its core
++// (so a multi-core user logs back into the right one — matching
++// clusterdiscovery.RenderLoginHint's idiom). Returns nil when err is neither
++// sentinel, leaving the caller to wrap the residual error in its own terms
++// (refresh vs exchange).
+ func contextReauthError(c *contexts.Context, err error) error {
+ 	coreURL := strings.TrimRight(c.CoreURL, "/")
+ 	switch {
+ 	case errors.Is(err, tokenmanager.ErrReauthRequired):
+-		return &reauthError{
+-			msg:      fmt.Sprintf("login session for %q (%s) expired; run `entire login` to re-authenticate", c.Name, coreURL),
+-			sentinel: tokenmanager.ErrReauthRequired,
+-		}
++		return fmt.Errorf("login session for %q (%s) expired; run `entire login` to re-authenticate", c.Name, coreURL)
+ 	case errors.Is(err, tokenmanager.ErrNotLoggedIn):
+-		return &reauthError{
+-			msg:      fmt.Sprintf("no usable login for %q (%s); run `entire login`", c.Name, coreURL),
+-			sentinel: tokenmanager.ErrNotLoggedIn,
+-		}
++		return fmt.Errorf("no usable login for %q (%s); run `entire login`", c.Name, coreURL)
+ 	}
+ 	return nil
+ }
+diff --git a/internal/entireclient/clusterdiscovery/discovery.go b/internal/entireclient/clusterdiscovery/discovery.go
+index 726a02a75..516c21861 100644
+--- a/internal/entireclient/clusterdiscovery/discovery.go
++++ b/internal/entireclient/clusterdiscovery/discovery.go
+@@ -77,19 +77,7 @@ func fetchWellKnownJSON(ctx context.Context, host, path string, c *http.Client,
+ 	if err != nil {
+ 		return fmt.Errorf("build discovery request: %w", err)
+ 	}
+-	// Refuse redirects. This is a trust-root fetch — the response decides which
+-	// login servers we honour — so a 3xx to another origin (or a plaintext
+-	// downgrade) from a hostile/misconfigured host must not be followed.
+-	// Shallow-copy the caller's client so we don't mutate its redirect policy
+-	// (it's reused for other operations); the copy shares Transport/TLS config.
+-	if c == nil {
+-		c = http.DefaultClient
+-	}
+-	noRedirect := *c
+-	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error {
+-		return errors.New("discovery does not follow redirects (trust root)")
+-	}
+-	resp, err := noRedirect.Do(req)
++	resp, err := c.Do(req)
+ 	if err != nil {
+ 		debugf("discovery: %v", err)
+ 		return fmt.Errorf("%w: %w", ErrUnreachable, err)

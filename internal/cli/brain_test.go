@@ -69,6 +69,15 @@ func TestBrainManifestMigratesFlatExportAndPreservesSeed(t *testing.T) {
 
 func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	repoDir := t.TempDir()
+	for _, rel := range []string{"internal/auth/token.go", "internal/auth/token_test.go"} {
+		path := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("mkdir semantic fixture source: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("package auth\n"), 0o600); err != nil {
+			t.Fatalf("write semantic fixture source: %v", err)
+		}
+	}
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -918,6 +927,32 @@ func TestRankHistoryRecordsUsesIdentifierTerms(t *testing.T) {
 	}
 }
 
+func TestRankHistoryRecordsUsesTemporalRelationTerms(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{
+			ID:      "before",
+			Kind:    "decision",
+			Path:    "sessions/main/20260101T000000Z_before.jsonl",
+			Summary: "Credentials rotate before artifacts publish.",
+		},
+		{
+			ID:      "after",
+			Kind:    "decision",
+			Path:    "sessions/main/20260102T000000Z_after.jsonl",
+			Summary: "Credentials rotate after artifacts publish.",
+		},
+	}}
+
+	// The content words are deliberately identical and the contrary record is
+	// newer. The temporal relation must supply the deciding evidence; treating
+	// "before" as generic filler would leave a tie and incorrectly prefer the
+	// newer "after" record.
+	records := rankHistoryRecords(index, "history", "publish credentials before rotate", 2)
+	if len(records) != 2 || records[0].ID != "before" {
+		t.Fatalf("temporal ordering record did not rank first: %+v", records)
+	}
+}
+
 func TestRankHistoryRecordsPrefersPreciseCodeFactsOverSetupLogs(t *testing.T) {
 	index := historyIndex{Records: []historyRecord{
 		{
@@ -975,6 +1010,84 @@ func TestBrainBriefLikelyFilesExtractsDotSlashHistoryPaths(t *testing.T) {
 	editFiles, _, _ := brainBriefLikelyFileGroups("", report, "")
 	if !slices.Contains(editFiles, "packages/storage/src/index.ts") {
 		t.Fatalf("expected packages/storage/src/index.ts from history excerpt, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefLikelyFilesExcludeDepartedSemanticPath(t *testing.T) {
+	repoDir := t.TempDir()
+	livePath := filepath.Join(repoDir, "src", "auth", "token_store.go")
+	if err := os.MkdirAll(filepath.Dir(livePath), 0o700); err != nil {
+		t.Fatalf("mkdir live source dir: %v", err)
+	}
+	if err := os.WriteFile(livePath, []byte("package auth\n"), 0o600); err != nil {
+		t.Fatalf("write live source: %v", err)
+	}
+
+	report := brainBriefReport{
+		Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{{
+			Name:     "ValidateToken",
+			FilePath: "src/auth/removed_token_store.go",
+		}}}},
+		History: brainBriefHistory{Matches: []brainTextMatch{{
+			Excerpt: "Current repair context is in ./src/auth/token_store.go: ValidateToken.",
+		}}},
+	}
+
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "repair token validation in the auth token store")
+	if slices.Contains(editFiles, "src/auth/removed_token_store.go") {
+		t.Fatalf("departed semantic path must not be recommended: %+v", editFiles)
+	}
+	if len(editFiles) == 0 || editFiles[0] != "src/auth/token_store.go" {
+		t.Fatalf("live history-backed path should rank first, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefLikelyFilesRetainDeletedLivePath(t *testing.T) {
+	repoDir := t.TempDir()
+	report := brainBriefReport{Status: brainStatusReport{Live: brainLiveState{
+		ChangedFiles: []string{"src/auth/deleted_token_store.go"},
+	}}}
+
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "restore the deleted auth token store")
+	if !slices.Contains(editFiles, "src/auth/deleted_token_store.go") {
+		t.Fatalf("deleted live path remains actionable worktree truth, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefLikelyFilesRetainHistoryPathToCreate(t *testing.T) {
+	repoDir := t.TempDir()
+	report := brainBriefReport{History: brainBriefHistory{Matches: []brainTextMatch{{
+		Excerpt: "Create ./src/auth/token_revocation.go for the new revocation workflow.",
+	}}}}
+
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "add the token revocation workflow")
+	if !slices.Contains(editFiles, "src/auth/token_revocation.go") {
+		t.Fatalf("history-backed intended-create path should remain actionable, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefLikelyFilesExcludeSemanticPathThroughSymlink(t *testing.T) {
+	repoDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "token_store.go")
+	if err := os.WriteFile(outsidePath, []byte("package auth\n"), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	linkDir := filepath.Join(repoDir, "src", "auth")
+	if err := os.MkdirAll(filepath.Dir(linkDir), 0o700); err != nil {
+		t.Fatalf("mkdir link parent: %v", err)
+	}
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	report := brainBriefReport{Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{{
+		Name:     "ValidateToken",
+		FilePath: "src/auth/token_store.go",
+	}}}}}
+	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "repair token validation")
+	if slices.Contains(editFiles, "src/auth/token_store.go") {
+		t.Fatalf("semantic path through an outside symlink must not be recommended: %+v", editFiles)
 	}
 }
 
@@ -1394,13 +1507,222 @@ func TestBrainBriefAddsSiblingTestFiles(t *testing.T) {
 	}
 }
 
-func TestBrainBriefLikelyFileSectionsHonorLimit(t *testing.T) {
-	files := []string{"one.go", "two.go", "three.go", "four.go"}
-	if got := brainBriefLimitFiles(files, 2); !slices.Equal(got, []string{"one.go", "two.go"}) {
-		t.Fatalf("limited files = %v", got)
+func TestBrainBriefActionTargetsAddNestedJavaScriptTests(t *testing.T) {
+	repoDir := t.TempDir()
+	for path, body := range map[string]string{
+		"src/auth/token.ts":                "export function validateToken() {}\n",
+		"src/auth/__tests__/token.test.ts": "test('token', () => {})\n",
+	} {
+		absolute := filepath.Join(repoDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
 	}
-	if got := brainBriefLimitFiles(files, 0); got != nil {
-		t.Fatalf("zero limit should produce no files, got %v", got)
+
+	report := brainBriefReport{
+		Task:            "fix token validation",
+		ActionChecklist: []brainBriefAction{{File: "src/auth/token.ts", Symbol: "validateToken", Action: "preserve expiry validation"}},
+		LikelyEditFiles: []string{"src/auth/token.ts"},
+		LikelyTestFiles: []string{
+			"tests/distractor_1.test.ts", "tests/distractor_2.test.ts", "tests/distractor_3.test.ts",
+			"tests/distractor_4.test.ts", "tests/distractor_5.test.ts", "tests/distractor_6.test.ts",
+		},
+	}
+	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
+	baseline := report
+
+	brainBriefPrioritizeActionTargets(repoDir, &report)
+	wantTests := []string{
+		"src/auth/__tests__/token.test.ts",
+		"tests/distractor_1.test.ts", "tests/distractor_2.test.ts", "tests/distractor_3.test.ts",
+		"tests/distractor_4.test.ts", "tests/distractor_5.test.ts",
+	}
+	if !slices.Equal(report.LikelyTestFiles, wantTests) {
+		t.Fatalf("nested action test should rank first under the six-file cap: got %+v want %+v", report.LikelyTestFiles, wantTests)
+	}
+	if len(report.LikelyFiles) != 7 || report.LikelyFiles[1] != "src/auth/__tests__/token.test.ts" {
+		t.Fatalf("combined packet lost nested action-test priority: %+v", report.LikelyFiles)
+	}
+
+	baselinePacket := renderBrainBriefCompactV3ForTest(t, baseline)
+	candidatePacket := renderBrainBriefCompactV3ForTest(t, report)
+	byteDelta := len(candidatePacket) - len(baselinePacket)
+	proxyDelta := compactPacketByteProxy(candidatePacket) - compactPacketByteProxy(baselinePacket)
+	if byteDelta > 64 || proxyDelta > 16 {
+		t.Fatalf("one recalled test grew the bounded packet too much: bytes %+d proxy %+d", byteDelta, proxyDelta)
+	}
+	t.Logf(
+		"nested-test scenario: recall@6 0->1, reciprocal-rank 0->1; compact_v3 bytes %d->%d (%+d), ceil(bytes/4) proxy %d->%d (%+d)",
+		len(baselinePacket), len(candidatePacket), byteDelta,
+		compactPacketByteProxy(baselinePacket), compactPacketByteProxy(candidatePacket), proxyDelta,
+	)
+
+	emptyBaseline := baseline
+	emptyBaseline.LikelyTestFiles = nil
+	emptyBaseline.LikelyFiles = brainBriefMergeLikelyFiles(emptyBaseline.LikelyEditFiles, nil)
+	emptyCandidate := emptyBaseline
+	brainBriefPrioritizeActionTargets(repoDir, &emptyCandidate)
+	emptyBaselinePacket := renderBrainBriefCompactV3ForTest(t, emptyBaseline)
+	emptyCandidatePacket := renderBrainBriefCompactV3ForTest(t, emptyCandidate)
+	emptyByteDelta := len(emptyCandidatePacket) - len(emptyBaselinePacket)
+	emptyProxyDelta := compactPacketByteProxy(emptyCandidatePacket) - compactPacketByteProxy(emptyBaselinePacket)
+	if emptyByteDelta > 64 || emptyProxyDelta > 16 {
+		t.Fatalf("one recalled test grew an empty test section too much: bytes %+d proxy %+d", emptyByteDelta, emptyProxyDelta)
+	}
+	t.Logf(
+		"empty-test-section packet cost: compact_v3 bytes %d->%d (%+d), ceil(bytes/4) proxy %d->%d (%+d)",
+		len(emptyBaselinePacket), len(emptyCandidatePacket), emptyByteDelta,
+		compactPacketByteProxy(emptyBaselinePacket), compactPacketByteProxy(emptyCandidatePacket), emptyProxyDelta,
+	)
+}
+
+func TestBrainBriefNestedJavaScriptTestsAreFallbackToDirectSiblings(t *testing.T) {
+	repoDir := t.TempDir()
+	for _, path := range []string{
+		"src/auth/token.test.ts",
+		"src/auth/__tests__/token.test.ts",
+	} {
+		absolute := filepath.Join(repoDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(absolute, []byte("test('token', () => {})\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil)
+	want := []string{"src/auth/token.test.ts"}
+	if !slices.Equal(tests, want) {
+		t.Fatalf("direct sibling should suppress the nested fallback: got %+v want %+v", tests, want)
+	}
+}
+
+func TestBrainBriefNestedJavaScriptTestsRequireSafeExistingFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "token.test.ts")
+	if err := os.WriteFile(outsidePath, []byte("test('outside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write outside test: %v", err)
+	}
+	linkPath := filepath.Join(repoDir, "src", "auth", "__tests__", "token.test.ts")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatalf("mkdir link dir: %v", err)
+	}
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts", "src/auth/missing.ts"}, nil)
+	if len(tests) != 0 {
+		t.Fatalf("outside symlink or nonexistent nested test should not be surfaced: %+v", tests)
+	}
+}
+
+func TestBrainBriefNestedJavaScriptTestsSkipSymlinkedDirectory(t *testing.T) {
+	repoDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "token.test.ts")
+	if err := os.WriteFile(outsidePath, []byte("test('outside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write outside test: %v", err)
+	}
+	linkDir := filepath.Join(repoDir, "src", "auth", "__tests__")
+	if err := os.MkdirAll(filepath.Dir(linkDir), 0o700); err != nil {
+		t.Fatalf("mkdir link parent: %v", err)
+	}
+	if err := os.Symlink(outsideDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil)
+	if len(tests) != 0 {
+		t.Fatalf("test under outside symlinked directory should not be surfaced: %+v", tests)
+	}
+}
+
+func TestBrainBriefNestedJavaScriptTestsSkipInsideSymlinks(t *testing.T) {
+	repoDir := t.TempDir()
+	realDir := filepath.Join(repoDir, "src", "shared-tests")
+	realPath := filepath.Join(realDir, "token.test.ts")
+	if err := os.MkdirAll(realDir, 0o700); err != nil {
+		t.Fatalf("mkdir real test dir: %v", err)
+	}
+	if err := os.WriteFile(realPath, []byte("test('inside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write real test: %v", err)
+	}
+	linkDir := filepath.Join(repoDir, "src", "auth", "__tests__")
+	if err := os.MkdirAll(filepath.Dir(linkDir), 0o700); err != nil {
+		t.Fatalf("mkdir link parent: %v", err)
+	}
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil)
+	if len(tests) != 0 {
+		t.Fatalf("test under an inside symlinked directory should not be surfaced: %+v", tests)
+	}
+}
+
+func TestBrainBriefSiblingTestValidationDoesNotPersistAcrossCalls(t *testing.T) {
+	repoDir := t.TempDir()
+	testPath := filepath.Join(repoDir, "src", "auth", "token.test.ts")
+	if err := os.MkdirAll(filepath.Dir(testPath), 0o700); err != nil {
+		t.Fatalf("mkdir test dir: %v", err)
+	}
+	writeTest := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(testPath, []byte(body), 0o600); err != nil {
+			t.Fatalf("write test: %v", err)
+		}
+	}
+	want := []string{"src/auth/token.test.ts"}
+	writeTest("test('first', () => {})\n")
+	if got := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil); !slices.Equal(got, want) {
+		t.Fatalf("initial regular test mismatch: got %+v want %+v", got, want)
+	}
+
+	if err := os.Remove(testPath); err != nil {
+		t.Fatalf("remove regular test: %v", err)
+	}
+	outsidePath := filepath.Join(t.TempDir(), "token.test.ts")
+	if err := os.WriteFile(outsidePath, []byte("test('outside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write outside test: %v", err)
+	}
+	if err := os.Symlink(outsidePath, testPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if got := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil); len(got) != 0 {
+		t.Fatalf("replacement symlink reused a stale positive result: %+v", got)
+	}
+
+	if err := os.Remove(testPath); err != nil {
+		t.Fatalf("remove symlink: %v", err)
+	}
+	writeTest("test('restored', () => {})\n")
+	if got := brainBriefAddSiblingTestFiles(repoDir, []string{"src/auth/token.ts"}, nil); !slices.Equal(got, want) {
+		t.Fatalf("restored regular test reused a stale negative result: got %+v want %+v", got, want)
+	}
+}
+
+func TestBrainBriefAddSiblingTestFilesKeepsSixFileCap(t *testing.T) {
+	repoDir := t.TempDir()
+	testPath := filepath.Join(repoDir, "src", "target.test.ts")
+	if err := os.MkdirAll(filepath.Dir(testPath), 0o700); err != nil {
+		t.Fatalf("mkdir test dir: %v", err)
+	}
+	if err := os.WriteFile(testPath, []byte("test('target', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	existing := []string{
+		"tests/one.test.ts", "tests/two.test.ts", "tests/three.test.ts",
+		"tests/four.test.ts", "tests/five.test.ts", "tests/six.test.ts",
+	}
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"src/target.ts"}, existing)
+	if !slices.Equal(tests, existing) {
+		t.Fatalf("six-file cap changed: got %+v want %+v", tests, existing)
 	}
 }
 
@@ -1421,6 +1743,122 @@ func TestBrainBriefAddsSiblingTestFilesSkipsSymlinkedOutsideFile(t *testing.T) {
 	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"packages/storage/src/index.ts"}, nil)
 	if slices.Contains(tests, "packages/storage/src/index.test.ts") {
 		t.Fatalf("outside symlink test file should not be surfaced: %+v", tests)
+	}
+}
+
+func TestBrainBriefActionTargetsRetainLiveDeletedAndIntendedCreateFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	for path, body := range map[string]string{
+		"packages/storage/src/index.ts":      "export class Store {}\n",
+		"packages/storage/src/index.test.ts": "test('store', () => {})\n",
+	} {
+		absolute := filepath.Join(repoDir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", path, err)
+		}
+		if err := os.WriteFile(absolute, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	outsideSource := filepath.Join(t.TempDir(), "outside.ts")
+	if err := os.WriteFile(outsideSource, []byte("export const outside = true;\n"), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	symlinkPath := filepath.Join(repoDir, "packages", "storage", "src", "outside.ts")
+	if err := os.Symlink(outsideSource, symlinkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	report := brainBriefReport{
+		ActionChecklist: []brainBriefAction{
+			{File: "packages/storage/src/stale.ts", Action: "stale action"},
+			{File: "packages/storage/src/outside.ts", Action: "outside action"},
+			{File: "packages/storage/src/index.ts", Symbol: "listNodes", Action: "normalize the current limit"},
+		},
+		LikelyEditFiles: []string{
+			"packages/storage/src/deleted_cursor.ts",
+			"packages/storage/src/new_cursor.ts",
+			"packages/storage/src/index.ts",
+		},
+		LikelyTestFiles: []string{
+			"tests/distractor_1.test.ts", "tests/distractor_2.test.ts", "tests/distractor_3.test.ts",
+			"tests/distractor_4.test.ts", "tests/distractor_5.test.ts", "tests/distractor_6.test.ts",
+		},
+	}
+
+	brainBriefPrioritizeActionTargets(repoDir, &report)
+	wantEdits := []string{
+		"packages/storage/src/index.ts",
+		"packages/storage/src/deleted_cursor.ts",
+		"packages/storage/src/new_cursor.ts",
+	}
+	if !slices.Equal(report.LikelyEditFiles, wantEdits) {
+		t.Fatalf("action priority dropped or displaced live/history target: got %+v want %+v", report.LikelyEditFiles, wantEdits)
+	}
+	if len(report.LikelyTestFiles) != 6 || report.LikelyTestFiles[0] != "packages/storage/src/index.test.ts" {
+		t.Fatalf("action sibling test should rank first under the six-file cap: %+v", report.LikelyTestFiles)
+	}
+	if slices.Contains(report.LikelyEditFiles, "packages/storage/src/stale.ts") ||
+		slices.Contains(report.LikelyEditFiles, "packages/storage/src/outside.ts") {
+		t.Fatalf("stale or outside-symlink action path displaced current evidence: %+v", report.LikelyEditFiles)
+	}
+	if len(report.LikelyFiles) != 9 || report.LikelyFiles[0] != "packages/storage/src/index.ts" {
+		t.Fatalf("combined likely files lost deterministic action priority: %+v", report.LikelyFiles)
+	}
+}
+
+func TestBrainBriefActionTargetsNoActionIsByteIdentical(t *testing.T) {
+	report := brainBriefReport{
+		LikelyEditFiles: []string{"src/one.ts", "src/two.ts"},
+		LikelyTestFiles: []string{"src/one.test.ts"},
+		LikelyFiles:     []string{"src/one.ts", "src/two.ts", "src/one.test.ts"},
+	}
+	before, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal before: %v", err)
+	}
+	brainBriefPrioritizeActionTargets(t.TempDir(), &report)
+	after, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("marshal after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("no-action packet changed\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+func TestBrainBriefActionTargetsKeepHardCapsAndDeduplicate(t *testing.T) {
+	repoDir := t.TempDir()
+	actionPath := filepath.Join(repoDir, "src", "target.ts")
+	if err := os.MkdirAll(filepath.Dir(actionPath), 0o700); err != nil {
+		t.Fatalf("mkdir action source: %v", err)
+	}
+	if err := os.WriteFile(actionPath, []byte("export function target() {}\n"), 0o600); err != nil {
+		t.Fatalf("write action source: %v", err)
+	}
+	report := brainBriefReport{
+		ActionChecklist: []brainBriefAction{{File: "src/target.ts", Symbol: "target", Action: "edit current target"}},
+		LikelyEditFiles: []string{
+			"src/one.ts", "src/two.ts", "src/three.ts", "src/four.ts", "src/five.ts",
+			"src/six.ts", "src/seven.ts", "src/target.ts", "src/eight.ts", "src/nine.ts",
+		},
+		LikelyTestFiles: []string{
+			"tests/one.test.ts", "tests/two.test.ts", "tests/three.test.ts", "tests/four.test.ts",
+			"tests/five.test.ts", "tests/six.test.ts", "tests/seven.test.ts",
+		},
+	}
+	brainBriefPrioritizeActionTargets(repoDir, &report)
+	if len(report.LikelyEditFiles) != 8 || report.LikelyEditFiles[0] != "src/target.ts" {
+		t.Fatalf("edit cap or action priority changed: %+v", report.LikelyEditFiles)
+	}
+	if slices.Contains(report.LikelyEditFiles[1:], "src/target.ts") {
+		t.Fatalf("action target was duplicated: %+v", report.LikelyEditFiles)
+	}
+	if len(report.LikelyTestFiles) != 6 {
+		t.Fatalf("test cap changed: %+v", report.LikelyTestFiles)
+	}
+	if len(report.LikelyFiles) != 12 {
+		t.Fatalf("combined packet cap changed: %+v", report.LikelyFiles)
 	}
 }
 

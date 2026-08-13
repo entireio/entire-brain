@@ -1,0 +1,49 @@
+diff --git a/e2e/agents/codex.go b/e2e/agents/codex.go
+index 6996b8fe8..4daef64b7 100644
+--- a/e2e/agents/codex.go
++++ b/e2e/agents/codex.go
+@@ -2,7 +2,6 @@ package agents
+ 
+ import (
+ 	"context"
+-	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"os"
+@@ -201,10 +200,6 @@ func seedCodexHome(home, projectDir string) error {
+ 		return err
+ 	}
+ 
+-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+-		return writeCodexAPIKeyAuth(home, apiKey)
+-	}
+-
+ 	// Symlink auth.json from the real ~/.codex/ so API credentials are available.
+ 	if realHome, err := os.UserHomeDir(); err == nil {
+ 		src := filepath.Join(realHome, ".codex", "auth.json")
+@@ -215,25 +210,3 @@ func seedCodexHome(home, projectDir string) error {
+ 
+ 	return nil
+ }
+-
+-func writeCodexAPIKeyAuth(home, apiKey string) error {
+-	auth := struct {
+-		AuthMode     string `json:"auth_mode"`
+-		OpenAIAPIKey string `json:"OPENAI_API_KEY"`
+-	}{
+-		AuthMode:     "apikey",
+-		OpenAIAPIKey: apiKey,
+-	}
+-
+-	data, err := json.MarshalIndent(auth, "", "  ")
+-	if err != nil {
+-		return fmt.Errorf("marshal codex auth: %w", err)
+-	}
+-	data = append(data, '\n')
+-
+-	if err := os.WriteFile(filepath.Join(home, "auth.json"), data, 0o600); err != nil {
+-		return fmt.Errorf("write codex auth: %w", err)
+-	}
+-
+-	return nil
+-}

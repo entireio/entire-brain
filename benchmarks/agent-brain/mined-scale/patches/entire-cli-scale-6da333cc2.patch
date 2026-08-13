@@ -1,0 +1,67 @@
+diff --git a/cmd/entire/cli/plugin_deps.go b/cmd/entire/cli/plugin_deps.go
+index c6519439c..22716ffbd 100644
+--- a/cmd/entire/cli/plugin_deps.go
++++ b/cmd/entire/cli/plugin_deps.go
+@@ -122,27 +122,18 @@ func planDeps(ctx context.Context, reqs []PluginRequirement, idx *PluginIndex, p
+ 		plan.Actions = append(plan.Actions, action)
+ 
+ 		// Recurse into what the dependency itself requires, using metadata
+-		// only — nothing is downloaded during planning. Inspection
+-		// failures don't fail the plan (the install will surface hard
+-		// errors itself), but they must not be silent either: a confirmed
+-		// plan that quietly omitted nested dependencies would look
+-		// complete while leaving gaps for doctor to find.
++		// only — nothing is downloaded during planning.
+ 		tag := ""
+ 		if tags, err := listRemoteSemverTags(ctx, action.RepoURL); err == nil && len(tags) > 0 {
+ 			tag = tags[0]
+ 		}
+ 		if tag == "" {
+-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("could not list tags for %q (%s); its own dependencies were not inspected — 'entire plugin doctor' will report any gaps", req.Name, action.RepoURL))
+-			continue
++			continue // install will fail with a clearer error later
+ 		}
+ 		meta, err := fetchPluginMetadataAtTag(ctx, action.RepoURL, tag)
+-		if err != nil {
+-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("could not read %s for %q at %s; its own dependencies were not inspected — 'entire plugin doctor' will report any gaps", pluginMetadataFileName, req.Name, tag))
++		if err != nil || meta == nil {
+ 			continue
+ 		}
+-		if meta == nil {
+-			continue // no metadata file: no declared dependencies
+-		}
+ 		if err := planDeps(ctx, meta.Requires, idx, plan, visited, depth+1); err != nil {
+ 			return err
+ 		}
+@@ -304,11 +295,6 @@ func RunPluginDoctor(ctx context.Context) ([]PluginDoctorIssue, error) {
+ // means "not quarantined". The attribute appears when a user manually
+ // drops a browser-downloaded binary into the managed dir — CLI downloads
+ // don't set it.
+-//
+-// Checking the bin entry is sufficient even though remote installs link
+-// bin/entire-<name> to the real binary under pkg/: macOS xattr follows
+-// symlinks by default (-s is the flag to act on the link itself), so both
+-// the probe here and the suggested `xattr -d` fix operate on the target.
+ func quarantinedPath(ctx context.Context, path string) string {
+ 	if runtime.GOOS != darwinGOOS {
+ 		return ""
+diff --git a/cmd/entire/cli/plugin_fetch.go b/cmd/entire/cli/plugin_fetch.go
+index e823bd793..70a2b4639 100644
+--- a/cmd/entire/cli/plugin_fetch.go
++++ b/cmd/entire/cli/plugin_fetch.go
+@@ -209,14 +209,7 @@ func downloadPluginAsset(ctx context.Context, meta *PluginMetadata, repoURL, nam
+ 		}
+ 		asset, digest, ok := selectAssetFromChecksums(parseChecksums(data), name, tag)
+ 		if !ok {
+-			// This manifest lists nothing for the platform. Keep going: a
+-			// stale or hand-written root checksums.txt must not mask a
+-			// goreleaser manifest under another candidate name, or a
+-			// published asset still reachable by the probe fallback.
+-			// Falling through doesn't weaken verification — an attacker
+-			// who controls the manifest could list a malicious digest
+-			// directly.
+-			continue
++			return nil, fmt.Errorf("%w: %s lists no asset for %s/%s", errAssetNotFound, cs, runtime.GOOS, runtime.GOARCH)
+ 		}
+ 		au, err := assetURL(asset)
+ 		if err != nil {

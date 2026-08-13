@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/engine-verification-public-v4.json",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "profile",
+    "pin_set",
+    "privacy_contract",
+    "component_commitments",
+    "artifact_inventory"
+  ],
+  "properties": {
+    "schema_version": {"const": 4},
+    "profile": {"const": "public_privacy_safe_v4"},
+    "pin_set": {
+      "type": "object",
+      "required": ["id", "sha256", "authority"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "authority": {"enum": ["production", "test_fixture"]}
+      },
+      "additionalProperties": false
+    },
+    "privacy_contract": {
+      "type": "object",
+      "required": ["pseudonym_algorithm", "raw_payload_policy", "host_context_policy", "scanner"],
+      "properties": {
+        "pseudonym_algorithm": {"const": "hmac_sha256_domain_separated_128bit_v1"},
+        "raw_payload_policy": {"const": "digest_size_only"},
+        "host_context_policy": {"const": "forbidden"},
+        "scanner": {"const": "recursive_fail_closed_v1"}
+      },
+      "additionalProperties": false
+    },
+    "component_commitments": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {"type": "object"}
+    },
+    "artifact_inventory": {
+      "type": "object",
+      "required": ["algorithm", "files", "file_count", "logical_bytes", "root_sha256"],
+      "properties": {
+        "algorithm": {"const": "sha256_ordered_relative_path_nul_sha256_nul_size_newline_v1"},
+        "files": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": ["role", "relative_path", "sha256", "size_bytes"],
+            "properties": {
+              "role": {"type": "string", "minLength": 1},
+              "relative_path": {"type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.json$"},
+              "sha256": {"$ref": "#/$defs/sha256"},
+              "size_bytes": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "file_count": {"const": 5},
+        "logical_bytes": {"type": "integer", "minimum": 1},
+        "root_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

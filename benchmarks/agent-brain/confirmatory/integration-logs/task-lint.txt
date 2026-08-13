@@ -1,0 +1,63 @@
+{
+  "errors": [],
+  "ok": true,
+  "schema_version": 1,
+  "tasks": [
+    {
+      "automated_disposition": "oracle_assisted",
+      "confirmatory_eligible": false,
+      "findings": [
+        {
+          "excerpt_sha256": "7986d076489ef61c",
+          "kind": "exact_ordering"
+        }
+      ],
+      "human_review": {
+        "disposition": "exclude_oracle_assisted",
+        "prompt_sha256": "1ea745c4ea50aa1c308d27369b92faf9a0ded4b386dbefe18cf0a11831287d96",
+        "rationale": "The prompt states the remote fallback and its exact position after commit resolution; the retrieval queries repeat that answer-bearing ordering. It is retained only as an oracle-assisted regression fixture.",
+        "reviewed_at": "2026-07-15T00:00:00Z",
+        "reviewer": "benchmark-repair-2026-07-15",
+        "task_id": "entire-cli-c0701-8828752a7"
+      },
+      "note": "automated lint is triage; approved_symptom_only requires a human review-ledger entry",
+      "prompt_sha256": "1ea745c4ea50aa1c308d27369b92faf9a0ded4b386dbefe18cf0a11831287d96",
+      "schema": 1,
+      "task_id": "entire-cli-c0701-8828752a7"
+    },
+    {
+      "automated_disposition": "oracle_assisted",
+      "confirmatory_eligible": false,
+      "findings": [
+        {
+          "excerpt_sha256": "9061e620d839810a",
+          "kind": "edit_location"
+        },
+        {
+          "excerpt_sha256": "7f8d99b5206c2032",
+          "kind": "replacement_strategy"
+        },
+        {
+          "excerpt_sha256": "3d1712bb31f24b00",
+          "kind": "literal_expression_or_value"
+        },
+        {
+          "excerpt_sha256": "e31c28bd780fa3a9",
+          "kind": "hidden_test_invariant"
+        }
+      ],
+      "human_review": {
+        "disposition": "exclude_oracle_assisted",
+        "prompt_sha256": "c56cbfb02f87ee1a49edb0f91591dc29c9d39f908f074fd01c888686f5bf6f01",
+        "rationale": "The prompt names both wrapper implementations, the replacement strategy, and the exact one-entry invariant. It is not eligible as a genuine non-oracle confirmatory task.",
+        "reviewed_at": "2026-07-15T00:00:00Z",
+        "reviewer": "benchmark-repair-2026-07-15",
+        "task_id": "entire-cli-c0701-4dd458656"
+      },
+      "note": "automated lint is triage; approved_symptom_only requires a human review-ledger entry",
+      "prompt_sha256": "c56cbfb02f87ee1a49edb0f91591dc29c9d39f908f074fd01c888686f5bf6f01",
+      "schema": 1,
+      "task_id": "entire-cli-c0701-4dd458656"
+    }
+  ]
+}

@@ -1,0 +1,545 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-final-calibration-v1.json",
+  "title": "Agent-brain final development calibration v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "evidence_class",
+    "state",
+    "owner_approval_receipt_sha256",
+    "candidate_lock",
+    "v4_implementation_lock",
+    "execution_contract",
+    "execution_attestations",
+    "source_byte_bindings",
+    "locked_identities",
+    "task_population_binding",
+    "product_cycle_evidence",
+    "planning",
+    "identity_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-final-calibration/v1"},
+    "evidence_class": {"enum": ["synthetic_fixture", "development_measurement"]},
+    "state": {"enum": ["pending", "candidate", "frozen"]},
+    "owner_approval_receipt_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "candidate_lock": {"$ref": "#/$defs/candidateLock"},
+    "v4_implementation_lock": {"$ref": "#/$defs/implementationLock"},
+    "execution_contract": {"$ref": "#/$defs/executionContract"},
+    "execution_attestations": {
+      "type": "array",
+      "minItems": 48,
+      "items": {"$ref": "#/$defs/executionAttestation"}
+    },
+    "source_byte_bindings": {"$ref": "#/$defs/sourceByteBindings"},
+    "locked_identities": {"$ref": "#/$defs/lockedIdentities"},
+    "task_population_binding": {"$ref": "#/$defs/taskPopulationBinding"},
+    "product_cycle_evidence": {"$ref": "product-cycle-v1.schema.json"},
+    "planning": {"$ref": "#/$defs/planning"},
+    "identity_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"const": "frozen"}}},
+      "then": {
+        "properties": {
+          "evidence_class": {"const": "development_measurement"},
+          "owner_approval_receipt_sha256": {"$ref": "#/$defs/sha256"}
+        }
+      },
+      "else": {
+        "properties": {"owner_approval_receipt_sha256": {"const": null}}
+      }
+    },
+    {
+      "if": {"properties": {"evidence_class": {"const": "development_measurement"}}},
+      "then": {
+        "properties": {
+          "planning": {
+            "properties": {
+              "profile": {"const": "production_development_measurement_v1"},
+              "resamples": {"const": 10000},
+              "seed": {"const": 4990646119815267652},
+              "candidate_task_clusters": {
+                "const": [12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160, 192, 256, 320, 384, 512]
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "planning": {
+            "properties": {"profile": {"const": "synthetic_fixture_test_v1"}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^(?!0{64}$)[0-9a-f]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "candidateLock": {
+      "type": "object",
+      "required": [
+        "status",
+        "candidate_product_identity_sha256",
+        "complete_plan_sha256",
+        "task_population_contract_sha256",
+        "task_population_file_sha256",
+        "lock_receipt_file_sha256",
+        "authentication_status",
+        "identity_sha256"
+      ],
+      "properties": {
+        "status": {"const": "structurally_locked_before_development_calibration"},
+        "candidate_product_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "complete_plan_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_file_sha256": {"$ref": "#/$defs/sha256"},
+        "lock_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "authentication_status": {"const": "unauthenticated_no_trust_anchor_fail_closed"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "implementationLock": {
+      "type": "object",
+      "required": [
+        "schema",
+        "analyzer_path",
+        "analyzer_file_sha256",
+        "draft202012_validator_file_sha256",
+        "product_cycle_validator_file_sha256",
+        "task_population_validator_file_sha256",
+        "product_cycle_schema_file_sha256",
+        "task_population_schema_file_sha256",
+        "review_ledger_schema_file_sha256",
+        "final_calibration_schema_file_sha256",
+        "power_report_schema_file_sha256",
+        "population_receipt_schema_file_sha256",
+        "candidate_lock_receipt_schema_file_sha256",
+        "owner_approval_receipt_schema_file_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-power-v4-implementation-lock/v1"},
+        "analyzer_path": {"const": "benchmarks/agent-brain/confirmatory/power_analysis_v4.py"},
+        "analyzer_file_sha256": {"$ref": "#/$defs/sha256"},
+        "draft202012_validator_file_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_validator_file_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_validator_file_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "final_calibration_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "power_report_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "population_receipt_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_lock_receipt_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "owner_approval_receipt_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "executionContract": {
+      "type": "object",
+      "required": [
+        "schema",
+        "status",
+        "provider_id",
+        "agent_cli_id",
+        "agent_cli_version",
+        "requested_model_id",
+        "resolved_model_id",
+        "effort",
+        "runner_sha256",
+        "timeout_policy_sha256",
+        "agent_timeout_limit_seconds",
+        "timeout_component_limit_seconds",
+        "identity_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-power-v4-execution-contract/v1"},
+        "status": {"const": "locked_before_calibration_opening"},
+        "provider_id": {"$ref": "#/$defs/nonempty"},
+        "agent_cli_id": {"$ref": "#/$defs/nonempty"},
+        "agent_cli_version": {"$ref": "#/$defs/nonempty"},
+        "requested_model_id": {"$ref": "#/$defs/nonempty"},
+        "resolved_model_id": {"$ref": "#/$defs/nonempty"},
+        "effort": {"$ref": "#/$defs/nonempty"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "timeout_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "agent_timeout_limit_seconds": {"type": "integer", "minimum": 1},
+        "timeout_component_limit_seconds": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "executionAttestation": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "cell_identity_sha256",
+        "provider_id",
+        "agent_cli_id",
+        "agent_cli_version",
+        "requested_model_id",
+        "resolved_model_id",
+        "effort",
+        "runner_sha256",
+        "timeout_policy_sha256",
+        "agent_timeout_limit_seconds",
+        "timeout_component_limit_seconds",
+        "identity_sha256"
+      ],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/nonempty"},
+        "cell_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "provider_id": {"$ref": "#/$defs/nonempty"},
+        "agent_cli_id": {"$ref": "#/$defs/nonempty"},
+        "agent_cli_version": {"$ref": "#/$defs/nonempty"},
+        "requested_model_id": {"$ref": "#/$defs/nonempty"},
+        "resolved_model_id": {"$ref": "#/$defs/nonempty"},
+        "effort": {"$ref": "#/$defs/nonempty"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "timeout_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "agent_timeout_limit_seconds": {"type": "integer", "minimum": 1},
+        "timeout_component_limit_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "sourceByteBindings": {
+      "type": "object",
+      "required": [
+        "product_cycle_file_sha256",
+        "product_cycle_schema_file_sha256",
+        "product_cycle_contract_sha256",
+        "product_cycle_evidence_canonical_bytes_sha256",
+        "task_population_schema_file_sha256",
+        "task_population_contract_file_sha256",
+        "task_population_contract_sha256",
+        "task_population_binding_canonical_bytes_sha256",
+        "review_ledger_schema_file_sha256",
+        "review_ledger_file_sha256",
+        "review_ledger_sha256",
+        "selection_receipt_file_sha256",
+        "assignment_receipt_file_sha256",
+        "overlap_receipt_file_sha256",
+        "candidate_lock_receipt_file_sha256",
+        "owner_approval_receipt_file_sha256",
+        "v4_implementation_lock_sha256",
+        "execution_attestations_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "product_cycle_file_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_evidence_canonical_bytes_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_contract_file_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_binding_canonical_bytes_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_file_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_sha256": {"$ref": "#/$defs/sha256"},
+        "selection_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "assignment_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "overlap_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_lock_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "owner_approval_receipt_file_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+        },
+        "v4_implementation_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "execution_attestations_sha256": {"$ref": "#/$defs/sha256"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "lockedIdentities": {
+      "type": "object",
+      "required": [
+        "product_cycle_schema_sha256",
+        "product_cycle_file_sha256",
+        "product_cycle_contract_sha256",
+        "product_cycle_evidence_canonical_bytes_sha256",
+        "task_population_schema_sha256",
+        "task_population_sha256",
+        "task_population_file_sha256",
+        "review_ledger_file_sha256",
+        "candidate_product_identity_sha256",
+        "candidate_packet_format_sha256",
+        "corpus_sha256",
+        "engine_sha256",
+        "prompt_template_sha256",
+        "prompt_parity_algorithm",
+        "cache_policy_sha256",
+        "runner_sha256",
+        "model_id",
+        "provider_id",
+        "agent_cli_id",
+        "agent_cli_version",
+        "requested_model_id",
+        "resolved_model_id",
+        "effort",
+        "timeout_policy_sha256",
+        "agent_timeout_limit_seconds",
+        "timeout_component_limit_seconds",
+        "schedule_sha256",
+        "price_quote_sha256",
+        "pricing_policy_sha256",
+        "execution_contract_sha256",
+        "v4_implementation_lock_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "product_cycle_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_file_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "product_cycle_evidence_canonical_bytes_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_file_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_file_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_product_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_packet_format_sha256": {"$ref": "#/$defs/sha256"},
+        "corpus_sha256": {"$ref": "#/$defs/sha256"},
+        "engine_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_template_sha256": {"$ref": "#/$defs/sha256"},
+        "prompt_parity_algorithm": {"const": "frozen_memory_packet_payload_placeholder_v1"},
+        "cache_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "model_id": {"$ref": "#/$defs/nonempty"},
+        "provider_id": {"$ref": "#/$defs/nonempty"},
+        "agent_cli_id": {"$ref": "#/$defs/nonempty"},
+        "agent_cli_version": {"$ref": "#/$defs/nonempty"},
+        "requested_model_id": {"$ref": "#/$defs/nonempty"},
+        "resolved_model_id": {"$ref": "#/$defs/nonempty"},
+        "effort": {"$ref": "#/$defs/nonempty"},
+        "timeout_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "agent_timeout_limit_seconds": {"type": "integer", "minimum": 1},
+        "timeout_component_limit_seconds": {"type": ["integer", "null"], "minimum": 1},
+        "schedule_sha256": {"$ref": "#/$defs/sha256"},
+        "price_quote_sha256": {"$ref": "#/$defs/sha256"},
+        "pricing_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "execution_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "v4_implementation_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "calibrationMember": {
+      "type": "object",
+      "required": [
+        "member_ref",
+        "membership",
+        "task_id",
+        "task_id_sha256",
+        "product_task_sha256",
+        "task_overlap_commitment_sha256",
+        "family_commitment_sha256",
+        "fix_commitment_sha256",
+        "source_session_commitments",
+        "contamination_state",
+        "review_commitment_sha256",
+        "independence_cluster_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "member_ref": {"$ref": "#/$defs/sha256"},
+        "membership": {"const": "development_calibration"},
+        "task_id": {"$ref": "#/$defs/nonempty"},
+        "task_id_sha256": {"$ref": "#/$defs/sha256"},
+        "product_task_sha256": {"$ref": "#/$defs/sha256"},
+        "task_overlap_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "family_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "fix_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "source_session_commitments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "contamination_state": {"const": "reviewed_clear"},
+        "review_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "independence_cluster_sha256": {"$ref": "#/$defs/sha256"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "taskPopulationBinding": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "profile",
+        "status",
+        "schema_file_sha256",
+        "population_sha256",
+        "source_file_sha256",
+        "review_ledger_sha256",
+        "review_ledger_file_sha256",
+        "selection_verification_status",
+        "selection_receipt_file_sha256",
+        "assignment_verification_status",
+        "assignment_receipt_file_sha256",
+        "overlap_commitment_verification_status",
+        "overlap_commitment_receipt_file_sha256",
+        "calibration_min_independent_tasks",
+        "holdout_plaintext",
+        "independence_closure_algorithm",
+        "independence_cluster_count",
+        "independence_projection_sha256",
+        "calibration_members",
+        "identity_sha256"
+      ],
+      "properties": {
+        "schema_version": {"const": 2},
+        "profile": {"const": "agent_brain_task_population_v2"},
+        "status": {"enum": ["candidate_unopened", "frozen_unopened"]},
+        "schema_file_sha256": {"$ref": "#/$defs/sha256"},
+        "population_sha256": {"$ref": "#/$defs/sha256"},
+        "source_file_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_file_sha256": {"$ref": "#/$defs/sha256"},
+        "selection_verification_status": {"const": "verified"},
+        "selection_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "assignment_verification_status": {"const": "verified"},
+        "assignment_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "overlap_commitment_verification_status": {"const": "verified"},
+        "overlap_commitment_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "calibration_min_independent_tasks": {"const": 12},
+        "holdout_plaintext": {"const": "forbidden"},
+        "independence_closure_algorithm": {"const": "family_fix_session_material_edge_transitive_closure_v1"},
+        "independence_cluster_count": {"type": "integer", "minimum": 12},
+        "independence_projection_sha256": {"$ref": "#/$defs/sha256"},
+        "calibration_members": {
+          "type": "array",
+          "minItems": 12,
+          "items": {"$ref": "#/$defs/calibrationMember"}
+        },
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "ratioAlternative": {
+      "type": "object",
+      "required": ["required_ratio_max", "planning_alternative_ratio"],
+      "properties": {
+        "required_ratio_max": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+        "planning_alternative_ratio": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "qualityAlternative": {
+      "type": "object",
+      "required": ["required_difference_min", "planning_alternative_difference"],
+      "properties": {
+        "required_difference_min": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "planning_alternative_difference": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "contrastAlternatives": {
+      "type": "object",
+      "required": ["comparison", "role", "elapsed_time", "normalized_cost", "code_quality"],
+      "properties": {
+        "comparison": {"$ref": "#/$defs/nonempty"},
+        "role": {"enum": ["primary_development_contrast", "diagnostic_product_progress_only"]},
+        "elapsed_time": {"$ref": "#/$defs/ratioAlternative"},
+        "normalized_cost": {"$ref": "#/$defs/ratioAlternative"},
+        "code_quality": {"$ref": "#/$defs/qualityAlternative"}
+      },
+      "additionalProperties": false
+    },
+    "planningAlternatives": {
+      "type": "object",
+      "required": ["primary", "product_diagnostic"],
+      "properties": {
+        "primary": {
+          "allOf": [
+            {"$ref": "#/$defs/contrastAlternatives"},
+            {"properties": {"comparison": {"const": "retrieved_memory_vs_no_memory"}, "role": {"const": "primary_development_contrast"}}}
+          ]
+        },
+        "product_diagnostic": {
+          "allOf": [
+            {"$ref": "#/$defs/contrastAlternatives"},
+            {"properties": {"comparison": {"const": "retrieved_memory_vs_preoptimization_memory"}, "role": {"const": "diagnostic_product_progress_only"}}}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "planning": {
+      "type": "object",
+      "required": [
+        "schema",
+        "profile",
+        "method",
+        "target_power",
+        "confidence",
+        "resamples",
+        "seed",
+        "candidate_task_clusters",
+        "arms",
+        "repetitions_per_arm",
+        "agent_retry_limit",
+        "replacement_cell_limit",
+        "reserve_cell_limit",
+        "planning_alternatives",
+        "precalibration_product_plan_sha256",
+        "task_population_contract_sha256",
+        "task_population_file_sha256",
+        "review_ledger_file_sha256",
+        "selection_receipt_file_sha256",
+        "assignment_receipt_file_sha256",
+        "overlap_receipt_file_sha256",
+        "execution_contract_sha256",
+        "v4_implementation_lock_sha256",
+        "identity_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "agent-brain-final-calibration-plan/v1"},
+        "profile": {"enum": ["synthetic_fixture_test_v1", "production_development_measurement_v1"]},
+        "method": {"const": "paired_cluster_residual_bootstrap_shared_draws_v1"},
+        "target_power": {"const": 0.8},
+        "confidence": {"const": 0.95},
+        "resamples": {"type": "integer", "minimum": 100, "maximum": 10000},
+        "seed": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+        "candidate_task_clusters": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 12, "maximum": 512}
+        },
+        "arms": {"const": ["no_memory", "placebo_packet", "preoptimization_memory", "retrieved_memory"]},
+        "repetitions_per_arm": {"type": "integer", "minimum": 1},
+        "agent_retry_limit": {"const": 0},
+        "replacement_cell_limit": {"const": 0},
+        "reserve_cell_limit": {"const": 0},
+        "planning_alternatives": {"$ref": "#/$defs/planningAlternatives"},
+        "precalibration_product_plan_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "task_population_file_sha256": {"$ref": "#/$defs/sha256"},
+        "review_ledger_file_sha256": {"$ref": "#/$defs/sha256"},
+        "selection_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "assignment_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "overlap_receipt_file_sha256": {"$ref": "#/$defs/sha256"},
+        "execution_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "v4_implementation_lock_sha256": {"$ref": "#/$defs/sha256"},
+        "identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

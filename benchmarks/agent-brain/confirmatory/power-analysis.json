@@ -1,0 +1,355 @@
+{
+  "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
+  "artifact_id": "agent-brain-confirmatory-power-v3",
+  "calibration_requirements": {
+    "minimum_independent_task_clusters": 12,
+    "minimum_is_calibration_floor_not_power_sized_design": true,
+    "must_match": [
+      "full frozen provider, runner, agent CLI, requested/resolved model, effort, schedule, and quote identity",
+      "v2 no_memory and retrieved_memory treatment contracts",
+      "end-to-end timing boundary and timeout policy",
+      "five-category frozen price quote, inclusion/absence semantics, authenticated structural zeros, and zero agent retries",
+      "task-normalized quality rubric and critical-failure policy"
+    ],
+    "required_statistics": {
+      "code_quality": "SD of paired task-level mean differences",
+      "dependence": "joint covariance or retained task-level calibration rows",
+      "elapsed_time": "SD of paired task-level mean log ratios",
+      "normalized_cost": "paired task-arm mean-cost rows for a task-clustered equal-weight ratio-of-means bootstrap"
+    },
+    "selection_use": "development calibration only; cannot enter confirmatory outcomes",
+    "status": "open"
+  },
+  "co_primary_endpoints": {
+    "code_quality": {
+      "claim_floor": {
+        "difference_min": 0.05,
+        "status": "provisional"
+      },
+      "estimand_scale": "paired_task_difference",
+      "marginal_power": null,
+      "paired_task_sd": null,
+      "planning_alternative": {
+        "difference_true": null,
+        "status": "pending_owner_approval"
+      },
+      "status": "pending_final_contract_calibration_and_alternative"
+    },
+    "elapsed_time": {
+      "claim_floor": {
+        "ratio_max": 0.9,
+        "status": "provisional"
+      },
+      "estimand_scale": "paired_task_log_ratio",
+      "marginal_power": null,
+      "paired_task_sd": null,
+      "planning_alternative": {
+        "ratio_true": null,
+        "status": "pending_owner_approval"
+      },
+      "status": "pending_final_contract_calibration_and_alternative"
+    },
+    "normalized_cost": {
+      "claim_floor": {
+        "ratio_max": 0.88,
+        "status": "provisional"
+      },
+      "estimand_scale": "ratio_of_equal_task_weighted_task_arm_mean_costs",
+      "marginal_power": null,
+      "paired_task_sd": null,
+      "planning_alternative": {
+        "ratio_true": null,
+        "status": "pending_owner_approval"
+      },
+      "status": "pending_final_contract_calibration_and_alternative"
+    }
+  },
+  "decision": {
+    "passed": false,
+    "prohibited_until_resolved": [
+      "mark power_target_met pass",
+      "freeze practical floors or planning alternatives without owner approval",
+      "seal or open the fresh holdout",
+      "authorize paid confirmatory agent invocations",
+      "promote legacy two-endpoint sensitivity task counts into the v3 design"
+    ],
+    "reason": "planning alternatives, final-contract variance inputs, and endpoint dependence are pending"
+  },
+  "design_readiness": {
+    "agent_retry_limit": 0,
+    "maximum_agent_invocations": 288,
+    "power_sized_confirmatory_task_count": null,
+    "power_sized_development_task_count": null,
+    "provisional_design_power_defensible": false,
+    "provisional_repetitions_per_treatment": 4,
+    "provisional_requested_cells": 288,
+    "provisional_tasks": 24,
+    "reason": "no owner-frozen alternatives or final-contract calibration support a numeric task count",
+    "replacement_cell_limit": 0
+  },
+  "empirical_variance_used_in_confirmatory_decision": false,
+  "exploratory_calibration": {
+    "confirmatory_assumption_source": false,
+    "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+    "excluded_sources": [
+      {
+        "id": "existing_winner_suites_report",
+        "path": "benchmarks/agent-brain/analysis/reports/existing-winner-suites-exploratory.md",
+        "reason": "the report references 29 raw records that are not retained at the referenced paths, so its aggregate rows cannot be independently re-derived here",
+        "sha256": "b1810656810fc004c4e5718ce7e32bda568a21278a25864e63c696d3dde001c0"
+      }
+    ],
+    "executed_run_predicate_version": 2,
+    "interpretation": "The byte-verified legacy records show material heterogeneity and correctness saturation, but their selected tasks, legacy treatments, runners, and harness contracts are not exchangeable with the candidate confirmatory experiment. They cannot select assumptions or pass the power gate.",
+    "manifest_path": "benchmarks/agent-brain/confirmatory/power-calibration-exploratory-v1.json",
+    "manifest_sha256": "a85541bad11d940dcb5e11db4fe99fb3f191616410e21a6db99df5ab81eb2c20",
+    "paired_task_cluster_instances": 14,
+    "pooled_estimate_prohibited": true,
+    "pooling_policy": "report_each_source_separately; do_not_pool_across_legacy_treatments_or_runners",
+    "source_count": 4,
+    "sources": [
+      {
+        "arms": {
+          "no_brain": {
+            "correctness_measurements": 7,
+            "mean_total_tokens": 661219.142857,
+            "pass_rate": 1.0,
+            "token_measurements": 7
+          },
+          "semantic_brain": {
+            "correctness_measurements": 7,
+            "mean_total_tokens": 625930.714286,
+            "pass_rate": 1.0,
+            "token_measurements": 7
+          }
+        },
+        "contamination": [
+          "legacy semantic treatment is not the frozen retrieved_memory treatment",
+          "tasks and outputs were inspected before this power analysis",
+          "one repetition and incomplete treatment pairs cannot identify within-task variance",
+          "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "sparse_between_task_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "semantic_layer_b_pilot",
+        "memory_condition": "semantic_brain",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": null,
+          "same_repetition_cross_condition_residual_pairs": 7,
+          "task_mean_log_token_ratio_count": 7,
+          "task_mean_log_token_ratio_sd": 0.812434,
+          "task_pass_rate_difference_count": 7,
+          "task_pass_rate_difference_sd": 0.0,
+          "within_task_arm_log_token_residual_count": 14,
+          "within_task_arm_log_token_residual_sd": 0.0
+        },
+        "paired_task_clusters": 7,
+        "paired_task_ids": [
+          "github-cli-auth-env-token",
+          "github-cli-format-web-conflict",
+          "github-cli-ghrepo-url-git-suffix",
+          "github-cli-json-web-conflict",
+          "github-cli-pr-checks-summary",
+          "github-cli-repo-name-trims-dotgit",
+          "github-cli-tenant-name-dot"
+        ],
+        "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-pilot-20260611/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 4,
+          "dirty_harness_true": 13,
+          "dirty_harness_unknown": 0,
+          "executed": 17,
+          "raw": 17,
+          "selected_conditions": 17
+        },
+        "sha256": "f5a93c8aa323e584363a60d73d57c2680139993be4089db7eac00238dca4e5c4"
+      },
+      {
+        "arms": {
+          "no_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 888519.125,
+            "pass_rate": 0.875,
+            "token_measurements": 8
+          },
+          "semantic_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 508212.125,
+            "pass_rate": 1.0,
+            "token_measurements": 8
+          }
+        },
+        "contamination": [
+          "legacy semantic treatment is not the frozen retrieved_memory treatment",
+          "two selected task clusters are too few for confirmatory variance calibration",
+          "the retained provenance reports a dirty harness",
+          "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "two_task_repetition_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "semantic_layer_b_proof",
+        "memory_condition": "semantic_brain",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": -0.056566,
+          "same_repetition_cross_condition_residual_pairs": 8,
+          "task_mean_log_token_ratio_count": 2,
+          "task_mean_log_token_ratio_sd": 0.381915,
+          "task_pass_rate_difference_count": 2,
+          "task_pass_rate_difference_sd": 0.176777,
+          "within_task_arm_log_token_residual_count": 16,
+          "within_task_arm_log_token_residual_sd": 0.452065
+        },
+        "paired_task_clusters": 2,
+        "paired_task_ids": [
+          "github-cli-format-web-conflict",
+          "github-cli-json-web-conflict"
+        ],
+        "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-b-proof-20260611/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 0,
+          "dirty_harness_true": 16,
+          "dirty_harness_unknown": 0,
+          "executed": 16,
+          "raw": 16,
+          "selected_conditions": 16
+        },
+        "sha256": "a0db267b00b00fd8634d8bbfc55f9bdf19bf50d3064398717e747579627c3803"
+      },
+      {
+        "arms": {
+          "full_cli_compact": {
+            "correctness_measurements": 12,
+            "mean_total_tokens": 2071290.083333,
+            "pass_rate": 0.333333,
+            "token_measurements": 12
+          },
+          "no_brain": {
+            "correctness_measurements": 12,
+            "mean_total_tokens": 3140005.666667,
+            "pass_rate": 0.666667,
+            "token_measurements": 12
+          }
+        },
+        "contamination": [
+          "legacy full_cli_compact treatment is not the frozen retrieved_memory treatment",
+          "three selected task clusters are too few for confirmatory variance calibration",
+          "the retained provenance reports a dirty harness",
+          "tasks, runner, repository, retrieval, and packet contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "three_task_repetition_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "legacy_full_cli_compact",
+        "memory_condition": "full_cli_compact",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": 0.248087,
+          "same_repetition_cross_condition_residual_pairs": 12,
+          "task_mean_log_token_ratio_count": 3,
+          "task_mean_log_token_ratio_sd": 0.398176,
+          "task_pass_rate_difference_count": 3,
+          "task_pass_rate_difference_sd": 0.288675,
+          "within_task_arm_log_token_residual_count": 24,
+          "within_task_arm_log_token_residual_sd": 0.354692
+        },
+        "paired_task_clusters": 3,
+        "paired_task_ids": [
+          "entireio-cli-condense-drops-latest-turn",
+          "entireio-cli-finalize-redaction-raw-live",
+          "entireio-cli-uncommitted-filter-exact-compare"
+        ],
+        "path": "benchmarks/agent-brain/evidence/semantic-clean-proof/layer-hist-proof-20260611/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 0,
+          "dirty_harness_true": 24,
+          "dirty_harness_unknown": 0,
+          "executed": 24,
+          "raw": 24,
+          "selected_conditions": 24
+        },
+        "sha256": "6deffd48e11678e02d0fc0c6cfa09d827df0eba590975b1e37e2624462603ac3"
+      },
+      {
+        "arms": {
+          "full_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 2104804.25,
+            "pass_rate": 1.0,
+            "token_measurements": 8
+          },
+          "no_brain": {
+            "correctness_measurements": 8,
+            "mean_total_tokens": 3596077.0,
+            "pass_rate": 0.5,
+            "token_measurements": 8
+          }
+        },
+        "contamination": [
+          "legacy full_brain treatment is not the frozen retrieved_memory treatment",
+          "two deliberately selected proof tasks are outcome-conditioned and not representative",
+          "the retained provenance reports a dirty harness",
+          "runner, prompt, retrieval, packet, cache, and evidence contracts differ from the candidate protocol"
+        ],
+        "control_condition": "no_brain",
+        "diagnostic_role": "two_task_repetition_sensitivity",
+        "eligibility": "exploratory_only_excluded_from_confirmatory_decision",
+        "id": "legacy_full_brain_replay",
+        "memory_condition": "full_brain",
+        "observed_diagnostics": {
+          "same_repetition_cross_condition_residual_correlation": 0.068219,
+          "same_repetition_cross_condition_residual_pairs": 8,
+          "task_mean_log_token_ratio_count": 2,
+          "task_mean_log_token_ratio_sd": 1.030708,
+          "task_pass_rate_difference_count": 2,
+          "task_pass_rate_difference_sd": 0.707107,
+          "within_task_arm_log_token_residual_count": 16,
+          "within_task_arm_log_token_residual_sd": 0.413534
+        },
+        "paired_task_clusters": 2,
+        "paired_task_ids": [
+          "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "entire-brain-clean-default-fact-merge-confidence"
+        ],
+        "path": "benchmarks/agent-brain/evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260618T195058Z/records.ndjson",
+        "record_counts": {
+          "dirty_harness_false": 0,
+          "dirty_harness_true": 16,
+          "dirty_harness_unknown": 0,
+          "executed": 16,
+          "raw": 16,
+          "selected_conditions": 16
+        },
+        "sha256": "cd58f7c103308c72247c65d8f126f5c1311bc102ed722333ff75c7d1b9f9c4fc"
+      }
+    ],
+    "unique_task_ids_across_sources": 12
+  },
+  "joint_iut_power": {
+    "intersection_union_success_probability": null,
+    "method": "frozen_endpoint_dependence_simulation_or_conservative_bound",
+    "status": "pending_final_contract_calibration_and_alternative"
+  },
+  "method": {
+    "component_tests": "one-sided task-clustered superiority at each frozen claim floor",
+    "joint_rule": "intersection-union: all three component nulls must be rejected; no across-endpoint multiplicity adjustment is required",
+    "planning_rule": "owner-frozen true alternatives must be strictly better than claim floors; each marginal power and overall intersection-union joint success probability must each meet 0.80"
+  },
+  "paid_runs_performed": false,
+  "protocol_inputs": {
+    "agent_retry_limit": 0,
+    "attempt_policy": "all_executed_attempts",
+    "cluster_unit": "task",
+    "intersection_union_alpha": 0.05,
+    "maximum_agent_invocations": 288,
+    "power_target": 0.8,
+    "primary_contrast": "retrieved_memory_vs_no_memory",
+    "primary_treatments": 3,
+    "repetitions_per_treatment": 4,
+    "replacement_cell_limit": 0,
+    "requested_cells": 288,
+    "tasks": 24
+  },
+  "schema_version": 3,
+  "status": "pending_uncalibrated"
+}

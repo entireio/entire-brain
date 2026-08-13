@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-treatment-v1.json",
+  "title": "Agent Brain treatment declaration",
+  "type": "object",
+  "required": ["arm", "query_source"],
+  "additionalProperties": false,
+  "properties": {
+    "arm": {"enum": ["no_memory", "placebo_packet", "retrieved_memory", "oracle_retrieval"]},
+    "query_source": {"enum": ["user_query", "oracle_queries"]},
+    "seed": {"type": ["string", "integer"]},
+    "candidate_facts": {"type": "array", "items": {"type": "object"}},
+    "solving_fact_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "near_duplicate_texts": {"type": "array", "items": {"type": "string"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"arm": {"const": "placebo_packet"}}},
+      "then": {"required": ["seed", "candidate_facts", "solving_fact_ids"]}
+    },
+    {
+      "if": {"properties": {"arm": {"const": "oracle_retrieval"}}},
+      "then": {"properties": {"query_source": {"const": "oracle_queries"}}}
+    }
+  ]
+}

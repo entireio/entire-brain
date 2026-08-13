@@ -1,0 +1,48 @@
+{
+  "schema_version": "entire-brain-ranking-diagnostics-input-v1",
+  "closed_negative_ablation": {
+    "boost": 30,
+    "top_k": 1,
+    "queries": [
+      {
+        "query_id": "synthetic-equal-lexical-match",
+        "facts": [
+          {
+            "id": "fact:convention",
+            "kind": "convention",
+            "text": "Expansion terms are reviewed in the weekly retrieval sync.",
+            "lexical_score_before_kind_boost": 240,
+            "updated_at": "2026-06-10T13:00:00Z"
+          },
+          {
+            "id": "fact:closed-negative",
+            "kind": "closed-negative",
+            "text": "Expansion terms were tried for recall and rejected; revisit only with a new model.",
+            "lexical_score_before_kind_boost": 240,
+            "updated_at": "2026-06-10T12:00:00Z"
+          }
+        ]
+      }
+    ]
+  },
+  "packet_aggregation": {
+    "cap": 3,
+    "near_duplicate_threshold": 0.8,
+    "queries": [
+      {
+        "query_id": "query-a",
+        "facts": [
+          {"id": "fact:aaa", "kind": "decision", "text": "Turn end events without ids must be deduped by usage"},
+          {"id": "fact:bbb", "kind": "gotcha", "text": "Cursor transcript UUIDs prevent checkpoint collapse"}
+        ]
+      },
+      {
+        "query_id": "query-b",
+        "facts": [
+          {"id": "fact:bbb", "kind": "gotcha", "text": "Cursor transcript UUIDs prevent checkpoint collapse"},
+          {"id": "fact:ccc", "kind": "invariant", "text": "Turn end events without ids must be deduped by usage value"}
+        ]
+      }
+    ]
+  }
+}

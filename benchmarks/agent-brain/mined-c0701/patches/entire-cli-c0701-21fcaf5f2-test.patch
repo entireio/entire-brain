@@ -1,0 +1,49 @@
+diff --git a/cmd/entire/cli/strategy/cleanup_imported_test.go b/cmd/entire/cli/strategy/cleanup_imported_test.go
+new file mode 100644
+index 000000000..dc6492173
+--- /dev/null
++++ b/cmd/entire/cli/strategy/cleanup_imported_test.go
+@@ -0,0 +1,43 @@
++package strategy
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/entireio/cli/cmd/entire/cli/session"
++	"github.com/entireio/cli/cmd/entire/cli/testutil"
++)
++
++func TestListOrphanedSessionStates_SkipsImported(t *testing.T) {
++	// Not parallel: t.Chdir.
++	dir := t.TempDir()
++	testutil.InitRepo(t, dir)
++	testutil.WriteFile(t, dir, "f.txt", "x")
++	testutil.GitAdd(t, dir, "f.txt")
++	testutil.GitCommit(t, dir, "init")
++	t.Chdir(dir)
++
++	ctx := context.Background()
++	store, err := session.NewStateStore(ctx)
++	if err != nil {
++		t.Fatalf("NewStateStore: %v", err)
++	}
++	old := time.Now().Add(-24 * time.Hour) // past sessionGracePeriod
++	if err := store.Save(ctx, &session.State{
++		SessionID: "imported-orphan", Kind: session.KindImported,
++		Phase: session.PhaseEnded, StartedAt: old, EndedAt: &old,
++	}); err != nil {
++		t.Fatalf("save: %v", err)
++	}
++
++	items, err := ListOrphanedSessionStates(ctx)
++	if err != nil {
++		t.Fatalf("ListOrphanedSessionStates: %v", err)
++	}
++	for _, it := range items {
++		if it.ID == "imported-orphan" {
++			t.Fatal("imported session was flagged as orphaned")
++		}
++	}
++}

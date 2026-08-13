@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/relevance-null-review-ledger-v1.json",
+  "type": "object",
+  "required": ["schema_version", "ledger_id", "items"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "ledger_id": {"type": "string", "minLength": 1},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "query_id", "task_id", "query_sha256", "temporal_policy_sha256", "reviewed_at",
+          "reviewer", "method", "source_facts_sha256", "source_session_dates_sha256",
+          "eligibility_membership_root_sha256", "reviewer_assertion", "decisions"
+        ],
+        "properties": {
+          "query_id": {"type": "string", "minLength": 1},
+          "task_id": {"type": "string", "minLength": 1},
+          "query_sha256": {"$ref": "#/$defs/sha256"},
+          "temporal_policy_sha256": {"$ref": "#/$defs/sha256"},
+          "reviewed_at": {"type": "string", "format": "date-time"},
+          "reviewer": {"type": "string", "minLength": 1},
+          "method": {"const": "exhaustive_active_corpus_review_v2"},
+          "source_facts_sha256": {"$ref": "#/$defs/sha256"},
+          "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+          "eligibility_membership_root_sha256": {"$ref": "#/$defs/sha256"},
+          "reviewer_assertion": {"type": "string", "minLength": 1},
+          "decisions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["fact_id", "fact_sha256", "grade"],
+              "properties": {
+                "fact_id": {"type": "string", "minLength": 1},
+                "fact_sha256": {"$ref": "#/$defs/sha256"},
+                "grade": {"enum": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"]}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

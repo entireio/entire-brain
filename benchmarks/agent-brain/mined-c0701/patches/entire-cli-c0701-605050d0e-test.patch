@@ -1,0 +1,49 @@
+diff --git a/cmd/entire/cli/checkpoint/migrate_test.go b/cmd/entire/cli/checkpoint/migrate_test.go
+index 695bf3f4b..8acf33de7 100644
+--- a/cmd/entire/cli/checkpoint/migrate_test.go
++++ b/cmd/entire/cli/checkpoint/migrate_test.go
+@@ -320,6 +320,44 @@ func TestMigrateBranchToRefs_EnqueueFailureIsError(t *testing.T) {
+ 	require.Error(t, err, "a failed enqueue must fail the migration")
+ }
+ 
++func TestMigrateBranchToRefs_ReenqueuesAlreadyImportedRef(t *testing.T) {
++	t.Parallel()
++	repo, _ := setupBranchTestRepo(t)
++	ctx := context.Background()
++	branch := NewGitStore(repo, DefaultV1Refs())
++	cid := id.MustCheckpointID("a1b2c3d4e5f6")
++	seedBranchCheckpoint(t, branch, cid, "s1")
++
++	_, err := MigrateBranchToRefs(ctx, repo, false)
++	require.NoError(t, err)
++	first := refHash(t, repo, cid)
++
++	// Simulate a prior run that wrote the ref but lost its push-queue entry
++	// (a failed enqueue, or a crash between setRef and Enqueue): the ref exists
++	// but nothing is queued for it.
++	refName, err := RefName(cid)
++	require.NoError(t, err)
++	queue, err := PushQueueForRepo(ctx, repo)
++	require.NoError(t, err)
++	require.NoError(t, queue.Remove([]plumbing.ReferenceName{refName}))
++	emptied, err := queue.Drain()
++	require.NoError(t, err)
++	require.Empty(t, emptied, "precondition: the ref is written but unqueued")
++
++	// Re-running skips the already-imported snapshot but must re-enqueue it, so
++	// the ref a partial earlier run left behind still reaches the remote.
++	result, err := MigrateBranchToRefs(ctx, repo, false)
++	require.NoError(t, err)
++	assert.Equal(t, 1, result.Skipped, "already-imported checkpoint is a skip")
++	assert.Empty(t, result.Migrated)
++	assert.Equal(t, first, refHash(t, repo, cid), "skip must not move the ref")
++
++	requeued, err := queue.Drain()
++	require.NoError(t, err)
++	assert.ElementsMatch(t, []plumbing.ReferenceName{refName}, requeued,
++		"an already-imported ref must be re-enqueued so a lost prior enqueue still pushes")
++}
++
+ func TestMigrateBranchToRefs_NoBranchIsNoop(t *testing.T) {
+ 	t.Parallel()
+ 	repo, _ := setupBranchTestRepo(t) // initial commit only; no v1 checkpoint branch yet

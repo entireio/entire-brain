@@ -1,0 +1,47 @@
+diff --git a/cmd/entire/cli/repo_mirror_create_wizard_test.go b/cmd/entire/cli/repo_mirror_create_wizard_test.go
+index 1377980fe..115e106f1 100644
+--- a/cmd/entire/cli/repo_mirror_create_wizard_test.go
++++ b/cmd/entire/cli/repo_mirror_create_wizard_test.go
+@@ -13,9 +13,9 @@ import (
+ )
+ 
+ // TestCreateOneMirror_Suspended pins the wizard's per-mirror handling of an
+-// admin-suspended existing placement: it surfaces the "suspended" status and,
+-// like the one-shot warning, stays non-fatal (no res.err) rather than being
+-// reported as a plain "registered" success or a hard failure.
++// admin-suspended existing placement: it surfaces the "suspended" status and
++// sets an error so the batch exits non-zero (matching the one-shot), rather
++// than being reported as a plain "registered" success.
+ func TestCreateOneMirror_Suspended(t *testing.T) {
+ 	t.Parallel()
+ 
+@@ -34,7 +34,7 @@ func TestCreateOneMirror_Suspended(t *testing.T) {
+ 		})
+ 
+ 	require.Equal(t, mirrorStatusSuspended, res.status)
+-	require.NoError(t, res.err, "a suspended placement is non-fatal in the wizard too")
++	require.Error(t, res.err, "a suspended placement must fail the batch (non-zero exit)")
+ 	require.Equal(t, mirrorStatusSuspended, final)
+ 	require.False(t, finalOK)
+ 	require.Equal(t, []string{mirrorsAPIPath}, *paths, "suspended must not poll GetMirror")
+diff --git a/cmd/entire/cli/repo_mirror_test.go b/cmd/entire/cli/repo_mirror_test.go
+index aac69c7fe..1a3f67c03 100644
+--- a/cmd/entire/cli/repo_mirror_test.go
++++ b/cmd/entire/cli/repo_mirror_test.go
+@@ -296,12 +296,14 @@ func TestReportOneShotMirror(t *testing.T) {
+ 		require.NotContains(t, out.String(), "git clone")
+ 	})
+ 
+-	t.Run("suspended placement warns after the placement and succeeds", func(t *testing.T) {
++	t.Run("suspended placement warns after the placement and exits non-zero", func(t *testing.T) {
+ 		t.Parallel()
+ 		var out, errW bytes.Buffer
+ 		created := &coreapi.CreatedMirror{Created: false, MirrorId: id, MirrorUrl: mirrorURL, Suspended: true}
+ 		err := reportOneShotMirror(&out, &errW, mirrorCreateOutcome{created: created}, nil)
+-		require.NoError(t, err, "a suspended re-create is a non-fatal warning")
++		var silent *SilentError
++		require.ErrorAs(t, err, &silent, "a suspended re-create must exit non-zero")
++		require.ErrorIs(t, err, errMirrorSuspended)
+ 		require.Contains(t, out.String(), "Mirror exists ("+id, "the placement is still echoed")
+ 		require.Contains(t, errW.String(), "WARNING: this mirror has been suspended by an admin and won't be usable.")
+ 		require.NotContains(t, out.String(), "git clone")

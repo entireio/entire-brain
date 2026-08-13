@@ -1,0 +1,60 @@
+diff --git a/core/authn/oidcop/storage.go b/core/authn/oidcop/storage.go
+index ddbd6bc10..0d6cae6d5 100644
+--- a/core/authn/oidcop/storage.go
++++ b/core/authn/oidcop/storage.go
+@@ -965,7 +965,7 @@ func (s *Storage) SetUserinfoFromToken(ctx context.Context, info *oidc.UserInfo,
+ 		return fmt.Errorf("parse subject as account id: %w", err)
+ 	}
+ 	info.Subject = subject
+-	handle, provider, providerUserID := s.resolvePrimaryHandle(ctx, accountID)
++	handle, provider, _ := s.resolvePrimaryHandle(ctx, accountID)
+ 	if handle != "" {
+ 		info.PreferredUsername = handle
+ 		info.AppendClaims("handle", handle)
+@@ -973,13 +973,6 @@ func (s *Storage) SetUserinfoFromToken(ctx context.Context, info *oidc.UserInfo,
+ 	if provider != "" {
+ 		info.AppendClaims("provider", provider)
+ 	}
+-	// provider_user_id is required by entire.io's auth-callback flow to
+-	// resolve the GitHub-side user id back to its local user row (COR-259).
+-	// The access JWT already carries it; surfacing it here keeps /userinfo
+-	// in sync.
+-	if providerUserID != "" {
+-		info.AppendClaims("provider_user_id", providerUserID)
+-	}
+ 	return nil
+ }
+ 
+@@ -998,31 +991,14 @@ func (s *Storage) SetIntrospectionFromToken(ctx context.Context, info *oidc.Intr
+ 		return fmt.Errorf("parse subject as account id: %w", err)
+ 	}
+ 	info.Subject = subject
+-	handle, provider, providerUserID := s.resolvePrimaryHandle(ctx, accountID)
++	handle, _, _ := s.resolvePrimaryHandle(ctx, accountID)
+ 	if handle != "" {
+ 		info.Username = handle
+ 		info.PreferredUsername = handle
+ 	}
+-	// Custom claims must match what SetUserinfoFromToken emits so callers
+-	// that introspect a token and then call /userinfo see the same identity
+-	// shape (per the docstring contract above). oidc.IntrospectionResponse
+-	// exposes the claim map directly rather than via AppendClaims.
+-	setIntrospectionClaim(info, "handle", handle)
+-	setIntrospectionClaim(info, "provider", provider)
+-	setIntrospectionClaim(info, "provider_user_id", providerUserID)
+ 	return nil
+ }
+ 
+-func setIntrospectionClaim(info *oidc.IntrospectionResponse, key, value string) {
+-	if value == "" {
+-		return
+-	}
+-	if info.Claims == nil {
+-		info.Claims = make(map[string]any)
+-	}
+-	info.Claims[key] = value
+-}
+-
+ func (s *Storage) GetPrivateClaimsFromScopes(context.Context, string, string, []string) (map[string]any, error) {
+ 	return nil, ErrUnimplemented
+ }

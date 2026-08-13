@@ -1,0 +1,41 @@
+{
+  "id": "entire-cli-scale-1f289fb40",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The remote helper attaches a repo-scoped bearer token to the data-plane requests it makes. The hosts it dials come from a response header, redirect targets, and an on-disk node cache, any of which can name hosts outside the cluster the user actually addressed. Ensure that token is never sent to a host outside that cluster's trust domain, dropping such hosts at every entry point. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-1f289fb40.patch",
+  "validation": [
+    "go test ./internal/remotehelper/transport -run 'TestColdPathDropsOutOfClusterReplicasFromHeader|TestColdPathRefusesOutOfClusterLocationSalvage|TestNewFiltersOutOfClusterCachedNodes|TestRefreshReplicasDropsOutOfClusterReplicas|TestRefreshReplicasResponseURLFallbackIgnoresOutOfClusterHost|TestSetAuthOrErrorRefusesOutOfClusterHost'"
+  ],
+  "expected_files": [
+    "internal/remotehelper/transport/inforefs.go",
+    "internal/remotehelper/transport/proxy.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "remote helper sending token to off-cluster host",
+    "validate replica hosts against cluster trust domain",
+    "existing redirect host-in-cluster credential boundary",
+    "untrusted replica hosts from response header and cache",
+    "node cache poisoning redirects credentialed requests"
+  ],
+  "_mined_from_commit": "1f289fb40890bdf60694f1d2e025b5d524769b7b",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "remotehelper: scope repo-scoped token to cluster trust domain",
+  "copy_checkpoint_ref_from_source": true
+}

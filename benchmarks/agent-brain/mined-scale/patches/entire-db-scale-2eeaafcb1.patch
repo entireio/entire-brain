@@ -1,0 +1,51 @@
+diff --git a/core/api/server.go b/core/api/server.go
+index 8802de2fc..ae188b3d9 100644
+--- a/core/api/server.go
++++ b/core/api/server.go
+@@ -1499,40 +1499,20 @@ func (s *Server) handleAuthRequestLogin(w http.ResponseWriter, r *http.Request,
+ 
+ 	// If the user already has an IdP session, short-circuit the provider
+ 	// roundtrip: MarkDone immediately and let pkg/op issue the code.
+-	//
+-	// Before trusting the cached account_id, confirm it still resolves to
+-	// an account row. The session can outlive its account when the user
+-	// was deleted (here or in a sibling region using the shared global
+-	// pool) and then re-signed up — the new handle row points at a fresh
+-	// account_id, but our cached idp_session still carries the tombstone.
+-	// Stamping that tombstone onto the auth_request loops the user
+-	// through /api/me's 401-and-clear (see handleMe at the ErrNotFound
+-	// branch). Drop the stale row and fall through to a real provider
+-	// round-trip so loginFlow.FromProviderProfile resolves the live id.
+ 	if s.idpCookie != nil && s.idpSessionStore != nil {
+ 		if sessionID, ok := s.idpCookie.Read(r); ok {
+-			cached, err := s.idpSessionStore.Lookup(r.Context(), sessionID)
+-			switch {
+-			case err != nil:
+-				slogutil.Warn(r.Context(), "IdP session lookup failed in oidc bridging login", slog.String("error", err.Error()))
+-				s.idpCookie.Clear(w)
+-			default:
+-				if _, err := s.identity.GetAccount(r.Context(), cached.AccountID); err != nil {
+-					if errors.Is(err, identity.ErrNotFound) {
+-						clearSessionCookie(w, r, s.idpCookie, s.idpSessionStore, "idp")
+-						break
+-					}
+-					writeErr(w, r, http.StatusInternalServerError, err)
+-					return
+-				}
+-				scopes := authn.FilterClientControlledScopes(ar.Scopes, s.resolveLoginScopes(r.Context(), cached.AccountID.String()))
+-				if err := s.authRequestStore.MarkDone(r.Context(), requestID, cached.AccountID.String(), time.Now(), scopes); err != nil {
++			identity, err := s.idpSessionStore.Lookup(r.Context(), sessionID)
++			if err == nil {
++				scopes := authn.FilterClientControlledScopes(ar.Scopes, s.resolveLoginScopes(r.Context(), identity.AccountID.String()))
++				if err := s.authRequestStore.MarkDone(r.Context(), requestID, identity.AccountID.String(), time.Now(), scopes); err != nil {
+ 					writeErr(w, r, http.StatusInternalServerError, err)
+ 					return
+ 				}
+ 				http.Redirect(w, r, "/authorize/callback?id="+neturl.QueryEscape(requestID), http.StatusFound)
+ 				return
+ 			}
++			slogutil.Warn(r.Context(), "IdP session lookup failed in oidc bridging login", slog.String("error", err.Error()))
++			s.idpCookie.Clear(w)
+ 		}
+ 	}
+ 

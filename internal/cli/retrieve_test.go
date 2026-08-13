@@ -399,6 +399,23 @@ func TestFilterHistoryRetrievalSelfEchoesRefillsWithEvidence(t *testing.T) {
 	}
 }
 
+func TestHistoryRetrievalPathFiltersSelfEchoesAndRefills(t *testing.T) {
+	query := ".github symbol was unexpectedly ignored"
+	index := historyIndex{Records: []historyRecord{
+		{ID: "history:echo-1", Kind: "tool_call", Path: "sessions/main/a.jsonl", Line: 1, Summary: `entire brain search '.github symbol was unexpectedly ignored' --json`},
+		{ID: "history:echo-2", Kind: "tool_call", Path: "sessions/main/a.jsonl", Line: 2, Summary: `brain_query {"query":".github symbol was unexpectedly ignored"}`},
+		{ID: "history:evidence", Kind: "code_fact", Path: "sessions/main/a.jsonl", Line: 3, Summary: `Regression coverage proves the .github symbol was unexpectedly ignored.`},
+	}}
+	brainDir, _ := writeDirectHistoryFTSFixture(t, index)
+	got, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 1, modeLexical, retrievalOptions{Source: retrievalSourceHistory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "history:evidence" {
+		t.Fatalf("self-echo filtering did not refill with evidence: %+v", got)
+	}
+}
+
 func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

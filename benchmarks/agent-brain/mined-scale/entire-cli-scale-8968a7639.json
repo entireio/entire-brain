@@ -1,0 +1,41 @@
+{
+  "id": "entire-cli-scale-8968a7639",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "During session resume and checkpoint rewind, the session identifier read from shared checkpoint metadata flows into a filesystem write path unchecked. A crafted identifier can escape the intended per-session directory and overwrite unrelated files anywhere on disk, with no prompt to the user. Reject unsafe identifiers before any path is built so a restore can never write outside the session directory. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-8968a7639.patch",
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestResolveTranscriptPath_AllowsLegitSessionID|TestResolveTranscriptPath_RejectsTraversalSessionID|TestResumeSingleSession_RejectsPathTraversalSessionID'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/manual_commit_rewind.go",
+    "cmd/entire/cli/transcript.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "validate session id on resume and rewind",
+    "path traversal via checkpoint metadata session id",
+    "where session ids are validated when checkpoints are written",
+    "restore path arbitrary file write from session id",
+    "agents that return absolute session ids verbatim"
+  ],
+  "_mined_from_commit": "8968a763900708d55e67275e25078b0df40a6663",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "fix: validate session IDs on resume/rewind to prevent arbitrary file write",
+  "copy_checkpoint_ref_from_source": true
+}

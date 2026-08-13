@@ -58,19 +58,19 @@ func TestRedactText(t *testing.T) {
 		{"ran in /Users/alice/Projects/secret/app", "/Users/alice", "/Users/[redacted]"},
 		// macOS is case-insensitive by default (and may be case-sensitive); a
 		// lowercase /users/ home path is the same dir and must redact too.
-		{"ls /users/peytonmontei/Documents/entire", "peytonmontei", "/users/[redacted]"},
+		{"ls /users/example-user/Documents/entire", "example-user", "/users/[redacted]"},
 		// Linux home layout.
 		{"cat /home/bob/.ssh/config", "/home/bob", "/home/[redacted]"},
 		// Quoted home path keeps the surrounding quote (and the subpath shape).
 		{`"/Users/carol"`, "carol", `"/Users/[redacted]"`},
 		// Path shape is preserved (only the username segment goes).
 		{"/Users/dave/go/src", "dave", "/Users/[redacted]/go/src"},
-		// Real cases from a live brain: canonical /Users (capital) is a home dir
-		// wherever it appears — inside file:// URLs, gitbash /c/Users, sed args.
-		{"git clone file:///Users/dvydra/src/cli x", "dvydra", "file:///Users/[redacted]"},
-		{"grep go-git /c/Users/Victor/cli/go.mod", "Victor", "/c/Users/[redacted]"},
-		{`sed 's|x|/Users/peytonmontei/Documents/cli|'`, "peytonmontei", "/Users/[redacted]"},
-		{`C:\Users\Victor\cli`, "Victor", `C:\Users\[redacted]`},
+		// Canonical /Users (capital) is a home dir wherever it appears — inside
+		// file:// URLs, gitbash /c/Users, sed args, and Windows paths.
+		{"git clone file:///Users/example-user/src/cli x", "example-user", "file:///Users/[redacted]"},
+		{"grep go-git /c/Users/ExampleUser/cli/go.mod", "ExampleUser", "/c/Users/[redacted]"},
+		{`sed 's|x|/Users/example-user/Documents/cli|'`, "example-user", "/Users/[redacted]"},
+		{`C:\Users\ExampleUser\cli`, "ExampleUser", `C:\Users\[redacted]`},
 		// API/repo paths use lowercase /users/ embedded after a segment -> kept.
 		{"gh api users/octocat --jq .name", "", "octocat"},
 		{"gh api repos/x/contents/platform/users/components/Grid.tsx", "", "platform/users/components"},

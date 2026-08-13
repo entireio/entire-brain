@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-task-review-ledger-v1.json",
+  "title": "Agent Brain human task-validity review ledger",
+  "type": "object",
+  "required": ["schema_version", "reviews"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "prompt_sha256", "reviewer", "reviewed_at", "disposition", "rationale"],
+        "properties": {
+          "task_id": {"type": "string", "minLength": 1},
+          "prompt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "reviewer": {"type": "string", "minLength": 1},
+          "reviewed_at": {"type": "string", "format": "date-time"},
+          "disposition": {"enum": ["approved_symptom_only", "revise", "exclude_oracle_assisted"]},
+          "rationale": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

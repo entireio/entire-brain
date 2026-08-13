@@ -1,0 +1,1222 @@
+{
+  "schema_version": 2,
+  "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+  "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+  "source_active_fact_count": 2531,
+  "source_active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
+  "fact_count": 44,
+  "facts_sha256": "4f2f5269770444a912d53b759f86ae43bc17b6e4a16096eeb115206fae748410",
+  "facts": [
+    {
+      "id": "fact:0539f87b0bf63eaf40ae9eec",
+      "paths": [
+        "constraints.authentication.flow"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "/cli/auth",
+        "/cli/auth?user_code=…",
+        "cli/auth",
+        "partial.to",
+        "unified/proxied",
+        "us.auth.partial.to",
+        "user_code"
+      ],
+      "text": "Preserving the `/cli/auth?user_code=…` target across the `us.auth.partial.to` login redirect is insufficient for split-host device authorization: partial.to only accepts same-origin return paths and its `/cli/auth` uses a separate device-grant store, so fresh codes minted by entire-core are rejected as invalid; revisit cross-host redirecting only if partial.to safely allows trusted auth-host return URLs or the grant stores are unified/proxied.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "58ea4463-8f4c-4d99-9a40-a61b6d54552f",
+          "checkpoint_id": "e7595451f64b",
+          "transcript": "sessions/main/20260522T082948Z_claude-code_58ea4463-8f4c-4d99-9a40-a61b6d54552f_e7595451f64b.jsonl",
+          "line": 1836
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:09ef343c6580f47c54dece07",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "decision",
+      "locus": [
+        "entire-checkpoint",
+        "head"
+      ],
+      "text": "Local dispatch checkpoint discovery for an implicitly selected current branch must accept checkpoints whose stored branch matches or whose ID is reachable through `Entire-Checkpoint` trailers; trailer reachability alone was rejected because valid branch checkpoints may not be linked into `HEAD`.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019db0fc-acc1-7370-89ef-962f0c72b531",
+          "checkpoint_id": "54006825aaf7",
+          "transcript": "sessions/main/20260421T224339Z_codex_019db0fc-acc1-7370-89ef-962f0c72b531_54006825aaf7.jsonl",
+          "line": 1631
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:0d1104c5493d9d6febcb7600",
+      "paths": [
+        "architecture.boundaries.rationale",
+        "project.tooling.stack"
+      ],
+      "kind": "decision",
+      "locus": [
+        "cmd/entire/cli/gitops"
+      ],
+      "text": "Git operations should be consolidated behind a leaf cmd/entire/cli/gitops package so strategy and command packages can share one interface without creating import cycles; initially migrate only the operations needed for the attribution performance fix.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "86a4c45c-4c6f-441c-9e41-80eb453d2c7d",
+          "checkpoint_id": "fb2415d1a9a3",
+          "transcript": "sessions/main/20260304T005024Z_claude-code_86a4c45c-4c6f-441c-9e41-80eb453d2c7d_fb2415d1a9a3.jsonl",
+          "line": 604
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:11af406c1bcd1c4994261a6c",
+      "paths": [
+        "constraints.git.behavior"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "fetch",
+        "git",
+        "git/config",
+        "origin",
+        "remote.\"<url-or-path>\".*",
+        "remote.origin",
+        "remote.origin.*",
+        "repositoryformatversion"
+      ],
+      "text": "Git keys persisted partial-clone metadata to the exact fetch target identity: `git fetch origin` writes `remote.origin.*`, while fetching a literal URL or path can create a separate `remote.\"<url-or-path>\".*` promisor section and change `repositoryformatversion`; URL-based fetching avoids poisoning the named remote but does not guarantee zero `.git/config` changes.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d8606-ed6a-75d0-a76c-2ef8b805600c",
+          "checkpoint_id": "ca3b4b514c9a",
+          "transcript": "sessions/main/20260413T114438Z_codex_019d8606-ed6a-75d0-a76c-2ef8b805600c_ca3b4b514c9a.jsonl",
+          "line": 512
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:1560962204e7614f27850c22",
+      "paths": [
+        "constraints.remote.branching"
+      ],
+      "kind": "closed-negative",
+      "text": "Do not fetch the trails branch from the checkpoint remote: trails are pushed to the user's push remote, so fetching them from the checkpoint remote can cross-pollinate unrelated history; revisit only if trails ownership is deliberately moved to the checkpoint remote.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "9191cbda-fdd5-41ea-8c6a-d8e7fa6d3b23",
+          "checkpoint_id": "2af10577d3ac",
+          "transcript": "sessions/main/20260312T145147Z_claude-code_9191cbda-fdd5-41ea-8c6a-d8e7fa6d3b23_2af10577d3ac.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:2a918a67f91db46f44a8c8a4",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "invariant",
+      "text": "Imported pre-enable sessions cannot be rewindable because their transcripts contain no historical working-tree snapshots, and turn boundaries must be reconstructed from user-prompt records because no lifecycle hooks were captured.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "65bd6f32-b465-4fea-807f-040f6d9ac558",
+          "checkpoint_id": "217723121355",
+          "transcript": "sessions/main/20260629T162443Z_claude-code_65bd6f32-b465-4fea-807f-040f6d9ac558_217723121355.jsonl",
+          "line": 9
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:2b0e4f409de31a6aa95ce0a0",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "owner/a",
+        "owner/b",
+        "repo:owner/a,owner/b"
+      ],
+      "text": "Multi-repo search uses the shared inline syntax `repo:owner/a,owner/b` in both CLI and TUI, preserving current-repository scope when omitted; this was chosen to match the TUI’s existing inline-filter model rather than add a dedicated selector or CLI-only flag.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d4a75-32c0-7c01-8ff2-e73490bea568",
+          "checkpoint_id": "fd342fecde72",
+          "transcript": "sessions/main/20260401T201937Z_codex_019d4a75-32c0-7c01-8ff2-e73490bea568_fd342fecde72.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:2f3eb1f9194691d5d97d97bb",
+      "paths": [
+        "architecture.boundaries.rationale"
+      ],
+      "kind": "decision",
+      "locus": [
+        "discovery/help",
+        "entire",
+        "lab",
+        "review"
+      ],
+      "text": "Experimental commands remain directly runnable at their eventual stable path (for example, `entire review`), while the visible `entire lab` command is only a discovery/help surface so graduation does not force users to change invocations.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019df9cd-55af-78a1-ba56-85910d0fd078",
+          "checkpoint_id": "cd3fb9643dcc",
+          "transcript": "sessions/main/20260507T213012Z_codex_019df9cd-55af-78a1-ba56-85910d0fd078_cd3fb9643dcc.jsonl",
+          "line": 4305
+        },
+        {
+          "session_id": "019ed29b-5de8-7272-9e6c-89a843c92842",
+          "checkpoint_id": "84e842d92745",
+          "transcript": "sessions/main/20260622T215922Z_codex_019ed29b-5de8-7272-9e6c-89a843c92842_84e842d92745.jsonl",
+          "line": 1744
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:30c6c2e4a031d91df16e4d27",
+      "paths": [
+        "architecture.boundaries.rationale",
+        "constraints.invariants.general"
+      ],
+      "kind": "decision",
+      "locus": [
+        "cmd.exe"
+      ],
+      "text": "Codex hook installation must keep the existing `sh -c` wrappers by default and use guarded Windows-native `cmd.exe` wrappers only when a Windows compatibility probe fails; reinstalling must replace stale Entire-managed hook forms rather than append duplicates.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019f0998-b0f5-7202-9db6-34d41fd9be38",
+          "checkpoint_id": "36599a4bbda6",
+          "transcript": "sessions/main/20260629T215947Z_codex_019f0998-b0f5-7202-9db6-34d41fd9be38_36599a4bbda6.jsonl",
+          "line": 400
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:32203deb1036cba4d14b243c",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "/me/recap",
+        "me/recap"
+      ],
+      "text": "The `/me/recap` response includes complete `me` aggregates even though the CLI currently ignores most of them, so web dashboards and integrations without local session data can obtain both personal and contributor metrics in one call without a future breaking schema change.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "b35707d3-641d-4b8a-83b2-52ef9ab92ecf",
+          "checkpoint_id": "d69c684aa89d",
+          "transcript": "sessions/main/20260427T152211Z_claude-code_b35707d3-641d-4b8a-83b2-52ef9ab92ecf_d69c684aa89d.jsonl",
+          "line": 3149
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:32a34f711bb107845dc407c3",
+      "paths": [
+        "constraints.integrations.cursor"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "sessionstart",
+        "turnend",
+        "turnstart"
+      ],
+      "text": "Cursor can dispatch the same session through both Cursor and Claude Code hook configurations: observed behavior duplicated SessionStart and TurnEnd, while TurnStart fired only for Cursor; non-owning TurnEnd handling can otherwise create redundant checkpoints and wait for a transcript sentinel that will never appear.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "c3eb3dfd-f856-4fb0-901f-7bae4034e1d7",
+          "checkpoint_id": "e6e214d0a9eb",
+          "transcript": "sessions/main/20260430T184954Z_claude-code_c3eb3dfd-f856-4fb0-901f-7bae4034e1d7_e6e214d0a9eb.jsonl",
+          "line": 6
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:42e169e787462c51357851e2",
+      "paths": [
+        "architecture.boundaries.rationale",
+        "constraints.dependencies.general"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "agent",
+        "agentname",
+        "cmd/entire/cli/agent/token_usage.go",
+        "logging",
+        "nil"
+      ],
+      "text": "Importing `logging` into `cmd/entire/cli/agent/token_usage.go` was rejected because `logging` already imports `agent` for `AgentName`, creating an import cycle; token-usage calculation failures therefore return `nil` silently, and this should be revisited only if the package dependency boundary is refactored.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "14ee15d2-fbee-40f3-b61a-fd98f0bbf18e",
+          "checkpoint_id": "6bc2d93bcab6",
+          "transcript": "sessions/main/20260227T052656Z_claude-code_14ee15d2-fbee-40f3-b61a-fd98f0bbf18e_6bc2d93bcab6.jsonl",
+          "line": 5
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:4ffcd573803e604fcb1ea1b3",
+      "paths": [
+        "architecture.data.flow",
+        "workflow.testing.rules"
+      ],
+      "kind": "decision",
+      "locus": [
+        "--agent",
+        "--no-github",
+        "--telemetry=false",
+        "--yes",
+        "enable",
+        "entire",
+        "github"
+      ],
+      "text": "`entire enable --yes` is intended as a fully non-interactive end-to-end bootstrap: initialize Git, create a private GitHub repository under the user’s personal account with the directory name, use the default initial commit message, enable all available agents, accept telemetry, and confirm Vercel blocking; explicit flags such as `--agent`, `--no-github`, and `--telemetry=false` always take precedence.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "3d67832d-f293-4b14-873f-1ca34ff07313",
+          "checkpoint_id": "a15bd1461855",
+          "transcript": "sessions/main/20260422T111335Z_claude-code_3d67832d-f293-4b14-873f-1ca34ff07313_a15bd1461855.jsonl",
+          "line": 3
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:556c688f7e3ecb06f7a95f0b",
+      "paths": [
+        "architecture.boundaries.rationale"
+      ],
+      "kind": "decision",
+      "locus": [
+        "api_discovery.json",
+        "cluster_cores.json"
+      ],
+      "text": "The data-API and git-cluster discovery paths share the same cache type, 24-hour TTL, and generic cache machinery, but retain separate api_discovery.json and cluster_cores.json files to prevent API-host and cluster-host key collisions.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "6b26d89b-433f-4dab-8cf7-8faa6ae827a5",
+          "checkpoint_id": "ba57be5b7bdb",
+          "transcript": "sessions/main/20260609T021852Z_claude-code_6b26d89b-433f-4dab-8cf7-8faa6ae827a5_ba57be5b7bdb.jsonl",
+          "line": 1448
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:5c23e28b4902b6162eca87e4",
+      "paths": [
+        "architecture.boundaries.rationale"
+      ],
+      "kind": "decision",
+      "locus": [
+        "imported",
+        "kind"
+      ],
+      "text": "Imported checkpoints use `Kind: \"imported\"`; supported read paths such as list and explain may include them, while unsupported checkpoint consumers must filter them out defensively even if imports later reach the primary checkpoint ref.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "b1e13e56-e9ae-469a-a30d-7c57d70e2f1f",
+          "checkpoint_id": "4315ab0b3062",
+          "transcript": "sessions/main/20260626T002049Z_claude-code_b1e13e56-e9ae-469a-a30d-7c57d70e2f1f_4315ab0b3062.jsonl",
+          "line": 71
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:63485ff4d3e7da4d742dacda",
+      "paths": [
+        "preferences.coding.style"
+      ],
+      "kind": "decision",
+      "locus": [
+        "<prompt>",
+        "last",
+        "prompt"
+      ],
+      "text": "The user chose the unquoted `Last Prompt: <prompt>` display format; prompt whitespace should be collapsed before display so multiline input cannot disrupt the interactive or git-comment layout.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "2026-01-09-97007e37-53bd-4456-9a49-c0f8081081a7",
+          "checkpoint_id": "191cb6003d79",
+          "transcript": "sessions/main/20260109T144732Z_agent_2026-01-09-97007e37-53bd-4456-9a49-c0f8081081a7_191cb6003d79.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:653adbd42aa9c222acb547d9",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "event_msg",
+        "input_tokens",
+        "output_tokens"
+      ],
+      "text": "Codex token counts arrive as cumulative `event_msg` entries that may occur between a function call and its output; conversion must preserve those events, associate the latest available counts with the relevant assistant entry, and include `input_tokens` and `output_tokens` consistently with other agents.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "fc308621-5323-4811-94ba-800423e26501",
+          "checkpoint_id": "b60128265d2b",
+          "transcript": "sessions/main/20260403T213108Z_claude-code_fc308621-5323-4811-94ba-800423e26501_b60128265d2b.jsonl",
+          "line": 3
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:73a7cd4f05b859958bffc347",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "invariant",
+      "text": "Checkpoint authentication tokens must be injected only into HTTPS requests; when a token is provided and the configured remote is SSH, fetch operations must derive and use the corresponding HTTPS URL.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019db06c-552f-7681-a5f6-e70085624f13",
+          "checkpoint_id": "d2c30fad5a3c",
+          "transcript": "sessions/main/20260421T165130Z_codex_019db06c-552f-7681-a5f6-e70085624f13_d2c30fad5a3c.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:7f36ef3dd79da3aee5a556e3",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "/me/recap",
+        "error\":\"token",
+        "expired",
+        "me/recap",
+        "requirebearerauth"
+      ],
+      "text": "The three `/me/recap` aggregation PRs were investigated and ruled out as the cause of the observed 401: `requireBearerAuth` returned `{\"error\":\"Token expired\"}` before recap aggregation ran; revisit the endpoint implementation only if the request passes bearer authentication or fails with a non-auth response.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019e07dc-5e32-70e0-a95b-6dbce9feff74",
+          "checkpoint_id": "ad59fd9c3cc4",
+          "transcript": "sessions/main/20260508T191807Z_codex_019e07dc-5e32-70e0-a95b-6dbce9feff74_ad59fd9c3cc4.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:80545a403b658bba19a7a6b0",
+      "paths": [
+        "architecture.data.flow",
+        "constraints.invariants.general"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "github",
+        "main",
+        "pull_request.edited",
+        "repo_trails.base"
+      ],
+      "text": "For PR-backed Trails, `repo_trails.base` can become stale after a GitHub PR is retargeted because `pull_request.edited` updates the PR record but not the linked trail; mergeability, update-branch, merge, and CI then use the stale trail base instead of the PR base, which can make Trails report a branch current against `main` while its stacked PR remains behind or conflicting.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019ef09e-1621-7183-8205-646a383a2faf",
+          "checkpoint_id": "0ed46044b4c8",
+          "transcript": "sessions/main/20260629T161233Z_codex_019ef09e-1621-7183-8205-646a383a2faf_0ed46044b4c8.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:80dfd6321fdef23175afc388",
+      "paths": [
+        "architecture.imports.workflow"
+      ],
+      "kind": "decision",
+      "text": "Automatic enable-time import prompting was removed; importing past agent sessions is an explicit manual command, so sessions created while Entire was disabled are not automatically offered.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "b1e13e56-e9ae-469a-a30d-7c57d70e2f1f",
+          "checkpoint_id": "4315ab0b3062",
+          "transcript": "sessions/main/20260626T002049Z_claude-code_b1e13e56-e9ae-469a-a30d-7c57d70e2f1f_4315ab0b3062.jsonl",
+          "line": 1253
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:8325ce8c7c9c08ba273c812f",
+      "paths": [
+        "constraints.git.filtered_fetch"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "fetch/pull",
+        "git/config"
+      ],
+      "text": "Filtered fetches by remote name were rejected because Git persists promisor and partial-clone settings into `.git/config`, silently altering users’ fetch/pull behavior repo-wide; use URL-based filtered fetches behind the rollout flag, and revisit remote-name fetching only if Git no longer mutates remote configuration.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d86a8-c0ac-7263-9b0f-5484645485c3",
+          "checkpoint_id": "4c57ebbd5ca6",
+          "transcript": "sessions/main/20260413T122029Z_codex_019d86a8-c0ac-7263-9b0f-5484645485c3_4c57ebbd5ca6.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:86eeae1918bb7aa4eca19306",
+      "paths": [
+        "architecture.boundaries.rationale"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "branch/push"
+      ],
+      "text": "A separate or parameterized policy-remote resolver based on the current branch/push remote was rejected because it duplicated checkpoint remote resolution, added Git-command overhead, and made a repo-wide policy target depend on checkout state; revisit only if policy refs intentionally become push-event-specific.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019ef111-70d5-7203-b653-e4834b8b92c0",
+          "checkpoint_id": "95d54474361d",
+          "transcript": "sessions/main/20260623T225402Z_codex_019ef111-70d5-7203-b653-e4834b8b92c0_95d54474361d.jsonl",
+          "line": 4860
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:8c7cbd18b936edc149a64ec1",
+      "paths": [
+        "constraints.codex.resume"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "<id>",
+        "codex",
+        "resume"
+      ],
+      "text": "Codex does not discover resumable sessions by scanning restored JSONL transcripts; `codex resume <id>` requires a matching thread in Codex’s internal SQLite registry, so Entire can restore transcript data without making the session natively resumable.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d6e6b-85e7-75a0-81d0-82e45fb1af91",
+          "checkpoint_id": "072b7f08a759",
+          "transcript": "sessions/main/20260409T111051Z_codex_019d6e6b-85e7-75a0-81d0-82e45fb1af91_072b7f08a759.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:9c39a262ba60f7ed28023b46",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "entire.io",
+        "user/repository"
+      ],
+      "text": "The recap API should reuse the existing Entire.io user/repository data sources instead of maintaining a parallel custom recap aggregator, because the custom path produced zero tokens, double-counted contributors, and drifted from dashboard totals.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "b35707d3-641d-4b8a-83b2-52ef9ab92ecf",
+          "checkpoint_id": "d69c684aa89d",
+          "transcript": "sessions/main/20260427T152211Z_claude-code_b35707d3-641d-4b8a-83b2-52ef9ab92ecf_d69c684aa89d.jsonl",
+          "line": 5790
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:a9d6e9f86b6d576fb8e30a5f",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "decision",
+      "locus": [
+        "github"
+      ],
+      "text": "For GitHub checkpoint repositories, derive SSH versus HTTPS from the remote supplied to the pre-push hook so checkpoint authentication matches the user's active push authentication.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "d79106a5-a980-46f7-b56d-1c2701ed4a9d",
+          "checkpoint_id": "9895c7e82827",
+          "transcript": "sessions/main/20260312T110945Z_claude-code_d79106a5-a980-46f7-b56d-1c2701ed4a9d_9895c7e82827.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:ab03900e702414db4d6b15f3",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "text": "Stale unresolved checkpoints must be re-fetched on later syncs and updated in place, so agent, model, and session metadata backfill automatically once checkpoint-repository discovery or access succeeds without creating duplicate checkpoint rows.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d7050-c22a-7f33-96fa-ccb004f5a6aa",
+          "checkpoint_id": "d2972e70b180",
+          "transcript": "sessions/main/20260409T055333Z_codex_019d7050-c22a-7f33-96fa-ccb004f5a6aa_d2972e70b180.jsonl",
+          "line": 234
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:aeac17d3e3f7c90103b4b128",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "doctor",
+        "entire",
+        "run",
+        "stale",
+        "status"
+      ],
+      "text": "`entire status` should label only ACTIVE-phase sessions with over one hour of inactivity as `stale (run 'entire doctor')`, matching doctor's active-session rule; IDLE sessions remain unflagged because they are healthy and resumable, while ENDED sessions remain absent from status.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "996d1339-56fe-42f0-be83-3dc15df1c5be",
+          "checkpoint_id": "1d3be4788329",
+          "transcript": "sessions/main/20260403T235026Z_claude-code_996d1339-56fe-42f0-be83-3dc15df1c5be_1d3be4788329.jsonl",
+          "line": 3
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:b492d36505d004ee3f331cc1",
+      "paths": [
+        "constraints.auth.token_lifecycle"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "/api/v1/me/recap",
+        "api/v1/me/recap",
+        "entire",
+        "login",
+        "logout/login",
+        "recap"
+      ],
+      "text": "CLI device-login bearer tokens expire after 30 days; `entire recap` sends the keychain token without refreshing or preflighting expiry, so an expired token is rejected by shared bearer authentication before `/api/v1/me/recap` executes and requires `entire login` (or logout/login if keychain state is stuck).",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019e07dc-5e32-70e0-a95b-6dbce9feff74",
+          "checkpoint_id": "ad59fd9c3cc4",
+          "transcript": "sessions/main/20260508T191807Z_codex_019e07dc-5e32-70e0-a95b-6dbce9feff74_ad59fd9c3cc4.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:b595408fe6e2b06173a5175f",
+      "paths": [
+        "architecture.data.flow",
+        "constraints.invariants.general"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "repo:*",
+        "repo="
+      ],
+      "text": "Repeated `repo=` parameters were tried for multi-repo search and rejected because the search service reads and filters on only one repo; the client supports one explicit repo or omits the parameter via `repo:*`, and multi-repo parameters should be revisited only after the backend supports plural repo filters.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d4a75-32c0-7c01-8ff2-e73490bea568",
+          "checkpoint_id": "fd342fecde72",
+          "transcript": "sessions/main/20260401T201937Z_codex_019d4a75-32c0-7c01-8ff2-e73490bea568_fd342fecde72.jsonl",
+          "line": 328
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:b7a1d34e559873a769bf585a",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "invariant",
+      "text": "Imported checkpoints are local-only and read-only in the first release: they must not be pushed or rewound, while the storage design must preserve a clean path to add opt-in pushing later.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "b1e13e56-e9ae-469a-a30d-7c57d70e2f1f",
+          "checkpoint_id": "4315ab0b3062",
+          "transcript": "sessions/main/20260626T002049Z_claude-code_b1e13e56-e9ae-469a-a30d-7c57d70e2f1f_4315ab0b3062.jsonl",
+          "line": 71
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:c5cb42b0c94c08b5b5b5e1a8",
+      "paths": [
+        "architecture.boundaries.rationale"
+      ],
+      "kind": "decision",
+      "locus": [
+        "<branch>",
+        "entire",
+        "resume"
+      ],
+      "text": "The resume picker is intentionally session-oriented and local-machine-only; remote resume remains branch-oriented via `entire resume <branch>`, while any remote picker should be opt-in and filter checkpoint branches by relevance.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "d7eb2c7b-65ce-4dbe-b20a-285326019897",
+          "checkpoint_id": "dc7a0655039b",
+          "transcript": "sessions/main/20260617T183244Z_claude-code_d7eb2c7b-65ce-4dbe-b20a-285326019897_dc7a0655039b.jsonl",
+          "line": 804
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:c9b44a5e5e1678e0a21270d3",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "invariant",
+      "locus": [
+        "entire_token"
+      ],
+      "text": "An ENTIRE_TOKEN audience must be a bare HTTPS origin with a host and no userinfo, path, query, or fragment, and must match a core advertised by the target cluster before the raw token is sent over the network.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "25787f85-5c77-4384-9355-bf3dfe687bde",
+          "checkpoint_id": "72c794f4cb83",
+          "transcript": "sessions/main/20260602T081504Z_claude-code_25787f85-5c77-4384-9355-bf3dfe687bde_72c794f4cb83.jsonl",
+          "line": 8
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:ca0150e655d12006e8ca74f8",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "copilot-cli",
+        "entire",
+        "hooks"
+      ],
+      "text": "Copilot CLI hook ownership must match only integration-owned commands such as `entire hooks copilot-cli ...`; treating every `entire ...` command as managed causes uninstall or force-reinstall to delete user-owned hooks and makes installation checks return false positives.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019e415e-aed9-7233-8a91-5e36f04eb899",
+          "checkpoint_id": "1cf96d1dbe7e",
+          "transcript": "sessions/main/20260519T180048Z_codex_019e415e-aed9-7233-8a91-5e36f04eb899_1cf96d1dbe7e.jsonl",
+          "line": 196
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:ca30b3f899d29db801519c07",
+      "paths": [
+        "architecture.data.flow",
+        "constraints.invariants.general"
+      ],
+      "kind": "invariant",
+      "locus": [
+        "cleanup",
+        "entire"
+      ],
+      "text": "Starting a new prompt session must not clean up an older session’s shadow branch when that older session still tracks uncommitted carry-forward files; sessions remain independent, and the old branch preserves checkpoint data until those files are later committed or `entire cleanup` removes the orphaned state.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "fd38e13a-eeaa-496f-acc7-03d27ce1b1e7",
+          "checkpoint_id": "607310163725",
+          "transcript": "sessions/main/20260217T182938Z_claude-code_fd38e13a-eeaa-496f-acc7-03d27ce1b1e7_607310163725.jsonl",
+          "line": 2016
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:d6d013154da56499fbf92453",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "invariant",
+      "locus": [
+        "cached_input_tokens",
+        "input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+        "total_tokens"
+      ],
+      "text": "Codex transcript usage fields are inclusive: `cached_input_tokens` is a subset of `input_tokens`, `reasoning_output_tokens` is a subset of `output_tokens`, and `total_tokens == input_tokens + output_tokens`; normalize to Entire’s additive model by storing fresh input as input minus cached input, cached input as cache-read tokens, and output unchanged.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019dbe83-f950-7480-a143-6872760439b2",
+          "checkpoint_id": "97db90818215",
+          "transcript": "sessions/main/20260424T083320Z_codex_019dbe83-f950-7480-a143-6872760439b2_97db90818215.jsonl",
+          "line": 401
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:d75f426867c91b5437248c77",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "decision",
+      "text": "Expired cluster-core cache entries may be used with a warning when refresh fails, failed discovery results are never cached, and a missing entry with failed discovery remains a hard error.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "2946988e-fe9b-4ca5-8f30-3c60037a41d9",
+          "checkpoint_id": "660b42be1060",
+          "transcript": "sessions/main/20260603T013158Z_claude-code_2946988e-fe9b-4ca5-8f30-3c60037a41d9_660b42be1060.jsonl",
+          "line": 8
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:d939db93c090d7ab800329a0",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "entire",
+        "entire/sessions",
+        "explain"
+      ],
+      "text": "`entire explain` should auto-fetch and create a local `entire/sessions` branch only when that local branch is missing but the remote-tracking branch exists; it should not synchronize on every read, because reads may use the local snapshot and existing push logic already handles remote divergence.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "253fd5ef-38bf-4f4a-804a-98df5088a868",
+          "checkpoint_id": "00c9e2351016",
+          "transcript": "sessions/main/20260203T063450Z_agent_253fd5ef-38bf-4f4a-804a-98df5088a868_00c9e2351016.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:e3e7d5ba3d7767d06ea91f5e",
+      "paths": [
+        "constraints.api.validation"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "add",
+        "entire",
+        "finding",
+        "selected_text",
+        "trail"
+      ],
+      "text": "`entire trail finding add` cannot currently create line- or range-anchored findings because the server requires non-empty `selected_text`, which the CLI does not send; use file-level locations with line details in the body until the CLI supplies selected text.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "b761d051-f68b-4769-96b5-4497f9f6d6bf",
+          "checkpoint_id": "54665887b1d8",
+          "transcript": "sessions/main/20260622T201254Z_claude-code_b761d051-f68b-4769-96b5-4497f9f6d6bf_54665887b1d8.jsonl",
+          "line": 7
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:eb2b14667d471c0689193974",
+      "paths": [
+        "constraints.invariants.general"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "repo"
+      ],
+      "text": "Multi-repo filtering relies on the search service interpreting repeated `repo` query parameters as an OR across repositories; this wire behavior was assumed rather than verified during implementation.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "019d4a75-32c0-7c01-8ff2-e73490bea568",
+          "checkpoint_id": "fd342fecde72",
+          "transcript": "sessions/main/20260401T201937Z_codex_019d4a75-32c0-7c01-8ff2-e73490bea568_fd342fecde72.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:ebce57dacaa78919f1358d5d",
+      "paths": [
+        "architecture.data.flow"
+      ],
+      "kind": "decision",
+      "locus": [
+        "system/ide"
+      ],
+      "text": "Commit-link context uses the session’s most recent user prompt rather than its first prompt because it better represents the work being committed; both interactive and editor flows label it “Last Prompt,” use the session’s dynamic agent type, and strip injected system/IDE tags.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "2026-01-09-880d23f9-86b3-4345-af42-46381ab10e4d",
+          "checkpoint_id": "3f603dd13c2c",
+          "transcript": "sessions/main/20260109T130834Z_agent_2026-01-09-880d23f9-86b3-4345-af42-46381ab10e4d_3f603dd13c2c.jsonl",
+          "line": 4
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:f3d79fb1403f802256402f52",
+      "paths": [
+        "constraints.pagination.server"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "limit",
+        "page"
+      ],
+      "text": "Server-side search pagination was rejected as the TUI’s primary strategy because the worker applies `limit` as both page size and total-fetch cap, so `page` cannot expose additional results; the TUI requests the API maximum of 200 and paginates client-side, and server paging should be revisited only when the worker separates total retrieval from page size.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "8edfb99e-6863-40f4-953e-8d779deab794",
+          "checkpoint_id": "d57341dbb0a2",
+          "transcript": "sessions/main/20260331T220651Z_claude-code_8edfb99e-6863-40f4-953e-8d779deab794_d57341dbb0a2.jsonl",
+          "line": 2
+        }
+      ],
+      "created_at": "2026-07-14T09:28:10.897043Z",
+      "updated_at": "2026-07-14T09:28:10.897043Z"
+    },
+    {
+      "id": "fact:f43f95628493822bad1fcda2",
+      "paths": [
+        "constraints.git.remote_config"
+      ],
+      "kind": "gotcha",
+      "locus": [
+        "remote.origin.partialclonefilter",
+        "remote.origin.promisor"
+      ],
+      "text": "Users who ran the CLI after PR #712 and before commit d958ed408 may retain remote.origin.promisor=true and remote.origin.partialclonefilter=blob:none in local repository config; switching filtered fetches to origin URLs prevents new pollution but does not clean existing repositories, so a migration gated on the exact written pair remains necessary.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "11d2da51-c8a1-4732-a135-6b5807ea5114",
+          "checkpoint_id": "4e0f55d5b407",
+          "transcript": "sessions/main/20260413T085624Z_claude-code_11d2da51-c8a1-4732-a135-6b5807ea5114_4e0f55d5b407.jsonl",
+          "line": 3
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    },
+    {
+      "id": "fact:fd2481fbb3a8ca7ce9f85e63",
+      "paths": [
+        "constraints.topology.fallback"
+      ],
+      "kind": "closed-negative",
+      "locus": [
+        "v1.1"
+      ],
+      "text": "A remote-tracking fallback for the v1.1 mirror was intentionally not implemented because v1.1 is currently for local validation without pushing; revisit only after the local-only changes have been validated and remote workflows are ready to be supported.",
+      "branch": "main",
+      "origin": "distilled",
+      "status": "active",
+      "confidence": "1.00",
+      "provenance": [
+        {
+          "session_id": "a38d5b65-e04c-4025-b7ec-8f2b68cd2df5",
+          "checkpoint_id": "0c02907cccaf",
+          "transcript": "sessions/main/20260604T002416Z_claude-code_a38d5b65-e04c-4025-b7ec-8f2b68cd2df5_0c02907cccaf.jsonl",
+          "line": 923
+        }
+      ],
+      "created_at": "2026-07-14T10:32:08.351592Z",
+      "updated_at": "2026-07-14T10:32:08.351592Z"
+    }
+  ],
+  "session_date_count": 39,
+  "session_dates_sha256": "5293a15ee69018a5c1ba639f30cb2f7c67e325dca4c674ea54b7eee17f74456a",
+  "session_dates": {
+    "019d4a75-32c0-7c01-8ff2-e73490bea568": "2026-04-01T20:19:37.021646Z",
+    "019d6e6b-85e7-75a0-81d0-82e45fb1af91": "2026-04-09T11:10:51.268374Z",
+    "019d7050-c22a-7f33-96fa-ccb004f5a6aa": "2026-04-09T05:53:33.236656Z",
+    "019d8606-ed6a-75d0-a76c-2ef8b805600c": "2026-04-13T11:44:38.851334Z",
+    "019d86a8-c0ac-7263-9b0f-5484645485c3": "2026-04-13T12:20:29.75422Z",
+    "019db06c-552f-7681-a5f6-e70085624f13": "2026-04-21T16:51:30.528556543Z",
+    "019db0fc-acc1-7370-89ef-962f0c72b531": "2026-04-21T22:43:39.083025Z",
+    "019dbe83-f950-7480-a143-6872760439b2": "2026-04-24T08:33:20.157182Z",
+    "019df9cd-55af-78a1-ba56-85910d0fd078": "2026-05-07T21:30:12.49715Z",
+    "019e07dc-5e32-70e0-a95b-6dbce9feff74": "2026-05-08T19:18:07.859293Z",
+    "019e415e-aed9-7233-8a91-5e36f04eb899": "2026-05-19T18:00:48.200922Z",
+    "019ed29b-5de8-7272-9e6c-89a843c92842": "2026-06-22T21:59:22.222483Z",
+    "019ef09e-1621-7183-8205-646a383a2faf": "2026-06-29T16:12:33.346962Z",
+    "019ef111-70d5-7203-b653-e4834b8b92c0": "2026-06-23T22:54:02.378269Z",
+    "019f0998-b0f5-7202-9db6-34d41fd9be38": "2026-06-29T21:59:47.271678Z",
+    "11d2da51-c8a1-4732-a135-6b5807ea5114": "2026-04-13T08:56:24.462329Z",
+    "14ee15d2-fbee-40f3-b61a-fd98f0bbf18e": "2026-02-27T05:26:56.816124Z",
+    "2026-01-09-880d23f9-86b3-4345-af42-46381ab10e4d": "2026-01-09T13:08:34.841539Z",
+    "2026-01-09-97007e37-53bd-4456-9a49-c0f8081081a7": "2026-01-09T14:47:32.08606Z",
+    "253fd5ef-38bf-4f4a-804a-98df5088a868": "2026-02-03T06:34:50.246415Z",
+    "25787f85-5c77-4384-9355-bf3dfe687bde": "2026-06-02T08:15:04.541139Z",
+    "2946988e-fe9b-4ca5-8f30-3c60037a41d9": "2026-06-03T01:31:58.429753Z",
+    "3d67832d-f293-4b14-873f-1ca34ff07313": "2026-04-22T11:13:35.006782Z",
+    "58ea4463-8f4c-4d99-9a40-a61b6d54552f": "2026-05-22T08:29:48.50169Z",
+    "65bd6f32-b465-4fea-807f-040f6d9ac558": "2026-06-29T16:24:43.120027Z",
+    "6b26d89b-433f-4dab-8cf7-8faa6ae827a5": "2026-06-09T02:18:52.063827Z",
+    "86a4c45c-4c6f-441c-9e41-80eb453d2c7d": "2026-03-04T00:50:24.292592Z",
+    "8edfb99e-6863-40f4-953e-8d779deab794": "2026-03-31T22:06:51.763616Z",
+    "9191cbda-fdd5-41ea-8c6a-d8e7fa6d3b23": "2026-03-12T14:51:47.842877Z",
+    "996d1339-56fe-42f0-be83-3dc15df1c5be": "2026-04-03T23:50:26.770637Z",
+    "a38d5b65-e04c-4025-b7ec-8f2b68cd2df5": "2026-06-04T00:24:16.168409Z",
+    "b1e13e56-e9ae-469a-a30d-7c57d70e2f1f": "2026-06-26T00:20:49.21418Z",
+    "b35707d3-641d-4b8a-83b2-52ef9ab92ecf": "2026-04-27T15:22:11.370457Z",
+    "b761d051-f68b-4769-96b5-4497f9f6d6bf": "2026-06-22T20:12:54.738861Z",
+    "c3eb3dfd-f856-4fb0-901f-7bae4034e1d7": "2026-04-30T18:49:54.1266Z",
+    "d79106a5-a980-46f7-b56d-1c2701ed4a9d": "2026-03-12T11:09:45.806963Z",
+    "d7eb2c7b-65ce-4dbe-b20a-285326019897": "2026-06-17T18:32:44.76513Z",
+    "fc308621-5323-4811-94ba-800423e26501": "2026-04-03T21:31:08.097368Z",
+    "fd38e13a-eeaa-496f-acc7-03d27ce1b1e7": "2026-02-17T18:29:38.596708Z"
+  }
+}

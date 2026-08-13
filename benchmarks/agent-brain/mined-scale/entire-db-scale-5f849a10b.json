@@ -1,0 +1,42 @@
+{
+  "id": "entire-db-scale-5f849a10b",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "After a user logs out, their session isn't fully invalidated: the refresh-token family stays alive and some browser session cookies remain set, so the credentials can still be renewed or reused. Make logout fully terminate the session by revoking the refresh family and clearing all session cookies, while keeping it idempotent and safe when the session row is already gone. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-5f849a10b.patch",
+  "validation": [
+    "go test ./core/api -run 'TestEndSession_ClearsCookiesAndRevokesFamily|TestEndSession_DoubleLogoutIsIdempotent|TestSessionStore_DeleteAndReturnFamily'",
+    "go test ./core/authn -run 'TestEndSession_ClearsCookiesAndRevokesFamily|TestEndSession_DoubleLogoutIsIdempotent|TestSessionStore_DeleteAndReturnFamily'"
+  ],
+  "expected_files": [
+    "core/api/server.go",
+    "core/authn/session_store.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "logout revoke refresh token family",
+    "end-session clear all session cookies",
+    "why does logout leave refresh family alive",
+    "idp session delete return refresh family",
+    "double logout idempotent cookie clear"
+  ],
+  "_mined_from_commit": "5f849a10b7a2689c6336d510e7ea260cde32d776",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "COR-325: logout clears 3 cookies + revokes refresh family (#1749)",
+  "copy_checkpoint_ref_from_source": true
+}

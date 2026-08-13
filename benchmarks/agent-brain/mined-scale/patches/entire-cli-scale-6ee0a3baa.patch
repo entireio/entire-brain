@@ -1,0 +1,45 @@
+diff --git a/cmd/entire/cli/plugin_deps.go b/cmd/entire/cli/plugin_deps.go
+index 22716ffbd..d74886b64 100644
+--- a/cmd/entire/cli/plugin_deps.go
++++ b/cmd/entire/cli/plugin_deps.go
+@@ -75,22 +75,6 @@ func planDeps(ctx context.Context, reqs []PluginRequirement, idx *PluginIndex, p
+ 			plan.Warnings = append(plan.Warnings, warning)
+ 		}
+ 		if satisfied {
+-			// An already-satisfied managed dependency can itself have
+-			// gaps (e.g. its own dep was removed with --force since
+-			// install). Walk its recorded requirements — offline, from
+-			// the manifest — so installing a parent repairs the whole
+-			// chain instead of stopping at the first satisfied node.
+-			// PATH/local-dev installs have no manifest; doctor covers
+-			// those.
+-			m, err := LoadPluginManifest(req.Name)
+-			if err != nil {
+-				return err
+-			}
+-			if m != nil {
+-				if err := planDeps(ctx, m.Requires, idx, plan, visited, depth+1); err != nil {
+-					return err
+-				}
+-			}
+ 			continue
+ 		}
+ 
+diff --git a/cmd/entire/cli/plugin_index.go b/cmd/entire/cli/plugin_index.go
+index 26ba09229..195ecf2dd 100644
+--- a/cmd/entire/cli/plugin_index.go
++++ b/cmd/entire/cli/plugin_index.go
+@@ -171,13 +171,6 @@ func SyncPluginIndex(ctx context.Context, indexURL string, force bool) (*PluginI
+ 
+ 	switch {
+ 	case !cloned:
+-		// A previously interrupted clone can leave a partial directory
+-		// without .git. git refuses to clone into a non-empty target, so
+-		// without this sweep, discovery would stay wedged until the user
+-		// cleared the cache by hand.
+-		if err := os.RemoveAll(dir); err != nil {
+-			return nil, fmt.Errorf("clear stale index cache: %w", err)
+-		}
+ 		if err := os.MkdirAll(filepath.Dir(dir), 0o750); err != nil {
+ 			return nil, fmt.Errorf("create index cache dir: %w", err)
+ 		}

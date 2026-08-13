@@ -1,0 +1,23 @@
+diff --git a/refevents/refevents.go b/refevents/refevents.go
+index af6bab379..38838fb60 100644
+--- a/refevents/refevents.go
++++ b/refevents/refevents.go
+@@ -144,17 +144,10 @@ func (ev RefEvent) DeliveryID() string {
+ }
+ 
+ // UnmarshalRefEvent decodes a JSON ref event from its NATS payload.
+-//
+-// Unknown fields are tolerated deliberately: producers (entire-server nodes)
+-// and consumers (ci-webhooks et al.) deploy independently, so payloads from a
+-// publisher one version ahead of or behind the decoder are normal, not
+-// malformed. Rejecting them loses deliveries — when the Sequence field was
+-// dropped from the struct, every event from a not-yet-redeployed publisher
+-// failed strict decode and was Term'd (dropped) by the dispatcher. The version
+-// field is the gate for genuinely breaking envelope changes.
+ func UnmarshalRefEvent(data []byte) (RefEvent, error) {
+ 	var ev RefEvent
+ 	dec := json.NewDecoder(bytes.NewReader(data))
++	dec.DisallowUnknownFields()
+ 	if err := dec.Decode(&ev); err != nil {
+ 		return RefEvent{}, fmt.Errorf("decode ref event: %w", err)
+ 	}

@@ -1,0 +1,25 @@
+diff --git a/cmd/entire/cli/setup.go b/cmd/entire/cli/setup.go
+index 56211a3f6..ade8552e0 100644
+--- a/cmd/entire/cli/setup.go
++++ b/cmd/entire/cli/setup.go
+@@ -652,6 +652,7 @@ Examples:
+ 				return NewSilentError(errors.New("not a git repository"))
+ 			}
+ 
++			// Bare invocation: print help + hint to entire agent.
+ 			if !hasConfigureSettingsFlags(cmd) {
+ 				if err := cmd.Help(); err != nil {
+ 					return fmt.Errorf("failed to render help: %w", err)
+@@ -660,12 +661,6 @@ Examples:
+ 				return nil
+ 			}
+ 
+-			if !settings.IsSetUpAny(ctx) {
+-				cmd.SilenceUsage = true
+-				fmt.Fprintln(cmd.ErrOrStderr(), "Entire is not configured in this repository yet. Run 'entire enable' first.")
+-				return NewSilentError(errors.New("entire not configured"))
+-			}
+-
+ 			if hasStrategyFlags(cmd) {
+ 				if err := updateStrategyOptions(ctx, cmd.OutOrStdout(), opts); err != nil {
+ 					return err

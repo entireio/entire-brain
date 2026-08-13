@@ -1,0 +1,441 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-brain-evidence-run/v2",
+  "title": "Agent-brain evidence run v2",
+  "type": "object",
+  "required": [
+    "schema",
+    "run_id",
+    "identity_sha256",
+    "executed",
+    "artifacts",
+    "execution_gate",
+    "raw_metrics"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-evidence-run/v2"},
+    "run_id": {"type": "string", "minLength": 1},
+    "identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "executed": {"type": "boolean"},
+    "artifacts": {"type": "array"},
+    "execution_gate": {
+      "type": "object",
+      "required": ["treatment_started", "agent_ran", "provider_invocation", "execution_identity"],
+      "properties": {
+        "treatment_started": {"type": "boolean"},
+        "agent_ran": {"type": "boolean"},
+        "provider_invocation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["schema", "state", "invocation_count", "attestation", "reason"],
+              "properties": {
+                "schema": {"const": "agent-brain-provider-invocation-state/v1"},
+                "state": {"const": "provider_invocations_observed"},
+                "invocation_count": {"type": "integer", "minimum": 1},
+                "attestation": {"const": "retained_attempt_ledger"},
+                "reason": {"const": null}
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["schema", "state", "invocation_count", "attestation", "reason"],
+              "properties": {
+                "schema": {"const": "agent-brain-provider-invocation-state/v1"},
+                "state": {"const": "structural_zero_no_provider_invocation"},
+                "invocation_count": {"const": 0},
+                "attestation": {"const": "harness_control_flow_run_agent_not_entered"},
+                "reason": {
+                  "enum": [
+                    "treatment_retrieval_or_delivery_timeout",
+                    "treatment_retrieval_or_delivery_failure"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["schema", "state", "invocation_count", "attestation", "reason"],
+              "properties": {
+                "schema": {"const": "agent-brain-provider-invocation-state/v1"},
+                "state": {"const": "pre_treatment_provider_path_not_entered"},
+                "invocation_count": {"const": 0},
+                "attestation": {"const": "harness_control_flow_treatment_not_started"},
+                "reason": {"const": "pre_treatment_infrastructure_failure"}
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "execution_identity": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": [
+                "schema",
+                "provider",
+                "runner_id",
+                "runner_version",
+                "agent_id",
+                "agent_cli",
+                "agent_cli_version",
+                "requested_model_id",
+                "resolved_model_id",
+                "resolved_model_attestation",
+                "effort",
+                "schedule_sha256",
+                "price_quote_sha256",
+                "frozen_runner_identity_sha256",
+                "identity_sha256"
+              ],
+              "properties": {
+                "schema": {"const": "agent-brain-cell-execution-identity/v1"},
+                "provider": {"type": "string", "minLength": 1},
+                "runner_id": {"type": "string", "minLength": 1},
+                "runner_version": {"type": "string", "minLength": 1},
+                "agent_id": {"type": "string", "minLength": 1},
+                "agent_cli": {"type": "string", "minLength": 1},
+                "agent_cli_version": {"type": "string", "minLength": 1},
+                "requested_model_id": {"type": "string", "minLength": 1},
+                "resolved_model_id": {"type": "string", "minLength": 1},
+                "resolved_model_attestation": {
+                  "enum": ["agent_cli_reported", "frozen_expected_no_agent_invocation"]
+                },
+                "effort": {"type": "string", "minLength": 1},
+                "schedule_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "price_quote_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "frozen_runner_identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "billing_integrity": {"type": ["object", "null"]},
+        "duration_seconds": {"type": ["number", "null"], "minimum": 0},
+        "agent_reported_seconds": {"type": ["number", "null"], "minimum": 0},
+        "total_tokens": {"type": ["number", "null"], "minimum": 0},
+        "error": {"type": ["string", "null"]},
+        "return_code": {"type": ["integer", "null"]},
+        "validation_ok": {"type": ["boolean", "null"]},
+        "record_ok": {"type": ["boolean", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "raw_metrics": {
+      "type": "object",
+      "required": [
+        "score",
+        "code_quality",
+        "usage",
+        "attempt_usage",
+        "duration_seconds",
+        "timing"
+      ],
+      "properties": {
+        "code_quality": {
+          "type": "object",
+          "required": [
+            "schema",
+            "rubric",
+            "task_normalized_score",
+            "critical_failure",
+            "critical_failure_reasons",
+            "excluded_components"
+          ],
+          "properties": {
+            "schema": {"const": "agent-brain-code-quality/v2"},
+            "rubric": {"const": "task_relative_output_outcome_patch_focus_v2"},
+            "task_normalized_score": {"type": "number", "minimum": 0, "maximum": 1},
+            "critical_failure": {"type": "boolean"},
+            "critical_failure_reasons": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1},
+              "uniqueItems": true
+            },
+            "excluded_components": {
+              "const": ["validation_discipline", "runtime_efficiency", "brain_use"]
+            }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {"properties": {"critical_failure": {"const": true}}},
+              "then": {
+                "properties": {
+                  "task_normalized_score": {"const": 0},
+                  "critical_failure_reasons": {"minItems": 1}
+                }
+              },
+              "else": {
+                "properties": {"critical_failure_reasons": {"maxItems": 0}}
+              }
+            }
+          ]
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "billing_v2": {
+              "type": ["object", "null"],
+              "properties": {
+                "schema": {"const": "agent-brain-billing-usage/v2"},
+                "price_quote_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "raw": {
+                  "type": "object",
+                  "required": [
+                    "input_tokens",
+                    "cache_read_input_tokens",
+                    "cache_write_input_tokens",
+                    "output_tokens",
+                    "reasoning_tokens"
+                  ],
+                  "properties": {
+                    "input_tokens": {"type": "integer", "minimum": 0},
+                    "cache_read_input_tokens": {"type": "integer", "minimum": 0},
+                    "cache_write_input_tokens": {"type": "integer", "minimum": 0},
+                    "output_tokens": {"type": "integer", "minimum": 0},
+                    "reasoning_tokens": {"type": "integer", "minimum": 0}
+                  },
+                  "additionalProperties": false
+                },
+                "semantics": {
+                  "type": "object",
+                  "required": [
+                    "input_tokens_includes",
+                    "output_tokens_includes",
+                    "counter_absence_means_zero"
+                  ],
+                  "properties": {
+                    "input_tokens_includes": {
+                      "type": "array",
+                      "items": {"enum": ["cache_read_input", "cache_write_input"]},
+                      "uniqueItems": true
+                    },
+                    "output_tokens_includes": {
+                      "type": "array",
+                      "items": {"const": "reasoning_output"},
+                      "uniqueItems": true
+                    },
+                    "counter_absence_means_zero": {
+                      "type": "object",
+                      "required": [
+                        "cache_read_input",
+                        "cache_write_input",
+                        "reasoning_output"
+                      ],
+                      "properties": {
+                        "cache_read_input": {"type": "boolean"},
+                        "cache_write_input": {"type": "boolean"},
+                        "reasoning_output": {"type": "boolean"}
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "exclusive": {
+                  "type": "object",
+                  "required": [
+                    "uncached_input",
+                    "cache_read_input",
+                    "cache_write_input",
+                    "visible_output",
+                    "reasoning_output"
+                  ],
+                  "properties": {
+                    "uncached_input": {"type": "integer", "minimum": 0},
+                    "cache_read_input": {"type": "integer", "minimum": 0},
+                    "cache_write_input": {"type": "integer", "minimum": 0},
+                    "visible_output": {"type": "integer", "minimum": 0},
+                    "reasoning_output": {"type": "integer", "minimum": 0}
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": ["schema", "price_quote_sha256", "raw", "semantics", "exclusive"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "attempt_usage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "attempt",
+              "returncode",
+              "usage",
+              "stdout_artifact",
+              "stderr_artifact"
+            ],
+            "properties": {
+              "attempt": {"type": "integer", "minimum": 1},
+              "returncode": {"type": "integer"},
+              "usage": {"type": "object"},
+              "stdout_artifact": {"type": "object"},
+              "stderr_artifact": {"type": "object"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "duration_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "timing": {
+          "type": "object",
+          "required": [
+            "primary",
+            "end_to_end_user_visible_wall_seconds",
+            "timeout_occurred",
+            "timeout_stage",
+            "agent_timeout_limit_seconds",
+            "timeout_component_limit_seconds",
+            "harness_agent_interval_wall_seconds",
+            "agent_reported_api_seconds",
+            "cell_setup_wall_seconds",
+            "cell_total_wall_seconds",
+            "pre_treatment_setup_included_in_primary",
+            "treatment_retrieval_included_in_primary",
+            "hidden_validation_included_in_primary"
+          ],
+          "properties": {
+            "primary": {"const": "end_to_end_user_visible_wall_seconds"},
+            "end_to_end_user_visible_wall_seconds": {
+              "type": ["number", "null"],
+              "exclusiveMinimum": 0
+            },
+            "timeout_occurred": {"type": "boolean"},
+            "timeout_stage": {
+              "enum": [null, "treatment_retrieval_or_delivery", "agent_execution"]
+            },
+            "agent_timeout_limit_seconds": {"type": "number", "exclusiveMinimum": 0},
+            "timeout_component_limit_seconds": {
+              "type": ["number", "null"],
+              "exclusiveMinimum": 0
+            },
+            "harness_agent_interval_wall_seconds": {"type": ["number", "null"], "minimum": 0},
+            "agent_reported_api_seconds": {"type": ["number", "null"], "minimum": 0},
+            "cell_setup_wall_seconds": {"type": "number", "minimum": 0},
+            "cell_total_wall_seconds": {"type": "number", "minimum": 0},
+            "pre_treatment_setup_included_in_primary": {"const": false},
+            "treatment_retrieval_included_in_primary": {"const": true},
+            "hidden_validation_included_in_primary": {"const": false}
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {"properties": {"timeout_occurred": {"const": true}}},
+              "then": {
+                "properties": {
+                  "timeout_stage": {
+                    "enum": ["treatment_retrieval_or_delivery", "agent_execution"]
+                  },
+                  "timeout_component_limit_seconds": {"type": "number", "exclusiveMinimum": 0}
+                }
+              },
+              "else": {
+                "properties": {
+                  "timeout_stage": {"const": null},
+                  "timeout_component_limit_seconds": {"const": null}
+                }
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"executed": {"const": true}}},
+      "then": {
+        "properties": {
+          "raw_metrics": {
+            "properties": {
+              "timing": {
+                "properties": {
+                  "end_to_end_user_visible_wall_seconds": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_gate": {
+            "properties": {
+              "provider_invocation": {
+                "properties": {"state": {"const": "structural_zero_no_provider_invocation"}}
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "execution_gate": {
+            "properties": {
+              "agent_ran": {"const": false},
+              "return_code": {"const": null},
+              "execution_identity": {"type": "object"}
+            }
+          },
+          "raw_metrics": {
+            "properties": {"attempt_usage": {"maxItems": 0}}
+          }
+        }
+      },
+      "else": {
+        "if": {
+          "properties": {
+            "execution_gate": {
+              "properties": {
+                "provider_invocation": {
+                  "properties": {"state": {"const": "provider_invocations_observed"}}
+                }
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "execution_gate": {
+              "properties": {
+                "agent_ran": {"const": true},
+                "return_code": {"type": "integer"},
+                "execution_identity": {"type": "object"}
+              }
+            },
+            "raw_metrics": {
+              "properties": {"attempt_usage": {"minItems": 1}}
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "execution_gate": {
+              "properties": {
+                "treatment_started": {"const": false},
+                  "agent_ran": {"const": false},
+                  "return_code": {"const": null},
+                  "execution_identity": {"const": null}
+              }
+            },
+            "raw_metrics": {
+              "properties": {"attempt_usage": {"maxItems": 0}}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

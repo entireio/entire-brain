@@ -980,6 +980,40 @@ changes a decision; it is local-only and inherits every Phase 1 egress rule.
 Phase 3 adds collaborative and distributed features, including anything that
 moves generated brain data off the local machine.
 
+## Known Retrieval and Packet Limitations
+
+The August 2026 benchmark-repair reconciliation left three product limitations
+open. They are follow-up work, not evidence that the mined benchmark corpus is
+invalid:
+
+1. **Exact-symbol results do not reliably identify file role.** An exact name
+   match can still rank the wrong implementation or test file when the same
+   symbol appears in multiple definitions, wrappers, fixtures, or tests. Exact
+   lexical equality is therefore a candidate signal, not proof that a returned
+   file is the intended edit or validation target. The follow-up should retain
+   exact-name recall while ranking by semantic symbol identity, definition
+   versus reference, production versus test role, container/package context,
+   and the requested implementation/test intent. Regression coverage must
+   include ambiguous names with both an implementation and its paired test.
+2. **A zero-match raw-history fallback can still be expensive.** One local
+   profile scanned about 392.7 MB and spent about 4.37 seconds of a 5.07-second
+   `brain brief` finding no matches. Those measurements are workload- and
+   machine-specific, but they expose an unbounded-work shape: absence can
+   require rereading the available raw history. The follow-up should add a
+   trustworthy negative-result/index-coverage path or an explicit scan budget,
+   preserve a visible degraded/truncated signal when the budget is reached, and
+   prove that avoiding the scan does not suppress valid fallback matches.
+3. **`compact_v3` remains opt-in.** Its local packet-size/token evidence is not
+   a default-promotion decision. Promotion requires compatibility and decoder
+   coverage, field-parity checks over representative production packets, a
+   quality/no-regression evaluation, and an explicit migration/default-change
+   decision. Until then, `legacy_json` remains the default contract.
+
+The raw-history measurement contract is documented in
+`docs/brain_brief_profiling.md`. The current compact-v3 evidence and its limits
+are documented in
+`benchmarks/agent-brain/PACKET-FORMAT-V3-LOCAL-MEASUREMENT.md`.
+
 ## Phase 1: Local Semantic Brain
 
 Phase 1 builds the useful local system first. It should work for a single

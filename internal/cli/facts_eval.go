@@ -726,6 +726,7 @@ func filterHistoryIndexForEvalBranch(index historyIndex, branch string, manifest
 		}
 	}
 	index.Records = filtered
+	index.recordsFingerprint = ""
 	return index
 }
 

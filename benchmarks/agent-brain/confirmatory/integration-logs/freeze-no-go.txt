@@ -1,0 +1,18 @@
+ERROR: joint superiority contract is not frozen and approved
+ERROR: all three practical floors are not frozen and approved
+ERROR: timeout policy is not frozen and approved
+ERROR: too few sealed relevance queries
+ERROR: too few sealed relevance tasks
+ERROR: relevance holdout commitment is missing
+ERROR: protocol freeze hash is missing or invalid
+ERROR: protocol freeze hash does not match canonical protocol content
+ERROR: protocol is not frozen_unopened
+ERROR: offline development threshold has not passed
+ERROR: packet K is not frozen
+ERROR: aggregation rule is not frozen
+ERROR: power calculation is pending
+ERROR: fresh holdout commitment is not frozen
+ERROR: offline relevance dataset is not frozen_unopened
+ERROR: paid-run checklist is not all pass
+ERROR: paid-run decision is not go
+ERROR: freeze timestamp is missing

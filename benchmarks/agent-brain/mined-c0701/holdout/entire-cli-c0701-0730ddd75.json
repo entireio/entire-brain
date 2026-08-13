@@ -1,0 +1,52 @@
+{
+  "id": "entire-cli-c0701-0730ddd75",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6429398a5cd68800d61bdecead3f78c30feae9c6",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Setting redaction.externalize_images in settings.local.json has no effect: enabling it per-machine doesn't turn image externalization on, and setting it to false locally can't turn off a value enabled in the base settings. Other redaction options set in the local file do take effect. Make the local override work in both directions.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/settings/settings_images_test.go",
+      "content": "package settings\n\nimport (\n\t\"context\"\n\t\"testing\"\n)\n\n// These tests use setupSettingsDir (t.Chdir) and t.Setenv, both process-global,\n// so they cannot run in parallel.\n\nfunc TestIsImageExternalizationEnabled_DefaultsFalse(t *testing.T) {\n\tsetupSettingsDir(t, `{\"enabled\": true}`, \"\")\n\tif IsImageExternalizationEnabled(context.Background()) {\n\t\tt.Error(\"image externalization should be off by default\")\n\t}\n}\n\nfunc TestIsImageExternalizationEnabled_FileEnabled(t *testing.T) {\n\tsetupSettingsDir(t, `{\"enabled\": true, \"redaction\": {\"externalize_images\": true}}`, \"\")\n\tif !IsImageExternalizationEnabled(context.Background()) {\n\t\tt.Error(\"redaction.externalize_images: true should enable externalization\")\n\t}\n}\n\nfunc TestIsImageExternalizationEnabled_EnvOverride(t *testing.T) {\n\tsetupSettingsDir(t, `{\"enabled\": true}`, \"\")\n\tt.Setenv(\"ENTIRE_EXTERNALIZE_IMAGES\", \"1\")\n\tif !IsImageExternalizationEnabled(context.Background()) {\n\t\tt.Error(\"ENTIRE_EXTERNALIZE_IMAGES=1 should enable externalization regardless of settings\")\n\t}\n}\n\nfunc TestIsImageExternalizationEnabled_LocalFileEnables(t *testing.T) {\n\t// The gitignored settings.local.json is the natural place to opt into a\n\t// rollout feature; the merge path must honor it.\n\tsetupSettingsDir(t, `{\"enabled\": true}`, `{\"redaction\": {\"externalize_images\": true}}`)\n\tif !IsImageExternalizationEnabled(context.Background()) {\n\t\tt.Error(\"externalize_images in settings.local.json must enable externalization\")\n\t}\n}\n\nfunc TestIsImageExternalizationEnabled_LocalFileDisablesBaseEnable(t *testing.T) {\n\t// A per-machine kill switch: local:false must override base:true.\n\tsetupSettingsDir(t,\n\t\t`{\"enabled\": true, \"redaction\": {\"externalize_images\": true}}`,\n\t\t`{\"redaction\": {\"externalize_images\": false}}`)\n\tif IsImageExternalizationEnabled(context.Background()) {\n\t\tt.Error(\"local externalize_images:false must override a base value of true\")\n\t}\n}\n\n// TestRedactionSettings_ExternalizeImagesJSONTag guards the JSON field name.\n// LoadFromBytes uses DisallowUnknownFields, so a wrong tag fails to parse.\nfunc TestRedactionSettings_ExternalizeImagesJSONTag(t *testing.T) {\n\tt.Parallel()\n\ts, err := LoadFromBytes([]byte(`{\"enabled\": true, \"redaction\": {\"externalize_images\": true}}`))\n\tif err != nil {\n\t\tt.Fatalf(\"LoadFromBytes() error = %v\", err)\n\t}\n\tif s.Redaction == nil || !s.Redaction.ExternalizeImages {\n\t\tt.Errorf(\"externalize_images did not parse into RedactionSettings.ExternalizeImages\")\n\t}\n}\n"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/settings -run '^(TestIsImageExternalizationEnabled_LocalFileEnables|TestIsImageExternalizationEnabled_LocalFileDisablesBaseEnable)$'"
+  ],
+  "leak_markers": [
+    "TestIsImageExternalizationEnabled_LocalFileEnables",
+    "TestIsImageExternalizationEnabled_LocalFileDisablesBaseEnable"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/settings/settings.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "why the local settings override for image externalization is dropped",
+    "which redaction keys are honored when merging settings.local.json",
+    "per-machine kill switch for the externalize_images rollout flag",
+    "how the local redaction settings merge is supposed to behave"
+  ],
+  "prepare_semantic": false,
+  "_mined_from_commit": "0730ddd75e3770f9ac318daeac7cfc98cad8d6eb",
+  "_flavor": "recall-decision",
+  "_subject": "fix(settings): honor redaction.externalize_images in local settings merge",
+  "_negctl": "red_at_parent_base",
+  "_apply_mode": "test_only_forward",
+  "_split": "holdout",
+  "memory_delivery": "frozen_brief",
+  "rolling_cutoff_rfc3339": "2026-07-01T10:46:41-04:00",
+  "exclude_session_ids": [],
+  "frozen_session_dates_path": "$AGENT_BENCH_FROZEN_SESSION_DATES",
+  "_rolling_cutoff_confidence": "no_checkpoint (commit has no Entire-Checkpoint trailer; not an Entire session; 0 provenance sessions touch expected_files within +/-1d -> nothing to leak; cutoff guards temporality)"
+}

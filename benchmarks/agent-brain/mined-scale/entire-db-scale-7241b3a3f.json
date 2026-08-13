@@ -1,0 +1,39 @@
+{
+  "id": "entire-db-scale-7241b3a3f",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The legacy STS token endpoint fans out to several handlers under a single route, but tracing can only see the route's total volume and can't tell which handler branch served a given request. Add per-branch tagging so each request's serving handler is visible in traces, with no behavior change. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-7241b3a3f.patch",
+  "validation": [
+    "go test ./core/api -run 'TestSTSTokenExchange_TagsHandlerSpanAttribute'"
+  ],
+  "expected_files": [
+    "core/api/sts_token.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "STS token dispatcher per-branch telemetry",
+    "tag server span requested_token_type",
+    "otelhttp single span multiple handlers",
+    "decompose STS route by handler honeycomb"
+  ],
+  "_mined_from_commit": "7241b3a3f28508cc4a42c179898dc9ef5f026e10",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": false,
+  "_leak_risk": "low",
+  "_subject": "coreapi: tag legacy STS handler spans with entire.sts.handler (COR-366 Phase 1) (#1777)",
+  "copy_checkpoint_ref_from_source": true
+}

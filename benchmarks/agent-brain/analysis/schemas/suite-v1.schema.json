@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-brain-evidence-suite/v1",
+  "type": "object",
+  "required": ["schema", "suite_id", "identity_sha256", "command", "requested_cells", "schedule", "cache_policy", "harness", "source_repositories", "runtime", "retrieval_arms", "inputs", "analyzer", "runs", "records"],
+  "properties": {"schema": {"const": "agent-brain-evidence-suite/v1"}, "suite_id": {"type": "string"}, "runs": {"type": "array"}}
+}

@@ -1,0 +1,15 @@
+diff --git a/cmd/entire/cli/agentimport/session_state_test.go b/cmd/entire/cli/agentimport/session_state_test.go
+index 87d982ca8..e79284f70 100644
+--- a/cmd/entire/cli/agentimport/session_state_test.go
++++ b/cmd/entire/cli/agentimport/session_state_test.go
+@@ -178,8 +178,8 @@ func TestWriteSessionState_CreatesListableImportedState(t *testing.T) {
+ 	if got := totalImported(st); got != 20 {
+ 		t.Errorf("token total = %d, want 20", got)
+ 	}
+-	if st.LastPrompt != "first prompt" {
+-		t.Errorf("LastPrompt = %q, want the opening prompt", st.LastPrompt)
++	if st.LastPrompt != "second prompt" {
++		t.Errorf("LastPrompt = %q, want the most recent turn's prompt", st.LastPrompt)
+ 	}
+ }
+ 

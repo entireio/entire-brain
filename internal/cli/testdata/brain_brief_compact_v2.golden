@@ -1,0 +1,93 @@
+entire.brain_brief compact_v2
+legend ~=absent ^=previous_same_opcode_record_same_column
+task value="repair validation ordering"
+status freshness="degraded" repo_key="repo-key" brain_schema=2 branch="feature" head="abc123" dirty=true changed_files=3
+sources seed=true sessions=true semantic=true history=true facts=true
+live staged=["internal/a.go"] unstaged=["internal/a_test.go"] untracked=["notes.txt"] changed=["internal/a.go","internal/a_test.go","notes.txt"] diff_stat="2 files changed"
+@L=live_symbol(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes)
+L	sym:validate	function	pkg.Validate	Validate	internal/a.go	10	20	~	"func Validate(token string) error"	go	9	0.95	"task term match"	[partial]
+L	^	^	^	^	^	^	^	~	"func Validate(token string) error"	^	9	^	"task term match"	^
+facts_status facts=4 distilled=3 authored=1 superseded=1 branches=2 proposals=1 verified_facts=3 verified=2 stale=1 orphaned=0 unverifiable_here=0 sampled_of=4
+semantic_status provider="entire-graph" provider_version="1.2" schema="1.1" capabilities=["relations","tests"] files=12 symbols=30 relations=22 warnings=1 partial_failures=1
+@a=freshness_axis(name,state,detail)
+a	head	ok
+a	worktree	dirty	"live edits"
+@w=freshness_warning(code,severity,path,effect,detail)
+w	STALE	warning	~	~	"worktree differs"
+w	^	^	~	~	"worktree differs"
+@W=semantic_warning(code,severity,path,effect,detail)
+W	WARN	warning	warn.go	partial	"unsupported syntax"
+W	^	^	^	partial	"unsupported syntax"
+@E=semantic_partial_failure(code,severity,path,effect,detail)
+E	FAIL	error	broken.go	"missing symbols"	"parse failed"
+E	^	^	^	"missing symbols"	"parse failed"
+@b=blind_spot(path,code,detail)
+b	generated.go	ignored	"excluded by policy"
+b	^	^	"excluded by policy"
+@e=edit_file(path)
+e	internal/a.go
+e	^
+@t=test_file(path)
+t	internal/a_test.go
+t	^
+@p=likely_file(path)
+p	docs/order.md
+p	docs/other.md
+p	docs/order.md
+p	docs/other.md
+@y=symbol(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes)
+y	sym:validate	function	pkg.Validate	Validate	internal/a.go	10	20	~	"func Validate(token string) error"	go	9	0.95	"task term match"	[partial]
+y	^	^	^	^	^	^	^	~	"func Validate(token string) error"	^	9	^	"task term match"	^
+@r=relation(index,id,type,from,to,file,start,end,path,scope,resolution,target_kind,confidence,reason,warning_codes)
+r	0	rel:1	CALLS	sym:validate	sym:persist	internal/a.go	16	16	~	file	exact	symbol	0.9
+@R=relation_evidence(owner_index,index,kind,file,start,end,detail)
+R	0	0	call	internal/a.go	16	16	"direct call"
+r	1	^	^	^	^	^	^	^	~	^	^	^	^
+R	1	0	^	^	^	^	"direct call"
+@n=neighbor(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes)
+n	sym:helper	function	pkg.Helper	Helper	internal/helper.go	4	8
+n	^	^	^	^	^	4	8
+runtime_trace index=0 id="runtime:1" type="RUNTIME_TRACE" from="sym:validate" to="sym:persist" reason="observed edge"
+@X=runtime_trace_evidence(owner_index,index,kind,file,start,end,detail)
+X	0	0	trace	trace.ndjson	2	2	"captured locally"
+runtime_trace index=1 id="runtime:1" type="RUNTIME_TRACE" from="sym:validate" to="sym:persist" reason="observed edge"
+X	1	0	^	^	2	2	"captured locally"
+@o=test_root(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes)
+o	test:root	function	TestValidate	~	internal/a_test.go	10	30
+o	^	^	^	~	^	^	^
+@O=test_suggestion(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes,suggestion_reason)
+O	test:suggestion	function	TestValidateOrder	~	internal/a_test.go	32	44	~	~	~	~	~	~	~	"covers the boundary"
+O	^	^	^	~	^	^	^	~	~	~	~	~	~	~	"covers the boundary"
+@h=history(path,line,timestamp,score,matched_terms,excerpt)
+h	history/main.jsonl	8	"2026-07-01"	12	[validation,order]	"Decision: preserve validation order."
+h	^	8	^	^	^	"Decision: preserve validation order."
+@f=fact(id,paths,kind,locus,text,branch,origin,status,confidence,related_ids,superseded_by,anchors,verified_anchors,stale_locus)
+f	fact:1	[architecture.validation.order]	invariant	[pkg.Validate]	"Validation runs before persistence."	feature	distilled	active	high	[fact:2]	~	1	1	[OldValidate]
+f	^	^	^	^	"Validation runs before persistence."	^	^	^	^	^	~	1	1	^
+@d=fact_drift(id,stale_locus)
+d	fact:orphan	[GoneSymbol]
+d	fact:orphan-0	^
+d	fact:orphan-1	^
+@c=action(file,symbol,action,evidence)
+c	internal/a.go	pkg.Validate	"inspect validation before persistence"	"history and current code"
+c	^	^	"inspect validation before persistence"	"history and current code"
+@P=pattern(id,type,scope,kind,title,strength,strength_label,support,repos,skill_status,note,intent_sig,gram,dossier_status,verdict,workspace,success,corrected,neutral,example_path,example_line)
+P	pattern:1	procedure	repo	workflow	"Validate then persist"	0.88	strong	5	~	~	"Reuse the validated sequence."	"validation ordering"	"validate>persist"	current	accepted	~	4	1	0	patterns/episodes.ndjson	12
+P	^	^	^	^	"Validate then persist"	^	^	5	~	~	"Reuse the validated sequence."	"validation ordering"	"validate>persist"	^	^	~	4	1	0	^	^
+@C=consolidation(pattern_id,type,title,trigger,confidence,status,verdict,workflow,verification,failure_modes,anchor_transcript,anchor_start,anchor_end,anchor_outcome)
+C	pattern:1	procedure	"Validate then persist"	"when validation changes"	0.88	current	accepted	["validate input","persist state"]	["run validation tests"]	["persisting first"]	sessions/redacted.jsonl	10	14	success
+C	^	^	"Validate then persist"	"when validation changes"	^	^	^	["validate input","persist state"]	["run validation tests"]	["persisting first"]	^	^	^	^
+@T=theme(id,title,description,shape,support,strength,status,verdict)
+T	theme:1	"Read before edit"	"Inspect before editing."	read_only	4	0.75	current	accepted
+T	^	"Read before edit"	"Inspect before editing."	^	4	^	^	^
+@g=guidance(text)
+g	"Inspect dirty files before trusting the snapshot."
+g	"Inspect dirty files before trusting the snapshot."
+@!=warning(source,text)
+!	status	"status warning"
+!	^	"status warning"
+!	live	"live warning"
+!	^	"live warning"
+!	brief	"brief warning"
+!	^	"brief warning"
+end	65	ce335e0e3105cf4b3c21cc8608b5bd9df01a7820800656c604448f5a93d45388

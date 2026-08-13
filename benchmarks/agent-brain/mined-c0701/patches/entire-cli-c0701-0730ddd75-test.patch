@@ -1,0 +1,30 @@
+diff --git a/cmd/entire/cli/settings/settings_images_test.go b/cmd/entire/cli/settings/settings_images_test.go
+index 4ad1348cc..e0023432a 100644
+--- a/cmd/entire/cli/settings/settings_images_test.go
++++ b/cmd/entire/cli/settings/settings_images_test.go
+@@ -30,6 +30,25 @@ func TestIsImageExternalizationEnabled_EnvOverride(t *testing.T) {
+ 	}
+ }
+ 
++func TestIsImageExternalizationEnabled_LocalFileEnables(t *testing.T) {
++	// The gitignored settings.local.json is the natural place to opt into a
++	// rollout feature; the merge path must honor it.
++	setupSettingsDir(t, `{"enabled": true}`, `{"redaction": {"externalize_images": true}}`)
++	if !IsImageExternalizationEnabled(context.Background()) {
++		t.Error("externalize_images in settings.local.json must enable externalization")
++	}
++}
++
++func TestIsImageExternalizationEnabled_LocalFileDisablesBaseEnable(t *testing.T) {
++	// A per-machine kill switch: local:false must override base:true.
++	setupSettingsDir(t,
++		`{"enabled": true, "redaction": {"externalize_images": true}}`,
++		`{"redaction": {"externalize_images": false}}`)
++	if IsImageExternalizationEnabled(context.Background()) {
++		t.Error("local externalize_images:false must override a base value of true")
++	}
++}
++
+ // TestRedactionSettings_ExternalizeImagesJSONTag guards the JSON field name.
+ // LoadFromBytes uses DisallowUnknownFields, so a wrong tag fails to parse.
+ func TestRedactionSettings_ExternalizeImagesJSONTag(t *testing.T) {

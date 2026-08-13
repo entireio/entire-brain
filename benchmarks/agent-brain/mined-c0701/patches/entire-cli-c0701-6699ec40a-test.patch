@@ -1,0 +1,31 @@
+diff --git a/cmd/entire/cli/agent/pi/reviewer_test.go b/cmd/entire/cli/agent/pi/reviewer_test.go
+index 54bd8005d..2d87d45c2 100644
+--- a/cmd/entire/cli/agent/pi/reviewer_test.go
++++ b/cmd/entire/cli/agent/pi/reviewer_test.go
+@@ -88,8 +88,8 @@ func TestPiReviewer_ParseJSONEventStream(t *testing.T) {
+ 		t.Fatalf("events[3] = %#v, want AssistantText{one}", events[3])
+ 	}
+ 	tokens, ok := events[4].(reviewtypes.Tokens)
+-	if !ok || tokens.In != 15 || tokens.Out != 4 {
+-		t.Fatalf("events[4] = %#v, want Tokens{In:15 Out:4}", events[4])
++	if !ok || tokens.In != 10 || tokens.Out != 4 {
++		t.Fatalf("events[4] = %#v, want Tokens{In:10 Out:4}", events[4])
+ 	}
+ 	finished, ok := events[5].(reviewtypes.Finished)
+ 	if !ok || !finished.Success {
+@@ -137,11 +137,11 @@ func TestPiReviewer_ParseTokensAreCumulative(t *testing.T) {
+ 	if len(tokens) != 2 {
+ 		t.Fatalf("token events = %d, want 2: %#v", len(tokens), events)
+ 	}
+-	if got := tokens[0]; got.In != 115 || got.Out != 50 {
+-		t.Fatalf("first Tokens = %#v, want In=115 Out=50", got)
++	if got := tokens[0]; got.In != 100 || got.Out != 50 {
++		t.Fatalf("first Tokens = %#v, want In=100 Out=50", got)
+ 	}
+-	if got := tokens[1]; got.In != 315 || got.Out != 80 {
+-		t.Fatalf("final Tokens = %#v, want In=315 Out=80", got)
++	if got := tokens[1]; got.In != 300 || got.Out != 80 {
++		t.Fatalf("final Tokens = %#v, want In=300 Out=80", got)
+ 	}
+ }
+ 

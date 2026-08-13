@@ -184,7 +184,7 @@ operating points on the tradeoff curve — no padding reconciles them.** The
 (Repro: `facts reclassify --branch main` then, per arm,
 `facts eval --tasks <f> --branch main --k 10 --arm {flat,scoped,outline} --json`;
 pool the `results` arrays across repos and feed `eval-compare`. The `entire-cli`
-checkout is at `/Users/thomi/Projects/entire-cli`, not `/Users/thomi/Projects/cli`.)
+checkout is the sibling `entire-cli` repository, not a sibling named `cli`.)
 
 ## Branch topology
 

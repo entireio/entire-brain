@@ -1,0 +1,21 @@
+diff --git a/cmd/entire/cli/dispatch/generate.go b/cmd/entire/cli/dispatch/generate.go
+index 339a295b0..e7081a470 100644
+--- a/cmd/entire/cli/dispatch/generate.go
++++ b/cmd/entire/cli/dispatch/generate.go
+@@ -149,15 +149,12 @@ func marshalDispatchPromptPayload(dispatch *Dispatch, voice string) (string, err
+ 	}
+ 	seenBranches := map[string]struct{}{}
+ 	for _, repo := range dispatch.Repos {
+-		trimmedFullName := strings.TrimSpace(repo.FullName)
+ 		fullName := sanitizeDispatchPromptString(repo.FullName)
+ 		outRepo := dispatchPromptRepo{
+ 			FullName: fullName,
++			URL:      githubRepoURL(fullName),
+ 			Sections: make([]dispatchPromptSection, 0, len(repo.Sections)),
+ 		}
+-		if fullName == trimmedFullName {
+-			outRepo.URL = githubRepoURL(trimmedFullName)
+-		}
+ 		for _, section := range repo.Sections {
+ 			outSection := dispatchPromptSection{
+ 				Label:   sanitizeDispatchPromptString(section.Label),

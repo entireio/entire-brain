@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/negative-control-owner-approval-verification-report-v1.json",
+  "title": "Non-authorizing negative-control owner-approval verification report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "approval_file_sha256",
+    "approval_id",
+    "approval_sha256",
+    "approval_valid_until",
+    "atomic_consumption",
+    "candidate_execution",
+    "execution_authority",
+    "execution_status",
+    "model_provider_execution",
+    "paid_execution",
+    "profile",
+    "replay_status",
+    "report_sha256",
+    "run_binding_status",
+    "run_id",
+    "run_identity_sha256",
+    "schema_version",
+    "signature_verification",
+    "signer_public_key_sha256",
+    "status",
+    "trust_root_id",
+    "verified_at"
+  ],
+  "properties": {
+    "approval_file_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "approval_id": {
+      "$ref": "#/$defs/sha256"
+    },
+    "approval_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "approval_valid_until": {
+      "$ref": "#/$defs/utc_second"
+    },
+    "atomic_consumption": {
+      "const": false
+    },
+    "candidate_execution": {
+      "const": "forbidden"
+    },
+    "execution_authority": {
+      "const": false
+    },
+    "execution_status": {
+      "const": "forbidden_missing_remaining_gates_and_atomic_approval_consumption"
+    },
+    "model_provider_execution": {
+      "const": "forbidden"
+    },
+    "paid_execution": {
+      "const": "forbidden"
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_owner_approval_verification_report_v1"
+    },
+    "replay_status": {
+      "const": "unconsumed_no_atomic_replay_store"
+    },
+    "report_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "run_binding_status": {
+      "const": "signed_statement_verified_not_bound_to_executor"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sha256"
+    },
+    "run_identity_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "signature_verification": {
+      "const": "valid"
+    },
+    "signer_public_key_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "status": {
+      "const": "owner_approval_signature_verified_execution_forbidden"
+    },
+    "trust_root_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "verified_at": {
+      "$ref": "#/$defs/utc_second"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "utc_second": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    }
+  }
+}

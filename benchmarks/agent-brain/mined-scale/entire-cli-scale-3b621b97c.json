@@ -1,0 +1,40 @@
+{
+  "id": "entire-cli-scale-3b621b97c",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "After a single-turn Pi agent run, the user's resulting commit sometimes doesn't get its checkpoint trailer and the checkpoint ref fails to advance. The failure is intermittent and depends on timing when the session tears down. Track down why teardown can drop the checkpoint linkage and fix it. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-3b621b97c.patch",
+  "validation": [
+    "go test ./cmd/entire/cli/agent/pi -run 'TestParseHookEvent_SessionShutdown_ClearsCache|TestParseHookEvent_SessionShutdown_NoLifecycleEvent'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/pi/lifecycle.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "pi session teardown lifecycle events",
+    "checkpoint trailer missing prepare-commit-msg",
+    "session ended condensed before checkpoint saved",
+    "agent_end vs session shutdown event ordering",
+    "pi hook child process concurrent dispatch race"
+  ],
+  "_mined_from_commit": "3b621b97c29c482620992c769f4fcca988da7d51",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "Drop SessionEnd from pi session_shutdown hook",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,54 @@
+diff --git a/cmd/entire/cli/strategy/manual_commit_session_test.go b/cmd/entire/cli/strategy/manual_commit_session_test.go
+new file mode 100644
+index 000000000..ba4a0c008
+--- /dev/null
++++ b/cmd/entire/cli/strategy/manual_commit_session_test.go
+@@ -0,0 +1,48 @@
++package strategy
++
++import (
++	"context"
++	"testing"
++	"time"
++
++	"github.com/entireio/cli/cmd/entire/cli/session"
++	"github.com/entireio/cli/cmd/entire/cli/testutil"
++)
++
++func TestListAllSessionStates_KeepsImported(t *testing.T) {
++	// Not parallel: t.Chdir.
++	dir := t.TempDir()
++	testutil.InitRepo(t, dir)
++	testutil.WriteFile(t, dir, "f.txt", "x")
++	testutil.GitAdd(t, dir, "f.txt")
++	testutil.GitCommit(t, dir, "init")
++	t.Chdir(dir)
++
++	ctx := context.Background()
++	store, err := session.NewStateStore(ctx)
++	if err != nil {
++		t.Fatalf("NewStateStore: %v", err)
++	}
++	old := time.Now().Add(-24 * time.Hour)
++	imported := &session.State{
++		SessionID: "imported-keep", Kind: session.KindImported,
++		Phase: session.PhaseEnded, StartedAt: old, EndedAt: &old,
++	}
++	if err := store.Save(ctx, imported); err != nil {
++		t.Fatalf("save imported: %v", err)
++	}
++
++	states, err := NewManualCommitStrategy().listAllSessionStates(ctx)
++	if err != nil {
++		t.Fatalf("listAllSessionStates: %v", err)
++	}
++	found := false
++	for _, s := range states {
++		if s.SessionID == "imported-keep" {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatal("imported session was purged by listAllSessionStates orphan cleanup")
++	}
++}

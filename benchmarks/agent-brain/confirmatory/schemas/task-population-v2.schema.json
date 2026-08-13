@@ -1,0 +1,317 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-task-population-v2.json",
+  "title": "Agent Brain representative task population",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "status",
+    "hash_algorithm",
+    "population_sha256",
+    "selection_policy",
+    "split_policy",
+    "review_ledger",
+    "summary",
+    "members",
+    "related_task_edges"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "profile": {"const": "agent_brain_task_population_v2"},
+    "status": {"enum": ["development_build", "candidate_unopened", "frozen_unopened"]},
+    "hash_algorithm": {"const": "sha256_canonical_json_null_self_v1"},
+    "population_sha256": {"$ref": "#/$defs/sha256"},
+    "selection_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility_rule",
+        "eligibility_ledger_schema_version",
+        "eligibility_ledger_path",
+        "eligibility_ledger_sha256",
+        "eligible_task_count",
+        "selection_mode",
+        "selection_seed_commitment_sha256",
+        "selection_timing",
+        "selection_verification_status",
+        "selection_receipt_sha256"
+      ],
+      "properties": {
+        "eligibility_rule": {"const": "post_cutoff_source_plus_test_reverse_patch_v1"},
+        "eligibility_ledger_schema_version": {"const": 1},
+        "eligibility_ledger_path": {
+          "type": "string",
+          "pattern": "^benchmarks/agent-brain/[^/].*\\.json$"
+        },
+        "eligibility_ledger_sha256": {"$ref": "#/$defs/sha256"},
+        "eligible_task_count": {"type": "integer", "minimum": 1},
+        "selection_mode": {"enum": ["all_eligible", "preregistered_seeded_sample"]},
+        "selection_seed_commitment_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "selection_timing": {"const": "locked_before_retrieval_or_treatment_observation"},
+        "selection_verification_status": {"enum": ["pending", "verified"]},
+        "selection_receipt_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "split_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "development_optimization_usage",
+        "development_calibration_usage",
+        "confirmatory_holdout_usage",
+        "cross_split_overlap_policy",
+        "assignment_scheme",
+        "assignment_key_sha256",
+        "assignment_verification_status",
+        "assignment_receipt_sha256",
+        "overlap_commitment_scheme",
+        "overlap_commitment_key_sha256",
+        "overlap_commitment_verification_status",
+        "overlap_commitment_receipt_sha256",
+        "calibration_min_independent_tasks",
+        "holdout_plaintext"
+      ],
+      "properties": {
+        "development_optimization_usage": {"const": "product_iteration"},
+        "development_calibration_usage": {"const": "variance_only_after_candidate_lock"},
+        "confirmatory_holdout_usage": {"const": "commitment_only_until_protocol_freeze"},
+        "cross_split_overlap_policy": {"const": "reject_prompt_patch_fix_session_family_overlap"},
+        "assignment_scheme": {"const": "hmac_sha256_owner_key_v1"},
+        "assignment_key_sha256": {"$ref": "#/$defs/sha256"},
+        "assignment_verification_status": {"enum": ["pending", "verified"]},
+        "assignment_receipt_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "overlap_commitment_scheme": {"const": "hmac_sha256_owner_key_v1"},
+        "overlap_commitment_key_sha256": {"$ref": "#/$defs/sha256"},
+        "overlap_commitment_verification_status": {"enum": ["pending", "verified"]},
+        "overlap_commitment_receipt_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "calibration_min_independent_tasks": {"const": 12},
+        "holdout_plaintext": {"const": "forbidden"}
+      }
+    },
+    "review_ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "path", "sha256"],
+      "properties": {
+        "schema_version": {"const": 2},
+        "path": {
+          "type": "string",
+          "pattern": "^benchmarks/agent-brain/[^/].*\\.json$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_members",
+        "active_members",
+        "excluded_members",
+        "membership_counts",
+        "unique_prompt_commitments",
+        "unique_patch_commitments",
+        "related_edge_count",
+        "holdout_plaintext_fields"
+      ],
+      "properties": {
+        "total_members": {"type": "integer", "minimum": 0},
+        "active_members": {"type": "integer", "minimum": 0},
+        "excluded_members": {"type": "integer", "minimum": 0},
+        "membership_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["development_optimization", "development_calibration", "confirmatory_holdout"],
+          "properties": {
+            "development_optimization": {"type": "integer", "minimum": 0},
+            "development_calibration": {"type": "integer", "minimum": 0},
+            "confirmatory_holdout": {"type": "integer", "minimum": 0}
+          }
+        },
+        "unique_prompt_commitments": {"type": "integer", "minimum": 0},
+        "unique_patch_commitments": {"type": "integer", "minimum": 0},
+        "related_edge_count": {"type": "integer", "minimum": 0},
+        "holdout_plaintext_fields": {"const": 0}
+      }
+    },
+    "members": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/member"}
+    },
+    "related_task_edges": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/relatedEdge"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "membership": {
+      "enum": ["development_optimization", "development_calibration", "confirmatory_holdout"]
+    },
+    "difficulty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "formula",
+        "touched_file_count",
+        "language_count",
+        "validation_target_count",
+        "critical_invariant_count",
+        "cross_package",
+        "requires_migration",
+        "score",
+        "band"
+      ],
+      "properties": {
+        "formula": {"const": "bounded_components_v1"},
+        "touched_file_count": {"type": "integer", "minimum": 1},
+        "language_count": {"type": "integer", "minimum": 1},
+        "validation_target_count": {"type": "integer", "minimum": 1},
+        "critical_invariant_count": {"type": "integer", "minimum": 1},
+        "cross_package": {"type": "boolean"},
+        "requires_migration": {"type": "boolean"},
+        "score": {"type": "integer", "minimum": 4, "maximum": 17},
+        "band": {"enum": ["low", "medium", "high"]}
+      }
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "task_family",
+        "structural_difficulty",
+        "memory_status",
+        "validation_kind",
+        "critical_failure_class",
+        "cache_state_design"
+      ],
+      "properties": {
+        "repository": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{1,127}$"},
+        "task_family": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{1,63}$"},
+        "structural_difficulty": {"$ref": "#/$defs/difficulty"},
+        "memory_status": {"enum": ["memory_answerable", "corpus_closed_memory_null"]},
+        "validation_kind": {"enum": ["unit", "integration", "end_to_end", "static", "mixed"]},
+        "critical_failure_class": {
+          "enum": ["none", "correctness", "build", "compatibility", "data_integrity", "privacy"]
+        },
+        "cache_state_design": {"enum": ["cold", "warm", "counterbalanced_cold_warm"]}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_commitment_sha256",
+        "patch_commitment_sha256",
+        "validation_commitment_sha256",
+        "source_history_commitment_sha256",
+        "fix_commitment_sha256"
+      ],
+      "properties": {
+        "prompt_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "patch_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "validation_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "source_history_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "fix_commitment_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "member_ref",
+        "membership",
+        "task_id",
+        "task_id_sha256",
+        "task_overlap_commitment_sha256",
+        "repository_commitment_sha256",
+        "family_commitment_sha256",
+        "attributes",
+        "attributes_sha256",
+        "artifacts",
+        "source_session_commitments",
+        "contamination_state",
+        "review_commitment_sha256"
+      ],
+      "properties": {
+        "member_ref": {"$ref": "#/$defs/sha256"},
+        "membership": {"$ref": "#/$defs/membership"},
+        "task_id": {"type": ["string", "null"], "minLength": 1},
+        "task_id_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "task_overlap_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "repository_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "family_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "attributes": {
+          "type": ["object", "null"],
+          "oneOf": [{"$ref": "#/$defs/attributes"}, {"type": "null"}]
+        },
+        "attributes_sha256": {"$ref": "#/$defs/sha256"},
+        "artifacts": {"$ref": "#/$defs/artifacts"},
+        "source_session_commitments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "contamination_state": {
+          "enum": ["reviewed_clear", "known_related_development_only", "excluded", "commitment_only"]
+        },
+        "review_commitment_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"membership": {"const": "confirmatory_holdout"}}},
+          "then": {
+            "properties": {
+              "task_id": {"type": "null"},
+              "task_id_sha256": {"type": "null"},
+              "attributes": {"type": "null"},
+              "contamination_state": {"const": "commitment_only"}
+            }
+          },
+          "else": {
+            "properties": {
+              "task_id": {"type": "string", "minLength": 1},
+              "task_id_sha256": {"$ref": "#/$defs/sha256"},
+              "attributes": {"$ref": "#/$defs/attributes"},
+              "contamination_state": {
+                "enum": ["reviewed_clear", "known_related_development_only", "excluded"]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "relatedEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_member_ref", "right_member_ref", "relation_kind", "material", "evidence_sha256", "disposition"],
+      "properties": {
+        "left_member_ref": {"$ref": "#/$defs/sha256"},
+        "right_member_ref": {"$ref": "#/$defs/sha256"},
+        "relation_kind": {"enum": ["task_family", "fix_lineage", "source_session", "prompt", "patch"]},
+        "material": {"type": "boolean"},
+        "evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "disposition": {"enum": ["retain_same_split", "exclude_one", "nonmaterial_reviewed"]}
+      }
+    }
+  }
+}

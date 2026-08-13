@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "entire-cli-c0701-8828752a7",
+      "user_query": "Checkpoint resume auto-detection fails to resume work whose branch only exists on origin: when a target matches no checkpoint, local branch, or commit, it gives up instead of offering to fetch the remote branch. Add a remote-branch fallback, tried only after commit resolution so revision syntax like HEAD isn't misrouted.",
+      "retrieval_query_source": "oracle_queries",
+      "oracle_queries": [
+        "the order of checkpoint, local-branch, commit, then remote resolution",
+        "why the remote-branch fallback must go after commit resolution"
+      ],
+      "expected_disposition": "exclude_oracle_assisted"
+    },
+    {
+      "id": "entire-cli-c0701-4dd458656",
+      "user_query": "On Windows, reinstalling the Cursor agent hooks can leave duplicate Entire hook entries. The hook command is wrapped differently depending on whether a working POSIX `sh` is detected at install time (an `sh -c '...'` wrapper) or not (a native `cmd.exe /d /s /c \"...\"` wrapper). When that detection result changes between two installs on the same host, a normal reinstall (without `--force`) does not replace the previously written wrapper: it keeps the old `sh -c` entry AND adds the new `cmd.exe` entry for the same hook type. The `.cursor` hooks file then holds two Entire hooks of the same type, so the hook can fire twice - producing duplicate session-start/stop events and duplicate checkpoints. Make a non-force reinstall end with exactly one Entire hook entry per type after the wrapper form changes, without disturbing any non-Entire hooks the user has configured.",
+      "retrieval_query_source": "oracle_queries",
+      "oracle_queries": [
+        "reinstall must replace stale Entire-managed hook forms",
+        "sh -c wrapper versus cmd.exe wrapper hook installation Windows probe"
+      ],
+      "expected_disposition": "exclude_oracle_assisted"
+    }
+  ]
+}

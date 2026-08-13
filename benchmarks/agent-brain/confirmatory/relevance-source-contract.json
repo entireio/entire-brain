@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "contract_id": "agent-brain-offline-relevance-source-2026-07-15",
+  "membership_path": "benchmarks/agent-brain/confirmatory/offline-relevance-source-membership.json",
+  "membership_sha256": "6244e3309676a235cdd88c19f0c729c80d7937254f89a021d91857ad9d7564ad",
+  "source_facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+  "source_session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+  "fact_count": 2621,
+  "active_fact_count": 2531,
+  "fact_membership_root_sha256": "9a3ce47d43fa2455fb1792d6a512dffebcb20ca8ae74a44e9caaf91095b95fba",
+  "eligibility_membership_root_sha256": "d1ecd24bfbd590a800e9323868f73131b498d84bd055880505dfc0dc757174af",
+  "active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c",
+  "session_date_count": 2248,
+  "session_date_membership_root_sha256": "6b38bff80edf9c471f7fdc4c4c817bff7cf4d6b2a2d5f641ec740c113ade95ae"
+}

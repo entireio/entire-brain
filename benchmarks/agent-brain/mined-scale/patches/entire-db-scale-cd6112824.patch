@@ -1,0 +1,34 @@
+diff --git a/core/resource/store.go b/core/resource/store.go
+index 50594568a..43ef12e82 100644
+--- a/core/resource/store.go
++++ b/core/resource/store.go
+@@ -691,29 +691,12 @@ func (s *Store) CreateProject(ctx context.Context, name, ownerType string, owner
+ 	}
+ 
+ 	if err := s.authz.ProjectCreated(ctx, p.ID, ownerType, ownerID); err != nil {
+-		if delErr := s.deleteProjectRowAfterCreateFailure(ctx, p.ID); delErr != nil {
+-			slogutil.Error(ctx, "rollback after authz failure - project row is orphaned",
+-				slog.String("project_id", p.ID.String()),
+-				slog.Any("delete_err", delErr),
+-				slog.Any("authz_err", err))
+-		}
+ 		return nil, fmt.Errorf("authz project created: %w", err)
+ 	}
+ 
+ 	return p, nil
+ }
+ 
+-func (s *Store) deleteProjectRowAfterCreateFailure(ctx context.Context, id model.ProjectID) error {
+-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+-	defer cancel()
+-
+-	_, err := s.pool.Exec(cleanupCtx, `DELETE FROM projects WHERE id = $1`, id)
+-	if err != nil {
+-		return fmt.Errorf("delete project row: %w", err)
+-	}
+-	return nil
+-}
+-
+ func (s *Store) GetProject(ctx context.Context, id model.ProjectID) (*model.Project, error) {
+ 	p := &model.Project{ID: id}
+ 	err := s.pool.QueryRow(ctx,

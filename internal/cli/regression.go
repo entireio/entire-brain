@@ -1234,17 +1234,17 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 // diff-less mode that shells `entire-brain review <query> --json`, checks reviewReport.schema_version,
 // and folds these findings into the review prompt — reviewing the working tree against the brain's
 // memory instead of a branch-vs-base diff (the graceful upgrade entire-brain gets from entire-graph).
-// That cli mode is prototyped on a held branch, NOT landed. Full contract + consumer design:
+// That CLI consumer is not landed. Full contract + consumer design:
 // docs/diffless_review_seam.md.
 //
 // Consumer status (cross-repo, in entireio/cli — NOT in this repo, do not claim either is shipped):
-//   - `entire review`            : prototyped on a held branch off Peyton's review redesign; NOT landed.
+//   - `entire review`            : consumer integration is NOT landed.
 //   - `entire labs investigate`  : DESIGNED, NOT WIRED.
 //
 // TODO(diffless-seam): wire `entire labs investigate` to consume this contract — fold the suspected
 // regressions for the investigation topic into the per-turn shared context so every brainstorming
 // agent sees them. No diff concept there, so it fires whenever the brain is installed. Design lives in
-// docs/diffless_review_seam.md; the cli-side hook is prototyped on the held branch, not landed here.
+// docs/diffless_review_seam.md; the CLI-side hook is not landed here.
 
 // reviewReportSchemaVersion is the contract version `entire review` is intended to bind to (the
 // consumer is not yet landed; see above). Bump on any breaking change to reviewReport / reviewFinding

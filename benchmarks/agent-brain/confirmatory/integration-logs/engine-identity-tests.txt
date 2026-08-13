@@ -1,0 +1,1 @@
+ok  	github.com/ashtom/entire-brain/internal/cli	0.720s

@@ -1,0 +1,187 @@
+{
+  "schema_version": 2,
+  "protocol_id": "agent-brain-confirmatory-v2-candidate",
+  "status": "joint_superiority_draft_floors_and_power_pending",
+  "drafted_at": "2026-07-15T12:00:00+02:00",
+  "holdout_opened": false,
+  "legacy_inventory": "task-inventory.json",
+  "fresh_holdout": {
+    "target_unique_tasks": 24,
+    "commitment_sha256": null,
+    "opened_at": null,
+    "mine_only_after_methodology_freeze": true
+  },
+  "offline_dataset": {
+    "path": "offline-relevance-dataset.json",
+    "minimum_development_queries": 12,
+    "minimum_development_tasks": 12,
+    "minimum_development_null_queries": 1,
+    "minimum_sealed_holdout_queries": 12,
+    "minimum_sealed_holdout_tasks": 12,
+    "development_artifact_contract": {
+      "schema_version": 1,
+      "source_corpus": {
+        "facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+        "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+        "active_fact_count": 2531,
+        "active_fact_catalog_sha256": "22ded28af2c42f9f49bcb518a21b41381f247e7d0c3d35896b914230e1c6023c"
+      },
+      "artifacts": {
+        "labels": {
+          "path": "offline-relevance-development-labels.json",
+        "sha256": "1702cd625e71a9f5ad69ef41b5f5f1ef314bfa6df160d9aa002380f7a4ee77fe",
+          "schema_path": "schemas/relevance-label-source.schema.json",
+        "schema_sha256": "b08229827fe3568dba23cec244aa9c9f73619e826a35cbd681b13edbfc1c5eb4"
+        },
+        "snapshot": {
+          "path": "offline-relevance-fact-snapshot.json",
+          "sha256": "a4c2061d2eaf8acde60594e7db7339c6ea6fa81304925f6d257341580eb07d79",
+          "schema_path": "schemas/relevance-fact-snapshot.schema.json",
+          "schema_sha256": "6ef8ac13cd2fd65cd7b2a349f592439a098fe5058606f39d3a05a3ca96bb66e0"
+        },
+        "dataset": {
+          "path": "offline-relevance-dataset.json",
+        "sha256": "9ba22b1395f2d0a8f3bd9fdc39b89fbece7aef0e5f10dbf4329ece35df905811",
+          "schema_path": "schemas/relevance-dataset.schema.json",
+        "schema_sha256": "9aa46c6a16e396f95dcc8ee6ad9954089294b7862e3c3a95f7a9b9f7e7bb1aa7"
+        },
+        "review_ledger": {
+          "path": "offline-relevance-review-ledger.json",
+        "sha256": "67124c453fdfef5b8fe2602c6095e45078b093acb1b8a48dfaa73b0adb0c1f55",
+          "schema_path": "schemas/relevance-review-ledger.schema.json",
+        "schema_sha256": "17646e1928a5e45ad2efcf457927e217ddc3b790a394d9d31b0203bc3a646ebe"
+        }
+      }
+    }
+  },
+  "engine_matrix": "engine-matrix.json",
+  "engine_verification_pins": {
+    "path": "benchmarks/agent-brain/confirmatory/engine-verification-pins.json",
+    "sha256": "c4e4989ffe22cefa2e71211ba2baa4027634daf07d19ff5e92a8b1289243db11"
+  },
+  "development_selection": {
+    "metrics": ["recall_at_1", "recall_at_5", "recall_at_10", "mrr", "ndcg_at_10", "packet_precision_at_k", "kind_distribution", "cluster_occupancy", "temporal_exclusions"],
+    "thresholds": {
+      "answerable_product_recall_at_5_min": 0.8,
+      "null_false_positive_rate_max": 0.1,
+      "temporal_leakage_max": 0,
+      "selected_packet_cluster_occupancy_max": 1
+    },
+    "k_candidates": [5, 8, 10, 12],
+    "selected_k": null,
+    "selected_aggregation_rule": null,
+    "threshold_passed": false
+  },
+  "agent_design": {
+    "primary_treatments": ["no_memory", "placebo_packet", "retrieved_memory"],
+    "separate_upper_bound": "oracle_retrieval",
+    "query_source": "user_prompt_derived",
+    "tasks": 24,
+    "repetitions_per_treatment": 4,
+    "requested_cells": 288,
+    "maximum_agent_invocations": 288,
+    "success_contract": {
+      "schema": "agent-brain-joint-superiority-contract/v2",
+      "status": "provisional",
+      "primary_contrast": "retrieved_memory_vs_no_memory",
+      "intersection_union_alpha": 0.05,
+      "endpoints": {
+        "elapsed_time": {
+          "direction": "lower",
+          "estimand": "paired_task_geometric_mean_ratio",
+          "practical_ratio_max": 0.9,
+          "floor_status": "provisional"
+        },
+        "normalized_cost": {
+          "direction": "lower",
+          "estimand": "ratio_of_equal_task_weighted_task_arm_mean_costs",
+          "practical_ratio_max": 0.88,
+          "floor_status": "provisional"
+        },
+        "code_quality": {
+          "direction": "higher",
+          "estimand": "paired_task_mean_difference",
+          "practical_difference_min": 0.05,
+          "floor_status": "provisional"
+        }
+      },
+      "code_quality_measurement": {
+        "schema": "agent-brain-code-quality/v2",
+        "rubric": "task_relative_output_outcome_patch_focus_v2",
+        "included_components": ["outcome", "patch_focus"],
+        "normalization_denominator_points": 75,
+        "excluded_components": ["validation_discipline", "runtime_efficiency", "brain_use"],
+        "critical_failure_forces_zero": true
+      },
+      "timeout_policy": {
+        "policy": "retain_measured_end_to_end_elapsed_no_component_cap_substitution",
+        "elapsed_field": "timing.end_to_end_user_visible_wall_seconds",
+        "agent_timeout_limit_seconds": 1800.0,
+        "provider_retry_limit": 0,
+        "substitute_component_timeout_limit": false,
+        "status": "provisional"
+      },
+      "contract_sha256": "a555e9df9e6506ac6f0e0d77d1379669ef151e7333890f25a27c8b047a251faf"
+    },
+    "power": {
+      "target": 0.8,
+      "target_scope": "each_marginal_and_overall_intersection_union_joint_success",
+      "planning_alternatives": {
+        "elapsed_time_ratio_true": null,
+        "normalized_cost_ratio_true": null,
+        "code_quality_difference_true": null,
+        "status": "pending_owner_approval"
+      },
+      "completed": false,
+      "status": "pending_uncalibrated",
+      "evidence": "power-analysis.json",
+      "analysis_kind": "three_endpoint_intersection_union_power_calibration_pending",
+      "co_primary_claim_floors": {
+        "elapsed_time_ratio_max": 0.9,
+        "normalized_cost_ratio_max": 0.88,
+        "code_quality_difference_min": 0.05,
+        "status": "provisional"
+      },
+      "exploratory_calibration": {
+        "manifest": "power-calibration-exploratory-v1.json",
+        "eligibility": "exploratory_only",
+        "confirmatory_assumption_source": false,
+        "unique_task_ids": 12,
+        "paired_task_cluster_instances": 14,
+        "pooled_estimate_prohibited": true
+      },
+      "minimum_calibration_task_clusters": 12,
+      "minimum_calibration_is_power_sized_design": false,
+      "power_sized_development_task_count": null,
+      "power_sized_confirmatory_task_count": null,
+      "design_decision_required": true
+    },
+    "raw_diagnostics": {
+      "validation_pass_rate": true,
+      "raw_usage_categories": true,
+      "harness_agent_interval_wall_seconds": true,
+      "agent_reported_api_seconds": true
+    },
+    "bootstrap_resamples": 10000,
+    "bootstrap_seed": 607152026,
+    "multiplicity": "intersection_union_no_across_endpoint_adjustment_each_component_one_sided_alpha_0.05",
+    "attempt_policy": "all_executed_attempts_no_success_only_endpoints",
+    "stopping_rule": "fixed_cells_or_budget_or_integrity_pause_no_efficacy_peeking"
+  },
+  "paid_budget": {
+    "contract": "pricing-budget.json",
+    "status": "pending",
+    "currency": "USD",
+    "formula_id": "worst_case_agent_invocation_token_envelope_v4",
+    "maximum_usd": null,
+    "formula": "maximum_agent_invocations * sum(five mutually exclusive billed token categories * frozen category price or explicit alias)"
+  },
+  "dependencies": {
+    "ws2_treatment_and_task_validity": "pass",
+    "ws3_temporal_completeness": "pass",
+    "ws4_schedule_and_cache": "pass",
+    "ws5_evidence_verification": "pass"
+  },
+  "analyzer_sha256": "7c4e37fac7f9431a28c8fafc2f226e13e54b0be574776ddeb73c3c0083887032",
+  "freeze": {"frozen_at": null, "protocol_sha256": null}
+}

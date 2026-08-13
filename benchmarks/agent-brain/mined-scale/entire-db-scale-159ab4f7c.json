@@ -1,0 +1,40 @@
+{
+  "id": "entire-db-scale-159ab4f7c",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The Permissions page endpoint that lists which repositories a subject can access is extremely slow, taking roughly 7 seconds. Tracing shows it fanning out a very large number of backend permission-check RPCs that scale with the number of accessible repositories. Reduce the latency without changing the returned access results. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-159ab4f7c.patch",
+  "validation": [
+    "go test ./core/authz -run 'TestLookupAccessible_RepoPermissions'"
+  ],
+  "expected_files": [
+    "core/authz/store.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "access repo endpoint slow latency permissions page",
+    "SpiceDB CheckPermission fan out RPC count",
+    "LookupAccessible lookup resources permissions",
+    "authz store per-resource permission recheck",
+    "reduce permission RPCs accessible resources"
+  ],
+  "_mined_from_commit": "159ab4f7cf84facd5812f37936591d4698a42186",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "core/authz: fix /api/access/repo 7s latency [COR-154] (#1256)",
+  "copy_checkpoint_ref_from_source": true
+}

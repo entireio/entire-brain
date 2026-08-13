@@ -1,0 +1,298 @@
+{
+  "$defs": {
+    "sha256": {
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://entire.io/schemas/negative-control-gate-primitive-receipt-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "benchmark_execution": {
+          "const": "forbidden_pending_separate_owner_approval"
+        },
+        "candidate_execution": {
+          "const": "forbidden_plan_unexecutable"
+        },
+        "model_provider_execution": {
+          "const": "forbidden_not_authorized"
+        },
+        "paid_execution": {
+          "const": "forbidden_not_authorized"
+        },
+        "plan_status": {
+          "const": "pending_owner_authorization"
+        }
+      },
+      "required": [
+        "benchmark_execution",
+        "candidate_execution",
+        "model_provider_execution",
+        "paid_execution",
+        "plan_status"
+      ],
+      "type": "object"
+    },
+    "cache_seed": {
+      "additionalProperties": false,
+      "properties": {
+        "archive_byte_count": {
+          "maximum": 2147483648,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "archive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "binding_status": {
+          "const": "external_manifest_not_bound_by_pending_plan"
+        },
+        "content_inventory_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "file_count": {
+          "maximum": 250000,
+          "minimum": 3,
+          "type": "integer"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "observation_kind": {
+          "const": "injected_archive_identity_unattested"
+        },
+        "unpacked_byte_count": {
+          "maximum": 2147483648,
+          "minimum": 3,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "archive_byte_count",
+        "archive_sha256",
+        "binding_status",
+        "content_inventory_sha256",
+        "file_count",
+        "manifest_sha256",
+        "observation_kind",
+        "unpacked_byte_count"
+      ],
+      "type": "object"
+    },
+    "checks": {
+      "const": [
+        "pending_authority_boundary_verified",
+        "cache_manifest_identity_verified",
+        "injected_cache_archive_identity_observation_matches_manifest",
+        "resource_budget_arithmetic_verified",
+        "injected_free_space_threshold_verified"
+      ]
+    },
+    "execution_status": {
+      "const": "forbidden_missing_remaining_gates"
+    },
+    "implementation": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_render_profile": {
+          "const": "sorted_keys_indent_2_utf8_lf_v1"
+        },
+        "builder_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonical_json_profile": {
+          "const": "sorted_keys_compact_utf8_no_float_v1"
+        },
+        "manifest_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python_executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python_implementation": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "python_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "receipt_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "run_plan_builder_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "schema_validator_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "unicode_data_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "verifier_sources": {
+          "additionalProperties": false,
+          "properties": {
+            "draft202012.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "relevance_dataset.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_eligibility.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_eligibility_v2.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_negative_control_plan_v2.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_overlap_registry.py": {
+              "$ref": "#/$defs/sha256"
+            },
+            "task_population.py": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "draft202012.py",
+            "relevance_dataset.py",
+            "task_eligibility.py",
+            "task_eligibility_v2.py",
+            "task_negative_control_plan_v2.py",
+            "task_overlap_registry.py",
+            "task_population.py"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "artifact_render_profile",
+        "builder_sha256",
+        "canonical_json_profile",
+        "manifest_schema_sha256",
+        "python_executable_sha256",
+        "python_implementation",
+        "python_version",
+        "receipt_schema_sha256",
+        "run_plan_builder_sha256",
+        "schema_validator_sha256",
+        "unicode_data_version",
+        "verifier_sources"
+      ],
+      "type": "object"
+    },
+    "inputs": {
+      "additionalProperties": false,
+      "properties": {
+        "manifest_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "plan_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "plan_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": ["manifest_file_sha256", "plan_file_sha256", "plan_sha256"],
+      "type": "object"
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_gate_primitive_receipt_v1"
+    },
+    "receipt_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "residual_gates": {
+      "const": [
+        "owner_execution_approval_receipt_and_trust_mechanism",
+        "authorized_plan_binding_for_actual_cache_seed",
+        "safe_archive_traversal_type_link_device_and_content_verifier",
+        "trusted_filesystem_observer_and_atomic_resource_reservation",
+        "negative_control_executor_and_reversal_proof",
+        "classification_truth_table_and_receipt_checker",
+        "private_content_addressed_log_writer_and_checker",
+        "fail_closed_cleanup_and_no_receipt_on_interruption"
+      ]
+    },
+    "resource": {
+      "additionalProperties": false,
+      "properties": {
+        "available_blocks": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fragment_size_bytes": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "free_bytes": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
+          "minimum": 17179869184,
+          "type": "integer"
+        },
+        "headroom_bytes": {
+          "maximum": 9999999999999999999999999999999999999999999999999999999999999999,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minimum_required_bytes": {
+          "const": 17179869184
+        },
+        "observation_kind": {
+          "const": "injected_filesystem_stats_unattested"
+        },
+        "reserve_bytes": {
+          "const": 8589934592
+        },
+        "staging_ceiling_bytes": {
+          "const": 8589934592
+        }
+      },
+      "required": [
+        "available_blocks",
+        "fragment_size_bytes",
+        "free_bytes",
+        "headroom_bytes",
+        "minimum_required_bytes",
+        "observation_kind",
+        "reserve_bytes",
+        "staging_ceiling_bytes"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "status": {
+      "const": "primitive_checks_passed_execution_forbidden"
+    }
+  },
+  "required": [
+    "authority",
+    "cache_seed",
+    "checks",
+    "execution_status",
+    "implementation",
+    "inputs",
+    "profile",
+    "receipt_sha256",
+    "residual_gates",
+    "resource",
+    "schema_version",
+    "status"
+  ],
+  "title": "Non-authoritative negative-control gate primitive receipt",
+  "type": "object"
+}
