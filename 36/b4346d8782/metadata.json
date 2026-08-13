@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.9.1-nightly.202608080619.caa0c9be9",
+  "checkpoint_id": "36b4346d8782",
+  "strategy": "manual-commit",
+  "branch": "fix/bugbot-review-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/history_fts_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/36/b4346d8782/0/metadata.json",
+      "transcript": "/36/b4346d8782/0/full.jsonl",
+      "compact_transcript": "/36/b4346d8782/0/transcript.jsonl",
+      "content_hash": "/36/b4346d8782/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 5525,
+    "cache_read_tokens": 2424055,
+    "output_tokens": 3780,
+    "api_call_count": 5
+  }
+}
