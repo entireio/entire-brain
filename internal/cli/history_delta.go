@@ -635,8 +635,8 @@ func (f freshHistory) longTermActive() historyIndex {
 // rankFreshHistory ranks the two tiers: longTermRank runs against the on-disk
 // long-term index (so the FTS freshness identity is untouched), superseded
 // files' hits are dropped, the overlay is ranked in-memory, and the two lists
-// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged
-// ; bit-for-bit default preservation. A non-nil pred applies the structured
+// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged:
+// bit-for-bit default preservation. A non-nil pred applies the structured
 // filters to the in-memory arms (overlay and substring fallback) during
 // candidate generation; the longTermRank closure is responsible for pushing
 // the same predicate into its own arm (R0-3). Superseded long-term hits are

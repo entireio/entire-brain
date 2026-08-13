@@ -1,5 +1,5 @@
 // Copied verbatim from github.com/entirehq/git-meta-service/internal/gitmeta @
-// feat/git-meta-service-integration (f3ec153); do not edit; de-internalize
+// feat/git-meta-service-integration (f3ec153) — do not edit; de-internalize
 // upstream to dedupe (follow-up).
 
 package gitmeta

@@ -406,8 +406,8 @@ func conversationSemanticScoresExhaustive(brainDir string, e Embedder, query str
 
 // rankConversationFused is the conversation arm's hybrid ranking: exchange-kind
 // BM25 fused with calibrated exchange vectors via the shared RRF merge. When
-// the semantic arm is unavailable it degrades to exactly the lexical ranking;
-// same list, same ok contract; so lexical-only operation stays fully
+// the semantic arm is unavailable it degrades to exactly the lexical ranking
+// (same list, same ok contract), so lexical-only operation stays fully
 // supported. A non-nil pred pushes structured filters into both arms: the
 // lexical arm filters during candidate generation against the full index (the
 // FTS store identity must never see a filtered view), the semantic arms rank

@@ -56,8 +56,8 @@ func openLocalRepo(gitDir string) (*localRepo, error) {
 // lock takes a cross-process exclusive advisory lock on a lockfile in the
 // git dir and returns an unlock func the caller must defer. It serializes the
 // whole Advance read-CAS loop across processes: go-git performs the create-path
-// ref write (CheckAndSetReference with a nil old ref) UNCONDITIONALLY; it skips
-// the absence check when old==nil; so without this, two concurrent first-syncs
+// ref write (CheckAndSetReference with a nil old ref) UNCONDITIONALLY (it skips
+// the absence check when old==nil), so without this, two concurrent first-syncs
 // would both "win" and silently drop one member's facts. The update path is
 // already ref-CAS-safe under go-git's own flock; this also closes its benign
 // read→write TOCTOU. The OS lock is released automatically if the process dies,

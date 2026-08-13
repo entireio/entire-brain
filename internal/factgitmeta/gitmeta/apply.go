@@ -1,5 +1,5 @@
 // Copied verbatim from github.com/entirehq/git-meta-service/internal/gitmeta @
-// feat/git-meta-service-integration (f3ec153); do not edit; de-internalize
+// feat/git-meta-service-integration (f3ec153) — do not edit; de-internalize
 // upstream to dedupe (follow-up).
 
 package gitmeta
@@ -11,7 +11,7 @@ import (
 
 // Mutation is a single metadata edit applied to a State. Exactly one of the
 // operation fields is meaningful per Op. The server applies one Mutation onto
-// the freshly-fetched full state, then re-serializes; so concurrent writers
+// the freshly-fetched full state, then re-serializes — so concurrent writers
 // converge via CAS-retry without a general 3-way merge.
 type Mutation struct {
 	Op     MutationOp
@@ -21,7 +21,7 @@ type Mutation struct {
 	// Expected is the precondition for OpCompareAndSet: the value the caller
 	// believes (target,key) currently holds. Empty means "expect no current
 	// string value" (a create). The condition is enforced by the write engine
-	// against the freshly-fetched state, not here; Apply(OpCompareAndSet) is
+	// against the freshly-fetched state, not here — Apply(OpCompareAndSet) is
 	// an unconditional string set, identical to OpSetString.
 	Expected string
 	// NowMS is the millisecond timestamp to stamp list appends with. The caller

@@ -1,5 +1,5 @@
 // Copied verbatim from github.com/entirehq/git-meta-service/internal/gitmeta @
-// feat/git-meta-service-integration (f3ec153); do not edit; de-internalize
+// feat/git-meta-service-integration (f3ec153) — do not edit; de-internalize
 // upstream to dedupe (follow-up).
 
 package gitmeta
@@ -87,7 +87,7 @@ func (s State) CurrentString(t Target, key string) (string, bool) {
 	return "", false
 }
 
-// HasKey reports whether (target, key) currently holds ANY live value; string,
+// HasKey reports whether (target, key) currently holds ANY live value — string,
 // list, or set. It is the create-time absence check for a value-level CAS
 // (Expected==""): unlike CurrentString, which sees only strings, it also sees a
 // list or set, so a "create only if absent" precondition cannot silently pass

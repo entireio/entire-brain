@@ -183,8 +183,8 @@ func (b *Backend) Advance(_ context.Context, _, branch, oldRef string, plaintext
 		}
 
 		// Apply both records onto the freshly-materialized state:
-		//   blob; content-addressed key, immutable ⇒ a plain set.
-		//   head; value-level compare-and-swap onto "<ver+1>|<newRef>". Apply's
+		//   blob: content-addressed key, immutable ⇒ a plain set.
+		//   head: value-level compare-and-swap onto "<ver+1>|<newRef>". Apply's
 		//          OpCompareAndSet is an unconditional set; the precondition was
 		//          already enforced by expectedHead against this same state.
 		newHeadVal := formatHead(cur.version+1, newRef)

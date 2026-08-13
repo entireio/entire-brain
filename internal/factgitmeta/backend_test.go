@@ -139,8 +139,8 @@ func TestBackendAdvanceNoChange(t *testing.T) {
 	}
 }
 
-// TestBackendAdvanceConflict proves both conflict shapes map to ErrConflict; a
-// stale/unknown oldRef and a create over an existing head; leave the head
+// TestBackendAdvanceConflict proves both conflict shapes (a stale/unknown
+// oldRef and a create over an existing head) map to ErrConflict, leave the head
 // untouched (no partial write), and that advancing from the correct ref then
 // succeeds.
 func TestBackendAdvanceConflict(t *testing.T) {

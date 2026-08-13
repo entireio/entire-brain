@@ -357,7 +357,7 @@ default is unchanged (`all` = facts + classified history + docs).
 ### Recall prior conversations (experimental, opt-in)
 
 `--source conversation` searches captured request/response exchanges from
-exported session transcripts; what was asked, what the agent concluded; and
+exported session transcripts (what was asked, what the agent concluded), and
 `get conversation:<id>` expands one exchange to a bounded request/response pair
 with its exact transcript range:
 
@@ -367,9 +367,9 @@ entire brain search "SQLITE_BUSY" --source conversation --json
 entire brain get conversation:<id> --json
 ```
 
-Conversation queries take structured filters; `--after`/`--before` (RFC3339 or
-YYYY-MM-DD session time), `--session <id>`, `--agent <harness>`, and `--branch`
-; which error on any other source rather than being silently ignored. Results
+Conversation queries take structured filters: `--after`/`--before` (RFC3339 or
+YYYY-MM-DD session time), `--session <id>`, `--agent <harness>`, and `--branch`.
+These error on any other source rather than being silently ignored. Results
 carry `matched_terms` (which query tokens actually hit) and are diversity-capped
 so one long session cannot crowd out every other trajectory; filtering to a
 session lifts the cap. Re-exported duplicate sessions are collapsed at index
@@ -601,7 +601,7 @@ exported transcript copy and the derived stores, removes durable facts whose
 only provenance is the purged session (facts corroborated by other sessions
 keep their remaining anchors), filters its pattern episodes, and clears its
 distill-cache entries (`--dry-run` reports exactly what would be removed
-first). Skill-memory; your accept/decline curation; is never touched.
+first). Skill-memory (your accept/decline curation) is never touched.
 `privacy verify` proves excluded/purged sessions are absent from every
 inspectable projection and from their lifecycle jobs, cancellation markers,
 optional abstracts, and metadata-only egress receipts (exit non-zero with named
