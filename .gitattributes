@@ -2,3 +2,11 @@
 # bytes must be identical on every platform. Force LF so a Windows checkout does
 # not turn them into CRLF (which leaked a stray "\r" into the distill prompt).
 templates/** text eol=lf
+
+# Golden byte fixtures are compared exactly in tests and must remain stable on
+# Windows checkouts too.
+internal/cli/testdata/*.golden* text eol=lf
+
+# Unified-diff context markers intentionally put one space before tab-indented
+# source. Do not report that patch syntax as a whitespace defect in outer diffs.
+*.patch -whitespace

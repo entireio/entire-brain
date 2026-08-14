@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/offline-relevance-ranked-run-v1.json",
+  "title": "Diagnostic-only offline relevance ranked run v1",
+  "description": "Producer and engine identity fields are declarations in v1; this artifact cannot independently authorize threshold selection.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "schema",
+    "run_id",
+    "created_at",
+    "input_bindings",
+    "producer_identity",
+    "engine_identity",
+    "aggregation_rule",
+    "k_candidates",
+    "queries",
+    "run_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "schema": {"const": "agent-brain-offline-relevance-ranked-run/v1"},
+    "run_id": {"$ref": "#/$defs/safeId"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "input_bindings": {"$ref": "#/$defs/inputBindings"},
+    "producer_identity": {"$ref": "#/$defs/producerIdentity"},
+    "engine_identity": {"$ref": "#/$defs/engineIdentity"},
+    "aggregation_rule": {
+      "enum": [
+        "best_rank_then_hit_count_v1",
+        "hit_count_then_best_rank_v1"
+      ]
+    },
+    "k_candidates": {"$ref": "#/$defs/kCandidates"},
+    "queries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/query"}
+    },
+    "run_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "externalSha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "safeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,255}$"
+    },
+    "nonnegativeInteger": {"type": "integer", "minimum": 0},
+    "kCandidates": {
+      "type": "array",
+      "prefixItems": [
+        {"const": 5},
+        {"const": 8},
+        {"const": 10},
+        {"const": 12}
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "inputBindings": {
+      "type": "object",
+      "required": [
+        "engine_matrix_sha256",
+        "matrix_id",
+        "engine_pins_sha256",
+        "pin_set_id",
+        "fixture_sha256",
+        "fixture_id",
+        "dataset_sha256",
+        "dataset_id",
+        "source_membership_sha256",
+        "eligibility_membership_root_sha256",
+        "producer_identity_file_sha256",
+        "producer_identity_sha256",
+        "k_candidates"
+      ],
+      "properties": {
+        "engine_matrix_sha256": {"$ref": "#/$defs/externalSha256"},
+        "matrix_id": {"$ref": "#/$defs/safeId"},
+        "engine_pins_sha256": {"$ref": "#/$defs/externalSha256"},
+        "pin_set_id": {"$ref": "#/$defs/safeId"},
+        "fixture_sha256": {"$ref": "#/$defs/sha256"},
+        "fixture_id": {"$ref": "#/$defs/safeId"},
+        "dataset_sha256": {"$ref": "#/$defs/externalSha256"},
+        "dataset_id": {"$ref": "#/$defs/safeId"},
+        "source_membership_sha256": {"$ref": "#/$defs/externalSha256"},
+        "eligibility_membership_root_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_identity_file_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "k_candidates": {"$ref": "#/$defs/kCandidates"}
+      },
+      "additionalProperties": false
+    },
+    "producerIdentity": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "schema",
+        "producer_id",
+        "runner_sha256",
+        "producer_code_sha256",
+        "ranking_result_metadata_policy_id",
+        "ranking_result_metadata_policy_sha256",
+        "token_estimation_policy_id",
+        "token_estimation_policy_sha256",
+        "serialization_policy_id",
+        "serialization_policy_sha256",
+        "producer_identity_sha256"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "schema": {"const": "agent-brain-offline-relevance-producer-identity/v1"},
+        "producer_id": {"$ref": "#/$defs/safeId"},
+        "runner_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_code_sha256": {"$ref": "#/$defs/externalSha256"},
+        "ranking_result_metadata_policy_id": {"$ref": "#/$defs/safeId"},
+        "ranking_result_metadata_policy_sha256": {"$ref": "#/$defs/externalSha256"},
+        "token_estimation_policy_id": {"$ref": "#/$defs/safeId"},
+        "token_estimation_policy_sha256": {"$ref": "#/$defs/externalSha256"},
+        "serialization_policy_id": {"$ref": "#/$defs/safeId"},
+        "serialization_policy_sha256": {"$ref": "#/$defs/externalSha256"},
+        "producer_identity_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "engineIdentity": {
+      "type": "object",
+      "required": [
+        "arm_id",
+        "effective_engine",
+        "semantic",
+        "binary_sha256",
+        "binary_size_bytes",
+        "vector_namespace",
+        "vector_artifact_sha256",
+        "vector_artifact_size_bytes",
+        "embedding_dimension",
+        "fallback_used"
+      ],
+      "properties": {
+        "arm_id": {"$ref": "#/$defs/safeId"},
+        "effective_engine": {"$ref": "#/$defs/safeId"},
+        "semantic": {"type": "boolean"},
+        "binary_sha256": {"$ref": "#/$defs/externalSha256"},
+        "binary_size_bytes": {"type": "integer", "minimum": 1},
+        "vector_namespace": {"$ref": "#/$defs/safeId"},
+        "vector_artifact_sha256": {
+          "oneOf": [{"$ref": "#/$defs/externalSha256"}, {"type": "null"}]
+        },
+        "vector_artifact_size_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "embedding_dimension": {"type": ["integer", "null"], "minimum": 1},
+        "fallback_used": {"const": false}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"semantic": {"const": true}}, "required": ["semantic"]},
+          "then": {
+            "properties": {
+              "vector_artifact_sha256": {"$ref": "#/$defs/externalSha256"},
+              "vector_artifact_size_bytes": {"type": "integer", "minimum": 1},
+              "embedding_dimension": {"type": "integer", "minimum": 1}
+            }
+          },
+          "else": {
+            "properties": {
+              "vector_artifact_sha256": {"type": "null"},
+              "vector_artifact_size_bytes": {"type": "null"},
+              "embedding_dimension": {"type": "null"}
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "query": {
+      "type": "object",
+      "required": [
+        "query_id",
+        "task_id",
+        "query_source",
+        "null_query",
+        "telemetry",
+        "ordered_results"
+      ],
+      "properties": {
+        "query_id": {"$ref": "#/$defs/safeId"},
+        "task_id": {"$ref": "#/$defs/safeId"},
+        "query_source": {"enum": ["user_prompt_derived", "oracle_upper_bound"]},
+        "null_query": {"type": "boolean"},
+        "telemetry": {"$ref": "#/$defs/telemetry"},
+        "ordered_results": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {"$ref": "#/$defs/result"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "telemetry": {
+      "type": "object",
+      "required": [
+        "active_fact_count",
+        "eligible_fact_count",
+        "temporal_exclusion_count",
+        "delivered_count",
+        "ranking_latency_ms"
+      ],
+      "properties": {
+        "active_fact_count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "eligible_fact_count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "temporal_exclusion_count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "delivered_count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "ranking_latency_ms": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "fact_id",
+        "fact_sha256",
+        "kind",
+        "cluster_id",
+        "eligible",
+        "estimated_tokens"
+      ],
+      "properties": {
+        "fact_id": {"$ref": "#/$defs/safeId"},
+        "fact_sha256": {"$ref": "#/$defs/externalSha256"},
+        "kind": {"$ref": "#/$defs/safeId"},
+        "cluster_id": {"$ref": "#/$defs/safeId"},
+        "eligible": {"const": true},
+        "estimated_tokens": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

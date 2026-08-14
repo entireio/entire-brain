@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "storage": {
+    "kind": "github_immutable_release_asset",
+    "repository": "entireio/entire-brain",
+    "tag": "engine-evidence-bb68c0ac-v3",
+    "asset_name": "entire-brain-engine-evidence-bb68c0ac-v3.tar.zst",
+    "asset_url": "https://github.com/entireio/entire-brain/releases/download/engine-evidence-bb68c0ac-v3/entire-brain-engine-evidence-bb68c0ac-v3.tar.zst",
+    "asset_size_bytes": 428491172,
+    "asset_sha256": "9b893028ebcbbb6271a0179327cefc97062e25dfda4a84b5b062f010bb69d17a",
+    "publication_disposition": "regeneration_required",
+    "privacy_review": "fail",
+    "published": false,
+    "release_id": null,
+    "asset_id": null,
+    "release_immutable": false,
+    "release_target_commitish": null,
+    "asset_api_digest": null,
+    "verified_at": null
+  },
+  "archive": {
+    "format": "tar_zstd",
+    "root": "run-bb68c0ac-v3",
+    "regular_file_count": 2736,
+    "logical_bytes": 623695063,
+    "symlink_count": 0
+  },
+  "evidence": {
+    "manifest_path": "run-bb68c0ac-v3/engine-verification.json",
+    "manifest_sha256": "b7c9baae2c3f0ed9b0773226ececf5bf129bd4dd487c02ffab9945cf0fc9c17d",
+    "recorded_artifact_root": "/redacted/engine-evidence/retained"
+  },
+  "recorded_external_inputs": {
+    "repo_root": "/redacted/engine-evidence/source-repo",
+    "repo_key": "local/scratch-clone-0aefa16aaca0"
+  },
+  "hydration": {
+    "repo_relative_parent": "benchmarks/agent-brain/confirmatory/.engine-evidence"
+  }
+}

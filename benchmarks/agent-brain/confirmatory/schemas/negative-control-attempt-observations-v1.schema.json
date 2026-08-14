@@ -1,0 +1,7306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/negative-control-attempt-observations-v1.json",
+  "title": "Agent Brain negative-control injected attempt observations",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "raw_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "oid": {
+      "type": "string",
+      "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmark_execution",
+        "candidate_execution",
+        "model_provider_execution",
+        "paid_execution",
+        "plan_status"
+      ],
+      "properties": {
+        "benchmark_execution": {
+          "const": "forbidden_pending_separate_owner_approval"
+        },
+        "candidate_execution": {
+          "const": "forbidden_plan_unexecutable"
+        },
+        "model_provider_execution": {
+          "const": "forbidden_not_authorized"
+        },
+        "paid_execution": {
+          "const": "forbidden_not_authorized"
+        },
+        "plan_status": {
+          "const": "pending_owner_authorization"
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_render_profile",
+        "attempt_schema_sha256",
+        "builder_sha256",
+        "canonical_json_profile",
+        "gate_primitive_sha256",
+        "gate_receipt_schema_sha256",
+        "private_log_receipt_schema_sha256",
+        "private_log_writer_sha256",
+        "python_executable_sha256",
+        "python_implementation",
+        "python_version",
+        "receipt_schema_sha256",
+        "run_plan_builder_sha256",
+        "unicode_data_version"
+      ],
+      "properties": {
+        "artifact_render_profile": {
+          "const": "sorted_keys_indent_2_utf8_lf_v1"
+        },
+        "attempt_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "builder_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonical_json_profile": {
+          "const": "sorted_keys_compact_utf8_no_float_v1"
+        },
+        "gate_primitive_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gate_receipt_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "private_log_receipt_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "private_log_writer_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python_executable_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python_implementation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "python_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "receipt_schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "run_plan_builder_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "unicode_data_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\r\\n]+$"
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arm_order",
+        "candidate_order",
+        "max_concurrency",
+        "observation_kind",
+        "outer_timeout_seconds_per_arm",
+        "repetitions_per_arm",
+        "repository_order",
+        "total_attempt_count",
+        "total_candidate_count"
+      ],
+      "properties": {
+        "arm_order": {
+          "const": [
+            "baseline",
+            "first_parent_source_reversal"
+          ]
+        },
+        "candidate_order": {
+          "const": "repository_order_then_first_parent_position_serial_v1"
+        },
+        "max_concurrency": {
+          "const": 1
+        },
+        "observation_kind": {
+          "const": "injected_attempt_result_unattested"
+        },
+        "outer_timeout_seconds_per_arm": {
+          "const": 600
+        },
+        "repetitions_per_arm": {
+          "const": 2
+        },
+        "repository_order": {
+          "const": [
+            "entire-brain",
+            "entire-db",
+            "entire-graph"
+          ]
+        },
+        "total_attempt_count": {
+          "const": 248
+        },
+        "total_candidate_count": {
+          "const": 62
+        }
+      }
+    },
+    "repository_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_oid",
+        "candidate_count",
+        "candidate_order_sha256",
+        "head_oid",
+        "key",
+        "ledger_file_sha256",
+        "ledger_sha256",
+        "repository_id",
+        "toolchain_sha256"
+      ],
+      "properties": {
+        "base_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 62
+        },
+        "candidate_order_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "head_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "key": {
+          "enum": [
+            "entire-brain",
+            "entire-db",
+            "entire-graph"
+          ]
+        },
+        "ledger_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ledger_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "toolchain_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "repository_bindings": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/repository_binding"
+            },
+            {
+              "const": {
+                "base_oid": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+                "candidate_count": 18,
+                "candidate_order_sha256": "22bdf1f7166f15c63e972c755712e31a9beafd914f5e9d020e23e34925234268",
+                "head_oid": "bc0203b761cbc500bfcb0acff723dad57ae37770",
+                "key": "entire-brain",
+                "ledger_file_sha256": "1d02c61a6c813f563a021ff649a5787d8c79fb82ed137d8c1a3b4c2bf8ea6422",
+                "ledger_sha256": "d275b7bd53950c9dfe7716637ede63dafa618f61f59de6050de8ba8d0c641f0c",
+                "repository_id": "github.com/entireio/entire-brain",
+                "toolchain_sha256": "4f3a841f57aa9cbba145764d8c9a2d16449df6bd56d1500f2c668e7f0f193a8c"
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/repository_binding"
+            },
+            {
+              "const": {
+                "base_oid": "4bde2fe4bc5bc913c35540e46cbb1d4f6fa131ab",
+                "candidate_count": 25,
+                "candidate_order_sha256": "838a4f7922d888d87ddf0e5205ff54c26a83066d110c9ddae950e17b3e2a1d7f",
+                "head_oid": "860769996e8741ff8a93cc955dadb4e7a81f4317",
+                "key": "entire-db",
+                "ledger_file_sha256": "eb0f91ed170e95332ca6b708fc043b27cb39d7197b1da477da829f9953ff32a1",
+                "ledger_sha256": "a62667269026e506c72156e3c2f25a3bc111f1b1df8ac30db9cbbe8d34312159",
+                "repository_id": "github.com/entirehq/entiredb",
+                "toolchain_sha256": "57eb1ee4b437ec764365694418b29e9cf76da86526df108497c0c043e7dab78f"
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/repository_binding"
+            },
+            {
+              "const": {
+                "base_oid": "d3271d235a2669da67d9f6924bb31cf6fd82349c",
+                "candidate_count": 19,
+                "candidate_order_sha256": "5ae110aa485aa914081875533e332ae76d081d420df168230fcd6437dff17916",
+                "head_oid": "fafe92878b5e920fe161d8078ee91762fe33e9b4",
+                "key": "entire-graph",
+                "ledger_file_sha256": "f915995d69e340a783f8371857d1beb138db8e6edc24dff8d866b0a0585318ef",
+                "ledger_sha256": "0832fd47b94e33f2c609259090bebce637b158a765be80763b1fea53837d3e9d",
+                "repository_id": "github.com/entireio/entire-graph",
+                "toolchain_sha256": "96bd70e985983f793551a884f247c8da1f576ea065127a2b76dcf0abcf806720"
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "raw_log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "raw_log_sha256",
+        "raw_log_byte_count",
+        "receipt_file_sha256"
+      ],
+      "properties": {
+        "raw_log_sha256": {
+          "$ref": "#/$defs/raw_sha256"
+        },
+        "raw_log_byte_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16777216
+        },
+        "receipt_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_ordinal",
+        "repository_key",
+        "repository_id",
+        "candidate_ref",
+        "first_parent_position",
+        "arm",
+        "repetition",
+        "observation_kind",
+        "status",
+        "exit_code",
+        "test_command_sha256",
+        "raw_log"
+      ],
+      "properties": {
+        "attempt_ordinal": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 248
+        },
+        "repository_key": {
+          "enum": [
+            "entire-brain",
+            "entire-db",
+            "entire-graph"
+          ]
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "candidate_ref": {
+          "$ref": "#/$defs/sha256"
+        },
+        "first_parent_position": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "arm": {
+          "enum": [
+            "baseline",
+            "first_parent_source_reversal"
+          ]
+        },
+        "repetition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "observation_kind": {
+          "const": "injected_attempt_result_unattested"
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "timeout"
+          ]
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "test_command_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "raw_log": {
+          "$ref": "#/$defs/raw_log"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "completed"
+            },
+            "exit_code": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            }
+          }
+        },
+        {
+          "properties": {
+            "status": {
+              "const": "timeout"
+            },
+            "exit_code": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "candidate_001": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "cc127c90ef845e15aeea70f527a646b7337556ac6b4e2635ea47d428bfbbf568"
+        },
+        "first_parent_position": {
+          "const": 1
+        }
+      }
+    },
+    "candidate_002": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "59914e6d451eaafb732f118209f240b049eaa95b3f2faa23d16f5f0324bc5d7d"
+        },
+        "first_parent_position": {
+          "const": 2
+        }
+      }
+    },
+    "candidate_003": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "fccedf2d7621fd51493f4e288affadc2f6b9ce06568f0c303d6573278867dcac"
+        },
+        "first_parent_position": {
+          "const": 5
+        }
+      }
+    },
+    "candidate_004": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "5799175bf76b09012a1154b39b9ae51d7f8d3b9fbb57a96f56bcf0046f4734e8"
+        },
+        "first_parent_position": {
+          "const": 9
+        }
+      }
+    },
+    "candidate_005": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "87503916c4a736f080189c650db2852b292c1d96b7fb6854ea69a0b77c39e6ed"
+        },
+        "first_parent_position": {
+          "const": 10
+        }
+      }
+    },
+    "candidate_006": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "ecb9ad31fde6171e7df5a8c7556a1b4e048717625c5218f58c18949b9af59e83"
+        },
+        "first_parent_position": {
+          "const": 14
+        }
+      }
+    },
+    "candidate_007": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "85f30173c78ff5a14c2f0ae485af418c4b348cbba350727d81732ba580fadd3c"
+        },
+        "first_parent_position": {
+          "const": 15
+        }
+      }
+    },
+    "candidate_008": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "27729530d05aaee6eff8523f657fa3f0a67ad459ba34e24947de1be411e5774f"
+        },
+        "first_parent_position": {
+          "const": 16
+        }
+      }
+    },
+    "candidate_009": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "70ed621e90ec13023626bd9bab5ca32ab995dade2b6545b3e45c88b4e6187077"
+        },
+        "first_parent_position": {
+          "const": 20
+        }
+      }
+    },
+    "candidate_010": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "863c2fab075ee64da4fe9e56a567dc6dbfe900b0d70651373409f3c9c02f3247"
+        },
+        "first_parent_position": {
+          "const": 21
+        }
+      }
+    },
+    "candidate_011": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "bcaf497f639777aac96726a294c393b85ebe9d9f1ae4215f6b8e8d39693e6d28"
+        },
+        "first_parent_position": {
+          "const": 22
+        }
+      }
+    },
+    "candidate_012": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "3f9c556c66a8af1fb4962439a89edd02e2008b09ac6b924bdc31d0ecea7bade3"
+        },
+        "first_parent_position": {
+          "const": 25
+        }
+      }
+    },
+    "candidate_013": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "e359b0c2929f1c8cbb79902e48859c5b2146b9ac0c2f1eba57f846c9d51b9855"
+        },
+        "first_parent_position": {
+          "const": 26
+        }
+      }
+    },
+    "candidate_014": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "5e16947e42d97812adfdd10d437fea263aa1e01f650ab68b034073605d78ab6a"
+        },
+        "first_parent_position": {
+          "const": 27
+        }
+      }
+    },
+    "candidate_015": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "6cb6763a4ca14c60d6bed42f74acec10637772e8409404e14fab12eb7773ece0"
+        },
+        "first_parent_position": {
+          "const": 28
+        }
+      }
+    },
+    "candidate_016": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "94aa94f82b5945815071d3863a873a1e6cdacb330264fc9c6f26f17e9f2c1a05"
+        },
+        "first_parent_position": {
+          "const": 29
+        }
+      }
+    },
+    "candidate_017": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "bb0f1b7429a89a2e6085703446ebeab085e4a62ef04afcdd372035b626fffc19"
+        },
+        "first_parent_position": {
+          "const": 30
+        }
+      }
+    },
+    "candidate_018": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-brain"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-brain"
+        },
+        "candidate_ref": {
+          "const": "1a927ffd0b0083ab7637c105002572968812abd3f9f58a958b2a14982c8af3b1"
+        },
+        "first_parent_position": {
+          "const": 31
+        }
+      }
+    },
+    "candidate_019": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "7cdc83288b11aa916c4fa41de495d47c9ff1c6c8ca8df3abe986f53ae28146c5"
+        },
+        "first_parent_position": {
+          "const": 1
+        }
+      }
+    },
+    "candidate_020": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "db4f1cc709ca39b0b3dc0660ec214a851e05e93ce0a09ac68e05a954d7746969"
+        },
+        "first_parent_position": {
+          "const": 2
+        }
+      }
+    },
+    "candidate_021": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "f7ad228e017206f6126138a96021315262ae23be9ffa25e87b7a33776950c056"
+        },
+        "first_parent_position": {
+          "const": 3
+        }
+      }
+    },
+    "candidate_022": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "b11f0e83a99e198b16f9968a6f0a76f185a56524ad836ec007101f1bfe3f9ca5"
+        },
+        "first_parent_position": {
+          "const": 4
+        }
+      }
+    },
+    "candidate_023": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "cad70d37a7152c83e4b074faed933dc1cf7785c78fa477f0b41913969c556901"
+        },
+        "first_parent_position": {
+          "const": 5
+        }
+      }
+    },
+    "candidate_024": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "19162ab4e863faf7d34f5b13cd722c33918cadfecfa0e5d2908dd1e8068878ba"
+        },
+        "first_parent_position": {
+          "const": 6
+        }
+      }
+    },
+    "candidate_025": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "c738d56c905f054e0327e197567ea927d014c23434d0d83dee037e1487fe1449"
+        },
+        "first_parent_position": {
+          "const": 8
+        }
+      }
+    },
+    "candidate_026": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "a7825cf80cd1421850cd1dc998def39b3baca3d59dff931707c4b6b22691e837"
+        },
+        "first_parent_position": {
+          "const": 9
+        }
+      }
+    },
+    "candidate_027": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "7c33f4ede81afc28fa9c168b2290caf1ee7cecfc724884341a75a4c4cc456bab"
+        },
+        "first_parent_position": {
+          "const": 10
+        }
+      }
+    },
+    "candidate_028": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "67c9295a3faf3783bed57ab4651ecedf62540329311cd170635014d5f29b1309"
+        },
+        "first_parent_position": {
+          "const": 11
+        }
+      }
+    },
+    "candidate_029": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "5899ac640077f5d70bcbc849774c870c0e2a670bea4c0a6fe37602f05884b617"
+        },
+        "first_parent_position": {
+          "const": 12
+        }
+      }
+    },
+    "candidate_030": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "e03a87ccf1dbe645d887d9a6f1ca29e238fca0132ee8159601310d0ae0327a18"
+        },
+        "first_parent_position": {
+          "const": 13
+        }
+      }
+    },
+    "candidate_031": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "f0d0bcdadd247b0bd61d1a034cd0f8ec93925460c6af8c6e4cc31339dbe50998"
+        },
+        "first_parent_position": {
+          "const": 14
+        }
+      }
+    },
+    "candidate_032": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "eed6b3647ff630ed90197b39f7f99e7aac4b68745ea36499970422eeaec9c75d"
+        },
+        "first_parent_position": {
+          "const": 15
+        }
+      }
+    },
+    "candidate_033": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "58a4376e46a40a1ed24b3f01819dfaefb939cfca8fee52ed0ade28a7fba3a2c9"
+        },
+        "first_parent_position": {
+          "const": 16
+        }
+      }
+    },
+    "candidate_034": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "8f0b09c29413ed83ec77729da7861198f285da0b08409c053ec5423c8943ddcc"
+        },
+        "first_parent_position": {
+          "const": 20
+        }
+      }
+    },
+    "candidate_035": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "8096bf628a5f19b6950f32a74673c83db15e2b2412a8aeec9179af0584718949"
+        },
+        "first_parent_position": {
+          "const": 22
+        }
+      }
+    },
+    "candidate_036": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "fa3d2458e4887b5d8e250a82f6410cde2a291d25bb1af0d38f3ccd1405fec9a5"
+        },
+        "first_parent_position": {
+          "const": 23
+        }
+      }
+    },
+    "candidate_037": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "b0e2818cf99338ebc96513b89227bf134c4f8676c2f88e2924557b97da290be3"
+        },
+        "first_parent_position": {
+          "const": 25
+        }
+      }
+    },
+    "candidate_038": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "7a927d95a2645fb1a48f3db9b202e17e060be724e53093f911b853a4dd84729d"
+        },
+        "first_parent_position": {
+          "const": 26
+        }
+      }
+    },
+    "candidate_039": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "e658c439d102b96fe12c07f884090c873d361aab81e99fa4a575562d165cd51a"
+        },
+        "first_parent_position": {
+          "const": 27
+        }
+      }
+    },
+    "candidate_040": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "84e57f2c1aec8c36167718a6eea06c7970a19652ac9330521f811e61350a1835"
+        },
+        "first_parent_position": {
+          "const": 28
+        }
+      }
+    },
+    "candidate_041": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "d311ba0779faa57f8e697b8363ee886b03c79a25d240b54d413b42afa9ccb2a1"
+        },
+        "first_parent_position": {
+          "const": 29
+        }
+      }
+    },
+    "candidate_042": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "a830d1eb19e408528f195d05bf502d56954cdc94d07a95c685e3d1b833b81226"
+        },
+        "first_parent_position": {
+          "const": 30
+        }
+      }
+    },
+    "candidate_043": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-db"
+        },
+        "repository_id": {
+          "const": "github.com/entirehq/entiredb"
+        },
+        "candidate_ref": {
+          "const": "61f1625fb36a510a75f0e134f4694a30f793260acc1d9ac61f01540cbe134988"
+        },
+        "first_parent_position": {
+          "const": 31
+        }
+      }
+    },
+    "candidate_044": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "e0b36ace4b7e50a92617f3704a1eb915e2b68d6f5c3c6db1acb83638bf7ecd67"
+        },
+        "first_parent_position": {
+          "const": 1
+        }
+      }
+    },
+    "candidate_045": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "3aab63bee0d8941176bd6263f3dc30cccce380e49aad13c68c76cb357b284827"
+        },
+        "first_parent_position": {
+          "const": 4
+        }
+      }
+    },
+    "candidate_046": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "5ecc958def390ce050519b2e0e1401b6ffd33847f5a518205f36855b9ff33683"
+        },
+        "first_parent_position": {
+          "const": 5
+        }
+      }
+    },
+    "candidate_047": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "3039a959d26e0dd50dad100431fd941849f9dff6cd5a07efc51ab208f9ba0258"
+        },
+        "first_parent_position": {
+          "const": 6
+        }
+      }
+    },
+    "candidate_048": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "39fbe1a77640796ae35a32b5aac7d3fea56897c1e57befd888350f12a4c4f06a"
+        },
+        "first_parent_position": {
+          "const": 7
+        }
+      }
+    },
+    "candidate_049": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "e61d03c15fe0fe31142bc123df3c49805ea64ab6da6bd0175fbdc8cda3ff7884"
+        },
+        "first_parent_position": {
+          "const": 9
+        }
+      }
+    },
+    "candidate_050": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "f5e7152f5e8dc6af9f9e89720cb918f7f778dd3e253aeae284bd2025def5b47d"
+        },
+        "first_parent_position": {
+          "const": 10
+        }
+      }
+    },
+    "candidate_051": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "9453d8b0a95687dfda6858bd3d8c679a5f274dcf918b9547ea202bee80bd54bc"
+        },
+        "first_parent_position": {
+          "const": 11
+        }
+      }
+    },
+    "candidate_052": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "c0b249994f168d0521c04e55113519fafc3c75cb992678855ce5c33511993286"
+        },
+        "first_parent_position": {
+          "const": 12
+        }
+      }
+    },
+    "candidate_053": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "9581e10ec5940cafdbd004bbdd71f217608d5f39cade150a135ab2d769653712"
+        },
+        "first_parent_position": {
+          "const": 13
+        }
+      }
+    },
+    "candidate_054": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "d14085022026881af158697b7af9cb4ef9c6d766daedb4fc6f941f61cc8612b5"
+        },
+        "first_parent_position": {
+          "const": 14
+        }
+      }
+    },
+    "candidate_055": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "8982c8045ed6bf4eb1322faef07a6b9f1704df66f60d96ad667a2c377bb802ff"
+        },
+        "first_parent_position": {
+          "const": 15
+        }
+      }
+    },
+    "candidate_056": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "dd7480efaa0b0fa6e2c3ce1e6e842260ed228fb8d8abe119deed804239d9dbc1"
+        },
+        "first_parent_position": {
+          "const": 18
+        }
+      }
+    },
+    "candidate_057": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "a7ce7c8b8b41f101707eb2f99a5ed8a3fcff80958a5dbac131c7c683db4fbbdd"
+        },
+        "first_parent_position": {
+          "const": 19
+        }
+      }
+    },
+    "candidate_058": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "9796ac99a58842f57346fed5132519983d0d95e3ca2d67272bd456a8114cf936"
+        },
+        "first_parent_position": {
+          "const": 20
+        }
+      }
+    },
+    "candidate_059": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "db0d9e9ef192aa72a4ee8934e8d89e48a56d6b93173e8fa3b4fd96b2e005cefb"
+        },
+        "first_parent_position": {
+          "const": 22
+        }
+      }
+    },
+    "candidate_060": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "64cd96ed962b899eba0f71c859f0d9b43e169d686a1fe6786c25c76bbd88bc17"
+        },
+        "first_parent_position": {
+          "const": 23
+        }
+      }
+    },
+    "candidate_061": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "cd8192008a0167e6b797eadcd723738b775e22013a577f1e653158cc3daa54d3"
+        },
+        "first_parent_position": {
+          "const": 24
+        }
+      }
+    },
+    "candidate_062": {
+      "properties": {
+        "repository_key": {
+          "const": "entire-graph"
+        },
+        "repository_id": {
+          "const": "github.com/entireio/entire-graph"
+        },
+        "candidate_ref": {
+          "const": "34c32ff7115e361af6f2aea0e4035186dac66e82e24b8695663a4e8127fd59f9"
+        },
+        "first_parent_position": {
+          "const": 25
+        }
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "minItems": 248,
+      "maxItems": 248,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_001"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 1
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_001"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 2
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_001"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 3
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_001"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 4
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_002"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 5
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_002"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 6
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_002"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 7
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_002"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 8
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_003"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 9
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_003"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 10
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_003"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 11
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_003"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 12
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_004"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 13
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_004"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 14
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_004"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 15
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_004"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 16
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_005"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 17
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_005"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 18
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_005"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 19
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_005"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 20
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_006"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 21
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_006"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 22
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_006"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 23
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_006"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 24
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_007"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 25
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_007"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 26
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_007"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 27
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_007"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 28
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_008"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 29
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_008"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 30
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_008"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 31
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_008"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 32
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_009"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 33
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_009"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 34
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_009"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 35
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_009"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 36
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_010"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 37
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_010"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 38
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_010"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 39
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_010"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 40
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_011"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 41
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_011"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 42
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_011"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 43
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_011"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 44
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_012"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 45
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_012"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 46
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_012"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 47
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_012"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 48
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_013"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 49
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_013"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 50
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_013"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 51
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_013"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 52
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_014"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 53
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_014"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 54
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_014"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 55
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_014"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 56
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_015"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 57
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_015"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 58
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_015"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 59
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_015"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 60
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_016"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 61
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_016"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 62
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_016"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 63
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_016"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 64
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_017"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 65
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_017"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 66
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_017"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 67
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_017"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 68
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_018"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 69
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_018"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 70
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_018"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 71
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_018"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 72
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_019"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 73
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_019"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 74
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_019"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 75
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_019"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 76
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_020"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 77
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_020"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 78
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_020"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 79
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_020"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 80
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_021"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 81
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_021"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 82
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_021"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 83
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_021"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 84
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_022"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 85
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_022"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 86
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_022"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 87
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_022"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 88
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_023"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 89
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_023"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 90
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_023"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 91
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_023"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 92
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_024"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 93
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_024"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 94
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_024"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 95
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_024"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 96
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_025"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 97
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_025"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 98
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_025"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 99
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_025"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 100
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_026"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 101
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_026"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 102
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_026"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 103
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_026"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 104
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_027"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 105
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_027"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 106
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_027"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 107
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_027"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 108
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_028"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 109
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_028"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 110
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_028"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 111
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_028"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 112
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_029"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 113
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_029"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 114
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_029"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 115
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_029"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 116
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_030"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 117
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_030"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 118
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_030"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 119
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_030"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 120
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_031"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 121
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_031"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 122
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_031"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 123
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_031"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 124
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_032"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 125
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_032"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 126
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_032"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 127
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_032"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 128
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_033"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 129
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_033"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 130
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_033"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 131
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_033"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 132
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_034"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 133
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_034"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 134
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_034"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 135
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_034"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 136
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_035"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 137
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_035"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 138
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_035"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 139
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_035"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 140
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_036"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 141
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_036"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 142
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_036"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 143
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_036"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 144
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_037"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 145
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_037"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 146
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_037"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 147
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_037"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 148
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_038"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 149
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_038"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 150
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_038"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 151
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_038"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 152
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_039"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 153
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_039"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 154
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_039"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 155
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_039"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 156
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_040"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 157
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_040"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 158
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_040"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 159
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_040"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 160
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_041"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 161
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_041"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 162
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_041"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 163
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_041"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 164
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_042"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 165
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_042"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 166
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_042"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 167
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_042"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 168
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_043"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 169
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_043"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 170
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_043"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 171
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_043"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 172
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_044"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 173
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_044"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 174
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_044"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 175
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_044"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 176
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_045"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 177
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_045"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 178
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_045"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 179
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_045"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 180
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_046"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 181
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_046"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 182
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_046"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 183
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_046"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 184
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_047"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 185
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_047"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 186
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_047"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 187
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_047"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 188
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_048"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 189
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_048"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 190
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_048"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 191
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_048"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 192
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_049"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 193
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_049"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 194
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_049"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 195
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_049"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 196
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_050"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 197
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_050"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 198
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_050"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 199
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_050"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 200
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_051"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 201
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_051"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 202
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_051"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 203
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_051"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 204
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_052"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 205
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_052"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 206
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_052"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 207
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_052"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 208
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_053"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 209
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_053"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 210
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_053"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 211
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_053"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 212
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_054"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 213
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_054"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 214
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_054"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 215
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_054"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 216
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_055"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 217
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_055"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 218
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_055"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 219
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_055"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 220
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_056"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 221
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_056"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 222
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_056"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 223
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_056"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 224
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_057"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 225
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_057"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 226
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_057"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 227
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_057"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 228
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_058"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 229
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_058"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 230
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_058"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 231
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_058"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 232
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_059"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 233
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_059"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 234
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_059"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 235
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_059"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 236
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_060"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 237
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_060"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 238
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_060"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 239
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_060"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 240
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_061"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 241
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_061"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 242
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_061"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 243
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_061"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 244
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_062"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 245
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_062"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 246
+                },
+                "arm": {
+                  "const": "baseline"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_062"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 247
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/attempt"
+            },
+            {
+              "$ref": "#/$defs/candidate_062"
+            },
+            {
+              "properties": {
+                "attempt_ordinal": {
+                  "const": 248
+                },
+                "arm": {
+                  "const": "first_parent_source_reversal"
+                },
+                "repetition": {
+                  "const": 2
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "outcome_count": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "failed",
+        "passed",
+        "timeout"
+      ],
+      "properties": {
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 124
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 124
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 124
+        }
+      }
+    },
+    "outcome_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline",
+        "first_parent_source_reversal"
+      ],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/outcome_count"
+        },
+        "first_parent_source_reversal": {
+          "$ref": "#/$defs/outcome_count"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_sha256",
+        "plan_file_sha256",
+        "gate_manifest_sha256",
+        "gate_manifest_file_sha256",
+        "gate_receipt_sha256",
+        "gate_receipt_file_sha256",
+        "toolchain_bindings_sha256",
+        "private_log_receipt_schema_file_sha256",
+        "private_log_writer_sha256"
+      ],
+      "properties": {
+        "plan_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "plan_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gate_manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gate_manifest_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gate_receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "gate_receipt_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "toolchain_bindings_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "private_log_receipt_schema_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "private_log_writer_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt_count",
+        "candidate_count",
+        "repository_count",
+        "outcome_counts",
+        "raw_log_attempt_byte_count",
+        "raw_log_unique_byte_count",
+        "raw_log_unique_count"
+      ],
+      "properties": {
+        "attempt_count": {
+          "const": 248
+        },
+        "candidate_count": {
+          "const": 62
+        },
+        "repository_count": {
+          "const": 3
+        },
+        "outcome_counts": {
+          "$ref": "#/$defs/outcome_counts"
+        },
+        "raw_log_attempt_byte_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4160749568
+        },
+        "raw_log_unique_byte_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483648
+        },
+        "raw_log_unique_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 248
+        }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "status",
+    "exposure",
+    "authority",
+    "inputs",
+    "implementation",
+    "protocol",
+    "repository_bindings",
+    "attempts",
+    "summary",
+    "attempts_sha256",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_attempt_observations_v1"
+    },
+    "status": {
+      "const": "injected_attempt_observations_unattested_execution_forbidden"
+    },
+    "exposure": {
+      "const": "permanent_development_only_identity_inspected"
+    },
+    "authority": {
+      "$ref": "#/$defs/authority"
+    },
+    "inputs": {
+      "$ref": "#/$defs/inputs"
+    },
+    "implementation": {
+      "$ref": "#/$defs/implementation"
+    },
+    "protocol": {
+      "$ref": "#/$defs/protocol"
+    },
+    "repository_bindings": {
+      "$ref": "#/$defs/repository_bindings"
+    },
+    "attempts": {
+      "$ref": "#/$defs/attempts"
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "attempts_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  }
+}

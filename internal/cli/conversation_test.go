@@ -709,6 +709,7 @@ func TestConversationCanaryStaysInsideHistoricalEvidenceWrapper(t *testing.T) {
 
 func TestConversationScanCachePreservesExchangesAndIncompleteCounts(t *testing.T) {
 	brainDir, source := buildConversationBrainFixture(t, "sess-1")
+	before := conversationRecordsFromIndex(t, brainDir, source)
 	cache := loadHistoryScanCache(brainDir)
 	if len(cache.Files) != 1 {
 		t.Fatalf("cached files = %d", len(cache.Files))
@@ -721,8 +722,8 @@ func TestConversationScanCachePreservesExchangesAndIncompleteCounts(t *testing.T
 		for _, record := range entry.Records {
 			if record.Kind == conversationKind {
 				exchanges++
-				if record.ID == "" {
-					t.Fatal("cached exchange must carry its annotated id")
+				if record.ID != "" || record.SessionID != "" {
+					t.Fatalf("cached exchange retained manifest-derived identity: %+v", record)
 				}
 			}
 		}
@@ -737,6 +738,27 @@ func TestConversationScanCachePreservesExchangesAndIncompleteCounts(t *testing.T
 	}
 	if source2.Exchanges != source.Exchanges || source2.IncompleteExchanges != source.IncompleteExchanges {
 		t.Fatalf("cache-reuse counts drifted: %+v vs %+v", source2, source)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Sources.Sessions.Sessions[0].SessionID = "sess-2"
+	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+		t.Fatal(err)
+	}
+	source3, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := conversationRecordsFromIndex(t, brainDir, source3)
+	if len(after) != len(before) {
+		t.Fatalf("manifest-only cache rebuild changed exchange count: %d vs %d", len(after), len(before))
+	}
+	for i := range after {
+		if after[i].SessionID != "sess-2" || after[i].ID == before[i].ID {
+			t.Fatalf("cache reuse did not reapply current manifest identity: before=%+v after=%+v", before[i], after[i])
+		}
 	}
 }
 

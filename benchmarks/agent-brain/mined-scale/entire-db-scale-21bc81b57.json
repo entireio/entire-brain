@@ -1,0 +1,40 @@
+{
+  "id": "entire-db-scale-21bc81b57",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The endpoint that exchanges an internally-issued token for a user's GitHub access credential accepts any validly-signed token for that account. That means a read-only or otherwise low-privilege token can be redeemed for the user's full GitHub credential, a privilege escalation. Restrict the exchange to only the credential shape that legitimately needs it, without breaking the one existing caller that already holds a write-capable token. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-21bc81b57.patch",
+  "validation": [
+    "go test ./core/api -run 'TestSTS_GitHubAccessToken_RejectsNonPushSubject'"
+  ],
+  "expected_files": [
+    "core/api/sts_token.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "github access token exchange subject scope",
+    "why does github-access-token STS skip audience check",
+    "mirror push token scope credential",
+    "STS confused deputy github credential upgrade",
+    "repo scoped token redeem github oauth"
+  ],
+  "_mined_from_commit": "21bc81b57f8ff3b176dcfbbb6ab532b151c82042",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "fix(core): gate github-access-token STS on repo push scope (COR-374) (#1837)",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/negative-control-owner-approval-trust-roots-v1.json",
+  "title": "Negative-control owner-approval SSHSIG trust roots v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "canonical_json_profile",
+    "profile",
+    "roots",
+    "schema_version",
+    "signature_namespace",
+    "status",
+    "trust_roots_sha256"
+  ],
+  "properties": {
+    "canonical_json_profile": {
+      "const": "sorted_keys_indent_2_utf8_lf_v1"
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_owner_approval_trust_roots_v1"
+    },
+    "roots": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key_type",
+          "not_after",
+          "not_before",
+          "principal",
+          "public_key_base64",
+          "public_key_sha256",
+          "purpose",
+          "revoked_at",
+          "root_id",
+          "status"
+        ],
+        "properties": {
+          "key_type": {
+            "const": "ssh-ed25519"
+          },
+          "not_after": {
+            "$ref": "#/$defs/utc_second"
+          },
+          "not_before": {
+            "$ref": "#/$defs/utc_second"
+          },
+          "principal": {
+            "type": "string",
+            "pattern": "^entire-brain-negative-control-owner-[a-z0-9][a-z0-9._-]{0,63}$"
+          },
+          "public_key_base64": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          },
+          "public_key_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "purpose": {
+            "const": "negative_control_execution_approval_v1"
+          },
+          "revoked_at": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/utc_second"
+              }
+            ]
+          },
+          "root_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "revoked"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "active"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "revoked_at": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "revoked_at": {
+                  "$ref": "#/$defs/utc_second"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "signature_namespace": {
+      "const": "entire-brain-negative-control-approval-v1"
+    },
+    "status": {
+      "enum": [
+        "approved",
+        "pending_owner_authorization"
+      ]
+    },
+    "trust_roots_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pending_owner_authorization"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "roots": {
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "roots": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "utc_second": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    }
+  }
+}

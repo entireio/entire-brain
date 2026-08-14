@@ -94,7 +94,7 @@ adherence-valid, and the true signal (memory helps) appears.
 
 ```
 # harness-delivery variant: task with memory_delivery: harness + packet.min_results
-AGENT_BENCH_REPO_ROOT=/Users/thomi/Projects python3 run.py run \
+AGENT_BENCH_REPO_ROOT=/path/to/repos python3 run.py run \
   --tasks tasks/temporal-memory-default-fact-merge-confidence-harness.json \
   --agents claude:sonnet:high \
   --conditions no_brain,raw_history,facts_only,history_facts \

@@ -1,0 +1,53 @@
+{
+  "id": "entire-cli-c0701-c67d74e6c",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "d4820c716acba075eef80fa8b7a5e887fcb13fc5",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "In multi-field forms, inactive (blurred) fields, such as the pickers in review --edit, render titles and unselected options with pinned base16 colors and can't invert with the terminal background, because the theme only cleared the foreground on the focused variants. Clear the foreground on the blurred title and unselected-option variants too so inactive-field text inherits the terminal default.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/uiform/uiform_test.go",
+      "content": "package uiform\n\nimport (\n\t\"testing\"\n\n\t\"charm.land/lipgloss/v2\"\n)\n\n// TestTheme_BlurredTitlesInheritTerminalForeground guards against the theme\n// pinning base16 foreground colors on blurred (inactive) fields. ThemeBase16\n// copies Focused into Blurred wholesale, so clearing only the Focused variants\n// leaves inactive fields in multi-field forms with pinned colors that can't\n// invert with the terminal background.\nfunc TestTheme_BlurredTitlesInheritTerminalForeground(t *testing.T) {\n\tt.Parallel()\n\n\tfor _, isDark := range []bool{true, false} {\n\t\ts := Theme().Theme(isDark)\n\n\t\tunset := map[string]lipgloss.Style{\n\t\t\t\"Blurred.Title\":            s.Blurred.Title,\n\t\t\t\"Blurred.UnselectedOption\": s.Blurred.UnselectedOption,\n\t\t\t\"Focused.Title\":            s.Focused.Title,\n\t\t\t\"Focused.UnselectedOption\": s.Focused.UnselectedOption,\n\t\t\t\"Group.Title\":              s.Group.Title,\n\t\t}\n\t\tfor name, style := range unset {\n\t\t\tif _, ok := style.GetForeground().(lipgloss.NoColor); !ok {\n\t\t\t\tt.Errorf(\"isDark=%v: %s pins foreground %v, want unset so it inherits the terminal default\",\n\t\t\t\t\tisDark, name, style.GetForeground())\n\t\t\t}\n\t\t}\n\t}\n}\n"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/uiform -run '^(TestTheme_BlurredTitlesInheritTerminalForeground)$'"
+  ],
+  "leak_markers": [
+    "TestTheme_BlurredTitlesInheritTerminalForeground"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/uiform/uiform.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "blurred form fields are pinned to base16 colors",
+    "the theme clears the foreground only on focused, not blurred, variants",
+    "inactive field text should inherit the terminal foreground",
+    "review --edit picker colors don't invert with the background"
+  ],
+  "prepare_semantic": false,
+  "_mined_from_commit": "c67d74e6c0a7ab997357c26a6bac195ff695e500",
+  "_flavor": "recall-decision",
+  "_subject": "uiform: clear foreground on blurred titles/options too",
+  "_negctl": "red_at_parent_base",
+  "_apply_mode": "test_only_forward",
+  "_split": "dev",
+  "memory_delivery": "frozen_brief",
+  "rolling_cutoff_rfc3339": "2026-07-02T12:15:34-07:00",
+  "exclude_session_ids": [
+    "8027fc39-6b44-40d4-9040-981887f4786c"
+  ],
+  "frozen_session_dates_path": "$AGENT_BENCH_FROZEN_SESSION_DATES",
+  "_rolling_cutoff_confidence": "high (entire checkpoint explain resolved fix session directly)"
+}

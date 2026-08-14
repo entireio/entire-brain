@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/negative-control-owner-approval-envelope-v1.json",
+  "title": "Negative-control owner-approval SSHSIG envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "approval_sha256",
+    "profile",
+    "proof",
+    "schema_version",
+    "statement"
+  ],
+  "properties": {
+    "approval_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_owner_approval_envelope_v1"
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scheme",
+        "signature_armor",
+        "signed_payload_sha256"
+      ],
+      "properties": {
+        "scheme": {
+          "const": "sshsig_ed25519_sha512_v1"
+        },
+        "signature_armor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "pattern": "^-----BEGIN SSH SIGNATURE-----\\n[A-Za-z0-9+/=\\n]+\\n-----END SSH SIGNATURE-----$"
+        },
+        "signed_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "approval_effect",
+        "approval_id",
+        "approval_scope",
+        "execution_contract",
+        "execution_status_after_verification",
+        "expires_at",
+        "issued_at",
+        "not_before",
+        "profile",
+        "prohibitions",
+        "protocol",
+        "run_identity",
+        "run_identity_sha256",
+        "schema_version",
+        "signature_namespace",
+        "signature_scheme",
+        "signer_principal",
+        "signer_public_key_sha256",
+        "single_use",
+        "trust_root_id",
+        "verifier_contract"
+      ],
+      "properties": {
+        "action": {
+          "const": "approve_exact_development_negative_control_run_subject_to_all_residual_gates_and_atomic_consumption"
+        },
+        "approval_effect": {
+          "const": {
+            "execution_status_after_verification": "forbidden_missing_remaining_gates_and_atomic_approval_consumption",
+            "remaining_gates": [
+              "actual_approved_offline_cache_seed_archive_and_authorized_binding",
+              "safe_archive_traversal_type_link_device_and_content_verifier",
+              "trusted_apfs_observer_and_atomic_capacity_reservation",
+              "clean_detached_worktree_executor_and_first_parent_reversal_proof",
+              "attested_attempt_producer_and_classifier_integration",
+              "private_log_executor_integration_retention_and_aggregate_accounting",
+              "fail_closed_cleanup_interruption_attestation_and_no_receipt_guarantee",
+              "atomic_single_use_approval_consumption_and_execution_binding"
+            ],
+            "satisfies_only_after_verification": [
+              "owner_execution_approval_receipt_and_trust_mechanism"
+            ],
+            "signature_verification_alone": "not_execution_authority"
+          }
+        },
+        "approval_id": {
+          "$ref": "#/$defs/sha256"
+        },
+        "approval_scope": {
+          "const": "exact_e0_contract_one_development_run_v1"
+        },
+        "execution_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_file",
+            "artifact_sha256",
+            "attempt_count",
+            "authority_sha256",
+            "builder_sha256",
+            "candidate_bindings_sha256",
+            "candidate_count",
+            "contract_sha256",
+            "enforcement_requirements_sha256",
+            "execution_status",
+            "profile",
+            "protocol_sha256",
+            "residual_gates_sha256",
+            "runtime_bindings_sha256",
+            "schedule_sha256",
+            "schema_version",
+            "schema_sha256",
+            "source_commit",
+            "state_machine_sha256",
+            "status"
+          ],
+          "properties": {
+            "artifact_file": {
+              "const": "development-task-negative-control-execution-contract-v1.json"
+            },
+            "artifact_sha256": {
+              "const": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e"
+            },
+            "attempt_count": {
+              "const": 248
+            },
+            "authority_sha256": {
+              "const": "422d6742432af499f9aec5e6b7ecc9d86ac0cf901e2accd0fedb611c580176de"
+            },
+            "builder_sha256": {
+              "const": "f3cfb82978b0ce98d17999ef4cb4f4089a425bb528ece4ff53b61a03a4344bcd"
+            },
+            "candidate_bindings_sha256": {
+              "const": "4fbde9876d4c91e9cedcf994de9cecd5442beee928c1cadc505116a25c2bef60"
+            },
+            "candidate_count": {
+              "const": 62
+            },
+            "contract_sha256": {
+              "const": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef"
+            },
+            "enforcement_requirements_sha256": {
+              "const": "c23f32b102077254ef4eae322faa12101e3e24d688808ebf6bca31cf128185e2"
+            },
+            "execution_status": {
+              "const": "forbidden_missing_all_residual_gates_and_audited_execution_adapter"
+            },
+            "profile": {
+              "const": "agent_brain_negative_control_execution_contract_v1"
+            },
+            "protocol_sha256": {
+              "const": "3e5cef5c19836b61f5739347f4d0db25564b859cd26fc6c5761f81072b2f3f01"
+            },
+            "residual_gates_sha256": {
+              "const": "650f570c5fe096626381171dd6d9d2f0ca77c4a6c13e6994c783ee3a82d5cb91"
+            },
+            "runtime_bindings_sha256": {
+              "const": "938f7a76faf1d0a3490db06fbb5ac5b1100f2967a24b0bc846ce40c3c762b634"
+            },
+            "schedule_sha256": {
+              "const": "c818e8ad87f4d6ff5fac8839f4296fd86da13eaf95dadf8b2c789c7254bfdbcd"
+            },
+            "schema_version": {
+              "const": 1
+            },
+            "schema_sha256": {
+              "const": "dbcb95119feeda4c436e90d8162ac0498577454ca9ccaab7a8254d55d90359f9"
+            },
+            "source_commit": {
+              "const": "f0552070921605cd9a0165ee29ca96e100675d58"
+            },
+            "state_machine_sha256": {
+              "const": "31015d9150afaf6c73cbea84dc647039449cc5bfc498ac0efedddfabad271207"
+            },
+            "status": {
+              "const": "contract_compiled_execution_forbidden"
+            }
+          }
+        },
+        "execution_status_after_verification": {
+          "const": "forbidden_missing_remaining_gates_and_atomic_approval_consumption"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/utc_second"
+        },
+        "issued_at": {
+          "$ref": "#/$defs/utc_second"
+        },
+        "not_before": {
+          "$ref": "#/$defs/utc_second"
+        },
+        "profile": {
+          "const": "agent_brain_negative_control_owner_approval_statement_v1"
+        },
+        "prohibitions": {
+          "const": [
+            "model_provider_execution",
+            "paid_execution",
+            "holdout_access",
+            "population_assignment",
+            "candidate_or_schedule_outside_exact_contract",
+            "retry_replacement_or_schedule_mutation",
+            "execution_before_all_residual_gates_and_atomic_consumption"
+          ]
+        },
+        "protocol": {
+          "const": {
+            "arm_order": [
+              "baseline",
+              "first_parent_source_reversal"
+            ],
+            "max_concurrency": 1,
+            "max_total_wall_seconds": 28800,
+            "outer_timeout_seconds_per_arm": 600,
+            "repetitions_per_arm": 2,
+            "repository_order": [
+              "entire-brain",
+              "entire-db",
+              "entire-graph"
+            ]
+          }
+        },
+        "run_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attempt_count",
+            "candidate_bindings_sha256",
+            "candidate_count",
+            "repository_count",
+            "run_id",
+            "run_nonce_sha256",
+            "schedule_sha256"
+          ],
+          "properties": {
+            "attempt_count": {
+              "const": 248
+            },
+            "candidate_bindings_sha256": {
+              "const": "4fbde9876d4c91e9cedcf994de9cecd5442beee928c1cadc505116a25c2bef60"
+            },
+            "candidate_count": {
+              "const": 62
+            },
+            "repository_count": {
+              "const": 3
+            },
+            "run_id": {
+              "$ref": "#/$defs/sha256"
+            },
+            "run_nonce_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "schedule_sha256": {
+              "const": "c818e8ad87f4d6ff5fac8839f4296fd86da13eaf95dadf8b2c789c7254bfdbcd"
+            }
+          }
+        },
+        "run_identity_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "signature_namespace": {
+          "const": "entire-brain-negative-control-approval-v1"
+        },
+        "signature_scheme": {
+          "const": "sshsig_ed25519_sha512_v1"
+        },
+        "signer_principal": {
+          "$ref": "#/$defs/principal"
+        },
+        "signer_public_key_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "single_use": {
+          "const": {
+            "consumption_key": "approval_sha256_and_signed_payload_sha256",
+            "consumption_mode": "external_atomic_compare_and_set_required_not_implemented",
+            "max_consumptions": 1,
+            "receipt_binding": "approval_raw_sha256_signed_payload_sha256_run_identity_sha256_and_exact_contract_sha256",
+            "reuse": "forbidden",
+            "validity_check": "required_at_atomic_consumption_before_any_external_effect"
+          }
+        },
+        "trust_root_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "verifier_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_file",
+            "artifact_sha256",
+            "profile",
+            "status",
+            "verifier_contract_sha256"
+          ],
+          "properties": {
+            "artifact_file": {
+              "const": "negative-control-owner-approval-verifier-contract-v1.json"
+            },
+            "artifact_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "profile": {
+              "const": "agent_brain_negative_control_owner_approval_verifier_contract_v1"
+            },
+            "status": {
+              "const": "verifier_compiled_trust_root_approved_execution_forbidden"
+            },
+            "verifier_contract_sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+    },
+    "principal": {
+      "type": "string",
+      "pattern": "^entire-brain-negative-control-owner-[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "utc_second": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    }
+  }
+}

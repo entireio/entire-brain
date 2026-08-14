@@ -1,0 +1,40 @@
+{
+  "id": "entire-cli-scale-c692947fb",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "After a commit, per-agent information such as token usage is missing from the generated session metadata for sessions run by externally installed agents. The data that should be recorded during post-commit processing comes back empty for these agents even though it is present for built-in ones. Make the agent-specific data resolve correctly during git hook processing. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-c692947fb.patch",
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestHooksGitCmd_DiscoverExternalAgents_WhenEnabled'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/hooks_git_cmd.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "external agent discovery registration hook",
+    "GetByAgentType resolve condensation",
+    "metadata token usage missing agent",
+    "post-commit agent data empty",
+    "register external agents pre-run"
+  ],
+  "_mined_from_commit": "c692947fbe8a2b951d7621dd1216b16145552d42",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "fix: discover external agent plugins before hook execution Ensure external agent plugins are discovered and registered during the git hook pre-run phase, so GetByAgentType resolves correctly during condensation (e.g. post-commit). Without this, token usage and other agent-specific data would be missing from metadata.json.",
+  "copy_checkpoint_ref_from_source": true
+}

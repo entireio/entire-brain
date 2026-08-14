@@ -1,0 +1,829 @@
+{
+  "confirmatory_eligible": false,
+  "corpus_sha256": "f5eb02117606a1286f2c2cca718716a81248c5b9bc6cbda05b0b1b4bfb3a2755",
+  "evidence_role": "development_only_brief_latency_and_packet_profile",
+  "quality_eligible": false,
+  "schema_version": 1,
+  "selection": {
+    "dedupe_key": "logical_repo+prompt_sha256",
+    "dedupe_resolution": "lexicographically_first_checked_in_relative_path",
+    "deduplicated_task_count": 114,
+    "duplicates_removed": 5,
+    "mined_scale_scope": [
+      "entire-cli-scale-*.json",
+      "entire-db-scale-*.json"
+    ],
+    "source_count_by_repo": {
+      "entire-brain": 27,
+      "entire-cli": 71,
+      "entire-db": 21
+    },
+    "source_file_count": 119,
+    "tasks_scope": "tasks/*.json where repo is entire-brain or entire-cli",
+    "unique_count_by_repo": {
+      "entire-brain": 25,
+      "entire-cli": 68,
+      "entire-db": 21
+    }
+  },
+  "tasks": [
+    {
+      "config_sha256": "577a7d33c9f15a149cad5a67c2f6d0e49b7f3fbf07dfd56a1e1705a3782af844",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "c1726e8635e0001b1e1b2a2b7025e5c5c40c262023f63d6133f24c09954f81a1",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+      "task_sha256": "3e3378ba4625ac1fd5b0b78bf31b3d690ab2b9f4a698e9aa4e1ba8a3d8e5d088"
+    },
+    {
+      "config_sha256": "7a2f07dea20fe105d9612fc991fecc006f550d08ae69e6b8ed2b64853ee9972d",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "22335a8577458fd2a2d0102bebc3da67cf5144176081b07d640db190300a837e",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+      "task_sha256": "dc7a532ca88b242155a3dd5a145ea3348e12a1b43194eaa20bafd0f8acd13342"
+    },
+    {
+      "config_sha256": "b3da2b7d9f32b80535a71206c19ac8f52ef93687cf9a2a977c5908efa84c3540",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "b547cfef39bcfa95732dc6d5e973ae3e77a9295be0afd53a7fadbd728465844c",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-clean-order-distill-cache-after-success.json",
+      "task_sha256": "cb0eeb5984c6c17c923821f5dcea2b7be2a770c32101409847598568011ae38b"
+    },
+    {
+      "config_sha256": "0d93816611af7fbc5723c0fd22f636ee4dffaf5922408427b52b91e7b37d278e",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "3a1f99fa42046c577553655fa79f0dcf783f312e0349ee78e7a86a7e7e75e34b",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-clean-value-hook-post-failure-min-score.json",
+      "task_sha256": "35f5b4158a30f63fce14db9a2006a242145f43e29569ffaa71ed342380a78422"
+    },
+    {
+      "config_sha256": "fd02c649a0928783463be48b0cacf2bff5eff275cda058206395cc7d47bd3344",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "86933707fdc8e7238555a09ce3409c8b0739fc8c0a20a6dcf37c08eec7c78cb2",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-history-bundle-sha256.json",
+      "task_sha256": "14aa8ec8d02b0ab6c429833c1222b5a47a257b898631466242017bf850df4325"
+    },
+    {
+      "config_sha256": "6d94303b75aebd9ed08712c06f47d23adc9f6a89e08477abff836fa2319944ef",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "10a76fc036d791f8fc5bf3b4961d0c7b1b8e2c71347ee266a315d0c9d7df3562",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-history-claude-bare-auth.json",
+      "task_sha256": "b592ad48722d0b01c11d67632ec03f9b13c51552a122763f2cff0a3d725cf6b2"
+    },
+    {
+      "config_sha256": "8350ceb0be11719e062a72812702beac34bb7a8872b1147091b753786f9ea81a",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "7f7659cdb9b15208d236d6d477af6424fd2688a85b84ad0c2b162514412a2137",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-history-claude-seed-agent.json",
+      "task_sha256": "99dd7eafa8c227e2409344c6723b9a67c0220305b790f0367cc95373f31cfc68"
+    },
+    {
+      "config_sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "48472c527610aac88b4549d93c5c051a8e9e2f7f4f46e71b0e2db06519dc9e57",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+      "task_sha256": "a3c5dcb4e53a06cb3ea6d4f2bbc5880f8256592b6046c32aa855e118fed87987"
+    },
+    {
+      "config_sha256": "5ed753ca9276231f196ba336087aaea95a856b4e984ac966491264d49383eff4",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "6e3d18f2f97bedefcbbbffc3623b7dd6bd636f481b1572d0abcf8f679a1721c6",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json",
+      "task_sha256": "d33b2270d768afd801cb7092ef5527e201a6e622f399b25281ddcb7ed2861ebd"
+    },
+    {
+      "config_sha256": "4ee193688390fd4c4af779b7c2c24094762e01b85cc80a2072815f663960d139",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "ba02d98636b449ef64d75a1e433458a08adbb821ae826dab9a7282e2e97cf49d",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-mcp-tool-name.json",
+      "task_sha256": "6c32ae1eeb9b1ce8205780709086d35a139a90fb44f91a6804e8847747757219"
+    },
+    {
+      "config_sha256": "56b33b48949110078812faf68bfb29113f9faa605c0eefe99c2a55d756bd808e",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "ff718454fb93fbbcb91b208a97a129b12f76a0d98919888682f2044ec1014801",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json",
+      "task_sha256": "560f79ad17358d778426a112bbe7ce09bbdbaf282ae90c4f1ea7d3a18e330ac7"
+    },
+    {
+      "config_sha256": "6b3ca36efbae06876522027637c4247e0a3812cc3774d8860f9fa0495cf95d32",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "cd675823a2be9052d68f285e2685f29e184d3e948ccc05a3cc54d34d74cbf915",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-semantic-audit-gate-report.json",
+      "task_sha256": "3fb8acfe8e4b78a235275c25ba82e09f5a981891ee632bf4f4f3e1b1119407d4"
+    },
+    {
+      "config_sha256": "be6d4683a7be61e19ccb395ca9f63bdaf8b9f746a54367c8c58c24d27adaac81",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "ae4573d7655f865f682f0c91b9bd60fdf886eb56bfcb7118da021cb69ecf1857",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-semantic-completeness-tolerance.json",
+      "task_sha256": "b00f0b3d3ccd1f975de384d7803aa1e2f82a5fef59eef998cbfda6695da8ec85"
+    },
+    {
+      "config_sha256": "f4866f60f685c03fc3fe712cdf2df9130ee70cc93f116dde9e62a2142e5368e2",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "e774c6e8f30b25d3b2aad3d8a465da6f3a81b68b7479b30980cebbb23d74fe4a",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-semantic-tokenized-idf-ranking.json",
+      "task_sha256": "b2cc2bdcec2c02dec862fc835bf9ba69fd86afc5d5d40b9de0db7deab531b7d0"
+    },
+    {
+      "config_sha256": "9f1d4b976d70b54bbc6b15d2a555befbd7a04b927e6abc7ecf012571f80d5db1",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "60f64f1dffb4e5568d0b3f1363daef332d6d7b6d1a72441488aa1e4e0493ad64",
+      "source_path": "benchmarks/agent-brain/tasks/entire-brain-stale-query-default-limit.json",
+      "task_sha256": "e310848b0915ec5332ade9c04b48d4f7479a941d278be316d6b1ec58fb8bd809"
+    },
+    {
+      "config_sha256": "214743889cac814967e80a3fa27eb104002ba8ddd2f61a74342980112b213915",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "7302219d6210ddadc8b9a7961236fd42c3eeb0c5135fec892ad3973a42d89cfd",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-bundle-sha256.json",
+      "task_sha256": "9aa7748708121d8034e1b165d7a2a50722040670dc3f156f6bd747c5ffe35eb4"
+    },
+    {
+      "config_sha256": "d7c898ef220e67aa00d67d810ebf3ab5d35651a4a51634f72fbbd42742c2ec71",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "88a1443e7abd31738908cfafa1c8f8ba9c48d37ccd028d0f6e868acb8cad6eab",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-bare-auth.json",
+      "task_sha256": "19850eaeacd752d0c88047c7d0a2ae3f17620516639b88c775102adac55b7c62"
+    },
+    {
+      "config_sha256": "8db05ba8f9730fe7e7282e3246190dd6e356db14bff1f7a2e591a495ee3f10b8",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "75cfbeaa5c19241d9f8e3880f712423f558aade1c70c4cd82d725c42cf2c3a37",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-seed-agent.json",
+      "task_sha256": "50e8e4337fece1e753eced11f7980a53015761002da552601ecd70fb3e75c5ce"
+    },
+    {
+      "config_sha256": "17dce0eff96e6af6c976d806dce12590dc328ed7ce3b72d41a904940bc258afa",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "142521d296d2a0137895b4fa8a46b3327690c8d072f2ed906c1bd72e885f5e2f",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-codex-schema-contract.json",
+      "task_sha256": "82e43641bcdd57a78ab8d4819c9725f2b33a6b5300568e6be02d9dc5ae77939a"
+    },
+    {
+      "config_sha256": "144347b08f034e94a24dea4324e5b00265dc9ca4e982035a0ce9a9284f442b15",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "e1d3340904d5ea6c36a90bf50dbb0fec03417829776b7dbf41708dfb922ac69e",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-github-visibility.json",
+      "task_sha256": "db7a4498852b3b2866e19f46d799660abb4a77286dac8e90160cb60c3959bd97"
+    },
+    {
+      "config_sha256": "06e1be4bf7940fe14711abb3ebbdcaaf0576a99941394e1b5e6d780faf62c389",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "8d5ffe2c8ac10d69196479fc5ed01198c5305dc269f8e163dfc7229dd936fab2",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-brain-stale-query-default-limit.json",
+      "task_sha256": "1f8ad97875766238143dded09673f911b767bd2135cf408783a801564b6537b7"
+    },
+    {
+      "config_sha256": "1c980d001a5f9d969ae671c8a70ec6e6a8da2da2e9d45d25456fda64b1a938ee",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "3f2b837d7f2831d7ba30db5d309759a09efde8c573f7c4502f3ea93e49b05683",
+      "source_path": "benchmarks/agent-brain/tasks/temporal-memory-default-fact-merge-confidence-harness.json",
+      "task_sha256": "e9c800c6ee28f7b58d85977b5576a2b6b78eceedab3f9ef7dde2820aea8ff1d3"
+    },
+    {
+      "config_sha256": "f2055f526c5988bb27b0f329c4a5d691617829dac33f87ec48822aae1865303f",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "c3fbc0258be2c3d821a259313cde87e6cb617f807c84fe310c712474c5ea3936",
+      "source_path": "benchmarks/agent-brain/tasks/temporal-memory-protocol-repair-windows-drive-neutral-v2.json",
+      "task_sha256": "5643fdfde92a06844f4ab475ca97860f8dfde814350312cd8e18060b499f8b8c"
+    },
+    {
+      "config_sha256": "bd015f129c8e50218e23e64d49018e5ee6811bf88d5b5b0823b0e99a15647811",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "44666040672c47bb57659221216ca2d00c71a694306400f0ee0c979c59870deb",
+      "source_path": "benchmarks/agent-brain/tasks/temporal-memory-sealed-expand-opt-in.json",
+      "task_sha256": "b3a6342a26d8ec8d7b72982294998ccf66913db4388a48999bd6cd5aee2c12cf"
+    },
+    {
+      "config_sha256": "c4345e754d4bfb08ecf8531f45e20b7957805b68df7a6b76ce0d9c321239d932",
+      "logical_repo": "entire-brain",
+      "prompt_sha256": "6fa02aa1e8b46369cf804415c925cc050acc76f7cd679481e96598144c6fa698",
+      "source_path": "benchmarks/agent-brain/tasks/temporal-memory-sealed-semantic-default-stale-history.json",
+      "task_sha256": "990e29c14c1d62addf019bdbd2a35df45778c4ecdd4641b8a479f9e7a41434ee"
+    },
+    {
+      "config_sha256": "1a1b40ce47a4d267665ee40131037c263f284fdfea25522529013ac5a0bb313c",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "cefa6df0bf3ac4fbd75526ec1e8c8e13972348234634cd463420136d07060783",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-071b08991.json",
+      "task_sha256": "9bbc171131409021c9b2f1f4b111bf09d0792b01e47b5bef22814e1293f639cb"
+    },
+    {
+      "config_sha256": "404f90c5be00d67ea874574594e7fc574957a0260379c6fdc0c8ae683dcc221f",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "8acb1c50798a99b0162e21499a71849dc2397bd248e144a6194fc08eaa54b429",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-0b6b07e60.json",
+      "task_sha256": "bf5e053729d4c5e3630ba643492cf0de808f910ee6ce84af2f4c5827e1b4487c"
+    },
+    {
+      "config_sha256": "c6264db4d94be422688c45b2ea54643d63fc763aa07abc69170f4780155917f9",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "829477368a42c1e9a3ce81199ff3676cb6af4f426fd588ee94ecae97044988a6",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-0b9fa0a64.json",
+      "task_sha256": "36e03052d4f598978fb4928412a054008fe457f4a468026bb1ec0e1b00861df2"
+    },
+    {
+      "config_sha256": "1ce8ee9fb1099a9e3e7a7894543de4a6e9bf15664d3653ffd3cd98ea5a3d2fdd",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "768747e15b1b6411bfa3ef2d0ad500c86e336e426714adc890b85ff140746981",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-0d0f500d8.json",
+      "task_sha256": "aea1a5d94fcd694b15dcbafa89dbdb7fe8f34b9bdf46120f6ee67a6f855f53bb"
+    },
+    {
+      "config_sha256": "794ce96db2181e07196b739ed12416b1670df3ca709ad55cfbadb7ccc373cc94",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "83b0b37bddfd346149e8bdebf83760317468c4059f9e1ec383056158258577ce",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-0eb285c7b.json",
+      "task_sha256": "f3f4b17e9a9e4b6e647a819818f9242eb3b57ad3c1441ba4aa462c8e790ca8d2"
+    },
+    {
+      "config_sha256": "706895bee08359125fd38e43598d0c6fc66185f444a8e14f0994f0525d136357",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "8680ff74c7ca8f0fedaf3e609f3ded873a3a3402a90721c2a1e97ff34f59ccd8",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-0ece4eca6.json",
+      "task_sha256": "11abda719117b4d6adecb04d941975210b5c0936c2592d59134c86fc67f565b4"
+    },
+    {
+      "config_sha256": "a8caba4a4c41ab509732b51fcf6677c27cfbcb8506a6c5727a6787b1b5339e5c",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "e3ce798b038b84a780475b66986ba4393e218b0fd1aef5e7fe40eef79b955a68",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-0ef509dba.json",
+      "task_sha256": "7bd0c4fe7d993d32ec82bb1be153adb43917aba3fe63e2145535bc2cf4f7fcb0"
+    },
+    {
+      "config_sha256": "e20135d86fc9cc4277c05035dfc10b4a44deb7e7b82bbf1ce3bfb2f595379e74",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "44019ac62589072a71d94b8e41dd5a0d76ea4d6840fd69a71e21c0fcfe34ede3",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-0fccf698a.json",
+      "task_sha256": "8054c7179cd7d252d455a5066d9ca76be392ce6cec24e47abc6e8f146919c5dc"
+    },
+    {
+      "config_sha256": "28680a2e16f6980cf49da341351814758603c1c6edefb750ed54932752ef1104",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "3282d2b2e27fe08b45be52d20d69ee1ba05cebe771eb391743cc5104f5c219e1",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-17eeabea1.json",
+      "task_sha256": "7c88a5b66928ad8ccdb87d2989db1959350942525efddaf1d27d6cb2e76f0365"
+    },
+    {
+      "config_sha256": "364ff5cb0e67a541d168b737327bec0a8821306de01f65d2ec27e337668dbdbd",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "413c3de5945e8500fb32222f63a263136078232a60069dec2a2c9301c68094c0",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-1f289fb40.json",
+      "task_sha256": "46a0ece443f56923a77490664f21cd9b199a31faff01f1974da9e2cab62578ff"
+    },
+    {
+      "config_sha256": "feffac78bc0489807ef69222ff71132d6e573524e5eaf2fe92aa6553d57662e5",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "b54314427ef93ed350cad68df132208ed1b316852f9f3aeeed46f2fc899a253b",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-1f8339c17.json",
+      "task_sha256": "d46845fa57e9e3d92fb91e96ea8bff10a29c0ed693837f861b600fe74635662f"
+    },
+    {
+      "config_sha256": "c18efc241f124bfaf9b830ab3e5fecfe7998b062a71372283b0b20f0930ca68f",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "2b4fb81acc40bd220577232a9abbcd2f78d1c4f51f303c573a0310f504d19341",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-275ebc517.json",
+      "task_sha256": "31c6affc84a1460f7b92be8181e3791d1a37d0d272f157a520d074963ebf5701"
+    },
+    {
+      "config_sha256": "55e6e4028692054b511e40cf479a27c39a1e965e1cd3de22824d9e3801170f7f",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "658fa81f2b6d0c55ca61c4cb80db1f0d91341a67db185af2ec57d23aad16e5f2",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-29d460725.json",
+      "task_sha256": "bfaea8259dd36299e238bafcf185a0bd3a8906364c797c7109d6cab04832d40f"
+    },
+    {
+      "config_sha256": "d47c690b9b45fd615cbf30041f3d6268a33b8beb5951a0ce2f6e3c86d8c039b7",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "6053da71472ee7c224af0c1c7a30720ee0ec4040855b98d114300243f09342bf",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-2a90c8631.json",
+      "task_sha256": "ec99bf225535d132cd339bbd07309885ca9b3bdc9265605bc0f2e86000991de8"
+    },
+    {
+      "config_sha256": "d0efe5c2b933a88980e3fc4264048a20af64caf39c270daf6d21f8555d94d7a7",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "0026760b51d43d33fb84ff009b2e824e6ffa7e0dda2ed515c5e094c673a99162",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-3b621b97c.json",
+      "task_sha256": "02bf1e604b33e6088e1497f973c23f74c99b241660c1bb6cb4546fe61f15307f"
+    },
+    {
+      "config_sha256": "dfdbd9061ee543173581b2e0846f34ef8e9b38b23800f5a33fd2779124ac2f4b",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "a55186710fd68e73651f20715994462bb3aaf2ff14cb99ce6859deec12373119",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-4314a63b4.json",
+      "task_sha256": "d22188a358b404da395f48375263baa93862c2bf71688f462fcb783be0cf8962"
+    },
+    {
+      "config_sha256": "9921dbd07ffecdc8cec3e316c57216b11be515598688b68568ee0467029de11f",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "2553fc8f8ae1cb02a760b31fb53cb9c5c2029c22ecde41b2f1bf376ec73774f2",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-698d70636.json",
+      "task_sha256": "bc159c080ea0c3ecd3b997892771fc76b81164a18556966dcfe1902a350dd944"
+    },
+    {
+      "config_sha256": "871845a95b58b1095c01b92fcf6348403f820162829ad21d3b646285bf0e594d",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "fb33d98cbcd3ac4e65ba85c38ad631db888ddee3b4e91ccfad69280e92109df4",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-6da333cc2.json",
+      "task_sha256": "cd6427a16eb00a344afabb81e05083dde1a3c670b97fe1da06245403f6253959"
+    },
+    {
+      "config_sha256": "72683a200714127d4479b97e3167f8017d2cadcb89b0c44600149f08c7d76d45",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "7671eb6072297bd9ba21a22a43d3a15c04830facda6d048e2dc43e59cec0e9a7",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-6ee0a3baa.json",
+      "task_sha256": "27cb7697dd9132e1a5366a1b3147c1abfab6f9179d3dd6247df68cb871f6392b"
+    },
+    {
+      "config_sha256": "2f2e89e490edfd98c10d5600edb7b055013a8f7c3449c1aac6a9ec0fc6c9b6fb",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "284b6be305b7b8f55c231f69573bde40bc0830bd9f9be0575abac3000eb587a2",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-7598ecd7f.json",
+      "task_sha256": "7008171ea9aab964379e3af73513f33fdc4ebee4b78952ff0fb18fee7e459b1c"
+    },
+    {
+      "config_sha256": "1a88762baab33a93adbd151c2d96218c2b2de6f788d0358d22a16e348cfc212a",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "f66c5c9c06a65a661c7ae9f2e091a8b187289e7f2dd44c479522b091ab851e16",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-7c4600095.json",
+      "task_sha256": "e12f426b9934b94d9e23233abc3befcb6a2931376a0f1b59bac3e182a3b5a366"
+    },
+    {
+      "config_sha256": "f8ae6fa8a3c8407dc7361b845143bd7c80baed1a174b0d23a36a7490d6f58151",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "8724f6b05676fac92b86c6c8bc6a867a18610c9b6912511b6a72612d0b72a21d",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-7ef3a5746.json",
+      "task_sha256": "585561e323aac58c1300ad19c03fd21e121ec246941d6da4458ef9329bd3c48b"
+    },
+    {
+      "config_sha256": "e71f2b8877d5ce922ffda2da008e5858dd9043793a5436ebaa428f6161bf1030",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "946c1d9f7928aa9740ecf53cd868bf59dfe80fd6e939eea47aa4f97e0fabddd3",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-813670a6c.json",
+      "task_sha256": "1c6397da4e14292939ae6ba717323d986622823b5d962786fd3c04aab7988bb2"
+    },
+    {
+      "config_sha256": "2fb7b66d6dc74500b2f928439d7bdfbd86dd0c8f7da71acf3e62a93b42d4d63f",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "bca537003deb28289f36af9ae23260783c2d9032dd3cfc24a5917bbb3b4670bb",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-85f82af48.json",
+      "task_sha256": "1cf3b6ad32a6312690b38aeb02512306203eac852b118e2e2f063daae6f298f8"
+    },
+    {
+      "config_sha256": "b1bcfa5f2e4eaab11d981bd34a935eab4d934fada426edb0c0de88331b1a21cc",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "5b9efaa7b10b13b419c2598b4a36ffd013e9332bfe81106cc65cf59fa8d848b4",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-8968a7639.json",
+      "task_sha256": "4ff6d5e4fe70c67dce5349881c8a58ca10dca364ff4a5a08b31b9bb935e68fa0"
+    },
+    {
+      "config_sha256": "8b28a097e1f614eaaa16798ffff266ed56ec5169e21bbf5f0d1edf9a4b3b8d1f",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "c51aabf387db2b3afaacc3ddb3e574a7c916b10c69a77f7d2bc6d498b0441105",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-8cbb97681.json",
+      "task_sha256": "a1f4014ee126535310761d370cde38dc5c3dd9ce33a709c14c257c02cf12c8e4"
+    },
+    {
+      "config_sha256": "ca0553b2e0f268b90490c27d2f667c336c11825ee21c2517445104991b2d551e",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "6c955c74e4d9ae78b5793aa4f2ae3e4836d1fde89c4306979442658ca54791b0",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-97c9111e8.json",
+      "task_sha256": "00aaacb1b733a8ee0263df779dd2fba16e6a50fd7042a00ac3cda08759b027dc"
+    },
+    {
+      "config_sha256": "bc01a2ea5c6f7ef58a84bc841eed48ec4be3d99380712a8c071011a9900f6dd9",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "2e446ee465da4871b6327dacdc285f7d19d6cb40ca7b5572cb351f750d15703f",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-9b8b9fdb4.json",
+      "task_sha256": "f3f0dcc392ffff6d122c6297e5ab86558522267c2a2bf903331b71e083fbe1ff"
+    },
+    {
+      "config_sha256": "b339d8858a7ed61ab7440b82ac6a5ea3a157c5c91c358d86236cca45025c57a7",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "ca9d9e50942f443c535c1658d8c540cf440f03e83d07597cacf5c845eda0c70c",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-9d09ac52b.json",
+      "task_sha256": "c89d6927fe3a62d30a0d9d9cfc6d328b00a11df0e4a336607c24272ae0367f91"
+    },
+    {
+      "config_sha256": "38bb8e90ab3f2d4dffbcb9f9da49ddc50272431037fa4c674457d4027a087ed4",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "b0c325c29c0f3f8cc66249c8c4fa5db600e79034f1ea02bd30266d4064791bf3",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-a01a78194.json",
+      "task_sha256": "98f2444cdab99746851cac04fc2ac78e92e1cddb8df179695464e3e38b1b536d"
+    },
+    {
+      "config_sha256": "5e3a11667f7d21e2583504b7b951f8ed050c099c5403cf8aa6d9f5d738d47f8a",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "d8d88515319f80ebd1176fbb027493f1b9ef3f170f0c8e5aaa36c8011739a5f4",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-a89246959.json",
+      "task_sha256": "95a60be6552fb8b611aab7907d2702cd3e716cc4e50558cd4ef3154aac3478c1"
+    },
+    {
+      "config_sha256": "3a767faaf0d3319f1d00539f1489d48281cefe43bc47c9906fc42199efa10ddd",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "f808a07c007b4fb9844edc428b45540f239e86db0ce70707b73549182c30edb2",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-abfd118eb.json",
+      "task_sha256": "e428779c71991fc7fed71ecfe408245e7f79cdabe745576f6229f234c79c11b2"
+    },
+    {
+      "config_sha256": "c5c88d9ac4561b6d8c850c1f55829444c3772d3a51a982f3f002812a2756953d",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "40bc43404ae791763f0e782c560365899ce732fd86d5da83c58b57826a0b9b74",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-ae1973607.json",
+      "task_sha256": "2c5a0fdc9e7e76aeed3fb5900815b70a04db93bba2b32877fe26064cbf8aaf54"
+    },
+    {
+      "config_sha256": "c456915dded51458bcf7187cec4860dc61c3f78d43205d43c3c6af439bc87543",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "e85ed14848c8150b4c42cda1481409f70efd0a3cf34fe5e750b36f6ec4e8fa66",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-afec89df4.json",
+      "task_sha256": "5c52f2336ba5b831575e00b4907010c0b0bdd84c6a4bb9c46ac9a2ed59568b56"
+    },
+    {
+      "config_sha256": "c22cd2f9d14d7182399fe332c678414f5c99cddf5888055a395c1e40ab879431",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "0cbf21022c82ac8868394666e71f5b0c2a233b4ea77e5b17704bce60dc81e515",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-b83327347.json",
+      "task_sha256": "10e768de582f36b81fef210bc47e0dc442a2455336deb8799067225ee514568b"
+    },
+    {
+      "config_sha256": "c5fdf4ebc5869f64a1b4104ea3e8ef8d8df66ea0000a6c3f91c1a364dac4969e",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "4736cf38c30d8569c13766aff9f56e67f2875b1db498113f7d62ac9730d3a77b",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-bb4c8faf1.json",
+      "task_sha256": "2ea4387f474cb681dd3bdd293d8e4643f260120dcf74b0d06971d8f805557fab"
+    },
+    {
+      "config_sha256": "875dc7b0d2baa9cc12f8c29f82e7b624964eb95ea0e9a61dd9b0a4b6f9b0fdc1",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "cadc0d0d5228f610f08eebd9af82da2d9c023a80ee744f4d7242e4cf12380ca5",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-c347b4473.json",
+      "task_sha256": "5e1f2a2a5636c408912bee5ef1a4e98db4cf3405aa4d749ef52767f7eb8b5a25"
+    },
+    {
+      "config_sha256": "0784ad7a4b8caa24023905a622c8c77e1ef95713f63d67c8dcaa9e6b4759a936",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "995f62f1c9f3bbb4c4d1e33010effc44566dc65213c563d514c44cea23c0f812",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-c692947fb.json",
+      "task_sha256": "5ec26f6ce824472fbd0fdde20e7bc46d27c526e53060227543fb2278b426b93c"
+    },
+    {
+      "config_sha256": "0e025f040262a990bd2f7c6468cfa0732e103ffb75ea4a3ca3067b8a20b1db08",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "6f5bc92632457e5a8a616edd101cd70b963b4a25ee18d37b5af028ce2a60acb9",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-cebf48a79.json",
+      "task_sha256": "f230b1f7c54c91bb0e195a18355c04c47f2987ddf80eb5d855412f39ec6e0c63"
+    },
+    {
+      "config_sha256": "b3e9543b71a00b9298e21ff66b2297dc46095e0fa72acd82d415b179deb4178c",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "93ca955277f560a5539087d2159a0e1864e12ebf9246f3a987819febc9b5d560",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-d27e1c890.json",
+      "task_sha256": "e4a6a8e294ae6d47eada5358643557b1fef66c96dace19a8e06dae6363968e71"
+    },
+    {
+      "config_sha256": "ddb477528d7b39c64b2727d400d93b561c859d842e2eb2e47237cb462b1fc54d",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "8adcdb9b0635ff628a1fc572aeaeb54220eb01ba52a55096daa57fc34fa5258d",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-d38150c4a.json",
+      "task_sha256": "655383156dfa54a38ca0700d2234725f2b6c435e3aea683eff6d553f1d29e940"
+    },
+    {
+      "config_sha256": "4eb75af151359fbc2310a12394528b98dcd1884a6c826f65edb810edf20d2a3d",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "b66171fdff249ebeda7d6e012fd3eeb25706a5b988a23345373f4057d59878a5",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-d7275510c.json",
+      "task_sha256": "cabbc0bcc9c936d8e2854cd4129ec85163f3ea9fcd41d320792f0d81902681f7"
+    },
+    {
+      "config_sha256": "d9cce0d777c5baa97aa7219318dff5a0993a66af864408fdbfc8db527061b0ae",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "1513607a84fb5751b0c91fe350a9c23a11fcef75a9515ed4a5aeeb78446867bd",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-db6263e3a.json",
+      "task_sha256": "2e953d4d53a806264cf0606491bfa3b00f774ff1d28b1495a3ea13174c5c1059"
+    },
+    {
+      "config_sha256": "3f03282c495476be88fab7b13046f78c7479b5958a2a5e37c3dadd24709847dd",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "e88a3bcab21a8724a7950b7c86448467da83799151ca378f784198208b0b4a63",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-e26a23310.json",
+      "task_sha256": "9c4d09415bc7bb0b711a098d47d5183c4519691a7db3422d8263744787a49ffb"
+    },
+    {
+      "config_sha256": "9904c3712efe0259878cfdb2aeff898f5148c1bb4e4365654615a8b0c3953d32",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "fed62fb56393a6a1dc35990df4b32f0eeb5121492b51eeaa9c7243ee3d533b6b",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-e36be930a.json",
+      "task_sha256": "4a6d9d2ce9e9633a4afb6547c62ba282d2dfa708fc58c9aa866b17499872cd7c"
+    },
+    {
+      "config_sha256": "028a708c1e4b7a2968dc8b0e9fae4c6235456afb0dcdcb2d1bfd6723659d7e8b",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "e160bcb27481e7d7cc3f0368af001af25cfe3e612778cc1419b313616495a881",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-e7f51ded4.json",
+      "task_sha256": "59ae7e8d340ada3b70dd0195907e1c07ea16e77bd05463b5e120696109c180ad"
+    },
+    {
+      "config_sha256": "ffe3b1d1a5292d05cdcfe38c84b2bbc04c63ad998c9a35240474bf3ffd95710c",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "f0b2c1937d8acbc09031852affe28163a7c142e7a137aacb9505a9aeed8dc7dc",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-ea2128845.json",
+      "task_sha256": "55d74bf19847b469a59d0f1b5fc171eb5ec119e231fecb6ba5ffd8af73352ce2"
+    },
+    {
+      "config_sha256": "a490015d2d837c55adec115a33036976f9632faf325cdfee92d0b7e10817a442",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "eef1aa7317b5d84ba6d1268b9ef7feac7dfad37e8f5d0deb89140f355eff78d5",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-eb6269dd7.json",
+      "task_sha256": "6ab14f65b9c8f6df30872021f64deaa7b4ccc3680113b596f6924b72cd238405"
+    },
+    {
+      "config_sha256": "1d75e6554719847512438224e8fe47628e402b65948b9c091102f7a2c9bc9079",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "75a684bbf904a20707f9f30c181d2f258362504b478532bec9bcfcd4b065a393",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-ebdd641ae.json",
+      "task_sha256": "f06ffc8e581dc44cbb521ab317eb878ef029d3229a93fdc000f4ca1b7fcde571"
+    },
+    {
+      "config_sha256": "c36caa0e799431179e6014b912fb9f763204b16f9aa3ba63a3cb1eb1eae59277",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "1e4d23758ddbf7e99b3659aec4eabffd88f3871e99a2f23551db757e6735be1f",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-f1fa328f6.json",
+      "task_sha256": "336ada1cb352346f5b13ec052aa8f9df9d189795f118a45bcfbbc99823051729"
+    },
+    {
+      "config_sha256": "c8241bbcdea171224f73398c3dc7bd8f73eec8e63635afcd28e5501e88cebc59",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "fe8204c4b7f805a684b258a6bacb78fc8393f93ec0f810ee73546afa6e35a23d",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-f8837141b.json",
+      "task_sha256": "76861bb200ead3aa52d83a7a8b2fc132c19e3e776cffba9f1146f946afbf0669"
+    },
+    {
+      "config_sha256": "e6ea97e684bc85c15ff10575834efc00d9c622bb769be63bbd4cade7ee0d52d0",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "2edbe7e204a227a50cd4a6869ccc86eb7a8401334cd8e0524efb36a295fed9af",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-cli-scale-fa2a365fb.json",
+      "task_sha256": "6cbfafc76517b4eefff342095b6696198c6525fcb7f14fba1d5f4fdf90e113cf"
+    },
+    {
+      "config_sha256": "4e0b73460cf3539d65763aa63b1a6fa0d955b5e0e8ef718c2bb3bb22a8165e75",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "813bc31d640277e12f6fd3211b9ff62a5e5f379e51e10937c9f308565752b847",
+      "source_path": "benchmarks/agent-brain/tasks/entire-cli-external-command-env-filter.json",
+      "task_sha256": "c7bc5844299b9ac728f05e541201b01fa24be559f787bdebefa66b989b5c062c"
+    },
+    {
+      "config_sha256": "6383556d1b809f2e9e76154d8150307b077de334d69945b19f7f12e085584a3b",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "4536ece6067916c6a6b44bb37a9b8effb18f9da3074e6ba3dcff41fbc357653f",
+      "source_path": "benchmarks/agent-brain/tasks/entire-cli-manual-commit-attribution-base.json",
+      "task_sha256": "f75a36e91ad2cad84d679fd3d8fe3b8530a3b6d2a8151e1708ada9a3460511ab"
+    },
+    {
+      "config_sha256": "1b5a9d58624ec8111cd1c56eecf000cb5f9914bbd870e9e5a246997893166e5a",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "42865f9d2cab1d3e9e8bc804c0c656174ff6b45b24bf8a74b8a57d613fd28d71",
+      "source_path": "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json",
+      "task_sha256": "fdf2a0cdddf0699b5b41fbaafe4a092134f91b2d1020de0f82b3171e9f34364d"
+    },
+    {
+      "config_sha256": "f0ed1370d8cf26d800b0df2246d5e3a7c4bb9279dd28556e7dfc8635e3133d78",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "857185a50f19117425b0e5c910e785a0c87ce7e1eebdd92697e917a9a87cfdb2",
+      "source_path": "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json",
+      "task_sha256": "70293674d7fd729ff9cfd9fb7bc48e10bcbf449770c0873a2a440b82e36e54d5"
+    },
+    {
+      "config_sha256": "67945f2e093ddc565c3c48a6fdf848d53a481dfaa45b65730c11e5c87f6c1303",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "7b8bdde634c78569f7003517ef61ec3c617a3c472827d685dc9ef363f91c43ad",
+      "source_path": "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json",
+      "task_sha256": "c7d8f6f914757baff667d3ea4eeb2e95fdcd88cd08f2d67d85e1b484a25cc090"
+    },
+    {
+      "config_sha256": "04dcb6b133168ac47943fbd7b4208dd3eb77ed1eff9a50e041eb821a3793608e",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "32d482b4bb8e77355e155d604d78d8c73e67f12dda8b8c06a44d3a105d0ec4bf",
+      "source_path": "benchmarks/agent-brain/tasks/entire-cli-review-provenance-strip.json",
+      "task_sha256": "75b54c897c01559d9f9ba9709893906a2d7ee6b901bfb95d55b2bfcaaf4aee00"
+    },
+    {
+      "config_sha256": "919396e5ae3b421b50bb80d8c8b4ea8b17451ad33e0cb89b469e9e7fbf77eb55",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "006b7c8c19d59ba49b2317e6c8838f07e9f8bd82e9bfde6ccfa7b0f70f1f9d38",
+      "source_path": "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json",
+      "task_sha256": "ae0d116b25c6e4325ac98bb72d6659f829901c8b2c1d6bea98029f69c05dae58"
+    },
+    {
+      "config_sha256": "126d3e77066a56a5f4f3da042a25a4e69774b397541bd3481681992a5ad5b94d",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "e9d7fa3c081a7d0fc8bd3854d4afc9a6070c9b67e6ae1024890ac53c03d4ce38",
+      "source_path": "benchmarks/agent-brain/tasks/entireio-cli-condense-drops-latest-turn.json",
+      "task_sha256": "74a097d9ae5ef9674c0ed309a1ed92338b049d77b7a15feae232fff79641096a"
+    },
+    {
+      "config_sha256": "7a212620d01fa6329fea2a28b3c5a5314a9fcfe69eeaa6cf6135aed41f59710e",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "beff20dd0e18c3be0f4d033146c3d4947d0b305449db505a2e650a3ad0cf9e39",
+      "source_path": "benchmarks/agent-brain/tasks/entireio-cli-finalize-redaction-raw-live.json",
+      "task_sha256": "a24af0a40838ce42514ad95c21e9e0b383b9e1a4222372b4a2d80b92a75b1d62"
+    },
+    {
+      "config_sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "a4cb05f99b0ab85138f1c98bcef2f3949256b09658c21fd1bfd6560c86ee6df5",
+      "source_path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+      "task_sha256": "70a5d0e30ec0d8064de354e1840c4538c1e96271a42f1617d5532c1cc920fab7"
+    },
+    {
+      "config_sha256": "551ade4afcc6af245ccd24d2e91bcb837e30567a3403a0a3585e480bb13687df",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "3eb8277f0e669de4dc2dd82c67fb8cf7ea0d31d076ab8e766ec1362ac500b1b5",
+      "source_path": "benchmarks/agent-brain/tasks/entireio-cli-radar-attribution-realign-state.json",
+      "task_sha256": "80eab685b117abe26aee3e7724b9b59baa7e5f5240f0b73d5fa0baba7af229c7"
+    },
+    {
+      "config_sha256": "71f80eb470c24e9d0a9c1a1527f90d9da0b89d7d7a98da143fa3e7500f5c809c",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "1afe695258bd53e02e8993f004680531558bfbddd731e42b8fa2ce4c234beadb",
+      "source_path": "benchmarks/agent-brain/tasks/entireio-cli-radar-review-base-file-count.json",
+      "task_sha256": "b09d4ea0259a1964530be8f383bec49a54dff40f80342c0d82ebc26781c1a573"
+    },
+    {
+      "config_sha256": "14afec646281278ff3b192108486c41a344d709e8fde903ca56040df9734453b",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "c673f04a4530db7e6d7b8362753ba36f5826c959613b70c56eeab21823ec8973",
+      "source_path": "benchmarks/agent-brain/tasks/entireio-cli-uncommitted-filter-exact-compare.json",
+      "task_sha256": "632d4c7ca927da78897665ca97f35545581f5b99521c96598634f3041eeb2eef"
+    },
+    {
+      "config_sha256": "e6b634207a25795da3384967d569eeb9d6afcefde32844e0ae6095d9aae9f39d",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "a48e6852cd57fd995471ea4281916e3faa9c8669828baa16449be270250caf6a",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-cli-manual-commit-attribution-base.json",
+      "task_sha256": "4c50d593da397ec60d6f2b13446efe1ba23804f8bbbc25e25750f87163f96495"
+    },
+    {
+      "config_sha256": "cd158d987922529c2c9aa32f59d4da7ca328a2a717fd07f41647d42a2e626721",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "736c8b1fc13a1b8a9850cfdcdc42bd34384edc66889311f89b4262307f051350",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json",
+      "task_sha256": "31a42f0b55301e7d7312298d1684d2a5a5c223ff887486452bdf0deb65b97fae"
+    },
+    {
+      "config_sha256": "52ff15c584a3c34adbb2d9ed9447aed5b7133148677a0ff68402d422a3a551cc",
+      "logical_repo": "entire-cli",
+      "prompt_sha256": "594a38295d0903df59eed92ea91c6c7352cae4d068615324aacf46b970c68935",
+      "source_path": "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json",
+      "task_sha256": "58f23879f61effd60e7e65ce273db3dc7401356cad11a8656414104b1fda8414"
+    },
+    {
+      "config_sha256": "665995342399b0f89ee04d512da318e85ca81cfd37906d038a6d6a279f8942f1",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "8bce02a7303d9eb7ccaa6087005312343a718fb31d2dbbf2250d1ae9b33f97f3",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-0a923b974.json",
+      "task_sha256": "6ab2f149111a9877a9a5386583c445f47df7f39247334ea97e68aeecaaa7a3ff"
+    },
+    {
+      "config_sha256": "26d25e31f987928068fa866a1116779374976ec30f595df069838a17f306902a",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "272f0318c8e4cd3aba430569b032d055624d8d0b865de69494b293bea1bf3218",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-159ab4f7c.json",
+      "task_sha256": "febec7dfdb7124b318fd19769246f4bc67849c1fe79594937d567bfdb8d35c70"
+    },
+    {
+      "config_sha256": "27e9537f861f1831f52be9c044eb727ce9401221b5bfb21373b7048d132c8853",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "a91891bd74407406697a28e772ce8d57a854c90f7d4e036a967be3bba754ac5c",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-21bc81b57.json",
+      "task_sha256": "796fdf931d6a9e976961ca4251effe2f98e6c55022234126f8dbf7f6147bf387"
+    },
+    {
+      "config_sha256": "7919f4c544580317965111d5af43ba033b6500773fc89df7da9026f743cb8242",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "2acd54e9341a255240fbf5e42b607b923ed858538c62cb67771e6ce7e84d86d1",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-285a41f46.json",
+      "task_sha256": "b76c8240e5f35cc82ce494532c4932dc033822cb12eb75b20ec3dd38f57935f5"
+    },
+    {
+      "config_sha256": "5c72ec4311b811f5494923890f171b8ffab9468f79335ba88c372ac8174a76e6",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "8a375b0bffde58e1df97412b76e228807162c1a9fc469eee115405335d69a89c",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-2eeaafcb1.json",
+      "task_sha256": "6e5461bada53d7eb292d18af1641f2df10785b82aa51b574f3dcb3c588bcf601"
+    },
+    {
+      "config_sha256": "11b68f2f4b7d00f43d6816e98ca4fcda153cdcf1167e1b70e3214eb57029cc0d",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "c55acb5e7983887557346b847332d9c47077086be0a831ab4459db518fb7bcc6",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-317c86889.json",
+      "task_sha256": "5200f4c381eda29a8769cd98ff87b5e107bef78d012e55abdceb6b9b6c02a6c7"
+    },
+    {
+      "config_sha256": "7b379d5d940a2fad710c5e2091b9faecd1addd868d5b28cfd51a0ab05172ae96",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "414c5e5bbf41c416a35ab19d34103a4412ad8afe321b9da2c1d335ab2c230d37",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-35987fa41.json",
+      "task_sha256": "862e674ec0801f48110f5a7d856a76d489fd15453b0c3e0e257e7b0010e886e6"
+    },
+    {
+      "config_sha256": "6fc03ef2fb3c185c43eb7fa03ab07917ed043ef7ddb984735e8c31e012dd21aa",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "081df27d7b0622bee01e497af323e626e198e4d33bebbc9a39e2640fb19e64bd",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-4475752cf.json",
+      "task_sha256": "542cd4008785ddd0b8a3335e96849b442a0d1b7a68e21f379c73079704c00228"
+    },
+    {
+      "config_sha256": "d27f3e19a23eb71c205d167fe3f8d8231a884f6a6aae96d0e060c586cc73c1da",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "67eb61446d904f7891004f00d4180b45285b01ddf9ce88a15e37661c400c3cfb",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-4515cbd9a.json",
+      "task_sha256": "9419da9104cd8d1911237e8a3fed8ff525aa6d8f98ee54230e4a685ec95a2a13"
+    },
+    {
+      "config_sha256": "b6045d82883ffc81b4560a69d38b6906a2e4212c0024d95b59d0ca110b1b33fd",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "c1ac790c409a1b9e8703c9eb887853f852803442d6ec2f480d0e505ae68b49b5",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-5f849a10b.json",
+      "task_sha256": "e204d9a6828bb20fd1cc2ff9e733e7fb96e7a514764cfb0f306423cef65bfa9e"
+    },
+    {
+      "config_sha256": "f4407120ae00a87c4b0c34abc8e37472d55494dbaecc9d94e53f7710ffae4958",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "b51e5a24e25e7f29edfb55ac0a777f91b8ac9f4a32f20748aef8676397b65381",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-626847a06.json",
+      "task_sha256": "6e64fea4cbe449dbe6ef210709750c3ab914a41fa74d938333302478ea10edb5"
+    },
+    {
+      "config_sha256": "6b4f0a14340f5f8bc68a7c32a1eda4eb904c0c0428b56009e24a6a2f6694c5ff",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "b7e84c45ee91c0f9d9224e213062d9c98dfdfc6c86616cf6b5d37b68a352cc47",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-62ef32513.json",
+      "task_sha256": "32401ccac0dd5e60ec85611dd8ce5407f3e08cd517ff4a7e97573acad690c2bf"
+    },
+    {
+      "config_sha256": "e20525fb3466dd2f53440d24bd15e4598386f57d9881cba7f0f9447bb6ab9874",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "de21736e5472143b1ab8f57ecba6bd2f4ca397edfaee42d4b7feebbaa528642e",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-6964a0389.json",
+      "task_sha256": "172f03c248c77f3fc63bdff0b36e373847ce5a7582eb27326e5cfa1101caceff"
+    },
+    {
+      "config_sha256": "61d0b2a99c78e84f6d3900467c72e376a17a9b73fbc8a103f6683b85a9b1b7c2",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "076540a3f10892ed008835718ad8d0051f2fed5296076811221ebec4064704c6",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-706f78e8f.json",
+      "task_sha256": "8439d3e67328934d6f5f875d64b2379500db4e05bbcd4e8bc61cce65cdaeb9f1"
+    },
+    {
+      "config_sha256": "bee47aeab25a65dff640b0a85f9b189ed05bdf94812a210f80b5211a9da147be",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "5a69492d1fa283ffb250155442ac2bc37e60cb0270ec788a97fb44f8e050a033",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-7241b3a3f.json",
+      "task_sha256": "835dfe40e1147f928e15b5e5c2780e07f67c4b1e6ee450631aea8eded29b01ae"
+    },
+    {
+      "config_sha256": "6af15c605ecfb0160ab96ef1878ee1e5dbc7b8560e8e091f3173fdb5f243493d",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "71b58fb8f51e9f356807564a6483674f832c9855b9b2c0bbfa17408db948c128",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-911834f8d.json",
+      "task_sha256": "613749903fcc1fe7931a931148f7a72dccd8192570d169571f1b053953533cfc"
+    },
+    {
+      "config_sha256": "c9740816dbe03bcba81e5e8feeba5b1e7d2384410c2953edd2ad8f46be724b24",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "8921a57f83296eda02cca7c5b56c0297c2cf07ccbacfc84a4fb3ca1084a13491",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-cbd65cbe1.json",
+      "task_sha256": "7f08b13a96aec89bd4bae874b6143d03cc693164b475ce6c3aad585d481ec587"
+    },
+    {
+      "config_sha256": "5b055378678209935ef61b4a0876a80214950ba7aa5a3a09d5611df2ff53d396",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "9d5af322a1761f37e70c991055dc1d14ae6c7b00e768b540f4774ca4ade036c5",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-cd6112824.json",
+      "task_sha256": "08ba0999e3dbf5c711fecd136294bccbeb67399b16e7bbfd7b7e5f97f7da310b"
+    },
+    {
+      "config_sha256": "65109e9ffb20c9752a8a8d1fb763075809b2df45f6ac48273b0b1c1493001f4b",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "c07fcbc2e7283df52594d48c658a65c81126a96e7d9258e1c9de020b0412f415",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-ebc090953.json",
+      "task_sha256": "6d4eae1dc85cf86ce4d20e14ac006d5b258a2f914cb3f48e793ff89ce114479c"
+    },
+    {
+      "config_sha256": "21f7c770702fb0d01970075f0c09c7b2609376194eb4c757469bb8f794f54080",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "5b4c2fffeff48493c055817f6062b18b2a99ead1019a65f9a373566d76fdb092",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-f6143e29e.json",
+      "task_sha256": "71a4427e3b7d4d0de8cd6cdca59a866b96b1291a885476e0274cba45626bacda"
+    },
+    {
+      "config_sha256": "b77239dcdf8666de575161830e1a0719b520176d6e140d47094d4ae8e045c317",
+      "logical_repo": "entire-db",
+      "prompt_sha256": "174436b1309435b8d6911a8c156dca1ddf83bef9625824a9e1e99e5ec6e9c629",
+      "source_path": "benchmarks/agent-brain/mined-scale/entire-db-scale-f979cef32.json",
+      "task_sha256": "d66a9245f0628b6bd07c53d9fea46648fdde90b74bde2bcc25f999ae3a0cf167"
+    }
+  ]
+}

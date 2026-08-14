@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-task-treatment-v1.json",
+  "title": "Treatment-isolated Agent Brain task fields",
+  "type": "object",
+  "required": ["user_query", "retrieval_query_source", "treatments"],
+  "properties": {
+    "user_query": {"type": "string", "minLength": 1},
+    "retrieval_query_source": {"enum": ["user_query", "oracle_queries"]},
+    "oracle_queries": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "treatments": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "treatment.schema.json"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"retrieval_query_source": {"const": "oracle_queries"}}},
+      "then": {"required": ["oracle_queries"]}
+    }
+  ]
+}

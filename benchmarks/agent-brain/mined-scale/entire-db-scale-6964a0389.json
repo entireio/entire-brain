@@ -1,0 +1,40 @@
+{
+  "id": "entire-db-scale-6964a0389",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The cert-bound-token check records a tri-state outcome attribute on every request, but because that check runs on both the public surface and the mutual-TLS surface, the 'absent' outcome count is dominated by public traffic that legitimately never carries a binding. As a result the count cannot be used to judge readiness for a planned strict-enforcement flip on the mutual-TLS channel. Add a signal so the readiness query can isolate absent outcomes that actually arrived on the mutual-TLS channel. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-6964a0389.patch",
+  "validation": [
+    "go test ./server/auth -run 'TestAuthenticateToken_CnfAbsentNoPeer|TestAuthenticateToken_CnfAbsentWithPeer'"
+  ],
+  "expected_files": [
+    "server/auth/cnf.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "cnf check result span attribute readiness gate",
+    "RFC 8705 cert bound token mTLS strict flip enforcement",
+    "cnf absent count dominated by public traffic",
+    "mutual-TLS peer leaf listener channel telemetry",
+    "how to gauge readiness for cnf strict enforcement"
+  ],
+  "_mined_from_commit": "6964a0389792f13c19a45baae4d9cbd5f0d443ee",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "server/auth: slice cnf readiness signal to the :8281 channel (COR-362) (#1768)",
+  "copy_checkpoint_ref_from_source": true
+}

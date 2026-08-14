@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-task-review-ledger-v2.json",
+  "title": "Agent Brain task-population review ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile", "hash_algorithm", "ledger_sha256", "reviews"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "profile": {"const": "agent_brain_task_review_ledger_v2"},
+    "hash_algorithm": {"const": "sha256_canonical_json_null_self_v1"},
+    "ledger_sha256": {"$ref": "#/$defs/sha256"},
+    "reviews": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/review"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "member_ref",
+        "task_id",
+        "prompt_commitment_sha256",
+        "reviewer",
+        "reviewed_at",
+        "disposition",
+        "checks",
+        "rationale_code",
+        "rationale_sha256",
+        "review_sha256"
+      ],
+      "properties": {
+        "member_ref": {"$ref": "#/$defs/sha256"},
+        "task_id": {"type": ["string", "null"], "minLength": 1},
+        "prompt_commitment_sha256": {"$ref": "#/$defs/sha256"},
+        "reviewer": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@+-]{1,127}$"},
+        "reviewed_at": {"type": "string", "format": "date-time"},
+        "disposition": {"enum": ["approved_symptom_only", "revise", "exclude_oracle_assisted"]},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "symptom_only",
+            "no_answer_bearing_file_hint",
+            "no_answer_bearing_function_hint",
+            "no_answer_bearing_workflow_hint",
+            "hidden_validation_isolated",
+            "retrieval_query_neutral"
+          ],
+          "properties": {
+            "symptom_only": {"type": "boolean"},
+            "no_answer_bearing_file_hint": {"type": "boolean"},
+            "no_answer_bearing_function_hint": {"type": "boolean"},
+            "no_answer_bearing_workflow_hint": {"type": "boolean"},
+            "hidden_validation_isolated": {"type": "boolean"},
+            "retrieval_query_neutral": {"type": "boolean"}
+          }
+        },
+        "rationale_code": {
+          "enum": ["all_checks_pass", "answer_bearing_prompt", "validation_leak", "query_asymmetry", "overlap_or_contamination", "other"]
+        },
+        "rationale_sha256": {"$ref": "#/$defs/sha256"},
+        "review_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

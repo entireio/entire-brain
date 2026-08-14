@@ -1,0 +1,13 @@
+diff --git a/cmd/entire/cli/resume.go b/cmd/entire/cli/resume.go
+index 4beaa7745..6c7bea3cb 100644
+--- a/cmd/entire/cli/resume.go
++++ b/cmd/entire/cli/resume.go
+@@ -299,7 +299,7 @@ func readCheckpointInfoFromStore(ctx context.Context, store checkpoint.Committed
+ 			continue
+ 		}
+ 		info.SessionIDs = append(info.SessionIDs, metadata.SessionID)
+-		if metadata.SessionID != "" {
++		if i == 0 {
+ 			info.SessionID = metadata.SessionID
+ 			info.CreatedAt = metadata.CreatedAt
+ 			info.Agent = metadata.Agent

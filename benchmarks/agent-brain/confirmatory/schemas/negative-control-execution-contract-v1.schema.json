@@ -1,0 +1,805 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/negative-control-execution-contract-v1.json",
+  "title": "Agent Brain unexecutable negative-control execution contract v1",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    },
+    "oid": {
+      "type": "string",
+      "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_file",
+        "artifact_sha256"
+      ],
+      "properties": {
+        "artifact_file": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[^/\\\\\\r\\n]+$"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_ordinal",
+        "candidate_ref",
+        "commit_oid",
+        "first_parent_position",
+        "full_diff_sha256",
+        "full_stable_patch_id",
+        "merge_parent_count",
+        "module_bindings_sha256",
+        "parent_oid",
+        "private_execution_projection_sha256",
+        "production_go_paths_sha256",
+        "repository_id",
+        "repository_key",
+        "source_diff_sha256",
+        "source_stable_patch_id",
+        "test_command_sha256",
+        "test_diff_sha256",
+        "test_evidence_paths_sha256",
+        "test_stable_patch_id",
+        "test_target_bindings_sha256",
+        "test_target_count",
+        "tree_oid",
+        "unit_kind"
+      ],
+      "properties": {
+        "candidate_ordinal": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 62
+        },
+        "candidate_ref": {
+          "$ref": "#/$defs/sha256"
+        },
+        "commit_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "first_parent_position": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31
+        },
+        "full_diff_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "full_stable_patch_id": {
+          "$ref": "#/$defs/oid"
+        },
+        "merge_parent_count": {
+          "enum": [1, 2]
+        },
+        "module_bindings_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "parent_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "private_execution_projection_sha256": {
+          "type": "null"
+        },
+        "production_go_paths_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^github\\.com/[^\\r\\n]+$"
+        },
+        "repository_key": {
+          "enum": [
+            "entire-brain",
+            "entire-db",
+            "entire-graph"
+          ]
+        },
+        "source_diff_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_stable_patch_id": {
+          "$ref": "#/$defs/oid"
+        },
+        "test_command_sha256": {
+          "type": "null"
+        },
+        "test_diff_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "test_evidence_paths_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "test_stable_patch_id": {
+          "$ref": "#/$defs/oid"
+        },
+        "test_target_bindings_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "test_target_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "tree_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "unit_kind": {
+          "enum": [
+            "single_parent_integration_unit",
+            "two_parent_feature_branch"
+          ]
+        }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_file",
+        "artifact_sha256",
+        "role"
+      ],
+      "properties": {
+        "artifact_file": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[^/\\\\\\r\\n]+$"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "role": {
+          "enum": [
+            "gate_primitive",
+            "gate_cache_manifest_schema",
+            "gate_receipt_schema",
+            "private_log_writer",
+            "private_log_receipt_schema",
+            "attempt_classifier",
+            "attempt_observation_schema",
+            "classification_receipt_schema",
+            "darwin_capacity_observer",
+            "darwin_capacity_schema",
+            "offline_schema_validator"
+          ]
+        }
+      }
+    },
+    "ledger_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_file",
+        "artifact_sha256",
+        "candidate_count",
+        "ledger_sha256",
+        "profile",
+        "repository_id",
+        "repository_key",
+        "schema_version"
+      ],
+      "properties": {
+        "artifact_file": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[^/\\\\\\r\\n]+$"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 62
+        },
+        "ledger_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile": {
+          "const": "agent_brain_development_task_eligibility_scan_v2"
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^github\\.com/[^\\r\\n]+$"
+        },
+        "repository_key": {
+          "enum": [
+            "entire-brain",
+            "entire-db",
+            "entire-graph"
+          ]
+        },
+        "schema_version": {
+          "const": 2
+        }
+      }
+    },
+    "repository_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_oid",
+        "candidate_count",
+        "candidate_order_sha256",
+        "head_oid",
+        "key",
+        "ledger_file_sha256",
+        "ledger_sha256",
+        "repository_id",
+        "toolchain_sha256"
+      ],
+      "properties": {
+        "base_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 62
+        },
+        "candidate_order_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "head_oid": {
+          "$ref": "#/$defs/oid"
+        },
+        "key": {
+          "enum": [
+            "entire-brain",
+            "entire-db",
+            "entire-graph"
+          ]
+        },
+        "ledger_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ledger_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^github\\.com/[^\\r\\n]+$"
+        },
+        "toolchain_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "schedule_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arm",
+        "attempt_ordinal",
+        "candidate_ordinal",
+        "candidate_ref",
+        "first_parent_position",
+        "repetition",
+        "repository_id",
+        "repository_key"
+      ],
+      "properties": {
+        "arm": {
+          "enum": [
+            "baseline",
+            "first_parent_source_reversal"
+          ]
+        },
+        "attempt_ordinal": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 248
+        },
+        "candidate_ordinal": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 62
+        },
+        "candidate_ref": {
+          "$ref": "#/$defs/sha256"
+        },
+        "first_parent_position": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31
+        },
+        "repetition": {
+          "enum": [1, 2]
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^github\\.com/[^\\r\\n]+$"
+        },
+        "repository_key": {
+          "enum": [
+            "entire-brain",
+            "entire-db",
+            "entire-graph"
+          ]
+        }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "authority",
+    "candidate_bindings_sha256",
+    "candidates",
+    "component_bindings",
+    "contract_sha256",
+    "enforcement_requirements",
+    "execution_status",
+    "exposure",
+    "implementation",
+    "inputs",
+    "profile",
+    "protocol",
+    "repository_bindings",
+    "residual_gates",
+    "runtime_bindings",
+    "schedule",
+    "schedule_sha256",
+    "schema_version",
+    "state_machine",
+    "status"
+  ],
+  "properties": {
+    "authority": {
+      "const": {
+        "approval_receipt_sha256": null,
+        "approval_trust_mechanism": "absent_not_implemented",
+        "approval_trust_root_sha256": null,
+        "benchmark_execution": "forbidden_contract_unexecutable",
+        "candidate_execution": "forbidden_contract_unexecutable",
+        "model_provider_execution": "forbidden_not_authorized",
+        "owner_key": "absent_not_fabricated",
+        "paid_execution": "forbidden_not_authorized",
+        "population_assignment": "absent_not_authorized",
+        "source_plan_status": "pending_owner_authorization"
+      }
+    },
+    "candidate_bindings_sha256": {
+      "const": "4fbde9876d4c91e9cedcf994de9cecd5442beee928c1cadc505116a25c2bef60"
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 62,
+      "maxItems": 62,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    },
+    "component_bindings": {
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/component"
+      }
+    },
+    "contract_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "enforcement_requirements": {
+      "const": [
+        "authenticated_owner_approval_bound_to_exact_contract_before_any_external_effect",
+        "actual_cache_archive_safely_traversed_and_content_verified_before_staging",
+        "trusted_apfs_observation_and_atomic_bounded_capacity_reservation",
+        "clean_detached_worktree_per_arm_repetition_from_exact_candidate_commit",
+        "exact_commit_parent_tree_and_first_parent_relationship_reverified",
+        "first_parent_production_source_only_reversal_with_test_evidence_unchanged",
+        "exact_git_tree_mode_type_blob_or_absence_proof_for_every_reversed_source_path",
+        "all_non_production_tree_entries_unchanged_no_untracked_paths_and_identical_test_argv",
+        "fresh_private_verified_offline_cache_copy_per_arm_repetition",
+        "ambient_go_cache_and_network_dependency_resolution_forbidden",
+        "direct_argv_exact_pinned_binary_execution_without_shell_interpretation",
+        "dedicated_process_group_with_outer_deadline_and_descendant_termination",
+        "private_content_addressed_log_publication_before_public_receipt_projection",
+        "attempt_producer_binds_exact_schedule_row_reversal_proof_and_test_command",
+        "aggregate_time_staging_cache_log_and_receipt_ceilings_enforced",
+        "durable_cleanup_journal_and_capacity_release_on_success_failure_or_interrupt",
+        "irreversible_pre_commit_no_receipt_latch_and_atomic_receipt_commit_boundary",
+        "aggregate_receipt_only_after_all_248_attempt_cleanups_and_final_reservation_release",
+        "no_public_receipt_when_cleanup_or_attestation_is_incomplete"
+      ]
+    },
+    "execution_status": {
+      "const": "forbidden_missing_all_residual_gates_and_audited_execution_adapter"
+    },
+    "exposure": {
+      "const": "permanent_development_only_identity_inspected"
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_render_profile",
+        "builder_sha256",
+        "canonical_json_profile",
+        "schema_sha256"
+      ],
+      "properties": {
+        "artifact_render_profile": {
+          "const": "sorted_keys_indent_2_utf8_lf_v1"
+        },
+        "builder_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonical_json_profile": {
+          "const": "sorted_keys_compact_utf8_no_float_v1"
+        },
+        "schema_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eligibility_schema",
+        "eligibility_scanner",
+        "ledgers",
+        "overlap_registry",
+        "repository_contract",
+        "run_plan"
+      ],
+      "properties": {
+        "eligibility_schema": {
+          "$ref": "#/$defs/artifact"
+        },
+        "eligibility_scanner": {
+          "$ref": "#/$defs/artifact"
+        },
+        "ledgers": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/ledger_input"
+          }
+        },
+        "overlap_registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_file",
+            "artifact_sha256",
+            "builder_sha256",
+            "cli_scanner_sha256",
+            "cli_task_population_sha256",
+            "git_binary_sha256",
+            "git_version_output",
+            "profile",
+            "registry_sha256",
+            "schema_file",
+            "schema_sha256",
+            "schema_version"
+          ],
+          "properties": {
+            "artifact_file": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^[^/\\\\\\r\\n]+$"
+            },
+            "artifact_sha256": {"$ref": "#/$defs/sha256"},
+            "builder_sha256": {"$ref": "#/$defs/sha256"},
+            "cli_scanner_sha256": {"$ref": "#/$defs/sha256"},
+            "cli_task_population_sha256": {"$ref": "#/$defs/sha256"},
+            "git_binary_sha256": {"$ref": "#/$defs/sha256"},
+            "git_version_output": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^git version [^\\r\\n]+$"
+            },
+            "profile": {
+              "const": "agent_brain_global_development_task_overlap_registry_v1"
+            },
+            "registry_sha256": {"$ref": "#/$defs/sha256"},
+            "schema_file": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^[^/\\\\\\r\\n]+$"
+            },
+            "schema_sha256": {"$ref": "#/$defs/sha256"},
+            "schema_version": {"const": 1}
+          }
+        },
+        "repository_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_file",
+            "artifact_sha256",
+            "profile",
+            "schema_version"
+          ],
+          "properties": {
+            "artifact_file": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^[^/\\\\\\r\\n]+$"
+            },
+            "artifact_sha256": {"$ref": "#/$defs/sha256"},
+            "profile": {"const": "agent_brain_development_repository_bindings_v2"},
+            "schema_version": {"const": 1}
+          }
+        },
+        "run_plan": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_file",
+            "artifact_sha256",
+            "builder_sha256",
+            "plan_sha256",
+            "profile",
+            "schema_sha256",
+            "schema_version"
+          ],
+          "properties": {
+            "artifact_file": {
+              "const": "development-task-negative-control-run-plan-v2.json"
+            },
+            "artifact_sha256": {
+              "const": "f55b6e22a25daf8016305304adf3b7ac8d31675281d97cfc9bb78cc76b619790"
+            },
+            "builder_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "plan_sha256": {
+              "const": "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e"
+            },
+            "profile": {
+              "const": "agent_brain_development_task_negative_control_run_plan_v2"
+            },
+            "schema_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "schema_version": {
+              "const": 2
+            }
+          }
+        }
+      }
+    },
+    "profile": {
+      "const": "agent_brain_negative_control_execution_contract_v1"
+    },
+    "protocol": {
+      "const": {
+        "arm_order": [
+          "baseline",
+          "first_parent_source_reversal"
+        ],
+        "candidate_order": "repository_order_then_first_parent_position_serial_v1",
+        "go_test_internal_timeout": "disabled_outer_process_group_deadline_required",
+        "max_concurrency": 1,
+        "max_total_wall_seconds": 28800,
+        "outer_timeout_seconds_per_arm": 600,
+        "repetitions_per_arm": 2,
+        "repository_order": [
+          "entire-brain",
+          "entire-db",
+          "entire-graph"
+        ],
+        "reversal": {
+          "full_commit_revert": "forbidden",
+          "merge_parent_selection": "first_parent_only",
+          "non_production_proof": "exact_candidate_tree_entries_unchanged_and_no_untracked_paths",
+          "parent_binding": "candidate_parent_oid",
+          "production_path_proof": "exact_parent_and_candidate_tree_mode_type_blob_or_absence_per_bound_path",
+          "source_scope": "production_go_paths_from_exact_ledger_identity_only",
+          "test_command_parity": "identical_test_target_and_direct_argv_binding_across_both_arms",
+          "test_evidence_mutation": "forbidden"
+        },
+        "total_attempt_count": 248,
+        "total_candidate_count": 62
+      }
+    },
+    "repository_bindings": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/repository_binding"
+      }
+    },
+    "residual_gates": {
+      "const": [
+        "owner_execution_approval_receipt_and_trust_mechanism",
+        "actual_approved_offline_cache_seed_archive_and_authorized_binding",
+        "safe_archive_traversal_type_link_device_and_content_verifier",
+        "trusted_apfs_observer_and_atomic_capacity_reservation",
+        "clean_detached_worktree_executor_and_first_parent_reversal_proof",
+        "attested_attempt_producer_and_classifier_integration",
+        "private_log_executor_integration_retention_and_aggregate_accounting",
+        "fail_closed_cleanup_interruption_attestation_and_no_receipt_guarantee"
+      ]
+    },
+    "runtime_bindings": {
+      "const": {
+        "actual_cache_archive_sha256": null,
+        "actual_cache_manifest_sha256": null,
+        "approval_receipt_sha256": null,
+        "approval_trust_root_sha256": null,
+        "capacity_observation_file_sha256": null,
+        "capacity_reservation_receipt_sha256": null,
+        "cleanup_attestation_sha256": null,
+        "execution_host_identity_sha256": null,
+        "private_log_root_locator": null,
+        "producer_attestation_key_sha256": null
+      }
+    },
+    "schedule": {
+      "type": "array",
+      "minItems": 248,
+      "maxItems": 248,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/schedule_row"
+      }
+    },
+    "schedule_sha256": {
+      "const": "c818e8ad87f4d6ff5fac8839f4296fd86da13eaf95dadf8b2c789c7254bfdbcd"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "state_machine": {
+      "const": {
+        "aggregate_accounting": {
+          "counters": [
+            "elapsed_wall_nanoseconds",
+            "staging_bytes",
+            "cache_bytes",
+            "private_log_bytes",
+            "public_receipt_bytes"
+          ],
+          "rule": "durably_update_before_advancing_schedule_cursor"
+        },
+        "attempt_journal": {
+          "allowed_transitions": [
+            {
+              "from": "attempt_bound",
+              "to": ["attempt_staged", "attempt_aborting"]
+            },
+            {
+              "from": "attempt_staged",
+              "to": ["attempt_running", "attempt_aborting"]
+            },
+            {
+              "from": "attempt_running",
+              "to": ["attempt_result_private", "attempt_aborting"]
+            },
+            {
+              "from": "attempt_result_private",
+              "to": ["attempt_cleaning", "attempt_aborting"]
+            },
+            {
+              "from": "attempt_cleaning",
+              "to": ["attempt_cleanup_committed", "cleanup_failed_latched"]
+            },
+            {
+              "from": "attempt_aborting",
+              "to": ["attempt_cleaning", "cleanup_failed_latched"]
+            }
+          ],
+          "binding_rule": "bind_exact_schedule_row_at_run_cursor_plus_one",
+          "initial_state": "attempt_bound",
+          "interruption_rule": "attempt_cleanup_or_post_cleanup_pre_cursor_interruption_recovers_under_the_irreversible_run_receipt_forbidden_latch_without_rerun_or_receipt",
+          "receipt_rule": "attempt_terminal_never_publishes_aggregate_receipt",
+          "success_terminal_state": "attempt_cleanup_committed"
+        },
+        "journal_rule": "durable_transition_before_and_after_each_external_effect",
+        "latched_cleanup_failure_rule": "blocks_every_future_run_until_independently_verified_remediation_and_reservation_release_evidence_without_ever_permitting_failed_run_receipt",
+        "restart_recovery_rule": "under_one_exclusive_run_lock_recover_nonterminal_journal_cleanup_and_reservation_release_before_new_run_or_receipt",
+        "run_journal": {
+          "abort_latch": "executor_staging_attestation_log_journal_cleanup_failure_or_external_interruption_detected_before_aggregate_receipt_commit_durably_sets_receipt_forbidden_latch_but_captured_test_exit_or_timeout_is_data",
+          "allowed_transitions": [
+            {
+              "from": "contract_checked_execution_forbidden",
+              "to": ["authority_and_inputs_verified", "run_aborting"]
+            },
+            {
+              "from": "authority_and_inputs_verified",
+              "to": ["capacity_reserved", "run_aborting"]
+            },
+            {
+              "from": "capacity_reserved",
+              "to": ["attempts_active", "run_aborting"]
+            },
+            {
+              "from": "attempts_active",
+              "to": ["attempts_active", "run_cleaning", "run_aborting"]
+            },
+            {
+              "from": "run_cleaning",
+              "to": [
+                "reservation_released",
+                "run_cleaning_no_receipt",
+                "cleanup_failed_latched"
+              ]
+            },
+            {
+              "from": "reservation_released",
+              "to": [
+                "aggregate_receipt_committed",
+                "reservation_released_no_receipt"
+              ]
+            },
+            {
+              "from": "run_aborting",
+              "to": ["run_cleaning_no_receipt", "cleanup_failed_latched"]
+            },
+            {
+              "from": "run_cleaning_no_receipt",
+              "to": ["reservation_released_no_receipt", "cleanup_failed_latched"]
+            },
+            {
+              "from": "reservation_released_no_receipt",
+              "to": ["cleaned_no_receipt"]
+            }
+          ],
+          "initial_state": "contract_checked_execution_forbidden",
+          "interruption_targets": {
+            "authority_and_inputs_verified": "run_aborting",
+            "capacity_reserved": "run_aborting",
+            "contract_checked_execution_forbidden": "run_aborting",
+            "attempts_active": "run_aborting",
+            "reservation_released": "reservation_released_no_receipt",
+            "run_cleaning": "run_cleaning_no_receipt"
+          },
+          "receipt_commit_boundary": "atomic_durable_aggregate_receipt_commit_is_the_success_boundary_and_has_no_outgoing_transition",
+          "receipt_forbidden_latch": "persistent_monotonic_false_to_true_on_any_pre_receipt_abort_or_interruption_and_true_forbids_aggregate_receipt_commit",
+          "restart_interruption_rule": "any_recovery_of_a_nonterminal_started_run_is_an_interruption_and_must_durably_set_receipt_forbidden_latch_before_recovery_effects",
+          "schedule_cursor_initial": 0,
+          "schedule_cursor_rule": "monotonic_plus_one_only_after_matching_attempt_cleanup_committed",
+          "success_guard": "run_cleaning_requires_schedule_cursor_248_all_aggregate_ceilings_passed_and_receipt_forbidden_latch_false",
+          "success_terminal_state": "aggregate_receipt_committed",
+          "terminal_states": [
+            "aggregate_receipt_committed",
+            "cleaned_no_receipt",
+            "cleanup_failed_latched"
+          ]
+        },
+        "scope": "run_journal_with_nested_per_schedule_row_attempt_journal_v1"
+      }
+    },
+    "status": {
+      "const": "contract_compiled_execution_forbidden"
+    }
+  }
+}

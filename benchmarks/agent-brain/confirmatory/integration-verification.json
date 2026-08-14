@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "base_commit": "bbe1bdf5be2e4fac2f81dc9156a3118a2733c360",
+  "verified_commit": "486092083dae787769078db787390b14ea03e766",
+  "publication_sanitization": {
+    "applied": true,
+    "document": "benchmarks/agent-brain/PUBLICATION-SANITIZATION.md",
+    "logs_are_sanitized_derivatives": true
+  },
+  "source_commits": {
+    "ws2": "0c04088d8a9d70ed15c21a90979caebc5a70d2dc",
+    "ws3": "0fc3a7d891a3b7106cdb4dd88023b8606886c4db",
+    "ws4": "05708ca7e5692f4aae0c066d6f96aa822f675e5c",
+    "ws5": "5112d72e95180dc166bcfeab4a1ce48ee6f67641",
+    "ws6": "b53810bf1ba2b745f52ef19491d580c6d561f0cb",
+    "ws7": "ada89886301c9d1863e86172002212d968bf0399"
+  },
+  "source_artifacts": [
+    {
+      "path": "benchmarks/agent-brain/run.py",
+      "sha256": "1eeaeaebb6850b9d79fe6d552ce3be6c101871f5288ed083d91828e2d201438f"
+    },
+    {
+      "path": "benchmarks/agent-brain/run_test.py",
+      "sha256": "5ad9023e1a957bea39e69bb57de8ab2fc13f001be13676fd664a6bf2b0976b3a"
+    },
+    {
+      "path": "benchmarks/agent-brain/treatment.py",
+      "sha256": "f35b3fb61aedce5373ff275ea1bd7f96ecce5135f8d03555727ab7dcca0caa6b"
+    },
+    {
+      "path": "benchmarks/agent-brain/schemas/task-review-ledger.schema.json",
+      "sha256": "5cf91e34317dd5e80dbbc34d5fa896b855a42246aa60b59717d6cba3f881bf0c"
+    },
+    {
+      "path": "benchmarks/agent-brain/schemas/task-treatment.schema.json",
+      "sha256": "a198623e95eb7112ebb78f8633ea80b7921354a5936e7eeb140c988312eddcac"
+    },
+    {
+      "path": "benchmarks/agent-brain/schemas/treatment.schema.json",
+      "sha256": "cc9a2a13845b13327a16eb6732a93dba9c15bb254c86e547083ae2db02361151"
+    },
+    {
+      "path": "benchmarks/agent-brain/task-review-ledger.json",
+      "sha256": "e786f4b5468474772d32d49322e1055fc1e46be14151af7bdc94cc51cfe3bdae"
+    },
+    {
+      "path": "internal/cli/facts_eligibility.go",
+      "sha256": "c027f35303474c0fc86b62efdefbee64f664c74ac53b84c4f5b67e6d51d278b4"
+    },
+    {
+      "path": "internal/cli/facts_eligibility_test.go",
+      "sha256": "dca3db6c89fc20302f2e4675a5a44e46166421d65edaf5a9de7cfaf116fc14da"
+    },
+    {
+      "path": "internal/cli/facts_read_cmd.go",
+      "sha256": "ff0ec69682d37f86ce5498a3ae6088848a7f460420b8e45494d672592f676511"
+    },
+    {
+      "path": "internal/cli/facts_retrieval_identity_test.go",
+      "sha256": "65d3bbf644dc3d5156dc972e1827d027187edf580a54ad5f1e036b39dfaf6dfe"
+    },
+    {
+      "path": "internal/cli/embed_rank.go",
+      "sha256": "7f5c09c66579784b0df1b21b77db502613401a74c415324571cf3f1ac726e40f"
+    },
+    {
+      "path": "internal/cli/embed_store.go",
+      "sha256": "4616120f1bf917f92f0fce380112850cb766554fb8b803ef360f565fa4d3f53f"
+    },
+    {
+      "path": "internal/cli/embed_vec_cgo.go",
+      "sha256": "f78a97a44951bded40605beaef435cba2fafaf327c6f9b88de57c8ff8534f333"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/common.py",
+      "sha256": "bc290c174f1d17cbe14333b3a2e91b6f89e8081e5c578b263e4ce8efd2bb883d"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/evidence.py",
+      "sha256": "be0591224715112d4f947668c711d0c57f3441725678fa9b859b296c068ad57e"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/metrics.py",
+      "sha256": "306657b00dd8d16de288b1a5c461f36e77394584a3f6804872e9921dba7980df"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/confirmatory.py",
+      "sha256": "49007f480cd85a221ea1d56d55a0e0b3fdaeca84d14737d7db0905f830972a90"
+    }
+  ],
+  "test_runs": [
+    {
+      "id": "python-harness",
+      "command": "python3 benchmarks/agent-brain/run_test.py",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/python-harness.txt",
+      "log_sha256": "90e273e3455d78494cdd49f70f2a76d8325725550072e6be89602655b913c3bf"
+    },
+    {
+      "id": "go-test-all",
+      "command": "go test ./...",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/go-test-all.txt",
+      "log_sha256": "f0b658b68e47cd15b24f0bfb3f871fb42d7b87aeafb68b306940a33fb70fd008"
+    },
+    {
+      "id": "analysis-protocol-tests",
+      "command": "python3 -m unittest benchmarks/agent-brain/analysis/test_confirmatory.py benchmarks/agent-brain/analysis/test_ranking_diagnostics.py benchmarks/agent-brain/confirmatory/test_check_protocol.py benchmarks/agent-brain/confirmatory/test_power_analysis.py",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/analysis-protocol-tests.txt",
+      "log_sha256": "66412384f12b238869717ba797f5f58fb3cdbf757ed3d2905ecd4f4e897beeb7"
+    },
+    {
+      "id": "task-lint",
+      "command": "python3 benchmarks/agent-brain/run.py lint-tasks --tasks benchmarks/agent-brain/fixtures/task-validity/oracle-assisted-regressions.json",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/task-lint.txt",
+      "log_sha256": "eeebc16f0da5f0c3a0eb5443ddd7178da8279cf2d66c0d1ee7f779bd79d185c5"
+    },
+    {
+      "id": "protocol-preparation",
+      "command": "python3 benchmarks/agent-brain/confirmatory/check_protocol.py",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/protocol-preparation.txt",
+      "log_sha256": "86ad3db7371f6b954a17df37b75f7d11f086658401a55f1f86de2725e6f508a6"
+    },
+    {
+      "id": "evidence-smoke",
+      "command": "python3 benchmarks/agent-brain/run_test.py EvidenceManifestTests",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/evidence-smoke.txt",
+      "log_sha256": "5fe1d83d506e5bc821cc46dee29050a382a8b3cd58e5657f80e360710f524a93"
+    },
+    {
+      "id": "engine-identity-tests",
+      "command": "go test ./internal/cli -run 'TestRecallJSONEffectiveEngine|TestRecallJSONReportsActualModel2Vec|TestRecallJSONPreservesUnknownEmbedder|TestRecallJSONFailsClosed' -count=1",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/engine-identity-tests.txt",
+      "log_sha256": "ba9e5a4b16ea46cd09ff122d79163ac055b20e6a197fd1e83723c3df01c94dd5"
+    },
+    {
+      "id": "diff-check",
+      "command": "git diff --check",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/diff-check.txt",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "freeze-remains-closed",
+      "command": "zsh -c 'python3 benchmarks/agent-brain/confirmatory/check_protocol.py --freeze > benchmarks/agent-brain/confirmatory/integration-logs/freeze-no-go.txt 2>&1; rc=$?; [[ $rc -eq 1 ]]'",
+      "status": "pass",
+      "log_path": "benchmarks/agent-brain/confirmatory/integration-logs/freeze-no-go.txt",
+      "log_sha256": "232421aa510643e5f8e332d5279cbba2bdd9891d9b34a7c9f58d83f9dfe05dbf"
+    }
+  ],
+  "dependency_evidence": {
+    "ws2_treatment_and_task_validity": {
+      "source_artifact_paths": [
+        "benchmarks/agent-brain/run.py",
+        "benchmarks/agent-brain/run_test.py",
+        "benchmarks/agent-brain/treatment.py",
+        "benchmarks/agent-brain/schemas/task-review-ledger.schema.json",
+        "benchmarks/agent-brain/schemas/task-treatment.schema.json",
+        "benchmarks/agent-brain/schemas/treatment.schema.json",
+        "benchmarks/agent-brain/task-review-ledger.json"
+      ],
+      "test_run_ids": ["python-harness", "task-lint"]
+    },
+    "ws3_temporal_completeness": {
+      "source_artifact_paths": [
+        "internal/cli/facts_eligibility.go",
+        "internal/cli/facts_eligibility_test.go",
+        "internal/cli/facts_read_cmd.go",
+        "internal/cli/facts_retrieval_identity_test.go",
+        "internal/cli/embed_rank.go",
+        "internal/cli/embed_store.go",
+        "internal/cli/embed_vec_cgo.go"
+      ],
+      "test_run_ids": ["go-test-all", "engine-identity-tests"]
+    },
+    "ws4_schedule_and_cache": {
+      "source_artifact_paths": [
+        "benchmarks/agent-brain/run.py",
+        "benchmarks/agent-brain/run_test.py",
+        "benchmarks/agent-brain/treatment.py"
+      ],
+      "test_run_ids": ["python-harness", "analysis-protocol-tests"]
+    },
+    "ws5_evidence_verification": {
+      "source_artifact_paths": [
+        "benchmarks/agent-brain/run.py",
+        "benchmarks/agent-brain/run_test.py",
+        "benchmarks/agent-brain/analysis/common.py",
+        "benchmarks/agent-brain/analysis/evidence.py",
+        "benchmarks/agent-brain/analysis/metrics.py",
+        "benchmarks/agent-brain/analysis/confirmatory.py"
+      ],
+      "test_run_ids": ["python-harness", "analysis-protocol-tests", "evidence-smoke", "protocol-preparation"]
+    }
+  },
+  "entire_graph_modified": false,
+  "paid_runs_performed": false
+}

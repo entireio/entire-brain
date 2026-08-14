@@ -622,12 +622,12 @@
    {
     "dirty": false,
     "head_commit": "df53638ac3f5b4d687d32885814a0be1e7cf7350",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb"
+    "repo_path": "/redacted/workspace/entire-brain-layerb"
    },
    {
     "dirty": true,
     "head_commit": "df53638ac3f5b4d687d32885814a0be1e7cf7350",
-    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb"
+    "repo_path": "/redacted/workspace/entire-brain-layerb"
    }
   ],
   "missing_record_provenance": 0,
@@ -695,7 +695,7 @@
     "head_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
     "repo": "github-cli",
     "repo_path_input": "github-cli",
-    "repo_path_resolved": "/Users/suhaan/Documents/Coding/github-cli"
+    "repo_path_resolved": "/redacted/workspace/github-cli"
    }
   ],
   "tasks": [

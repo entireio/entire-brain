@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/engine-evidence-storage.json",
+  "$ref": "engine-evidence-storage-v2.schema.json"
+}

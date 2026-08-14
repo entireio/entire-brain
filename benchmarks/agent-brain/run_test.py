@@ -6,7 +6,9 @@ import inspect
 import json
 import os
 import pathlib
+import shutil
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,6 +21,880 @@ run = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = run
 SPEC.loader.exec_module(run)
+
+TEST_SCHEDULE_SHA256 = "b" * 64
+
+
+class CounterbalancedRuntimeControlTests(unittest.TestCase):
+    def _task(self, task_id="task-a", conditions=None):
+        return {
+            "id": task_id,
+            "repo": "repo",
+            "conditions": conditions or ["a", "b"],
+            "prompt": "Fix the symptom.",
+        }
+
+    def test_schedule_is_byte_deterministic_and_two_arm_balanced(self):
+        runner = run.RunnerSpec(id="runner", agent="codex")
+        first = run.build_schedule(
+            [self._task()], [runner], ["a", "b"], 4,
+            seed=17, order_policy="counterbalanced", cache_policy="isolated_per_cell",
+        )
+        second = run.build_schedule(
+            [self._task()], [runner], ["a", "b"], 4,
+            seed=17, order_policy="counterbalanced", cache_policy="isolated_per_cell",
+        )
+        self.assertEqual(run.canonical_json_text(first), run.canonical_json_text(second))
+        rows = first["blocks"][0]["rows"]
+        self.assertEqual(rows[0], rows[2])
+        self.assertEqual(rows[1], rows[3])
+        self.assertEqual(rows[0], list(reversed(rows[1])))
+        counts = run.schedule_position_counts(first)["task-a__runner"]
+        self.assertEqual(set(counts.values()), {2})
+
+    def test_three_arm_latin_square_balances_every_position(self):
+        schedule = run.build_schedule(
+            [self._task(conditions=["a", "b", "c"])],
+            [run.RunnerSpec(id="runner", agent="codex")],
+            ["a", "b", "c"],
+            6,
+            seed=91,
+            order_policy="latin_square",
+            cache_policy="prewarmed_shared",
+        )
+        counts = run.schedule_position_counts(schedule)["task-a__runner"]
+        self.assertEqual(len(counts), 9)
+        self.assertEqual(set(counts.values()), {2})
+
+    def test_invalid_policies_and_repetitions_fail_closed(self):
+        runner = run.RunnerSpec(id="runner", agent="codex")
+        with self.assertRaisesRegex(ValueError, "invalid order policy"):
+            run.build_schedule([self._task()], [runner], ["a"], 1, seed=0, order_policy="random", cache_policy="isolated_per_cell")
+        with self.assertRaisesRegex(ValueError, "invalid cache policy"):
+            run.build_schedule([self._task()], [runner], ["a"], 1, seed=0, order_policy="counterbalanced", cache_policy="ambient")
+        with self.assertRaisesRegex(ValueError, "at least 1"):
+            run.build_schedule([self._task()], [runner], ["a"], 0, seed=0, order_policy="counterbalanced", cache_policy="isolated_per_cell")
+
+    def test_cache_paths_are_isolated_or_explicitly_shared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = pathlib.Path(tmp) / "suite"
+            a = run.runtime_cache_paths(suite, suite / "cell-a", "isolated_per_cell")
+            b = run.runtime_cache_paths(suite, suite / "cell-b", "isolated_per_cell")
+            self.assertNotEqual(a["GOCACHE"], b["GOCACHE"])
+            shared_a = run.runtime_cache_paths(suite, suite / "cell-a", "prewarmed_shared")
+            shared_b = run.runtime_cache_paths(suite, suite / "cell-b", "prewarmed_shared")
+            self.assertEqual(shared_a, shared_b)
+
+    def test_prewarm_is_explicit_and_accounted_outside_agent_timing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = pathlib.Path(tmp) / "suite"
+            suite.mkdir()
+            completed = run.subprocess.CompletedProcess(["go"], 0, "", "")
+            with mock.patch.object(run, "run_cmd", return_value=completed) as command, \
+                 mock.patch.object(run, "capture_host_context", return_value={"scheduler_concurrency": 1}):
+                env, accounting = run.prepare_runtime_controls(suite, "prewarmed_shared")
+            self.assertEqual(command.call_args.args[0], ["go", "mod", "download"])
+            self.assertTrue(accounting["prewarm_performed"])
+            self.assertFalse(accounting["prewarm_timed_as_agent"])
+            self.assertIn("GOCACHE", env)
+            self.assertIn("GOMODCACHE", env)
+            self.assertIn("ENTIRE_PLUGIN_CACHE_DIR", env)
+            self.assertGreaterEqual(accounting["setup_wall_seconds"], 0)
+
+    def test_agent_reported_api_time_is_never_synthesized(self):
+        self.assertEqual(run.agent_reported_api_seconds('{"duration_api_ms":1250}'), 1.25)
+        self.assertIsNone(run.agent_reported_api_seconds('{"duration_ms":1250}'))
+        self.assertEqual(run.TIMING_DEFINITIONS["primary"], "end_to_end_user_visible_wall_seconds")
+
+    def test_confirmatory_billing_normalization_prevents_inclusive_double_count(self):
+        self.assertEqual(
+            run.normalize_billed_token_categories(
+                {
+                    "input_tokens": 100,
+                    "cache_read_input_tokens": 40,
+                    "cache_write_input_tokens": 10,
+                    "output_tokens": 30,
+                    "reasoning_tokens": 10,
+                },
+                {
+                    "input_tokens_includes": ["cache_read_input", "cache_write_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": False,
+                        "reasoning_output": False,
+                    },
+                },
+            ),
+            {
+                "uncached_input": 50,
+                "cache_read_input": 40,
+                "cache_write_input": 10,
+                "visible_output": 20,
+                "reasoning_output": 10,
+            },
+        )
+
+    def test_impossible_provider_counters_fail_billing_without_dropping_attempt(self):
+        runner = run.RunnerSpec(
+            id="runner", agent="codex", model="model", effort="low"
+        )
+        usage = {
+            "input_tokens": 10,
+            "cache_read_tokens": 20,
+            "cache_creation_tokens": 0,
+            "output_tokens": 5,
+            "reasoning_tokens": 0,
+        }
+        pricing = self._confirmatory_pricing()
+        pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "cache_write_input"
+        ] = False
+        self.assertIsNone(
+            run.confirmatory_billing_usage(
+                runner,
+                usage,
+                pricing,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
+        )
+
+    def test_user_visible_timer_excludes_setup_preflight_and_hidden_validation(self):
+        source = inspect.getsource(run.run_one)
+        agent_source = inspect.getsource(run.run_agent)
+        preflight = source.index("secret_preflight = agent_secret_preflight")
+        timer_start = source.index("user_visible_interval_started = time.monotonic()")
+        retrieval = source.index("treatment_memory_packet(task, condition")
+        agent = source.index("agent_info = run_agent")
+        boundary = source.index('agent_info.pop(\n            "_response_finished_monotonic"')
+        timer_stop = source.index("float(agent_response_finished_monotonic) - user_visible_interval_started")
+        hidden_validation = source.index("validation = validate(task, worktree, env)")
+        self.assertLess(preflight, timer_start)
+        self.assertLess(timer_start, retrieval)
+        self.assertLess(retrieval, agent)
+        self.assertLess(agent, boundary)
+        self.assertLess(boundary, timer_stop)
+        self.assertLess(timer_stop, hidden_validation)
+        provider_return = agent_source.index("proc = run_cmd")
+        response_boundary = agent_source.index(
+            "attempt_response_finished_monotonic = time.monotonic()"
+        )
+        post_response_usage_parse = agent_source.index(
+            "attempt_usage = extract_usage"
+        )
+        self.assertLess(provider_return, response_boundary)
+        self.assertLess(response_boundary, post_response_usage_parse)
+
+    def test_run_agent_captures_response_boundary_before_usage_processing(self):
+        runner = run.RunnerSpec(id="runner", agent="codex", model="model")
+        completed = run.subprocess.CompletedProcess(["codex"], 0, "", "")
+        clock = mock.Mock(side_effect=[10.0, 11.0, 20.0])
+
+        def parsed_after_boundary(*_args):
+            self.assertEqual(clock.call_count, 3)
+            return run.empty_agent_usage()
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(run.time, "monotonic", clock), \
+             mock.patch.object(run, "run_cmd", return_value=completed), \
+             mock.patch.object(run, "extract_usage", side_effect=parsed_after_boundary):
+            root = pathlib.Path(tmp)
+            info = run.run_agent(
+                runner,
+                "prompt",
+                root,
+                {},
+                root,
+                "no_brain",
+                {},
+                60,
+                0.0,
+                {},
+            )
+        self.assertEqual(info["_response_finished_monotonic"], 20.0)
+        self.assertEqual(info["seconds"], 10.0)
+        self.assertEqual(info["attempts"][0]["seconds"], 9.0)
+
+    def test_timeout_after_treatment_start_before_agent_is_executed_retrieval_outcome(self):
+        self.assertIsNone(run.treatment_timeout_stage(None, None))
+        self.assertEqual(
+            run.treatment_timeout_stage(10.0, None),
+            "treatment_retrieval_or_delivery",
+        )
+        self.assertEqual(run.treatment_timeout_stage(10.0, 12.0), "agent_execution")
+        source = inspect.getsource(run.run_one)
+        self.assertIn("timeout_occurred = timeout_stage is not None", source)
+        self.assertIn('record["treatment_started"] = True', source)
+        self.assertIn('"agent_ran": agent_interval_started is not None', source)
+
+    def test_cache_write_tokens_are_never_silently_dropped(self):
+        with self.assertRaisesRegex(ValueError, "exactly five token categories"):
+            run.normalize_billed_token_categories(
+                {
+                    "input_tokens": 100,
+                    "cache_read_input_tokens": 40,
+                    "output_tokens": 30,
+                    "reasoning_tokens": 10,
+                },
+                {
+                    "input_tokens_includes": ["cache_read_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": False,
+                        "reasoning_output": False,
+                    },
+                },
+            )
+
+    def test_pricing_budget_quote_binds_billing_semantics_and_cache_write(self):
+        runner = run.RunnerSpec(
+            id="runner", agent="codex", model="model", effort="low"
+        )
+        pricing = self._confirmatory_pricing()
+        pricing["pricing_quote"]["usage_semantics"].update(
+            {
+                "input_tokens_includes": ["cache_read_input", "cache_write_input"],
+                "counter_absence_means_zero": {
+                    "cache_read_input": False,
+                    "cache_write_input": False,
+                    "reasoning_output": False,
+                },
+            }
+        )
+        value = run.confirmatory_billing_usage(
+            runner,
+            {
+                "input_tokens": 100,
+                "cache_read_tokens": 40,
+                "cache_creation_tokens": 10,
+                "output_tokens": 30,
+                "reasoning_tokens": 10,
+            },
+            pricing,
+            resolved_model="model",
+            schedule_sha256=TEST_SCHEDULE_SHA256,
+        )
+        self.assertIsNotNone(value)
+        self.assertEqual(value["price_quote_sha256"], "a" * 64)
+        self.assertEqual(value["exclusive"]["cache_write_input"], 10)
+        self.assertEqual(value["exclusive"]["uncached_input"], 50)
+
+    @staticmethod
+    def _confirmatory_pricing(
+        *, agent: str = "codex", model: str = "model", effort: str = "low"
+    ) -> dict:
+        identity = {
+            "schema": run.FROZEN_RUNNER_IDENTITY_SCHEMA,
+            "provider": "openai" if agent == "codex" else "anthropic",
+            "runner_id": "runner",
+            "runner_version": "run.py-test-v1",
+            "agent_id": agent,
+            "agent_cli": agent,
+            "agent_cli_version": f"{agent}-test-v1",
+            "requested_model_id": model,
+            "resolved_model_id": model,
+            "effort": effort,
+            "schedule_sha256": TEST_SCHEDULE_SHA256,
+        }
+        identity["identity_sha256"] = run.stable_json_sha256(identity)
+        return {
+            "runner": identity,
+            "pricing_quote": {
+                "quote_sha256": "a" * 64,
+                "usage_semantics": {
+                    "input_tokens_includes": ["cache_read_input"],
+                    "output_tokens_includes": ["reasoning_output"],
+                    "counter_absence_means_zero": {
+                        "cache_read_input": False,
+                        "cache_write_input": True,
+                        "reasoning_output": False,
+                    },
+                },
+            },
+        }
+
+    def test_structural_zero_is_quote_bound_only_before_provider_entry(self):
+        runner = run.RunnerSpec(
+            id="runner", agent="codex", model="model", effort="low"
+        )
+        info = run.structural_zero_agent_info(
+            runner,
+            self._confirmatory_pricing(),
+            reason="treatment_retrieval_or_delivery_failure",
+            schedule_sha256=TEST_SCHEDULE_SHA256,
+        )
+        self.assertIsNone(info["returncode"])
+        self.assertEqual(info["attempts"], [])
+        self.assertTrue(info["billing_integrity"]["passed"])
+        self.assertEqual(
+            info["provider_invocation"]["state"],
+            run.STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
+        )
+        self.assertEqual(set(info["usage"]["billing_v2"]["exclusive"].values()), {0})
+
+        unbound = run.structural_zero_agent_info(
+            runner,
+            {},
+            reason="treatment_retrieval_or_delivery_failure",
+            schedule_sha256=TEST_SCHEDULE_SHA256,
+        )
+        self.assertFalse(unbound["billing_integrity"]["required"])
+        self.assertFalse(unbound["billing_integrity"]["aggregate_present"])
+
+    def test_confirmatory_retries_are_frozen_zero_before_suite_execution(self):
+        run.assert_confirmatory_retry_policy(self._confirmatory_pricing(), 0)
+        with self.assertRaisesRegex(RuntimeError, "retries are frozen at zero"):
+            run.assert_confirmatory_retry_policy(self._confirmatory_pricing(), 1)
+        run.assert_confirmatory_retry_policy({}, 2)
+
+    def test_failure_boundary_and_provider_ledger_are_captured_before_bookkeeping(self):
+        source = inspect.getsource(run.run_one)
+        timeout_handler = source.index("except subprocess.TimeoutExpired as exc:")
+        timeout_boundary = source.index(
+            "exception_observed_monotonic = time.monotonic()", timeout_handler
+        )
+        timeout_record_update = source.index("record.update(", timeout_boundary)
+        generic_handler = source.index("except Exception as exc:", timeout_record_update)
+        generic_boundary = source.index(
+            "exception_observed_monotonic = time.monotonic()", generic_handler
+        )
+        generic_record_update = source.index("record.update(", generic_boundary)
+        ledger_assignment = source.index('record["agent_info"] = agent_info')
+        boundary_validation = source.index(
+            "agent response boundary timestamp is missing or invalid"
+        )
+        self.assertLess(timeout_boundary, timeout_record_update)
+        self.assertLess(generic_boundary, generic_record_update)
+        self.assertLess(ledger_assignment, boundary_validation)
+
+    @staticmethod
+    def _codex_result(input_tokens: int, output_tokens: int, cached: int, reasoning: int) -> str:
+        return json.dumps(
+            {
+                "type": "turn.completed",
+                "model": "model",
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "cached_input_tokens": cached,
+                    "output_tokens": output_tokens,
+                    "reasoning_output_tokens": reasoning,
+                },
+            }
+        )
+
+    @staticmethod
+    def _claude_result(
+        input_tokens: int,
+        output_tokens: int,
+        cache_read: int,
+        cache_write: int,
+        reasoning: int | None,
+        cost: float,
+        *,
+        models: tuple[str, ...] = ("model",),
+    ) -> str:
+        rows = {}
+        for model in models:
+            row = {
+                "inputTokens": input_tokens,
+                "outputTokens": output_tokens,
+                "cacheReadInputTokens": cache_read,
+                "cacheCreationInputTokens": cache_write,
+                "costUSD": cost,
+            }
+            if reasoning is not None:
+                row["reasoningTokens"] = reasoning
+            rows[model] = row
+        return json.dumps(
+            {
+                "type": "result",
+                "num_turns": 1,
+                "total_cost_usd": cost * len(models),
+                "modelUsage": rows,
+            }
+        )
+
+    def test_provider_parsers_choose_authoritative_cumulative_snapshot_once(self):
+        fixture_dir = RUN_PATH.parent / "analysis" / "fixtures"
+        codex = (fixture_dir / "provider-usage-codex-cumulative.ndjson").read_text()
+        usage = run.extract_usage("codex", codex, "")
+        self.assertEqual(usage["input_tokens"], 150)
+        self.assertEqual(usage["output_tokens"], 30)
+        self.assertEqual(usage["cache_read_tokens"], 60)
+        self.assertEqual(
+            usage["usage_report"]["accounting_basis"],
+            "last_cumulative_snapshot_per_isolated_invocation",
+        )
+
+        # Claude's terminal result can contain both modelUsage and a top-level
+        # usage object representing the same invocation. modelUsage is selected
+        # once; the duplicate and earlier assistant-event usage are not mined.
+        claude = (fixture_dir / "provider-usage-claude-terminal-result.ndjson").read_text()
+        usage = run.extract_usage("claude", claude, "")
+        self.assertEqual(
+            (
+                usage["input_tokens"],
+                usage["output_tokens"],
+                usage["cache_read_tokens"],
+                usage["cache_creation_tokens"],
+                usage["reasoning_tokens"],
+            ),
+            (10, 4, 20, 30, 2),
+        )
+        self.assertEqual(usage["usage_report"]["selected_source"], "modelUsage")
+        self.assertEqual(usage["usage_report"]["ignored_duplicate_source"], "usage")
+
+    def test_claude_reasoning_absence_and_multiple_model_rows_fail_closed(self):
+        runner = run.RunnerSpec(
+            id="runner", agent="claude", model="model", effort="low"
+        )
+        missing_reasoning = run.extract_usage(
+            "claude", self._claude_result(10, 5, 2, 3, None, 0.1), ""
+        )
+        self.assertIsNone(missing_reasoning["reasoning_tokens"])
+        pricing = self._confirmatory_pricing(agent="claude")
+        pricing["pricing_quote"]["usage_semantics"]["input_tokens_includes"] = []
+        pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "cache_write_input"
+        ] = False
+        self.assertIsNone(
+            run.confirmatory_billing_usage(
+                runner,
+                missing_reasoning,
+                pricing,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
+        )
+        authorized = copy.deepcopy(pricing)
+        authorized["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "reasoning_output"
+        ] = True
+        self.assertIsNotNone(
+            run.confirmatory_billing_usage(
+                runner,
+                missing_reasoning,
+                authorized,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
+        )
+
+        multi_model = run.extract_usage(
+            "claude",
+            self._claude_result(
+                10, 5, 2, 3, 1, 0.1, models=("model", "helper-model")
+            ),
+            "",
+        )
+        self.assertFalse(multi_model["usage_report"]["complete"])
+        self.assertIn("multiple model rows", multi_model["usage_report"]["error"])
+        self.assertIsNone(
+            run.confirmatory_billing_usage(
+                runner,
+                multi_model,
+                pricing,
+                resolved_model="model",
+                schedule_sha256=TEST_SCHEDULE_SHA256,
+            )
+        )
+
+    def test_codex_nonmonotone_or_conflicting_usage_snapshots_are_rejected(self):
+        nonmonotone = "\n".join(
+            [
+                self._codex_result(100, 20, 40, 5),
+                self._codex_result(90, 25, 40, 5),
+            ]
+        )
+        usage = run.extract_usage("codex", nonmonotone, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertIn("non-monotone", usage["usage_report"]["error"])
+        disappearing_optional_counter = "\n".join(
+            [
+                self._codex_result(100, 20, 40, 5),
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {"input_tokens": 150, "output_tokens": 30},
+                    }
+                ),
+            ]
+        )
+        usage = run.extract_usage("codex", disappearing_optional_counter, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertIn("counter presence is inconsistent", usage["usage_report"]["error"])
+        conflicting = json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {
+                    "input_tokens": 100,
+                    "inputTokens": 101,
+                    "cached_input_tokens": 40,
+                    "output_tokens": 20,
+                    "reasoning_output_tokens": 5,
+                },
+            }
+        )
+        usage = run.extract_usage("codex", conflicting, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertIn("missing or ambiguous", usage["usage_report"]["error"])
+
+    def test_claude_multiple_terminal_results_are_rejected(self):
+        stream = "\n".join(
+            [
+                self._claude_result(10, 5, 2, 3, 1, 0.1),
+                self._claude_result(20, 8, 4, 6, 2, 0.2),
+            ]
+        )
+        usage = run.extract_usage("claude", stream, "")
+        self.assertFalse(usage["usage_report"]["complete"])
+        self.assertEqual(usage["usage_report"]["source_events"], 2)
+        self.assertIn("exactly one terminal result", usage["usage_report"]["error"])
+
+    def test_failed_first_retry_and_successful_second_sum_all_attempt_billing(self):
+        first = subprocess.CompletedProcess(
+            ["codex"],
+            1,
+            self._codex_result(100, 20, 40, 5),
+            "selected model is at capacity",
+        )
+        second = subprocess.CompletedProcess(
+            ["codex"],
+            0,
+            self._codex_result(200, 30, 80, 10),
+            "",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, second]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                info = run.run_agent(
+                    run.RunnerSpec(
+                        id="runner", agent="codex", model="model", effort="low"
+                    ),
+                    "fix it",
+                    worktree,
+                    {},
+                    run_dir,
+                    "no_brain",
+                    {},
+                    100,
+                    0.0,
+                    self._confirmatory_pricing(),
+                    agent_retries=1,
+                    schedule_sha256=TEST_SCHEDULE_SHA256,
+                )
+        self.assertEqual(len(info["attempts"]), 2)
+        self.assertEqual(info["attempts"][0]["returncode"], 1)
+        self.assertTrue(info["billing_integrity"]["passed"])
+        self.assertEqual(info["usage"]["input_tokens"], 300)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["input_tokens"], 300)
+        self.assertEqual(info["usage"]["billing_v2"]["exclusive"]["uncached_input"], 180)
+        self.assertEqual(info["usage"]["billing_v2"]["exclusive"]["visible_output"], 35)
+        self.assertEqual(info["usage"]["billing_v2"]["exclusive"]["reasoning_output"], 15)
+        self.assertEqual(
+            info["usage"]["usage_report"]["accounting_basis"],
+            "sum_per_isolated_provider_invocation_attempt_total",
+        )
+
+    def test_retry_with_missing_attempt_usage_marks_confirmatory_billing_invalid(self):
+        first = subprocess.CompletedProcess(
+            ["codex"], 1, "", "selected model is at capacity"
+        )
+        second = subprocess.CompletedProcess(
+            ["codex"], 0, self._codex_result(200, 30, 80, 10), ""
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, second]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                info = run.run_agent(
+                    run.RunnerSpec(
+                        id="runner", agent="codex", model="model", effort="low"
+                    ),
+                    "fix it",
+                    worktree,
+                    {},
+                    run_dir,
+                    "no_brain",
+                    {},
+                    100,
+                    0.0,
+                    self._confirmatory_pricing(),
+                    agent_retries=1,
+                    schedule_sha256=TEST_SCHEDULE_SHA256,
+                )
+        self.assertFalse(info["billing_integrity"]["passed"])
+        self.assertEqual(info["billing_integrity"]["incomplete_attempts"], [1])
+        self.assertIsNone(info["usage"]["billing_v2"])
+
+    def test_claude_failed_first_retry_and_successful_second_sum_each_terminal_result(self):
+        first = subprocess.CompletedProcess(
+            ["claude"],
+            1,
+            self._claude_result(10, 5, 2, 3, 1, 0.1),
+            "service unavailable",
+        )
+        second = subprocess.CompletedProcess(
+            ["claude"],
+            0,
+            self._claude_result(20, 7, 4, 6, 2, 0.2),
+            "",
+        )
+        pricing = self._confirmatory_pricing(agent="claude")
+        pricing["pricing_quote"]["usage_semantics"]["input_tokens_includes"] = []
+        pricing["pricing_quote"]["usage_semantics"]["counter_absence_means_zero"][
+            "cache_write_input"
+        ] = False
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, second]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                info = run.run_agent(
+                    run.RunnerSpec(
+                        id="runner", agent="claude", model="model", effort="low"
+                    ),
+                    "fix it",
+                    worktree,
+                    {},
+                    run_dir,
+                    "no_brain",
+                    {},
+                    100,
+                    0.0,
+                    pricing,
+                    agent_retries=1,
+                    schedule_sha256=TEST_SCHEDULE_SHA256,
+                )
+        self.assertTrue(info["billing_integrity"]["passed"])
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["input_tokens"], 30)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["cache_read_input_tokens"], 6)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["cache_write_input_tokens"], 9)
+        self.assertEqual(info["usage"]["billing_v2"]["raw"]["reasoning_tokens"], 3)
+        self.assertAlmostEqual(info["usage"]["cost_usd"], 0.3)
+
+    def test_timeout_preserves_prior_and_partial_attempt_billing_evidence(self):
+        first = subprocess.CompletedProcess(
+            ["codex"],
+            1,
+            self._codex_result(100, 20, 40, 5),
+            "selected model is at capacity",
+        )
+        timeout = subprocess.TimeoutExpired(
+            ["codex"],
+            100,
+            output='{"type":"turn.started"}\n',
+            stderr="timed out",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "run"
+            worktree = root / "worktree"
+            run_dir.mkdir()
+            worktree.mkdir()
+            with mock.patch.object(run, "run_cmd", side_effect=[first, timeout]), mock.patch.object(
+                run.time, "sleep"
+            ):
+                with self.assertRaises(run.AgentRunTimeout) as caught:
+                    run.run_agent(
+                        run.RunnerSpec(
+                            id="runner", agent="codex", model="model", effort="low"
+                        ),
+                        "fix it",
+                        worktree,
+                        {},
+                        run_dir,
+                        "no_brain",
+                        {},
+                        100,
+                        0.0,
+                        self._confirmatory_pricing(),
+                        agent_retries=1,
+                        schedule_sha256=TEST_SCHEDULE_SHA256,
+                    )
+            info = caught.exception.agent_info
+            self.assertEqual(len(info["attempts"]), 2)
+            self.assertTrue(info["attempts"][1]["timed_out"])
+            self.assertEqual(info["billing_integrity"]["incomplete_attempts"], [2])
+            self.assertFalse(info["billing_integrity"]["passed"])
+            self.assertTrue((run_dir / "agent.attempt1.stdout").is_file())
+            self.assertTrue((run_dir / "agent.attempt2.stdout").is_file())
+
+    def test_confirmatory_quality_excludes_runtime_and_forces_critical_zero(self):
+        scoring = {
+            "outcome": 45,
+            "patch_focus": 25,
+            "validation_discipline": 10,
+            "runtime_efficiency": 0,
+            "brain_use": 5,
+            "details": {"forbidden_files_touched": []},
+        }
+        quality = run.confirmatory_code_quality(
+            scoring,
+            validation_ok=True,
+            returncode=0,
+            integrity_audits={"leak_audit": True},
+        )
+        self.assertAlmostEqual(quality["task_normalized_score"], 70 / 75)
+        self.assertEqual(
+            quality["excluded_components"],
+            ["validation_discipline", "runtime_efficiency", "brain_use"],
+        )
+        self.assertEqual(quality["rubric"], "task_relative_output_outcome_patch_focus_v2")
+        failed = run.confirmatory_code_quality(
+            scoring,
+            validation_ok=False,
+            returncode=0,
+            integrity_audits={"leak_audit": True},
+        )
+        self.assertTrue(failed["critical_failure"])
+        self.assertEqual(failed["task_normalized_score"], 0.0)
+
+    def test_resume_skips_ambiguously_started_cell_and_records_deviation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            results = root / "results"
+            results.mkdir()
+            task_path = root / "task.json"
+            task = self._task(conditions=["a", "b"])
+            task_path.write_text(json.dumps(task))
+            loaded_task = {**task, "_path": str(task_path)}
+            runner = run.RunnerSpec(id="codex", agent="codex")
+            schedule = run.build_schedule(
+                [loaded_task], [runner], ["a", "b"], 1,
+                seed=3, order_policy="counterbalanced", cache_policy="isolated_per_cell",
+            )
+            suite = results / "resume-suite"
+            suite.mkdir()
+            (suite / "schedule.json").write_text(run.canonical_json_text(schedule))
+            harness_evidence = {"commit": "a" * 40, "dirty": False, "confirmatory_eligible": True}
+            (suite / "harness-evidence.json").write_text(run.canonical_json_text(harness_evidence))
+            interrupted = schedule["cells"][0]
+            run.append_actual_order(suite, {
+                "event": "started", "run_id": interrupted["run_id"],
+                "planned_ordinal": interrupted["ordinal"],
+            })
+            args = argparse.Namespace(
+                tasks=[str(task_path)], runners="", agents="codex", conditions="a,b",
+                repetitions=1, schedule_seed=3, order_policy="counterbalanced",
+                cache_policy="isolated_per_cell", suite_name="resume-suite", resume=True,
+                pricing_file=None, pricing_json=None, stop_after_no_brain_score=None,
+            )
+
+            executed = []
+            def fake_run_one(task, runner, condition, repetition, suite_dir, tools, args, pricing):
+                run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
+                executed.append(run_id)
+                return run.RunResult(record={"run_id": run_id, "ok": True, "score": {"total": 1}}, run_dir=suite_dir / run_id)
+
+            controls = {"cache_policy": "isolated_per_cell", "host_context": {}}
+            with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "git_dirty_metadata", return_value={"dirty": False}), \
+                 mock.patch.object(run, "prepare_harness_evidence", return_value=harness_evidence), \
+                 mock.patch.object(run, "prepare_runtime_controls", return_value=({}, controls)), \
+                 mock.patch.object(run, "build_tools", return_value={}), \
+                 mock.patch.object(run, "run_one", side_effect=fake_run_one), \
+                 mock.patch.object(run, "summarize", return_value={"ok": True}), \
+                 mock.patch.object(run, "runner_cli_versions", return_value={}), \
+                 mock.patch.object(run, "finalize_suite_manifest"), \
+                 mock.patch.object(run, "verify_bundle", return_value={"ok": True, "errors": []}), \
+                 mock.patch.object(run, "render_evidence_markdown", return_value=""):
+                self.assertEqual(run.cmd_run(args), 0)
+
+            self.assertNotIn(interrupted["run_id"], executed)
+            self.assertEqual(len(executed), 1)
+            events = run.load_ndjson(suite / "actual-order.ndjson")
+            deviations = [event for event in events if event.get("event") == "deviation"]
+            self.assertEqual(deviations[0]["reason"], "interrupted_incomplete_not_retried")
+            state = json.loads((suite / "schedule-state.json").read_text())
+            self.assertEqual(state["planned_cell_count"], 2)
+            self.assertEqual(state["recorded_cell_count"], 1)
+
+    def test_schedule_is_persisted_before_setup_or_agent_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            results = root / "results"
+            results.mkdir()
+            task_path = root / "task.json"
+            task_path.write_text(json.dumps(self._task(conditions=["a"])))
+            suite = results / "new-suite"
+            args = argparse.Namespace(
+                tasks=[str(task_path)], runners="", agents="codex", conditions="a",
+                repetitions=1, schedule_seed=0, order_policy="counterbalanced",
+                cache_policy="isolated_per_cell", suite_name="new-suite", resume=False,
+                pricing_file=None, pricing_json=None, stop_after_no_brain_score=None,
+            )
+
+            def assert_schedule_before_setup(*unused):
+                self.assertTrue((suite / "schedule.json").exists())
+                return {}, {"cache_policy": "isolated_per_cell", "host_context": {}}
+
+            def assert_schedule_before_agent(task, runner, condition, repetition, suite_dir, tools, args, pricing):
+                self.assertTrue((suite / "schedule.json").exists())
+                run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
+                return run.RunResult(record={"run_id": run_id, "ok": True, "score": {"total": 1}}, run_dir=suite / run_id)
+
+            with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "git_dirty_metadata", return_value={"dirty": False}), \
+                 mock.patch.object(
+                     run,
+                     "prepare_harness_evidence",
+                     return_value={"commit": "a" * 40, "dirty": False, "confirmatory_eligible": True},
+                 ), \
+                 mock.patch.object(run, "prepare_runtime_controls", side_effect=assert_schedule_before_setup), \
+                 mock.patch.object(run, "build_tools", return_value={}), \
+                 mock.patch.object(run, "run_one", side_effect=assert_schedule_before_agent), \
+                 mock.patch.object(run, "summarize", return_value={}), \
+                 mock.patch.object(run, "runner_cli_versions", return_value={}), \
+                 mock.patch.object(run, "finalize_suite_manifest"), \
+                 mock.patch.object(run, "verify_bundle", return_value={"ok": True, "errors": []}), \
+                 mock.patch.object(run, "render_evidence_markdown", return_value=""):
+                self.assertEqual(run.cmd_run(args), 0)
+
+    def test_resume_rejects_changed_harness_identity_before_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            results = root / "results"
+            results.mkdir()
+            task_path = root / "task.json"
+            task_path.write_text(json.dumps(self._task(conditions=["a"])))
+            suite = results / "resume-suite"
+            suite.mkdir()
+            (suite / "harness-evidence.json").write_text(
+                run.canonical_json_text({"commit": "a" * 40, "dirty": False})
+            )
+            args = argparse.Namespace(
+                tasks=[str(task_path)], runners="", agents="codex", conditions="a",
+                repetitions=1, schedule_seed=0, order_policy="counterbalanced",
+                cache_policy="isolated_per_cell", suite_name="resume-suite", resume=True,
+                pricing_file=None, pricing_json=None,
+            )
+            with mock.patch.object(run, "RESULT_DIR", results), \
+                 mock.patch.object(run, "git_dirty_metadata", return_value={"dirty": False}), \
+                 mock.patch.object(
+                     run,
+                     "prepare_harness_evidence",
+                     return_value={"commit": "b" * 40, "dirty": False},
+                 ):
+                with self.assertRaisesRegex(RuntimeError, "harness identity"):
+                    run.cmd_run(args)
 
 AUDIT_PATH = pathlib.Path(__file__).with_name("audit_codex.py")
 AUDIT_SPEC = importlib.util.spec_from_file_location("agent_brain_audit", AUDIT_PATH)
@@ -583,7 +1459,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(low, high)
         self.assertEqual(low, xhigh)
 
-    def test_full_brain_prompt_uses_query_terms_in_initial_brief(self):
+    def test_full_brain_prompt_uses_user_query_not_oracle_terms_in_initial_brief(self):
         task = {
             "id": "task",
             "prompt": "Fix the regression.",
@@ -596,8 +1472,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         # The query is shell-quoted (shlex.quote) — it has spaces so it is single-quoted, NOT the
         # old unescaped double-quoted form that let shell metacharacters corrupt the query.
         self.assertIn("entire brain brief 'Fix the regression.' --json", prompt)
-        self.assertNotIn("Fix the regression. | ExactSymbol", prompt)
-        self.assertNotIn("task: Fix the regression", prompt)
+        self.assertNotIn("ExactSymbol", prompt)
+        self.assertNotIn("important invariant", prompt)
         self.assertIn("Your first context command must be", prompt)
         self.assertIn("as hypotheses", prompt)
         self.assertNotIn("brain-history-excerpt.md", prompt)
@@ -2255,6 +3131,70 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("brain_validation_not_clean", verdict["verdict_reasons"])
 
 
+class PostBrainSetupTests(unittest.TestCase):
+    PATCH = """diff --git a/value.txt b/value.txt
+--- a/value.txt
++++ b/value.txt
+@@ -1 +1 @@
+-before
++after
+"""
+
+    def test_relative_post_brain_patch_is_applied_from_task_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_dir = root / "tasks"
+            patch_dir = task_dir / "patches"
+            worktree = root / "worktree"
+            patch_dir.mkdir(parents=True)
+            worktree.mkdir()
+            task_path = task_dir / "task.json"
+            task_path.write_text("{}\n")
+            (patch_dir / "task.patch").write_text(self.PATCH)
+            (worktree / "value.txt").write_text("before\n")
+
+            changed = run.apply_post_brain_setup(
+                {"_path": str(task_path), "post_brain_patch": "patches/task.patch"},
+                worktree,
+            )
+
+            self.assertTrue(changed)
+            self.assertEqual((worktree / "value.txt").read_text(), "after\n")
+
+    def test_post_brain_patch_rejects_absolute_and_escaping_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_dir = root / "tasks"
+            task_dir.mkdir()
+            task_path = task_dir / "task.json"
+            task_path.write_text("{}\n")
+            worktree = root / "worktree"
+            worktree.mkdir()
+            outside = root / "outside.patch"
+            outside.write_text(self.PATCH)
+
+            for patch_path in (str(outside), "../outside.patch"):
+                with self.subTest(patch_path=patch_path):
+                    with self.assertRaisesRegex(ValueError, "relative path|escapes"):
+                        run.apply_post_brain_setup(
+                            {"_path": str(task_path), "post_brain_patch": patch_path},
+                            worktree,
+                        )
+
+    def test_post_brain_patch_fails_closed_when_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_path = root / "task.json"
+            task_path.write_text("{}\n")
+            worktree = root / "worktree"
+            worktree.mkdir()
+            with self.assertRaisesRegex(ValueError, "not a readable file"):
+                run.apply_post_brain_setup(
+                    {"_path": str(task_path), "post_brain_patch": "missing.patch"},
+                    worktree,
+                )
+
+
 class RunnerIndependentPromptTests(unittest.TestCase):
     TASK = {"id": "t", "prompt": "Fix it.", "brain_queries": ["X"], "expected_files": ["a.go"], "validation": ["go test ./..."]}
 
@@ -2856,6 +3796,249 @@ class PanelAndStabilityTests(unittest.TestCase):
                 self.assertEqual(proofs[0]["proof_level"], "existing_repeated_run")
         finally:
             run.RESULT_DIR = old_result_dir
+
+
+class FrozenBrainDeliveryTests(unittest.TestCase):
+    """Phase 2: the frozen-brief delivery path turns real `entire-brain recall --json`
+    payloads into a facts-first packet (replacing the grep-based history excerpt)."""
+
+    FAKE_RECALL_A = {
+        "branch": "main",
+        "facts": [
+            {
+                "id": "fact:aaa",
+                "kind": "decision",
+                "paths": ["accounting.tokens"],
+                "text": "Turn-end events without an id must be deduped by usage so token totals are not inflated.",
+            },
+            {
+                "id": "fact:bbb",
+                "kind": "gotcha",
+                "locus": ["parseTokens"],
+                "text": "Cursor transcripts without a uuid collapse turns onto one checkpoint id.",
+            },
+        ],
+    }
+    FAKE_RECALL_B = {
+        "branch": "main",
+        "facts": [
+            # Same fact id as A's second fact -> must dedupe, and its better (rank 0) here.
+            {
+                "id": "fact:bbb",
+                "kind": "gotcha",
+                "locus": ["parseTokens"],
+                "text": "Cursor transcripts without a uuid collapse turns onto one checkpoint id.",
+            },
+            {
+                "id": "fact:ccc",
+                "kind": "invariant",
+                "text": "Token classes have different prices; never optimize raw total token count.",
+            },
+            {"id": "fact:empty", "kind": "decision", "text": "   "},  # blank -> dropped
+        ],
+    }
+
+    def test_collect_frozen_facts_dedupes_ranks_and_caps(self):
+        facts = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B], cap=12)
+        ids = [f["id"] for f in facts]
+        # fact:bbb is surfaced by BOTH queries at best rank 0 (rank 1 in A, rank 0 in B) ->
+        # deduped once and ranked ahead of fact:aaa (also rank 0, but only 1 query hit).
+        self.assertEqual(ids, ["fact:bbb", "fact:aaa", "fact:ccc"])
+        self.assertNotIn("fact:empty", ids)  # blank-text fact dropped
+        capped = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B], cap=1)
+        self.assertEqual([f["id"] for f in capped], ["fact:bbb"])
+
+    def test_render_frozen_brain_packet_is_facts_first_markdown(self):
+        facts = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B])
+        packet = run.render_frozen_brain_packet(facts)
+        self.assertTrue(packet.startswith("# Retrieved Brain Facts"))
+        self.assertIn("Use only where relevant; make the minimal change.", packet)
+        self.assertIn("## 1. [gotcha] Cursor transcripts without a uuid collapse", packet)
+        self.assertIn("## 2. [decision] Turn-end events without an id must be deduped", packet)
+        self.assertIn("paths: accounting.tokens", packet)
+        self.assertIn("locus: parseTokens", packet)
+        self.assertIn("## 3. [invariant] Token classes have different prices", packet)
+        # No grep-style raw JSONL snippets / query headers leak into the packet.
+        self.assertNotIn("## Query `", packet)
+
+    CUTOFF = "2026-07-13T00:00:00Z"
+    SESSION_DATES = {
+        "sess-early": "2026-07-10T12:00:00Z",
+        "sess-alsoearly": "2026-07-11T09:00:00Z",
+        "sess-late": "2026-07-13T12:00:00Z",
+        "sess-own-fix": "2026-07-09T00:00:00Z",
+    }
+
+    def test_task_input_path_expands_environment_and_relative_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            task_path = root / "tasks" / "task.json"
+            env_path = root / "inputs" / "session_dates.json"
+            old = os.environ.get("AGENT_BENCH_FROZEN_SESSION_DATES")
+            try:
+                os.environ["AGENT_BENCH_FROZEN_SESSION_DATES"] = str(env_path)
+                self.assertEqual(
+                    run.resolve_task_input_path(
+                        {"_path": str(task_path)}, "$AGENT_BENCH_FROZEN_SESSION_DATES"
+                    ),
+                    env_path.resolve(),
+                )
+                self.assertEqual(
+                    run.resolve_task_input_path({"_path": str(task_path)}, "../inputs/dates.json"),
+                    (root / "inputs" / "dates.json").resolve(),
+                )
+            finally:
+                if old is None:
+                    os.environ.pop("AGENT_BENCH_FROZEN_SESSION_DATES", None)
+                else:
+                    os.environ["AGENT_BENCH_FROZEN_SESSION_DATES"] = old
+
+    def test_task_input_path_rejects_unset_environment_variable(self):
+        old = os.environ.pop("AGENT_BENCH_MISSING_INPUT", None)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "unresolved environment variable"):
+                run.resolve_task_input_path({}, "$AGENT_BENCH_MISSING_INPUT/file.json")
+        finally:
+            if old is not None:
+                os.environ["AGENT_BENCH_MISSING_INPUT"] = old
+
+    @staticmethod
+    def _fact(fid, session_ids):
+        return {
+            "id": fid,
+            "kind": "decision",
+            "text": f"decision for {fid}",
+            "provenance": [{"session_id": s} for s in session_ids],
+        }
+
+    def _filter_one(self, fact, exclude_ids=None):
+        return run.filter_facts_by_cutoff([fact], self.SESSION_DATES, self.CUTOFF, exclude_ids or [])
+
+    def test_filter_keeps_fact_with_all_provenance_before_cutoff(self):
+        fact = self._fact("fact:keep", ["sess-early", "sess-alsoearly"])
+        self.assertEqual(self._filter_one(fact), [fact])
+
+    def test_filter_drops_fact_with_provenance_after_cutoff(self):
+        fact = self._fact("fact:late", ["sess-early", "sess-late"])
+        self.assertEqual(self._filter_one(fact), [])
+
+    def test_filter_drops_fact_with_provenance_in_exclude_ids(self):
+        fact = self._fact("fact:own", ["sess-early", "sess-own-fix"])
+        # session date is before cutoff, but it is the task's own fix session -> dropped.
+        self.assertEqual(self._filter_one(fact, exclude_ids=["sess-own-fix"]), [])
+
+    def test_filter_drops_fact_with_unknown_session_provenance(self):
+        fact = self._fact("fact:unknown", ["sess-early", "sess-not-in-map"])
+        self.assertEqual(self._filter_one(fact), [])
+
+    def test_filter_drops_fact_with_empty_provenance(self):
+        no_prov = {"id": "fact:noprov", "kind": "decision", "text": "no provenance"}
+        empty_prov = {"id": "fact:emptyprov", "kind": "decision", "text": "empty", "provenance": []}
+        self.assertEqual(run.filter_facts_by_cutoff([no_prov, empty_prov], self.SESSION_DATES, self.CUTOFF, []), [])
+
+    def test_collect_frozen_facts_without_cutoff_is_unchanged(self):
+        # No cutoff => no filtering, even for facts that have no provenance at all.
+        facts = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B])
+        self.assertEqual([f["id"] for f in facts], ["fact:bbb", "fact:aaa", "fact:ccc"])
+
+    def test_frozen_recall_constrains_temporal_eligibility_before_top_k(self):
+        """Five future facts must not truncate the eligible solving fact at rank six."""
+        future = [
+            self._fact(f"fact:future-{i}", ["sess-late"])
+            | {"text": f"target regression exact match future distractor {i}"}
+            for i in range(5)
+        ]
+        solving = self._fact("fact:solving", ["sess-early"]) | {
+            "text": "target regression exact match eligible solving fact"
+        }
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            worktree = root / "worktree"
+            worktree.mkdir()
+            dates_path = root / "session-dates.json"
+            dates_path.write_text(json.dumps(self.SESSION_DATES))
+            task = {
+                "brain_queries": ["target regression exact match"],
+                "rolling_cutoff_rfc3339": self.CUTOFF,
+                "frozen_session_dates_path": str(dates_path),
+                "frozen_recall_k": 5,
+                "frozen_packet_cap": 5,
+            }
+            calls = []
+
+            def fake_run_cmd(args, **kwargs):
+                calls.append(args)
+                if "recall" not in args:
+                    return subprocess.CompletedProcess(args, 0, "", "")
+                # Model the real failure: unconstrained top-K is all future facts. The
+                # solving fact appears only when recall receives the temporal constraint.
+                constrained = "--eligible-before" in args
+                facts = [solving] if constrained else future
+                payload = {"branch": "main", "facts": facts}
+                if constrained:
+                    payload["eligibility"] = {
+                        "prefilter_corpus_count": 6,
+                        "eligible_count": 1,
+                        "excluded_counts": {"at_or_after_cutoff": 5},
+                    }
+                return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+            with mock.patch.dict(os.environ, {
+                run.FROZEN_BRAIN_PLUGIN_ENV: str(root / "plugin"),
+                run.FROZEN_BRAIN_REPO_ENV: str(root / "repo"),
+            }), mock.patch.object(run, "run_cmd", side_effect=fake_run_cmd):
+                audit = run.write_frozen_brain_packet(task, worktree, {"brain": pathlib.Path("brain")})
+
+            packet = (worktree / ".benchmark" / "brain-history-excerpt.md").read_text()
+            self.assertIn("eligible solving fact", packet)
+            self.assertNotIn("future distractor", packet)
+            recall_args = next(args for args in calls if "recall" in args)
+            self.assertIn("--eligible-before", recall_args)
+            self.assertIn("--read-only-semantic-cache", recall_args)
+            self.assertEqual(audit["prefilter_corpus_count"], 6)
+            self.assertEqual(audit["eligible_count"], 1)
+            self.assertEqual(audit["delivered_count"], 1)
+
+    def test_frozen_prepare_records_temporal_eligibility_audit(self):
+        task = {"memory_delivery": "frozen_brief", "history_excerpt": True}
+        expected = {
+            "prefilter_corpus_count": 6,
+            "eligible_count": 1,
+            "excluded_counts": {"at_or_after_cutoff": 5},
+            "delivered_count": 1,
+        }
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(
+            run, "deliver_full_brain_memory", return_value=expected
+        ):
+            root = pathlib.Path(d)
+            worktree = root / "worktree"
+            run_dir = root / "run"
+            worktree.mkdir()
+            run_dir.mkdir()
+            _, prep = run.prepare_brain(task, "full_brain", worktree, run_dir, {"bin": root}, 10)
+        self.assertEqual(prep["temporal_eligibility"], expected)
+
+    def test_uses_frozen_brain_delivery_flag(self):
+        self.assertTrue(run.uses_frozen_brain_delivery({"memory_delivery": "frozen_brief"}))
+        self.assertFalse(run.uses_frozen_brain_delivery({"memory_delivery": "grep"}))
+        self.assertFalse(run.uses_frozen_brain_delivery({}))
+
+    def test_frozen_brain_env_requires_config(self):
+        saved = {k: os.environ.pop(k, None) for k in (run.FROZEN_BRAIN_PLUGIN_ENV, run.FROZEN_BRAIN_REPO_ENV)}
+        try:
+            with self.assertRaises(RuntimeError):
+                run.frozen_brain_env()
+            os.environ[run.FROZEN_BRAIN_PLUGIN_ENV] = "/frozen/plugin"
+            os.environ[run.FROZEN_BRAIN_REPO_ENV] = "/frozen/scratch-clone"
+            env = run.frozen_brain_env()
+            self.assertEqual(env["ENTIRE_PLUGIN_DATA_DIR"], "/frozen/plugin/data")
+            self.assertEqual(env["ENTIRE_REPO_ROOT"], "/frozen/scratch-clone")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 class BrainQueryLeakAuditTests(unittest.TestCase):
@@ -7686,6 +8869,296 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             joined = " | ".join(errors)
             self.assertIn("invalid validation config", joined)
             self.assertIn("invalid memory_delivery", joined)
+
+
+
+
+class TreatmentIsolationAndTaskValidityTests(unittest.TestCase):
+    def _task(self):
+        return {
+            "id": "treatment-task",
+            "repo": "entire-brain",
+            "repo_path": "entire-brain",
+            "conditions": ["no_brain", "full_brain", "placebo_packet"],
+            "user_query": "The command reports stale state after a refresh.",
+            "prompt": "legacy prompt must not win",
+            "brain_queries": ["ExactOracleHelper replacement order"],
+            "retrieval_query_source": "user_query",
+            "oracle_queries": ["ExactOracleHelper replacement order"],
+            "memory_delivery": "frozen_brief",
+            "rolling_cutoff_rfc3339": "2026-06-18T08:29:27Z",
+            "validation": ["go test ./..."],
+            "treatments": {
+                "no_brain": {"arm": "no_memory", "query_source": "user_query"},
+                "full_brain": {"arm": "retrieved_memory", "query_source": "user_query"},
+                "placebo_packet": {
+                    "arm": "placebo_packet",
+                    "query_source": "user_query",
+                    "seed": "fixture-seed",
+                    "solving_fact_ids": ["solve"],
+                    "candidate_facts": [
+                        {"id": "solve", "text": "exact solving detail", "created_at": "2026-01-01T00:00:00Z"},
+                        {"id": "future", "text": "unrelated future detail", "created_at": "2027-01-01T00:00:00Z"},
+                        {"id": "p1", "text": "release documentation convention", "created_at": "2026-01-02T00:00:00Z"},
+                        {"id": "p2", "text": "logging cleanup convention", "created_at": "2026-01-03T00:00:00Z"},
+                    ],
+                },
+            },
+        }
+
+    def test_prompt_parity_and_query_isolation(self):
+        task = self._task()
+        packet = '{"results":[{"id":"x","text":"payload"}]}'
+        prompts = {
+            "no_brain": run.prompt_for(task, "no_brain"),
+            "full_brain": run.prompt_for(task, "full_brain", memory_packet=packet),
+            "placebo_packet": run.prompt_for(task, "placebo_packet", memory_packet=packet),
+        }
+        self.assertTrue(run.prompt_parity(prompts)["ok"])
+        for condition, prompt in prompts.items():
+            self.assertNotIn(condition, prompt)
+            self.assertNotIn("Benchmark condition:", prompt)
+            self.assertNotIn("ExactOracleHelper", prompt)
+            self.assertIn("Use the supplied context packet if present", prompt)
+
+    def test_wip_frozen_delivery_builds_retrieved_and_placebo_packets(self):
+        task = self._task()
+        facts = [
+            {"id": "r1", "text": "first retrieved fact"},
+            {"id": "r2", "text": "second retrieved fact"},
+        ]
+        old = run.recall_frozen_brain_facts
+        run.recall_frozen_brain_facts = lambda *args, **kwargs: facts
+        try:
+            retrieved, retrieved_meta = run.treatment_memory_packet(
+                task, "full_brain", pathlib.Path("/tmp/worktree"), {"brain": pathlib.Path("brain")}
+            )
+            placebo, placebo_meta = run.treatment_memory_packet(
+                task, "placebo_packet", pathlib.Path("/tmp/worktree"), {"brain": pathlib.Path("brain")}
+            )
+        finally:
+            run.recall_frozen_brain_facts = old
+        self.assertEqual(retrieved_meta["fact_ids"], ["r1", "r2"])
+        self.assertEqual(set(placebo_meta["fact_ids"]), {"p1", "p2"})
+        self.assertEqual(placebo_meta["placebo"]["rejected"]["solving_fact"], 1)
+        self.assertEqual(placebo_meta["placebo"]["rejected"]["temporally_ineligible"], 1)
+        self.assertLessEqual(abs(len(retrieved.encode()) - len(placebo.encode())), placebo_meta["placebo"]["size_match_tolerance_bytes"])
+
+    def test_mixed_oracle_source_is_harness_owned_and_excluded_from_confirmatory(self):
+        task = self._task()
+        task["treatments"] = {
+            "full_brain": {"arm": "oracle_retrieval", "query_source": "oracle_queries"}
+        }
+        prompt = run.prompt_for(task, "full_brain", memory_packet='{"results":[]}')
+        self.assertNotIn("ExactOracleHelper", prompt)
+        self.assertEqual(run.retrieval_query(task, "oracle_queries"), "ExactOracleHelper replacement order")
+        self.assertTrue(any("excluded" in error for error in run.treatment_schema_errors(task, ["full_brain"])))
+
+    def test_oracle_assisted_regression_fixtures_and_ledger(self):
+        fixture_path = pathlib.Path(__file__).with_name("fixtures") / "task-validity" / "oracle-assisted-regressions.json"
+        tasks = {task["id"]: task for task in json.loads(fixture_path.read_text())["tasks"]}
+        ledger = json.loads(pathlib.Path(__file__).with_name("task-review-ledger.json").read_text())
+        self.assertEqual(run.validate_review_ledger(ledger, tasks), [])
+        for task in tasks.values():
+            lint = run.task_validity_lint(task, run.brain_query_leak_audit)
+            self.assertEqual(lint["automated_disposition"], "oracle_assisted", task["id"])
+            self.assertFalse(lint["confirmatory_eligible"], task["id"])
+
+    def test_regression_fixtures_cannot_enter_confirmatory_panel(self):
+        fixture_path = pathlib.Path(__file__).with_name("fixtures") / "task-validity" / "oracle-assisted-regressions.json"
+        for fixture in json.loads(fixture_path.read_text())["tasks"]:
+            with tempfile.TemporaryDirectory() as tmp:
+                task = {
+                    **fixture,
+                    "repo": "entire-cli",
+                    "repo_path": "entire-cli",
+                    "conditions": ["no_brain"],
+                    "validation": ["go test ./..."],
+                }
+                path = pathlib.Path(tmp) / "task.json"
+                path.write_text(json.dumps(task))
+                errors = run.panel_preflight({
+                    "name": "confirmatory-regression-fixture",
+                    "confirmatory": True,
+                    "runners": ["codex:gpt-5.5:high"],
+                    "tasks": [str(path)],
+                    "conditions": ["no_brain"],
+                    "repetitions": 4,
+                })
+                joined = " | ".join(errors)
+                self.assertIn("lacks approved_symptom_only human review", joined, fixture["id"])
+                self.assertIn("explicit schema requires treatments", joined, fixture["id"])
+
+class EvidenceManifestTests(unittest.TestCase):
+    def _record(self, run_id="task__runner__no_brain__r1", *, validation_ok=False):
+        return {
+            "run_id": run_id,
+            "task_id": "task",
+            "repo": "repo",
+            "agent": "codex",
+            "runner": {"id": "runner", "agent": "codex", "model": "model", "effort": "high"},
+            "condition": "no_brain",
+            "delivery_mode": "harness",
+            "treatment_started": True,
+            "agent_ran": True,
+            "ok": validation_ok,
+            "error": "post-agent validation failed" if not validation_ok else None,
+            "agent_info": {"returncode": 1, "seconds": 12.5, "usage": {"total_tokens": 100}},
+            "validation": {"ok": validation_ok},
+            "score": {"total": 0 if not validation_ok else 100},
+            "patch_artifact": {"sha256": hashlib.sha256(b"").hexdigest()},
+            "provenance": {"tools": {"brain": {"sha256": "a" * 64}}},
+        }
+
+    def test_shared_predicate_keeps_post_agent_failures_and_rejects_infrastructure(self):
+        from analysis.common import is_executed_run
+
+        self.assertTrue(is_executed_run(self._record()))
+        adherence = self._record()
+        adherence["temporal_memory_condition_audit"] = {"ok": False}
+        self.assertTrue(is_executed_run(adherence))
+        retrieval_timeout = self._record()
+        retrieval_timeout["agent_ran"] = False
+        self.assertTrue(is_executed_run(retrieval_timeout))
+        infra = self._record()
+        infra["treatment_started"] = False
+        infra["agent_ran"] = False
+        infra["analysis_excluded"] = {"reason": "harness_infrastructure_error"}
+        self.assertFalse(is_executed_run(infra))
+
+    def test_treatment_packet_and_temporal_audit_flow_into_run_manifest(self):
+        from analysis.evidence import build_run_manifest
+
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = pathlib.Path(tmp)
+            record = self._record(run_id="task__runner__full_brain__r1", validation_ok=True)
+            record["condition"] = "full_brain"
+            record["treatment"] = {"arm": "retrieved_memory", "query_source": "user_query"}
+            record["retrieval_query_source"] = "user_query"
+            packet_text = '{"results":[{"id":"fact-1","kind":"invariant","text":"x"}]}'
+            packet_bytes = packet_text.encode()
+            record["packet_artifact"] = {
+                "path": "packet.txt",
+                "sha256": hashlib.sha256(packet_bytes).hexdigest(),
+                "bytes": len(packet_bytes),
+                "fact_ids": ["fact-1"],
+                "fact_count": 1,
+                "temporal_eligibility": {
+                    "prefilter_corpus_count": 10,
+                    "eligible_count": 7,
+                    "excluded_counts": {"at_or_after_cutoff": 3},
+                    "delivered_count": 1,
+                    "query_count": 1,
+                },
+            }
+            run_dir = suite / record["run_id"]
+            run_dir.mkdir()
+            (run_dir / "packet.txt").write_text(packet_text)
+            manifest = build_run_manifest(record, run_dir, suite)
+            self.assertTrue(manifest["execution_gate"]["treatment_started"])
+            self.assertTrue(manifest["execution_gate"]["agent_ran"])
+            self.assertTrue(manifest["packet"]["recorded_matches_file"])
+            self.assertEqual(manifest["packet"]["query_source_class"], "user_query")
+            self.assertEqual(manifest["temporal_eligibility"]["eligible_count"], 7)
+            self.assertEqual(manifest["retrieval_evidence"]["treatment_arm"], "retrieved_memory")
+            self.assertEqual(manifest["retrieval_evidence"]["packet_sha256"], hashlib.sha256(packet_bytes).hexdigest())
+
+    def test_portable_bundle_verifies_recomputes_and_detects_prompt_tampering(self):
+        from analysis.evidence import finalize_suite_manifest, verify_bundle, write_run_manifest
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            suite = root / "suite"
+            suite.mkdir()
+            record = self._record()
+            run_dir = suite / record["run_id"]
+            run_dir.mkdir()
+            (run_dir / "prompt.txt").write_text("direct prompt")
+            (run_dir / "packet.txt").write_text('{"results":[{"id":"fact-1","kind":"invariant","text":"x"}]}')
+            (run_dir / "agent.patch").write_text("")
+            (run_dir / "agent.stdout").write_text("output")
+            (run_dir / "agent.stderr").write_text("")
+            (suite / "records.ndjson").write_text(json.dumps(record, sort_keys=True) + "\n")
+            (suite / "schedule.json").write_text('{"schedule_sha256":"schedule"}\n')
+            (suite / "actual-order.ndjson").write_text('{"event":"finished"}\n')
+            (suite / "schedule-state.json").write_text('{"recorded_cell_count":1}\n')
+            (suite / "runtime-controls.json").write_text('{"cache_policy":"isolated_per_cell"}\n')
+            (suite / "prompt-snapshots.json").write_text('{"schema_version":1,"tasks":{}}\n')
+            (suite / "harness-evidence.json").write_text('{"commit":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}\n')
+            task_path = root / "task.json"
+            task_path.write_text(json.dumps({"id": "task", "validation_files": []}))
+            task = {"id": "task", "_path": str(task_path), "validation_files": []}
+            binary = root / "entire-brain"
+            binary.write_bytes(b"frozen binary")
+            write_run_manifest(record, run_dir, suite)
+            finalize_suite_manifest(
+                suite,
+                suite_id="suite",
+                command=["run.py", "run"],
+                requested_cells={"count": 1},
+                harness={"commit": "b" * 40, "dirty": False, "confirmatory_eligible": True},
+                tasks=[task],
+                analysis_dir=pathlib.Path(__file__).with_name("analysis"),
+                tools={"brain": binary},
+            )
+            first = verify_bundle(suite)
+            self.assertTrue(first["ok"], first)
+            self.assertEqual(first["headline"]["executed_records"], 1)
+            self.assertEqual(first["headline"]["arms"][0]["validation_passes"], 0)
+
+            moved = root / "moved"
+            shutil.copytree(suite, moved)
+            self.assertTrue(verify_bundle(moved)["ok"])
+            manifest = json.loads((moved / "evidence-manifest.json").read_text())
+            task_artifact = next(item for item in manifest["inputs"] if item["role"] == "task_config")
+            binary_artifact = next(item for item in manifest["inputs"] if item["role"] == "binary:brain")
+            analyzer_artifact = manifest["analyzer"]["artifacts"][0]
+            schedule_artifact = next(item for item in manifest["suite_artifacts"] if item["role"] == "planned_schedule")
+            targets = [
+                moved / record["run_id"] / "prompt.txt",
+                moved / record["run_id"] / "packet.txt",
+                moved / "records.ndjson",
+                moved / task_artifact["path"],
+                moved / binary_artifact["path"],
+                moved / analyzer_artifact["path"],
+                moved / schedule_artifact["path"],
+            ]
+            for target in targets:
+                original = target.read_bytes()
+                target.write_bytes(original + b"tampered")
+                broken = verify_bundle(moved)
+                self.assertFalse(broken["ok"], target)
+                target.write_bytes(original)
+                self.assertTrue(verify_bundle(moved)["ok"], target)
+
+    def test_dirty_harness_fails_closed_or_captures_patch_as_exploratory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp) / "repo"
+            repo.mkdir()
+            run.run_cmd(["git", "init"], cwd=repo, check=True)
+            run.run_cmd(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            run.run_cmd(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            tracked = repo / "tracked.txt"
+            tracked.write_text("clean\n")
+            run.run_cmd(["git", "add", "tracked.txt"], cwd=repo, check=True)
+            run.run_cmd(["git", "commit", "-m", "base"], cwd=repo, check=True)
+            tracked.write_text("dirty\n")
+            old_root = run.ROOT
+            run.ROOT = repo
+            try:
+                with self.assertRaisesRegex(RuntimeError, "dirty"):
+                    run.prepare_harness_evidence(repo / "fail-suite", False)
+                suite = repo / "suite"
+                suite.mkdir()
+                evidence = run.prepare_harness_evidence(suite, True)
+            finally:
+                run.ROOT = old_root
+            self.assertTrue(evidence["dirty"])
+            self.assertFalse(evidence["confirmatory_eligible"])
+            self.assertEqual(
+                evidence["patch"]["sha256"],
+                hashlib.sha256((suite / "harness.patch").read_bytes()).hexdigest(),
+            )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,28 @@
+diff --git a/cmd/entire/cli/auth_token_test.go b/cmd/entire/cli/auth_token_test.go
+index e2debb7ff..0299b7c5c 100644
+--- a/cmd/entire/cli/auth_token_test.go
++++ b/cmd/entire/cli/auth_token_test.go
+@@ -112,6 +112,23 @@ func TestAuthTokenCmd_Jurisdiction(t *testing.T) {
+ 		require.Empty(t, errOut.String(), "stdout-only: no diagnostics on success")
+ 	})
+ 
++	t.Run("-j shorthand behaves like --jurisdiction", func(t *testing.T) {
++		t.Setenv("ENTIRE_CONFIG_DIR", t.TempDir())
++		envToken := makeTestJWT(t, fmt.Sprintf(`{"aud":"https://auth-us.example.invalid","home_jurisdiction":"us","exp":%d}`, time.Now().Add(2*time.Hour).Unix()))
++		t.Setenv("ENTIRE_TOKEN", envToken)
++		t.Cleanup(auth.SetCellExchangeTransportForTest(t, stubExchangeRT{token: "jurisdiction-token"}))
++
++		cmd := newAuthTokenCmd()
++		cmd.SetArgs([]string{"-j", "us"})
++		var out, errOut bytes.Buffer
++		cmd.SetOut(&out)
++		cmd.SetErr(&errOut)
++
++		require.NoError(t, cmd.ExecuteContext(t.Context()))
++		require.Equal(t, "jurisdiction-token\n", out.String())
++		require.Empty(t, errOut.String(), "stdout-only: no diagnostics on success")
++	})
++
+ 	t.Run("not logged in errors silently with a hint", func(t *testing.T) {
+ 		t.Setenv("ENTIRE_CONFIG_DIR", t.TempDir())
+ 		// No ENTIRE_TOKEN → stored path. Stub discovery to surface ErrNotLoggedIn

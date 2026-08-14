@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/relevance-label-source-v2.json",
+  "type": "object",
+  "required": ["schema_version", "dataset_id", "label_set_id", "created_at", "source_corpus", "snapshot_commitment", "allowed_inventory_states", "items"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "label_set_id": {"type": "string", "minLength": 1},
+    "created_at": {"type": "string", "format": "date-time"},
+    "source_corpus": {
+      "type": "object",
+      "required": ["facts_sha256", "session_dates_sha256", "active_fact_count", "active_fact_catalog_sha256"],
+      "properties": {
+        "facts_sha256": {"$ref": "#/$defs/sha256"},
+        "session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "active_fact_count": {"type": "integer", "minimum": 1},
+        "active_fact_catalog_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "snapshot_commitment": {
+      "type": "object",
+      "required": ["fact_count", "facts_sha256", "session_date_count", "session_dates_sha256"],
+      "properties": {
+        "fact_count": {"type": "integer", "minimum": 1},
+        "facts_sha256": {"$ref": "#/$defs/sha256"},
+        "session_date_count": {"type": "integer", "minimum": 1},
+        "session_dates_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "allowed_inventory_states": {
+      "const": ["prompt_inspected", "retrieval_probed", "agent_run", "optimization_used"]
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["query_id", "task_id", "query_source", "null_query", "label_evidence", "judgments"],
+        "properties": {
+          "query_id": {"type": "string", "minLength": 1},
+          "task_id": {"type": "string", "minLength": 1},
+          "query_source": {"enum": ["user_prompt_derived", "oracle_upper_bound"]},
+          "query_text": {"type": "string", "minLength": 1},
+          "null_query": {"type": "boolean"},
+          "null_review": {"$ref": "#/$defs/nullReviewReference"},
+          "label_evidence": {"$ref": "#/$defs/labelEvidence"},
+          "judgments": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["fact_id", "fact_sha256", "grade", "cluster_id", "rationale"],
+              "properties": {
+                "fact_id": {"type": "string", "minLength": 1},
+                "fact_sha256": {"$ref": "#/$defs/sha256"},
+                "grade": {"enum": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"]},
+                "cluster_id": {"type": "string", "minLength": 1},
+                "rationale": {"type": "string", "minLength": 1}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "labelEvidence": {
+      "type": "object",
+      "required": ["type", "source_id", "source_path", "source_sha256", "rationale"],
+      "properties": {
+        "type": {"enum": ["legacy_agent_packet", "manual_frozen_corpus_review"]},
+        "source_id": {"type": "string", "minLength": 1},
+        "source_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "rationale": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "nullReviewReference": {
+      "type": "object",
+      "required": ["source_id", "source_path", "source_sha256"],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "source_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
+        "source_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

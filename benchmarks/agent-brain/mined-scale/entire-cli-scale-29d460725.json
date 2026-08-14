@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-29d460725",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Two checkpoints written back-to-back with no user prompt between them should report the same step count. With some agents that re-deliver a hook carrying an unchanged cumulative turn count, the second checkpoint instead reports a lower count. Make back-to-back checkpoints report a consistent count even when a repeated or stale hook arrives. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-29d460725.patch",
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestPromptWindowStaleHookDoesNotResetEarly'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/checkpoint/checkpoint.go",
+    "cmd/entire/cli/lifecycle.go",
+    "cmd/entire/cli/strategy/manual_commit_condensation.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "deferred prompt window reset and checkpoint step count",
+    "back-to-back checkpoints report inconsistent count",
+    "stale or repeated hook with same cumulative turn count",
+    "when is the prompt window base re-anchored after a checkpoint",
+    "duplicate agent hook turn counting checkpoint bug"
+  ],
+  "_mined_from_commit": "29d4607253c334a0deb05828663b005d0a71ec2e",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "Address review: gate window reset on a real turn advance + fix comments",
+  "copy_checkpoint_ref_from_source": true
+}

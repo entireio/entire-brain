@@ -1,0 +1,1546 @@
+{
+  "authority": {
+    "benchmark_run_authorization": "forbidden",
+    "calibration_membership": "not_assigned",
+    "holdout_membership": "not_opened_or_assigned",
+    "owner_hmac_receipts": "absent_not_fabricated",
+    "population_membership": "not_assigned"
+  },
+  "base_oid": "3ebc57dbb923c0aa6eb53f17384109d189953c6c",
+  "exposure": "development_only_identity_content_and_answer_inspected",
+  "generated_at": "2026-07-16T23:48:22+02:00",
+  "head_oid": "df765ab952185595d65f561f8ccb8036598980a8",
+  "implementation": {
+    "aggregate_sha256": "0cd535ad23cb6dbf498287c02af3713bd6174730ce3de55f3aac8bae22386c1c",
+    "files": [
+      {
+        "role": "symptom_review_workflow",
+        "sha256": "011cc4b27c45a9f1ed22a82fa43389d4fefd57a433042b73c9981d519097de33"
+      },
+      {
+        "role": "symptom_review_schema",
+        "sha256": "fcb142261850e3f99b8d3766d8bf5238fca9d1efd9f004af6f92f77e25f6d36d"
+      },
+      {
+        "role": "eligibility_scanner",
+        "sha256": "bd3f2b16593eb8ab3274abed32c9afcf99cad9da0906b557ec10a8a22b2a4272"
+      },
+      {
+        "role": "negative_control_runner",
+        "sha256": "53339ba0de577bf806c1a88f85336c85e318bcb539cd90fc158f876a2da1092c"
+      },
+      {
+        "role": "population_contract_validator",
+        "sha256": "d49da6d1e9162ebe7ff55eccb21d46830e9280abdb95cd6d434ef90b3f6191d6"
+      }
+    ],
+    "python_implementation": "CPython",
+    "python_version": "3.14.5"
+  },
+  "inputs": {
+    "eligibility_ledger_file_sha256": "9f0d548edcb00e650490bdb69a815aa2d826670a9a7a0a39d47a33cd01b036a8",
+    "eligibility_ledger_path": "development-task-eligibility-scan-v1.json",
+    "eligibility_ledger_sha256": "177a5f71bd9ac82d8b38e61251a07d0b073852ce5a527da0b05e64eabc8f4585",
+    "negative_control_file_sha256": "bed85eebcf71f7b256646e2bbbcf6da2b843d7aad7d9869a48f19f262bcd922d",
+    "negative_control_path": "development-task-negative-control-v1.json",
+    "negative_control_receipt_sha256": "c71423e9cb8c88d6749cd75ecf76651d1d0b59b72ef24fc9bd8071676a81032c"
+  },
+  "items": [
+    {
+      "candidate_ref": "2d0dcbd76bd7c6f54df973def20e8d6f7a61ca0ba4115b0e84f7872f682ee5b4",
+      "commit_oid": "aacb4d6c7295bc4eace756c23ee9209bb466b392",
+      "commitments": {
+        "baseline_output_sha256": "691786078d54c2c53ec78a816df3b2144b4e4c3589f5ae419b1cf8990d709d39",
+        "reversed_source_output_sha256": "b3f441309047b8b0325e416bb8c365069569fe9fc7a22f1d1a4ba09dbf3a2e63",
+        "source_diff_sha256": "c1dabf1809a2636fe500bf1fcf84f1a6302b2225dfde53ef2d08c0582b246ad3",
+        "source_paths_sha256": "bab9c1c55fe0e89e8af2fde11d0a965d4de85280f2da72d08d94d2f3d05f8e66",
+        "test_command_sha256": "f0ea143312e07f11084ddba938a7f0f79acd45a139df6a54e24fd7fb1abce6a1",
+        "test_diff_sha256": "49b8bad1a7c5f44e2a041c595f1a12f1994ace1ec81a48756f9bed780f7b7372",
+        "test_paths_sha256": "02373f90e568348992a78dd1d784ecbbb682c6c2e33367177f9eea2b41dd611d"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "96471bfb43064081750c46937c36c22df117372ac2da49b3a18cb2a575fa83cd",
+        "reason": "The wording states the visible cross-environment session-start hang and supported-agent constraint without suggesting an implementation.",
+        "reason_code": "cross_environment_hang_symptom",
+        "review_record_sha256": "b3f90abc8531f116dc07c0342ee9050c15bd0553d78cb56c3d5c83a2d775cbb4",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 1,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "96471bfb43064081750c46937c36c22df117372ac2da49b3a18cb2a575fa83cd",
+        "reason": "The wording states the user-visible cross-environment hang and stays within the bound session-start behavior.",
+        "reason_code": "cross_environment_hang_symptom",
+        "review_record_sha256": "b58df47ce70e0f8308dbcbe882b3602bf99f3191a38dec591febb45a72ab3e9f",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "3ebc57dbb923c0aa6eb53f17384109d189953c6c",
+      "prompt": "On Windows and Git Bash, starting an agent session can hang indefinitely even though the agent has already delivered its hook event. The same action completes on WSL. Correct the user-visible hang without regressing supported agents.",
+      "prompt_sha256": "96471bfb43064081750c46937c36c22df117372ac2da49b3a18cb2a575fa83cd",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "a0c094649d150b3c27992fcb729e6ca7b484ce94b12151148f292cf307079f65",
+        "family_id": "agent_hook_runtime",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 3 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "309901cd07ef8dd101c5fb608f79c0d900361e2d3280e2ec236713771f0d0ce5",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 3,
+        "checkpoint_trailer_coverage": "complete",
+        "checkpoint_trailer_set_sha256": "1cf0f00aa90e8db5c7b9a11d23c8d5b408efc6806d01654959505aaba11a64bb",
+        "source_commit_count": 3,
+        "source_commit_set_sha256": "ca0f173fdff56913420c6a01a0114d5b5508c752851a960414bcaf89a42f2fab",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "ad7af2f9467ed53326fbbf22eb13cf2c29d832d9"
+    },
+    {
+      "candidate_ref": "85eef19b4b76f4c500065c69221200b0ecde11e8131d159d53f939408d943013",
+      "commit_oid": "e29aa007894469297c878f31655f809cb48bbdf7",
+      "commitments": {
+        "baseline_output_sha256": "73c575ee72f619b3aa30927b576f997f01fbbf55894defdf35216af84580b8a3",
+        "reversed_source_output_sha256": "a4919d7b19d4a79532afeccc3c8787b0939860052ad3cf5a4e55c9f42c71586b",
+        "source_diff_sha256": "102562f6450fa335042781596f555db4c7cece5011cfd4440729ead5e69a9704",
+        "source_paths_sha256": "65a1121705cedcf95c002b85f348d4634c1ba363debde113f3b41d85e28482eb",
+        "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+        "test_diff_sha256": "088a69238c2ec78da0b009d55fee16998c5e9126bc5f67d42da4186d966f197b",
+        "test_paths_sha256": "f3c0cde283a6d4845b97d7d76cbc97a362cc0c749060d529381275289457bb9c"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "7faf8691a6d7c7188b21c5b046884da0ebb17d1844d61052402c5cbd120b3821",
+        "reason": "The wording describes terminal scanning difficulty and the required presentation outcome without revealing implementation details.",
+        "reason_code": "terminal_readability_symptom",
+        "review_record_sha256": "830382a5f956a4dc404e8c89255f7460df3883eb4f02fb12bac29c2883116aaa",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 2,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "7faf8691a6d7c7188b21c5b046884da0ebb17d1844d61052402c5cbd120b3821",
+        "reason": "The wording describes terminal scanning difficulty and the intended presentation outcome without implementation guidance.",
+        "reason_code": "terminal_readability_symptom",
+        "review_record_sha256": "db3e0c324dd21cbd6b9a76e17aa2dc42370dc3d36c5dff6bde9413b8baaf0543",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "aacb4d6c7295bc4eace756c23ee9209bb466b392",
+      "prompt": "Code-search results are difficult to scan in a terminal, especially when many matches come from a small number of files. Improve readability so users can identify relevant matches quickly without changing the meaning of a search.",
+      "prompt_sha256": "7faf8691a6d7c7188b21c5b046884da0ebb17d1844d61052402c5cbd120b3821",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "cedb6a9bc66c74e0c1de43a82b6121f202a987389909c1963efc62f6bb539828",
+        "family_id": "code_search_terminal",
+        "family_overlap_decision": "no_shared_development_family_observed",
+        "family_overlap_reason": "The cleartext development family label occurs once in this review.",
+        "fix_identity_sha256": "e5fcacc25bfe6df570a9380177ef2e1d00ea556880892e123362b3af1d3bdf96",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 0,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_commit_count": 8,
+        "source_commit_set_sha256": "f29d975856104213b49ce18e739346a0545db46289d487dbd467d3fffbe2ce5e",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "84af6d1d26e28e0ee8ec109558c59887758f74b8"
+    },
+    {
+      "candidate_ref": "2d2bf91e6ec8ea46c4879c01afca621f8caad04161b62287bd919f242bcc8ed6",
+      "commit_oid": "f4a0b3d088450cdb01f1d1650b1f9b552f1b5698",
+      "commitments": {
+        "baseline_output_sha256": "03d1c3de32ad963cd6623533f3418e78ff5a0880f9ff690b9c3af44238eef592",
+        "reversed_source_output_sha256": "73bfc83ef50d3734bbed47279f2787e9df4e68c0f7f1f8edb2863d095a2dc574",
+        "source_diff_sha256": "7f844e82991503079baf6ebcceedd726eefea95273dc8d9d19b8d45df7034d72",
+        "source_paths_sha256": "5093ed224af044943d580df3cbdcdc839d9be6e0e1d086a15a134b083bad92d7",
+        "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+        "test_diff_sha256": "ffd7fc70a25f0e62bf2ad97ab995cd0f1b78ee128624c6f418237f72b0a6521d",
+        "test_paths_sha256": "66f089f7a55fbe1bf93c2fead0a8f533de31a6829b319ab97861bb74fac11b41"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "9ad10cb921fe47f04d0233e43b57079a76cd889b349d4725eff5ee3e4897d185",
+        "reason": "The wording states the disabled-repository delay and enabled-repository preservation requirement without identifying a remedy.",
+        "reason_code": "disabled_repository_latency_symptom",
+        "review_record_sha256": "941950ba454646a5a3e8aa1289a049de0b6beda45c020af746ab9c458ddbf968",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 6,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "9ad10cb921fe47f04d0233e43b57079a76cd889b349d4725eff5ee3e4897d185",
+        "reason": "The wording describes disabled-repository latency and preserves enabled-repository behavior without exposing a remedy.",
+        "reason_code": "disabled_repository_latency_symptom",
+        "review_record_sha256": "b6e73267371c4a7ff9c5e766c7c5566c979543d6a98c08581a55cffe3d6b4f30",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "c523f1f439e38d95f82b0998c9509b7326da253b",
+      "prompt": "Agent hooks still perform substantial work and can add multi-second delays in repositories where Entire is not enabled. Repositories where Entire is enabled must continue to capture sessions normally.",
+      "prompt_sha256": "9ad10cb921fe47f04d0233e43b57079a76cd889b349d4725eff5ee3e4897d185",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "a0c094649d150b3c27992fcb729e6ca7b484ce94b12151148f292cf307079f65",
+        "family_id": "agent_hook_runtime",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 3 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "367e2210eac1a7e8f1adb4301be940400b089de8c6d275083c130a9eb1a5c294",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 0,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_commit_count": 2,
+        "source_commit_set_sha256": "c091f89db0c7f168bb7eeecf408e57d0d14d4ab073b0de111a88054bf6c47b63",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "aba2e5d8d1e016e9c88a86cc72c13f5312caaaee"
+    },
+    {
+      "candidate_ref": "324a29517ef616b7b67cb8f42feaefc9f910d5ca6e0c6e5d30f2488b24112f98",
+      "commit_oid": "279520ad4bfc5cbb32d3fad44405ce0e3aa5ac8d",
+      "commitments": {
+        "baseline_output_sha256": "0d1683757af039a84bb55eb7e0e038bdb0919708e711de4b4d680a409cf02605",
+        "reversed_source_output_sha256": "dc0e7d24cbcb3fa29cc0b9bdeee8689c20fecdfbe511b6dbf1e565e1fe4732e0",
+        "source_diff_sha256": "f4246efae4b19193422e215a8c22015d86839230b6ecdc141ce2e4c12979a109",
+        "source_paths_sha256": "43a43d86e6df7faac188114b9495a347aed8dc1ec5b459802e16fcee5d6ea90a",
+        "test_command_sha256": "b5844af6e01cb00028385cabc0fd35d0f43f3f005010922b78c385d05552a150",
+        "test_diff_sha256": "03fb15325f7eafbba7feba02d9f4c943d5b48ec71da74cb0af2e193b1448e1c4",
+        "test_paths_sha256": "9f2b8f8761fdf73e405b285c7f3c4b1d65cdc2dd74ec05d0f878238ddb0ebc9b"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "c4bd280da74587df4507a59973fe69d9fa234a5e9483690e6bfe1a12f4277e9a",
+        "reason": "The wording states the build-dependent visibility mismatch and stable-command constraint without describing implementation.",
+        "reason_code": "build_visibility_symptom",
+        "review_record_sha256": "9e5ce695ea2dadb3c419ea9defab7b49a7d1775aee5937eb1dfc5d1b55bc3a70",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 8,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "c4bd280da74587df4507a59973fe69d9fa234a5e9483690e6bfe1a12f4277e9a",
+        "reason": "The wording describes build-dependent command visibility and the stable-command constraint without implementation guidance.",
+        "reason_code": "build_visibility_symptom",
+        "review_record_sha256": "e6959369895988026461144ee1899423d5bdd59689a5773f414aba1f76e22d8c",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "a26e53c3cef34656402e70f8fe2b7e3d26a16ca2",
+      "prompt": "Release users can see experimental commands as if they were generally supported, while development builds still need those commands for active work. Make command visibility match the kind of build without making stable commands disappear.",
+      "prompt_sha256": "c4bd280da74587df4507a59973fe69d9fa234a5e9483690e6bfe1a12f4277e9a",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "c5897bed21c14a039fa18ea84b2e27fba48bfa329a1c3683bc98d7775d9bb15d",
+        "family_id": "cli_discoverability",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 2 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "27a2636fa17ead09909b0672fd355c729a245c4334fcc17470a433063e25895a",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 7,
+        "checkpoint_trailer_coverage": "complete",
+        "checkpoint_trailer_set_sha256": "d5592510506de754b5ba7c7eafa37bda7c9101844a728ea3b7bb300b142d8caf",
+        "source_commit_count": 7,
+        "source_commit_set_sha256": "fe434a2c45154c27dafde4470653f546262062b0b7c5a048e37d321b818e4a8c",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "ae703c73324e90711c3af8771fcd42c1b16b5ab6"
+    },
+    {
+      "candidate_ref": "a9f550bc1708d40e565f6b2da880215374c66d65fe9e47fc73761fe0e00fbcba",
+      "commit_oid": "372bc149d15a9d468206a8cf32653b0237db1806",
+      "commitments": {
+        "baseline_output_sha256": "d49f89e2c369309d15fc887637e6ab697d2c747b3c6d2cf861ee7e87d228d693",
+        "reversed_source_output_sha256": "c6d5906adadab14d2172bf0e1670f60cf86a8e49103d027f22d47d7bc51764a7",
+        "source_diff_sha256": "4ffafb26439b71a2747f02abaf0bfe686711b73067084be3c2a8c0bbaeebc3bb",
+        "source_paths_sha256": "af7cc0e3d56fe3a56a83556cc6127af16831f01cc32e891d521e84826a497195",
+        "test_command_sha256": "935f94f5b288a1261503b36b3e9d783f970e2de9c6ce4bef776f6b749126652d",
+        "test_diff_sha256": "a5d21793580415cf4e1772d1c908b5b732d0f8d919dd2ec75129aa926bbfc737",
+        "test_paths_sha256": "319d400f2726e88880670e2b80c82bfc71f6c027e7e299eb1a7bcbdad22bd969"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "5a93a8418dfed9f5f6a81fd1bb3135a5160793777ce76399ae98b1cd44035e85",
+        "reason": "The wording states the visible review hang and responsiveness requirement without exposing concurrency or buffering details.",
+        "reason_code": "stalled_interface_symptom",
+        "review_record_sha256": "35e24dc379bd93d17bdd53c5bb0b494665ba12801dc6c4f55b889d96d7f11cf9",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 9,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "5a93a8418dfed9f5f6a81fd1bb3135a5160793777ce76399ae98b1cd44035e85",
+        "reason": "The wording describes the visible review hang and responsiveness requirement without revealing internal concurrency details.",
+        "reason_code": "stalled_interface_symptom",
+        "review_record_sha256": "7cfd7e1b81894c3809cbacd9567dee114cef54073eb7f367999ac64f7cb79c87",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "279520ad4bfc5cbb32d3fad44405ce0e3aa5ac8d",
+      "prompt": "An interactive review can hang when its terminal interface becomes unresponsive, preventing agent progress from reaching the user and stopping the review from finishing. Review execution should remain responsive despite a stalled interface.",
+      "prompt_sha256": "5a93a8418dfed9f5f6a81fd1bb3135a5160793777ce76399ae98b1cd44035e85",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "4ba7ad1bec535797e303123598576ce94b14941b139c3dd2cee82514df65dc2f",
+        "family_id": "review_runtime",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 2 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "8cb99a907625d79728451e241d77666740703fdc49a9dd00b8fb5452583baf7e",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 3,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "63fcd40a6359342eabce3211368fc851d4b72ec98e9871b38747a996c4f0da24",
+        "source_commit_count": 5,
+        "source_commit_set_sha256": "c9235c290e049dea347ced4e3ed6a3e37b9f7519245427503303270ce225c821",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "ef09860e16983bd51dcc6e301a61d4638d416737"
+    },
+    {
+      "candidate_ref": "4e49b13b047ebae3185f84a1795885072453afd2bb709dbc6de27a355605913b",
+      "commit_oid": "cd6155ed7e41484055179ef70550bcc04d7abc63",
+      "commitments": {
+        "baseline_output_sha256": "81b59a165d4fc04d3288d5abc46fb45272225026fda7a51f31324565af9b90aa",
+        "reversed_source_output_sha256": "0e71c95458ae084814a5a0b66d84c464db5533287f5939c4699ca4ec8226f7f2",
+        "source_diff_sha256": "ce476df3663435e5a6b4cbdb5e9768cc5643c9f3d812485b650e0bc32d44bd8e",
+        "source_paths_sha256": "66c87e8e2619fcf13b9fd8932e57c88565bed33f672516305ac242703d8df8d6",
+        "test_command_sha256": "935f94f5b288a1261503b36b3e9d783f970e2de9c6ce4bef776f6b749126652d",
+        "test_diff_sha256": "9a1e372f557513f437804967e155f4a91b925b27c2491c69f168d8420fad09a7",
+        "test_paths_sha256": "212045082bafc137471fad32d7a5c43b4b01f57d849f611f21974f9102c860b0"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "2689a617782379d558f2d2a20d5e14a4330f6e6beb1665f6d36a111824370fd2",
+        "reason": "The wording states both user-visible review regressions and the terminal behavior constraint without identifying their implementation.",
+        "reason_code": "review_setup_and_interactivity_symptoms",
+        "review_record_sha256": "9e27284f45198697fe77f9db68cf2d2253f3cbf074178a20888bc26d7f36306b",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 10,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "2689a617782379d558f2d2a20d5e14a4330f6e6beb1665f6d36a111824370fd2",
+        "reason": "The wording states the two visible review regressions and the terminal-interactivity constraint without exposing a remedy.",
+        "reason_code": "review_setup_and_interactivity_symptoms",
+        "review_record_sha256": "04547ce672da03f8ae889912e3f0b9d1ed4ae3c0088756db742d96a38370d2c5",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "372bc149d15a9d468206a8cf32653b0237db1806",
+      "prompt": "Guided review setup can produce a profile where a configured Codex reviewer is silently skipped. Review runs can also wait for questions when no human can answer them. Correct both regressions while preserving interactive behavior for a real terminal.",
+      "prompt_sha256": "2689a617782379d558f2d2a20d5e14a4330f6e6beb1665f6d36a111824370fd2",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "4ba7ad1bec535797e303123598576ce94b14941b139c3dd2cee82514df65dc2f",
+        "family_id": "review_runtime",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 2 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "ef650edaf31a4e9124791d64fb82caacdf106bb9f788d7dff122fa1c1b805b2e",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 6,
+        "checkpoint_trailer_coverage": "complete",
+        "checkpoint_trailer_set_sha256": "2da131fa58b75a3a06872623cf379522ef8c3969eda9a5352f5b4af9e48cfaea",
+        "source_commit_count": 6,
+        "source_commit_set_sha256": "71e2b19912fd87d291ddc3d02723a7e7b050ff2f07c3ff8136d2389abcfa0aa8",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "b1fc447a9178747cffdfb7ad62cbde06f3fc002b"
+    },
+    {
+      "candidate_ref": "01f436c654c8059e60b943ba1f9fe641d34e4a24f79f171b5b3f718e9667ddda",
+      "commit_oid": "85d9ec559176ea1b772abb96c2ff424096087021",
+      "commitments": {
+        "baseline_output_sha256": "d68d5b44870d38d0895ee12c163eac25050c27e6f81fe3248a98ce84d5d93df7",
+        "reversed_source_output_sha256": "8f400baeac73dfce20766697cd4af1bdbde89ffcc29603841c82a562375a3a6a",
+        "source_diff_sha256": "489f5a20bd6fb5c6ca85debe3bb777ba295ca3e46870faca8602384ae225f68e",
+        "source_paths_sha256": "0d55dff8ae410fb529f0f134b956206aacfc74e7df9e1582ed11dd788b73278f",
+        "test_command_sha256": "a86fa1c4fb969710cd9f619a7140c7fdf2cb380793ae6ff1adc00bbe2af5bae1",
+        "test_diff_sha256": "45472e32f9c3bc659b62fff704c58380077374ee9e3d0a95a825e1b41f3d1dd5",
+        "test_paths_sha256": "7b27505a1e45a5475b3aa9d3f83fee5c31e2c9a19f887d07ec31b780f797eed2"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "0f81305be10e527bc7015df57ee9ddc712aad10cd6e8b7939ae280431245f1ea",
+        "reason": "The wording states unexpected network activity and the intended isolation behavior without revealing a configuration mechanism.",
+        "reason_code": "unintended_update_network_symptom",
+        "review_record_sha256": "5053846db9ec6b650eacfdb739d0a7c7ddda83fe337755feb160bdc7fb55bcc8",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 11,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "0f81305be10e527bc7015df57ee9ddc712aad10cd6e8b7939ae280431245f1ea",
+        "reason": "The wording describes unintended network activity during routine updates and stays within the bound remote-isolation behavior.",
+        "reason_code": "unintended_update_network_symptom",
+        "review_record_sha256": "fd4b43740bba99ca2c96e6230dcd4784b4dffe17f9843337c1cb41fbbb4b684e",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "cd6155ed7e41484055179ef70550bcc04d7abc63",
+      "prompt": "A checkpoint remote created during repository setup can unexpectedly trigger network access during later repository-wide updates, making routine updates slower and touching a remote that was intended to stay isolated.",
+      "prompt_sha256": "0f81305be10e527bc7015df57ee9ddc712aad10cd6e8b7939ae280431245f1ea",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "79b3efcf2e27b694be4f58430cf4cb7783c00408c9d2f1863848f9de32d431a6",
+        "family_id": "checkpoint_remote_behavior",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 3 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "f23a7ef4b433469128e44c9ed6aa04480aa0427c3bf98bef1fff00b83deac13b",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 4,
+        "checkpoint_trailer_coverage": "complete",
+        "checkpoint_trailer_set_sha256": "50da64496def361861e34d9d944cb5e9007ba440b9433bc8893cd18fe32db46e",
+        "source_commit_count": 4,
+        "source_commit_set_sha256": "42792ea339816d34d348cc2e80f68ac053776d9903f36ee0c2ec27345adc1e20",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "6de04bf18eaceeab869a4309e7bd40e6e5a8126d"
+    },
+    {
+      "candidate_ref": "3a8d4437be22f6c113ea8ac4c22ddaa1b825453a4ebd27e7300b57c82b760a1c",
+      "commit_oid": "0622f442cef250b6c81207020f9f20c047d95560",
+      "commitments": {
+        "baseline_output_sha256": "9d4936f86e58956f12e507f5ba39d3d084df2fffb972c672917562d599ef7883",
+        "reversed_source_output_sha256": "b764119c6ddf875af9b8f7daee153d752476d8ba3061a7ac676ec46a944098a5",
+        "source_diff_sha256": "8d18288a4ea78af8e8d7a6b53cb75683dc1db91ba24d73929a2d64673d593c78",
+        "source_paths_sha256": "c1abf6d8880d4f0f4c8102d9fc391b0a66b7b14f5337b40466f512182a38856b",
+        "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+        "test_diff_sha256": "46eeae563216136b3ab776132eb8731fe458e6a5d26e8433e802b58896df90d9",
+        "test_paths_sha256": "90f4c0912414e32893651be90dce5d9ea683366b2008cfb7c191f53b5e8f781e"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "8cda68756a3347cd3584b6eace24c0dc071243374ffe17318ece05d23d95bcc0",
+        "reason": "The wording describes the disruptive inspection limitation and desired parallel view without exposing the implementation mechanism.",
+        "reason_code": "nondisruptive_trail_inspection_symptom",
+        "review_record_sha256": "1d90ea5b33dece6c62ff792a61454ac6ac33e38627f7cd4b6bed150d31d6ace4",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 14,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "8cda68756a3347cd3584b6eace24c0dc071243374ffe17318ece05d23d95bcc0",
+        "reason": "The wording states the disruptive inspection limitation and desired separate-view behavior without implementation guidance.",
+        "reason_code": "nondisruptive_trail_inspection_symptom",
+        "review_record_sha256": "3e83483a2b7449b047b6ec0bea6042082042a7b726826f7b21e5082bae07c837",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "1b56290ec24cf2fceb71a08a4e44017b8f4b9717",
+      "prompt": "Users cannot inspect a trail alongside their current work without first disrupting the active checkout. Provide a safe way to open a trail separately while leaving the current checkout unchanged.",
+      "prompt_sha256": "8cda68756a3347cd3584b6eace24c0dc071243374ffe17318ece05d23d95bcc0",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "f4d7874baa80ed46c862fd020e8d2bcf21527c5eaa112f51484b20d2be3c6ae0",
+        "family_id": "worktree_behavior",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 2 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "9bdcbda2ad1349c31044323996adaee46330a06ff9409efc240f26b469838fcc",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 15,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "2e6affbef318b51fd096ada93e62cbf42a647d4bb503aa9f50ba6d779ceb56cf",
+        "source_commit_count": 17,
+        "source_commit_set_sha256": "967aad106e60e3c11b9b5da50ebf0912748c2e95e20c665b2ed12ff8e6e0003d",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "fea12b222f4888957eed8ff7c922155952a309a4"
+    },
+    {
+      "candidate_ref": "30624183a907ef15c26a99b7c5e79f95167135c32e0d4eb56ae16e900f82cc08",
+      "commit_oid": "0d3d1d764827556111959cf180f14ec4722bb2ff",
+      "commitments": {
+        "baseline_output_sha256": "0cca04995c3e960c71850975675999eff06baf618bd9da6942401f9a0a449f2c",
+        "reversed_source_output_sha256": "a7f2bb1e1a00c4b6b6338b77825020ba6714b89bf3c26be314043de6500f6176",
+        "source_diff_sha256": "88061ab221e400751cf13455017f62efaf87fe9ceae8824baacf5030158e0bac",
+        "source_paths_sha256": "6fe6feaa975e2daa4f1989e107d7b95adf593562696e55896a2a0bae22a90517",
+        "test_command_sha256": "0ee2159efc3c043bbab075b5a778cefa18ec2ee41950550ad8c17f75fc65e952",
+        "test_diff_sha256": "9b1da8a38c32936f0214ba300269434437eb8414c5467add4adc40a347eda262",
+        "test_paths_sha256": "47449211a426e300fdddb8ebf15bc3e661ae565a893f62cb2b07a46a63adf9dd"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "54d8ab47ab64a00e442332b1c74bac6cd0ef1fb8e4ded30252b95eb16850644c",
+        "reason": "The wording states the visible markup contamination and desired user-authored result without identifying parsing details.",
+        "reason_code": "captured_ide_markup_symptom",
+        "review_record_sha256": "71a563a008a578583011a2531ba167e6da15dfa2636dbd9af9b396fc95e9fc46",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 17,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "54d8ab47ab64a00e442332b1c74bac6cd0ef1fb8e4ded30252b95eb16850644c",
+        "reason": "The wording describes captured markup contaminating user-authored text and the intended visible result without implementation guidance.",
+        "reason_code": "captured_ide_markup_symptom",
+        "review_record_sha256": "3d85c6de0dafa6883708c59baae293a63cb22a666c6dc9a12d0c913acaef1529",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "888c11d6f4ff2de239b6a9ea19b5de0de5eae3bc",
+      "prompt": "When Claude Code runs from an IDE, captured turn prompts and the resulting session or checkpoint titles include IDE context markup before the text the user actually typed. Only the user-authored request should appear.",
+      "prompt_sha256": "54d8ab47ab64a00e442332b1c74bac6cd0ef1fb8e4ded30252b95eb16850644c",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "2fbb63ceeb898fa63fd9b8803e03832ad41b04d6a922e032d195a2a8848120b7",
+        "family_id": "prompt_capture",
+        "family_overlap_decision": "no_shared_development_family_observed",
+        "family_overlap_reason": "The cleartext development family label occurs once in this review.",
+        "fix_identity_sha256": "e90e940ac2ff7cf529368d6de315df7f76d6558963383b709e6bf85358b17fec",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 1,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "c721323d8a210343116b8cc1afee033ad44fde9c6614876d24ce8e113b9c9e1c",
+        "source_commit_count": 5,
+        "source_commit_set_sha256": "d632d869d7d6a7be08f653bf26d857073cae8c23960bfa20c0ef8464ac754ddf",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "6016fbdc4d3d834ececf684fc17a43e66e9acf07"
+    },
+    {
+      "candidate_ref": "ac9c23ca655491b4ca0df76d55d8aa70e84005784d504ab2f8fefde351440ded",
+      "commit_oid": "62f8779be23c061dc68a3aa5982ca80ed0f1bb3f",
+      "commitments": {
+        "baseline_output_sha256": "f9c05d1b715ed975dc66dd64a5c1c42f815c369dee372a2c1050314575c2dee6",
+        "reversed_source_output_sha256": "50ba9b85ed54b7619a899ecab70e4c42fb6ea26d3934d9a76757781f7b7ec205",
+        "source_diff_sha256": "954aac42a853ab3a65852b5b6f6e6830c697d3a9c1f2a2ca324afc657005f915",
+        "source_paths_sha256": "4447619e4f07518ab4ebd516afe61e54cbae9db524e4648b39f42316bc178795",
+        "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+        "test_diff_sha256": "fd14a262cac67b18c2c7d042419d24821338655e2373d25da49a65d5cdf1c0d6",
+        "test_paths_sha256": "2e89909ff7e572342858509417da6bd77ced28431a3bc3ba39e78351c428c0df"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "e380085dabd69ff99d089e77b334f2d086e4ce3fc9d4d8571437d9ff93313a66",
+        "reason": "The wording states the help discoverability problem and hidden-command constraint without revealing layout or registration details.",
+        "reason_code": "help_discoverability_symptom",
+        "review_record_sha256": "367e6aa06368b5849d3d990bb71ee5a001db984dac74d946df0199176cf0ddf1",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 18,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "e380085dabd69ff99d089e77b334f2d086e4ce3fc9d4d8571437d9ff93313a66",
+        "reason": "The wording states the help-layout discoverability problem and hidden-command constraint without revealing implementation details.",
+        "reason_code": "help_discoverability_symptom",
+        "review_record_sha256": "1a6bbbf9957a4474052af66d5067b8c5e369c8a8cfbe50843e5634d8f88a5058",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "0d3d1d764827556111959cf180f14ec4722bb2ff",
+      "prompt": "Users have difficulty scanning the top-level help because commands with very different purposes appear in one undifferentiated block. Improve discoverability without exposing commands that should remain hidden.",
+      "prompt_sha256": "e380085dabd69ff99d089e77b334f2d086e4ce3fc9d4d8571437d9ff93313a66",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "c5897bed21c14a039fa18ea84b2e27fba48bfa329a1c3683bc98d7775d9bb15d",
+        "family_id": "cli_discoverability",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 2 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "f31f94983edc03ad344b1bd389cd6e5d33ed989841d2034de5e1d95cfd7ee8fb",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 2,
+        "checkpoint_trailer_coverage": "complete",
+        "checkpoint_trailer_set_sha256": "04a5745c31d86e0fa93cd3948c456bf43e08a33b4db3ec5cb2e78e4ed1e49af4",
+        "source_commit_count": 2,
+        "source_commit_set_sha256": "b0b4798d33591dfc8df4870794bf5064d33319057207a171f5e7c7436c0b6d0c",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "124536ca2d8486d9ee4a907f0cfea40644022fc0"
+    },
+    {
+      "candidate_ref": "5627dba7a660fb916c5fb7964318f70621fdec79fbfcfe8d7272006a55326ce3",
+      "commit_oid": "0e05d1ded739b6abde2e3c6be2f09a165efb8ddd",
+      "commitments": {
+        "baseline_output_sha256": "7661bedbb4de61eeb89d9a92f0eeed548e8eb3fe913a4949b4c61405e1fba082",
+        "reversed_source_output_sha256": "4fe3c2b40334484a00c5dc2c0afb47c94b95a6057fe2af0c6529e952eafd0f01",
+        "source_diff_sha256": "47ffce6adecf548fdf4bbff705e67a1443bc66700daad5cf192290e63b610982",
+        "source_paths_sha256": "47b72301da9ea49dbccda890b01b70e3044e52deed3cb9e70c447fead773faed",
+        "test_command_sha256": "b351ab5e09df28e4efa404b974c2878b72ade78513a3b0ef0afab2b4d12b23ff",
+        "test_diff_sha256": "553e9a64eed228b315d73f1b803345a8a9814c1cf5bbee6e5fb532437570285c",
+        "test_paths_sha256": "1a1c64bd0e00ece9608e0840b3198df8f0c5efdd15bd9fd0af70f32779bc3bbc"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "cb639bbd0e59352b43e97b6923160f69dfa37def42f247780e8bcdfca786fc13",
+        "reason": "The revised wording states only the visible omitted-file and repeated-token attribution errors without a timing scenario or implementation hint.",
+        "reason_code": "visible_attribution_errors_only",
+        "review_record_sha256": "0c0abd681fc0c6b6fd4ee8a1d7ea4655cf88bb960c96346d5082a1115ab5dcfc",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 20,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "cb639bbd0e59352b43e97b6923160f69dfa37def42f247780e8bcdfca786fc13",
+        "reason": "The prompt states the visible attribution errors and desired accuracy without identifying implementation or validation details.",
+        "reason_code": "visible_attribution_errors_only",
+        "review_record_sha256": "ebc3318a770dbc43a0efe731968ca81471bd715a7531a6595201adc66b0472f3",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "3b6957b4e98c33b3f8eb72f41dddf38927b6a6c3",
+      "prompt": "Checkpoint and imported-session attribution can be inaccurate: modified files from subagent work may be omitted, and subagent token usage may be counted more than once. Attribution should reflect the session’s actual subagent work.",
+      "prompt_sha256": "cb639bbd0e59352b43e97b6923160f69dfa37def42f247780e8bcdfca786fc13",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "c942d7b2a6c75e530ab86fce91a7da43decfccc96badf3db9a2233a62b935e16",
+        "family_id": "subagent_attribution",
+        "family_overlap_decision": "no_shared_development_family_observed",
+        "family_overlap_reason": "The cleartext development family label occurs once in this review.",
+        "fix_identity_sha256": "8dd0cf57d59aa6c9644cd4c9cb81b334115a36cc1640a26e4a81d27d18ee15fa",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 0,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_commit_count": 13,
+        "source_commit_set_sha256": "1fb814f12e8c223c67d17cb681dee2a5b94bfd10a1c52b0cf0edbfdb8b73a892",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "ffbb018c633127b019db447443408692eb2c5e9f"
+    },
+    {
+      "candidate_ref": "36f66b179647b13a56eb569e44c3f70613bf15e1b712593e36fdc423f818dde6",
+      "commit_oid": "aa03f22a63846a97ff34f36ba3af20a1618a056b",
+      "commitments": {
+        "baseline_output_sha256": "95ec2a324ebeed74731eac89e4ea693ff7121999a96db16b653249c12ac9301e",
+        "reversed_source_output_sha256": "0adfb83dd64507c02ae64afa6b530c7137e960a79e5f0bd51ec4d0eee1211e38",
+        "source_diff_sha256": "6c4c734056d455781fdf25f285849a678712be292cee8fc28c186954f5311aca",
+        "source_paths_sha256": "4f65a38815bacc13e0a1fb3a862776c05795e2389b237a167b52319059815d46",
+        "test_command_sha256": "9142a062fb3aafb6e96d61e02ea801436a54925d7f171570d13111d1c635fba1",
+        "test_diff_sha256": "592655ab41fc0eb41bcec6c178fcb842f2013a1f0eb78a806ebe80cfe30e2179",
+        "test_paths_sha256": "06e35984f66b2c1d7aef76e35c58d74933081ebcc0c9e779d2e7c299a30751d4"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "67f7dc68cc64463d5b49b79860cbe20ed5239cda0183f02b38b78d46ad1d7ba6",
+        "reason": "The wording states the initialization and identity failures across ordinary and linked submodule checkouts without exposing a remedy.",
+        "reason_code": "submodule_identity_symptom",
+        "review_record_sha256": "095809ac06f0731fd0b7d1f5a12919085fdf698082c6d7df593b75108f6bec49",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 21,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "67f7dc68cc64463d5b49b79860cbe20ed5239cda0183f02b38b78d46ad1d7ba6",
+        "reason": "The wording describes initialization and identity failures in ordinary and linked submodule checkouts without exposing a remedy.",
+        "reason_code": "submodule_identity_symptom",
+        "review_record_sha256": "0ed55f698c14169993634e6509db79a6e2fcdc89397a0a3c252eba7020ce28b4",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "0e05d1ded739b6abde2e3c6be2f09a165efb8ddd",
+      "prompt": "Sessions can fail to initialize when Entire runs inside a Git submodule, and linked checkouts of submodules can be assigned the wrong identity. Support ordinary and linked submodule checkouts consistently.",
+      "prompt_sha256": "67f7dc68cc64463d5b49b79860cbe20ed5239cda0183f02b38b78d46ad1d7ba6",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "f4d7874baa80ed46c862fd020e8d2bcf21527c5eaa112f51484b20d2be3c6ae0",
+        "family_id": "worktree_behavior",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 2 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "25aa2b49c349162f33f5ee07127a034aa92009cdf0c7f1879c1edaf899395bdc",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 0,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_commit_count": 8,
+        "source_commit_set_sha256": "71386021ef1ebb72e76de6ba0d778e8a95698f1c6dbf2fa75cf4b5eb28154e36",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "18567e56bcd12e0e086882c1d5e334c09b901638"
+    },
+    {
+      "candidate_ref": "1c8e2950bb26b4ccfe66000960c0ac2af22aa35587766b9b6f2a1d41898c475d",
+      "commit_oid": "324995d33d46edcc0348668991359c57f096adb8",
+      "commitments": {
+        "baseline_output_sha256": "4c25b48dfd7ec824641660be84a47417c9d44b699a761dc8366d25c871da879a",
+        "reversed_source_output_sha256": "f37ee319f4f7a7596861800b03d803543f8621f09bf47887068527cdaa6a40d3",
+        "source_diff_sha256": "7bb8ecd9b55858282f46f6c26f351ab4e542b943e89bc82aca1f6359c07e62ee",
+        "source_paths_sha256": "828b822a74bd1e1a2bc550ed7f677cee554dbdd0b806e273483bc6f144c5f667",
+        "test_command_sha256": "613a80f63690cc0d16616a46d5ccbe4b7ced3563f3501a6fae5e0cc7c2f118a5",
+        "test_diff_sha256": "1ec3712810a93773c63b94edb3220f5e65c8cff562437f9accc41238bafcc423",
+        "test_paths_sha256": "afbc35494c52a8554620d92ba7b7c3a35b57d02e1984ea6d400a1145b1aae394"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "7ad99ee50d51e85588731aca18fbf0cb3c7f9971da8cf4f9f391d0ad393b3e67",
+        "reason": "The wording states protected-content exposure and the ordinary-change preservation constraint without identifying storage or filtering details.",
+        "reason_code": "protected_content_exposure_symptom",
+        "review_record_sha256": "724db15ecc8568424b4466ab16d5a33160085e9c63f23d62424911e1e4220a49",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 25,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "7ad99ee50d51e85588731aca18fbf0cb3c7f9971da8cf4f9f391d0ad393b3e67",
+        "reason": "The wording describes protected-content exposure and the ordinary-change constraint without identifying implementation details.",
+        "reason_code": "protected_content_exposure_symptom",
+        "review_record_sha256": "064a45edd75c351bac5cae4fc3b606e3e693009c1b2f514bb32d30fca2e23696",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "469a30cf11b9193b7cbab61aaa836d3764266e1c",
+      "prompt": "The first checkpoint of a session can capture agent-private configuration content in checkpoint history. Protected content must stay out while ordinary user changes remain included.",
+      "prompt_sha256": "7ad99ee50d51e85588731aca18fbf0cb3c7f9971da8cf4f9f391d0ad393b3e67",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "ccb0180ad6e40115aae1a245b342332cd356c873d0137e24f9749d03da9e0232",
+        "family_id": "protected_content",
+        "family_overlap_decision": "no_shared_development_family_observed",
+        "family_overlap_reason": "The cleartext development family label occurs once in this review.",
+        "fix_identity_sha256": "8c4de71c08df173736d0a7ac1a5e3f923e8dd692a2528bdca3cb9a2938fdcf83",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 2,
+        "checkpoint_trailer_coverage": "complete",
+        "checkpoint_trailer_set_sha256": "6f4475ba1465a74068ac8d107948413d4e55b2bec7dcca029bbdf6178a2b6810",
+        "source_commit_count": 2,
+        "source_commit_set_sha256": "eff1f1fa6b253b68450f3ada0aab171b20f005079e96eee2b5a0bee2a583233c",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "d6bb45c07fdb28433c765668f79c72bb7bae9f65"
+    },
+    {
+      "candidate_ref": "027ce017971aa610a0d4649f9eb17e6333d73f900f67586faac4f8a8d24e40d7",
+      "commit_oid": "61a00903876fd7158277624fa7d33d58cd86656a",
+      "commitments": {
+        "baseline_output_sha256": "6ce9980a3e9f7736b38bc7fbbfa6b54680cdc1c216f803cb7663f588fc85112b",
+        "reversed_source_output_sha256": "210cd1e2cedf723cad1cbcf05df474d1cc38b08eb67e7af771620ab4cc9e1ba7",
+        "source_diff_sha256": "d202b87876d8da9e7f713e2fb872568ecde76c2f21713e41146deba696cc5639",
+        "source_paths_sha256": "2e7c1434a10b1f0e618f543d0aec9f72d951e8e7d83c0b316e2eb486b3c0f788",
+        "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+        "test_diff_sha256": "b7edcad7cb50eda33599ac4c481d454ee3072f9a2eee0ba3457d6d9dc240e47b",
+        "test_paths_sha256": "8c12fd44c05b637c56caf6267a4e622763968e0e8ebc70966152ad130e3f714a"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "ba97035ce6de3cf6073b99e68d6dedfae0aaff2a19b561556c9027f301e4ec8e",
+        "reason": "The revised wording stays within the visible session-start delay and availability behavior without exposing the cause or extending lifecycle scope.",
+        "reason_code": "session_start_latency_scope_match",
+        "review_record_sha256": "e320e5f2e702d8d6be3e7fca4cd112b079064280d2f5caaba1429305f1a4e680",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 26,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "ba97035ce6de3cf6073b99e68d6dedfae0aaff2a19b561556c9027f301e4ec8e",
+        "reason": "The prompt is limited to the visible session-start delay and preservation of current availability behavior.",
+        "reason_code": "session_start_latency_scope_match",
+        "review_record_sha256": "7b316902c9e87a5979012ff7bf61599402b5aaddd16a679905477ebbfe868dc5",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "324995d33d46edcc0348668991359c57f096adb8",
+      "prompt": "Starting an agent session can incur a noticeable pause. Keep session-start latency predictable while ensuring that trail availability information can still become current.",
+      "prompt_sha256": "ba97035ce6de3cf6073b99e68d6dedfae0aaff2a19b561556c9027f301e4ec8e",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "a0c094649d150b3c27992fcb729e6ca7b484ce94b12151148f292cf307079f65",
+        "family_id": "agent_hook_runtime",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 3 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "93066d94f8e550ba23045c00225df39d2270fadb142972eaf11583967d411ace",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 1,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "0af4bb15f16940a044e7074ac37883234f46a600c397b308d7849165714f2ded",
+        "source_commit_count": 10,
+        "source_commit_set_sha256": "d3151e3703a740e2e5df01d0f39e0886ab5deca1c66688db5678ce527bec7b8a",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "af9a70de262d9bcba32da04e5f9fdc96fe698066"
+    },
+    {
+      "candidate_ref": "307cc2d1599997eeade879e4902f66298555df62f4c562b77888ec958cf9f8df",
+      "commit_oid": "62e9b19a0e2223e7ddc7382b0da70effdce25684",
+      "commitments": {
+        "baseline_output_sha256": "950fc6c68b2cac4eeabfd6e3f6d7939e1e1988f8bac7416f3bdb1159b406cdac",
+        "reversed_source_output_sha256": "c5784d4b984b6fd99d6ceea16caac796d46ed996efef45682685c8e336cfa9e6",
+        "source_diff_sha256": "3aaa304cd74ae538b3de7b8c0f5108398043a801472128a03c6c38f58ada6484",
+        "source_paths_sha256": "e9acd3921d04df2a73876b60ba2fca5ebe798da36ab5f36bf985c6288eb9f181",
+        "test_command_sha256": "bd86518cfecc3bcdd4bc34c4a21acc727e8ee9fb6abe8b7cb0b6ead0742e56de",
+        "test_diff_sha256": "b3c9e39b37b7bfb1a028b219b49f21b7368ace5cf6d29bcc68f90e7adb857d7b",
+        "test_paths_sha256": "cc2621fe64e58fb289d379d87d365d19569ae0c025b9d9b8cac68eb68afc8cc0"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "c74ac01bff433691493aadcb3ed773153c3c3e58bc41720aa9754a30d19f370c",
+        "reason": "The wording states the visible noninteractive authentication hang and interactive behavior constraint without identifying a remedy.",
+        "reason_code": "noninteractive_authentication_hang_symptom",
+        "review_record_sha256": "ad4603ccc172d40b131cad4c8d93b87681f0e8ec64f613a76b9133f6e18ce555",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 27,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "c74ac01bff433691493aadcb3ed773153c3c3e58bc41720aa9754a30d19f370c",
+        "reason": "The wording states the noninteractive credential hang and visible error requirement while preserving interactive behavior.",
+        "reason_code": "noninteractive_authentication_hang_symptom",
+        "review_record_sha256": "b1f026d80f4a975c9b7f8f8823505612b8a3c3268af5c6665c1a5d42832ecfe6",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "61a00903876fd7158277624fa7d33d58cd86656a",
+      "prompt": "Checkpoint pushes triggered from non-interactive agent runs can hang indefinitely when SSH needs credentials because no user can answer the prompt. They should return promptly with useful authentication guidance while normal interactive Git use continues to work.",
+      "prompt_sha256": "c74ac01bff433691493aadcb3ed773153c3c3e58bc41720aa9754a30d19f370c",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "79b3efcf2e27b694be4f58430cf4cb7783c00408c9d2f1863848f9de32d431a6",
+        "family_id": "checkpoint_remote_behavior",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 3 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "e469ee76b6caf2e834481080154d446d83f45de1f6f84cf92e618351fc8f7a50",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 0,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_commit_count": 10,
+        "source_commit_set_sha256": "95b4b22e48633a242db510486849bea80c338c19e41258fce6c729d6a19a3257",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "b0b828b3e11a7fd39501a504c0ab50a888dcb597"
+    },
+    {
+      "candidate_ref": "fc94b635fe050e65dcd827b1996585b563536da7caf687d6d2257c0ff9b86d0c",
+      "commit_oid": "002d59df3968090f2476c77f5feb7f01ea670824",
+      "commitments": {
+        "baseline_output_sha256": "cfe045a81035d6a1c6f00fc142c2d9c5c8e7078b13f65d9ae34bae32ae4084b4",
+        "reversed_source_output_sha256": "53050f615d3584706534e8e2b851c1d0a976f1ebb2a0b6d2469b8a8afedcd4b2",
+        "source_diff_sha256": "f7cdaf4ecfeab550a2b9522a1c2db3176ffd502f952e9b604705280222e45d0f",
+        "source_paths_sha256": "230cdb74320e3ba4461b4ac2b4b5ceb3640a41853aa1176a1ccf2c5e3b68ec14",
+        "test_command_sha256": "6a89ddf5d9847be5bd907bd8b62311007f16bf14d6ff5c5e4727152e003fb6ce",
+        "test_diff_sha256": "8a0d927e249b6414a40e87686cd908c2553f6a3bc10307347574befdf3f3dbcb",
+        "test_paths_sha256": "20a7c3f7fab8d875b693e08adde6e7095e5670bdedd97809e7e966e7b982c717"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "b2ef140e1a41bf9cbf58c1b61bf3d5f06c0f30135b5140f224dbeffe5a5305f1",
+        "reason": "The revised wording states only the incorrect availability result and latency constraint without disclosing an internal cause.",
+        "reason_code": "availability_result_without_internal_cause",
+        "review_record_sha256": "6750a941b6efc71670da411f4a4dc0ef72dfce61d5481995f77d3907a5623079",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 29,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "b2ef140e1a41bf9cbf58c1b61bf3d5f06c0f30135b5140f224dbeffe5a5305f1",
+        "reason": "The prompt states the incorrect help result and responsiveness constraint without identifying internal state or implementation.",
+        "reason_code": "availability_result_without_internal_cause",
+        "review_record_sha256": "a10904daab0a0f76ca94280af5f0ebd5198fc8e50459ad945e7db3a18e862a2d",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "1ec80f6962d5ba82879afd4782eb2dd00afeae67",
+      "prompt": "Agent help can report that trails are unavailable even after the account or repository becomes eligible. It should reflect current availability without becoming noticeably slower.",
+      "prompt_sha256": "b2ef140e1a41bf9cbf58c1b61bf3d5f06c0f30135b5140f224dbeffe5a5305f1",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "f29e50274a280e0ce0e3babecf900c00ba0d671f8f9979fc2169315b90fa37bc",
+        "family_id": "trails_availability",
+        "family_overlap_decision": "no_shared_development_family_observed",
+        "family_overlap_reason": "The cleartext development family label occurs once in this review.",
+        "fix_identity_sha256": "7779bf2b14afb9be493d1262f74f4231f796ce3dce65fbd660fbd523e832310f",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 5,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "22111f7c119cb017e47bee21af646a4649c21937eeed244e8000b2083a0ac5fa",
+        "source_commit_count": 7,
+        "source_commit_set_sha256": "0a2f470863f294714060928fd1f813c9bf8329b8e5d9684a75e0c9b9a4041587",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "0a926eb48225397ad29d0f088816e6c8b6fb6adf"
+    },
+    {
+      "candidate_ref": "f92520da0cb7c25c7a482ed60319a0391111358fdc40b10ae8acb1d447da9dce",
+      "commit_oid": "df765ab952185595d65f561f8ccb8036598980a8",
+      "commitments": {
+        "baseline_output_sha256": "f0dd7b511e00bfc80fa88ec8f1e1d97af9837a0697bb84da8c8039b45ae9ad1b",
+        "reversed_source_output_sha256": "a8b3fea2b9e69198db6b30bd49dee89ea72a6f514c523a1018bf7472e242f7ab",
+        "source_diff_sha256": "2ed39df080dcc8d4c6d18e9f8159778cb7ae6919107673dc85c3ffab17054e3c",
+        "source_paths_sha256": "8595a890c215da0ef4f8da3973284eb759cdf8f33a762964d43b0e92b75a7b04",
+        "test_command_sha256": "c951934191a0e06a301f4f5cb903511bd7ffe6b76f345bc2811d8a50787fb5b6",
+        "test_diff_sha256": "3bc9b62dc2a8c3bb8bafc3bbf0d8e598cddc72cc43219ce88ce3da19c0aab3fd",
+        "test_paths_sha256": "a7f622cad668253a6c0a8e284ac9caa1f10f055a00c5921ba5514deb94306c78"
+      },
+      "disposition": "accepted_for_development_only",
+      "draft_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "4895113ef51e315230f793c79c3a4859da199a6c05ea6787edb5399fe724856c",
+        "reason": "The wording states the empty-history symptom and preservation requirement without revealing branch setup implementation.",
+        "reason_code": "existing_history_not_preserved_symptom",
+        "review_record_sha256": "f21c0d6bf83218f9fcb2a76f8836a51dc60b8c1947865fc4e238e6fe84a53edd",
+        "reviewer_id": "/root/review_negative_control"
+      },
+      "first_parent_position": 31,
+      "independent_review": {
+        "checks": {
+          "no_answer_bearing_context": true,
+          "no_command_or_workflow_hints": true,
+          "no_file_hints": true,
+          "no_fix_terms": true,
+          "no_function_hints": true,
+          "no_hidden_test_details": true,
+          "no_patch_leakage": true,
+          "scope_matches_bound_change": true,
+          "symptom_only": true
+        },
+        "decision": "accept",
+        "prompt_sha256": "4895113ef51e315230f793c79c3a4859da199a6c05ea6787edb5399fe724856c",
+        "reason": "The wording states the empty-history symptom and preservation requirement without exposing the underlying branch setup.",
+        "reason_code": "existing_history_not_preserved_symptom",
+        "review_record_sha256": "c64b09fcc2feb663e07181d694675d0bb76bed0498f41a1cecc88ebec095e86a",
+        "reviewer_id": "/root/review_negative_control/symptom_prompt_audit"
+      },
+      "parent_oid": "f07446b2302e8487e9d04833c0badaa6cd5d9114",
+      "prompt": "When a repository is enabled and its configured checkpoint remote already contains checkpoint history, Entire can create an empty local metadata branch instead of using the existing history. Enabling the repository must preserve and expose that history.",
+      "prompt_sha256": "4895113ef51e315230f793c79c3a4859da199a6c05ea6787edb5399fe724856c",
+      "relationships": {
+        "authoritative_overlap_decision": "unresolved_owner_hmac_and_source_session_receipts_absent",
+        "authoritative_overlap_reason": "Owner-held HMAC overlap commitments and complete source-session receipts are absent, so population overlap remains unresolved.",
+        "family_commitment_sha256": "79b3efcf2e27b694be4f58430cf4cb7783c00408c9d2f1863848f9de32d431a6",
+        "family_id": "checkpoint_remote_behavior",
+        "family_overlap_decision": "shared_development_family_requires_owner_dedup",
+        "family_overlap_reason": "The cleartext development family label occurs 3 times; an owner-key deduplication decision is still required.",
+        "fix_identity_sha256": "216b94388aaa009791efce57b839a9941140d88fe1c44bbaae766dcffc63bb01",
+        "fix_overlap_decision": "distinct_source_commit_set_observed",
+        "fix_overlap_reason": "The source-branch commit set is pairwise disjoint from every other reviewed development candidate.",
+        "patch_overlap_decision": "no_exact_source_or_test_diff_duplicate_observed",
+        "patch_overlap_reason": "Both eligibility source-diff and test-diff commitments are unique across the reviewed development candidates.",
+        "prompt_overlap_decision": "no_exact_duplicate_observed",
+        "prompt_overlap_reason": "The domain-separated exact-prompt commitment is unique across the reviewed development candidates.",
+        "source_session_overlap_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_overlap_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "source_history": {
+        "checkpoint_trailer_commit_count": 0,
+        "checkpoint_trailer_coverage": "incomplete",
+        "checkpoint_trailer_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_commit_count": 7,
+        "source_commit_set_sha256": "1dc42981fe010b22a646cb7de8758818771ace5060e20a3addf0843cce331bcf",
+        "source_session_decision": "unresolved_no_owner_source_session_receipt",
+        "source_session_reason": "Commit trailers are development evidence only and do not establish complete source-session identity; the owner-held source-session receipt is absent."
+      },
+      "tree_oid": "dfc52629b656012c1e3373733ec6d4fd43906a4a"
+    }
+  ],
+  "ledger_sha256": "69fb0e5c68fb62cdc4b313c8d709c32f4a68aaba1234584ba1a5978fba89ae15",
+  "profile": "agent_brain_development_task_symptom_review_v1",
+  "repository_id": "github.com/entireio/cli",
+  "review_policy": {
+    "independent_read_only_audit_required": true,
+    "name": "symptom_only_no_answer_bearing_context_v1",
+    "prompt_hash": "sha256_domain_separated_utf8_v1",
+    "required_checks": [
+      "symptom_only",
+      "no_fix_terms",
+      "no_file_hints",
+      "no_function_hints",
+      "no_command_or_workflow_hints",
+      "no_hidden_test_details",
+      "no_patch_leakage",
+      "no_answer_bearing_context",
+      "scope_matches_bound_change"
+    ],
+    "review_reason_static_leakage_scan_required": true,
+    "semantic_patch_and_test_comparison_required": true,
+    "static_banned_terms_sha256": "a3215a7642035700c9a720c3bdc28ef9030b63cdda2233a406b301cdc1200aa6"
+  },
+  "reviewers": [
+    {
+      "identity_attestation": "self_reported_local_process_not_cryptographically_attested",
+      "independence": "inspected_source_and_authored_prompts",
+      "reviewer_id": "/root/review_negative_control",
+      "role": "draft_author",
+      "tool_identity": "Codex subagent runtime; model identity unavailable and unattested"
+    },
+    {
+      "identity_attestation": "self_reported_local_process_not_cryptographically_attested",
+      "independence": "did_not_edit_draft_or_source",
+      "reviewer_id": "/root/review_negative_control/symptom_prompt_audit",
+      "role": "independent_read_only_auditor",
+      "tool_identity": "Codex subagent runtime; model identity unavailable and unattested"
+    }
+  ],
+  "schema_version": 1,
+  "selection": {
+    "excluded_first_parent_positions": {
+      "baseline_invalid_failure": [
+        3,
+        19,
+        22,
+        28
+      ],
+      "baseline_invalid_timeout": [],
+      "negative_control_survived": [
+        12
+      ],
+      "reversed_invalid_timeout": [
+        13
+      ]
+    },
+    "rule": "exact_negative_control_eligible_for_symptom_review_v1",
+    "selected_first_parent_positions": [
+      1,
+      2,
+      6,
+      8,
+      9,
+      10,
+      11,
+      14,
+      17,
+      18,
+      20,
+      21,
+      25,
+      26,
+      27,
+      29,
+      31
+    ]
+  },
+  "status": "development_review_only_non_authoritative",
+  "summary": {
+    "accepted_count": 17,
+    "authoritative_population_member_count": 0,
+    "rejected_count": 0,
+    "selected_count": 17,
+    "shared_family_item_count": 12,
+    "unresolved_source_session_count": 17
+  }
+}

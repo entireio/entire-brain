@@ -1,0 +1,33 @@
+diff --git a/cmd/entire/cli/strategy/manual_commit_condensation.go b/cmd/entire/cli/strategy/manual_commit_condensation.go
+index e80c08b76..21822502d 100644
+--- a/cmd/entire/cli/strategy/manual_commit_condensation.go
++++ b/cmd/entire/cli/strategy/manual_commit_condensation.go
+@@ -646,13 +646,9 @@ func extractUserPromptsFromLines(lines []string) []string {
+ 			continue
+ 		}
+ 
+-		// Check for user message:
+-		// - Claude Code uses "type": "human" or "type": "user"
+-		// - Cursor uses "role": "user"
+-		msgType, _ := entry["type"].(string) //nolint:errcheck // type assertion on interface{} from JSON
+-		msgRole, _ := entry["role"].(string) //nolint:errcheck // type assertion on interface{} from JSON
+-		isUser := msgType == "human" || msgType == "user" || msgRole == "user"
+-		if !isUser {
++		// Check for user message (supports both "human" and "user" types)
++		msgType, ok := entry["type"].(string)
++		if !ok || (msgType != "human" && msgType != "user") {
+ 			continue
+ 		}
+ 
+diff --git a/cmd/entire/cli/textutil/ide_tags.go b/cmd/entire/cli/textutil/ide_tags.go
+index 3549e5139..d8f1dec7d 100644
+--- a/cmd/entire/cli/textutil/ide_tags.go
++++ b/cmd/entire/cli/textutil/ide_tags.go
+@@ -18,7 +18,6 @@ var systemTagRegexes = []*regexp.Regexp{
+ 	regexp.MustCompile(`(?s)<command-message[^>]*>.*?</command-message>`),
+ 	regexp.MustCompile(`(?s)<command-args[^>]*>.*?</command-args>`),
+ 	regexp.MustCompile(`(?s)<local-command-stdout[^>]*>.*?</local-command-stdout>`),
+-	regexp.MustCompile(`</?user_query>`), // Cursor wraps user text in <user_query> tags; strip tags but keep content
+ }
+ 
+ // StripIDEContextTags removes IDE-injected context tags from prompt text.

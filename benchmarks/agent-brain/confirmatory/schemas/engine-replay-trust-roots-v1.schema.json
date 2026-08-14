@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/engine-replay-trust-roots-v1.json",
+  "type": "object",
+  "required": ["schema_version", "profile", "status", "signature_namespace", "roots"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"const": "engine_replay_sshsig_trust_roots_v1"},
+    "status": {"enum": ["pending_owner_authorization", "approved"]},
+    "signature_namespace": {"const": "entire-brain-engine-replay-v1"},
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "root_id",
+          "principal",
+          "key_type",
+          "public_key_base64",
+          "public_key_sha256",
+          "status",
+          "not_before",
+          "not_after",
+          "revoked_at"
+        ],
+        "properties": {
+          "root_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"},
+          "principal": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._@+-]{0,127}$"},
+          "key_type": {"const": "ssh-ed25519"},
+          "public_key_base64": {"type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$"},
+          "public_key_sha256": {"$ref": "#/$defs/sha256"},
+          "status": {"enum": ["active", "revoked"]},
+          "not_before": {"$ref": "#/$defs/rfc3339"},
+          "not_after": {"$ref": "#/$defs/rfc3339"},
+          "revoked_at": {
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/$defs/rfc3339"}
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rfc3339": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|\\+\\d{2}:\\d{2}|-(?!00:00)\\d{2}:\\d{2})$"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,40 @@
+{
+  "id": "entire-db-scale-f979cef32",
+  "repo": "entire-db",
+  "repo_path": "entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When a mirrored upstream repository is marked as permanently broken and suspended, existing users with cached access can still mint tokens for it and a background worker can still mint fetch tokens against it. Suspension only stops the next reconciler pass, not live token issuance, so the door stays open at token exchange. Make the token-exchange lookups treat suspended placements as not found so no new tokens can be minted for them. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-db-scale-f979cef32.patch",
+  "validation": [
+    "go test ./core/mirrorrepo -run 'TestGetRefByID_SkipsSuspended|TestListReposForReconcile_DedupesByGitHubRepoID|TestListReposForReconcile_SkipsSuspendedAndUnlinked|TestLookupRefByURL_SkipsSuspended|TestMarkSuspended_NotFound'"
+  ],
+  "expected_files": [
+    "core/mirrorrepo/mirrorrepo.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "mirror repo suspension circuit breaker token exchange",
+    "suspended placement still minting tokens auth gate",
+    "reconciler MarkSuspended only stops next pass",
+    "cached repo access edges mint mirror token revoked upstream",
+    "mirror worker fetch token suspended upstream"
+  ],
+  "_mined_from_commit": "f979cef325710329e7a5aa137224bf134a625a50",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "mirrorrepo: skip suspended placements in auth-gate lookups (#1611)",
+  "copy_checkpoint_ref_from_source": true
+}

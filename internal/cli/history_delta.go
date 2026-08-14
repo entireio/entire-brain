@@ -431,17 +431,48 @@ func loadFreshHistory(brainDir string, source *historySourceManifest) (freshHist
 	if err != nil {
 		return freshHistory{}, err
 	}
-	fresh := freshHistory{index: index}
+	fresh := loadFreshHistoryOverlay(brainDir, source)
+	fresh.index = index
+	return fresh, nil
+}
+
+func loadFreshHistoryOverlay(brainDir string, source *historySourceManifest) freshHistory {
+	fresh := freshHistory{}
 	overlay := loadHistoryShortTerm(brainDir, source)
 	if len(overlay.Files) == 0 {
-		return fresh, nil
+		return fresh
 	}
 	fresh.replaced = make(map[string]bool, len(overlay.Files))
-	for rel, entry := range overlay.Files {
+	rels := make([]string, 0, len(overlay.Files))
+	for rel := range overlay.Files {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	for _, rel := range rels {
+		entry := overlay.Files[rel]
 		fresh.replaced[rel] = true
 		fresh.overlay = append(fresh.overlay, entry.Records...)
 	}
-	return fresh, nil
+	return fresh
+}
+
+// rankFreshHistoryLexicalFromSource preserves the direct FTS payload path for
+// the long-term tier, then overlays short-term records without forcing a full
+// index.json load on the common BM25-only path.
+func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, string, int, error) {
+	longTerm, access, inputs, err := rankHistoryLexicalFromSource(brainDir, source, kind, query, limit)
+	if err != nil {
+		return nil, access, inputs, err
+	}
+	fresh := loadFreshHistoryOverlay(brainDir, source)
+	inputs += len(fresh.overlay)
+	if len(fresh.overlay) == 0 {
+		return longTerm, access, inputs, nil
+	}
+	merged := rankFreshHistory(fresh, kind, query, limit, nil, func(historyIndex) ([]scoredHistoryRecord, bool) {
+		return longTerm, true
+	})
+	return merged, access, inputs, nil
 }
 
 // historyRecordSourceTime derives a record's source recency from its

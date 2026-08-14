@@ -1,0 +1,19 @@
+diff --git a/cmd/entire/cli/strategy/hook_managers.go b/cmd/entire/cli/strategy/hook_managers.go
+index d6e1d7095..c81d8f316 100644
+--- a/cmd/entire/cli/strategy/hook_managers.go
++++ b/cmd/entire/cli/strategy/hook_managers.go
+@@ -39,14 +39,6 @@ func detectHookManagers(repoRoot string) []hookManager {
+ 		}
+ 	}
+ 
+-	// hk supports {.config/,}hk{,.local}.pkl
+-	for _, dir := range []string{"", ".config/"} {
+-		for _, variant := range []string{"", ".local"} {
+-			name := dir + "hk" + variant + ".pkl"
+-			checks = append(checks, hookManager{"hk", name, false})
+-		}
+-	}
+-
+ 	seen := make(map[string]bool)
+ 	for _, c := range checks {
+ 		path := filepath.Join(repoRoot, c.ConfigPath)

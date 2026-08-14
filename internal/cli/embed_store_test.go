@@ -1,7 +1,8 @@
 package cli
 
 import (
-	"sync"
+	"math"
+	"os"
 	"testing"
 	"time"
 )
@@ -29,29 +30,34 @@ func TestEmbedStoreRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEmbedStoreConcurrentSavePresentMergesUnderBrainLock(t *testing.T) {
+func TestEmbedStoreRejectsFailureShapedVectors(t *testing.T) {
 	dir := t.TempDir()
-	store := newEmbedStore(dir, "main", "concurrent-model", 2)
-	present := map[string]struct{}{"fact:a": {}, "fact:b": {}}
-	start := make(chan struct{})
-	var wait sync.WaitGroup
-	for id, vector := range map[string][]float32{
-		"fact:a": {1, 0},
-		"fact:b": {0, 1},
-	} {
-		wait.Add(1)
-		go func(id string, vector []float32) {
-			defer wait.Done()
-			<-start
-			if err := store.savePresent(map[string][]float32{id: vector}, present); err != nil {
-				t.Errorf("save %s: %v", id, err)
-			}
-		}(id, vector)
+	s := newEmbedStore(dir, "main", "test-model", 2)
+	if err := s.save(map[string][]float32{
+		"valid": {1, 0},
+		"zero":  {0, 0},
+		"nan":   {float32(math.NaN()), 1},
+		"inf":   {float32(math.Inf(1)), 1},
+		"short": {1},
+	}); err != nil {
+		t.Fatalf("save: %v", err)
 	}
-	close(start)
-	wait.Wait()
-	if got := store.load(); len(got) != 2 {
-		t.Fatalf("concurrent merge lost vectors: %v", got)
+	if got := s.load(); len(got) != 1 || got["valid"] == nil {
+		t.Fatalf("save persisted failure-shaped vectors: %v", got)
+	}
+
+	// Simulate a legacy/corrupt same-dimension zero vector. The final dim*4
+	// bytes are the only saved vector's payload.
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(raw[len(raw)-s.dim*4:])
+	if err := os.WriteFile(s.path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.load(); len(got) != 0 {
+		t.Fatalf("failure-shaped persisted cache must rebuild, got %v", got)
 	}
 }
 

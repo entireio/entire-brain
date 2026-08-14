@@ -366,6 +366,58 @@ func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 	}
 }
 
+func TestShortTermLexicalOverlayPreservesDirectFTSPayloadPath(t *testing.T) {
+	brainDir, _, _ := shortTermFixture(t)
+	buildShortTerm(t, brainDir)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Warm the derived payload store from the intact truth first: the direct
+	// path is an accelerator over an ALREADY-BUILT store, so building it is a
+	// precondition of the property under test, not part of it.
+	if _, _, _, warmErr := rankFreshHistoryLexicalFromSource(brainDir, manifest.Sources.History, "history", "exporter hot loop gzip", 20); warmErr != nil {
+		t.Fatalf("warm derived payload store: %v", warmErr)
+	}
+	// The direct FTS payload path must not need index.json even when a short-term
+	// overlay is present. Corrupt the truth file after the FTS generation and
+	// require both the direct access mode and the fresh overlay result.
+	// The published index is generation-addressed, so resolve it from the
+	// manifest rather than assuming the legacy fixed path.
+	indexPath := filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.History.IndexPath))
+	corrupt, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt[0] = '!'
+	if err := os.WriteFile(indexPath, corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scored, access, _, err := rankFreshHistoryLexicalFromSource(
+		brainDir,
+		manifest.Sources.History,
+		"history",
+		"exporter hot loop gzip",
+		20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access != historyIndexAccessFTSPayload {
+		t.Fatalf("history access = %q, want %q", access, historyIndexAccessFTSPayload)
+	}
+	foundFresh := false
+	for _, result := range scored {
+		if strings.Contains(result.Record.Summary, "gzip") {
+			foundFresh = true
+			break
+		}
+	}
+	if !foundFresh {
+		t.Fatalf("short-term result missing from direct FTS merge: %+v", scored)
+	}
+}
+
 func TestShortTermConsolidationClearsOverlayAndPreservesRecall(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)

@@ -154,8 +154,8 @@ func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 
 func TestValidateLiveSemanticHeaderAcceptsRepoKeyCaseOnlyDifference(t *testing.T) {
 	err := validateLiveSemanticHeader(
-		semanticHeader{RepoKey: "gh/suhaanthayyil/Ultron", Commit: "aaa111", Tree: "tree111"},
-		"gh/suhaanthayyil/ultron",
+		semanticHeader{RepoKey: "gh/redacted-contributor/Ultron", Commit: "aaa111", Tree: "tree111"},
+		"gh/redacted-contributor/ultron",
 		"aaa111",
 		"tree111",
 		false,

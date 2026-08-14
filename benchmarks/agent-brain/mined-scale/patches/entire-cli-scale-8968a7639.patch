@@ -1,0 +1,65 @@
+diff --git a/cmd/entire/cli/strategy/manual_commit_rewind.go b/cmd/entire/cli/strategy/manual_commit_rewind.go
+index 06b07e11b..a1f6ddedb 100644
+--- a/cmd/entire/cli/strategy/manual_commit_rewind.go
++++ b/cmd/entire/cli/strategy/manual_commit_rewind.go
+@@ -19,7 +19,6 @@ import (
+ 	"github.com/entireio/cli/cmd/entire/cli/osroot"
+ 	"github.com/entireio/cli/cmd/entire/cli/paths"
+ 	"github.com/entireio/cli/cmd/entire/cli/trailers"
+-	"github.com/entireio/cli/cmd/entire/cli/validation"
+ 
+ 	"charm.land/huh/v2"
+ 	"github.com/go-git/go-git/v6"
+@@ -692,14 +691,6 @@ func (s *ManualCommitStrategy) RestoreLogsOnly(ctx context.Context, w, errW io.W
+ 			fmt.Fprintf(errW, "  Warning: session %d has no session ID, skipping\n", i)
+ 			continue
+ 		}
+-		// Checkpoint metadata comes from the shared entire/checkpoints/v1 branch
+-		// and is attacker-influenceable. Reject path separators/absolute IDs before
+-		// they reach ResolveSessionFile + WriteSession, which would otherwise let a
+-		// crafted session ID overwrite files outside the agent session directory.
+-		if err := validation.ValidateSessionID(sessionID); err != nil {
+-			fmt.Fprintf(errW, "  Warning: session %d has unsafe session ID %q, skipping: %v\n", i, sessionID, err)
+-			continue
+-		}
+ 
+ 		// Resolve per-session agent from metadata — skip if agent is unknown
+ 		if content.Metadata.Agent == "" {
+@@ -853,11 +844,6 @@ func (s *ManualCommitStrategy) classifySessionsForRestore(ctx context.Context, r
+ 		if sessionID == "" || content.Metadata.Agent == "" {
+ 			continue
+ 		}
+-		// Skip unsafe session IDs (see RestoreLogsOnly): this path stats the resolved
+-		// transcript file, so a crafted ID could otherwise probe arbitrary locations.
+-		if validation.ValidateSessionID(sessionID) != nil {
+-			continue
+-		}
+ 
+ 		sessionAgent, agErr := ResolveAgentForRewind(content.Metadata.Agent)
+ 		if agErr != nil {
+diff --git a/cmd/entire/cli/transcript.go b/cmd/entire/cli/transcript.go
+index a0b5c8209..bb52cb07a 100644
+--- a/cmd/entire/cli/transcript.go
++++ b/cmd/entire/cli/transcript.go
+@@ -14,21 +14,11 @@ import (
+ 	agentpkg "github.com/entireio/cli/cmd/entire/cli/agent"
+ 	"github.com/entireio/cli/cmd/entire/cli/paths"
+ 	"github.com/entireio/cli/cmd/entire/cli/transcript"
+-	"github.com/entireio/cli/cmd/entire/cli/validation"
+ )
+ 
+ // resolveTranscriptPath determines the correct file path for an agent's session transcript.
+ // Computes the path dynamically from the current repo location for cross-machine portability.
+ func resolveTranscriptPath(ctx context.Context, sessionID string, agent agentpkg.Agent) (string, error) {
+-	// Session IDs reaching this restore path can originate from checkpoint
+-	// metadata on the shared entire/checkpoints/v1 branch, which is attacker-
+-	// influenceable. Reject path separators/absolute paths before they reach
+-	// agent.ResolveSessionFile (some agents return absolute IDs verbatim),
+-	// preventing transcript writes outside the agent session directory.
+-	if err := validation.ValidateSessionID(sessionID); err != nil {
+-		return "", fmt.Errorf("invalid session ID for transcript path: %w", err)
+-	}
+-
+ 	repoRoot, err := paths.WorktreeRoot(ctx)
+ 	if err != nil {
+ 		return "", fmt.Errorf("failed to get worktree root: %w", err)

@@ -1,0 +1,41 @@
+{
+  "id": "entire-cli-scale-db6263e3a",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The Gemini CLI integration acknowledges the before-model lifecycle hook but never records which model the request will use, so model information is lost for those sessions. Capture the model from that hook payload and surface it. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-db6263e3a.patch",
+  "validation": [
+    "go test ./cmd/entire/cli/agent/geminicli -run 'TestParseHookEvent_BeforeModel_EmptyModel_ReturnsNil|TestParseHookEvent_BeforeModel_ReturnsModelUpdate'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/geminicli/lifecycle.go",
+    "cmd/entire/cli/agent/geminicli/types.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "gemini cli before model hook parsing",
+    "model update event lifecycle hook",
+    "capture model name from hook payload",
+    "pass-through hooks returning nil gemini",
+    "llm request model field extraction"
+  ],
+  "_mined_from_commit": "db6263e3a23bcb662f85fdcb58a2a7b5c1279ef0",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": false,
+  "_leak_risk": "low",
+  "_subject": "capture model from Gemini CLI BeforeModel hook",
+  "copy_checkpoint_ref_from_source": true
+}

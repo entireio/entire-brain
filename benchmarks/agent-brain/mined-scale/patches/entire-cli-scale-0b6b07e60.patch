@@ -1,0 +1,13 @@
+diff --git a/cmd/entire/cli/strategy/hooks.go b/cmd/entire/cli/strategy/hooks.go
+index 394a45b65..bdcc90cb2 100644
+--- a/cmd/entire/cli/strategy/hooks.go
++++ b/cmd/entire/cli/strategy/hooks.go
+@@ -171,7 +171,7 @@ func buildHookSpecs(cmdPrefix string) []hookSpec {
+ 	commitMsgCmd := gitHookCommand(cmdPrefix, `commit-msg "$1" || true`, true)
+ 	postCommitCmd := gitHookCommand(cmdPrefix, `post-commit 2>/dev/null || true`, false)
+ 	postRewriteCmd := gitHookCommand(cmdPrefix, `post-rewrite "$1" 2>/dev/null || true`, false)
+-	prePushCmd := gitHookCommand(cmdPrefix, `pre-push "$1" || true`, false)
++	prePushCmd := gitHookCommand(cmdPrefix, `pre-push "$1" || true`, true)
+ 
+ 	return []hookSpec{
+ 		{

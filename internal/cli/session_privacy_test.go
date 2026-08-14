@@ -146,6 +146,24 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(brainDir, "sessions", "main", "20260802T000000Z_secret.jsonl")); err != nil {
 		t.Fatalf("exclude must keep the exported transcript: %v", err)
 	}
+	manifest, err = loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !historyIndexCurrent(brainDir, manifest) {
+		t.Fatal("excluded transcript forced an immediate history rebuild")
+	}
+	excludedPath := filepath.Join(brainDir, "sessions", "main", "20260802T000000Z_secret.jsonl")
+	excludedBytes, err := os.ReadFile(excludedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(excludedPath, append(excludedBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !historyIndexCurrent(brainDir, manifest) {
+		t.Fatal("mutating an excluded transcript invalidated the derived history index")
+	}
 
 	// Include requires explicit action and cleanly rebuilds.
 	delete(stones.Excluded, "secret-sess")

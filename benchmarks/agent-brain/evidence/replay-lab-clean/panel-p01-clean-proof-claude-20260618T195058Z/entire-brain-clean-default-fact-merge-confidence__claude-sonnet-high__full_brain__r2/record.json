@@ -186,7 +186,7 @@
         "tracked_diff_sha256": "1f32cb08b3374562ac96b29539a87576d276212830c2fdf5d58b2163f6bf93af"
       },
       "head": {
-        "author_name": "[redacted-name] Dohmke",
+        "author_name": "[redacted-name]",
         "available": true,
         "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
         "committer_date": "2026-06-18T10:29:30+02:00",
@@ -248,7 +248,7 @@
     "schema": 1,
     "source": {
       "base": {
-        "author_name": "[redacted-name] Dohmke",
+        "author_name": "[redacted-name]",
         "available": true,
         "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
         "committer_date": "2026-06-18T10:29:30+02:00",
@@ -294,7 +294,7 @@
         "tracked_diff_sha256": "1f32cb08b3374562ac96b29539a87576d276212830c2fdf5d58b2163f6bf93af"
       },
       "head": {
-        "author_name": "[redacted-name] Dohmke",
+        "author_name": "[redacted-name]",
         "available": true,
         "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
         "committer_date": "2026-06-18T10:29:30+02:00",

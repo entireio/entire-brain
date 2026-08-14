@@ -1,0 +1,107 @@
+{
+  "schema_version": 3,
+  "runner": {
+    "schema": "agent-brain-frozen-runner-identity/v1",
+    "provider": null,
+    "runner_id": null,
+    "runner_version": null,
+    "agent_id": null,
+    "agent_cli": null,
+    "agent_cli_version": null,
+    "requested_model_id": null,
+    "resolved_model_id": null,
+    "effort": null,
+    "schedule_sha256": null,
+    "identity_sha256": null
+  },
+  "pricing_quote": {
+    "schema": "agent-brain-price-quote/v2",
+    "status": "pending",
+    "quote_sha256": null,
+    "source_uri": null,
+    "source_artifact_path": null,
+    "source_artifact_sha256": null,
+    "as_of": null,
+    "retrieved_at": null,
+    "expires_at": null,
+    "maximum_age_days": null,
+    "currency": "USD",
+    "tokens_per_price_unit": 1000000,
+    "prices_usd_per_unit": {
+      "uncached_input": null,
+      "cache_read_input": null,
+      "cache_write_input": null,
+      "visible_output": null,
+      "reasoning_output": null
+    },
+    "price_aliases": {
+      "uncached_input": null,
+      "cache_read_input": null,
+      "cache_write_input": null,
+      "visible_output": null,
+      "reasoning_output": null
+    },
+    "usage_semantics": {
+      "input_tokens_includes": [],
+      "output_tokens_includes": [],
+      "counter_absence_means_zero": {
+        "cache_read_input": false,
+        "cache_write_input": false,
+        "reasoning_output": false
+      }
+    }
+  },
+  "design": {
+    "protocol_id": "agent-brain-confirmatory-v2-candidate",
+    "power_status_at_binding": "pending_uncalibrated",
+    "approved_for_budgeting": false,
+    "tasks": 24,
+    "treatments": [
+      "no_memory",
+      "placebo_packet",
+      "retrieved_memory"
+    ],
+    "repetitions_per_treatment": 4,
+    "requested_cells": 288,
+    "retry_agent_invocations": 0,
+    "replacement_cell_attempts": 0,
+    "reserve_cell_attempts": 0,
+    "maximum_agent_invocations": 288
+  },
+  "token_assumptions": {
+    "mode": null,
+    "explicit_per_agent_invocation_caps": {
+      "uncached_input": null,
+      "cache_read_input": null,
+      "cache_write_input": null,
+      "visible_output": null,
+      "reasoning_output": null,
+      "rationale": null
+    },
+    "empirical_bound": {
+      "runner": null,
+      "evidence_path": null,
+      "evidence_sha256": null,
+      "statistic": null,
+      "quantile": null,
+      "safety_multiplier": null,
+      "observed_tokens_per_agent_invocation": {
+        "uncached_input": null,
+        "cache_read_input": null,
+        "cache_write_input": null,
+        "visible_output": null,
+        "reasoning_output": null
+      }
+    }
+  },
+  "calculation": null,
+  "approval": {
+    "status": "pending",
+    "approved_cap_usd": null,
+    "approved_by": null,
+    "approver_role": null,
+    "approved_at": null,
+    "expires_at": null,
+    "notes": null
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "id": "entire-cli-scale-0fccf698a",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Some database password environment variables and connection-string shapes pass through transcript redaction and leak live secrets. At the same time, obvious documentation placeholders get redacted as if they were real values. Close the leaks without over-redacting the placeholders. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_patch": "patches/entire-cli-scale-0fccf698a.patch",
+  "validation": [
+    "go test ./redact -run 'TestJSONLContent_CrossContextValueCollision|TestJSONLContent_DottedCredentialKeysRedacted|TestJSONLContent_RootPasswordJSONKeysRedacted|TestString_MysqlShellShorthandIsNotRedacted|TestString_RedactionIsIdempotent|TestString_ShortAndOpaquePlaceholdersFallThrough'"
+  ],
+  "expected_files": [
+    "redact/redact.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "redaction database password env var coverage",
+    "credential value pattern leaks unredacted",
+    "placeholder secret value over-redaction",
+    "connection string password redact edge cases"
+  ],
+  "_mined_from_commit": "0fccf698a76114c97d95ef66241f82d127a3a203",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "high",
+  "_subject": "tighten redaction coverage (#1068)",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,100 @@
+diff --git a/cmd/entire/cli/versioncheck/autoupdate_test.go b/cmd/entire/cli/versioncheck/autoupdate_test.go
+index c409cfe57..874b41164 100644
+--- a/cmd/entire/cli/versioncheck/autoupdate_test.go
++++ b/cmd/entire/cli/versioncheck/autoupdate_test.go
+@@ -126,7 +126,7 @@ func TestMaybeAutoUpdate_KillSwitch(t *testing.T) {
+ 	if f.installCalls != 0 {
+ 		t.Errorf("installer called with kill-switch set")
+ 	}
+-	assertManualHint(t, buf.String(), "brew upgrade entire")
++	assertManualHint(t, buf.String(), brewUpgradeCmd)
+ }
+ 
+ func TestMaybeAutoUpdate_NoTTY(t *testing.T) {
+@@ -141,7 +141,7 @@ func TestMaybeAutoUpdate_NoTTY(t *testing.T) {
+ 	if f.installCalls != 0 {
+ 		t.Errorf("installer called without TTY")
+ 	}
+-	assertManualHint(t, buf.String(), "brew upgrade entire")
++	assertManualHint(t, buf.String(), brewUpgradeCmd)
+ }
+ 
+ func TestMaybeAutoUpdate_CIEnv(t *testing.T) {
+@@ -157,7 +157,7 @@ func TestMaybeAutoUpdate_CIEnv(t *testing.T) {
+ 	if f.installCalls != 0 {
+ 		t.Errorf("installer called on CI (CI=true)")
+ 	}
+-	assertManualHint(t, buf.String(), "brew upgrade entire")
++	assertManualHint(t, buf.String(), brewUpgradeCmd)
+ }
+ 
+ func TestMaybeAutoUpdate_NonTerminalWriter(t *testing.T) {
+@@ -171,7 +171,7 @@ func TestMaybeAutoUpdate_NonTerminalWriter(t *testing.T) {
+ 	if f.installCalls != 0 {
+ 		t.Errorf("installer called with non-terminal output writer")
+ 	}
+-	assertManualHint(t, buf.String(), "brew upgrade entire")
++	assertManualHint(t, buf.String(), brewUpgradeCmd)
+ }
+ 
+ // TestMaybeAutoUpdate_WindowsUnknownInstallerNoAutoRun verifies that on
+@@ -256,8 +256,8 @@ func TestMaybeAutoUpdate_HappyPath(t *testing.T) {
+ 	if f.installCalls != 1 {
+ 		t.Fatalf("installer called %d times, want 1", f.installCalls)
+ 	}
+-	if f.lastCommand != "brew upgrade entire" {
+-		t.Errorf("installer got %q, want brew upgrade entire", f.lastCommand)
++	if f.lastCommand != brewUpgradeCmd {
++		t.Errorf("installer got %q, want %q", f.lastCommand, brewUpgradeCmd)
+ 	}
+ 	if action != autoUpdateActionUpdate {
+ 		t.Errorf("action = %q, want %q", action, autoUpdateActionUpdate)
+@@ -286,7 +286,7 @@ func TestMaybeAutoUpdate_InstallerFailurePrintedToUser(t *testing.T) {
+ 	if !strings.Contains(out, "Try again later running:") {
+ 		t.Errorf("missing retry hint: %q", out)
+ 	}
+-	if !strings.Contains(out, "brew upgrade entire") {
++	if !strings.Contains(out, brewUpgradeCmd) {
+ 		t.Errorf("retry hint missing installer command: %q", out)
+ 	}
+ }
+@@ -301,7 +301,7 @@ type installerCase struct {
+ 
+ func nonWindowsAutoInstallers() []installerCase {
+ 	return []installerCase{
+-		{name: "brew", setup: useBrewExecutable, wantCmd: "brew upgrade entire"},
++		{name: "brew", setup: useBrewExecutable, wantCmd: brewUpgradeCmd},
+ 		{name: "mise", setup: useMiseExecutable, wantCmd: "mise upgrade entire"},
+ 		{name: "scoop", setup: useScoopExecutable, wantCmd: "scoop update entire/cli"},
+ 		{name: "unknown_curl_bash", setup: useUnknownExecutable, wantCmd: "curl -fsSL https://entire.io/install.sh | bash"},
+diff --git a/cmd/entire/cli/versioncheck/versioncheck_test.go b/cmd/entire/cli/versioncheck/versioncheck_test.go
+index 5963a38f2..eadcf1411 100644
+--- a/cmd/entire/cli/versioncheck/versioncheck_test.go
++++ b/cmd/entire/cli/versioncheck/versioncheck_test.go
+@@ -344,7 +344,7 @@ func TestParseGitHubRelease(t *testing.T) {
+ // brewUpgradeCmd is the install command produced for any brew-installed
+ // binary on a stable channel. Hoisted to a const so tests can reference
+ // it without tripping goconst on repeated string literals.
+-const brewUpgradeCmd = "brew upgrade entire"
++const brewUpgradeCmd = "brew upgrade --yes entire"
+ 
+ const scoopExecutablePath = `C:\Users\test\scoop\apps\cli\current\entire.exe`
+ 
+@@ -372,7 +372,7 @@ func TestUpdateCommand(t *testing.T) {
+ 			name:           "homebrew nightly path uses brew command",
+ 			currentVersion: "1.0.1-nightly.202604101200.abc1234",
+ 			execPath:       func() (string, error) { return "/opt/homebrew/bin/entire", nil },
+-			want:           "brew upgrade entire@nightly",
++			want:           "brew upgrade --yes entire@nightly",
+ 		},
+ 		{
+ 			name:           "linuxbrew path",
+@@ -607,7 +607,7 @@ func TestCheckAndNotify_BrewSkipUntilNextVersionCachesLatest(t *testing.T) {
+ 		t.Errorf("SkippedVersion = %q, want v2.0.0", cache.SkippedVersion)
+ 	}
+ 	if f.lastCmdStr != brewUpgradeCmd {
+-		t.Errorf("prompt got cmd %q, want brew upgrade entire", f.lastCmdStr)
++		t.Errorf("prompt got cmd %q, want %q", f.lastCmdStr, brewUpgradeCmd)
+ 	}
+ }
+ 

@@ -189,9 +189,15 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		_ = db.Close()
 		return finishHistoryFTSReadError(health)
 	}
-	if err := db.QueryRow(`SELECT value FROM history_fts_meta WHERE key = 'fingerprint'`).Scan(&fingerprint); err != nil {
-		_ = db.Close()
-		return finishHistoryFTSReadError(health)
+	// The identity key is only meaningful for a schema this build understands.
+	// Requiring it unconditionally reported an unknown-NEWER store as corrupt,
+	// which is exactly the misclassification the schema ladder below exists to
+	// avoid: a newer store must stay read-only, not be declared damaged.
+	if schema == historyFTSSchema {
+		if err := db.QueryRow(`SELECT value FROM history_fts_meta WHERE key = 'records_fingerprint'`).Scan(&fingerprint); err != nil {
+			_ = db.Close()
+			return finishHistoryFTSReadError(health)
+		}
 	}
 	if err := db.Close(); err != nil {
 		return finishHistoryFTSReadError(health)
@@ -236,7 +242,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		health["action"] = "repair the canonical history source before validating or rebuilding FTS"
 		return health
 	}
-	if fingerprint != historyFTSFingerprint(index) {
+	if fingerprint != historyFTSIdentityFromIndex(index).RecordsFingerprint {
 		health["state"] = "stale"
 		health["error_code"] = memoryErrSourceStale
 		health["action"] = "rebuild the disposable FTS store from the current history index"

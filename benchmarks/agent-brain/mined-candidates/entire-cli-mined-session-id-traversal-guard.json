@@ -1,0 +1,35 @@
+{
+  "id": "entire-cli-mined-session-id-traversal-guard",
+  "_mined_from_commit": "8968a763900708d55e67275e25078b0df40a6663",
+  "_mined_note": "Auto-mined memory-sensitive task: setup_patch reverse-applies the SOURCE hunks of the fix commit (removes the ValidateSessionID guards + their rationale comments), leaving the commit's regression tests in the tree as hidden validation. Rationale (traversal -> arbitrary file write RCE) lives in the session that produced the fix, not in the post-removal tree. Flavor: recall-solution (transcript likely contains the patch) -- pending design decision on recall-decision vs recall-solution tasks.",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "On `entire session resume` and `entire checkpoint rewind`, restoring a session can write files outside the intended session directory \u2014 in the worst case, arbitrary locations under the user's home. Make resume and rewind safe against this. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "diff --git a/cmd/entire/cli/strategy/manual_commit_rewind.go b/cmd/entire/cli/strategy/manual_commit_rewind.go\nindex 06b07e11b..a1f6ddedb 100644\n--- a/cmd/entire/cli/strategy/manual_commit_rewind.go\n+++ b/cmd/entire/cli/strategy/manual_commit_rewind.go\n@@ -19,7 +19,6 @@ import (\n \t\"github.com/entireio/cli/cmd/entire/cli/osroot\"\n \t\"github.com/entireio/cli/cmd/entire/cli/paths\"\n \t\"github.com/entireio/cli/cmd/entire/cli/trailers\"\n-\t\"github.com/entireio/cli/cmd/entire/cli/validation\"\n \n \t\"charm.land/huh/v2\"\n \t\"github.com/go-git/go-git/v6\"\n@@ -692,14 +691,6 @@ func (s *ManualCommitStrategy) RestoreLogsOnly(ctx context.Context, w, errW io.W\n \t\t\tfmt.Fprintf(errW, \"  Warning: session %d has no session ID, skipping\\n\", i)\n \t\t\tcontinue\n \t\t}\n-\t\t// Checkpoint metadata comes from the shared entire/checkpoints/v1 branch\n-\t\t// and is attacker-influenceable. Reject path separators/absolute IDs before\n-\t\t// they reach ResolveSessionFile + WriteSession, which would otherwise let a\n-\t\t// crafted session ID overwrite files outside the agent session directory.\n-\t\tif err := validation.ValidateSessionID(sessionID); err != nil {\n-\t\t\tfmt.Fprintf(errW, \"  Warning: session %d has unsafe session ID %q, skipping: %v\\n\", i, sessionID, err)\n-\t\t\tcontinue\n-\t\t}\n \n \t\t// Resolve per-session agent from metadata \u2014 skip if agent is unknown\n \t\tif content.Metadata.Agent == \"\" {\n@@ -853,11 +844,6 @@ func (s *ManualCommitStrategy) classifySessionsForRestore(ctx context.Context, r\n \t\tif sessionID == \"\" || content.Metadata.Agent == \"\" {\n \t\t\tcontinue\n \t\t}\n-\t\t// Skip unsafe session IDs (see RestoreLogsOnly): this path stats the resolved\n-\t\t// transcript file, so a crafted ID could otherwise probe arbitrary locations.\n-\t\tif validation.ValidateSessionID(sessionID) != nil {\n-\t\t\tcontinue\n-\t\t}\n \n \t\tsessionAgent, agErr := ResolveAgentForRewind(content.Metadata.Agent)\n \t\tif agErr != nil {\ndiff --git a/cmd/entire/cli/transcript.go b/cmd/entire/cli/transcript.go\nindex a0b5c8209..bb52cb07a 100644\n--- a/cmd/entire/cli/transcript.go\n+++ b/cmd/entire/cli/transcript.go\n@@ -14,21 +14,11 @@ import (\n \tagentpkg \"github.com/entireio/cli/cmd/entire/cli/agent\"\n \t\"github.com/entireio/cli/cmd/entire/cli/paths\"\n \t\"github.com/entireio/cli/cmd/entire/cli/transcript\"\n-\t\"github.com/entireio/cli/cmd/entire/cli/validation\"\n )\n \n // resolveTranscriptPath determines the correct file path for an agent's session transcript.\n // Computes the path dynamically from the current repo location for cross-machine portability.\n func resolveTranscriptPath(ctx context.Context, sessionID string, agent agentpkg.Agent) (string, error) {\n-\t// Session IDs reaching this restore path can originate from checkpoint\n-\t// metadata on the shared entire/checkpoints/v1 branch, which is attacker-\n-\t// influenceable. Reject path separators/absolute paths before they reach\n-\t// agent.ResolveSessionFile (some agents return absolute IDs verbatim),\n-\t// preventing transcript writes outside the agent session directory.\n-\tif err := validation.ValidateSessionID(sessionID); err != nil {\n-\t\treturn \"\", fmt.Errorf(\"invalid session ID for transcript path: %w\", err)\n-\t}\n-\n \trepoRoot, err := paths.WorktreeRoot(ctx)\n \tif err != nil {\n \t\treturn \"\", fmt.Errorf(\"failed to get worktree root: %w\", err)\n",
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestResolveTranscriptPath_RejectsTraversalSessionID|TestResolveTranscriptPath_AllowsLegitSessionID|TestResumeSingleSession_RejectsPathTraversalSessionID'",
+    "test $(rg -l 'ValidateSessionID' cmd/entire/cli/transcript.go cmd/entire/cli/strategy/manual_commit_rewind.go | wc -l | tr -d ' ') -eq 2"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/transcript.go",
+    "cmd/entire/cli/strategy/manual_commit_rewind.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "validate session ID on resume rewind arbitrary file write",
+    "session id from checkpoint metadata path traversal transcript",
+    "why reject absolute or ../ session ids before ResolveSessionFile",
+    "invariant enforced when checkpoints written mirror on restore"
+  ],
+  "_prompt_descriptive_v0": "There is a path-traversal / arbitrary-file-write vulnerability on session resume and checkpoint rewind. Session IDs read from checkpoint metadata on the shared entire/checkpoints/v1 branch flow into transcript path resolution and multi-session log restoration without validation, so a crafted absolute or \"../\"-laden session ID can cause transcript bytes to be written outside the agent session directory. Restore the guard(s) that reject unsafe session IDs at the restore choke points before any path is constructed, matching the invariant already enforced when checkpoints are written. Keep the fix minimal.",
+  "copy_checkpoint_ref_from_source": true
+}

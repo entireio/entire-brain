@@ -413,7 +413,9 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	history := manifest.Sources.History
-	if history.IndexPath == "" || history.SessionsFingerprint == "" {
+	if history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
+		!validHistorySHA256(history.IndexSHA256) || !validHistorySHA256(history.RecordsFingerprint) ||
+		!validHistorySHA256(history.TranscriptsFingerprint) {
 		return false
 	}
 	if history.SessionsFingerprint != sessionSourceFingerprint(manifest.Sources.Sessions) {
@@ -426,8 +428,20 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(brainDir, clean))
-	return err == nil && !info.IsDir()
+	indexPath := filepath.Join(brainDir, clean)
+	info, err := os.Stat(indexPath)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != history.IndexBytes {
+		return false
+	}
+	// Unsafe/unreadable entries are deliberately excluded by the same collector
+	// used to build the index. Comparing the safe included set keeps those
+	// exclusions fail-closed without forcing an endless rebuild.
+	excludedByPath := excludedTranscriptPaths(manifest, loadSessionTombstones(brainDir))
+	files, err := collectHistorySessionDigests(context.Background(), brainDir, excludedByPath)
+	if err != nil {
+		return false
+	}
+	return historyTranscriptFilesFingerprint(files) == history.TranscriptsFingerprint
 }
 
 func refreshExportProgressLabel(p exportProgress) string {

@@ -534,3 +534,58 @@ func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
 		t.Fatalf("purge error = %v (code %q), want the unsupported-version taxonomy code", err, code)
 	}
 }
+
+// TestBriefRawHistorySingleScanHonorsExclusionGuard locks the DEFAULT brief raw
+// scan against the tombstone guard.
+//
+// The fast single-scan walker (used whenever profiling is off, i.e. the product
+// path) walks the Brain directly instead of going through inspectBrainRawText,
+// so it does not inherit that function's exclusion guard. Merging main's
+// performance rewrite would otherwise have silently reopened the R0-1 leak: a
+// tombstoned session's transcript scanned here is merged straight into
+// report.History.Matches. The profiling multi-scan path routes through
+// inspectBrainRawTextObserved and is guarded there; this covers the other one.
+func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
+
+	// Before any tombstone the canary is reachable, so the assertion below is
+	// about exclusion rather than an empty fixture.
+	pre, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20)
+	if err != nil {
+		t.Fatalf("raw single scan: %v", err)
+	}
+	found := false
+	for _, match := range pre {
+		if strings.Contains(match.Excerpt, privacyCanary) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("fixture invalid: the canary must be reachable before exclusion: %+v", pre)
+	}
+
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+	post, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20)
+	if err != nil {
+		t.Fatalf("raw single scan after exclusion: %v", err)
+	}
+	for _, match := range post {
+		if strings.Contains(match.Excerpt, privacyCanary) {
+			t.Fatalf("excluded transcript leaked through the default brief raw scan: %+v", match)
+		}
+	}
+
+	// The guard is manifest-derived, so an unreadable manifest must fail the
+	// scan rather than scan unguarded.
+	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20); err == nil {
+		t.Fatalf("unreadable manifest must fail the raw scan closed; got %d matches", len(matches))
+	}
+}

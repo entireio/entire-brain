@@ -214,26 +214,218 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
 		t.Fatalf("create history dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), []byte(`{"records":[]}`), 0o600); err != nil {
+	indexData := []byte(`{"records":[]}`)
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), indexData, 0o600); err != nil {
 		t.Fatalf("write history index: %v", err)
+	}
+	sessionPath := filepath.Join(brainDir, filepath.FromSlash(sessionSource.Sessions[0].TranscriptPath))
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0o700); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
+	if err := os.WriteFile(sessionPath, []byte("session\n"), 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	files, err := collectHistorySessionDigests(context.Background(), brainDir, nil)
+	if err != nil {
+		t.Fatalf("fingerprint sessions: err=%v", err)
 	}
 	manifest := &exportManifest{Sources: &brainSources{
 		Sessions: sessionSource,
 		History: &historySourceManifest{
-			IndexPath:           historyIndexPath,
-			SessionsFingerprint: sessionSourceFingerprint(sessionSource),
+			IndexPath:              historyIndexPath,
+			IndexBytes:             int64(len(indexData)),
+			IndexSHA256:            historyIndexBytesFingerprint(indexData),
+			RecordsFingerprint:     historyRecordsFingerprint(nil),
+			SessionsFingerprint:    sessionSourceFingerprint(sessionSource),
+			TranscriptsFingerprint: historyTranscriptFilesFingerprint(files),
 		},
 	}}
 	if !historyIndexCurrent(brainDir, manifest) {
 		t.Fatalf("history index should be current for matching session fingerprint")
 	}
+	manifest.Sources.History.TranscriptsFingerprint = ""
+	if historyIndexCurrent(brainDir, manifest) {
+		t.Fatal("legacy history source without transcript content identity should rebuild once")
+	}
+	manifest.Sources.History.TranscriptsFingerprint = historyTranscriptFilesFingerprint(files)
 	sessionSource.GeneratedAt = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	if !historyIndexCurrent(brainDir, manifest) {
 		t.Fatalf("history index should ignore session source timestamp-only changes")
 	}
+	future := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(sessionPath, future, future); err != nil {
+		t.Fatalf("change transcript mtime: %v", err)
+	}
+	if !historyIndexCurrent(brainDir, manifest) {
+		t.Fatal("history index should ignore transcript mtime-only changes")
+	}
 	sessionSource.Sessions[0].LatestCheckpoint = "bbb222"
 	if historyIndexCurrent(brainDir, manifest) {
 		t.Fatalf("history index should be stale when exported sessions change")
+	}
+}
+
+type historyFreshnessFixture struct {
+	brainDir    string
+	sessionPath string
+	manifest    *exportManifest
+}
+
+func newHistoryFreshnessFixture(t *testing.T, transcript []byte) historyFreshnessFixture {
+	t.Helper()
+	brainDir := t.TempDir()
+	sessionRel := "sessions/main/session.jsonl"
+	sessionPath := filepath.Join(brainDir, filepath.FromSlash(sessionRel))
+	if err := os.MkdirAll(filepath.Dir(sessionPath), 0o700); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
+	if err := os.WriteFile(sessionPath, transcript, 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	sessionSource := &sessionSourceManifest{
+		TranscriptMode: "compact",
+		Scope:          exportScopeAll,
+		Sessions: []exportSession{{
+			SessionID:        "session-one",
+			LatestCheckpoint: "aaa111",
+			Branch:           "main",
+			TranscriptPath:   sessionRel,
+		}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		Sources:       &brainSources{Sessions: sessionSource},
+	}); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC), nil); err != nil {
+		t.Fatalf("build history: %v", err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if !historyIndexCurrent(brainDir, manifest) {
+		t.Fatal("freshly built history index should be current")
+	}
+	return historyFreshnessFixture{brainDir: brainDir, sessionPath: sessionPath, manifest: manifest}
+}
+
+func TestHistoryIndexCurrentRejectsSamePathTranscriptMutation(t *testing.T) {
+	original := []byte(`{"type":"agent_message","message":"Decision: keep alpha cache."}` + "\n")
+	mutated := []byte(`{"type":"agent_message","message":"Decision: drop alpha cache."}` + "\n")
+	if len(original) != len(mutated) {
+		t.Fatalf("fixture lengths differ: %d != %d", len(original), len(mutated))
+	}
+	fixture := newHistoryFreshnessFixture(t, original)
+	info, err := os.Stat(fixture.sessionPath)
+	if err != nil {
+		t.Fatalf("stat session: %v", err)
+	}
+	if err := os.WriteFile(fixture.sessionPath, mutated, 0o600); err != nil {
+		t.Fatalf("mutate session: %v", err)
+	}
+	if err := os.Chtimes(fixture.sessionPath, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatalf("restore session mtime: %v", err)
+	}
+	if historyIndexCurrent(fixture.brainDir, fixture.manifest) {
+		t.Fatal("same-path, same-size, same-mtime transcript mutation left history index current")
+	}
+	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 1, 0, time.UTC), nil); err != nil {
+		t.Fatalf("rebuild history: %v", err)
+	}
+	rebuiltManifest, err := loadBrainManifest(fixture.brainDir)
+	if err != nil {
+		t.Fatalf("load rebuilt manifest: %v", err)
+	}
+	if !historyIndexCurrent(fixture.brainDir, rebuiltManifest) {
+		t.Fatal("rebuilt history index should be current")
+	}
+	rebuilt, err := loadBrainHistoryIndex(fixture.brainDir, rebuiltManifest.Sources.History)
+	if err != nil {
+		t.Fatalf("load rebuilt history: %v", err)
+	}
+	if len(rebuilt.Records) != 1 || !strings.Contains(rebuilt.Records[0].Summary, "drop alpha") {
+		t.Fatalf("rebuild reused stale transcript records: %+v", rebuilt.Records)
+	}
+	if err := os.WriteFile(fixture.sessionPath, []byte(`{"type":"agent_message","message":"Decision:`), 0o600); err != nil {
+		t.Fatalf("corrupt session: %v", err)
+	}
+	if historyIndexCurrent(fixture.brainDir, rebuiltManifest) {
+		t.Fatal("corrupted transcript content left history index current")
+	}
+	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 2, 0, time.UTC), nil); err != nil {
+		t.Fatalf("rebuild corrupted history: %v", err)
+	}
+	corruptManifest, err := loadBrainManifest(fixture.brainDir)
+	if err != nil {
+		t.Fatalf("load corrupted-source manifest: %v", err)
+	}
+	corruptIndex, err := loadBrainHistoryIndex(fixture.brainDir, corruptManifest.Sources.History)
+	if err != nil {
+		t.Fatalf("load corrupted-source history: %v", err)
+	}
+	if len(corruptIndex.Records) != 0 {
+		t.Fatalf("corrupted transcript retained stale records: %+v", corruptIndex.Records)
+	}
+	if !historyIndexCurrent(fixture.brainDir, corruptManifest) {
+		t.Fatal("history should become current after safely rebuilding corrupted content")
+	}
+}
+
+// TestHistoryIndexRejectsTranscriptSymlinkWithoutFollowingIt locks that a
+// symlinked transcript is REFUSED, not silently skipped with a warning: a
+// partial inventory must never be published as a complete projection. The
+// security property is unchanged and still asserted here: the symlink target is
+// never opened, so external content cannot enter the index or the refusal text.
+func TestHistoryIndexRejectsTranscriptSymlinkWithoutFollowingIt(t *testing.T) {
+	fixture := newHistoryFreshnessFixture(t, []byte(`{"type":"agent_message","message":"Decision: safe local record."}`+"\n"))
+	external := filepath.Join(t.TempDir(), "external.jsonl")
+	secret := "Decision: external secret must never be indexed."
+	if err := os.WriteFile(external, []byte(`{"type":"agent_message","message":"`+secret+`"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write external transcript: %v", err)
+	}
+	if err := os.Remove(fixture.sessionPath); err != nil {
+		t.Fatalf("remove session: %v", err)
+	}
+	if err := os.Symlink(external, fixture.sessionPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if historyIndexCurrent(fixture.brainDir, fixture.manifest) {
+		t.Fatal("transcript symlink should make the history index stale")
+	}
+	index, _, err := buildBrainHistoryIndex(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 1, 0, time.UTC), nil)
+	if err == nil {
+		t.Fatal("a symlinked transcript must refuse the build, not warn")
+	}
+	if !errors.Is(err, errHistorySessionInventoryDegraded) || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlink refusal = %v, want the typed degraded refusal naming the symlink", err)
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), external) {
+		t.Fatalf("refusal exposed the external target: %v", err)
+	}
+	for _, record := range index.Records {
+		if strings.Contains(record.Summary, secret) {
+			t.Fatalf("followed transcript symlink into external content: %+v", record)
+		}
+	}
+
+	// Removing the symlink restores a publishable, current index.
+	if err := os.Remove(fixture.sessionPath); err != nil {
+		t.Fatalf("remove symlink: %v", err)
+	}
+	if err := os.WriteFile(fixture.sessionPath, []byte(`{"type":"agent_message","message":"Decision: safe local record."}`+"\n"), 0o600); err != nil {
+		t.Fatalf("restore session: %v", err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 2, 0, time.UTC), nil); err != nil {
+		t.Fatalf("publish safe index after removing the symlink: %v", err)
+	}
+	stableManifest, err := loadBrainManifest(fixture.brainDir)
+	if err != nil {
+		t.Fatalf("load safe manifest: %v", err)
+	}
+	if !historyIndexCurrent(fixture.brainDir, stableManifest) {
+		t.Fatal("history should be current again once the symlink is gone")
 	}
 }
 

@@ -1,0 +1,37 @@
+entire.brain_brief compact_v1
+task value="repair validation ordering"
+status freshness="degraded" repo_key="repo-key" brain_schema=2 branch="feature" head="abc123" dirty=true changed_files=3
+sources seed=true sessions=true semantic=true history=true facts=true
+live staged=["internal/a.go"] unstaged=["internal/a_test.go"] untracked=["notes.txt"] changed=["internal/a.go","internal/a_test.go","notes.txt"] diff_stat="2 files changed"
+live_symbol id="sym:validate" kind="function" name="pkg.Validate" short_name="Validate" file="internal/a.go" start=10 end=20 signature="func Validate(token string) error" language="go" score=9 confidence=0.95 reason="task term match" warning_codes=["partial"]
+facts_status facts=4 distilled=3 authored=1 superseded=1 branches=2 proposals=1 verified_facts=3 verified=2 stale=1 orphaned=0 unverifiable_here=0 sampled_of=4
+semantic_status provider="entire-graph" provider_version="1.2" schema="1.1" capabilities=["relations","tests"] files=12 symbols=30 relations=22 warnings=1 partial_failures=1
+freshness_axis name="head" state="ok"
+freshness_axis name="worktree" state="dirty" detail="live edits"
+freshness_warning code="STALE" severity="warning" detail="worktree differs"
+semantic_warning code="WARN" severity="warning" path="warn.go" effect="partial" detail="unsupported syntax"
+semantic_partial_failure code="FAIL" severity="error" path="broken.go" effect="missing symbols" detail="parse failed"
+blind_spot path="generated.go" code="ignored" detail="excluded by policy"
+edit_file path="internal/a.go"
+test_file path="internal/a_test.go"
+likely_file path="docs/order.md"
+symbol id="sym:validate" kind="function" name="pkg.Validate" short_name="Validate" file="internal/a.go" start=10 end=20 signature="func Validate(token string) error" language="go" score=9 confidence=0.95 reason="task term match" warning_codes=["partial"]
+relation index=0 id="rel:1" type="CALLS" from="sym:validate" to="sym:persist" file="internal/a.go" start=16 end=16 scope="file" resolution="exact" target_kind="symbol" confidence=0.9
+relation_evidence owner_index=0 index=0 kind="call" file="internal/a.go" start=16 end=16 detail="direct call"
+neighbor id="sym:helper" kind="function" name="pkg.Helper" short_name="Helper" file="internal/helper.go" start=4 end=8
+runtime_trace index=0 id="runtime:1" type="RUNTIME_TRACE" from="sym:validate" to="sym:persist" reason="observed edge"
+runtime_trace_evidence owner_index=0 index=0 kind="trace" file="trace.ndjson" start=2 end=2 detail="captured locally"
+test_root id="test:root" kind="function" name="TestValidate" file="internal/a_test.go" start=10 end=30
+test_suggestion id="test:suggestion" kind="function" name="TestValidateOrder" file="internal/a_test.go" start=32 end=44 suggestion_reason="covers the boundary"
+history path="history/main.jsonl" line=8 timestamp="2026-07-01" score=12 matched_terms=["validation","order"] excerpt="Decision: preserve validation order."
+fact id="fact:1" paths=["architecture.validation.order"] kind="invariant" locus=["pkg.Validate"] text="Validation runs before persistence." branch="feature" origin="distilled" status="active" confidence="high" related_ids=["fact:2"] anchors=1 verified_anchors=1 stale_locus=["OldValidate"]
+fact_drift id="fact:orphan" stale_locus=["GoneSymbol"]
+action file="internal/a.go" symbol="pkg.Validate" action="inspect validation before persistence" evidence="history and current code"
+pattern id="pattern:1" type="procedure" scope="repo" kind="workflow" title="Validate then persist" strength=0.88 strength_label="strong" support=5 note="Reuse the validated sequence." intent_sig="validation ordering" gram="validate>persist" dossier_status="current" verdict="accepted" success=4 corrected=1 neutral=0 example_path="patterns/episodes.ndjson" example_line=12
+consolidation pattern_id="pattern:1" type="procedure" title="Validate then persist" trigger="when validation changes" confidence=0.88 status="current" verdict="accepted" workflow=["validate input","persist state"] verification=["run validation tests"] failure_modes=["persisting first"] anchor_transcript="sessions/redacted.jsonl" anchor_start=10 anchor_end=14 anchor_outcome="success"
+theme id="theme:1" title="Read before edit" description="Inspect before editing." shape="read_only" support=4 strength=0.75 status="current" verdict="accepted"
+guidance text="Inspect dirty files before trusting the snapshot."
+warning source="status" text="status warning"
+warning source="live" text="live warning"
+warning source="brief" text="brief warning"
+end symbols=1 relations=1 neighbors=1 runtime_traces=1 test_roots=1 test_suggestions=1 history=1 facts=1 actions=1 patterns=1 consolidations=1 themes=1 guidance=1 warnings=7 body_records=35 body_sha256="sha256:79b5a36dbf83afa8ababdad22729db272463ba8f0bbc7ecf6a50d13a3663e0db"

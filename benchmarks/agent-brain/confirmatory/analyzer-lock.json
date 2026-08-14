@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "algorithm": "sha256_ordered_path_nul_sha256_newline_v1",
+  "files": [
+    {
+      "path": "benchmarks/agent-brain/analysis/__init__.py",
+      "sha256": "2808152a6c54a76547883e4b50ebf7d7c4160ac8296d6c1abe6bce62e63329a2"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/common.py",
+      "sha256": "bc290c174f1d17cbe14333b3a2e91b6f89e8081e5c578b263e4ce8efd2bb883d"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/confirmatory.py",
+      "sha256": "ed58561d025cc9ea5106a8ff0ea1b93c3dc0255dae0e06bcc8d280414862e78f"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/evidence.py",
+      "sha256": "6ba3f722e06dc5976e4b900c7256829d96f94f89b6788f80b58acfc903c38d44"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/metrics.py",
+      "sha256": "306657b00dd8d16de288b1a5c461f36e77394584a3f6804872e9921dba7980df"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/schemas/confirmatory-analysis-v2.schema.json",
+      "sha256": "15e037d9cc9e54406fd857576da6f26704ef2f9df237f158d0a5c4bacdf9f1fc"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/schemas/run-v2.schema.json",
+      "sha256": "b89ced26af13bdd6eb082feed24b6f1fd0ed677d58f6209d128da3e4156ea27f"
+    },
+    {
+      "path": "benchmarks/agent-brain/analysis/schemas/suite-v1.schema.json",
+      "sha256": "cbde71ee10db2e4f14ed668a4341f4b5c5a68808453646d89a59ea0eee105cfe"
+    }
+  ],
+  "aggregate_sha256": "7c4e37fac7f9431a28c8fafc2f226e13e54b0be574776ddeb73c3c0083887032"
+}

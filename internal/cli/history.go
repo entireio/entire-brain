@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -51,14 +52,25 @@ const (
 	// v6: conversation-scoped wrapper filtering (hook-injected pseudo-requests)
 	// and API-error narrative exclusion changed exchange extraction; cached v5
 	// exchanges would keep the noise.
-	// v7: bind cache reuse to the descriptor-rooted transcript content digest;
-	// size+mtime alone misses atomic same-metadata leaf replacement.
-	historyScanCacheVersion = 7
+	// v7: bind cache reuse to the transcript content digest; size+mtime alone
+	// misses atomic same-metadata leaf replacement.
+	// v8: TWO independent v7 formats were developed in parallel (one keyed on
+	// content_digest from the descriptor-rooted inventory, one on content_sha256
+	// with pre-annotation raw records). They are deliberately invalidated rather
+	// than guessed apart, exactly as the two v6 formats were.
+	historyScanCacheVersion = 8
 )
 
 type historySourceManifest struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	IndexPath   string    `json:"index_path"`
+	// IndexBytes/IndexSHA256/RecordsFingerprint let a reader rank straight from
+	// the FTS payload table without loading index.json, and give the FTS
+	// freshness check an O(1) key.
+	IndexBytes             int64  `json:"index_bytes,omitempty"`
+	IndexSHA256            string `json:"index_sha256,omitempty"`
+	RecordsFingerprint     string `json:"records_fingerprint,omitempty"`
+	TranscriptsFingerprint string `json:"transcripts_fingerprint,omitempty"`
 	// IndexDigest commits the exact bounded index bytes selected by IndexPath.
 	// It is optional only for manifests written before generation integrity was
 	// introduced; every new projection publishes it with the manifest-last
@@ -99,6 +111,9 @@ type historyIndex struct {
 	// contentIdentity hashes the bounded bytes read from disk. It detects local
 	// corruption/tampering within an otherwise immutable generation path.
 	contentIdentity string
+	// recordsFingerprint is populated after build/load validation so the FTS
+	// freshness check stays O(1). Any caller that replaces Records must clear it.
+	recordsFingerprint string
 }
 
 type historyRecord struct {
@@ -149,7 +164,11 @@ type historySessionFile struct {
 	SortTime    time.Time
 	Size        int64
 	ModUnixNano int64
-	info        os.FileInfo
+	// ContentDigest is filled in once the descriptor-rooted read has verified
+	// the file, so the transcripts fingerprint reuses that single read instead
+	// of hashing the corpus a second time.
+	ContentDigest string
+	info          os.FileInfo
 }
 
 // historyProjectionIdentity retains both the serializable state identities and
@@ -391,6 +410,16 @@ func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string,
 	cacheData, _ := encodeHistoryScanCache(cache)
 	source.IndexPath = indexPath
 	source.IndexDigest = indexDigest
+	// Publish the byte/record identities alongside the generation digest. They
+	// are what lets a reader rank straight from the FTS payload table without
+	// loading index.json, what keys the O(1) FTS freshness check, and what
+	// historyIndexCurrent uses to skip an unnecessary rebuild. Omitting them on
+	// the generation-addressed path silently degraded every one of those to the
+	// slow path.
+	source.IndexBytes = int64(len(indexData))
+	source.IndexSHA256 = historyIndexBytesFingerprint(indexData)
+	source.RecordsFingerprint = historyRecordsFingerprint(index.Records)
+	index.recordsFingerprint = source.RecordsFingerprint
 	source.ProjectionStatePath = receiptPath
 	source.ProjectionStateDigest = receiptDigest
 	return &preparedHistoryProjection{
@@ -1076,6 +1105,34 @@ func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, 
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+// historyRecordsFingerprint is the content identity shared by history/index.json
+// and its derived indexes. It covers every record field in stable record order,
+// while deliberately excluding generation time and warnings: neither changes
+// retrieval content. Empty and nil term slices have the same JSON representation
+// in index.json (omitempty), so canonicalize them to the same identity here too.
+func historyRecordsFingerprint(records []historyRecord) string {
+	h := sha256.New()
+	_, _ = io.WriteString(h, "entire-brain/history-records/v1\x00")
+	_, _ = io.WriteString(h, strconv.Itoa(len(records))+"\x00")
+	for _, record := range records {
+		if len(record.Terms) == 0 {
+			record.Terms = nil
+		}
+		data, err := json.Marshal(record)
+		if err != nil {
+			return ""
+		}
+		_, _ = io.WriteString(h, strconv.Itoa(len(data))+":")
+		_, _ = h.Write(data)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
+}
+
+func historyIndexBytesFingerprint(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
@@ -1124,6 +1181,14 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	if manifest != nil {
 		repoKey = manifest.RepoKey
 	}
+	// The descriptor-rooted inventory above already enumerated every eligible
+	// transcript once, so there is no separate candidate-collection pass.
+	// total is that inventory.
+	// Every candidate advances progress exactly once even when a later open or
+	// identity check fails. Only complete identity-stable reads are fingerprinted;
+	// only clean parses are cached and indexed. Walk warnings retain walk order,
+	// while per-file failures follow this recency-sorted scan order.
+	fingerprintedFiles := make([]historySessionFile, 0, len(files))
 
 	total := len(files)
 	if progress != nil {
@@ -1138,6 +1203,9 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	seenExchanges := map[historyRecordReplacementKey]struct{}{}
 	incompleteExchanges := 0
 	excludedSessions := map[string]struct{}{}
+	for _, sessionID := range excludedByPath {
+		excludedSessions[sessionID] = struct{}{}
+	}
 	for i, file := range files {
 		if err := ctx.Err(); err != nil {
 			return index, nil, historyScanCache{}, err
@@ -1158,11 +1226,27 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 			return index, nil, historyScanCache{}, readErr
 		}
 		contentIdentities.Files[rel] = historyScanCacheEntry{ContentDigest: contentDigest}
-		if cached, ok := prevCache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano && cached.ContentDigest == contentDigest {
+		// The transcripts fingerprint commits the SET that was successfully
+		// read, independent of whether parsing then succeeded: a file whose
+		// content is stable but whose lines are unparseable must not change the
+		// fingerprint, or a permanent parse failure would force an endless
+		// rebuild loop.
+		file.ContentDigest = contentDigest
+		fingerprintedFiles = append(fingerprintedFiles, file)
+		// The content digest is the sole reuse authority: a restored mtime or a
+		// same-size rewrite cannot resurrect stale records, and a touch that
+		// leaves the bytes alone still reuses.
+		if cached, ok := prevCache.Files[rel]; ok && cached.ContentDigest != "" && cached.ContentDigest == contentDigest {
 			if err := inventory.validateFileMembership(ctx, file); err != nil {
 				return index, nil, historyScanCache{}, err
 			}
-			records = historyRecordsWithoutManifestAnnotations(cached.Records)
+			// The cache is raw by construction (records are stored before
+			// annotation, and the v8 bump invalidates every older format that
+			// stored the annotated shape), so reuse must NOT strip: a Branch the
+			// scanner itself read out of the transcript is real record data, not
+			// manifest inference, and stripping it would let the manifest
+			// overwrite transcript truth.
+			records = cached.Records
 			incomplete = cached.IncompleteExchanges
 		} else {
 			scanned, scannedIncomplete, warnings, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
@@ -1176,13 +1260,24 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 			records = scanned
 			incomplete = scannedIncomplete
 		}
+		// Only files that scanned cleanly (or were reused) are cached; a file
+		// that errored is left out so the next refresh retries it. Branch and
+		// conversation identity are build context derived from the MANIFEST, so
+		// the cache stores raw scanner records and the annotations are applied
+		// to a copy below. Caching the annotated shape would let a manifest
+		// change hide behind a cache hit; both annotators copy, so the cached
+		// slice stays raw. Reuse additionally strips annotations, so a cache
+		// written by an older build cannot smuggle them back in either.
+		newCache.Files[rel] = historyScanCacheEntry{
+			ContentDigest:       contentDigest,
+			Size:                file.Size,
+			ModUnixNano:         file.ModUnixNano,
+			Records:             records,
+			IncompleteExchanges: incomplete,
+		}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
 		incompleteExchanges += incomplete
-		// Cache the externally established annotated shape. On reuse, annotations
-		// are stripped and recomputed from the captured manifest, so metadata
-		// changes cannot be hidden by a size+mtime cache hit.
-		newCache.Files[rel] = historyScanCacheEntry{Size: file.Size, ModUnixNano: file.ModUnixNano, ContentDigest: contentDigest, Records: records, IncompleteExchanges: incomplete}
 
 		for _, record := range records {
 			if record.Kind == "decision" {
@@ -1218,9 +1313,11 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 		}
 		return index.Records[i].Line < index.Records[j].Line
 	})
+	transcriptsFingerprint := historyTranscriptFilesFingerprint(fingerprintedFiles)
 	source := &historySourceManifest{
-		GeneratedAt: now,
-		IndexPath:   historyIndexPath,
+		GeneratedAt:            now,
+		IndexPath:              historyIndexPath,
+		TranscriptsFingerprint: transcriptsFingerprint,
 		SessionsFingerprint: func() string {
 			if manifest == nil || manifest.Sources == nil {
 				return ""
@@ -1278,6 +1375,35 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// collectHistorySessionDigests re-reads the canonical transcript set through
+// the descriptor-rooted inventory and returns each included file with its
+// verified content digest. It is the freshness-check counterpart of the index
+// build, which collects the same digests from the single read it already
+// performs.
+func collectHistorySessionDigests(ctx context.Context, brainDir string, excludedByPath map[string]string) ([]historySessionFile, error) {
+	inventory, err := collectHistorySessionInventory(ctx, brainDir)
+	if err != nil {
+		if errors.Is(err, errHistorySessionsRootMissing) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer inventory.Close()
+	out := make([]historySessionFile, 0, len(inventory.files))
+	for _, file := range inventory.files {
+		if _, excluded := excludedByPath[file.Rel]; excluded {
+			continue
+		}
+		_, digest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if readErr != nil {
+			return nil, readErr
+		}
+		file.ContentDigest = digest
+		out = append(out, file)
+	}
+	return out, nil
+}
+
 func readHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) ([]byte, string, error) {
 	if file.Size > maxDocumentTranscriptBytes {
 		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
@@ -1313,19 +1439,11 @@ func historyScanCacheContentIdentity(cache historyScanCache) string {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
-func historyRecordsWithoutManifestAnnotations(records []historyRecord) []historyRecord {
-	out := append([]historyRecord(nil), records...)
-	for i := range out {
-		out[i].Branch = ""
-		if out[i].Kind == conversationKind {
-			out[i].ID = ""
-			out[i].SessionID = ""
-			out[i].Agent = ""
-			out[i].CreatedAt = ""
-			out[i].IdentityDegraded = false
-		}
+func historyScanFingerprintError(path string, err error) error {
+	if err != nil {
+		return err
 	}
-	return out
+	return fmt.Errorf("history transcript scan returned no content fingerprint: %s", path)
 }
 
 // scanSessionFileRecords scans one exported transcript into classic history
@@ -1399,8 +1517,8 @@ func historySessionByTranscriptPath(manifest *exportManifest) map[string]exportS
 
 // annotateConversationIdentity fills the manifest-derived identity of exchange
 // records: session id, agent, session time, and the stable conversation: ID.
-// Like branch annotation it only fills empty fields, so records reused from the
-// scan cache keep their first-computed identity.
+// Like branch annotation it only fills empty fields. The scan cache deliberately
+// stores raw exchange records so identity is re-applied from the current manifest.
 func annotateConversationIdentity(records []historyRecord, rel, repoKey string, sessionByPath map[string]exportSession) []historyRecord {
 	needsAnnotation := false
 	for i := range records {
@@ -1707,6 +1825,62 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 	return records, scanner.Err()
 }
 
+func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([]historyRecord, error) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	var records []historyRecord
+	lineNumber := 0
+	allowRawText := ext == ".md" || ext == ".txt"
+	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		lineNumber++
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" {
+			continue
+		}
+		// Apply the cheap keyword fast-path BEFORE the JSON decode: most transcript
+		// lines are irrelevant to indexing, so on a large history this skips the
+		// per-line Unmarshal for the majority of records.
+		if !historyLineMayContainIndexedContent(text) {
+			continue
+		}
+		// Decode at most once for the narrative pass. Only transcript records are
+		// JSON objects, so skip the decode for raw .md/.txt lines that can't be one
+		// (cheap leading-'{' check); those fall through to the raw-text path.
+		var fragments []historyFragment
+		parsedOK := false
+		if strings.HasPrefix(text, "{") {
+			var obj map[string]any
+			if json.Unmarshal([]byte(text), &obj) == nil {
+				fragments = extractHistoryJSONFragments(obj)
+				parsedOK = true
+			}
+		}
+		if !parsedOK && allowRawText {
+			fragments = []historyFragment{{Text: text, Source: "text"}}
+		}
+		for _, fragment := range fragments {
+			fragment.Text = strings.TrimSpace(fragment.Text)
+			if fragment.Text == "" {
+				continue
+			}
+			for _, kind := range classifyHistoryFragment(fragment) {
+				records = append(records, historyRecord{
+					ID:      historyRecordID(rel, lineNumber, kind, fragment.Text),
+					Kind:    kind,
+					Path:    rel,
+					Line:    lineNumber,
+					Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+					Terms:   historyTerms(fragment.Text),
+				})
+			}
+		}
+	}
+	return records, scanner.Err()
+}
+
 // scanDocumentHistoryFile detects and indexes a document-form transcript (see
 // parseDocumentConversation). isDocument=false means the file is line-oriented
 // (or not a transcript at all) and the caller's line scanner should handle it
@@ -1735,6 +1909,14 @@ func scanDocumentHistoryFileContext(ctx context.Context, f io.Reader, rel string
 	if !ok {
 		return nil, false, nil
 	}
+	return historyDocumentRecords(rel, messages), true, nil
+}
+
+// historyDocumentRecords turns the parsed messages of a document-form
+// transcript into indexable records. It is factored out of the scanner so the
+// hash-then-scan parity reference can share exactly this projection.
+func historyDocumentRecords(rel string, messages []documentMessage) []historyRecord {
+	var records []historyRecord
 	for _, message := range messages {
 		if message.Role != "assistant" || message.Text == "" {
 			continue
@@ -1751,7 +1933,7 @@ func scanDocumentHistoryFileContext(ctx context.Context, f io.Reader, rel string
 			})
 		}
 	}
-	return records, true, nil
+	return records
 }
 
 // extractHistoryJSONFragments returns the indexable fragments of one
@@ -2662,7 +2844,7 @@ func historyShortQueryTerm(term string) bool {
 // legitimately differ (e.g. "regression"/"preserve" are noise for free-text
 // history search but valid filename-match terms like regression.go for brief).
 var genericQueryStopwords = map[string]bool{
-	"and": true, "are": true, "before": true, "but": true, "can": true,
+	"and": true, "are": true, "but": true, "can": true,
 	"did": true, "does": true, "fix": true, "for": true, "from": true,
 	"has": true, "have": true, "how": true, "into": true, "its": true,
 	"make": true, "must": true, "need": true, "new": true, "not": true,
@@ -2719,60 +2901,157 @@ func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (hist
 	return retried, nil
 }
 
-func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {
+// readBrainHistoryIndexBytes performs the hardened read: canonical path, no
+// symlinked components, regular file, no open-alias, bounded read, and (for a
+// generation-addressed source) the manifest content digest. It returns the
+// exact bytes that were verified so hashing and parsing can never straddle two
+// generations.
+func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) ([]byte, string, bool, error) {
 	if source == nil || source.IndexPath == "" {
-		return historyIndex{}, errors.New("history index missing; run `entire brain refresh`")
+		return nil, "", false, errors.New("history index missing; run `entire brain refresh`")
 	}
 	generationAddressed := validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName)
 	if generationAddressed && source.IndexDigest == "" {
-		return historyIndex{}, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `entire brain refresh`", memoryErrMigrationRequired)
+		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `entire brain refresh`", memoryErrMigrationRequired)
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {
-		return historyIndex{}, err
+		return nil, "", false, err
 	}
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return historyIndex{}, err
+		return nil, "", false, err
 	}
 	path := filepath.Join(brainDir, clean)
 	info, err := os.Lstat(path)
 	if err != nil {
-		return historyIndex{}, err
+		return nil, "", false, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return historyIndex{}, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
+		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
 	if err != nil {
-		return historyIndex{}, err
+		return nil, "", false, err
 	}
 	defer f.Close()
 	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
-		return historyIndex{}, fmt.Errorf("%s: %w", memoryErrStateCorrupt, err)
+		return nil, "", false, fmt.Errorf("%s: %w", memoryErrStateCorrupt, err)
 	}
 	data, err := safeReadAll(f, semanticSnapshotMaxBytes(), path)
 	if err != nil {
-		return historyIndex{}, err
+		return nil, "", false, err
 	}
 	contentSum := sha256.Sum256(data)
 	contentDigest := "sha256:" + hex.EncodeToString(contentSum[:])
 	if source.IndexDigest != "" {
 		if !validSHA256Identity(source.IndexDigest) {
-			return historyIndex{}, fmt.Errorf("%s: history index digest in manifest is invalid", memoryErrStateCorrupt)
+			return nil, "", false, fmt.Errorf("%s: history index digest in manifest is invalid", memoryErrStateCorrupt)
 		}
 		if source.IndexDigest != contentDigest {
-			return historyIndex{}, fmt.Errorf("%s: history index digest does not match the manifest commit", memoryErrStateCorrupt)
+			return nil, "", false, fmt.Errorf("%s: history index digest does not match the manifest commit", memoryErrStateCorrupt)
 		}
 	}
-	var index historyIndex
-	if err := json.Unmarshal(data, &index); err != nil {
-		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", memoryErrStateCorrupt, err)
+	return data, contentDigest, generationAddressed, nil
+}
+
+func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {
+	data, contentDigest, generationAddressed, err := readBrainHistoryIndexBytes(brainDir, source)
+	if err != nil {
+		return historyIndex{}, err
+	}
+	index, err := decodeBrainHistoryIndex(data, source)
+	if err != nil {
+		return historyIndex{}, err
 	}
 	index.contentIdentity = contentDigest
 	if generationAddressed {
 		index.storageIdentity = source.IndexPath
 	}
 	return index, nil
+}
+
+// loadBrainHistoryIndexWithLegacyIdentity returns the same verified index as
+// loadBrainHistoryIndex plus an optional identity upgrade derived from the
+// exact byte slice that was parsed. Older manifests predate the strong source
+// identity fields required by direct FTS hydration. Keeping hashing and parsing
+// on one immutable slice prevents a path replacement from producing a hash of
+// generation A and parsed records from generation B.
+func loadBrainHistoryIndexWithLegacyIdentity(brainDir string, source *historySourceManifest) (historyIndex, *historyLegacyIdentity, error) {
+	data, contentDigest, generationAddressed, err := readBrainHistoryIndexBytes(brainDir, source)
+	if err != nil {
+		return historyIndex{}, nil, err
+	}
+	index, err := decodeBrainHistoryIndex(data, source)
+	if err != nil {
+		return historyIndex{}, nil, err
+	}
+	index.contentIdentity = contentDigest
+	if generationAddressed {
+		index.storageIdentity = source.IndexPath
+	}
+	legacyIdentity := deriveHistoryLegacyIdentity(source, data, index)
+	if legacyIdentity != nil {
+		// The direct/index-backed FTS freshness check consumes this private
+		// identity. It is derived from the parsed truth, not trusted from a
+		// legacy manifest, and avoids recomputing it later in this same request.
+		index.recordsFingerprint = legacyIdentity.RecordsFingerprint
+	}
+	return index, legacyIdentity, nil
+}
+
+func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (historyIndex, error) {
+	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
+		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d", len(data), source.IndexBytes)
+	}
+	if source.IndexSHA256 != "" && historyIndexBytesFingerprint(data) != source.IndexSHA256 {
+		return historyIndex{}, errors.New("history index checksum does not match manifest")
+	}
+	var index historyIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", memoryErrStateCorrupt, err)
+	}
+	if source.RecordsFingerprint != "" {
+		if !validHistorySHA256(source.RecordsFingerprint) {
+			return historyIndex{}, errors.New("history records fingerprint is invalid")
+		}
+		if len(index.Records) != source.Records {
+			return historyIndex{}, fmt.Errorf("history record count mismatch: got %d, manifest declares %d", len(index.Records), source.Records)
+		}
+		if !source.GeneratedAt.IsZero() && !index.GeneratedAt.Equal(source.GeneratedAt) {
+			return historyIndex{}, errors.New("history index generation does not match manifest")
+		}
+		// IndexSHA256 binds the exact serialized record set to this manifest.
+		// Recomputing the canonical per-record hash here would marshal hundreds
+		// of thousands of records on every semantic/get path; the exact byte
+		// checksum above already provides the integrity check we need.
+		index.recordsFingerprint = source.RecordsFingerprint
+	}
+	return index, nil
+}
+
+// historyTranscriptFilesFingerprint commits the exact transcript set an index
+// was built from. It consumes the content digest each file already carries from
+// its single verified read, so recomputing it never re-hashes the corpus.
+func historyTranscriptFilesFingerprint(files []historySessionFile) string {
+	type entry struct{ path, digest string }
+	entries := make([]entry, 0, len(files))
+	for _, file := range files {
+		if file.Rel == "" || file.ContentDigest == "" {
+			return ""
+		}
+		entries = append(entries, entry{path: file.Rel, digest: file.ContentDigest})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].path < entries[j].path })
+	h := sha256.New()
+	_, _ = io.WriteString(h, "entire-brain/history-transcripts/v1\x00")
+	_, _ = io.WriteString(h, strconv.Itoa(len(entries))+"\x00")
+	for _, entry := range entries {
+		_, _ = io.WriteString(h, strconv.Itoa(len(entry.path))+":")
+		_, _ = io.WriteString(h, entry.path)
+		_, _ = io.WriteString(h, strconv.Itoa(len(entry.digest))+":")
+		_, _ = io.WriteString(h, entry.digest)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
 
 func validateHistoryIndexPath(indexPath string) (string, error) {

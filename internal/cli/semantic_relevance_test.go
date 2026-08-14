@@ -66,7 +66,7 @@ func TestSemanticCalibrationPreservesTermDisjointFactsAndSilencesNeutralTasks(t 
 	}
 	neutral := []string{
 		"which module serializes tabular downloads into comma-separated rows",
-		"how are image thumbnails resized before upload",
+		"how are image thumbnails resized during upload",
 		"why does the command renderer retain escape sequences when stdout is redirected",
 		"where is the GraphQL subscription transport configured",
 		"how does the parser recover from malformed nested delimiters",

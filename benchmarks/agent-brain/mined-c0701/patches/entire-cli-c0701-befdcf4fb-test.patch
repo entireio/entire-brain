@@ -1,0 +1,178 @@
+diff --git a/cmd/entire/cli/checkpoint/migrate_test.go b/cmd/entire/cli/checkpoint/migrate_test.go
+index 920a032de..013af51a0 100644
+--- a/cmd/entire/cli/checkpoint/migrate_test.go
++++ b/cmd/entire/cli/checkpoint/migrate_test.go
+@@ -2,14 +2,18 @@ package checkpoint
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"testing"
+ 
+ 	git "github.com/go-git/go-git/v6"
+ 	"github.com/go-git/go-git/v6/plumbing"
++	"github.com/go-git/go-git/v6/plumbing/filemode"
++	"github.com/go-git/go-git/v6/plumbing/object"
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+ 
+ 	"github.com/entireio/cli/cmd/entire/cli/checkpoint/id"
++	"github.com/entireio/cli/cmd/entire/cli/paths"
+ 	"github.com/entireio/cli/redact"
+ )
+ 
+@@ -27,6 +31,56 @@ func seedBranchCheckpoint(t *testing.T, store *GitStore, cid id.CheckpointID, se
+ 	}))
+ }
+ 
++// mutateBranchCheckpointMetadata rewrites a checkpoint's root metadata.json on
++// the v1 branch tip (simulates older-CLI metadata).
++func mutateBranchCheckpointMetadata(t *testing.T, repo *git.Repository, cid id.CheckpointID, mutate func(map[string]any)) {
++	t.Helper()
++	ctx := context.Background()
++	branchRef := DefaultV1Refs().Primary
++	ref, err := repo.Reference(branchRef, true)
++	require.NoError(t, err)
++	commit, err := repo.CommitObject(ref.Hash())
++	require.NoError(t, err)
++	tree, err := commit.Tree()
++	require.NoError(t, err)
++
++	metaPath := cid.Path() + "/" + paths.MetadataFileName
++	file, err := tree.File(metaPath)
++	require.NoError(t, err)
++	raw, err := file.Contents()
++	require.NoError(t, err)
++	var doc map[string]any
++	require.NoError(t, json.Unmarshal([]byte(raw), &doc))
++	mutate(doc)
++	edited, err := json.Marshal(doc)
++	require.NoError(t, err)
++
++	blobHash, err := CreateBlobFromContent(repo, edited)
++	require.NoError(t, err)
++	newTree, err := ApplyTreeChanges(ctx, repo, tree.Hash, []TreeChange{{
++		Path:  metaPath,
++		Entry: &object.TreeEntry{Name: metaPath, Mode: filemode.Regular, Hash: blobHash},
++	}})
++	require.NoError(t, err)
++	commitHash, err := CreateCommit(ctx, repo, newTree, ref.Hash(), "test: legacy metadata", "Test", "test@test.com")
++	require.NoError(t, err)
++	require.NoError(t, repo.Storer.SetReference(plumbing.NewHashReference(branchRef, commitHash)))
++}
++
++// migratedMetadataDoc reads a migrated ref tree's root metadata.json as a JSON object.
++func migratedMetadataDoc(t *testing.T, repo *git.Repository, commitTree plumbing.Hash) map[string]any {
++	t.Helper()
++	tree, err := repo.TreeObject(commitTree)
++	require.NoError(t, err)
++	file, err := tree.File(paths.MetadataFileName)
++	require.NoError(t, err)
++	raw, err := file.Contents()
++	require.NoError(t, err)
++	var doc map[string]any
++	require.NoError(t, json.Unmarshal([]byte(raw), &doc))
++	return doc
++}
++
+ // refHash returns the commit hash a checkpoint's ref points at (fatal if absent).
+ func refHash(t *testing.T, repo *git.Repository, cid id.CheckpointID) plumbing.Hash {
+ 	t.Helper()
+@@ -48,14 +102,20 @@ func TestMigrateBranchToRefs(t *testing.T) {
+ 	seedBranchCheckpoint(t, branch, cid1, "s1")
+ 	seedBranchCheckpoint(t, branch, cid2, "s2")
+ 
++	// cid1 carries legacy metadata: a checkpoint_version stamp plus an unmodeled field.
++	mutateBranchCheckpointMetadata(t, repo, cid1, func(doc map[string]any) {
++		doc["checkpoint_version"] = "branch-v1"
++		doc["future_field"] = "keep-me"
++	})
++
+ 	result, err := MigrateBranchToRefs(ctx, repo, false)
+ 	require.NoError(t, err)
+ 	assert.Equal(t, 2, result.Total)
+ 	assert.Len(t, result.Migrated, 2)
+ 	assert.Equal(t, 0, result.Skipped)
+ 
+-	// Each checkpoint now has a ref whose commit tree IS the branch subtree
+-	// (byte-identical), and it reads back through the git-refs store.
++	// Each ref carries the branch subtree with a normalized root metadata.json
++	// and reads back through the git-refs store.
+ 	branchTree, err := branch.getSessionsBranchTree()
+ 	require.NoError(t, err)
+ 	refsStore := newGitRefsStore(repo)
+@@ -63,11 +123,29 @@ func TestMigrateBranchToRefs(t *testing.T) {
+ 		commit, err := repo.CommitObject(refHash(t, repo, cid))
+ 		require.NoError(t, err)
+ 
+-		branchSub, err := refsStore.subtreeObjAt(branchTree.Hash, cid.Path())
++		// Session contents carry over byte-identical; only the root
++		// metadata.json is rewritten.
++		branchSession, err := refsStore.subtreeObjAt(branchTree.Hash, cid.Path()+"/0")
+ 		require.NoError(t, err)
+-		require.NotNil(t, branchSub)
+-		assert.Equal(t, branchSub.Hash, commit.TreeHash,
+-			"ref tree must be the branch subtree, byte-identical")
++		require.NotNil(t, branchSession)
++		refSession, err := refsStore.subtreeObjAt(commit.TreeHash, "0")
++		require.NoError(t, err)
++		require.NotNil(t, refSession)
++		assert.Equal(t, branchSession.Hash, refSession.Hash,
++			"session subtree must be the branch's, byte-identical")
++
++		// checkpoint_version is dropped; sessions[] paths are rebased to the ref root.
++		doc := migratedMetadataDoc(t, repo, commit.TreeHash)
++		assert.NotContains(t, doc, "checkpoint_version", "legacy version stamp must be dropped")
++		sessions, ok := doc["sessions"].([]any)
++		require.True(t, ok, "sessions must be an array")
++		require.Len(t, sessions, 1)
++		session, ok := sessions[0].(map[string]any)
++		require.True(t, ok)
++		assert.Equal(t, "/0/metadata.json", session["metadata"])
++		assert.Equal(t, "/0/full.jsonl", session["transcript"])
++		assert.Equal(t, "/0/prompt.txt", session["prompt"])
++		assert.Equal(t, "/0/content_hash.txt", session["content_hash"])
+ 
+ 		// A migration commit wraps the tree with no parent (orphan).
+ 		assert.Empty(t, commit.ParentHashes, "first migration commit is an orphan")
+@@ -78,6 +156,25 @@ func TestMigrateBranchToRefs(t *testing.T) {
+ 		assert.Equal(t, cid, summary.CheckpointID)
+ 	}
+ 
++	// Fields this CLI doesn't model survive the rewrite untouched.
++	commit1, err := repo.CommitObject(refHash(t, repo, cid1))
++	require.NoError(t, err)
++	doc1 := migratedMetadataDoc(t, repo, commit1.TreeHash)
++	assert.Equal(t, "keep-me", doc1["future_field"], "unknown metadata fields must be preserved")
++
++	// Migrated refs are enqueued for push (the doctor's "push now" depends on it).
++	queue, err := PushQueueForRepo(ctx, repo)
++	require.NoError(t, err)
++	queued, err := queue.Drain()
++	require.NoError(t, err)
++	wantQueued := make([]plumbing.ReferenceName, 0, 2)
++	for _, cid := range []id.CheckpointID{cid1, cid2} {
++		refName, err := RefName(cid)
++		require.NoError(t, err)
++		wantQueued = append(wantQueued, refName)
++	}
++	assert.ElementsMatch(t, wantQueued, queued, "migrated refs must be queued for push")
++
+ 	// Idempotent: a second run skips everything and leaves the refs untouched.
+ 	before := map[string]plumbing.Hash{cid1.String(): refHash(t, repo, cid1), cid2.String(): refHash(t, repo, cid2)}
+ 	result2, err := MigrateBranchToRefs(ctx, repo, false)
+@@ -136,7 +233,13 @@ func TestMigrateBranchToRefs_DryRunWritesNothing(t *testing.T) {
+ 	refName, err := RefName(cid)
+ 	require.NoError(t, err)
+ 	_, err = repo.Reference(refName, true)
+-	assert.ErrorIs(t, err, plumbing.ErrReferenceNotFound, "dry-run must not write refs")
++	require.ErrorIs(t, err, plumbing.ErrReferenceNotFound, "dry-run must not write refs")
++
++	queue, err := PushQueueForRepo(ctx, repo)
++	require.NoError(t, err)
++	queued, err := queue.Drain()
++	require.NoError(t, err)
++	assert.Empty(t, queued, "dry-run must not enqueue refs for push")
+ }
+ 
+ func TestMigrateBranchToRefs_NoBranchIsNoop(t *testing.T) {

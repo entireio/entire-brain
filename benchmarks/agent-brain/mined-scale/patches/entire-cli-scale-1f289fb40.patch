@@ -1,0 +1,136 @@
+diff --git a/internal/remotehelper/transport/inforefs.go b/internal/remotehelper/transport/inforefs.go
+index e4a7f71a1..24d8b0f04 100644
+--- a/internal/remotehelper/transport/inforefs.go
++++ b/internal/remotehelper/transport/inforefs.go
+@@ -119,7 +119,7 @@ func (p *Proxy) coldInfoRefs(ctx context.Context, suffix string, setHeaders func
+ 		return p.handleInfoRefsResponse(resp)
+ 	}
+ 
+-	rs := p.filterReplicas(discovery.ParseReplicas(resp.Header.Get("X-Entire-Replicas")))
++	rs := discovery.ParseReplicas(resp.Header.Get("X-Entire-Replicas"))
+ 	location := resp.Header.Get("Location")
+ 	_ = resp.Body.Close()
+ 
+@@ -143,13 +143,6 @@ func (p *Proxy) coldInfoRefs(ctx context.Context, suffix string, setHeaders func
+ 	if location == "" {
+ 		return nil, fmt.Errorf("fetching info/refs after entry-domain redirect: %w", err)
+ 	}
+-	// The Location target is server-controlled. Salvaging the request means
+-	// dialing it with the token attached, so it must be in-cluster — an
+-	// off-cluster Location is an exfiltration target, not a fallback node.
+-	if !p.replicaInCluster(location) {
+-		debuglog.Printf("all advertised replicas failed and redirect Location %s is out-of-cluster; refusing credentialed fallback", location)
+-		return nil, fmt.Errorf("fetching info/refs after entry-domain redirect: %w", err)
+-	}
+ 	debuglog.Printf("all advertised replicas failed; trying redirect Location %s as last-ditch fallback: %v", location, err)
+ 	locResp, locErr := p.doGet(ctx, location, p.client, setHeaders)
+ 	if locErr != nil {
+diff --git a/internal/remotehelper/transport/proxy.go b/internal/remotehelper/transport/proxy.go
+index 9df304f6c..96b20f842 100644
+--- a/internal/remotehelper/transport/proxy.go
++++ b/internal/remotehelper/transport/proxy.go
+@@ -88,16 +88,13 @@ func New(cfg Config) *Proxy {
+ 	debuglog.Printf("nodes=%v entry=%s path=%s skipTLS=%v", cfg.Nodes.InitialNodes, cfg.Nodes.EntryURL, cfg.Path, cfg.SkipTLS)
+ 
+ 	p := &Proxy{
++		nodes:        cfg.Nodes.InitialNodes,
+ 		entryURL:     cfg.Nodes.EntryURL,
+ 		clusterHost:  cfg.Nodes.ClusterHost,
+ 		path:         cfg.Path,
+ 		setAuth:      cfg.SetAuth,
+ 		onNodeFailed: cfg.OnNodeFailed,
+ 	}
+-	// The cached node set (nodes.json) is attacker-influenceable: anything
+-	// running as the user can amend it. Scope it to the cluster trust domain
+-	// before any of these become credential-bearing dial targets.
+-	p.nodes = p.filterReplicas(cfg.Nodes.InitialNodes)
+ 	if cfg.Nodes.Caching() {
+ 		p.cacheHost = cfg.Nodes.ClusterHost
+ 		p.repoPath = cfg.Nodes.RepoPath
+@@ -151,51 +148,6 @@ func (p *Proxy) checkRedirect(req *http.Request, via []*http.Request) error {
+ 	return nil
+ }
+ 
+-// hostInCluster reports whether host is the cluster's entry domain or a
+-// subdomain of it. With no clusterHost configured (un-pinned callers and
+-// some tests) it returns true — there is no trust domain to enforce, which
+-// matches checkRedirect's behaviour.
+-func (p *Proxy) hostInCluster(host string) bool {
+-	if p.clusterHost == "" {
+-		return true
+-	}
+-	return discovery.HostInCluster(host, p.clusterHost)
+-}
+-
+-// replicaInCluster reports whether a replica base URL is safe to dial with
+-// the repo-scoped token attached: it must parse and resolve to a host
+-// inside the cluster trust domain. Replica sets arrive from
+-// attacker-influenceable sources — the X-Entire-Replicas response header, a
+-// redirect Location, and the on-disk node cache — so a malicious or poisoned
+-// entry pointing off-cluster would otherwise receive a core-minted bearer
+-// token. Dropping it here keeps credentials scoped to the cluster the user
+-// actually addressed.
+-func (p *Proxy) replicaInCluster(rawURL string) bool {
+-	u, err := url.Parse(rawURL)
+-	if err != nil || u.Host == "" {
+-		return false
+-	}
+-	return p.hostInCluster(u.Hostname())
+-}
+-
+-// filterReplicas drops replica URLs that fall outside the cluster trust
+-// domain, logging each rejection. A no-op when clusterHost is unset. See
+-// replicaInCluster.
+-func (p *Proxy) filterReplicas(urls []string) []string {
+-	if p.clusterHost == "" {
+-		return urls
+-	}
+-	kept := make([]string, 0, len(urls))
+-	for _, u := range urls {
+-		if p.replicaInCluster(u) {
+-			kept = append(kept, u)
+-			continue
+-		}
+-		debuglog.Printf("dropping out-of-cluster replica %q (cluster=%s): refusing to carry credentials off-cluster", u, p.clusterHost)
+-	}
+-	return kept
+-}
+-
+ func (p *Proxy) nodeURL(nodeBase, suffix string) string {
+ 	return strings.TrimSuffix(nodeBase, "/") + p.path + suffix
+ }
+@@ -229,12 +181,6 @@ func (p *Proxy) setAuthOrError(req *http.Request) error {
+ 	if p.setAuth == nil {
+ 		return nil
+ 	}
+-	// Hard chokepoint: every credential-bearing request flows through here.
+-	// Even if a node URL slipped past the ingress filters, refuse to stamp a
+-	// token onto a request bound for a host outside the cluster trust domain.
+-	if !p.hostInCluster(req.URL.Hostname()) {
+-		return fmt.Errorf("refusing to send credentials to out-of-cluster host %q (cluster %q)", req.URL.Hostname(), p.clusterHost)
+-	}
+ 	return p.setAuth(req)
+ }
+ 
+@@ -382,7 +328,7 @@ func responseHost(resp *http.Response) string {
+ //     to go, but still don't persist — the next invocation retries
+ //     cold so the fix (server side) eventually shows up.
+ func (p *Proxy) refreshReplicas(resp *http.Response) {
+-	if rs := p.filterReplicas(discovery.ParseReplicas(resp.Header.Get("X-Entire-Replicas"))); len(rs) > 0 {
++	if rs := discovery.ParseReplicas(resp.Header.Get("X-Entire-Replicas")); len(rs) > 0 {
+ 		debuglog.Printf("X-Entire-Replicas from %s: refreshed replica set to %d nodes %v", responseHost(resp), len(rs), rs)
+ 		p.nodes = rs
+ 		if p.cacheHost != "" && p.repoPath != "" {
+@@ -396,11 +342,7 @@ func (p *Proxy) refreshReplicas(resp *http.Response) {
+ 	if len(p.nodes) > 0 {
+ 		return
+ 	}
+-	// Cold start with no header: adopt the host that answered as a single
+-	// in-memory entry so the subsequent POST has a target — but only if it's
+-	// in-cluster, so a stripped-auth redirect to an off-cluster host can't
+-	// pin an attacker URL as the node set.
+-	if resp.Request != nil && resp.Request.URL != nil && p.hostInCluster(resp.Request.URL.Hostname()) {
++	if resp.Request != nil && resp.Request.URL != nil {
+ 		u := &url.URL{Scheme: resp.Request.URL.Scheme, Host: resp.Request.URL.Host}
+ 		p.nodes = []string{u.String()}
+ 	}

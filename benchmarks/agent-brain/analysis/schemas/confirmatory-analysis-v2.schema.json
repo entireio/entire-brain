@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-brain-confirmatory-analysis/v2",
+  "title": "Agent-brain joint superiority analysis v2",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "analyzer_entrypoint_sha256",
+    "analyzer_identity",
+    "integrity",
+    "design",
+    "bootstrap",
+    "contracts",
+    "arm_summary",
+    "primary_endpoints",
+    "joint_superiority",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-confirmatory-analysis/v2"},
+    "status": {"const": "complete"},
+    "analyzer_entrypoint_sha256": {"$ref": "#/$defs/sha256"},
+    "analyzer_identity": {
+      "type": "object",
+      "required": ["algorithm", "current_sha256", "source_paths", "matched"],
+      "properties": {
+        "algorithm": {"const": "sha256_ordered_path_nul_sha256_newline_v1"},
+        "current_sha256": {"$ref": "#/$defs/sha256"},
+        "expected_sha256": {"$ref": "#/$defs/sha256"},
+        "suite_sha256": {"$ref": "#/$defs/sha256"},
+        "source_paths": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "matched": {"type": ["boolean", "null"]},
+        "note": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "passed",
+        "valid_executed_attempts",
+        "expected_attempts",
+        "missing_validation_scored_incorrect",
+        "critical_quality_zeroes",
+        "timed_out_attempts",
+        "structural_zero_no_provider_attempts",
+        "frozen_runner_identity_sha256",
+        "condition_to_treatment_arm"
+      ],
+      "properties": {
+        "passed": {"const": true},
+        "valid_executed_attempts": {"type": "integer", "minimum": 1},
+        "expected_attempts": {"type": "integer", "minimum": 1},
+        "missing_validation_scored_incorrect": {"type": "integer", "minimum": 0},
+        "critical_quality_zeroes": {"type": "integer", "minimum": 0},
+        "timed_out_attempts": {"type": "integer", "minimum": 0},
+        "structural_zero_no_provider_attempts": {"type": "integer", "minimum": 0},
+        "frozen_runner_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "condition_to_treatment_arm": {
+          "type": "object",
+          "minProperties": 3,
+          "additionalProperties": {"enum": ["no_memory", "placebo_packet", "retrieved_memory"]}
+        }
+      },
+      "additionalProperties": true
+    },
+    "design": {
+      "type": "object",
+      "required": [
+        "task_clusters",
+        "runner_id",
+        "primary_treatments",
+        "primary_contrast",
+        "diagnostic_contrasts",
+        "repetitions_per_treatment",
+        "requested_primary_cells",
+        "attempt_policy",
+        "cluster_unit"
+      ],
+      "properties": {
+        "task_clusters": {"type": "integer", "minimum": 1},
+        "runner_id": {"type": "string", "minLength": 1},
+        "primary_treatments": {"const": ["no_memory", "placebo_packet", "retrieved_memory"]},
+        "primary_contrast": {"const": "retrieved_memory_vs_no_memory"},
+        "diagnostic_contrasts": {"const": ["placebo_packet_vs_no_memory"]},
+        "repetitions_per_treatment": {"type": "integer", "minimum": 1},
+        "requested_primary_cells": {"type": "integer", "minimum": 3},
+        "attempt_policy": {"const": "all_executed_attempts_no_success_only_endpoints"},
+        "cluster_unit": {"const": "task_not_repetition"}
+      },
+      "additionalProperties": false
+    },
+    "bootstrap": {
+      "type": "object",
+      "required": [
+        "resamples",
+        "seed",
+        "cluster_unit",
+        "index_generator",
+        "one_sided_confidence",
+        "finite_resample_p_value_correction"
+      ],
+      "properties": {
+        "resamples": {"type": "integer", "minimum": 1},
+        "seed": {"type": "integer"},
+        "cluster_unit": {"const": "task"},
+        "index_generator": {"const": "sha256_counter_rejection_v1"},
+        "one_sided_confidence": {"const": 0.95},
+        "finite_resample_p_value_correction": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "contracts": {
+      "type": "object",
+      "required": [
+        "success_contract_sha256",
+        "success_contract_status",
+        "price_quote_sha256",
+        "frozen_runner_identity_sha256",
+        "price_quote_currency",
+        "cost_categories",
+        "usage_semantics",
+        "attempt_aggregation",
+        "provider_retry_limit",
+        "code_quality_schema",
+        "code_quality_rubric",
+        "timeout_policy"
+      ],
+      "properties": {
+        "success_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "success_contract_status": {"enum": ["provisional", "frozen_approved"]},
+        "price_quote_sha256": {"$ref": "#/$defs/sha256"},
+        "frozen_runner_identity_sha256": {"$ref": "#/$defs/sha256"},
+        "price_quote_currency": {"const": "USD"},
+        "cost_categories": {"$ref": "#/$defs/cost_categories"},
+        "usage_semantics": {"type": "object"},
+        "attempt_aggregation": {
+          "const": "sum_per_isolated_provider_invocation_attempt_total_or_authenticated_structural_zero"
+        },
+        "provider_retry_limit": {"const": 0},
+        "code_quality_schema": {"const": "agent-brain-code-quality/v2"},
+        "code_quality_rubric": {"const": "task_relative_output_outcome_patch_focus_v2"},
+        "timeout_policy": {"const": "retain_measured_end_to_end_elapsed_no_component_cap_substitution"}
+      },
+      "additionalProperties": false
+    },
+    "arm_summary": {
+      "type": "object",
+      "required": ["no_memory", "placebo_packet", "retrieved_memory"],
+      "properties": {
+        "no_memory": {"$ref": "#/$defs/arm"},
+        "placebo_packet": {"$ref": "#/$defs/arm"},
+        "retrieved_memory": {"$ref": "#/$defs/arm"}
+      },
+      "additionalProperties": false
+    },
+    "primary_endpoints": {
+      "type": "object",
+      "required": ["elapsed_time", "normalized_cost", "code_quality"],
+      "properties": {
+        "elapsed_time": {"$ref": "#/$defs/ratio_endpoint"},
+        "normalized_cost": {"$ref": "#/$defs/cost_ratio_endpoint"},
+        "code_quality": {"$ref": "#/$defs/quality_endpoint"}
+      },
+      "additionalProperties": false
+    },
+    "joint_superiority": {
+      "type": "object",
+      "required": [
+        "method",
+        "family_alpha",
+        "multiplicity",
+        "success_contract_frozen",
+        "all_practical_floors_cleared",
+        "passed",
+        "status",
+        "required_endpoints"
+      ],
+      "properties": {
+        "method": {"const": "intersection_union_all_three_component_nulls_must_be_rejected"},
+        "family_alpha": {"const": 0.05},
+        "multiplicity": {"type": "string"},
+        "success_contract_frozen": {"type": "boolean"},
+        "all_practical_floors_cleared": {"type": "boolean"},
+        "passed": {"type": "boolean"},
+        "status": {"enum": ["pass", "fail_one_or_more_endpoints", "not_eligible_contract_not_frozen"]},
+        "required_endpoints": {"const": ["elapsed_time", "normalized_cost", "code_quality"]}
+      },
+      "additionalProperties": false
+    },
+    "diagnostics": {
+      "type": "object",
+      "required": [
+        "validation_and_pass_rates_are_not_a_success_gate",
+        "raw_usage_and_timing_retained",
+        "successful_attempt_only_metrics_computed",
+        "provider_api_time_is_diagnostic_only_and_never_substituted",
+        "timed_out_elapsed_uses_measured_end_to_end_interval",
+        "all_provider_retry_attempts_included_in_cost",
+        "structural_zero_requires_authenticated_no_provider_invocation",
+        "generic_total_tokens_used_for_cost_categories"
+      ],
+      "properties": {
+        "validation_and_pass_rates_are_not_a_success_gate": {"const": true},
+        "raw_usage_and_timing_retained": {"const": true},
+        "successful_attempt_only_metrics_computed": {"const": false},
+        "provider_api_time_is_diagnostic_only_and_never_substituted": {"const": true},
+        "timed_out_elapsed_uses_measured_end_to_end_interval": {"const": true},
+        "all_provider_retry_attempts_included_in_cost": {"const": true},
+        "structural_zero_requires_authenticated_no_provider_invocation": {"const": true},
+        "generic_total_tokens_used_for_cost_categories": {"const": false}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cost_categories": {
+      "const": [
+        "uncached_input",
+        "cache_read_input",
+        "cache_write_input",
+        "visible_output",
+        "reasoning_output"
+      ]
+    },
+    "arm": {
+      "type": "object",
+      "required": [
+        "executed_attempts",
+        "validation_pass_rate",
+        "critical_quality_zeroes",
+        "mean_task_normalized_quality",
+        "mean_end_to_end_user_visible_wall_seconds",
+        "mean_normalized_cost_usd",
+        "timed_out_attempts",
+        "exclusive_billed_tokens_total",
+        "raw_total_token_measurements",
+        "raw_arithmetic_mean_total_tokens",
+        "harness_agent_interval_measurements",
+        "raw_arithmetic_mean_harness_agent_interval_seconds",
+        "agent_reported_api_measurements",
+        "raw_arithmetic_mean_agent_reported_api_seconds"
+      ],
+      "properties": {
+        "executed_attempts": {"type": "integer", "minimum": 1},
+        "validation_pass_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "critical_quality_zeroes": {"type": "integer", "minimum": 0},
+        "mean_task_normalized_quality": {"type": "number", "minimum": 0, "maximum": 1},
+        "mean_end_to_end_user_visible_wall_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "mean_normalized_cost_usd": {"type": "number", "minimum": 0},
+        "timed_out_attempts": {"type": "integer", "minimum": 0},
+        "exclusive_billed_tokens_total": {"type": "object"},
+        "raw_total_token_measurements": {"type": "integer", "minimum": 0},
+        "raw_arithmetic_mean_total_tokens": {"type": ["number", "null"]},
+        "harness_agent_interval_measurements": {"type": "integer", "minimum": 0},
+        "raw_arithmetic_mean_harness_agent_interval_seconds": {"type": ["number", "null"]},
+        "agent_reported_api_measurements": {"type": "integer", "minimum": 0},
+        "raw_arithmetic_mean_agent_reported_api_seconds": {"type": ["number", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "endpoint_base": {
+      "type": "object",
+      "required": [
+        "status",
+        "comparison",
+        "source_field",
+        "estimand",
+        "all_executed_attempts",
+        "repetition_aggregation",
+        "cluster_unit",
+        "n_task_clusters",
+        "one_sided_confidence",
+        "bootstrap_p_value_one_sided_at_practical_floor",
+        "clears_practical_floor",
+        "placebo_diagnostic"
+      ]
+    },
+    "ratio_endpoint": {
+      "allOf": [
+        {"$ref": "#/$defs/endpoint_base"},
+        {
+          "required": [
+            "paired_task_geometric_mean_ratio",
+            "one_sided_percentile_upper_bound",
+            "practical_ratio_max"
+          ]
+        }
+      ]
+    },
+    "cost_ratio_endpoint": {
+      "allOf": [
+        {"$ref": "#/$defs/endpoint_base"},
+        {
+          "required": [
+            "equal_task_weighted_mean_ratio",
+            "one_sided_percentile_upper_bound",
+            "practical_ratio_max",
+            "task_aggregation",
+            "bootstrap_zero_denominator_draws"
+          ]
+        }
+      ]
+    },
+    "quality_endpoint": {
+      "allOf": [
+        {"$ref": "#/$defs/endpoint_base"},
+        {
+          "required": [
+            "paired_task_mean_difference",
+            "one_sided_percentile_lower_bound",
+            "practical_difference_min"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1133 @@
+{
+  "schema_version": 1,
+  "inventory_id": "c0701-reconciled-2026-07-15",
+  "generated_at": "2026-07-15T12:00:00+02:00",
+  "state_order": [
+    "unseen",
+    "prompt_inspected",
+    "retrieval_probed",
+    "agent_run",
+    "optimization_used"
+  ],
+  "summary": {
+    "config_files": 46,
+    "unique_task_ids": 46,
+    "patch_files": 46,
+    "ledger_rows": 46,
+    "source_dev": 22,
+    "source_holdout": 24,
+    "confirmatory_eligible": 0
+  },
+  "tasks": [
+    {
+      "task_id": "entire-cli-c0701-21fcaf5f2",
+      "fix_commit": "21fcaf5f23f2206ce0685dab1bd6e1755bcc964e",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-21fcaf5f2.json",
+        "config_sha256": "467350192f4e565e46133daff006d723e4b1619ba1fb30b3b4cb2b45be09c6bf",
+        "prompt_sha256": "cd97c0f11f4379da834c004a4ee14df4bda906606c2793bf74226e9294816397",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-21fcaf5f2-test.patch",
+        "patch_sha256": "961119de7f3270a8f188296759b5da9631df6d251fb3f68613bb0aefee660ffc"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-250538b1f",
+      "fix_commit": "250538b1f2f6e65eb355a49c5011cbc9b03c518c",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-250538b1f.json",
+        "config_sha256": "237615f189fdfabb3d3164244d10a2ee229d200772593b35500cbc9cded9e36d",
+        "prompt_sha256": "1f5ea9862ffa34550e9f44446b8a4be9cf2a43853c775057ad8ea420bc7d5629",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-250538b1f-test.patch",
+        "patch_sha256": "f9019b3aba5c234aa1744f4d08a7d2f9fcb43d87739603b74943ba046161e7f2"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-40cb4d68a",
+      "fix_commit": "40cb4d68acfe9ed0ec3fc0344500e80f17b13f10",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-40cb4d68a.json",
+        "config_sha256": "d1af3578f5efa2201c3ebd9d5c1691f24e7adefaabacfd8aeb38036e4ab36bce",
+        "prompt_sha256": "761e514007ccb01d553847320a337c4295229cdf9d40ba1f21999d31b98f3d19",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-40cb4d68a-test.patch",
+        "patch_sha256": "a05dd974237c40c8939086b2f1f5f11f2dbf6dcdceaf1c49021186f415f2a9c3"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-570854e73",
+      "fix_commit": "570854e73447f44da5476931e5e13e861022afac",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-570854e73.json",
+        "config_sha256": "448954b5ddee2bcc08ce8a8688195c979b333bdc21008f9d2be789f3b76dc725",
+        "prompt_sha256": "be847ba87dcec8bd31c858b2c138d2f3bcfe399a943614cff2e03f0d29b234ce",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-570854e73-test.patch",
+        "patch_sha256": "685747d1901c143b236ddc97dc1328216de561dfc2eaf9de10d7c21336f4cbee"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-5f68588b1",
+      "fix_commit": "5f68588b1ab38ec4a7b26946b5ca448153591e5e",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-5f68588b1.json",
+        "config_sha256": "1fe5fddcb17b22baa7948530000c09033f83848966fac9d1465e342cf7d6181f",
+        "prompt_sha256": "d625f536964f24ebe992a1db57ca095376f266a5b024d1915f9cc14807a79e1d",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-5f68588b1-test.patch",
+        "patch_sha256": "63a111658f5634b9cfe43e9a6a68dfdaeb960755733f26fea227319233632d64"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-6050a60b3",
+      "fix_commit": "6050a60b39bbc81a0234460181dbd379da6d6894",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-6050a60b3.json",
+        "config_sha256": "de4356207482d893848785d0a872290a00511d818da12eca4694b0c98413990d",
+        "prompt_sha256": "4468a8e5e3aeace46be94a27ce372ede4b299a69b47b289a88ef630ba0f0b980",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-6050a60b3-test.patch",
+        "patch_sha256": "47d1be1fa24f62dd05ff0b1832deca0632e2e26408b7b4d6e36c116d6700f4c2"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-60576d5e8",
+      "fix_commit": "60576d5e8314bcd2a232f893c61c870ebcc5b950",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-60576d5e8.json",
+        "config_sha256": "d8a3788bdbef4e82729377f0f68716a3548e72f0c0feb8793d1810e5240bf2ed",
+        "prompt_sha256": "5fb6445defed214d499d03934416437886dc6b1a71993218731df4b6c885015b",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-60576d5e8-test.patch",
+        "patch_sha256": "ed2a77b222965835b908829bd434911b4679dd90b48512672f75242a6616c057"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-6699ec40a",
+      "fix_commit": "6699ec40abdb7b02c379c9346526cc02d3d2ab30",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "agent_run",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "opus3-s*"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-6699ec40a.json",
+        "config_sha256": "9aebaf14f0888db7a1f08e8a6957cd9365678b3499fefbde0e3fd4d68f560a26",
+        "prompt_sha256": "c42df88e88b6f5146124bd88cf2e1cb635cd89aa5a57926e0073445fd4096d0c",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-6699ec40a-test.patch",
+        "patch_sha256": "f27e61cfd7f69f330a4263c39564a93c30c186d4f332fb79f2436d6c0013ee54"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-6cdbe3cc8",
+      "fix_commit": "6cdbe3cc8f2868bcf8f2c9e6f4651e79dc198074",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-6cdbe3cc8.json",
+        "config_sha256": "afccc53db30243ac562ad70dc230546ae60407a7841aed5431672c400248dfc7",
+        "prompt_sha256": "5574fd3045b3de5385d9cd3d8e1fba968f670c5cb2569928b5446d057d4b6255",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-6cdbe3cc8-test.patch",
+        "patch_sha256": "20fd0e134bdca05f00e880192ae3b60453cb012f186270acb24ae3cc1cbb43de"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-855b8cdab",
+      "fix_commit": "855b8cdab64147eb73fa6ac805ded1a9391a92ac",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "agent_run",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "development n=1 run",
+        "two-repetition replication"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-855b8cdab.json",
+        "config_sha256": "e781a22f3caa97e104f622d9bb235ac57916d3ab892d090525a5e213005b6f9f",
+        "prompt_sha256": "3fa0c875d90a2b7ca404524ad0c158ed5b9d1cdc857e9a696965756195b4467d",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-855b8cdab-test.patch",
+        "patch_sha256": "7490f7c7d874cabe2fa26d07c2fe396fa35684082b91328299178621cd8b675c"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-8828752a7",
+      "fix_commit": "8828752a7be5f21ecd02478f4db4f400dadff9ce",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "agent_run",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "opus3-s*",
+        "rollcap6-s*",
+        "packet-cap probe"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-8828752a7.json",
+        "config_sha256": "6d43ce812acd766e217ab5ad6660a79ebc4499fe77c6c1bd011437040cdf4282",
+        "prompt_sha256": "1ea745c4ea50aa1c308d27369b92faf9a0ded4b386dbefe18cf0a11831287d96",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-8828752a7-test.patch",
+        "patch_sha256": "b5a3ee2aca26018ed2699cc8b6c8c6ba5429b7b76db35499308ca267136ce69a"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-96ed4e121",
+      "fix_commit": "96ed4e12190014a8b1a119ef6a81bf0e41dce554",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-96ed4e121.json",
+        "config_sha256": "3b5691533dc2d48369887cff648a90391943f30867331fe3bf8eee0e8aa32989",
+        "prompt_sha256": "3669ee010346045538852702c72a1ff6d0da129b34970c1c3e68fc394fb16018",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-96ed4e121-test.patch",
+        "patch_sha256": "65b4a656cbddd9de8c5440c496b8fcd7a6ea9e6b5712acad5fb881935ebf25c5"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-996336140",
+      "fix_commit": "996336140448090c6dc2a5d968dfdfb593e6e046",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-996336140.json",
+        "config_sha256": "49f73b6b8dbbe011c7371d2344d15ac2da6bc66bc43e01fbb1e6c9e67426a58e",
+        "prompt_sha256": "473fe4241553222e152e700f9c472271866acc65c8e5b176eac92bc5bfc88d97",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-996336140-test.patch",
+        "patch_sha256": "d46f9b1f73cc54b6131f0d3c63443ef53fa4dc627533ae9169cf45b688035c7a"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-a9d4ce908",
+      "fix_commit": "a9d4ce908ff2c6473fa798a8300da79591b4c1a2",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-a9d4ce908.json",
+        "config_sha256": "74ea50cb6a1e326b609f99c67f188e7a8fc928094988c543878b13d64ad52f94",
+        "prompt_sha256": "ea7bc56298a057b161531c8764b0f33dedb6e65d1cb71c83e52c3ee3903d9f2f",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-a9d4ce908-test.patch",
+        "patch_sha256": "adbc1a90580e9902cb3f3190b3edd44ad42a6b74bd1941450d508641f6e6cc1d"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-aaeb8546c",
+      "fix_commit": "aaeb8546c6e90bd471a2d6457d7351bc156cedf6",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-aaeb8546c.json",
+        "config_sha256": "f0091de42c1bc565d83859fe3b8d389469c63e6ef18ce8bd7de199baa1a1ae2b",
+        "prompt_sha256": "75aaed80bb0254969e7ae67629b54eec91bbc878581762100e753053c906fd76",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-aaeb8546c-test.patch",
+        "patch_sha256": "b3e1f41ed6bf74292cb7e02c1062594ea9eea1d3e5d4ff97dee8af91204a055e"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-b3f0deb5b",
+      "fix_commit": "b3f0deb5b0548b5308b4a712ddb898e069fbcc14",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-b3f0deb5b.json",
+        "config_sha256": "1343975d3f956fbe00e81dd7af939a76f55079bade1d1bf1dc56ceb96b825fb9",
+        "prompt_sha256": "4ffe826e69fb0304091ceff6f0d79287f80f3189c506c3e51c61a1ad36e16819",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-b3f0deb5b-test.patch",
+        "patch_sha256": "d239c76da8e11c96aa7f5bea8c913fdba9473ecde1bd266a785581642e1ab919"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-b72a6e621",
+      "fix_commit": "b72a6e621c62900dcb51f492b37730d04b24a7a0",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-b72a6e621.json",
+        "config_sha256": "bbdb52b64a84685d0abe4e80152d0b1c67fd01828f1ae1a019cd82235b31de21",
+        "prompt_sha256": "50a71a50f077ee8ca21ff82e82954604dbe955252979ca04e0af385c0a61d788",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-b72a6e621-test.patch",
+        "patch_sha256": "fc775afe1c46718c202185868520487e2fd069b9b3f216d914bd127f08c88a3b"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-c67d74e6c",
+      "fix_commit": "c67d74e6c0a7ab997357c26a6bac195ff695e500",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-c67d74e6c.json",
+        "config_sha256": "5692d948f24c2f92166829ac2a823386a5cddd94ee338b91e317c07501f7d696",
+        "prompt_sha256": "45a297a04a3b2a577f668fb65ca4367e70d28619b45aa99e3d823fc5cd989ba6",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-c67d74e6c-test.patch",
+        "patch_sha256": "40e66da362136b546f472a9f63dfe3d7c6d66969cade3fdab21c9e48cf04ac64"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-d8df699cb",
+      "fix_commit": "d8df699cb5bf92d842d9b6f5f4b636c7c057645a",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-d8df699cb.json",
+        "config_sha256": "a3c140c05eeafc782a12d4ba89d96c9976620cfaf8b7ead0d01b6bd2e2885d34",
+        "prompt_sha256": "fe3d967b521c2847897260f26d26cc6d56f08362e9257fbb1ca5f3c4aa340e4f",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-d8df699cb-test.patch",
+        "patch_sha256": "159e2b2ad824e3832e4ac7e6c2dcee007b26503d40fa193fda456d725a3f0210"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-d90849ac5",
+      "fix_commit": "d90849ac5fa8f69412b70b4116f2f3072d0ddbbc",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "retrieval_probed",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "temporal false-positive retrieval audit"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-d90849ac5.json",
+        "config_sha256": "0223c4a44fcdff99ec9a8c42fe3e925161ffaa85c8574e9bbf209d9115c506e6",
+        "prompt_sha256": "f17fffa0a41d43cab6b0f9d579c1d529545dba080c9c0d6f36e815e33122bdb3",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-d90849ac5-test.patch",
+        "patch_sha256": "9c169ef60c1803f38f15b77d8237125ef6bde01ce3fcb5904f64a95fb614bd52"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-d9df8fcca",
+      "fix_commit": "d9df8fcca2953fd32c1bd57d268c27387f6ccdc9",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-d9df8fcca.json",
+        "config_sha256": "6d1107e819d7d206f0edc2ea4a04c23d09dbcd611798416cb5ee0abdc337113b",
+        "prompt_sha256": "a1c212f87c564f838f7bc29e6ca258ace78c08ee7cf02b9ed0253038ead43b15",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-d9df8fcca-test.patch",
+        "patch_sha256": "a5d92507621741c2910bfb027352f0feff7b570451f9a1013ac5666505727880"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-e52b748b4",
+      "fix_commit": "e52b748b474d047a5a83767f4337a349f2e04c38",
+      "source_split": "dev",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/dev/entire-cli-c0701-e52b748b4.json",
+        "config_sha256": "55b8384e332f16b1cc978f477b1464d3f32ee3f053252260f709bae67f179eac",
+        "prompt_sha256": "804ae23027a24b3452a3b05ee3673256ca75d67a0630e5989e1bc23ccfad9255",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-e52b748b4-test.patch",
+        "patch_sha256": "e1cedbbdc741c09cbb34728ec8836d5f8c3e0ab972db4241649ac09128b264c7"
+      },
+      "ledger": {
+        "present": true,
+        "split": "dev"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-0730ddd75",
+      "fix_commit": "0730ddd75e3770f9ac318daeac7cfc98cad8d6eb",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-0730ddd75.json",
+        "config_sha256": "51bb1a1b09329ead5740bd6bffe269369ca2f7c8149f53549fb9790a7ab971d9",
+        "prompt_sha256": "1846f6640e35cce91e0562a4fd179c76eac1f66619ad13d82c0f6585bcff5d28",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-0730ddd75-test.patch",
+        "patch_sha256": "ce91f91a888b6ad14af16286ef7865433643741206edac6a8010737c49584a58"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-078a63ebb",
+      "fix_commit": "078a63ebb622cc0829e76af20583ba696d17b31d",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-078a63ebb.json",
+        "config_sha256": "9d91a48d77e54e875e1ab40a82689f6f0f7d3abb1f4a06d1a2275b2510b6cc0c",
+        "prompt_sha256": "02b694563cc33dbc1d1621f43b35b213c0f5d9cc72e3e854d0ca9d5a4db309af",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-078a63ebb-test.patch",
+        "patch_sha256": "8dfbc10d7852046196a2b784d8f2f41f6e3764999be745070f84473af867e52b"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-338d79887",
+      "fix_commit": "338d79887a78f6408942e4db5a36cc64bf41f867",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-338d79887.json",
+        "config_sha256": "3275522e17cd38675861e49794fd4cf96e496d6a5a8705a5ed67171ee53456db",
+        "prompt_sha256": "ec22c29dbabf4e6101cfddf7e45161f495b57fe320e5ca3827fc782d0e0c43f5",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-338d79887-test.patch",
+        "patch_sha256": "b2a3ad220461ffb9d7461ffff35fb515614f641ce834d6bdb2774c37d1e25691"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-36563bc78",
+      "fix_commit": "36563bc7812edc0f9c9a006e093b1c6f1a745a3f",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-36563bc78.json",
+        "config_sha256": "b64b5982c956d434039338800f0c49e952b509a24c904168db13d35285140b23",
+        "prompt_sha256": "6d88b65acddb3b07303050e9c83d0de096051899ca458b04717fc7b0a77cb84f",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-36563bc78-test.patch",
+        "patch_sha256": "be055e6e4c66345b0dfb23abef91053bc941b7c88a50da8a0f21e48dbf7af400"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-3a1b973ad",
+      "fix_commit": "3a1b973ad9ef2b45e918d085d1d53bce72cc0155",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-3a1b973ad.json",
+        "config_sha256": "5149fc9a36ee6170355aec8637020dff2f073a1b2f61d6220a459323c2e7ab66",
+        "prompt_sha256": "8d67160b705bf2ca306deeedcef6a503981e1e87a31e5d7721798ff75a1fa944",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-3a1b973ad-test.patch",
+        "patch_sha256": "fc1c73151be245ed78f2e6fab219ecd90152f4b1ff8769fb0001e59243e8f2b8"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-40cded153",
+      "fix_commit": "40cded153498698ef1ec4c98a46f066e63e661c5",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-40cded153.json",
+        "config_sha256": "9da199d20ecd47df45c107edbc014a11c1053ca2d2ccbf007cc04f90860c05e1",
+        "prompt_sha256": "e9758611068e412af739bd59f96b2e66b51e372f312ad1b892b14c12c86613d8",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-40cded153-test.patch",
+        "patch_sha256": "04febb0a027257b82da1884214acd09379b91f943387fdbbd15642a3815b6f29"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-43ae6061f",
+      "fix_commit": "43ae6061f79add4f837122a1febc6711697c45bf",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-43ae6061f.json",
+        "config_sha256": "834651b461d5349d72c3bec6124aeafd822697e156e01b6c678a4fa75e682a0a",
+        "prompt_sha256": "87691914e1122325fb29830104727e6fa78322ca8de22b0bfe709b6fe4867426",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-43ae6061f-test.patch",
+        "patch_sha256": "669cae85eaebe4d23ba2a6969bbab5f6d87e9dc183991554300b96344ab5a546"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-4dd458656",
+      "fix_commit": "4dd4586566526108c2ef4d3802014fe04ee78767",
+      "source_split": "holdout",
+      "assigned_split": "development",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "optimization_used",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "opus3-s*",
+        "opus3d-s*",
+        "full-brain scale rerun",
+        "lexical/semantic recall and packet-cap probes"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-4dd458656.json",
+        "config_sha256": "7abcad59cb594935d3636e81adf35c87616064bad62048006b68e8eb69dacbb3",
+        "prompt_sha256": "a5de1488460ad41a280193a4c198e5a526097b612740b14fa3a972967bb3f045",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-4dd458656-test.patch",
+        "patch_sha256": "dae23e29c83bb7b8ce01b4fc38c1f2501ce398f564dd8b125d4591ef4eb066a9"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-55cde8f97",
+      "fix_commit": "55cde8f97b2d39b251ff6c1265f604488bf4a613",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-55cde8f97.json",
+        "config_sha256": "a6119e2452e31ac4f28cb5f9717b0654917cc5f5896b4ed126e6f092ccdbf704",
+        "prompt_sha256": "54ec09ac98c82ba221ecd055df3734a6d1e4eebb0ed01616e8fc727cfeeca349",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-55cde8f97-test.patch",
+        "patch_sha256": "96e6cbca7f136fbdcb5dd21756bd25aff04e01207678e274ffdfbcbdfbf39517"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-5edbdf073",
+      "fix_commit": "5edbdf0733c33dbc572f26242bf0400aaf7d3fe7",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-5edbdf073.json",
+        "config_sha256": "aec6e9773e310fb45d12aa3bebb9ca38ec4f9bb46aff810b62d694b1e6d70e7b",
+        "prompt_sha256": "8a3d46ab68985ee07c4ec0264d69797c687eccfdc307fcb3d4da2f80d3da1d37",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-5edbdf073-test.patch",
+        "patch_sha256": "4abc200471a3b976bb4e032df1dbc5188a6bc56e8d41bc88cbb2afdb8479abe1"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-605050d0e",
+      "fix_commit": "605050d0ef00e855e93f4f04a0e38d5301cae6ed",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-605050d0e.json",
+        "config_sha256": "441d59ef797a8c94b8135830158b2e8f025848e5e7d74135ebb1a8039724a15f",
+        "prompt_sha256": "f3d28d2dc67d5228ed955e28d47434392b49a686f2688fdc35777fa5b6e872a3",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-605050d0e-test.patch",
+        "patch_sha256": "b52f860961115dbc71655911a3190906760d23ec8852573d079c351b7a8f66cf"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-7a56d8ce9",
+      "fix_commit": "7a56d8ce91c50498cee5b61b485bbcf50b09c755",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-7a56d8ce9.json",
+        "config_sha256": "a5f8b087753272cd4c89bedc3f27c3ff2a080cec285cf772823f5db246788b42",
+        "prompt_sha256": "4b78c41382fb1536ad249a0b251351e0176a4ca1b5e5d5fa56e13e6af60a8f78",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-7a56d8ce9-test.patch",
+        "patch_sha256": "8771bb0862e8a812f5fc0f77fecfdd0f54fba6a57c44dabbd759331e6aa7afcf"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-80c7a4efd",
+      "fix_commit": "80c7a4efd26161f84910ba3ec008ff20c9dcc249",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-80c7a4efd.json",
+        "config_sha256": "c758bea67a73ed3c8e6053b1e4d7a283cdee09e0c1404569a3f216be08c49681",
+        "prompt_sha256": "20d9aa1c5189f80afefc1a515eb974a5ac1351efb7b8dbe529d4d7e5c7f0ad2b",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-80c7a4efd-test.patch",
+        "patch_sha256": "0797d79fc6389a9d71cbc95ccf8f5d4594a120db41e9ac07c924a81c7abed2ae"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-80f680618",
+      "fix_commit": "80f680618c617e5c609399b9af6c00d4ab2e8a3b",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-80f680618.json",
+        "config_sha256": "5e2a72dc985e764c3153bf9cad7081c19213864eb7d97fd4bdd113c779525102",
+        "prompt_sha256": "4d817647bbc9f823812f22ac187a57c74a671821eafb3b9029d9cd3bb2634911",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-80f680618-test.patch",
+        "patch_sha256": "11627a7ae5a12c9167dbbfabc70d3df34133003131e9418b8e9c64446c67dacb"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-885cf3a68",
+      "fix_commit": "885cf3a68a12cff781706bb851af2f083cec27c5",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-885cf3a68.json",
+        "config_sha256": "61f10ee0c9a18c119943dd63d751f06b749add112d090a9c2cbb496c948dd40a",
+        "prompt_sha256": "e76da9e26d5a33b5d2d55bcc90a2cd1262f03acb4e47819222733d1c33c75a45",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-885cf3a68-test.patch",
+        "patch_sha256": "5718b8e79a02fe827eb6f28be85cd4edf76a90fc09a9d559b792de9bf44caff9"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-9c2b149fd",
+      "fix_commit": "9c2b149fd1849fb6650d593c5e944d72daab63a5",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-9c2b149fd.json",
+        "config_sha256": "751b1202f10571e197350baa819bc8ba737762bdcc3fa87633cb3458a2348457",
+        "prompt_sha256": "8f48c55bd5a48102672220ac5e3897e10ca37b6b08c848c5f4de580d30174bc7",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-9c2b149fd-test.patch",
+        "patch_sha256": "7eca5af5bf13e23d55d407592467d43817e0fcca5204edde35bc6acf455a7609"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-befdcf4fb",
+      "fix_commit": "befdcf4fbb88a4889033eeb85d2e64c28747f43f",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-befdcf4fb.json",
+        "config_sha256": "6a962eb3c49adaf341fb715b5380c9dad0c92dc5f9fe1dc043d9b3504e6ccde5",
+        "prompt_sha256": "e38e3cdc37ad7f40a01978012de38157c4f7ff1b96db8cf3f9877add38b99778",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-befdcf4fb-test.patch",
+        "patch_sha256": "c4c7e71f3ce10c9ca636c2c01d4ee0bd66a125d6b02e1b77f909cbaafc92be38"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-c768ab0ec",
+      "fix_commit": "c768ab0ec7710089ede7d9762f91a2c08c086619",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-c768ab0ec.json",
+        "config_sha256": "2f01e742721e8e19f3c86a2962cf4ed3be0cd9ce4f7220c43b3e084a52aa1bf2",
+        "prompt_sha256": "b9f07cbcc87ddb86cfb9622e9fad81bcfe0f1e49e38c356c18d21948536c4980",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-c768ab0ec-test.patch",
+        "patch_sha256": "e69b66577ed98a70976c8f9d55950f735728200fb63975f493cf9330c835ee42"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-c8d80aa8f",
+      "fix_commit": "c8d80aa8fd3fdd693edcde2d4b220b67ea225457",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-c8d80aa8f.json",
+        "config_sha256": "a1eacb61cbac2c174a30828331b234e85c85394289cc116bcf22fa2e5b820290",
+        "prompt_sha256": "4dd71b42a665b0f986c814c0b4e48ed0e80a1791f854602c85aa7d869fca7bba",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-c8d80aa8f-test.patch",
+        "patch_sha256": "ad102f043914ee91c0ca9d33aeb856087116d0984317501964bdc76d1c90c81c"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-cf28d625c",
+      "fix_commit": "cf28d625cc2f0565b1e09869e06faab91970b72d",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-cf28d625c.json",
+        "config_sha256": "e3d341c3a69ab4a89eeddfa50243721c408246ee4949b3baf623c541c35f40cc",
+        "prompt_sha256": "df7ab425942054a8536c6574efec9707139b0bb60c81ad5e4c34616ca184f1c2",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-cf28d625c-test.patch",
+        "patch_sha256": "b14cdef878ed9d129a9ed53417a733cb8144dadee5e2432aff971e88f5fa028d"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-dd255c286",
+      "fix_commit": "dd255c2860c6a0927dbeda124bf977c94803463d",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-dd255c286.json",
+        "config_sha256": "0d2294da2402c2d724f546401b4d7ff760061b4491a1373167e15686430ad4b8",
+        "prompt_sha256": "2c4e9c1274b7c13855f9b255646542c567889cdeb4709d9ebd2b6fa7b3a06bdf",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-dd255c286-test.patch",
+        "patch_sha256": "45121e3963779f5df8fb46ac84ec38ee95d12a3599ec1924e1ebe72aa3ad0794"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-de60a63d0",
+      "fix_commit": "de60a63d0ec3dbb70457bb5acbc437437d8012a1",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-de60a63d0.json",
+        "config_sha256": "95969085186e834dcb83a4616059a381bc2cdab523789b1ab802fb562a5af203",
+        "prompt_sha256": "7fc267cb7d734607f313a17beded39a8590f1713d9d989ee498cfc61b73b11ec",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-de60a63d0-test.patch",
+        "patch_sha256": "9b17017c5aa7a25a7ae6fa2be38af390056078c6ad7082acc0f7f4975fb161ba"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-e1112a77a",
+      "fix_commit": "e1112a77ac866aeae75738301826321bdb9143b5",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-e1112a77a.json",
+        "config_sha256": "6028a3601c858e2a3bb4cc226c6f929e40698630a85696181fb1e98ce0fdb4ac",
+        "prompt_sha256": "5351c988dbd7c9e09812e21a9b148c80ce069a816fbc0bd719876df72d8063a5",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-e1112a77a-test.patch",
+        "patch_sha256": "e3c3f745463bc2d3af57c0b1609581c2f03eaa54bfa7d759099dad8811a5853c"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    },
+    {
+      "task_id": "entire-cli-c0701-fe8428c24",
+      "fix_commit": "fe8428c246a9d98efb4869ee904fffc5dc3c8775",
+      "source_split": "holdout",
+      "assigned_split": "secondary_validation",
+      "confirmatory_eligible": false,
+      "confirmatory_exclusion": "legacy task: prompt/config was available before methodology freeze; secrecy is not independently defensible",
+      "state": "prompt_inspected",
+      "state_recorded_at": "2026-07-15T12:00:00+02:00",
+      "suite_references": [
+        "ws6_inventory_reconciliation"
+      ],
+      "artifacts": {
+        "config_path": "benchmarks/agent-brain/mined-c0701/holdout/entire-cli-c0701-fe8428c24.json",
+        "config_sha256": "af13d5f20fdaae18d3f1e44b8d2b1ea386fa473e70db3a956df112d60ee3f215",
+        "prompt_sha256": "443aa2a2f847be8bbdba61e844e586a06502f9020a8120fd34b73b120f8adea8",
+        "patch_path": "benchmarks/agent-brain/mined-c0701/patches/entire-cli-c0701-fe8428c24-test.patch",
+        "patch_sha256": "c9dd1e1f5442afaf68419fcd98ad0fd705c974dc83c3f7a5571e209ba1145fbe"
+      },
+      "ledger": {
+        "present": true,
+        "split": "holdout"
+      }
+    }
+  ]
+}

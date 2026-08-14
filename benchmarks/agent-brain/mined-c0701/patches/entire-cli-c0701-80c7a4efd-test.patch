@@ -1,0 +1,75 @@
+diff --git a/cmd/entire/cli/checkpoint/routing_store_test.go b/cmd/entire/cli/checkpoint/routing_store_test.go
+index cd6619c8b..21760ab8f 100644
+--- a/cmd/entire/cli/checkpoint/routing_store_test.go
++++ b/cmd/entire/cli/checkpoint/routing_store_test.go
+@@ -2,8 +2,10 @@ package checkpoint
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"testing"
+ 
++	"github.com/go-git/go-git/v6/plumbing"
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+ 
+@@ -86,6 +88,26 @@ func TestKindRoutingStore_Read(t *testing.T) {
+ 		require.NotNil(t, got, "a hex checkpoint migrated into refs should resolve under a git-refs primary")
+ 	})
+ 
++	t.Run("git-refs primary: a refs fetch error falls back to the branch", func(t *testing.T) {
++		t.Parallel()
++		_, repo, _ := newTestRepo(t)
++		branch := NewGitStore(repo, DefaultV1Refs())
++		refs := newGitRefsStore(repo)
++		// A missing local ref triggers an on-demand fetch; simulate that fetch
++		// failing (network down) so the refs read returns a hard error rather than
++		// ErrCheckpointNotFound.
++		refs.SetRefFetcher(func(context.Context, plumbing.ReferenceName) error {
++			return errors.New("network down")
++		})
++		writeRoutingCheckpoint(t, branch, hexID, "hex-on-branch")
++
++		router := newKindRoutingStore(refs, branch, refs, BackendTypeGitRefs)
++
++		got, err := router.Read(ctx, hexID)
++		require.NoError(t, err, "a refs fetch error must not block the branch fallback")
++		require.NotNil(t, got, "hex checkpoint on the branch should resolve even when the refs read errors")
++	})
++
+ 	t.Run("a ULID is never read from the branch", func(t *testing.T) {
+ 		t.Parallel()
+ 		_, repo, _ := newTestRepo(t)
+@@ -146,6 +168,32 @@ func TestKindRoutingStore_ListUnionsBothBackends(t *testing.T) {
+ 	assert.True(t, seen[ulidID.String()], "list should include the ULID checkpoint from refs")
+ }
+ 
++func TestKindRoutingStore_ListDedupesAcrossBackends(t *testing.T) {
++	t.Parallel()
++	ctx := context.Background()
++	_, repo, _ := newTestRepo(t)
++	branch := NewGitStore(repo, DefaultV1Refs())
++	refs := newGitRefsStore(repo)
++
++	// The same checkpoint present in BOTH backends (as happens for a mirrored
++	// checkpoint or a migrated one) must appear only once in the merged list.
++	dupID := id.MustCheckpointID("a1b2c3d4e5f6")
++	writeRoutingCheckpoint(t, branch, dupID, "on-branch")
++	writeRoutingCheckpoint(t, refs, dupID, "in-refs")
++
++	router := newKindRoutingStore(branch, branch, refs, BackendTypeGitRefs)
++
++	infos, err := router.List(ctx)
++	require.NoError(t, err)
++	count := 0
++	for _, info := range infos {
++		if info.CheckpointID == dupID {
++			count++
++		}
++	}
++	assert.Equal(t, 1, count, "a checkpoint present in both backends should appear once")
++}
++
+ func TestKindRoutingStore_GetCheckpointAuthorRoutes(t *testing.T) {
+ 	t.Parallel()
+ 	ctx := context.Background()

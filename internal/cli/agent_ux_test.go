@@ -330,6 +330,20 @@ func TestQueryStopwordRegimesShareGenericBase(t *testing.T) {
 			t.Errorf("domain word %q must not leak into the shared generic set", w)
 		}
 	}
+	// Temporal relation words carry meaning in prose retrieval ("validate X
+	// before sending Y") but are filename noise, just like the existing
+	// filename-only treatment of "after". Neither belongs in the generic base.
+	for _, w := range []string{"before", "after"} {
+		if historyQueryStopword(w) {
+			t.Errorf("history regime must KEEP temporal relation %q", w)
+		}
+		if !brainBriefFileMatchTermStop(w) {
+			t.Errorf("brief filename regime should drop temporal relation %q", w)
+		}
+		if genericQueryStopwords[w] {
+			t.Errorf("temporal relation %q must not be a generic stopword", w)
+		}
+	}
 }
 
 // TestBrainBriefFileMatchTermsExtractsNonLatin asserts the brief tokenizer is

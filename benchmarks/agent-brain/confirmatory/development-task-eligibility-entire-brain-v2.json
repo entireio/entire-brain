@@ -1,0 +1,1597 @@
+{
+  "authority": {
+    "benchmark_execution": "forbidden_not_executed",
+    "calibration_membership": "forbidden_permanent_development_exposure",
+    "confirmatory_holdout_membership": "forbidden_permanent_development_exposure",
+    "owner_key": "absent_not_fabricated",
+    "population_assignment": "absent_not_authorized",
+    "source_session_identity": "unresolved_no_owner_source_session_receipt",
+    "status": "non_authoritative_development_inventory_only"
+  },
+  "candidates": [
+    {
+      "candidate_ref": "cc127c90ef845e15aeea70f527a646b7337556ac6b4e2635ea47d428bfbbf568",
+      "changed_go_test_file_count": 3,
+      "changed_path_count": 15,
+      "changed_paths_sha256": "1105d2be824c47a3ad197b85f7a1e42f6bfac19635761a4928d838e6913a07d3",
+      "commit_oid": "42fe7fa1d953e5c9e31da5d0a423535388efa036",
+      "committed_at": "2026-06-19T00:31:56+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 1,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "12cc2ed521076c458d7ed2a80ea0acd3d68c61b3003569abb4783368c1a73a29",
+      "full_stable_patch_id": "df1263ec01a52cc33a23ec992a43750598330f56",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "0b9553fc1e4a27351d8d4d040ea4b2622f15b4c49e579c366c92bbfd9cb29e7b",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "454454624562731887facfd3fd3ea1583c8483b064f08baf09bde569d7dc389b",
+      "source_file_count": 10,
+      "source_lineage_commit_oids": [
+        "b3076b571c03bba66239e1c52ac31e409ee616cb",
+        "bd30d44b3450ffd89328d46f77cd76574aebb574",
+        "de3f85499167bf73100506d2a27b3fdd265707b5",
+        "af0be7407b410cce5dc6e20d5ac72df2b8781efe",
+        "2c1bd039c9a631aa2902504e11f56acb7519b1e1",
+        "5b356e48d0b29b97b8865268915cdf790e247c16",
+        "ec5cc0aada00638ee225218ae02c470c483af5e7",
+        "5b0f179c5fb90d5fd3de2ed5e301b26f9816983d",
+        "fd2e007d17826c1d968431ecdd7b6564b1657b38",
+        "5cec2cabf70a500af7bea6966670e169af2067ca"
+      ],
+      "source_lineage_sha256": "f895255613e05568d7cc46e05ec3c45594ddda0462d2cdb4ccaa544b448fa184",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "89891e66640f394cc282942d25f4fe1235ea151e",
+      "static_scope_band": "high",
+      "static_scope_score": 11,
+      "test_diff_sha256": "b9dd174d30530d7b87cf5e1dfc6335aef6443a0f6e0c9de58fa384c7d49645e9",
+      "test_evidence_paths_sha256": "d20a250277e3b87d3b200d7dcf8225543b9649f772b3236bfa3ce65f1cf86b17",
+      "test_file_count": 3,
+      "test_stable_patch_id": "7f27d7d7d598be162c81513750c5d8c6fb7e036d",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "d57682148957af1c400ba9c293d3985dc73523d51eb0684e97946b34b5e2813d",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "d57682148957af1c400ba9c293d3985dc73523d51eb0684e97946b34b5e2813d",
+          "package_dir_sha256": "1f9ad1ceda880a8f6cc97d261534d9229b6d343065f8c94e1ecafe191f55f6b4",
+          "target_sha256": "9229f30a6b7e260b2343ab51f250156fbdefc3b7b28dfc37ca38097f0fba5238"
+        },
+        {
+          "bound_evidence_paths_sha256": "538e2aead7440d800bca8de4bb2594f10582344e07da96ef625df3696dcf7c43",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 96,
+          "owner_go_test_paths_sha256": "e93dcd7025070cefd693677ecb2e36842dc2840e13715d199e7cc51366a25c79",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "89f38699d183dba2e1136e1f2d6d1c5d8daa2990",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "59914e6d451eaafb732f118209f240b049eaa95b3f2faa23d16f5f0324bc5d7d",
+      "changed_go_test_file_count": 5,
+      "changed_path_count": 10,
+      "changed_paths_sha256": "a7ec306dddea48b4549501b24aa514b0f173b8f84c42b4c3a6c05268991b8083",
+      "commit_oid": "88154bac8b175c49d6afc3a074b102df65c50380",
+      "committed_at": "2026-06-19T15:41:05+02:00",
+      "evidence_kind": "changed_go_test_and_fixture_or_helper",
+      "first_parent_position": 2,
+      "fixture_or_helper_file_count": 1,
+      "fixture_owner_bindings": [
+        {
+          "fixture_or_helper_path_sha256": "f6ca0fd0eb9d486ecd3dc682ce7bc4a96cfe10e0923fa32c3441654cb99d9f55",
+          "module_root": ".",
+          "owner_package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "owner_test_paths_sha256": "b1fb2a0fd67dc32d6a06ff1635b2f5bd3b9b79c55da49a8a1bf852da6af78eef"
+        }
+      ],
+      "full_diff_sha256": "935a1309e27518d997014ae74d8ad4e5dd975d500e5633d285a172d5e0e35574",
+      "full_stable_patch_id": "05e0e923ca7dafb0a8d4a544932325b112b0adc0",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "42fe7fa1d953e5c9e31da5d0a423535388efa036",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "d9b6d7ec612e23bd9d6f6020b3e6cd6853ac6007a16ebf3780f96979bc9604bf",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "9f667b7d5e9cd36a89b9ba8ea9f6d6c674bff00d8b937a768cd55aa0f8933221",
+      "source_file_count": 3,
+      "source_lineage_commit_oids": [
+        "88154bac8b175c49d6afc3a074b102df65c50380"
+      ],
+      "source_lineage_sha256": "22a2dd9ec39902077d9a31b6324c9cd6c597bab7d9d203150864c0fb95f4e456",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "3efcf16e24f6733c3ecbf88732e65e842502d7c6",
+      "static_scope_band": "medium",
+      "static_scope_score": 7,
+      "test_diff_sha256": "b3015d913387d8235c30fead7c54b68f8ea83df09ab1ff202d08065d9f99f2d0",
+      "test_evidence_paths_sha256": "51153ceb2169a0492be8876865da1f2b62915ab24ef82ed39fc5e51bc897b1a6",
+      "test_file_count": 6,
+      "test_stable_patch_id": "7b03d9f490e24905f6d505e27337f943447d3d8b",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "51153ceb2169a0492be8876865da1f2b62915ab24ef82ed39fc5e51bc897b1a6",
+          "evidence_sources": [
+            "changed_go_test",
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 99,
+          "owner_go_test_paths_sha256": "b1fb2a0fd67dc32d6a06ff1635b2f5bd3b9b79c55da49a8a1bf852da6af78eef",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "baabebb46afdb752e0392cc9d4074ff6880af8a1",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "fccedf2d7621fd51493f4e288affadc2f6b9ce06568f0c303d6573278867dcac",
+      "changed_go_test_file_count": 6,
+      "changed_path_count": 24,
+      "changed_paths_sha256": "4edd38f739915c74426bf61919fca0e3a1a46e13e4b981fe44b815e4421b24fa",
+      "commit_oid": "66e0992f0e976189120709f40b26bcdcc1a40fa4",
+      "committed_at": "2026-06-24T21:04:37+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 5,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "2caed38f030fd326c6727d88d85d7e5beaaa87f449c50a43fa4255fd0b85eea5",
+      "full_stable_patch_id": "391f44de458a8508341857670e562e8d169c0733",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "fb363907cc0e39b7d269643db64e4dbb3c64ecf4",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "6cf0f264f5a64a0717b081e32a6f058dbe90752d6255c94a32b70e16cc8927d9",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "38aac373317990bd01cffee9d5ec4d7a9e05d2ec0253e80d7ff32eae9002f22d",
+      "source_file_count": 6,
+      "source_lineage_commit_oids": [
+        "fbb6e9462b15fd3a44491c3281cb314603647f9a",
+        "53ab2476d22bb0be9ce6c07f948acf6ce684eb1f",
+        "25646a5abab0a18f629d564e3479deeda41459b6",
+        "e940811127d8c507855bbdf1189b8b7aef85396f",
+        "0e2862feed9bde0caf8e4dfc176283d20acb7ed4",
+        "95a00f6992849ae6e1382cd3275acd3b7482e1be",
+        "33a5212291644782b398d50b12a3d959ceccd1f9",
+        "d5fe0a4b360bd12b47e75782031be2fe64aa15ed",
+        "00994b98b3d53c63e9044d3c160d2cb8d512b6a9",
+        "f8aee243d73227d2989f633a50cf72420794c976",
+        "4a785819f7e6e2112f927cbf47378def94b560ed",
+        "6166805a66ce9c174107bc5b05e28e106d09f53d",
+        "b7c919e24b6a64e4fced13da38b71a147fd253c2",
+        "1862055c508ad9379053f31238d3b2cc0c3be199",
+        "71990ab7360499da9ef5df7c2f6e090b393652eb",
+        "0eacd3c35979583de02ef2672eee8f259391b0a5",
+        "e3c5e87706c984dd56f5cf58b0b52f89dfe9c74d",
+        "7d1347d3ea02af312e369cbd402346073d6adf4a",
+        "669f756bc8eacf0ce7628c134164ba852c6478fa",
+        "49c11400db0eef8eaa25cd6104283e515e84da2e",
+        "58fbac6b3b3072afa4e5ac883b88f1d8d571a0e6",
+        "dff2834f9c461502af07fd6cdc4de57bc009fc34",
+        "4fd098666ca3a29bfb48b1d8bfedf44d4495c776",
+        "6ac7c07082ce3635aec901fb9c435e2895bb5cf6",
+        "a60c6e9a7d0ba359a0b3b7f707a38f81025e7e40",
+        "9806a340e2c196b7c472b0f6bb310ac498fd4d53",
+        "ee9bf927df6bd87b59df6390d59148b6a6888aa8",
+        "eae6225094afe3297a03e1b290e0e9c1e00ac69d",
+        "9bbcb27fc9334d55832bac9991e9b4d0a6d0dbc8",
+        "154f62f9268039dd698a9cc18eeb68e73940d9b1",
+        "0ed81edb049b599e7092d8189461306f2c6f0dd0",
+        "d8b5ee5966c764d41aed2f58a1ce41317b9d0f45",
+        "5bb27bd7108b9e554c0014ba049930eb323745e1",
+        "2b99f0ea5a1aadee5c35ba3498361939ace324b8",
+        "32026bd61060a872e39250e1af42f05f68471f2e",
+        "de43eac188b9731f53ded83014dd459a761687be",
+        "0dbce1900e805333202d93ed5b901890df1b1f30",
+        "2548563dc6c4e7f8240d18e2b8b58cab7790e463",
+        "435ccbf5290e140d448bc9ac9c9b9d80b0ed3cd2",
+        "e8dd5ac388e5c9f0d1ec56f3636cc372af268807",
+        "4f1b9819448cbc23660633fc29fec0f169aafcdf",
+        "685cc4e6f8be282cb9dfa97c5f978b013a143042",
+        "0d5203919deb92678afb10ad547c3491512e2eef",
+        "da561d1a10fafadc0f176b42cad9ce1889e77a71",
+        "190f7d2701176db2053aebe5daba420ca31dfe89",
+        "67b7ada34d021f2eaa731b54e340ca3bb952cbfa",
+        "e0649b8f0f10c1802db40bfe3db125deca41e03e",
+        "652dbed18d1967a3611211daff728830c4bde8db",
+        "e6e330958ff431e21de3ec5dd04c794c2451e9a3",
+        "d4af7589409f5bcca80f104f56f726e0e48a8cd6",
+        "19436d7ae0cbece5fd1a402288c84bcaba113612",
+        "797e64ae8c5ab7937ac3f48c795b7c48df9ad72a",
+        "4f5c0d8ed02bc292a33356cd7b81075eb048d7dc",
+        "1d45ae1b4afcb662936fb231939c8e4eefa45067",
+        "e20948f1ee5cfb4f01c04ff461e570152debbf5f",
+        "f196899a6d36f8dc136b8c7d391869aeda4916a5",
+        "c0e9b9729854b84ba3f11a2ab636da500802c905",
+        "d598edede1211634d722ebc884b64f7460adbe15",
+        "9446d529db01f4790f3365a4268eb5114fb9891d",
+        "cbd4a1c623f84b2383d6ed4f72938ebe349d22d3",
+        "1d20e08dc758c500ab7affe9e4663de1c6b5bc23",
+        "f4760fd4d8d84750ba4aaa11ff39570978f82ac5",
+        "df2a1025fe0e7e82a7c0f7370476c768d7f1e384",
+        "2312a85b3287d1829aaaebba065bdac0b4e0e239"
+      ],
+      "source_lineage_sha256": "dce1cf82b02f3486372395e2dc9332e3ab64101e4d193dd0b1949eb5a2b6b302",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "2716a2693e918d29adbe663c7e566f461a4f14d5",
+      "static_scope_band": "medium",
+      "static_scope_score": 8,
+      "test_diff_sha256": "0114ddc16b4aa96b9e6bf94412d28b72527a5233d310c73504c3f7088a980003",
+      "test_evidence_paths_sha256": "ba3b50bd0e30d514924c5c6b7bb503fcdafb8619c0328b76c00571f67a981c41",
+      "test_file_count": 6,
+      "test_stable_patch_id": "ddd92723ed85e1d9b6afb6ab385ee21eeaec4171",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "ba3b50bd0e30d514924c5c6b7bb503fcdafb8619c0328b76c00571f67a981c41",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 99,
+          "owner_go_test_paths_sha256": "b1fb2a0fd67dc32d6a06ff1635b2f5bd3b9b79c55da49a8a1bf852da6af78eef",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "161d6a8e9c3b6c6461478178485001d6402e17a1",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "5799175bf76b09012a1154b39b9ae51d7f8d3b9fbb57a96f56bcf0046f4734e8",
+      "changed_go_test_file_count": 3,
+      "changed_path_count": 7,
+      "changed_paths_sha256": "43da581484ab2dc20c35f1f00f907bfeba110d0b998f5ae00ab493c3410ad756",
+      "commit_oid": "6b85f301d290cce7bcdae91377b0204e7fba95cb",
+      "committed_at": "2026-06-26T21:09:07+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 9,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "0c13ea5851dd74f0ef040f3fb1a8999ec40ce689cc13ffeb52c4121199760f02",
+      "full_stable_patch_id": "6c9366dfa4268f205942adc15132a52edebe2375",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "4f5dad1cfcf9f6d5984db8e7edd5fbbbc33a5914",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "47f8e3b7686b21c03ce664ea4eb0cc56c0d5e5aad88659efeed4a3f8370f51ba",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "b02f58f692284c775141ca1f5245e77747d463117866916c554b6f7a7974931d",
+      "source_file_count": 4,
+      "source_lineage_commit_oids": [
+        "d5dffd29b7e5d103a7735820879069237a688bee",
+        "4ed797d78c110e8f0c263658c68dd7cfc4a14ecf",
+        "d89f9772404bd3d3514a9a1f72086157bb915b43",
+        "317721b5ed3a4537ba133c328b3ae9e2274ff6c3"
+      ],
+      "source_lineage_sha256": "06652205e637692de0af4b3afeea6272c40c9a9fc5ec669e81e2842bc0c6d57d",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "ebf5ee6e0612c8d8cb1c3a41155125de77dbdec3",
+      "static_scope_band": "medium",
+      "static_scope_score": 8,
+      "test_diff_sha256": "0838b1e71a4fd2676200c4309a5bc794011f55b6db64dbb4ad0ec216134fa240",
+      "test_evidence_paths_sha256": "7e6fc4af894948f26ce1bbb80c9465ededd0dc9c5b9f05a8ddcfacfaed846d5f",
+      "test_file_count": 3,
+      "test_stable_patch_id": "819d77709e14c7478d2573803ce17f5066e344b1",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "7e6fc4af894948f26ce1bbb80c9465ededd0dc9c5b9f05a8ddcfacfaed846d5f",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 99,
+          "owner_go_test_paths_sha256": "b1fb2a0fd67dc32d6a06ff1635b2f5bd3b9b79c55da49a8a1bf852da6af78eef",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "72ac525b43a5882b9b12f69a237d2414b03baea1",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "87503916c4a736f080189c650db2852b292c1d96b7fb6854ea69a0b77c39e6ed",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 5,
+      "changed_paths_sha256": "32c9d2e2d4c84ad89a9242c14206d1e83c1590dc95055063c12fa51f853d1269",
+      "commit_oid": "3d713ac6a675798de72fa7eba56056f3326d9c2b",
+      "committed_at": "2026-06-29T15:42:51+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 10,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "cd4a46915418430cfa72adf8a93cea0cc879706aae9b1fd6b26e2e847cb38b75",
+      "full_stable_patch_id": "867ee16f0b1c0253c631c05a152752f1ca44ed04",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "6b85f301d290cce7bcdae91377b0204e7fba95cb",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "78f7643f0042d169c308f8fff978254c5eb602d004259041ee22a389f7cebc35",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "2967f14fd6aa4c4973d41eaab1cec4ac33031503b983f7f0aab9bda856d79d7d",
+      "source_file_count": 1,
+      "source_lineage_commit_oids": [
+        "cc5c57987b79944dbd93cc69dc226dd2723e9576",
+        "c4892f70807b64e6153bac8037a2e53a6d2faa29",
+        "b93137ae89e4336334f33870b4d85d33ee7c9886",
+        "f8f68351478d9fcef0042f2e09b4029ee61c9a36"
+      ],
+      "source_lineage_sha256": "f60f520715392473703b585089e430fcde7e1adce979b938b84ecbf52684152c",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "0840c1c9e3a063cc9388110a2944d3eb3c68cb05",
+      "static_scope_band": "low",
+      "static_scope_score": 3,
+      "test_diff_sha256": "305dabe0ad8969df96d29c7b83d1dc617584187c8196cae6c770d32ac309fe9f",
+      "test_evidence_paths_sha256": "030de5a551750dbf0a0ce5606b1aa1aca93ad6d5b22156947f2f07edb438fec9",
+      "test_file_count": 1,
+      "test_stable_patch_id": "05dc9af0e244c8387bf7af73a1eaa6b1e30d81a8",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "030de5a551750dbf0a0ce5606b1aa1aca93ad6d5b22156947f2f07edb438fec9",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 99,
+          "owner_go_test_paths_sha256": "b1fb2a0fd67dc32d6a06ff1635b2f5bd3b9b79c55da49a8a1bf852da6af78eef",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "efc4dec80a7c7f3514370facad2b157d9f7a2f45",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "ecb9ad31fde6171e7df5a8c7556a1b4e048717625c5218f58c18949b9af59e83",
+      "changed_go_test_file_count": 7,
+      "changed_path_count": 26,
+      "changed_paths_sha256": "03a055e52b43858dcb8292b6175d78a14feac1b6c772f92a0ce5f362e2e4de0d",
+      "commit_oid": "46889501e065d73339e7bcdb132ee3e345c5489c",
+      "committed_at": "2026-06-30T21:50:29+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 14,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "6d1cd070097e1f93c0da4527793cf3c9a0cd632a1d70770efc9276a150bf5135",
+      "full_stable_patch_id": "b61b2f5143b2a819be53382cf055adbd523a0b5a",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "4ecbf3c76cdc7a4d932fba190a544829443aa89a",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "f345e8c58324104c306451b98e65225e0bff5d2dee2ccc47afc9c3e1be966b7a",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "f437a1fd627ef0ba4226a7c3ea097237e22e998badc4b233e1585515a579da45",
+      "source_file_count": 18,
+      "source_lineage_commit_oids": [
+        "46889501e065d73339e7bcdb132ee3e345c5489c"
+      ],
+      "source_lineage_sha256": "9e86f66f60f370ad76fca8204cd1855950ab17448ec9531b13789c29678a5a03",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "9c01ec79901e32a17cedee845d88ddc7c974ac6b",
+      "static_scope_band": "high",
+      "static_scope_score": 11,
+      "test_diff_sha256": "488c509fbd750bad4c687fcfea03852fad3dae5fd50818edc004a52eb3f4fcba",
+      "test_evidence_paths_sha256": "ab2beab9ef8d82ac9e2456e525aa05de69c86d60a430a7a8071f00820058c1b1",
+      "test_file_count": 7,
+      "test_stable_patch_id": "fe4f754dd2b1dc2585ca3c5d528194f81e8c218d",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "6aeb128569846a87ee4079d84b1044b97e9abe58f45ca8e1a9af4fbdbea2c3cc",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "6aeb128569846a87ee4079d84b1044b97e9abe58f45ca8e1a9af4fbdbea2c3cc",
+          "package_dir_sha256": "7fde6501cc56a280bf69d8d5b5d943307c0be041a924a8ec42e32ef2ad59d4c9",
+          "target_sha256": "ef3b7eb73723f5f9f8bd600a2b68ce95b677453b78582497359e049ade4b8cdc"
+        },
+        {
+          "bound_evidence_paths_sha256": "3d7e8da6fb47667962a53d8e0d6e8266eddaad53f3a10b5c0b8d89520ffa39d8",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 103,
+          "owner_go_test_paths_sha256": "b69261c937d96ea0fa7c42b94b5ce2addf6642f411f8761d1c54022d0a9b7056",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "a24bf69c53904489742bc617f5e6299fcc9674f4",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "85f30173c78ff5a14c2f0ae485af418c4b348cbba350727d81732ba580fadd3c",
+      "changed_go_test_file_count": 2,
+      "changed_path_count": 8,
+      "changed_paths_sha256": "51dad480c662b21f5bb4965be93220323032ad5d1217c0416eaabd0a1ff1af13",
+      "commit_oid": "fdfa63834a1ce17e8144ed7c61ca7e6d28056954",
+      "committed_at": "2026-06-30T22:02:06+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 15,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "9bd9f8f166f228e10cc8445c0acda4979df83e364df21693a857a5a6e8261f0f",
+      "full_stable_patch_id": "18a8c1d344c80eb9ae8b34c4d7add4830a6a2782",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "46889501e065d73339e7bcdb132ee3e345c5489c",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "a9c559cc4fb57d50dd29bf3aa7bc6c1e6af040bf549d061bf53a50758c138bca",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "06a66521a67a391d4220d86b067013e67d180f1235debe530af965fd1c282d77",
+      "source_file_count": 6,
+      "source_lineage_commit_oids": [
+        "fdfa63834a1ce17e8144ed7c61ca7e6d28056954"
+      ],
+      "source_lineage_sha256": "1693f36bf49a7a4a5e0fa2c71f02f4a5193f6de10ef3bf4e213b648492d8817c",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "a9c1fec8ca738c871c1f212ca5acfb0fc8902121",
+      "static_scope_band": "medium",
+      "static_scope_score": 7,
+      "test_diff_sha256": "20b79efc04e5e064ae98dba2a17887f2f10f9448a4b743640c234396bc77b57a",
+      "test_evidence_paths_sha256": "58530c5b0d33b729f0cfc9f175e64a7550726713ba27c3aa5ccda02770162d89",
+      "test_file_count": 2,
+      "test_stable_patch_id": "6fe6c20a7a548231926c13983201d97342d90561",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "58530c5b0d33b729f0cfc9f175e64a7550726713ba27c3aa5ccda02770162d89",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 104,
+          "owner_go_test_paths_sha256": "442e6c0212bddbcac29779e31125969150aebd041d9f06bd848ca5ee0d4b422b",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "84ff6b0fa574aa335f7d72eb108f298105ed8bc6",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "27729530d05aaee6eff8523f657fa3f0a67ad459ba34e24947de1be411e5774f",
+      "changed_go_test_file_count": 2,
+      "changed_path_count": 12,
+      "changed_paths_sha256": "24179a4dffbad7bde5f4b640c1f932fd6c58f2a39317c8fecf0aea99557c34cf",
+      "commit_oid": "731df7399dfdf1caeb0a448497ac59c14478faf4",
+      "committed_at": "2026-07-02T23:02:32+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 16,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "788d4dbf2e1db69f25aa87b5bf89a9c1bed18bfee1bdae15ebc8cf5bc9874415",
+      "full_stable_patch_id": "77c111e6095ec43c20226981c43eed5b569f77ef",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "fdfa63834a1ce17e8144ed7c61ca7e6d28056954",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "7be014c9b29d20893a0f51272c0df03c5dc5e79570ad39ad6c7bebb521b014b1",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "348a5ec62d69df3376311a0e97aa844a949486d79f3d7b755eea3d2be8348d9b",
+      "source_file_count": 4,
+      "source_lineage_commit_oids": [
+        "8185eb6c721799da131a989ad815cf79ad689fe1",
+        "88cb77fd96db49190c28608e09d50fdf561598e9",
+        "bbb74cffddb3fc135cef174393b4c70b8b7319a6",
+        "34a5e40907584be71a299716d67059af916ba087",
+        "5ffd0909b4d3fba64efd9a67372508a273103c34",
+        "415ad95c4a959d5da22ed45064995540b4cd4d03",
+        "d81acbaa9664657d12580c090b98ac021af0b946",
+        "5bb62a5595339cf9063c25c0b662184ce1217145",
+        "689644fc6607e5596b881c6d3138136b167127bc",
+        "1af3ad7420cfa56dbe8d8b26c92b11d1cfddc659",
+        "017c6ac46b92c4dd0edec830009f5547e7cb0fa6",
+        "63752a4df824cd6345e48cbfa2642ddd22fd05cf",
+        "fe917c381185ff17edb373b13dc1fabce61681e6",
+        "bc52fc544ad7228ee75a35275d06457fe22b4e50",
+        "cd3e8aac934c8dc102384cf1ebe158810a037943",
+        "bed4fd801abe1ebde3c69da5d0dfd9b7d4e68fad",
+        "d2562f7316e20ec6e93877899475b624cbfa3313",
+        "0cca15af8dc265f3f9d78f66bad9a8d9514c01f4",
+        "ea4a1db7a28f7ad5d1b7e138e0b206e8043964e4",
+        "d6e2f7a05a37f0a8efb3045b662b040a9bbf614f",
+        "cd868772f5500ba434161ae2027d2546a5e94358",
+        "753147452f34fb8b62ed59305a1599efcb4a61e2",
+        "dc596e3a156e8472c6fc5fa8f411f662d7b004a5",
+        "7d5a7b33e96205f008c2b6905f9a4e857e616b9a",
+        "efbd655b1e12c133fffc5f8d768111db52947577",
+        "10afb42e166fa4eefa5fe3cb2dcb6877096b6f50"
+      ],
+      "source_lineage_sha256": "977da4ac3f26495d67c4df96d3bac515d9be4d8bc75ff499052aaad4e8ffaac3",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "3bdaf2b9127ac39dcba8ccd6da98049dff6ae15d",
+      "static_scope_band": "high",
+      "static_scope_score": 10,
+      "test_diff_sha256": "8eec69f9db8a5e2cf243cc4b23fadb7b46014d46dd461866277b4fe9d08d7d70",
+      "test_evidence_paths_sha256": "77f0fcad3a7253d7b87167a9d6164bcbaea3cfd62c033ffb0fc7006e1b3b66ce",
+      "test_file_count": 2,
+      "test_stable_patch_id": "90d6f51617249229e0b5562cf966891ecee47ab9",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "77f0fcad3a7253d7b87167a9d6164bcbaea3cfd62c033ffb0fc7006e1b3b66ce",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 105,
+          "owner_go_test_paths_sha256": "68f8a029e20be8eeb38c1e11e0dbe04ae43366fba82abf516efd10555c763cc5",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "68b24690e6d0b752d5a2bf87332b77cd82e453b7",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "70ed621e90ec13023626bd9bab5ca32ab995dade2b6545b3e45c88b4e6187077",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 4,
+      "changed_paths_sha256": "b59543da25bd7da6a397c8bda517902bc0ce46b0f28a6ee4083c21b2673923bb",
+      "commit_oid": "963d50dc603642c07d875d6af1c8046192a3bde5",
+      "committed_at": "2026-07-03T01:08:58-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 20,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "f9a6a79967836e2a3645755abcfcdfea40ff5bfd7eb07448c75e843cd25bfe22",
+      "full_stable_patch_id": "f1d578b5c2ebd9129752c6990c7b753d3617e194",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "01fa5cb7065e5479da96482a7abbf58bb93b126f",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "f740c86c0a0c1e9b105099aa929a071fe21f5537ac9dd7e662525e6cd3506b73",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "3f6ea7840c9d66b48cb8fa55318beadc73dac45157039039f72049a615193469",
+      "source_file_count": 2,
+      "source_lineage_commit_oids": [
+        "963d50dc603642c07d875d6af1c8046192a3bde5"
+      ],
+      "source_lineage_sha256": "79ad93bdc3c1670f9e9b0aa663d9550c26d9cba9667d28e934c2bfc6c40f394e",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "4de196961dcda17ef7837a7567f2fbba9bb580b4",
+      "static_scope_band": "low",
+      "static_scope_score": 4,
+      "test_diff_sha256": "a6d85f9e88c4c380d72b53a7cf79d0f8b36e85f85fa1c5ad66f287444282e051",
+      "test_evidence_paths_sha256": "0eebbc1928c6eccc9c81ef44551de026124ae09fdd24b8375a76d20f1dc825f1",
+      "test_file_count": 1,
+      "test_stable_patch_id": "9c60081f5f4b082865b1d2ffdc8d95e691508d90",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "0eebbc1928c6eccc9c81ef44551de026124ae09fdd24b8375a76d20f1dc825f1",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "0eebbc1928c6eccc9c81ef44551de026124ae09fdd24b8375a76d20f1dc825f1",
+          "package_dir_sha256": "87f6c925e9de663a5ed23e314a64eeb071cf6350536a5ba35d142eb7d48009cf",
+          "target_sha256": "f99f7a95d8c74ac5985edd9c064110cedfeee1b594ea63930f36b8076bbd925a"
+        }
+      ],
+      "tree_oid": "25f75d7a28ae3ef3939276f9a93de756ed9c72a5",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "863c2fab075ee64da4fe9e56a567dc6dbfe900b0d70651373409f3c9c02f3247",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 3,
+      "changed_paths_sha256": "ed1353fc4030916b26545740e81206492e6c1b8424ca39a573ee32a910e8b179",
+      "commit_oid": "d7158c247fa8fa4eb238b0d959147cfbd5f22818",
+      "committed_at": "2026-07-03T09:18:32-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 21,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "743a9720671717df7be7f4847a67d534adf94331cad4de2e8a2bf683af0bc9fb",
+      "full_stable_patch_id": "698ae4dc9f0af1b468596314a610bc2679a244bc",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "963d50dc603642c07d875d6af1c8046192a3bde5",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "482cffb86d1b09eab8ce21d459d940a903d2702a53101316e7a32daf7b3dcc5e",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "f9817dc05b6591fe2dfcc0137a4a1d5d72c6fb1e7a2388c5628905c168be75c2",
+      "source_file_count": 2,
+      "source_lineage_commit_oids": [
+        "d7158c247fa8fa4eb238b0d959147cfbd5f22818"
+      ],
+      "source_lineage_sha256": "6a8d0a008bd10cc731806fa58b23d20342589b89ac5d3aef451a87720917e316",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "5683838626d871051bfce23d72d8338417f12ad9",
+      "static_scope_band": "low",
+      "static_scope_score": 4,
+      "test_diff_sha256": "8f474e584a3280692e77d6788a347710da7a3f3b217a21fe16c662ed03567b8d",
+      "test_evidence_paths_sha256": "b966ead9fdee0d806640cde5e187983b0e80704ed39d44d319c98a01abae494c",
+      "test_file_count": 1,
+      "test_stable_patch_id": "1307615679327faf4d5d80d6333888a261b119e3",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "b966ead9fdee0d806640cde5e187983b0e80704ed39d44d319c98a01abae494c",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 106,
+          "owner_go_test_paths_sha256": "101b895bc5cb766574e899f35a9ae7fa034af80f075028bfe4a0830eb66612be",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "be655d2a0d8519b7cdb0a303633135d0de45a0a3",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "bcaf497f639777aac96726a294c393b85ebe9d9f1ae4215f6b8e8d39693e6d28",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 6,
+      "changed_paths_sha256": "26dd6a00286ae42a18056b33f6e201144c0e7333c9afaa6b994f5de0e97c21cd",
+      "commit_oid": "8fffe9329691fe6d0b411bd9042712548f5aa86d",
+      "committed_at": "2026-07-05T13:45:48-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 22,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "295ca7ec881f5eb08d3b454a35f5175d7cb0361362b3d77d52cb8fa22233d6e7",
+      "full_stable_patch_id": "020d7a29821f98cacc22080623ede276061a9ffd",
+      "go_work_bindings": [],
+      "merge_parent_count": 1,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "d7158c247fa8fa4eb238b0d959147cfbd5f22818",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "612c42d772e00e5eb90d13506b7ec1086afbdbfd8867c81810fa4fcf9d9caa97",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "d0451337ef02787e0c3c92db9627a3ba29702a24adb78a11768d1b97172e59bd",
+      "source_file_count": 1,
+      "source_lineage_commit_oids": [
+        "8fffe9329691fe6d0b411bd9042712548f5aa86d"
+      ],
+      "source_lineage_sha256": "6e60fc4707d0b475e170c3ac9e8bd23ea82406bf97aea6217fcb6a45288a27e9",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "bf1e979ee92a4eed5400c25e03b5f40f8b939589",
+      "static_scope_band": "low",
+      "static_scope_score": 3,
+      "test_diff_sha256": "23fbf7bc3aebd7c71435a324008194f432fa4ca3bcefd89ad89f3e35ee51847e",
+      "test_evidence_paths_sha256": "bc9fd1d0f9067a884a0b2a0cbb1ff213b23586b239d09ae8ed8141985431f9b2",
+      "test_file_count": 1,
+      "test_stable_patch_id": "8476159d6be0dc83dc28a1be37c84c945dc1105f",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "bc9fd1d0f9067a884a0b2a0cbb1ff213b23586b239d09ae8ed8141985431f9b2",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 106,
+          "owner_go_test_paths_sha256": "101b895bc5cb766574e899f35a9ae7fa034af80f075028bfe4a0830eb66612be",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "b6e5f0d2d0d044036a0ad9c2d63e99d767c8deb5",
+      "unit_kind": "single_parent_integration_unit",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "3f9c556c66a8af1fb4962439a89edd02e2008b09ac6b924bdc31d0ecea7bade3",
+      "changed_go_test_file_count": 6,
+      "changed_path_count": 23,
+      "changed_paths_sha256": "8accd06fb1d9b2e86ba7485de5d5b1edede025b83a329656c321f988958ef457",
+      "commit_oid": "a2b20597ab043831515b0197990ba347e13f7e78",
+      "committed_at": "2026-07-07T16:51:03-04:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 25,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "bb7b462dba77f2546242d651469058e9993abe3b10906023d1104cad10e5bf18",
+      "full_stable_patch_id": "1d4c7ec627ba7dcf5fd60a54f84418939577d73b",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "6e9a56d65ae8d840291ed26671ed86f725032f46",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "370500d41ba873cc1e020f4143f50f6ef80b36fc4450c44c4104f5c92abc1672",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "5d271cae77044eb4a2b6faa352b96d1d5d45ff59369128bb2281afe4e918dded",
+      "source_file_count": 17,
+      "source_lineage_commit_oids": [
+        "4cc6ae226dec0df7f4e37b8ccc2b6c5a11a60be3",
+        "762751b9e4aaedee1115850fa23cff471ba0717b",
+        "822d3c2c79275a73f7f84d227ac6b1f13881016c",
+        "2491fc9b3232d6f9ddee4e889e1669a7040b7a82",
+        "4428ba8b175291245482452e1e066b704fdd427f",
+        "f6d15f9fbb590bf5bcccb368ed0684d4e8bd6d69",
+        "1eaf3d8eea830e62025726446d822919c5166cb3",
+        "fcb7044fbbc24bc2c541df711ecf97e784b37352"
+      ],
+      "source_lineage_sha256": "b2c721a7810aca6834d666037a9f49e6fd0fe4ebe237753cbaaae48286346b01",
+      "source_package_count": 4,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "20a840775d749aa9335b1ff0f120deca394bfd38",
+      "static_scope_band": "high",
+      "static_scope_score": 12,
+      "test_diff_sha256": "d8fb65ff18ecf43239886867eeccb48fe9a2f0669be805c0e0af4c9093982791",
+      "test_evidence_paths_sha256": "cd86f7dd85a451a3b6cf8ea6bf2a14f7148cf0c460d0e7b56b557478a2043c64",
+      "test_file_count": 6,
+      "test_stable_patch_id": "fda33d4fca45e3252c7beb6306243ac85b2cda02",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "3a500b63eb156bc20cad5bf7416d6f1168891c1bd4200c9746c65464e91e50d4",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 4,
+          "owner_go_test_paths_sha256": "3a500b63eb156bc20cad5bf7416d6f1168891c1bd4200c9746c65464e91e50d4",
+          "package_dir_sha256": "31f8fc9706419441de0e3ceb489605cc73366bf858e54213a4157fa361009f2b",
+          "target_sha256": "c8aaf548fd2c20e809c6c56abf8f5df0460d7d2b06d9c45ce840a57e11c887df"
+        },
+        {
+          "bound_evidence_paths_sha256": "8b3c2c128ed5968da05a2b5f7494ef9e272b41d15ada32ecd1cbf1db560440ec",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "8b3c2c128ed5968da05a2b5f7494ef9e272b41d15ada32ecd1cbf1db560440ec",
+          "package_dir_sha256": "7fdc187e64bf1ece9de9035fa8d41b57a69975b977a12a2cf7343f399a02d482",
+          "target_sha256": "6d13e1b68f7de20ab79d8bc64b7d66da241419d11e8b4cb98fa671ba7a5a26a6"
+        },
+        {
+          "bound_evidence_paths_sha256": "f5ed703b5b7487d7a84c481e912dab5904c0af1b653ae0dcb758a05a0076bb53",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "f5ed703b5b7487d7a84c481e912dab5904c0af1b653ae0dcb758a05a0076bb53",
+          "package_dir_sha256": "eeddcf2a25743d6b0640694b3bc78f924349338318713f7868db38bb464a8a8b",
+          "target_sha256": "ec36f4c22039b81bebafd024cf514da5c14d85f6dff739c24870ca9b27206eea"
+        }
+      ],
+      "tree_oid": "c6e4214b6d4a2b79f4b3196f06a8ba81382f6b50",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "e359b0c2929f1c8cbb79902e48859c5b2146b9ac0c2f1eba57f846c9d51b9855",
+      "changed_go_test_file_count": 13,
+      "changed_path_count": 29,
+      "changed_paths_sha256": "c0b994c1aa044c40279c9606f28463feaf87ee7384ecbaa186d786e608a64dc5",
+      "commit_oid": "050aa17bead02dc351af02a1ddafa3566058043a",
+      "committed_at": "2026-07-12T20:15:07+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 26,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "39f2644c37fa175b345a7b0224c34788edf99122f753573ed64948742add762a",
+      "full_stable_patch_id": "e57e66c39302e3dcf5bbd2db0c69959039d8d6e4",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "a2b20597ab043831515b0197990ba347e13f7e78",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "72450b3f4902ac4f22b22ddf6f7e477a21d1d7898042f740172cd964b581b4a0",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "5cb7daac397f20e0c91d237602bb76d3a1c2906e0d9015defa4116ea6b76abb7",
+      "source_file_count": 16,
+      "source_lineage_commit_oids": [
+        "d9eb28ae9fa64d7994d1960c61bb65ffde733c79",
+        "6714b1849d3c68501c330164a3947073cdeb0ae0",
+        "c241b6749f4770d801b41f337a5a4316944cc296",
+        "ed2ec007c894df4e195286c6b2dfa2d0273dd99b",
+        "bb026a186405d5939ea8ce2d745d4167ccba91d1",
+        "3445a434c4638a64695663c955a2156352159120",
+        "6c040ca71a028ccef62aacb8084ae7940631b541",
+        "b12c9bc8d05e8457d639adec85f733432942e6c5",
+        "ffa1bf8af9582e9a1ecd465a9ed18ece3a07818f",
+        "9c717d2a17c8cc7b3cc5d7044bcdf0482a5c0aad"
+      ],
+      "source_lineage_sha256": "bdc3afe745902abc4b1e98d4fa5c918d26a623ecfa21ac59262b865058f3d302",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "b2c53d36375f59f424b3bbb7f3cb7f401db7e870",
+      "static_scope_band": "medium",
+      "static_scope_score": 8,
+      "test_diff_sha256": "ee47b64d3d179d17a88b4770e439d0859d48760ee9b27facdb56d01791d7ceef",
+      "test_evidence_paths_sha256": "50fc9b26e5711a18121a3196590e47b7a8bb124db2aba92973c14732a23114d7",
+      "test_file_count": 13,
+      "test_stable_patch_id": "33b9288d5ca389e8d0081724199d15501c21ee73",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "50fc9b26e5711a18121a3196590e47b7a8bb124db2aba92973c14732a23114d7",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 109,
+          "owner_go_test_paths_sha256": "5f3472a9212fc99fe5475e89580c336d956cd0a9d7bc57721eb41ae84057c2da",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "6d2f5024f3399368e94bc07c710678e0dbebb8ab",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "5e16947e42d97812adfdd10d437fea263aa1e01f650ab68b034073605d78ab6a",
+      "changed_go_test_file_count": 3,
+      "changed_path_count": 15,
+      "changed_paths_sha256": "4b86d27fceea618f6c6278f65d9ffd9bae828096caf2495dcc4a242461b50256",
+      "commit_oid": "bd10c318a2e6f9b308434f6f1404c63e3222f49b",
+      "committed_at": "2026-07-12T21:06:07+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 27,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "9b641b4f740557e3ebd4204e960d18b2545ce31ce6ea0cd6ddd973073b17ae8d",
+      "full_stable_patch_id": "50f1483244ef9cf20a324be1b427d590f55a2bd7",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "050aa17bead02dc351af02a1ddafa3566058043a",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "98e3bfee105803a3c31bf60b2b5d2841ef100f831b28671f569ab4d0136e3a4e",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "f47ab671864c5fe14b5902274b645cb845d570a76945af4bdf6acb66ce50d038",
+      "source_file_count": 11,
+      "source_lineage_commit_oids": [
+        "95dfc9bb4ec6aa5861703fc48751460b5d9e1bb2",
+        "d71e1fc8b1593428ebdfc063e6b379bcebee4764",
+        "2e96119b18ba96a5b0e1054ad0a63a4a1407facf",
+        "e1034624a484c929479cfa09b55e98283e7b0a8a",
+        "7e3908c09289e9672d9e21e220811f8826a913aa",
+        "21855c16c8a5ba28ee580c8b2c5b9f7ce9d3e35f",
+        "8cf82293b128d6af12de84c2a531f896727a0609",
+        "007291a75e0d4eaf22cf423869d10b3d1e79d6db",
+        "e32147894ab782f46f0bd3b6d61111d97ea67f0b"
+      ],
+      "source_lineage_sha256": "3ba78c4b510e17f1d64ea2d0d7c6c54a626426a9e758ada1653757557334e383",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "f47d30605284daaf71545789a0862cc53d1f54f5",
+      "static_scope_band": "medium",
+      "static_scope_score": 8,
+      "test_diff_sha256": "2bac7da6d0b1043d47ed72ecc971525b1548999d9faf0acb425f7f6fc11efa07",
+      "test_evidence_paths_sha256": "a91d810afcca1b646be4eca8992de511f542b3b9fbe4f3efd50fabcaec16cd5f",
+      "test_file_count": 3,
+      "test_stable_patch_id": "3d14f5e488e0fcfc6420b3b9d9778a934966a3fe",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "a91d810afcca1b646be4eca8992de511f542b3b9fbe4f3efd50fabcaec16cd5f",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 110,
+          "owner_go_test_paths_sha256": "ee171613076a62e9ed3cc176bae029187d6d48c62019ee3acc150a6713ef627e",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "fef03b317f81af46309e937d86acc156ac5be3dc",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "6cb6763a4ca14c60d6bed42f74acec10637772e8409404e14fab12eb7773ece0",
+      "changed_go_test_file_count": 2,
+      "changed_path_count": 5,
+      "changed_paths_sha256": "b2b66c5bbf9731fa4d59c80e57e319637c7326c3cf3135b9ff721c91bb92a3c6",
+      "commit_oid": "4cd6dca044fc8bdde83ddc549316b94f448ca930",
+      "committed_at": "2026-07-12T21:16:46+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 28,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "e4ee768764b6f61e098f2c7e36b2ee49840c12e619b8fc744453a446705085d3",
+      "full_stable_patch_id": "c6ea0df2794eec305622391107f031023f4ab21e",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "bd10c318a2e6f9b308434f6f1404c63e3222f49b",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "14507fb8ee34bb7c0dc83c6e60b8f913a0b3fa32e2f0ce146dd84b7151effec1",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "ddf2dc3d0c6550aa2579458b7cd6a510fe2d2e60e66349f6f1081b0c523c22f0",
+      "source_file_count": 3,
+      "source_lineage_commit_oids": [
+        "f5f8f314c0cc21ba14abd4b7f9d3fd845700abd0",
+        "33e17c269b3f5fce75805031f40a0d67b038c352",
+        "f307dac4dd18b0b9465d70d8ab86a710cce8b33b",
+        "9b53d116e7da681e6e8bfc765bc770f0751c156c",
+        "178333f51249e9858e3d93028bb9d24ec0638ffa"
+      ],
+      "source_lineage_sha256": "3c1d4cf13315e5abddc1582aaa1d8e1b09bb12e102ce229e18209cbeda044c1b",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "8dd1800453e36849c0159db00a37fe8c143f6ad2",
+      "static_scope_band": "medium",
+      "static_scope_score": 6,
+      "test_diff_sha256": "e65e8c76a0060f8d12491fb1b2927bc6bbfa02c6aaedf61d955e20bff86a16ce",
+      "test_evidence_paths_sha256": "464d73e434558e37fa895617ee291e05f51f481bd6b96e44e337c620c3d6c22c",
+      "test_file_count": 2,
+      "test_stable_patch_id": "39198ded266b83e7950c9c60fcb833752a0b484c",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "464d73e434558e37fa895617ee291e05f51f481bd6b96e44e337c620c3d6c22c",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 110,
+          "owner_go_test_paths_sha256": "ee171613076a62e9ed3cc176bae029187d6d48c62019ee3acc150a6713ef627e",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "11f0a49827ed009863bb91d244ac6d80ead23059",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "94aa94f82b5945815071d3863a873a1e6cdacb330264fc9c6f26f17e9f2c1a05",
+      "changed_go_test_file_count": 3,
+      "changed_path_count": 6,
+      "changed_paths_sha256": "57dfa459e8560ebfad1346f2dee90c9679ff4af32a1d4302645318bf983f54c6",
+      "commit_oid": "9cb52c7c27e4d2f9ecf39b8d1fff8d36f5c7a07b",
+      "committed_at": "2026-07-13T07:44:58+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 29,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "8cd34cd659ccc8545e7c1867f820daa0f0161633e9a1672c76fadacc17462ee1",
+      "full_stable_patch_id": "300a3076da735d5f67747e4c1244c1a058052abe",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "4cd6dca044fc8bdde83ddc549316b94f448ca930",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "576e4fca258d7ff274f6d76995de1666933773f1699ac5574561a8259afc3242",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "169a4701636a3a0be49552dfe7e5633eb01c3dc0ee54b6ef92a59df02fa13212",
+      "source_file_count": 3,
+      "source_lineage_commit_oids": [
+        "170c52753ae2e96216d507f0cad4a77db004ca31",
+        "2168ffbac906e974ce1ad5f1a11f348baddef15d",
+        "32b5eba3c662c09fc1d4e00b1212f1eb298c36ee",
+        "32f1e3f2f8de4c80c6f212cac616471d91e1b857",
+        "db119a02b9e89a646c3cc02aea8eafbbbeb2f827",
+        "86bdc6774e3210672514c9b02f44d468f37742f0",
+        "2dc124a2ac7c7c780494dfe4678df62f321ca127",
+        "756252d22d927e74178ae58261c335fa75cf8346"
+      ],
+      "source_lineage_sha256": "459eb1d8ae25e568723b41413508e4017f6c58285f0d454dfd772ff4b45ff831",
+      "source_package_count": 3,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "e08a6e616bd9d111ff2dcce2781d460d48075266",
+      "static_scope_band": "high",
+      "static_scope_score": 11,
+      "test_diff_sha256": "ad5baafa5139b997464249a5e7858b8fc57b4d06b5d85dd604e2aa93223874fd",
+      "test_evidence_paths_sha256": "657e81f22cb511e4093704b2118c092ae08c9035f7a0173314abe0e1055be76b",
+      "test_file_count": 3,
+      "test_stable_patch_id": "507fc1146f9a8b4d6846b26999267b9310fed757",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "a715e22a5063fd71b36053153c7e9561bc98acfc129158c846ef72d7c2b312b6",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 4,
+          "owner_go_test_paths_sha256": "3a500b63eb156bc20cad5bf7416d6f1168891c1bd4200c9746c65464e91e50d4",
+          "package_dir_sha256": "31f8fc9706419441de0e3ceb489605cc73366bf858e54213a4157fa361009f2b",
+          "target_sha256": "c8aaf548fd2c20e809c6c56abf8f5df0460d7d2b06d9c45ce840a57e11c887df"
+        },
+        {
+          "bound_evidence_paths_sha256": "8b3c2c128ed5968da05a2b5f7494ef9e272b41d15ada32ecd1cbf1db560440ec",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "8b3c2c128ed5968da05a2b5f7494ef9e272b41d15ada32ecd1cbf1db560440ec",
+          "package_dir_sha256": "7fdc187e64bf1ece9de9035fa8d41b57a69975b977a12a2cf7343f399a02d482",
+          "target_sha256": "6d13e1b68f7de20ab79d8bc64b7d66da241419d11e8b4cb98fa671ba7a5a26a6"
+        },
+        {
+          "bound_evidence_paths_sha256": "1d028e09f9b7a92d1a9645f8301b0f6cb771a8161c64f16bd857abc3e9f2b235",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 110,
+          "owner_go_test_paths_sha256": "ee171613076a62e9ed3cc176bae029187d6d48c62019ee3acc150a6713ef627e",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "204aa1de28b84d80012527c775770259806ffc88",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "bb0f1b7429a89a2e6085703446ebeab085e4a62ef04afcdd372035b626fffc19",
+      "changed_go_test_file_count": 1,
+      "changed_path_count": 29,
+      "changed_paths_sha256": "b554fa032f6210595f65175f6af5b08670302393b4f790cd9ed27d9b0531a2a8",
+      "commit_oid": "4d2aff60257a784a13cf89aa5ede1307fdfcc66c",
+      "committed_at": "2026-07-13T15:52:24+02:00",
+      "evidence_kind": "changed_go_test_only",
+      "first_parent_position": 30,
+      "fixture_or_helper_file_count": 0,
+      "fixture_owner_bindings": [],
+      "full_diff_sha256": "6dabfb4743f9eca127f488a792a77485816a1ab3dde3207f24fa4d32c6ccb403",
+      "full_stable_patch_id": "2fdff457df229d33887d39784bf39b38c8053981",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "9cb52c7c27e4d2f9ecf39b8d1fff8d36f5c7a07b",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "393d52a5ed62fbff0b1c7682eb56223b5bb3a8693c7d0bc8996bc0e02d7006c0",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "a560303c848e34e933d2bcc493b0489222d45ddc4202a25e4569b87e1675cd8d",
+      "source_file_count": 1,
+      "source_lineage_commit_oids": [
+        "ca40c07016a97220c79c2e615b2e941dc449f58f",
+        "5d4b08c3a78118bb2da9f76735f64415577b7e03",
+        "1b8c635a0278d5b643f0d53e49071f7a395a1c41",
+        "6187898d646c820864f97d335fc59deab95df627",
+        "453656805087b7501f89bdbaf36b83a7decc1b70",
+        "1667b9877683e3c37a921a6238b2fb7f4114c067",
+        "92fddf830e09ab95ccafc4f4d457a61c8b74f59d",
+        "616d2499f2894ddc5a51bfe4ba2b3b45e60b9fb1",
+        "52ac70fda99916086a12387c4a7d44366216c780",
+        "f5eaa07cbf1ee04dec4dfd660c945e0a45ceffd7",
+        "df3eed3f2fb5539f1cc760168e2693b47cef20f9",
+        "be46da7813d5a00c6f3025a1fd39b34a852df039",
+        "fccbc12f688414c1e1df51040c20bb96d0dbc181",
+        "1cefd1a6fea2dca3761ab032255ff161f554d7de",
+        "f683cbae2faf959f79a603550fd7b989b3b63935",
+        "eeef7e6f535e67c132f9960a333fd2804a7fc555",
+        "5446dae337dcdb75581a5274ae9e6d776e6dabb0",
+        "a7d3ea50c50265a2d17b52849c12636ffed343b5",
+        "c745f115a67ddcd01abb3f904f45eb108c126205",
+        "af4640a646f14c667c96372216d1a3fa4a36b83c",
+        "554a5e77d63e3799384553aba4eb8b7c8ac29739",
+        "f059ae0c1ef6cb7b8142de2cfd62d40d62f4baf2",
+        "cc7c7d22c98f21903a489ce45f3c0da72489d4fe",
+        "186251181f241e906d4a945d29fe35df9d630f82",
+        "4f495d8a1f171a8629e80282aefa093d8900d179",
+        "1b2b5ba2a86941c97d8e0fc3eee99a10d5243a32",
+        "610fe8ff4f447f062c28323de9585657c5a4e35f"
+      ],
+      "source_lineage_sha256": "752f7be93e54fd41f6ac5d16a8998103cbb67ce49e4989276cf8cd30a024082e",
+      "source_package_count": 1,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "b60bec6b967964ba3c7764cbd673a40638a19119",
+      "static_scope_band": "low",
+      "static_scope_score": 3,
+      "test_diff_sha256": "f8d5cc2911baa4a4bb70b353a05534620c155b214ef167f5733c3ea93205937b",
+      "test_evidence_paths_sha256": "28e07cb2dc6a62c07a69f6d28886d62ae9b0a5faff34d2c59d561f19207d18a8",
+      "test_file_count": 1,
+      "test_stable_patch_id": "4cade2a71b26db5936d106afae927142d819d3d4",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "28e07cb2dc6a62c07a69f6d28886d62ae9b0a5faff34d2c59d561f19207d18a8",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 110,
+          "owner_go_test_paths_sha256": "ee171613076a62e9ed3cc176bae029187d6d48c62019ee3acc150a6713ef627e",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "cf9929869900b480e57ad46de9178cd658d7f894",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "candidate_ref": "1a927ffd0b0083ab7637c105002572968812abd3f9f58a958b2a14982c8af3b1",
+      "changed_go_test_file_count": 15,
+      "changed_path_count": 51,
+      "changed_paths_sha256": "7daa8e0e163442ef850f8a5ef43686ea26d6c0a3ffe9651c9b6b32b962d759e3",
+      "commit_oid": "bc0203b761cbc500bfcb0acff723dad57ae37770",
+      "committed_at": "2026-07-14T17:34:41+02:00",
+      "evidence_kind": "changed_go_test_and_fixture_or_helper",
+      "first_parent_position": 31,
+      "fixture_or_helper_file_count": 2,
+      "fixture_owner_bindings": [
+        {
+          "fixture_or_helper_path_sha256": "c8735f31b61d498ae0fa90eece37efde992439c3365b514518f62f7b3135bed5",
+          "module_root": ".",
+          "owner_package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "owner_test_paths_sha256": "ee171613076a62e9ed3cc176bae029187d6d48c62019ee3acc150a6713ef627e"
+        },
+        {
+          "fixture_or_helper_path_sha256": "f6ca0fd0eb9d486ecd3dc682ce7bc4a96cfe10e0923fa32c3441654cb99d9f55",
+          "module_root": ".",
+          "owner_package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "owner_test_paths_sha256": "ee171613076a62e9ed3cc176bae029187d6d48c62019ee3acc150a6713ef627e"
+        }
+      ],
+      "full_diff_sha256": "d271e200913f3e38767fb41f4df9613b4b5aa05521557d37c80d0948f86dc9da",
+      "full_stable_patch_id": "cc1fad8ef35b0afe2e778e355a209f33c6a0db2d",
+      "go_work_bindings": [],
+      "merge_parent_count": 2,
+      "module_bindings": [
+        {
+          "blob_oid": "1e0a0dcb7c3f51900c17b3addeb916cf13d30986",
+          "go_directive": "1.26",
+          "kind": "go.mod",
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "path": "go.mod",
+          "raw_sha256": "b25180291e93aef5fc68246f156423320a2afe044e451e5fff0079de5b916969",
+          "root": ".",
+          "toolchain_directive": "go1.26.2"
+        }
+      ],
+      "negative_control_status": "not_executed",
+      "parent_oid": "4d2aff60257a784a13cf89aa5ede1307fdfcc66c",
+      "path_partition_status": "verified_disjoint_production_go_and_test_evidence",
+      "production_go_paths_sha256": "f25808118287cd054866213767ca131b5e59cc037d9a9e4699a3458523da6f04",
+      "runner_readiness": "structurally_ready_not_executed",
+      "source_diff_sha256": "9da0b873f0b2c5dad8d8be6f105ef257326e4387494dd7c7ac3334f2310d926a",
+      "source_file_count": 9,
+      "source_lineage_commit_oids": [
+        "76a7db4c52cff2290032890b1700a4d92813c349",
+        "0c54dbd288a1e08b7d740c1c0bca7a98dad3a24c",
+        "2b9c98e9925a0fe11512faff22d2801658c9e8ce"
+      ],
+      "source_lineage_sha256": "ad2ab0101090164d2b20d54ce23c6cdefa2ccf8662aad8c8fc69475ad798ca08",
+      "source_package_count": 2,
+      "source_session_status": "unresolved_no_owner_source_session_receipt",
+      "source_stable_patch_id": "69f1b7a7daa1ecba223bc1e65c630c070399aaeb",
+      "static_scope_band": "high",
+      "static_scope_score": 11,
+      "test_diff_sha256": "aeff015a5f81e62b7881a33cb338b6b32700498121bbf45c80a18dadbac4a042",
+      "test_evidence_paths_sha256": "b85b9e01d2738d93a342c7ff14b739cb75a35ab266a951a438d4967465d7e329",
+      "test_file_count": 17,
+      "test_stable_patch_id": "d017b82e8b8d86778a4d0e1a5ee99afb24459b61",
+      "test_targets": [
+        {
+          "bound_evidence_paths_sha256": "0eebbc1928c6eccc9c81ef44551de026124ae09fdd24b8375a76d20f1dc825f1",
+          "evidence_sources": [
+            "changed_go_test"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 1,
+          "owner_go_test_paths_sha256": "0eebbc1928c6eccc9c81ef44551de026124ae09fdd24b8375a76d20f1dc825f1",
+          "package_dir_sha256": "87f6c925e9de663a5ed23e314a64eeb071cf6350536a5ba35d142eb7d48009cf",
+          "target_sha256": "f99f7a95d8c74ac5985edd9c064110cedfeee1b594ea63930f36b8076bbd925a"
+        },
+        {
+          "bound_evidence_paths_sha256": "65c11ab198d808623c11088805fa348ed6107e3c2ce6f26a28b59479c49ae2fb",
+          "evidence_sources": [
+            "changed_go_test",
+            "fixture_or_helper_owner"
+          ],
+          "module_directive_sha256": "c2f4b34961c44aad884bf40976d2f612aa5768198fd4e06d5bf76c39c183bb62",
+          "module_root": ".",
+          "owner_go_test_file_count": 110,
+          "owner_go_test_paths_sha256": "ee171613076a62e9ed3cc176bae029187d6d48c62019ee3acc150a6713ef627e",
+          "package_dir_sha256": "b906a354dbd14c58bbaa7a87aa0d546cdd662ab96745a36ee1d390e5194bd2a4",
+          "target_sha256": "4816e582e4f4ca700240f3bd80649909f8d8295c23b09b8a6825d0fd0075ffc3"
+        }
+      ],
+      "tree_oid": "0a28b339f20afbe692fa10e15d91b3f8b48f7611",
+      "unit_kind": "two_parent_feature_branch",
+      "unresolved_source_module_count": 0,
+      "unresolved_source_module_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "unresolved_test_binding_count": 0,
+      "unresolved_test_binding_paths_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "execution_status": "not_executed",
+  "exposure": "permanent_development_only_identity_inspected",
+  "generated_at": "2026-07-14T17:34:41+02:00",
+  "implementation": {
+    "repository_contract_sha256": "833ea95cf95c9dd45a5fd529be89c9cc4ea5ebf8edc2fe2e46916068cecf6855",
+    "scanner_sha256": "06bcdcb2a5621e75b66796096ed315ae671965beb9b2818bc4673ba4ec821deb",
+    "schema_sha256": "dd4c6932ebd6ce2220b58c04684e23dee40d9eefe41a1755ce4f4a24f782aa42"
+  },
+  "ledger_sha256": "d275b7bd53950c9dfe7716637ede63dafa618f61f59de6050de8ba8d0c641f0c",
+  "profile": "agent_brain_development_task_eligibility_scan_v2",
+  "repository": {
+    "key": "entire-brain",
+    "remote": {
+      "name": "entireio",
+      "ref": "refs/remotes/entireio/main",
+      "url": "https://github.com/entireio/entire-brain.git"
+    },
+    "repository_id": "github.com/entireio/entire-brain",
+    "toolchain": {
+      "git": {
+        "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+        "version_output": "git version 2.53.0"
+      },
+      "go": {
+        "binary_sha256": "005640c7ff93028cb704283b0f737f2db3faf8b51b2561170c769b83905da646",
+        "cc": "clang",
+        "cgo_enabled": "1",
+        "cxx": "clang++",
+        "goarch": "arm64",
+        "goos": "darwin",
+        "version_output": "go version go1.26.2 darwin/arm64"
+      },
+      "native": {
+        "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+        "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+        "target": "arm64-apple-darwin25.5.0",
+        "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+      }
+    },
+    "window": {
+      "base_oid": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "first_parent_unit_count": 31,
+      "head_oid": "bc0203b761cbc500bfcb0acff723dad57ae37770"
+    }
+  },
+  "schema_version": 2,
+  "selection_rule": "pinned_31_first_parent_production_go_plus_test_evidence_v2",
+  "summary": {
+    "candidate_count": 18,
+    "evidence_kind_counts": {
+      "changed_go_test_and_fixture_or_helper": 2,
+      "changed_go_test_only": 16,
+      "fixture_or_helper_only": 0
+    },
+    "first_parent_unit_count": 31,
+    "runner_ready_count": 18,
+    "static_scope_band_counts": {
+      "high": 6,
+      "low": 5,
+      "medium": 7
+    },
+    "unit_kind_counts": {
+      "single_parent_integration_unit": 6,
+      "two_parent_feature_branch": 12
+    }
+  },
+  "toolchain_binding": {
+    "git": {
+      "binary_sha256": "5e5a622e407fb7deb74173cab9e47ff214952cc6bfcd036449cf9edbaa305537",
+      "version_output": "git version 2.53.0"
+    },
+    "go": {
+      "binary_sha256": "005640c7ff93028cb704283b0f737f2db3faf8b51b2561170c769b83905da646",
+      "cc": "clang",
+      "cgo_enabled": "1",
+      "cxx": "clang++",
+      "goarch": "arm64",
+      "goos": "darwin",
+      "version_output": "go version go1.26.2 darwin/arm64"
+    },
+    "native": {
+      "cc_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+      "cxx_binary_sha256": "7def90dd8829726686213a747fc5bff1583df933dae5edc55d755479e0bfe00a",
+      "target": "arm64-apple-darwin25.5.0",
+      "version_first_line": "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+    },
+    "verification_status": "matched_local_binaries_without_candidate_execution"
+  }
+}

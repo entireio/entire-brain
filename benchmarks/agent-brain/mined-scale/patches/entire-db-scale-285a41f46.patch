@@ -1,0 +1,32 @@
+diff --git a/gitutil/tree_walk.go b/gitutil/tree_walk.go
+index afe20343b..185e9a5cb 100644
+--- a/gitutil/tree_walk.go
++++ b/gitutil/tree_walk.go
+@@ -114,13 +114,6 @@ func walkTrees(
+ 			}
+ 		}
+ 
+-		// Build a set of hashes that are primary trees in this batch so
+-		// we don't delete them from decoded when they're used as bases.
+-		batchHashes := make(map[plumbing.Hash]struct{}, len(batch))
+-		for _, te := range batch {
+-			batchHashes[te.Hash] = struct{}{}
+-		}
+-
+ 		for _, te := range batch {
+ 			obj, ok := decoded[te.Hash]
+ 			if !ok {
+@@ -147,12 +140,7 @@ func walkTrees(
+ 							baseByName[be.Name] = be.Hash
+ 						}
+ 					}
+-					// Only evict the base from decoded if it isn't also a
+-					// primary tree in this batch — otherwise the later
+-					// iteration would skip it (obj not found → continue).
+-					if _, inBatch := batchHashes[te.BaseHash]; !inBatch {
+-						delete(decoded, te.BaseHash)
+-					}
++					delete(decoded, te.BaseHash)
+ 				}
+ 			}
+ 

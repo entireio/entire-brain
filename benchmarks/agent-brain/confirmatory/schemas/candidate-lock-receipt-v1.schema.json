@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain-candidate-lock-receipt-v1.json",
+  "title": "Pre-calibration candidate-lock receipt",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "complete_plan_sha256",
+    "candidate_product_identity_sha256",
+    "task_population_file_sha256",
+    "issuer",
+    "locked_at",
+    "authentication_status",
+    "identity_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "agent-brain-candidate-lock-receipt/v1"},
+    "status": {"const": "locked_before_calibration_opening"},
+    "complete_plan_sha256": {"$ref": "#/$defs/sha256"},
+    "candidate_product_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "task_population_file_sha256": {"$ref": "#/$defs/sha256"},
+    "issuer": {"type": "string", "minLength": 1},
+    "locked_at": {"type": "string", "format": "date-time"},
+    "authentication_status": {
+      "const": "unauthenticated_no_trust_anchor_fail_closed"
+    },
+    "identity_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+    }
+  }
+}

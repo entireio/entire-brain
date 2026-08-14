@@ -1,0 +1,53 @@
+{
+  "id": "entire-cli-c0701-9c2b149fd",
+  "repo": "entire-cli",
+  "repo_path": "entire-cli",
+  "base_commit": "4161f3296e8a5805d05391a67a866c29c04023d3",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The `auth token --jurisdiction` flag has no short form. Add -j as a short alias that behaves identically to --jurisdiction.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/auth_token_test.go",
+      "content": "package cli\n\nimport (\n\t\"bytes\"\n\t\"context\"\n\t\"encoding/base64\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"os\"\n\t\"strings\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/entireio/cli/cmd/entire/cli/auth\"\n\t\"github.com/entireio/cli/internal/entireclient/clusterdiscovery\"\n\t\"github.com/entireio/cli/internal/entireclient/contexts\"\n\t\"github.com/stretchr/testify/require\"\n)\n\n// stubExchangeRT intercepts any /oauth/token POST and returns a canned identity\n// token, so the --jurisdiction command path can be tested without a real core.\ntype stubExchangeRT struct{ token string }\n\nfunc (s stubExchangeRT) RoundTrip(r *http.Request) (*http.Response, error) {\n\t_, _ = io.Copy(io.Discard, r.Body) //nolint:errcheck // test transport\n\treturn &http.Response{\n\t\tStatusCode: http.StatusOK,\n\t\tHeader:     http.Header{\"Content-Type\": []string{\"application/json\"}},\n\t\tBody:       io.NopCloser(strings.NewReader(fmt.Sprintf(`{\"access_token\":%q,\"token_type\":\"Bearer\",\"expires_in\":3600}`, s.token))),\n\t\tRequest:    r,\n\t}, nil\n}\n\n// makeTestJWT builds an unsigned JWT with the given payload JSON. ParseClaims\n// (used by ENTIRE_TOKEN resolution) reads the payload without verifying the\n// signature, so an unsigned token is enough to exercise the resolution path.\nfunc makeTestJWT(t *testing.T, payloadJSON string) string {\n\tt.Helper()\n\tenc := base64.RawURLEncoding\n\theader := enc.EncodeToString([]byte(`{\"alg\":\"HS256\",\"typ\":\"JWT\"}`))\n\tpayload := enc.EncodeToString([]byte(payloadJSON))\n\treturn header + \".\" + payload + \".\" + enc.EncodeToString([]byte(\"sig\"))\n}\n\n// TestAuthTokenCmd covers the `entire auth token` scripting helper.\n//\n// Not parallel: it manipulates ENTIRE_TOKEN / ENTIRE_CONFIG_DIR.\nfunc TestAuthTokenCmd(t *testing.T) {\n\t// Guard against a real ENTIRE_TOKEN in the dev's environment leaking into\n\t// the not-logged-in case; restore it afterward.\n\tif v, ok := os.LookupEnv(\"ENTIRE_TOKEN\"); ok {\n\t\tos.Unsetenv(\"ENTIRE_TOKEN\")\n\t\t// t.Setenv can't unset, and there's no t.Unsetenv, so restore manually.\n\t\tt.Cleanup(func() { os.Setenv(\"ENTIRE_TOKEN\", v) }) //nolint:usetesting // restoring a captured value; no t.Unsetenv equivalent\n\t}\n\n\tt.Run(\"prints the env token verbatim\", func(t *testing.T) {\n\t\ttoken := makeTestJWT(t, `{\"sub\":\"ci\",\"aud\":\"https://core-us.example.invalid\"}`)\n\t\tt.Setenv(\"ENTIRE_TOKEN\", token)\n\n\t\tcmd := newAuthTokenCmd()\n\t\tvar out, errOut bytes.Buffer\n\t\tcmd.SetOut(&out)\n\t\tcmd.SetErr(&errOut)\n\t\trequire.NoError(t, cmd.ExecuteContext(t.Context()))\n\t\trequire.Equal(t, token+\"\\n\", out.String())\n\t\trequire.Empty(t, errOut.String())\n\t})\n\n\tt.Run(\"not logged in errors silently with a hint\", func(t *testing.T) {\n\t\t// Isolated empty config so there's no active context to resolve.\n\t\tt.Setenv(\"ENTIRE_CONFIG_DIR\", t.TempDir())\n\n\t\tcmd := newAuthTokenCmd()\n\t\tvar out, errOut bytes.Buffer\n\t\tcmd.SetOut(&out)\n\t\tcmd.SetErr(&errOut)\n\t\terr := cmd.ExecuteContext(t.Context())\n\n\t\tvar silent *SilentError\n\t\trequire.ErrorAs(t, err, &silent)\n\t\trequire.Empty(t, out.String(), \"stdout must stay clean for command substitution\")\n\t\trequire.Contains(t, errOut.String(), \"Not logged in\")\n\t})\n}\n\n// TestAuthTokenCmd_Jurisdiction covers `entire auth token --jurisdiction`.\n//\n// Not parallel: it manipulates ENTIRE_TOKEN / ENTIRE_CONFIG_DIR and the\n// package-global cell-exchange seams.\nfunc TestAuthTokenCmd_Jurisdiction(t *testing.T) {\n\tif v, ok := os.LookupEnv(\"ENTIRE_TOKEN\"); ok {\n\t\tos.Unsetenv(\"ENTIRE_TOKEN\")\n\t\tt.Cleanup(func() { os.Setenv(\"ENTIRE_TOKEN\", v) }) //nolint:usetesting // restoring a captured value; no t.Unsetenv equivalent\n\t}\n\n\tt.Run(\"mints and prints a jurisdictional token from ENTIRE_TOKEN\", func(t *testing.T) {\n\t\tt.Setenv(\"ENTIRE_CONFIG_DIR\", t.TempDir())\n\t\tenvToken := makeTestJWT(t, fmt.Sprintf(`{\"aud\":\"https://auth-us.example.invalid\",\"home_jurisdiction\":\"us\",\"exp\":%d}`, time.Now().Add(2*time.Hour).Unix()))\n\t\tt.Setenv(\"ENTIRE_TOKEN\", envToken)\n\t\tt.Cleanup(auth.SetCellExchangeTransportForTest(t, stubExchangeRT{token: \"jurisdiction-token\"}))\n\n\t\tcmd := newAuthTokenCmd()\n\t\tcmd.SetArgs([]string{\"--jurisdiction\", \"us\"})\n\t\tvar out, errOut bytes.Buffer\n\t\tcmd.SetOut(&out)\n\t\tcmd.SetErr(&errOut)\n\n\t\trequire.NoError(t, cmd.ExecuteContext(t.Context()))\n\t\trequire.Equal(t, \"jurisdiction-token\\n\", out.String())\n\t\trequire.Empty(t, errOut.String(), \"stdout-only: no diagnostics on success\")\n\t})\n\n\tt.Run(\"-j shorthand behaves like --jurisdiction\", func(t *testing.T) {\n\t\tt.Setenv(\"ENTIRE_CONFIG_DIR\", t.TempDir())\n\t\tenvToken := makeTestJWT(t, fmt.Sprintf(`{\"aud\":\"https://auth-us.example.invalid\",\"home_jurisdiction\":\"us\",\"exp\":%d}`, time.Now().Add(2*time.Hour).Unix()))\n\t\tt.Setenv(\"ENTIRE_TOKEN\", envToken)\n\t\tt.Cleanup(auth.SetCellExchangeTransportForTest(t, stubExchangeRT{token: \"jurisdiction-token\"}))\n\n\t\tcmd := newAuthTokenCmd()\n\t\tcmd.SetArgs([]string{\"-j\", \"us\"})\n\t\tvar out, errOut bytes.Buffer\n\t\tcmd.SetOut(&out)\n\t\tcmd.SetErr(&errOut)\n\n\t\trequire.NoError(t, cmd.ExecuteContext(t.Context()))\n\t\trequire.Equal(t, \"jurisdiction-token\\n\", out.String())\n\t\trequire.Empty(t, errOut.String(), \"stdout-only: no diagnostics on success\")\n\t})\n\n\tt.Run(\"not logged in errors silently with a hint\", func(t *testing.T) {\n\t\tt.Setenv(\"ENTIRE_CONFIG_DIR\", t.TempDir())\n\t\t// No ENTIRE_TOKEN → stored path. Stub discovery to surface ErrNotLoggedIn\n\t\t// without a network call, so the command maps it to the clean hint.\n\t\tt.Cleanup(auth.SetResolveContextForCellAPIForTest(t, func(context.Context, string, string, string, *http.Client, clusterdiscovery.DebugFunc) (*contexts.Context, error) {\n\t\t\treturn nil, fmt.Errorf(\"no eligible context: %w\", auth.ErrNotLoggedIn)\n\t\t}))\n\n\t\tcmd := newAuthTokenCmd()\n\t\tcmd.SetArgs([]string{\"--jurisdiction\", \"us\"})\n\t\tvar out, errOut bytes.Buffer\n\t\tcmd.SetOut(&out)\n\t\tcmd.SetErr(&errOut)\n\t\terr := cmd.ExecuteContext(t.Context())\n\n\t\tvar silent *SilentError\n\t\trequire.ErrorAs(t, err, &silent)\n\t\trequire.Empty(t, out.String(), \"stdout must stay clean for command substitution\")\n\t\trequire.Contains(t, errOut.String(), \"Not logged in\")\n\t})\n}\n"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli -run '^(TestAuthTokenCmd_Jurisdiction)$'"
+  ],
+  "leak_markers": [
+    "TestAuthTokenCmd_Jurisdiction"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/auth.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "short flag for auth token --jurisdiction",
+    "adding a -j alias for the jurisdiction flag",
+    "auth token command flag shorthand",
+    "the jurisdiction flag short form should behave identically"
+  ],
+  "prepare_semantic": false,
+  "_mined_from_commit": "9c2b149fd1849fb6650d593c5e944d72daab63a5",
+  "_flavor": "recall-decision",
+  "_subject": "cli/auth: add -j short form for `token --jurisdiction`",
+  "_negctl": "red_at_parent_base",
+  "_apply_mode": "test_only_forward",
+  "_split": "holdout",
+  "memory_delivery": "frozen_brief",
+  "rolling_cutoff_rfc3339": "2026-07-04T19:22:46+10:00",
+  "exclude_session_ids": [
+    "9cb0f14c-0f8d-4571-96ef-7d9214263fec"
+  ],
+  "frozen_session_dates_path": "$AGENT_BENCH_FROZEN_SESSION_DATES",
+  "_rolling_cutoff_confidence": "high (entire checkpoint explain resolved fix session directly)"
+}
