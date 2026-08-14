@@ -2035,6 +2035,7 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
         source_commit,
         private_paths,
         paths_present=paths_present,
+        scrub_replacements=history_scrub_replacements(task),
     )
     # Never use a linked worktree here. A linked worktree shares the developer
     # repository's refs, reflogs, object store, and checkpoint objects; benchmark
@@ -2062,7 +2063,12 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
     patch = task.get("setup_patch", "")
     if patch:
         run_cmd(["git", "apply", "-"], cwd=worktree, input_text=patch, check=True)
-    apply_replacements(worktree, task.get("setup_replacements", []), "setup")
+    apply_replacements(
+        worktree,
+        task.get("setup_replacements", []),
+        "setup",
+        already_scrubbed=bool(history_scrub_replacements(task)),
+    )
     setup_env = os.environ.copy()
     setup_env["BENCH_SOURCE_REPO"] = str(source)  # portable handle to the source repo for setup_commands
     for command in task.get("setup_commands", []):
@@ -2088,12 +2094,70 @@ def filtered_agent_history_paths(task: dict[str, Any] | None = None) -> list[str
     )
 
 
+def history_scrub_replacements(task: dict[str, Any] | None) -> list[tuple[bytes, bytes]]:
+    """Answer text that must not survive in the history the agent may freely read.
+
+    brain_query_answer_texts already classifies a setup_replacement's ``old`` value
+    as hidden answer text, but the setup only rewrites the working tree, so the
+    decided value stayed committed in ordinary source history. The baseline-history
+    audit deliberately permits ordinary log/blame/pickaxe use, so an agent that ran
+    `git log -S` recovered the answer without committing any protocol violation, and
+    the comparison measured how hard each arm searched rather than whether the
+    decision was reachable at all. Tasks whose premise is that a decision lives only
+    in retained session history opt in here so the premise actually holds.
+    """
+    if not isinstance(task, dict) or not task.get("scrub_answer_from_history"):
+        return []
+    pairs: list[tuple[bytes, bytes]] = []
+    for replacement in task.get("setup_replacements", []):
+        old = str(replacement.get("old", ""))
+        new = str(replacement.get("new", ""))
+        if old and old != new:
+            pairs.append((old.encode(), new.encode()))
+    for replacement in task.get("history_scrub_replacements", []):
+        old = str(replacement.get("old", ""))
+        new = str(replacement.get("new", ""))
+        if old and old != new:
+            pairs.append((old.encode(), new.encode()))
+    return pairs
+
+
+def rewrite_fast_export_payloads(
+    reader: Any, writer: Any, replacements: list[tuple[bytes, bytes]]
+) -> None:
+    """Stream a fast-export dump, rewriting declared answer text inside payloads.
+
+    Every ``data <n>`` payload is transformed, so the text disappears from blob
+    contents and commit messages alike. The length header is emitted only after the
+    payload is rewritten, because a substitution changes the byte count.
+    """
+    while True:
+        line = reader.readline()
+        if not line:
+            return
+        if not line.startswith(b"data "):
+            writer.write(line)
+            continue
+        length = int(line[len("data ") :].strip())
+        payload = b""
+        while len(payload) < length:
+            chunk = reader.read(length - len(payload))
+            if not chunk:
+                raise RuntimeError("fast-export stream ended inside a data payload")
+            payload += chunk
+        for old, new in replacements:
+            payload = payload.replace(old, new)
+        writer.write(b"data " + str(len(payload)).encode() + b"\n")
+        writer.write(payload)
+
+
 def filtered_agent_history_repo(
     source: pathlib.Path,
     base: str,
     private_paths: list[str],
     *,
     paths_present: list[str] | None = None,
+    scrub_replacements: list[tuple[bytes, bytes]] | None = None,
 ) -> pathlib.Path:
     """Cache ordinary source history with benchmark/Entire-private paths removed."""
     source_commit = run_cmd(
@@ -2101,10 +2165,17 @@ def filtered_agent_history_repo(
         cwd=source,
         check=True,
     ).stdout.strip()
+    scrub_replacements = list(scrub_replacements or [])
     key_payload = {
         "schema": FILTERED_HISTORY_CACHE_SCHEMA,
         "source_commit": source_commit,
         "private_paths": private_paths,
+        # A scrubbed history is a different artifact from an unscrubbed one, so it
+        # must never be served from the same cache entry.
+        "scrub_replacements": [
+            [old.decode(errors="replace"), new.decode(errors="replace")]
+            for old, new in scrub_replacements
+        ],
     }
     key = hashlib.sha256(
         json.dumps(key_payload, sort_keys=True, separators=(",", ":")).encode()
@@ -2128,7 +2199,7 @@ def filtered_agent_history_repo(
     paths_present = paths_present if paths_present is not None else private_paths_present_in_history(
         source, source_commit, private_paths
     )
-    if paths_present:
+    if paths_present or scrub_replacements:
         run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
         try:
             export_command = [
@@ -2148,13 +2219,39 @@ def filtered_agent_history_repo(
                     stderr=export_stderr,
                 )
                 assert exporter.stdout is not None
-                importer = subprocess.run(
-                    ["git", "fast-import", "--quiet"],
-                    cwd=staging_repo,
-                    stdin=exporter.stdout,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
+                if scrub_replacements:
+                    # Rewriting the stream keeps the scrub in one place: the answer
+                    # text leaves blob contents and commit messages together, and no
+                    # unscrubbed object is ever written to the cache.
+                    importer_process = subprocess.Popen(
+                        ["git", "fast-import", "--quiet"],
+                        cwd=staging_repo,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    assert importer_process.stdin is not None
+                    try:
+                        rewrite_fast_export_payloads(
+                            exporter.stdout, importer_process.stdin, scrub_replacements
+                        )
+                    finally:
+                        importer_process.stdin.close()
+                    importer_stdout, importer_stderr = importer_process.communicate()
+                    importer = subprocess.CompletedProcess(
+                        importer_process.args,
+                        importer_process.returncode,
+                        importer_stdout,
+                        importer_stderr,
+                    )
+                else:
+                    importer = subprocess.run(
+                        ["git", "fast-import", "--quiet"],
+                        cwd=staging_repo,
+                        stdin=exporter.stdout,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
                 exporter.stdout.close()
                 export_returncode = exporter.wait()
                 export_stderr.seek(0)
@@ -2204,6 +2301,23 @@ def filtered_agent_history_repo(
         ).stdout.strip()
         if leaked:
             raise RuntimeError(f"filtered source history still contains private path {path}")
+    if scrub_replacements:
+        # Prove the answer is gone from every reachable commit rather than trusting
+        # the rewrite, the same way private paths are proven absent above. Checking
+        # only the tip would miss the older commits that a pickaxe search reads.
+        revisions = run_cmd(
+            ["git", "rev-list", "--all"], cwd=staging_repo, check=True
+        ).stdout.split()
+        for old, _new in scrub_replacements:
+            found = run_cmd(
+                ["git", "grep", "-l", "-F", "-e", old.decode(errors="replace"), *revisions],
+                cwd=staging_repo,
+            )
+            if found.returncode == 0 and found.stdout.strip():
+                raise RuntimeError(
+                    "filtered source history still contains scrubbed answer text at "
+                    f"{found.stdout.strip().splitlines()[:3]}"
+                )
     try:
         os.replace(staging_repo, cache_repo)
     except OSError as exc:
@@ -2450,7 +2564,13 @@ def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool
     return changed
 
 
-def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]], label: str) -> None:
+def apply_replacements(
+    worktree: pathlib.Path,
+    replacements: list[dict[str, str]],
+    label: str,
+    *,
+    already_scrubbed: bool = False,
+) -> None:
     for replacement in replacements:
         rel = replacement["path"]
         path = worktree / rel
@@ -2458,6 +2578,15 @@ def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]
         old = replacement["old"]
         new = replacement["new"]
         count = data.count(old)
+        if already_scrubbed and count == 0:
+            # Scrubbing the answer from history also rewrites the checked-out tip,
+            # so the setup mutation is already in place. Require the scrubbed state
+            # instead of silently accepting a replacement that did nothing.
+            if data.count(new) != 1:
+                raise RuntimeError(
+                    f"{label} replacement for {rel} is neither pending nor scrubbed into place"
+                )
+            continue
         if count != 1:
             raise RuntimeError(f"{label} replacement for {rel} matched {count} times, expected 1")
         path.write_text(data.replace(old, new, 1))

@@ -20,6 +20,13 @@
   "setup_commands": [
     "perl -0pi -e 's/falls back to the default \\(0\\.75\\)/falls back to the default/g' docs/durable_facts_plan.md"
   ],
+  "scrub_answer_from_history": true,
+  "history_scrub_replacements": [
+    {
+      "old": "falls back to the default (0.75)",
+      "new": "falls back to the default"
+    }
+  ],
   "validation": [
     "test $(rg -n 'defaultFactConfidenceThreshold = 0\\.75' internal/cli/facts_merge.go | wc -l | tr -d ' ') -eq 1",
     "go test ./internal/cli -run 'TestApplyFactActionsHighConfidenceMerge|TestApplyFactActionsLowConfidenceQueuesProposal|TestApplyFactActionsHighConfidenceSupersede'"
