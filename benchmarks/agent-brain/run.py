@@ -6647,7 +6647,7 @@ def run_agent(
         ),
         "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
     }
-    activity = extract_agent_activity(proc.stdout, proc.stderr)
+    activity = extract_agent_activity(proc.stdout, proc.stderr, str(worktree))
     if usage.get("cost_usd") is None:
         usage["cost_usd"] = estimate_cost_usd(runner, usage, pricing)
         usage["cost_source"] = "estimated" if usage["cost_usd"] is not None else None
@@ -7209,14 +7209,39 @@ def safe_tool_arguments(value: Any) -> dict[str, Any]:
     return safe
 
 
-def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) -> bool:
+def strip_agent_worktree_prefix(text: str, worktree: str | None) -> str:
+    """Judge a path by where it sits inside the agent worktree, not by the worktree's own prefix.
+
+    Benchmark worktrees live under benchmarks/agent-brain/results/, so the absolute
+    path of an ordinary source file in the worktree contains the very substring that
+    marks a private benchmark artifact. Dropping the worktree prefix keeps
+    <worktree>/benchmarks/agent-brain/... and <worktree>/.entire/... flagged while
+    clearing <worktree>/internal/cli/facts_merge.go, which is the file the task asks
+    the agent to edit.
+    """
+    if not worktree:
+        return text
+    prefixes = {str(worktree)}
+    try:
+        prefixes.add(os.path.realpath(str(worktree)))
+    except OSError:
+        pass
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if prefix:
+            text = text.replace(prefix, "").replace(prefix.lower(), "")
+    return text
+
+
+def tool_arguments_access_forbidden_memory_artifact(
+    tool_name: str, value: Any, worktree: str | None = None
+) -> bool:
     """Inspect path-bearing tool arguments without retaining private path text."""
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
             return False
-        return tool_arguments_access_forbidden_memory_artifact(tool_name, parsed)
+        return tool_arguments_access_forbidden_memory_artifact(tool_name, parsed, worktree)
     if not isinstance(value, dict):
         return False
     path_keys = {
@@ -7249,7 +7274,7 @@ def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) 
 
     def references_private_path(item: Any) -> bool:
         if isinstance(item, str):
-            stripped = item.strip().lower()
+            stripped = strip_agent_worktree_prefix(item.strip(), worktree).lower()
             if stripped.startswith("!"):
                 return False
             # A backslash may be a path separator or a regex/glob escape (\. -> .);
@@ -7297,7 +7322,7 @@ def tool_event_errored(value: Any) -> bool:
     return value.get("error") not in (None, "", False)
 
 
-def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
+def collect_json_tool_events(value: Any, worktree: str | None = None) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     if isinstance(value, dict):
         event_type = value.get("type")
@@ -7329,19 +7354,19 @@ def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
                 "event_id": value.get("id"),
                 "arguments": safe_tool_arguments(raw_args),
                 "forbidden_memory_artifact_argument_access": (
-                    tool_arguments_access_forbidden_memory_artifact(name, raw_args)
+                    tool_arguments_access_forbidden_memory_artifact(name, raw_args, worktree)
                 ),
                 "errored": tool_event_errored(value),
             })
         for item in value.values():
-            events.extend(collect_json_tool_events(item))
+            events.extend(collect_json_tool_events(item, worktree))
     elif isinstance(value, list):
         for item in value:
-            events.extend(collect_json_tool_events(item))
+            events.extend(collect_json_tool_events(item, worktree))
     return events
 
 
-def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
+def structured_tool_events(stdout: str, worktree: str | None = None) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     event_indexes: dict[tuple[str, str], int] = {}
     for line in stdout.splitlines():
@@ -7352,7 +7377,7 @@ def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
             payload = json.loads(line)
         except json.JSONDecodeError:
             continue
-        for event in collect_json_tool_events(payload):
+        for event in collect_json_tool_events(payload, worktree):
             event_id = event.get("event_id")
             name = event.get("name")
             if isinstance(event_id, str) and event_id and isinstance(name, str):
@@ -7449,7 +7474,8 @@ def extract_resolved_model(stdout: str) -> str | None:
     return max(counts, key=lambda value: counts[value])
 
 
-def command_accesses_forbidden_memory_artifact(command: str) -> bool:
+def command_accesses_forbidden_memory_artifact(command: str, worktree: str | None = None) -> bool:
+    command = strip_agent_worktree_prefix(command, worktree)
     try:
         tokens = shlex.split(command)
     except ValueError:
@@ -7457,7 +7483,7 @@ def command_accesses_forbidden_memory_artifact(command: str) -> bool:
     if tokens and pathlib.Path(tokens[0]).name in {"sh", "bash", "dash", "ksh", "zsh"}:
         for index, token in enumerate(tokens[1:], start=1):
             if token.startswith("-") and "c" in token[1:] and index + 1 < len(tokens):
-                return command_accesses_forbidden_memory_artifact(tokens[index + 1])
+                return command_accesses_forbidden_memory_artifact(tokens[index + 1], worktree)
     for index, token in enumerate(tokens):
         normalized = token.lower().replace(r"\.", ".")
         if not re.search(
@@ -7481,8 +7507,8 @@ def command_accesses_forbidden_memory_artifact(command: str) -> bool:
     return False
 
 
-def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
-    events = structured_tool_events(stdout)
+def structured_activity_source(stdout: str, stderr: str, worktree: str | None = None) -> dict[str, Any]:
+    events = structured_tool_events(stdout, worktree)
     if events:
         commands = [
             command
@@ -7532,8 +7558,8 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
     }
 
 
-def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
-    activity_source = structured_activity_source(stdout, stderr)
+def extract_agent_activity(stdout: str, stderr: str, worktree: str | None = None) -> dict[str, Any]:
+    activity_source = structured_activity_source(stdout, stderr, worktree)
     lower = activity_source["lower"]
     command_text = "\n".join(activity_source["commands"])
     command_lower = command_text.lower()
@@ -7607,7 +7633,8 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         )
     )
     forbidden_memory_artifact_access = any(
-        command_accesses_forbidden_memory_artifact(command) for command in activity_source["commands"]
+        command_accesses_forbidden_memory_artifact(command, worktree)
+        for command in activity_source["commands"]
     ) or any(
         bool(detail.get("forbidden_memory_artifact_argument_access"))
         for detail in activity_source.get("tool_details", [])
