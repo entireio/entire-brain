@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -3728,6 +3729,32 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
         }
     )
     return env
+
+
+def prewarm_go_dependencies(worktree: pathlib.Path, env: dict[str, str]) -> dict[str, Any]:
+    """Resolve a task repository's declared Go toolchain and modules before timing.
+
+    Agents run sandboxed and should spend their budget on the task, not on repairing
+    host module-cache permissions or downloading an auto-selected patch toolchain.
+    This uses the exact agent environment and shared writable module cache, while the
+    per-worktree build cache remains cold for a fair branch/main comparison.
+    """
+    if not (worktree / "go.mod").is_file():
+        return {"ran": False, "reason": "no_go_mod"}
+    started = time.monotonic()
+    proc = run_cmd(["go", "mod", "download"], cwd=worktree, env=env, timeout=600)
+    result = {
+        "ran": True,
+        "ok": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "seconds": round(time.monotonic() - started, 3),
+    }
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "benchmark Go dependency prewarm failed before agent execution:\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    return result
 
 
 def apply_task_env(
@@ -8234,6 +8261,18 @@ def run_one(
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
         scoring = score(task, condition, agent_info, validation, files, diff)
+        adherence_ok = (
+            mcp_audit["ok"]
+            and brain_cli_audit["ok"]
+            and temporal_audit["ok"]
+            and baseline_audit["ok"]
+        )
+        integrity_ok = (
+            leak_audit["ok"]
+            and secret_preflight["ok"]
+            and secret_postflight["ok"]
+            and not patch_secret_hits
+        )
         quality = confirmatory_code_quality(
             scoring,
             validation_ok=validation["ok"],
