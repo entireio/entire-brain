@@ -1,0 +1,155 @@
+{
+  "cli_version": "0.9.1-nightly.202608080619.caa0c9be9",
+  "checkpoint_id": "95e99d53b0cf",
+  "session_id": "ad675120-464a-48be-b76d-d3f02d5ad7e0",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-14T01:22:53.416047Z",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/eval_ledger.md",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/conversation.go",
+    "internal/cli/conversation_multiconcept.go",
+    "internal/cli/conversation_multiconcept_test.go",
+    "internal/cli/conversation_phase2_test.go",
+    "internal/cli/conversation_session.go",
+    "internal/cli/conversation_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/doc_contract_test.go",
+    "internal/cli/doctor.go",
+    "internal/cli/history.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/history_delta_test.go",
+    "internal/cli/history_fts.go",
+    "internal/cli/history_vec.go",
+    "internal/cli/history_vec_cgo_test.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/live_e2e_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/memory_abstract.go",
+    "internal/cli/memory_abstract_privacy_linearization_test.go",
+    "internal/cli/memory_abstract_test.go",
+    "internal/cli/memory_admin.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_receipts.go",
+    "internal/cli/memory_state.go",
+    "internal/cli/memory_state_io.go",
+    "internal/cli/r0_review_regressions_test.go",
+    "internal/cli/retrieval_guard.go",
+    "internal/cli/retrieval_transport.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/review_regressions_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_test.go",
+    "internal/cli/session_privacy_verify.go",
+    "internal/cli/watch.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5[1m]",
+  "turn_id": "a0fa5e22406f",
+  "checkpoint_transcript_start": 1975,
+  "transcript_lines_at_start": 1975,
+  "compact_transcript_start": 501,
+  "token_usage": {
+    "input_tokens": 41,
+    "cache_creation_tokens": 41232,
+    "cache_read_tokens": 16000090,
+    "output_tokens": 27679,
+    "api_call_count": 22
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01WsVDp1kJD2n5XNTcWbwNsG",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "code-review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "a0fa5e22406f",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 28,
+        "end": 29,
+        "entry_ids": [
+          "1fe3fea0-11a7-4f72-8c85-1f7ae1a9cf20"
+        ],
+        "tool_use_id": "toolu_01WsVDp1kJD2n5XNTcWbwNsG"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01WsVDp1kJD2n5XNTcWbwNsG"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: code-review",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01ERaDZU94bGiFGjr1kTPy4P",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "code-review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "a0fa5e22406f",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 35,
+        "end": 36,
+        "entry_ids": [
+          "7a022786-317f-4f8c-8c2f-e8eb17532402"
+        ],
+        "tool_use_id": "toolu_01ERaDZU94bGiFGjr1kTPy4P"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01ERaDZU94bGiFGjr1kTPy4P"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: code-review",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-14T01:22:53.241918Z",
+    "agent_lines": 745,
+    "agent_removed": 746,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 745,
+    "total_lines_changed": 1491,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
