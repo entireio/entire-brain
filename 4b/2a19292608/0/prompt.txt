@@ -1,0 +1,13 @@
+Do a full review of the open PRs
+
+---
+
+Apply all fixes, ensure no functional regressions are introduced, then update the PR descriptions. Don't merge yet.
+
+---
+
+Work through the merge and check that you don't reintroduce the bug.
+
+---
+
+Work through the 27 conflicts. Given 83 is larger than originally described, also adjust title and description to cover all changes.
