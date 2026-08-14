@@ -1214,7 +1214,7 @@ def build_tools(run_root: pathlib.Path, env: dict[str, str] | None = None) -> di
         for sem_cmd in ("./cmd/entire-graph", "./cmd/entire-sem"):
             if not (repo_dir / sem_cmd).is_dir():
                 continue
-            proc = run_cmd(["go", "build", "-o", str(sem_bin), sem_cmd], cwd=repo_dir, env=build_env)
+            proc = run_cmd(["go", "build", "-o", str(graph_bin), sem_cmd], cwd=repo_dir, env=build_env)
             if proc.returncode == 0:
                 sem_built = True
                 break
