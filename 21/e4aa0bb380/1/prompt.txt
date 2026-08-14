@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>baz6vf9z1</task-id>
+<tool-use-id>toolu_01Bt61DySmP947xpiBR1nBpg</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/baz6vf9z1.output</output-file>
+<status>completed</status>
+<summary>Background command "Run both release panels sequentially" completed (exit code 0)</summary>
+</task-notification>

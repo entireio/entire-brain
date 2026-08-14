@@ -1,13 +1,15 @@
 {
-  "cli_version": "0.8.42",
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
   "checkpoint_id": "21e4aa0bb380",
   "strategy": "manual-commit",
-  "branch": "feat/temporal-memory-spike",
-  "checkpoints_count": 1,
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 2,
   "files_touched": [
     "benchmarks/agent-brain/README.md",
     "benchmarks/agent-brain/run.py",
     "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+    "benchmarks/agent-brain/test_history_answer_scrub.py",
     "internal/cli/distill_cmd.go",
     "internal/cli/distill_cmd_test.go"
   ],
@@ -18,13 +20,20 @@
       "compact_transcript": "/21/e4aa0bb380/0/transcript.jsonl",
       "content_hash": "/21/e4aa0bb380/0/content_hash.txt",
       "prompt": "/21/e4aa0bb380/0/prompt.txt"
+    },
+    {
+      "metadata": "/21/e4aa0bb380/1/metadata.json",
+      "transcript": "/21/e4aa0bb380/1/full.jsonl",
+      "compact_transcript": "/21/e4aa0bb380/1/transcript.jsonl",
+      "content_hash": "/21/e4aa0bb380/1/content_hash.txt",
+      "prompt": "/21/e4aa0bb380/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 2,
-    "cache_creation_tokens": 14440,
-    "cache_read_tokens": 23201,
-    "output_tokens": 4,
-    "api_call_count": 1
+    "input_tokens": 64,
+    "cache_creation_tokens": 272667,
+    "cache_read_tokens": 7955866,
+    "output_tokens": 19435,
+    "api_call_count": 32
   }
 }
