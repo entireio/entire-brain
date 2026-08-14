@@ -848,6 +848,13 @@ func removeHistoryProjectionDirectory(outputDir, rel string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("refuse cleanup of symlink or non-directory history projection: %s", rel)
 	}
+	// Prove the SHAPE while the directory is still at its published path: a
+	// projection generation holds exactly index.json and the receipt, both
+	// regular files. This is the check that decides whether the directory is
+	// safe to delete, and it runs before anything is moved.
+	if _, _, err := inspectHistoryProjectionDirectory(abs, rel, false); err != nil {
+		return err
+	}
 	quarantine := abs + ".removing"
 	if _, err := os.Lstat(quarantine); err == nil {
 		return fmt.Errorf("history projection cleanup quarantine already exists: %s", filepath.ToSlash(rel)+".removing")
@@ -865,12 +872,17 @@ func removeHistoryProjectionDirectory(outputDir, rel string) error {
 		}
 		return cause
 	}
+	// Re-prove the shape at the quarantine path. Identity is deliberately NOT
+	// compared across the rename: os.Lstat resolves file identity lazily by
+	// PATH on Windows, so the pre-rename FileInfo re-resolves against a path
+	// that no longer exists and os.SameFile is unconditionally false there.
+	// That made this cleanup a permanent no-op on Windows, which is what left
+	// unreferenced generations behind for privacy verification to find. The
+	// rename itself is the atomic step that carries identity: it moved exactly
+	// the directory that was at abs, under the Brain write lock, or it failed.
 	quarantineInfo, names, err := inspectHistoryProjectionDirectory(quarantine, filepath.ToSlash(rel)+".removing", false)
 	if err != nil {
 		return restore(err)
-	}
-	if !os.SameFile(info, quarantineInfo) {
-		return restore(fmt.Errorf("history projection changed during cleanup: %s", rel))
 	}
 	if err := removeKnownHistoryProjectionContents(quarantine, filepath.ToSlash(rel)+".removing", quarantineInfo, names); err != nil {
 		return restore(err)

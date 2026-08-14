@@ -59,9 +59,27 @@ func replaceDeltaTranscriptSameMetadata(t *testing.T, path, oldText, newText str
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) || os.SameFile(before, after) {
-		t.Fatalf("replacement did not preserve size+mtime while changing membership: before=%+v after=%+v", before, after)
+	// Only size and mtime are asserted. os.SameFile cannot express "this path
+	// now holds a different file" on Windows, where Lstat resolves identity
+	// lazily by path: both FileInfos re-resolve to whatever is at the path when
+	// SameFile is called, so they always compare equal. The property under test
+	// is that a same-metadata replacement is NOT reused from cache, and each
+	// caller asserts that directly through the scan/reuse counts.
+	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("replacement did not preserve size+mtime: before=%+v after=%+v", before, after)
 	}
+	if bytes.Equal(mustReadFile(t, path), body) {
+		t.Fatal("replacement did not change the file contents")
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func buildShortTermResult(t *testing.T, brainDir string) (shortTermStats, error) {
