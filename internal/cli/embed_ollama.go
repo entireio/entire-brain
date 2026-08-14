@@ -130,7 +130,13 @@ func (o *ollamaEmbedder) reachable() bool {
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return false
 	}
-	return len(out.Embeddings) > 0 && len(out.Embeddings[0]) > 0
+	if len(out.Embeddings) == 0 || len(out.Embeddings[0]) == 0 {
+		return false
+	}
+	// Pin the discovered dimension so a non-default model does not issue a
+	// second, longer background probe before the context-bounded worker lane.
+	o.dim = len(out.Embeddings[0])
+	return true
 }
 
 // embeddingGemmaDim is EmbeddingGemma-300M's output dimension. Seeding it for the
@@ -151,16 +157,24 @@ func (o *ollamaEmbedder) Dim() int {
 
 // Embed uses EmbeddingGemma's document/retrieval prefix.
 func (o *ollamaEmbedder) Embed(text string) []float32 {
-	return o.embed("title: none | text: " + text)
+	return o.embedContext(context.Background(), "title: none | text: "+text)
+}
+
+func (o *ollamaEmbedder) EmbedContext(ctx context.Context, text string) []float32 {
+	return o.embedContext(ctx, "title: none | text: "+text)
 }
 
 // EmbedQuery uses EmbeddingGemma's search-query prefix — distinct from Embed's
 // document prefix, which is the asymmetry the model is trained for.
 func (o *ollamaEmbedder) EmbedQuery(text string) []float32 {
-	return o.embed("task: search result | query: " + text)
+	return o.embedContext(context.Background(), "task: search result | query: "+text)
 }
 
 func (o *ollamaEmbedder) embed(input string) []float32 {
+	return o.embedContext(context.Background(), input)
+}
+
+func (o *ollamaEmbedder) embedContext(ctx context.Context, input string) []float32 {
 	if o == nil || o.hc == nil || o.url == "" {
 		return nil
 	}
@@ -172,7 +186,7 @@ func (o *ollamaEmbedder) embed(input string) []float32 {
 	if err != nil {
 		return nil
 	}
-	req, err := http.NewRequest(http.MethodPost, o.url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.url, bytes.NewReader(body))
 	if err != nil {
 		return nil
 	}

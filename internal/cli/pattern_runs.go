@@ -2,10 +2,10 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"database/sql"
 	"encoding/json"
-	"os"
-	"path/filepath"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -18,6 +18,7 @@ import (
 
 const patternRunsRelPath = "patterns/runs.ndjson"
 const patternRunsKeep = 50
+const patternRunsMaxBytes int64 = 4 << 20
 
 type patternRun struct {
 	At             string `json:"at"`
@@ -34,33 +35,57 @@ type patternRun struct {
 	Synapses       int    `json:"synapses"`
 }
 
-// recordPatternRun snapshots the corpus counts and appends a run record (keeping
-// the most recent patternRunsKeep). Best-effort: a logging failure never fails
-// the build.
-func recordPatternRun(db *sql.DB, brainDir string, now time.Time) {
+// patternRunFromStaging snapshots counts while the complete private staging
+// database is still writable/open. The run is persisted only after successful
+// corpus publication, so a failed commit cannot describe data that never became
+// live and no post-publication SQLite connection is required.
+func patternRunFromStaging(db *sql.DB, now time.Time) (patternRun, error) {
 	run := patternRun{
 		At:             now.UTC().Format(time.RFC3339),
 		IndexerVersion: patternIndexerVersion,
-		Episodes:       corpusScalar(db, `SELECT COUNT(*) FROM episodes`),
-		Commands:       corpusScalar(db, `SELECT COUNT(*) FROM episode_commands`),
-		Grams:          corpusScalar(db, `SELECT COUNT(*) FROM grams`),
-		FactLinks:      corpusScalar(db, `SELECT COUNT(*) FROM episode_facts`),
-		SymbolLinks:    corpusScalar(db, `SELECT COUNT(*) FROM episode_symbols`),
-		Commits:        corpusScalar(db, `SELECT COUNT(*) FROM episode_commits`),
-		Patterns:       corpusScalar(db, `SELECT COUNT(*) FROM patterns`),
-		Dossiers:       corpusScalar(db, `SELECT COUNT(*) FROM dossiers`),
-		Themes:         corpusScalar(db, `SELECT COUNT(*) FROM themes`),
-		Synapses:       corpusScalar(db, `SELECT COUNT(*) FROM synapses`),
 	}
-	_ = appendPatternRun(brainDir, run)
+	counts := []struct {
+		target *int
+		table  string
+	}{
+		{&run.Episodes, "episodes"},
+		{&run.Commands, "episode_commands"},
+		{&run.Grams, "grams"},
+		{&run.FactLinks, "episode_facts"},
+		{&run.SymbolLinks, "episode_symbols"},
+		{&run.Commits, "episode_commits"},
+		{&run.Patterns, "patterns"},
+		{&run.Dossiers, "dossiers"},
+		{&run.Themes, "themes"},
+		{&run.Synapses, "synapses"},
+	}
+	for _, count := range counts {
+		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + count.table).Scan(count.target); err != nil {
+			return patternRun{}, fmt.Errorf("snapshot staged pattern run count %s: %w", count.table, err)
+		}
+	}
+	return run, nil
 }
 
 func appendPatternRun(brainDir string, run patternRun) error {
-	path := filepath.Join(brainDir, filepath.FromSlash(patternRunsRelPath))
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+	runs, err := loadPatternRunsChecked(brainDir)
+	if err != nil {
+		// A corrupt run log must not be permanent. appendPatternRun is the ONLY
+		// writer and it rewrites the file wholesale, so returning here left the
+		// file unrepairable: `patterns status` and `patterns list` failed
+		// forever, and the `patterns refresh` that is supposed to repair them
+		// bailed out before writing. The log was also written non-atomically by
+		// older builds, so a truncated final line is reachable on any existing
+		// brain. Run history is bounded, disposable telemetry and never a
+		// source of truth, so recover by starting a fresh log. An UNSAFE path
+		// (alias, symlink, irregular file) is not content corruption and still
+		// fails closed.
+		if memoryErrorCode(err) != memoryErrStateCorrupt {
+			return err
+		}
+		runs = nil
 	}
-	runs := append(loadPatternRuns(brainDir), run)
+	runs = append(runs, run)
 	if len(runs) > patternRunsKeep {
 		runs = runs[len(runs)-patternRunsKeep:]
 	}
@@ -71,38 +96,62 @@ func appendPatternRun(brainDir string, run patternRun) error {
 			return err
 		}
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, patternRunsRelPath, []byte(b.String()), 0o600)
 }
 
-// loadPatternRuns returns the recorded runs oldest-first; empty when none.
-func loadPatternRuns(brainDir string) []patternRun {
-	path := filepath.Join(brainDir, filepath.FromSlash(patternRunsRelPath))
-	f, err := os.Open(path)
+// loadPatternRunsChecked returns recorded runs oldest-first. A genuinely absent
+// log is the one optional state; aliases, I/O failures, oversized data, invalid
+// JSON, and scanner failures are typed state errors rather than an empty log.
+func loadPatternRunsChecked(brainDir string) ([]patternRun, error) {
+	data, present, err := readMemoryStateFile(brainDir, patternRunsRelPath, "pattern run history", patternRunsMaxBytes)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	defer f.Close()
+	if !present {
+		return nil, nil
+	}
 	var runs []patternRun
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	lineNumber := 0
 	for sc.Scan() {
+		lineNumber++
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
 			continue
 		}
 		var r patternRun
-		if json.Unmarshal([]byte(line), &r) == nil {
-			runs = append(runs, r)
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			return nil, fmt.Errorf("%s: parse pattern run history line %d: %w", memoryErrStateCorrupt, lineNumber, err)
 		}
+		runs = append(runs, r)
 	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("%s: scan pattern run history: %w", memoryErrStateCorrupt, err)
+	}
+	return runs, nil
+}
+
+// loadPatternRuns retains the historical best-effort helper for internal tests.
+// Production response surfaces use loadPatternRunsChecked.
+func loadPatternRuns(brainDir string) []patternRun {
+	runs, _ := loadPatternRunsChecked(brainDir)
 	return runs
 }
 
 // lastPatternRun returns the most recent run, if any.
 func lastPatternRun(brainDir string) (patternRun, bool) {
-	runs := loadPatternRuns(brainDir)
-	if len(runs) == 0 {
-		return patternRun{}, false
+	run, ok, _ := lastPatternRunChecked(brainDir)
+	return run, ok
+}
+
+func lastPatternRunChecked(brainDir string) (patternRun, bool, error) {
+	runs, err := loadPatternRunsChecked(brainDir)
+	if err != nil {
+		return patternRun{}, false, err
 	}
-	return runs[len(runs)-1], true
+	if len(runs) == 0 {
+		return patternRun{}, false, nil
+	}
+	return runs[len(runs)-1], true, nil
 }

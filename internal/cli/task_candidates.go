@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strings"
 )
@@ -401,9 +403,12 @@ func writeBrainTasksFile(outputDir string, tasks []taskCandidate) error {
 }
 
 func loadBrainTasks(brainDir string) ([]taskCandidate, error) {
-	content, err := readBrainRelativeFile(brainDir, patternsTasksPath)
+	content, err := readBrainRelativeStateFile(brainDir, patternsTasksPath)
 	if err != nil {
-		return nil, nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var tasks []taskCandidate
 	for _, line := range strings.Split(content, "\n") {

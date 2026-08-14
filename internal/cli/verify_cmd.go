@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -332,11 +333,11 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 		if session.TranscriptPath != "" && anchor.Transcript != "" && filepath.ToSlash(session.TranscriptPath) != filepath.ToSlash(anchor.Transcript) {
 			result.addCheck(verifyCheck{Name: "transcript_path", Verdict: verifyVerdictStale, Reason: fmt.Sprintf("exported session now points at %s", session.TranscriptPath)})
 		}
-		content, err := readBrainRelativeFile(v.brainDir, transcriptRel)
+		data, err := readCanonicalHistoryTranscript(v.ctx, v.brainDir, transcriptRel)
 		if err != nil {
 			result.addCheck(verifyCheck{Name: "transcript", Verdict: verifyVerdictOrphaned, Reason: err.Error()})
 		} else {
-			transcriptContent = content
+			transcriptContent = string(data)
 			result.addCheck(verifyCheck{Name: "transcript", Verdict: verifyVerdictVerified, Reason: transcriptRel})
 		}
 	}
@@ -388,10 +389,13 @@ func (v *verifyContext) verifyCommit(commit string) verifyCheck {
 var verifyCommitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
 
 func (v *verifyContext) verifyCommitUncached(commit string) verifyCheck {
-	if _, _, err := v.opts.Runner.Run(v.ctx, v.repoDir, "git", "cat-file", "-e", commit+"^{commit}"); err != nil {
+	// Verification is defined over locally retained evidence. Both existence
+	// and reachability can traverse promisor objects, so guard every Git object
+	// read against lazy network fetches just like checkpoint transcript reads.
+	if _, _, err := runCheckpointGitWithPolicy(v.ctx, v.opts.Runner, v.repoDir, true, "cat-file", "-e", commit+"^{commit}"); err != nil {
 		return verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit is missing locally"}
 	}
-	stdout, _, err := v.opts.Runner.Run(v.ctx, v.repoDir, "git", "for-each-ref", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes", "refs/tags")
+	stdout, _, err := runCheckpointGitWithPolicy(v.ctx, v.opts.Runner, v.repoDir, true, "for-each-ref", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes", "refs/tags")
 	if err != nil {
 		return verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit reachability could not be checked locally"}
 	}
@@ -446,6 +450,9 @@ func (v *verifyContext) verifyCheckpoint(checkpointID string) verifyCheck {
 	if err != nil {
 		return verifyCheck{Name: "checkpoint", Verdict: verifyVerdictUnverifiableHere, Reason: verifyCheckpointUnavailableHint + ": " + err.Error()}
 	}
+	if checkpointUnreadableInSnapshot(snapshot, checkpointID) {
+		return verifyCheck{Name: "checkpoint", Verdict: verifyVerdictUnverifiableHere, Reason: "checkpoint was listed locally but its retained source is unreadable"}
+	}
 	if !checkpointExistsInSnapshot(snapshot, checkpointID) {
 		return verifyCheck{Name: "checkpoint", Verdict: verifyVerdictOrphaned, Reason: "checkpoint is missing from local checkpoint refs"}
 	}
@@ -457,11 +464,14 @@ func (v *verifyContext) verifyCheckpointTranscript(anchor factAnchor, session ex
 	if err != nil {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictUnverifiableHere, Reason: verifyCheckpointUnavailableHint + ": " + err.Error()}
 	}
-	sourcePath := v.snapshotSourceTranscriptPath(snapshot, anchor, session)
+	if checkpointUnreadableInSnapshot(snapshot, anchor.CheckpointID) {
+		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictUnverifiableHere, Reason: "checkpoint was listed locally but its retained transcript source is unreadable"}
+	}
+	sourcePath, sourceKey := v.snapshotSourceTranscriptPath(snapshot, anchor, session)
 	if sourcePath == "" {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: "checkpoint transcript path is missing"}
 	}
-	transcript, err := readSnapshotTranscript(v.ctx, v.opts.Runner, snapshot, sourcePath)
+	transcript, err := readSnapshotTranscriptFromSource(v.ctx, v.opts.Runner, snapshot, sourceKey, sourcePath)
 	if err != nil {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: err.Error()}
 	}
@@ -483,35 +493,60 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 	return v.snapshot, v.snapshotErr
 }
 
-func (v *verifyContext) snapshotSourceTranscriptPath(snapshot *checkpointSnapshot, anchor factAnchor, session exportSession) string {
+func (v *verifyContext) snapshotSourceTranscriptPath(snapshot *checkpointSnapshot, anchor factAnchor, session exportSession) (string, string) {
 	for _, candidate := range snapshot.Selected {
 		if candidate.SessionID == anchor.SessionID && candidate.CheckpointID == anchor.CheckpointID && candidate.SourceTranscriptPath != "" {
-			return candidate.SourceTranscriptPath
+			return candidate.SourceTranscriptPath, candidate.SourceKey
 		}
 	}
 	path := snapshotTranscriptPath(anchor.CheckpointID, session.SessionIndex, snapshot.TranscriptFileName)
-	if _, ok := snapshot.TreePaths[path]; ok {
-		return path
+	for sourceKey, source := range snapshot.Sources {
+		if hasSnapshotTranscript(path, source.TreePaths) {
+			return path, sourceKey
+		}
+	}
+	if hasSnapshotTranscript(path, snapshot.TreePaths) {
+		return path, ""
 	}
 	rootPath := snapshotRootTranscriptPath(anchor.CheckpointID, snapshot.TranscriptFileName)
-	if _, ok := snapshot.TreePaths[rootPath]; ok {
-		return rootPath
+	for sourceKey, source := range snapshot.Sources {
+		if hasSnapshotTranscript(rootPath, source.TreePaths) {
+			return rootPath, sourceKey
+		}
 	}
-	return ""
+	if hasSnapshotTranscript(rootPath, snapshot.TreePaths) {
+		return rootPath, ""
+	}
+	return "", ""
 }
 
 func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRunner, repoDir string) (*checkpointSnapshot, []string, error) {
-	version := checkpointStorageV1
-	refs := []string{v1MainRef, v1OriginRef}
-	transcriptFileName := v1TranscriptFileName
-	mode := "raw"
-	if settings, err := readEntireSettings(repoDir); err == nil && settings.CheckpointsV2Enabled() {
-		version = checkpointStorageV2
-		refs = []string{v2MainRef}
-		transcriptFileName = v2TranscriptFileName
-		mode = "compact"
+	settings, settingsErr := readEntireSettings(repoDir)
+	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
+	if primaryErr != nil {
+		return nil, nil, fmt.Errorf("%w: checkpoint backend selection is invalid: %v", errCheckpointSnapshotUnavailable, primaryErr)
 	}
-	snapshot, _, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, refs, version, transcriptFileName, mode, defaultCheckpointLimit, checkpointBranchDestinations{}, nil, nil)
+	if !configured {
+		primary = checkpointBackendGitBranch
+	}
+	if settingsErr != nil && !errors.Is(settingsErr, os.ErrNotExist) && !configured {
+		return nil, nil, fmt.Errorf("%w: checkpoint settings are malformed or unreadable: %v", errCheckpointSnapshotUnavailable, settingsErr)
+	}
+	if settingsErr == nil && settings.CheckpointsV2Enabled() && primary == checkpointBackendGitBranch {
+		refSources, refWarnings := loadPerCheckpointSources(ctx, runner, repoDir, true, nil)
+		if len(refSources) > 0 {
+			return nil, refWarnings, fmt.Errorf("%w: mixed v2 and git-refs checkpoint verification requires routed transcript modes", errCheckpointSnapshotUnavailable)
+		}
+		for _, warning := range refWarnings {
+			if strings.Contains(warning, "checkpoint ref namespace unavailable") {
+				return nil, refWarnings, fmt.Errorf("%w: cannot prove the v2 checkpoint catalog excludes git-refs", errCheckpointSnapshotUnavailable)
+			}
+		}
+		snapshot, warnings, err := loadCheckpointSnapshotFromGitDirPolicy(ctx, runner, repoDir, v2MainRef, checkpointStorageV2, v2TranscriptFileName, "compact", 0, checkpointBranchDestinations{}, nil, nil, true)
+		warnings = append(refWarnings, warnings...)
+		return snapshot, warnings, err
+	}
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, 0, checkpointBranchDestinations{}, nil, nil, true)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -519,6 +554,11 @@ func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRun
 }
 
 func checkpointExistsInSnapshot(snapshot *checkpointSnapshot, checkpointID string) bool {
+	for sourceKey := range snapshot.Sources {
+		if strings.HasSuffix(sourceKey, "\x00"+checkpointID) {
+			return true
+		}
+	}
 	prefix := checkpointPath(checkpointID) + "/"
 	for path := range snapshot.TreePaths {
 		if strings.HasPrefix(path, prefix) {
@@ -526,6 +566,14 @@ func checkpointExistsInSnapshot(snapshot *checkpointSnapshot, checkpointID strin
 		}
 	}
 	return false
+}
+
+func checkpointUnreadableInSnapshot(snapshot *checkpointSnapshot, checkpointID string) bool {
+	if snapshot == nil {
+		return false
+	}
+	_, unreadable := snapshot.UnreadableCheckpoints[checkpointID]
+	return unreadable
 }
 
 func transcriptLine(content string, line int) (string, bool) {

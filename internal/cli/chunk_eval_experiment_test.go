@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"sort"
 	"strconv"
@@ -69,10 +70,11 @@ func TestChunkRetrievalVsDistill(t *testing.T) {
 	}
 	var chunks []chunkVec
 	for _, s := range manifest.Sources.Sessions.Sessions {
-		content, rErr := readBrainRelativeFile(brainDir, s.TranscriptPath)
+		data, rErr := readCanonicalHistoryTranscript(context.Background(), brainDir, s.TranscriptPath)
 		if rErr != nil {
 			continue
 		}
+		content := string(data)
 		for _, c := range chunkTranscript(preprocessTranscriptForDistill(content), chunkBytes) {
 			chunks = append(chunks, chunkVec{s.SessionID, c.StartLine, c.EndLine, len(c.Text) / 4, e.Embed(c.Text)})
 		}

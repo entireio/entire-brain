@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -305,9 +307,12 @@ func writeBrainProceduresFile(outputDir string, procedures []procedureRecord) er
 }
 
 func loadBrainProcedures(brainDir string) ([]procedureRecord, error) {
-	content, err := readBrainRelativeFile(brainDir, patternsProceduresPath)
+	content, err := readBrainRelativeStateFile(brainDir, patternsProceduresPath)
 	if err != nil {
-		return nil, nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var procedures []procedureRecord
 	for _, line := range strings.Split(content, "\n") {

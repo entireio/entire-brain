@@ -122,7 +122,7 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 
 	// The id `workspace patterns` prints (scope=workspace).
 	wsDir, _ := workspaceDir(env, "plat")
-	wdb, err := openPatternCorpusDB(wsDir)
+	wdb, err := openPatternCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	if err := runWorkspaceGet(cmd, opts, "plat", []string{aggID}, "", false); err != nil {
+	if err := runWorkspaceGet(cmd, opts, "plat", []string{aggID}, "", false, getOptions{}); err != nil {
 		t.Fatalf("workspace get aggregate id: %v", err)
 	}
 	got := out.String()
@@ -151,7 +151,7 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 
 	// Member-qualified ids still route to the member repo (existing behavior).
 	out.Reset()
-	if err := runWorkspaceGet(cmd, opts, "plat", []string{"gh/acme/a/pattern:does-not-exist"}, "", false); err != nil {
+	if err := runWorkspaceGet(cmd, opts, "plat", []string{"gh/acme/a/pattern:does-not-exist"}, "", false, getOptions{}); err != nil {
 		t.Fatalf("member-qualified get should not error: %v", err)
 	}
 	if !strings.Contains(out.String(), "not found") {
@@ -197,7 +197,7 @@ func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 	}
 
 	// Reject the dossier in member A → only B contributes → below the 2-repo floor.
-	adb, err := openPatternCorpusDB(aDir)
+	adb, err := openPatternCorpusMutableDB(aDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	wsDir, _ := workspaceDir(env, "plat")
-	db, err := openPatternCorpusDB(wsDir)
+	db, err := openPatternCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	db2, _ := openPatternCorpusDB(wsDir)
+	db2, _ := openPatternCorpusMutableDB(wsDir)
 	defer db2.Close()
 	var dossiers, themes int
 	db2.QueryRow(`SELECT COUNT(*) FROM dossiers`).Scan(&dossiers)
@@ -297,7 +297,7 @@ func TestWorkspaceCorpusSynapsesAndRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	wsDir, _ := workspaceDir(env, "plat")
-	db, err := openPatternCorpusDB(wsDir)
+	db, err := openPatternCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}

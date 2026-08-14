@@ -101,7 +101,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 // a proposal; only an accepted deep dossier makes it formable.
 func TestSkillProposalsRequireAcceptedDeepDossier(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

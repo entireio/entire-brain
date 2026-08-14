@@ -14,6 +14,8 @@ const brainManifestSchemaVersion = 3
 const (
 	brainLockDirName      = "locks"
 	brainWriteLockName    = "write.lock"
+	brainManifestLockName = "manifest.lock"
+	brainPrivacyLockName  = "privacy-side-effect.lock"
 	brainWriteLockTimeout = 10 * time.Second
 )
 
@@ -73,18 +75,70 @@ func withBrainWriteLock(brainDir string, fn func() error) error {
 	return fn()
 }
 
-func loadBrainManifest(outputDir string) (*exportManifest, error) {
-	path := filepath.Join(outputDir, exportManifestFileName)
-	data, err := safeReadFile(path, maxManifestBytes)
+// acquireBrainPrivacySideEffectLock serializes irreversible provider egress
+// with privacy-policy mutations without blocking ordinary projections,
+// retrievals, or cancellation requests for the duration of a provider call.
+// Any operation needing both locks must acquire this lock before write.lock.
+func acquireBrainPrivacySideEffectLock(brainDir string) (func(), error) {
+	return acquireBrainPrivacySideEffectLockTimeout(brainDir, brainWriteLockTimeout)
+}
+
+func acquireBrainPrivacySideEffectLockTimeout(brainDir string, timeout time.Duration) (func(), error) {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return nil, err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+		return nil, err
+	}
+	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainPrivacyLockName), memoryErrPrivacyBusy, timeout)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &exportManifest{SchemaVersion: brainManifestSchemaVersion}, nil
-		}
+		return nil, err
+	}
+	return func() { _ = lock.Close() }, nil
+}
+
+func withBrainPrivacySideEffectLock(brainDir string, fn func() error) error {
+	unlock, err := acquireBrainPrivacySideEffectLock(brainDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
+}
+
+func withBrainManifestWriteLock(brainDir string, fn func() error) error {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+		return err
+	}
+	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainManifestLockName), "brain_manifest_locked", brainWriteLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	return fn()
+}
+
+func loadBrainManifest(outputDir string) (*exportManifest, error) {
+	data, present, err := readMemoryStateFile(outputDir, exportManifestFileName, "brain manifest", maxManifestBytes)
+	if err != nil {
 		return nil, fmt.Errorf("read brain manifest: %w", err)
 	}
+	if !present {
+		return &exportManifest{SchemaVersion: brainManifestSchemaVersion}, nil
+	}
 	var manifest exportManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
+	version, err := decodeStrictVersionedJSON(data, &manifest, brainManifestSchemaVersion, "brain manifest")
+	if err != nil {
 		return nil, fmt.Errorf("parse brain manifest: %w", err)
+	}
+	// Versionless legacy exports predate the top-level schema field and adapt as
+	// v1. Explicit v1-v3 documents are supported; no writer may down-convert a
+	// vNext manifest or silently discard additive fields.
+	if version < 0 || version > brainManifestSchemaVersion {
+		return nil, fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
 	}
 	normalizeBrainManifest(&manifest)
 	return &manifest, nil
@@ -224,20 +278,30 @@ func applySessionSourceAliases(manifest *exportManifest) {
 }
 
 func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) error {
-	normalizeBrainManifest(&manifest)
-	manifest.SchemaVersion = brainManifestSchemaVersion
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
-	}
-	data = append(data, '\n')
-	if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
-	}
-	if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
-		return fmt.Errorf("write brain readme: %w", err)
-	}
-	return nil
+	return withBrainManifestWriteLock(outputDir, func() error {
+		// All production manifest replacements share this leaf-specific lock and
+		// classify the exact present bytes while holding it. This does not claim
+		// to exclude hostile non-cooperating filesystem mutation, but no current
+		// writer can down-convert a vNext or erase unrecognized current bytes it
+		// observed.
+		if _, err := loadBrainManifest(outputDir); err != nil {
+			return err
+		}
+		normalizeBrainManifest(&manifest)
+		manifest.SchemaVersion = brainManifestSchemaVersion
+		data, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+		}
+		data = append(data, '\n')
+		if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
+			return fmt.Errorf("write %s: %w", exportManifestFileName, err)
+		}
+		if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
+			return fmt.Errorf("write brain readme: %w", err)
+		}
+		return nil
+	})
 }
 
 func cleanBrainRelativePath(rel string) (string, error) {
@@ -312,6 +376,41 @@ func removeBrainRelativeFile(brainDir, rel string) error {
 	}
 	err = os.Remove(filepath.Join(brainDir, clean))
 	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// removeBrainRelativeFileExpected removes a file only when it is still the
+// exact inode/file identity observed by a descriptor-bound inventory. Privacy
+// cleanup uses this after validating content so a raced replacement is never
+// unlinked under the authority of the original file.
+func removeBrainRelativeFileExpected(brainDir, rel string, expected os.FileInfo) error {
+	if expected == nil {
+		return fmt.Errorf("memory_state_unsafe: missing expected file identity for %s", rel)
+	}
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return err
+	}
+	path := filepath.Join(brainDir, clean)
+	current, err := memoryStateLstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("memory_state_unsafe: expected file disappeared before removal: %s", filepath.ToSlash(clean))
+		}
+		return err
+	}
+	if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(expected, current) {
+		return fmt.Errorf("memory_state_unsafe: file changed before removal: %s", filepath.ToSlash(clean))
+	}
+	if err := os.Remove(path); err != nil {
 		return err
 	}
 	return nil

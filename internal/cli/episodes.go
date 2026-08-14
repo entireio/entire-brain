@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -110,8 +111,9 @@ func intentSignature(intent string) string {
 }
 
 // buildBrainEpisodes derives episodes from the exported session transcripts under
-// outputDir. Deterministic and token-free. A transcript that fails to read is
-// recorded as a warning and skipped, mirroring the history index.
+// outputDir. Deterministic and token-free. Canonical containment, inventory,
+// and size failures refuse the whole build so callers never publish a partial
+// episode/pattern projection.
 func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patternSourceManifest, error) {
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
@@ -126,21 +128,34 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 		warnings []string
 		counts   reinforcementCounts
 	)
-	// Session tombstones (Phase 4): excluded sessions contribute no episodes.
-	stones := loadSessionTombstones(outputDir)
+	// Session tombstones (Phase 4): excluded sessions and any duplicate
+	// manifest aliases of their transcript contribute no episodes.
+	guard, err := loadSessionReadGuard(outputDir, manifest)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Episodes are a complete projection of the canonical session tree. Refuse
+	// the build before parsing if any entry is unsafe or the bounded inventory
+	// cannot be proven complete, and prove the entire membership stayed fixed
+	// after all direct transcript reads (including irrelevant entries).
+	beforeInventory, err := collectHistorySessionInventory(context.Background(), outputDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer beforeInventory.Close()
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		if _, excluded := stones.Excluded[strings.TrimSpace(session.SessionID)]; excluded {
+		if guard.blocksExportSession(session) {
 			continue
 		}
 		rel := strings.TrimSpace(session.TranscriptPath)
 		if rel == "" {
 			continue
 		}
-		transcript, readErr := readBrainRelativeFile(outputDir, rel)
+		data, readErr := readCanonicalHistoryTranscript(context.Background(), outputDir, rel)
 		if readErr != nil {
-			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", rel, readErr))
-			continue
+			return nil, nil, fmt.Errorf("read transcript %s: %w", rel, readErr)
 		}
+		transcript := string(data)
 		segments := transcriptEpisodeSegments(transcript)
 		author := ""
 		if len(session.Authors) > 0 {
@@ -186,6 +201,15 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 			}
 			episodes = append(episodes, ep)
 		}
+	}
+	afterInventory, err := collectHistorySessionInventory(context.Background(), outputDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	unchanged := beforeInventory.sameMembership(afterInventory)
+	_ = afterInventory.Close()
+	if !unchanged {
+		return nil, nil, fmt.Errorf("%s: canonical transcript inventory changed while building episodes", memoryErrSourceStale)
 	}
 
 	// Deterministic order keeps episodes.ndjson stable across refreshes (small,
@@ -305,7 +329,7 @@ func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, erro
 
 // loadBrainEpisodes reads the persisted episode layer. Missing file -> empty.
 func loadBrainEpisodes(brainDir string) ([]episodeRecord, error) {
-	content, err := readBrainRelativeFile(brainDir, patternsEpisodesPath)
+	content, err := readBrainRelativeStateFile(brainDir, patternsEpisodesPath)
 	if err != nil {
 		return nil, nil
 	}

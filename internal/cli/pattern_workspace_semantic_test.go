@@ -237,7 +237,7 @@ func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
 	}
 	// Mutate member A's task title (content), same repo + intent.
 	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	mdb, err := openPatternCorpusDB(aDir)
+	mdb, err := openPatternCorpusMutableDB(aDir)
 	if err != nil {
 		t.Fatal(err)
 	}

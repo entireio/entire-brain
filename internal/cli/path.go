@@ -151,12 +151,46 @@ func resolveLocalTargetRepoDir(ctx context.Context, runner CommandRunner, target
 				if absErr != nil {
 					return "", true, fmt.Errorf("resolve git root: %w", absErr)
 				}
-				abs = rootAbs
+				// Git may report an ancestor's physical spelling even though the
+				// requested path used an established logical spelling (notably
+				// macOS /var versus /private/var). Prefer the matching lexical
+				// ancestor so path-hashed local identities remain stable.
+				// A relative target carries no lexical root spelling of its own.
+				// On macOS, filepath.Abs after Chdir may expand /var to
+				// /private/var; in that case Git's absolute root is the only
+				// caller-provided spelling and must win. Preserve a matching
+				// lexical ancestor only for an explicitly absolute target.
+				if filepath.IsAbs(target) {
+					if lexicalRoot, ok := matchingLexicalAncestor(abs, rootAbs); ok {
+						abs = lexicalRoot
+					} else {
+						abs = rootAbs
+					}
+				} else {
+					abs = rootAbs
+				}
 			}
 		}
 	}
 
 	return abs, true, nil
+}
+
+func matchingLexicalAncestor(path, target string) (string, bool) {
+	targetInfo, err := os.Stat(target)
+	if err != nil {
+		return "", false
+	}
+	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+		info, err := os.Stat(current)
+		if err == nil && os.SameFile(info, targetInfo) {
+			return current, true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", false
+		}
+	}
 }
 
 func brainExportExists(brainDir string) bool {

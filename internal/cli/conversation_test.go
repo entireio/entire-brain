@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -831,4 +833,110 @@ func TestConversationExchangeRecordsIdenticalRequestsDistinctOrdinals(t *testing
 	if annotated[0].ID == annotated[1].ID {
 		t.Fatal("identical request text at different ordinals must yield distinct ids")
 	}
+}
+
+// TestConversationExpansionStreamsLargeTranscripts proves bounded expansion: expanding one
+// exchange from an oversized line-oriented transcript streams the file (only
+// the indexed range is materialized) while the digest still covers the whole
+// stream, and a post-index append is reported stale, never served.
+func TestConversationExpansionStreamsLargeTranscripts(t *testing.T) {
+	brainDir := t.TempDir()
+	rel := "sessions/main/20260808T000000Z_huge.jsonl"
+	var b strings.Builder
+	b.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"why did the cache rewrite fail"}]}}` + "\n")
+	b.WriteString(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: the rewrite raced the invalidation."}]}}` + "\n")
+	filler := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + strings.Repeat("filler ", 100) + `"}]}}` + "\n"
+	for b.Len() < 16<<20 {
+		b.WriteString(filler)
+	}
+	data := []byte(b.String())
+	full := filepath.Join(brainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := historyRecord{Path: rel, Line: 1, EndLine: 2, SourceDigest: conversationDigest(data)}
+
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	expansion, err := expandConversationExchange(brainDir, record)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("expand: %v", err)
+	}
+	if !strings.Contains(expansion.Request, "cache rewrite") || !strings.Contains(expansion.Response, "raced the invalidation") {
+		t.Fatalf("expansion content wrong: %+v", expansion)
+	}
+	if delta := after.TotalAlloc - before.TotalAlloc; delta > 4<<20 {
+		t.Fatalf("expansion allocated %d bytes for a %d-byte transcript; the read is not streaming", delta, len(data))
+	}
+
+	// Any append after indexing must surface as stale even though the indexed
+	// range itself is unchanged: the digest covers the complete stream.
+	if err := os.WriteFile(full, append(data, []byte(filler)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expandConversationExchange(brainDir, record); !errors.Is(err, errConversationSourceStale) {
+		t.Fatalf("appended source must be stale: %v", err)
+	}
+}
+
+// TestConversationExpansionDistinguishesFailureStates proves the expansion contract:
+// too-large, stale, and unreadable sources surface as distinct caveats, never
+// one collapsed stale answer.
+func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
+	brainDir := t.TempDir()
+	write := func(rel, body string) historyRecord {
+		t.Helper()
+		full := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return historyRecord{ID: conversationIDPrefix + "x", Kind: conversationKind, Path: rel,
+			Line: 1, EndLine: 4, Summary: "stored projection", ContentRole: conversationContentRole,
+			SourceDigest: conversationDigest([]byte(body))}
+	}
+
+	// Document form over the read ceiling: too-large caveat.
+	docBody := "{\n\"messages\": [\n{\"role\": \"user\", \"content\": \"why did the export fail\"},\n{\"role\": \"assistant\", \"content\": \"Decision: the cursor skipped it.\"}\n]\n}\n"
+	docRecord := write("sessions/main/20260808T000000Z_doc.jsonl", docBody)
+	oldMax := maxDocumentTranscriptBytes
+	maxDocumentTranscriptBytes = 16
+	result := conversationGetResult(brainDir, docRecord)
+	maxDocumentTranscriptBytes = oldMax
+	if !hasCaveatKind(result, retrievalCaveatConversationSourceTooLarge) {
+		t.Fatalf("expected too-large caveat: %+v", result.Caveats)
+	}
+
+	// Stale digest: stale caveat, not unreadable.
+	staleRecord := docRecord
+	staleRecord.SourceDigest = "sha256:different"
+	result = conversationGetResult(brainDir, staleRecord)
+	if !hasCaveatKind(result, retrievalCaveatConversationSourceStale) || hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+		t.Fatalf("expected stale caveat: %+v", result.Caveats)
+	}
+
+	// A line transcript with an in-range line over the scanner bound:
+	// unreadable caveat, not stale.
+	huge := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("a", historyMaxLineBytes+1024) + `"}]}}` + "\n"
+	lineRecord := write("sessions/main/20260808T000000Z_line.jsonl", huge)
+	result = conversationGetResult(brainDir, lineRecord)
+	if !hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+		t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
+	}
+}
+
+func hasCaveatKind(result unifiedResult, kind string) bool {
+	for _, caveat := range result.Caveats {
+		if caveat.Kind == kind {
+			return true
+		}
+	}
+	return false
 }

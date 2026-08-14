@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -25,24 +26,38 @@ type deepSkillInput struct {
 // loadAcceptedDeepDossier returns the accepted deep dossier for a pattern (with
 // its verifier verdict), or ok=false when none exists / it is not accepted.
 func loadAcceptedDeepDossier(brainDir, patternID string) (deepSkillInput, bool) {
-	db, err := openPatternCorpusDB(brainDir)
+	input, ok, _ := loadAcceptedDeepDossierChecked(brainDir, patternID)
+	return input, ok
+}
+
+func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput, bool, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return deepSkillInput{}, false
+		return deepSkillInput{}, false, err
+	}
+	if !present {
+		return deepSkillInput{}, false, nil
 	}
 	defer db.Close()
+	if ok, err := patternCorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
+		return deepSkillInput{}, false, err
+	}
 	var jsonRedacted, verifierJSON, verdict string
 	err = db.QueryRow(`SELECT json_redacted, COALESCE(verifier_json_redacted,''), COALESCE(verdict,'')
 		FROM deep_dossiers WHERE pattern_id=?`, patternID).Scan(&jsonRedacted, &verifierJSON, &verdict)
 	if err != nil || verdict != "accepted" {
-		return deepSkillInput{}, false
+		if err != nil && err != sql.ErrNoRows {
+			return deepSkillInput{}, false, err
+		}
+		return deepSkillInput{}, false, nil
 	}
 	var in deepSkillInput
 	if json.Unmarshal([]byte(jsonRedacted), &in.rec) != nil {
-		return deepSkillInput{}, false
+		return deepSkillInput{}, false, nil
 	}
 	_ = json.Unmarshal([]byte(verifierJSON), &in.verdict) // best-effort: required_edits etc.
 	in.verdict.Verdict = verdict
-	return in, true
+	return in, true, nil
 }
 
 const deepSkillSynthesisSystemPrompt = `You convert a VERIFIED skill dossier into a SKILL.md for THIS repository. The dossier was assembled from real session evidence and already PASSED an adversarial verifier (verdict: accepted). Your job is to render it faithfully — NOT to invent or infer new content.

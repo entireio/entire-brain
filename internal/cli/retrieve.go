@@ -38,6 +38,32 @@ type unifiedResult struct {
 	// MatchedTerms lists the query tokens that actually hit this record, so a
 	// weak match is diagnosable instead of opaque (conversation search only).
 	MatchedTerms []string `json:"matched_terms,omitempty"`
+
+	// Session navigation (additive; conversation source only).
+	SessionRef      string             `json:"session_ref,omitempty"`
+	TargetID        string             `json:"target_id,omitempty"`
+	ContextBefore   int                `json:"context_before,omitempty"`
+	ContextAfter    int                `json:"context_after,omitempty"`
+	OmittedBefore   int                `json:"omitted_before,omitempty"`
+	OmittedAfter    int                `json:"omitted_after,omitempty"`
+	Turns           []conversationTurn `json:"turns,omitempty"`
+	NextTurn        int                `json:"next_turn,omitempty"`
+	PacketTruncated bool               `json:"packet_truncated,omitempty"`
+
+	// Abstract status on session outlines (additive; never a generation
+	// call).
+	AbstractStatus string           `json:"abstract_status,omitempty"`
+	AbstractIssue  string           `json:"abstract_issue,omitempty"`
+	Abstract       *sessionAbstract `json:"abstract,omitempty"`
+
+	// Multi-concept session coverage (additive; heading session_coverage).
+	Concepts          []string       `json:"concepts,omitempty"`
+	ConceptMatches    []conceptMatch `json:"concept_matches,omitempty"`
+	EvidenceIDs       []string       `json:"evidence_ids,omitempty"`
+	WorstRank         int            `json:"worst_rank,omitempty"`
+	RankSum           int            `json:"rank_sum,omitempty"`
+	Approximate       bool           `json:"approximate,omitempty"`
+	ResponseTruncated bool           `json:"response_truncated,omitempty"`
 }
 
 type retrievalMode int
@@ -78,6 +104,13 @@ type retrievalOptions struct {
 	SessionID string
 	Agent     string
 	Branch    string
+	// Concepts are the additional multi-concept queries (one to four,
+	// joined with the primary query for session-scoped AND coverage). Valid
+	// only with Source == "conversation".
+	Concepts []string
+	// IncludeAbstract adds a bounded top-level preview envelope after ranking.
+	// It never changes rank and never invokes a provider.
+	IncludeAbstract bool
 }
 
 // hasConversationOnlyFilters reports filters that have no meaning outside the
@@ -86,7 +119,8 @@ type retrievalOptions struct {
 // filter when that source is selected.
 func (o retrievalOptions) hasConversationOnlyFilters() bool {
 	return !o.After.IsZero() || !o.Before.IsZero() ||
-		strings.TrimSpace(o.SessionID) != "" || strings.TrimSpace(o.Agent) != ""
+		strings.TrimSpace(o.SessionID) != "" || strings.TrimSpace(o.Agent) != "" ||
+		len(o.Concepts) > 0
 }
 
 // parseRetrievalTimeFilter parses a CLI/MCP time filter: RFC3339 or a plain
@@ -153,7 +187,13 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	if source == "" {
 		source = retrievalSourceAll
 	}
+	if opts.IncludeAbstract && source != retrievalSourceConversation {
+		return nil, fmt.Errorf(`include_abstract requires source "conversation" (got %q)`, source)
+	}
 	if source == retrievalSourceConversation {
+		if len(opts.Concepts) > 0 {
+			return retrieveConversationMultiConcept(brainDir, query, limit, mode, opts)
+		}
 		return retrieveConversation(brainDir, query, limit, mode, opts)
 	}
 	if opts.hasConversationOnlyFilters() {
@@ -170,6 +210,33 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	if candidateLimit < limit { // integer overflow guard for unreasonable inputs
 		candidateLimit = limit
 	}
+	// Exclusion guard: consulted at this retrieval boundary so a
+	// tombstoned session's derived records are unreadable immediately, even
+	// mid-cleanup. Empty guard (the normal case) changes nothing.
+	guard, err := loadSessionReadGuard(brainDir, nil)
+	if err != nil {
+		return nil, err
+	}
+	var guardPred func(historyRecord) bool
+	if !guard.empty() {
+		// Path-based exclusion needs the manifest: blocksFactAnchor falls back
+		// to the transcript path when a record lost its session id, and that
+		// map is populated only from the manifest. Resolve it HERE, before the
+		// facts arm filters below. This used to happen inside the history arm,
+		// after guardFactRecords had already run, so an excluded session's fact
+		// whose only anchor had no session id survived on query/search/vsearch
+		// while brief, dash, handoff, viz, and the pattern corpus all hid it.
+		// Only tombstoned brains pay the manifest read.
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil, err
+		}
+		guard, err = loadSessionReadGuard(brainDir, manifest)
+		if err != nil {
+			return nil, err
+		}
+		guardPred = func(r historyRecord) bool { return !guard.blocksRecord(r) }
+	}
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factRecord
@@ -182,6 +249,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if err != nil {
 			return nil, err
 		}
+		all = guardFactRecords(guard, all)
 		active = make([]factRecord, 0, len(all))
 		for _, f := range all {
 			if f.Status == factStatusActive {
@@ -260,7 +328,13 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if manifest.Sources != nil && manifest.Sources.History != nil {
 			source := manifest.Sources.History
 			var lexicalHistoryIDs map[string]struct{}
-			if mode != modeVector && historySem == nil {
+			// The FTS-payload fast path hydrates its result window without
+			// loading index.json, but it cannot apply an exclusion predicate
+			// during candidate generation and does not resolve the two-tier
+			// duplicate winner. A brain with live tombstones therefore takes
+			// the full path below; an unguarded brain, the common
+			// case, keeps the fast path.
+			if mode != modeVector && historySem == nil && guardPred == nil {
 				// The common BM25-only path hydrates its small result window from
 				// the fresh FTS payload table, then merges the short-term tier.
 				// Legacy/stale/corrupt caches fall back through the verified full
@@ -281,13 +355,22 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				if loadErr != nil {
 					return nil, fmt.Errorf("load history index: %w", loadErr)
 				}
-				// Semantic arms rank long-term records minus files superseded by the
-				// short-term overlay. Overlay records have no vectors until
-				// consolidation; the lexical tier carries their freshness.
-				index := fresh.longTermActive()
+				// Semantic arms rank the long-term records minus files the
+				// short-term overlay superseded (overlay records have no vectors
+				// until consolidation; the lexical tier carries their freshness)
+				// and minus copies a newer overlay copy supersedes. The
+				// exclusion guard filters both arms; it already carries
+				// the manifest-derived transcript paths, resolved before the
+				// facts arm ran, so records that lost their session id block by
+				// path here too.
+				index := fresh.longTermReconciled()
+				if guardPred != nil {
+					index = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, guardPred)}
+				}
 				if mode != modeVector {
-					scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-						return rankHistoryViaFTS(brainDir, longTerm, "history", query, historyCandidateLimit)
+					scored := rankFreshHistory(fresh, "history", query, historyCandidateLimit, guardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+						lex, _, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, historyCandidateLimit, historyFTSRelevanceCutoff, guardPred)
+						return lex, ok
 					})
 					scored = filterHistoryRetrievalSelfEchoes(scored, query)
 					if len(scored) > candidateLimit {
@@ -623,25 +706,58 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
 	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
-	// Filters and the diversity cap discard ranked candidates, so over-fetch
-	// enough for the survivors to still fill the limit.
-	candidateLimit := limit * 4
-	if filtered {
-		candidateLimit = limit * 16
+	// Structured filters are pushed into candidate generation: every
+	// arm ranks only in-scope records, so a valid session/agent/time/branch
+	// match can never be displaced out of a bounded candidate window by
+	// higher-ranked out-of-scope rows. The over-fetch below is dedup/diversity
+	// headroom only. The exclusion guard joins the same predicate: a
+	// tombstoned session is unreadable here even while its derived cleanup is
+	// still running. Superseded duplicate copies join it too: a stale
+	// copy must not even consume a candidate slot.
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return nil, err
 	}
+	winners := fresh.duplicateRecordWinners()
+	var pred func(historyRecord) bool
+	if filtered || !guard.empty() || len(winners) > 0 {
+		pred = func(r historyRecord) bool {
+			if guard.blocksRecord(r) {
+				return false
+			}
+			if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
+				return false
+			}
+			return !filtered || conversationRecordMatchesFilters(r, opts)
+		}
+	}
+	candidateLimit := limit * 4
 	if candidateLimit < limit { // overflow guard
 		candidateLimit = limit
 	}
+	scanComplete := true
 	var scored []scoredHistoryRecord
 	switch mode {
 	case modeVector:
-		scores := conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
+		var scores map[string]float64
+		if pred != nil {
+			scores = conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(defaultEmbedder()), query, false)
+		} else {
+			scores = conversationSemanticScores(brainDir, historySemanticEmbedder(defaultEmbedder()), query, candidateLimit, false)
+		}
 		if len(scores) == 0 {
 			return nil, errConversationVectorUnsupported
 		}
 		// Semantic-only ranks long-term vectors; short-term records have no
-		// vectors until consolidation and are deliberately absent here.
-		scored = rankConversationSemantic(fresh.longTermActive(), scores, candidateLimit)
+		// vectors until consolidation and are deliberately absent here. The
+		// reconciled view also drops long-term copies a newer overlay copy
+		// supersedes: those wait for consolidation like any other
+		// short-term record instead of surfacing stale.
+		semIndex := fresh.longTermReconciled()
+		if pred != nil {
+			semIndex = historyIndex{GeneratedAt: semIndex.GeneratedAt, Records: filterHistoryRecords(semIndex.Records, pred)}
+		}
+		scored = rankConversationSemantic(semIndex, scores, candidateLimit)
 	case modeHybrid:
 		// Conversation fusion is OFF by default pending a validated positive:
 		// the 2026-08-07 calibration on the entire-brain corpus (22-task exact
@@ -652,19 +768,47 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		// fusion. Same discipline as historyFusionEligible: the fused arm
 		// ships dark behind a development flag until an eval-ledger row
 		// validates it (see docs/eval_ledger.md).
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 			if envBool("ENTIRE_BRAIN_CONVERSATION_FUSION") {
-				return rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder())
+				fused, complete, ok := rankConversationFused(brainDir, longTerm, query, candidateLimit, defaultEmbedder(), pred)
+				if ok && !complete {
+					scanComplete = false
+				}
+				return fused, ok
 			}
-			return rankHistoryViaFTS(brainDir, longTerm, conversationKind, query, candidateLimit)
+			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
+			if ok && !complete {
+				scanComplete = false
+			}
+			return lex, ok
 		})
 	default:
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
-			return rankHistoryViaFTS(brainDir, longTerm, conversationKind, query, candidateLimit)
+		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, pred)
+			if ok && !complete {
+				scanComplete = false
+			}
+			return lex, ok
 		})
 	}
+	// complete is only meaningful when the arm actually ran. On ok == false the
+	// FTS/fused arm was UNAVAILABLE (no match expression, open/query failure),
+	// and rankFreshHistory falls back to the in-memory scorer, which filters
+	// the complete long-term record slice and therefore cannot be partial.
+	// Honoring a stale complete=false there turned every FTS outage into a
+	// bogus "filter scan exceeded" error on the default (unfiltered) path,
+	// contradicting this file's own contract that FTS is an optimization and
+	// never load-bearing.
+	if !scanComplete {
+		return nil, errConversationFilterScanExceeded()
+	}
+	// Defense in depth: every arm already generated in-scope candidates; this
+	// re-check keeps the contract obvious and cheap.
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {
+		if guard.blocksRecord(s.Record) {
+			continue
+		}
 		if conversationRecordMatchesFilters(s.Record, opts) {
 			kept = append(kept, s)
 		}
@@ -676,6 +820,9 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	out := make([]unifiedResult, len(kept))
 	for i, s := range kept {
 		out[i] = conversationToUnified(s.Record)
+		// Session navigation identity: every hit names its virtual
+		// session so callers can fetch the outline or adjacent context.
+		out[i].SessionRef, _ = recordSessionRef(s.Record, manifest.RepoKey, manifest)
 		// Explainability: which query tokens actually hit this record, so a
 		// thin result is debuggable ("only 'bug' matched") instead of opaque.
 		out[i].MatchedTerms = historyRecordMatchedTerms(s.Record, query)
@@ -684,6 +831,18 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		out[i].Score = 1.0 / (rrfK + float64(i+1))
 	}
 	return out, nil
+}
+
+// maxGetBatchIDs caps one get/multi-get request across CLI, MCP, and
+// workspace surfaces (the plan's shared result-limit ceiling).
+const maxGetBatchIDs = 50
+
+// errConversationFilterScanExceeded is the structured degraded state for a
+// filtered conversation scan that hit its candidate ceiling before filling the
+// requested limit: completeness cannot be proven, so the caller gets an
+// explicit error rather than a silently partial (possibly false-empty) result.
+func errConversationFilterScanExceeded() error {
+	return fmt.Errorf("conversation filter scan exceeded %d candidates before the requested limit was met; results would be incomplete, narrow the query or the filters", historyFTSFilteredScanCeiling)
 }
 
 // conversationRecordMatchesFilters applies the structured conversation filters.
@@ -779,17 +938,23 @@ func conversationToUnified(record historyRecord) unifiedResult {
 
 // conversationGetResult is the bounded ID-based expansion: re-parse the exact
 // indexed range from the canonical transcript when its digest still matches;
-// otherwise degrade to the stored projection with an explicit source-integrity
-// caveat instead of presenting it as faithful full content.
+// otherwise degrade to the stored projection with a caveat naming WHICH
+// contract failed. Too-large, stale, and unreadable sources are distinct
+// states, never one collapsed "stale" answer.
 func conversationGetResult(brainDir string, record historyRecord) unifiedResult {
 	result := conversationToUnified(record)
 	expansion, err := expandConversationExchange(brainDir, record)
-	if err != nil {
+	switch {
+	case err == nil:
+		result.Text = conversationExpansionText(expansion)
+		result.Truncated = expansion.Truncated
+	case errors.Is(err, errConversationSourceTooLarge):
+		result.Caveats = append(result.Caveats, conversationSourceTooLargeCaveat(record.Path))
+	case errors.Is(err, errConversationSourceStale):
 		result.Caveats = append(result.Caveats, conversationSourceStaleCaveat(record.Path))
-		return result
+	default:
+		result.Caveats = append(result.Caveats, conversationSourceUnreadableCaveat(record.Path))
 	}
-	result.Text = conversationExpansionText(expansion)
-	result.Truncated = expansion.Truncated
 	return result
 }
 
@@ -857,7 +1022,20 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
 // pathological on large brains. Results preserve input order.
 func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {
-	var wantFact, wantReview, wantHistory, wantConversation, wantDoc bool
+	return getUnifiedBatchOptions(repoDir, brainDir, branch, ids, getOptions{})
+}
+
+func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopts getOptions) (found []unifiedResult, missing []string, err error) {
+	// One request fans out to at most this many record resolutions; each
+	// conversation id triggers a bounded transcript read, so the batch size
+	// itself must be bounded too.
+	if len(ids) > maxGetBatchIDs {
+		return nil, nil, fmt.Errorf("at most %d ids per get/multi-get request (got %d)", maxGetBatchIDs, len(ids))
+	}
+	if err := validateGetOptions(gopts); err != nil {
+		return nil, nil, err
+	}
+	var wantFact, wantReview, wantHistory, wantConversation, wantSession, wantDoc, wantPatternDerived bool
 	for _, id := range ids {
 		switch {
 		case strings.HasPrefix(id, "fact:"):
@@ -866,10 +1044,55 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			wantReview = true
 		case strings.HasPrefix(id, "history:"):
 			wantHistory = true
+		case strings.HasPrefix(id, conversationSessionIDPrefix):
+			wantSession = true
 		case strings.HasPrefix(id, conversationIDPrefix):
 			wantConversation = true
 		case strings.HasPrefix(id, "doc:"):
 			wantDoc = true
+		case strings.HasPrefix(id, "pattern:"), strings.HasPrefix(id, "theme:"):
+			wantPatternDerived = true
+		}
+	}
+	if wantPatternDerived {
+		if err := requirePrivacyDerivedRead(brainDir); err != nil {
+			return nil, nil, err
+		}
+	}
+	// Navigation arguments are type-specific: context counts belong to a
+	// single conversation: target, outline cursor/limit to a single
+	// conversation-session: target. Anything else is a structured
+	// invalid-argument error, never an ignored option.
+	if gopts.navigation() && len(ids) != 1 {
+		return nil, nil, fmt.Errorf("navigation options require exactly one target id (got %d)", len(ids))
+	}
+	if gopts.ContextSet && !wantConversation {
+		return nil, nil, fmt.Errorf("context-before/context-after are valid only for a conversation: target")
+	}
+	if gopts.OutlineSet && !wantSession {
+		return nil, nil, fmt.Errorf("after-turn/limit are valid only for a conversation-session: target")
+	}
+	if wantSession && len(ids) != 1 {
+		return nil, nil, fmt.Errorf("a conversation-session: outline requires its own single-id request")
+	}
+	// Exclusion guard: a tombstoned session's records resolve as "not
+	// found" on every get surface immediately, even before cleanup finishes.
+	guard, err := loadSessionReadGuard(brainDir, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !guard.empty() {
+		// Resolve the manifest-derived transcript paths BEFORE the facts arm
+		// filters below, so a fact whose only anchor lost its session id blocks
+		// by path here too. The history arm's later re-resolution ran after
+		// guardFactRecords and therefore never protected `get fact:`.
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil, nil, err
+		}
+		guard, err = loadSessionReadGuard(brainDir, manifest)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 	factByID := map[string]factRecord{}
@@ -882,6 +1105,7 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 		if ferr != nil {
 			return nil, nil, ferr
 		}
+		facts = guardFactRecords(guard, facts)
 		for _, f := range facts {
 			factByID[f.ID] = f
 		}
@@ -897,7 +1121,13 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 	}
 	histByID := map[string]historyRecord{}
 	convByID := map[string]historyRecord{}
-	if wantHistory || wantConversation {
+	var sessionViews map[string]conversationSessionView
+	var abstractResolver *sessionAbstractResolver
+	// convScopes maps a conversation id to its session scopes (ref -> newest
+	// record in that scope), so a legacy id colliding across scopes is a
+	// structured ambiguity, never a silent last-write-wins pick.
+	convScopes := map[string]map[string]historyRecord{}
+	if wantHistory || wantConversation || wantSession {
 		// A corrupt manifest, or a history index the manifest declares but that is
 		// missing/unreadable, is a real storage problem — surface it rather than
 		// reporting every history:* id as "not found". A brain with no history source
@@ -911,9 +1141,33 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 			if err != nil {
 				return nil, nil, fmt.Errorf("load history index: %w", err)
 			}
-			// mergedRecords appends short-term records last, so for a duplicate
-			// id the fresher short-term copy wins the map insert.
-			for _, r := range fresh.mergedRecords() {
+			// The guard already carries the manifest-derived transcript paths
+			// (resolved above, before the facts arm), so records that lost
+			// their session id block by path on every surface here.
+			if wantConversation || wantSession {
+				sessionViews = buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)
+				for ref, view := range sessionViews {
+					for _, r := range view.Records {
+						scopes := convScopes[r.ID]
+						if scopes == nil {
+							scopes = map[string]historyRecord{}
+							convScopes[r.ID] = scopes
+						}
+						if prev, ok := scopes[ref]; ok {
+							scopes[ref] = newestHistoryRecord(prev, r)
+						} else {
+							scopes[ref] = r
+						}
+					}
+				}
+			}
+			// reconciledRecords collapses duplicate stable IDs to the same
+			// newest-copy winner ranking uses, so get expands exactly the
+			// record search returned.
+			for _, r := range fresh.reconciledRecords() {
+				if guard.blocksRecord(r) {
+					continue
+				}
 				if r.Kind == conversationKind {
 					convByID[r.ID] = r
 					continue
@@ -921,6 +1175,9 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 				histByID[r.ID] = r
 			}
 		}
+	}
+	if wantSession {
+		abstractResolver = newSessionAbstractResolver(brainDir)
 	}
 	docByID := map[string]docRecord{}
 	if wantDoc {
@@ -970,9 +1227,54 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 				found = append(found, historyToUnified([]scoredHistoryRecord{{Record: r}})[0])
 				continue
 			}
+		case strings.HasPrefix(id, conversationSessionIDPrefix):
+			if view, ok := sessionViews[id]; ok {
+				outline := conversationSessionOutline(view, gopts.AfterTurn, gopts.OutlineLimit)
+				outline.AbstractStatus, outline.Abstract = abstractResolver.status(view)
+				outline = boundSessionAbstractEnvelope(outline)
+				if outline.AbstractStatus == abstractStatusStale || outline.AbstractStatus == abstractStatusMissing {
+					if err := enqueueAutomaticAbstractReconciliationHook(brainDir, "session_get", time.Now().UTC()); err != nil {
+						// Automatic generation is an optional acceleration. Exact
+						// session recall remains valid even when its durable work
+						// enqueue is temporarily unavailable; expose the issue instead
+						// of converting a successful get into a failure.
+						outline.AbstractIssue = memoryOperationalError(err)
+					}
+				}
+				found = append(found, outline)
+				continue
+			}
 		case strings.HasPrefix(id, conversationIDPrefix):
 			// The transcript path is resolved from the indexed record only;
 			// a client-supplied id can never choose a filesystem path.
+			scopes := convScopes[id]
+			if len(scopes) > 1 {
+				// The existing branch selector may disambiguate a legacy id
+				// that collides across session scopes; a silent winner never
+				// may.
+				matching := map[string]historyRecord{}
+				for ref, record := range scopes {
+					if record.Branch == branch {
+						matching[ref] = record
+					}
+				}
+				if len(matching) != 1 {
+					return nil, nil, fmt.Errorf("memory_identity_ambiguous: %s resolves to %d session scopes; pass --branch to select one", id, len(scopes))
+				}
+				scopes = matching
+			}
+			if len(scopes) == 1 {
+				for ref, record := range scopes {
+					if gopts.ContextSet {
+						found = append(found, conversationContextPacket(brainDir, sessionViews[ref], record, gopts.ContextBefore, gopts.ContextAfter))
+					} else {
+						result := conversationGetResult(brainDir, record)
+						result.SessionRef = ref
+						found = append(found, result)
+					}
+				}
+				continue
+			}
 			if r, ok := convByID[id]; ok {
 				found = append(found, conversationGetResult(brainDir, r))
 				continue
@@ -985,12 +1287,16 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 		case strings.HasPrefix(id, "pattern:"):
 			// Consolidation dossier addressed by its pattern id (v2). Corpus is
 			// rebuildable/optional, so a missing corpus is "not found", not an error.
-			if r, ok := getCorpusConsolidation(brainDir, id); ok {
+			if r, ok, err := getCorpusConsolidationChecked(brainDir, id); err != nil {
+				return nil, nil, err
+			} else if ok {
 				found = append(found, r)
 				continue
 			}
 		case strings.HasPrefix(id, "theme:"):
-			if r, ok := getCorpusTheme(brainDir, id); ok {
+			if r, ok, err := getCorpusThemeChecked(brainDir, id); err != nil {
+				return nil, nil, err
+			} else if ok {
 				found = append(found, r)
 				continue
 			}

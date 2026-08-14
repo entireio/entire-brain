@@ -38,7 +38,23 @@ use the CLI equivalents shown.
    `conversation_source_stale` caveat means you are seeing a projection, not
    faithful full content.
 
-3. Cite the `conversation:` id for anything you rely on.
+3. Orient inside a session when one hit is not enough:
+   - Every result names its session via `session_ref`
+     (`conversation-session:<id>`).
+   - Adjacent context around one exchange: MCP `brain_get` with
+     `{"id": "conversation:<id>", "context_before": 1, "context_after": 1}`
+     (CLI: `--context-before/--context-after`, 0-3 each; bounded packet,
+     farthest context drops first).
+   - Bounded session outline: `brain_get` with the `conversation-session:` id
+     (CLI: `entire brain get conversation-session:<id> --json`), paginating
+     with `after_turn`; entries are request excerpts, never raw transcripts.
+
+4. Multi-concept questions (the concepts may live in different exchanges of
+   one session): add `concepts` (MCP) or repeatable `--concept` flags (CLI,
+   up to 4). Results are `session_coverage` records whose `evidence_ids`
+   name the exact supporting exchanges to expand next.
+
+5. Cite the `conversation:` id for anything you rely on.
 
 ## Safety contract (non-negotiable)
 

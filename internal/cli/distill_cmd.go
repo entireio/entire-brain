@@ -100,7 +100,7 @@ type preparedSession struct {
 	session     exportSession
 	branch      string
 	skip        bool  // filtered out by --branch/--session: carry cache through
-	readErr     error // transcript unreadable: warn, retry next run
+	readErr     error // canonical input refusal: abort without publication
 	cached      bool  // fingerprint matched: keep facts, no agent work
 	fingerprint string
 	rawBytes    int
@@ -216,13 +216,14 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			}
 			go func(ps preparedSession) {
 				releaseWork := func() { <-workSem }
-				content, readErr := readBrainRelativeFile(brainDir, ps.session.TranscriptPath)
+				data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, ps.session.TranscriptPath)
 				if readErr != nil {
 					releaseWork()
 					ps.readErr = readErr
 					f <- ps
 					return
 				}
+				content := string(data)
 				// Strip tool calls/outputs and meta records up front: this is
 				// the actual input the agent distills. Fingerprinting the
 				// preprocessed input (not raw bytes) means churn confined to
@@ -326,6 +327,26 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 		}
 	}()
 	return prepared
+}
+
+// validateDistillCanonicalInputs establishes complete-or-refused input safety
+// before any provider work can be dispatched or any incremental fact/cache
+// state can be flushed. The pipeline re-reads selected transcripts for bounded
+// work scheduling; this preflight deliberately favors the egress/publication
+// boundary over avoiding one extra descriptor-rooted read.
+func validateDistillCanonicalInputs(ctx context.Context, brainDir string, sessions []exportSession, distillOpts distillCommandOptions, resolveBranch func(exportSession) string) error {
+	for _, session := range sessions {
+		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
+			continue
+		}
+		if distillOpts.session != "" && session.SessionID != distillOpts.session {
+			continue
+		}
+		if _, err := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath); err != nil {
+			return fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), err)
+		}
+	}
+	return nil
 }
 
 type distillCommandOptions struct {
@@ -554,7 +575,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		return errors.New("--session cannot be combined with --force: a forced rebuild drops every distilled fact on the session's branch but would re-derive only that session's")
 	}
 	if distillOpts.dryRun {
-		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())
+		report, err := buildDistillDryRunReportContext(ctx, storage.BrainDir, distillOpts, opts.Now().UTC())
 		if err != nil {
 			return err
 		}
@@ -665,6 +686,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
+	// Excluded sessions must never produce new derived facts.
+	sessions, err = filterTombstonedSessions(brainDir, sessions)
+	if err != nil {
+		return nil, err
+	}
 	// Chronological order so any future supersession chain reconstructs
 	// deterministically regardless of incremental vs --force.
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
@@ -694,6 +720,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// are not silently excluded from a `--branch <default>` run.
 	resolveBranch := func(session exportSession) string {
 		return resolveDistillBranch(manifest, session)
+	}
+	if err := validateDistillCanonicalInputs(ctx, brainDir, sessions, distillOpts, resolveBranch); err != nil {
+		return nil, err
 	}
 
 	// Denominator for progress: sessions that pass the branch/session filters.
@@ -796,8 +825,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			maps.Copy(cache.Sessions, prevCache.Sessions)
 			maps.Copy(cache.Sessions, newCache.Sessions)
 		}
-		saveDistillCache(brainDir, cache)
-		return nil
+		return saveDistillCache(brainDir, cache)
 	}
 	flushFactStores := func(final bool) error {
 		return withBrainWriteLock(brainDir, func() error {
@@ -852,6 +880,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			continue
 		}
+		if ps.readErr != nil {
+			pipeCancel()
+			return nil, fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), ps.readErr)
+		}
 		ensureBranch(branch)
 
 		sessionsDone++
@@ -862,11 +894,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if distillOpts.progress != nil {
 				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
 			}
-		}
-		if ps.readErr != nil {
-			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, ps.readErr))
-			reportProgress()
-			continue // not cached: retried next run
 		}
 		preprocessedBytes += int64(ps.preBytes)
 		if ps.cached {
@@ -1022,6 +1049,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 }
 
 func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions, now time.Time) (distillDryRunReport, error) {
+	return buildDistillDryRunReportContext(context.Background(), brainDir, distillOpts, now)
+}
+
+func buildDistillDryRunReportContext(ctx context.Context, brainDir string, distillOpts distillCommandOptions, now time.Time) (distillDryRunReport, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return distillDryRunReport{}, err
@@ -1034,7 +1065,7 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 	if err != nil {
 		return distillDryRunReport{}, err
 	}
-	plan, err := buildDistillPlan(brainDir, manifest, distillOpts, cacheSalt)
+	plan, err := buildDistillPlanContext(ctx, brainDir, manifest, distillOpts, cacheSalt)
 	if err != nil {
 		return distillDryRunReport{}, err
 	}
@@ -1187,10 +1218,19 @@ func distillConfidenceThreshold(distillOpts distillCommandOptions) float64 {
 }
 
 func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts distillCommandOptions, cacheSalt string) (distillPlan, error) {
+	return buildDistillPlanContext(context.Background(), brainDir, manifest, distillOpts, cacheSalt)
+}
+
+func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exportManifest, distillOpts distillCommandOptions, cacheSalt string) (distillPlan, error) {
 	if distillOpts.maxChunkBytes <= 0 {
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
+	// Excluded sessions must never produce new derived facts.
+	sessions, err := filterTombstonedSessions(brainDir, sessions)
+	if err != nil {
+		return distillPlan{}, err
+	}
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
 	prevCache := loadDistillCache(brainDir)
 	branchSeen := map[string]struct{}{}
@@ -1210,14 +1250,11 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 		sessionPlan := distillSessionPlan{Session: session, Branch: branch}
 		plan.TotalSessions++
 
-		content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
+		data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath)
 		if readErr != nil {
-			sessionPlan.ReadFailed = true
-			plan.MissingTranscripts++
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, readErr))
-			plan.Sessions = append(plan.Sessions, sessionPlan)
-			continue
+			return distillPlan{}, fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), readErr)
 		}
+		content := string(data)
 		distillInput := preprocessTranscriptForDistill(content)
 		sessionPlan.RawBytes = len(content)
 		sessionPlan.PreprocessedBytes = len(distillInput)
@@ -1729,20 +1766,16 @@ func cachedDistillSessionFingerprint(cache distillCache, branch, sessionID strin
 	return fp, ok
 }
 
-// readBrainRelativeFile reads a brain-relative path, rejecting absolute paths
-// parent-directory escapes, and symlink hops so a manifest-supplied path cannot
-// read outside the brain directory.
-func readBrainRelativeFile(brainDir, rel string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(rel))
-	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("unsafe transcript path: %s", rel)
-	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(filepath.Join(brainDir, clean))
+// readBrainRelativeStateFile is for small derived Brain state, never canonical
+// session transcripts. It shares the hardened state reader and an explicit
+// whole-file bound so derived JSON cannot revive the legacy unbounded read.
+func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
+	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", defaultMaxReadBytes)
 	if err != nil {
 		return "", err
+	}
+	if !present {
+		return "", os.ErrNotExist
 	}
 	return string(data), nil
 }
@@ -1765,12 +1798,12 @@ func loadDistillCache(brainDir string) distillCache {
 
 // saveDistillCache persists the incremental cache. Failure is non-fatal: a
 // missing cache only costs a full re-distillation next run.
-func saveDistillCache(brainDir string, cache distillCache) {
+func saveDistillCache(brainDir string, cache distillCache) error {
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = writeBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
 }
 
 // execDistillAgent is the real distillAgentRunner: it runs the agent with the

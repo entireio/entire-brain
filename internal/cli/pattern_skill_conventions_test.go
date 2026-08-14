@@ -55,7 +55,7 @@ func TestProposeSkillConventionsRoundTrip(t *testing.T) {
 			Text: "the user likes concise commits"}, // not a capability kind → filtered out
 	})
 
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestConventionDossierCarriesSourceEvidence(t *testing.T) {
 			Text: "the release-evidence audit also diffs the committed report files", Locus: []string{"reports/"}},
 	})
 	// An episode that corroborates the facts (episode_facts link) → corroboration anchor.
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	insertCorpusEpisode(t, db, "episode:radar0", "radar:evidence", "corrected", 2, now)
 	if _, err := db.Exec(`INSERT INTO episode_facts (episode_id, fact_id, kind, paths, weight) VALUES (?,?,?,?,2)`,
 		"episode:radar0", "fact:pinned", "convention", "mcp.go"); err != nil {
@@ -168,7 +168,7 @@ func TestProposeSkillConventionsCacheInvalidatesOnContentChange(t *testing.T) {
 			Text: "the audit diffs committed reports", Locus: []string{"reports/"}},
 	}
 	seedCapabilityFactsFile(t, brainDir, facts)
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	defer db.Close()
 	calls := 0
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -205,7 +205,7 @@ func TestSampleCapabilityFactsFiltersKind(t *testing.T) {
 		{ID: "fact:pref", Kind: "preference", Branch: "main", Status: "active", Text: "user likes y"},
 		{ID: "fact:retired", Kind: "convention", Branch: "main", Status: "retracted", Text: "old rule"},
 	})
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	defer db.Close()
 	sample, _, ids := sampleCapabilityFacts(db, brainDir)
 	if len(sample) != 1 || len(ids) != 1 || ids[0] != "fact:inv" {

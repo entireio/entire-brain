@@ -4,6 +4,7 @@ package cli
 
 import (
 	"errors"
+	"os"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -40,5 +41,14 @@ func windowsAtomicReplaceRetryable(err error) bool {
 
 func syncParentDir(path string) error {
 	_ = path
+	return nil
+}
+
+// Windows has no portable directory-fsync equivalent exposed by os. File data
+// and marker data are flushed before each rename/remove; startup recovery keeps
+// a surviving marker fail-closed if directory metadata is replayed after a
+// power loss.
+func syncPinnedDirectory(root *os.Root) error {
+	_ = root
 	return nil
 }

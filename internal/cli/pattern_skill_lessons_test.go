@@ -10,7 +10,7 @@ import (
 )
 
 // newCorpusAtDir creates an empty corpus (file + schema) at brainDir so
-// openPatternCorpusDB can reopen it; mirrors promotableCorpusDir's setup.
+// openPatternCorpusMutableDB can reopen it; mirrors promotableCorpusDir's setup.
 func newCorpusAtDir(t *testing.T, brainDir string) {
 	t.Helper()
 	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
@@ -36,7 +36,7 @@ func newCorpusAtDir(t *testing.T, brainDir string) {
 func seedCorrectedEpisodes(t *testing.T, brainDir, intentSig, failingCmd string, n int, now time.Time) {
 	t.Helper()
 	newCorpusAtDir(t, brainDir)
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestProposeSkillLessonsRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
 
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestLessonDossierCarriesSourceAnchors(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	_, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", stubRunner(lessonProposalJSON), now)
 	db.Close()
 	if err != nil {
@@ -153,7 +153,7 @@ func TestProposeSkillLessonsCacheInvalidatesOnContentChange(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	defer db.Close()
 	calls := 0
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -187,7 +187,7 @@ func TestProposeSkillLessonsRejectsGeneric(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "commit:flow", "git push", 2, now)
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	run := stubRunner(`{"lessons":[{"title":"Remember to pull before push","trigger":"pushing","failure":"non-fast-forward","recovery":"git pull","member_keys":["episode:commit:flow0","episode:commit:flow1"],"verdict":"rejected"}]}`)
 	stats, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now)
 	db.Close()
@@ -209,7 +209,7 @@ func TestProposeSkillLessonsEgressGated(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, _ := openPatternCorpusDB(brainDir)
+	db, _ := openPatternCorpusMutableDB(brainDir)
 	defer db.Close()
 	called := false
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {

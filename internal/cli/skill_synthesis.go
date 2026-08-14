@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -41,13 +43,20 @@ type skillSynthesisResult struct {
 
 // synthesizeSkill calls the agent to author (or reject) a skill for the task.
 func synthesizeSkill(ctx context.Context, repoDir, brainDir string, c taskCandidate, agent, model, effort string, run distillAgentRunner) (skillSynthesisResult, error) {
+	evidence, err := buildSkillEvidenceChecked(brainDir, c)
+	if err != nil {
+		return skillSynthesisResult{}, err
+	}
+	return synthesizeSkillWithEvidence(ctx, repoDir, evidence, agent, model, effort, run)
+}
+
+func synthesizeSkillWithEvidence(ctx context.Context, repoDir, evidence, agent, model, effort string, run distillAgentRunner) (skillSynthesisResult, error) {
 	args, err := distillAgentCommandArgs(agent, nil, skillSynthesisSystemPrompt)
 	if err != nil {
 		return skillSynthesisResult{}, err
 	}
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
-	evidence := buildSkillEvidence(brainDir, c)
 	out, err := run(ctx, repoDir, args, []byte(evidence), skillSynthesisTimeout)
 	if err != nil {
 		return skillSynthesisResult{}, fmt.Errorf("synthesis agent: %w", err)
@@ -91,6 +100,11 @@ func skillNameFromFrontmatter(text string) string {
 // synthesis agent: recurring intents, commands, reinforcement, matching durable
 // facts, and real session excerpts.
 func buildSkillEvidence(brainDir string, c taskCandidate) string {
+	evidence, _ := buildSkillEvidenceChecked(brainDir, c)
+	return evidence
+}
+
+func buildSkillEvidenceChecked(brainDir string, c taskCandidate) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "RECURRING TASK in repo %s\n", c.RepoKey)
 	fmt.Fprintf(&b, "Intent signature: %s\n", c.IntentSignature)
@@ -133,35 +147,52 @@ func buildSkillEvidence(brainDir string, c taskCandidate) string {
 		if excerpts >= 2 {
 			break
 		}
-		if ex := transcriptExcerpt(brainDir, anchor, 80, 3000); ex != "" {
+		ex, err := transcriptExcerptChecked(brainDir, anchor, 80, 3000)
+		if err != nil {
+			return "", err
+		}
+		if ex != "" {
 			fmt.Fprintf(&b, "Session excerpt (%s:%d):\n%s\n\n", anchor.Path, anchor.Line, ex)
 			excerpts++
 		}
 	}
 	// Redaction boundary: this bundle is the agent's input — strip secrets and
 	// home-dir usernames before it leaves the brain.
-	return redactText(b.String())
+	return redactText(b.String()), nil
 }
 
 // transcriptExcerpt returns up to maxLines of a transcript starting at the
 // anchor line, capped at maxBytes — the raw evidence of what the agent did.
 func transcriptExcerpt(brainDir string, anchor episodeAnchor, maxLines, maxBytes int) string {
-	content, err := readBrainRelativeFile(brainDir, anchor.Path)
+	excerpt, _ := transcriptExcerptChecked(brainDir, anchor, maxLines, maxBytes)
+	return excerpt
+}
+
+func transcriptExcerptChecked(brainDir string, anchor episodeAnchor, maxLines, maxBytes int) (string, error) {
+	data, err := readCanonicalHistoryTranscript(context.Background(), brainDir, anchor.Path)
 	if err != nil {
-		return ""
+		if errors.Is(err, os.ErrNotExist) {
+			return "", &historySessionInventoryError{
+				Path:   anchor.Path,
+				Reason: "pattern evidence transcript is missing; refusing partial skill synthesis",
+				Err:    err,
+			}
+		}
+		return "", err
 	}
+	content := string(data)
 	lines := strings.Split(content, "\n")
 	start := anchor.Line - 1
 	if start < 0 {
 		start = 0
 	}
 	if start >= len(lines) {
-		return ""
+		return "", nil
 	}
 	end := start + maxLines
 	if end > len(lines) {
 		end = len(lines)
 	}
 	ex := strings.Join(lines[start:end], "\n")
-	return truncateString(ex, maxBytes)
+	return truncateString(ex, maxBytes), nil
 }

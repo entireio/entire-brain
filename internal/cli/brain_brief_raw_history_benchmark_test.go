@@ -352,10 +352,12 @@ func writeBrainBriefRawHistoryComparisonFixture(t *testing.T) string {
 			"ETA_IDENTIFIER and THETA_IDENTIFIER close the fixture",
 		}, "\n") + "\n",
 		"history/index.json": "ALPHA_IDENTIFIER excluded derived index\n",
-		"manifest.json":      "BETA_IDENTIFIER excluded manifest\n",
-		"seed/source.txt":    "GAMMA_IDENTIFIER excluded seed\n",
-		"semantic/data.txt":  "DELTA_IDENTIFIER excluded semantic data\n",
-		".git/config.txt":    "EPSILON_IDENTIFIER excluded git data\n",
+		// A VALID manifest that still carries the marker: the raw walk must skip
+		// manifest.json, and the exclusion guard has to be able to load it.
+		"manifest.json":     `{"schema_version":1,"repo_key":"BETA_IDENTIFIER excluded manifest"}` + "\n",
+		"seed/source.txt":   "GAMMA_IDENTIFIER excluded seed\n",
+		"semantic/data.txt": "DELTA_IDENTIFIER excluded semantic data\n",
+		".git/config.txt":   "EPSILON_IDENTIFIER excluded git data\n",
 	}
 	for rel, contents := range files {
 		path := filepath.Join(brainDir, filepath.FromSlash(rel))

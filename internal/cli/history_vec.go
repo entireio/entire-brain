@@ -82,7 +82,7 @@ func historyVectorStoreFor(brainDir string, e Embedder) (historyVectorStore, boo
 // upstream, no store, model/dim mismatch, embedder down) — every caller falls
 // back to lexical-only, so a degraded arm never breaks ranking.
 func historySemanticScores(brainDir string, e Embedder, query string, limit int, calibrate bool) map[string]float64 {
-	if e == nil || limit <= 0 {
+	if e == nil || limit <= 0 || !memoryProjectionVectorsCurrent(brainDir, e) {
 		return nil
 	}
 	store, ok := newHistoryVectorStore(brainDir, e.ID(), e.Dim())
@@ -291,20 +291,21 @@ func rankHistoryFused(brainDir string, index historyIndex, kind, query string, l
 }
 
 // fuseScoredRankLists is the shared RRF merge over already-ranked record lists
-// (k=60, equal weight, ties broken by record ID). Used by history fusion and
-// the conversation fused arm.
+// (k=60, equal weight). Conversation records fuse by replacement-scoped
+// identity, not globally by a potentially legacy/colliding ID.
 func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHistoryRecord {
 	type fusedRec struct {
 		s     scoredHistoryRecord
 		score float64
 	}
-	fused := map[string]*fusedRec{}
+	fused := map[historyRecordReplacementKey]*fusedRec{}
 	for _, list := range lists {
 		for rank, s := range list {
-			f, ok := fused[s.Record.ID]
+			key := recordReplacementKey(s.Record)
+			f, ok := fused[key]
 			if !ok {
 				f = &fusedRec{s: s}
-				fused[s.Record.ID] = f
+				fused[key] = f
 			}
 			f.score += 1.0 / (rrfK + float64(rank+1))
 		}
@@ -317,7 +318,20 @@ func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHisto
 		if out[a].score != out[b].score {
 			return out[a].score > out[b].score
 		}
-		return out[a].s.Record.ID < out[b].s.Record.ID
+		left, right := out[a].s.Record, out[b].s.Record
+		if left.ID != right.ID {
+			return left.ID < right.ID
+		}
+		if left.Branch != right.Branch {
+			return left.Branch < right.Branch
+		}
+		if left.SessionID != right.SessionID {
+			return left.SessionID < right.SessionID
+		}
+		if left.Path != right.Path {
+			return left.Path < right.Path
+		}
+		return left.Line < right.Line
 	})
 	if len(out) > limit {
 		out = out[:limit]
@@ -361,7 +375,7 @@ func conversationEmbeddingText(r historyRecord) string {
 // unavailable (gate closed, pure-Go build, absent/mismatched store, embedder
 // down) and callers stay lexical.
 func conversationSemanticScores(brainDir string, e Embedder, query string, limit int, calibrate bool) map[string]float64 {
-	if e == nil || limit <= 0 {
+	if e == nil || limit <= 0 || !memoryProjectionVectorsCurrent(brainDir, e) {
 		return nil
 	}
 	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
@@ -371,27 +385,57 @@ func conversationSemanticScores(brainDir string, e Embedder, query string, limit
 	return historySemanticScoresWithStore(store, e, query, limit, calibrate)
 }
 
+// conversationSemanticScoresExhaustive scores a KNN neighborhood large enough
+// to cover every stored conversation vector up to the filtered-scan ceiling.
+// Structured filters require it: a bounded semantic candidate window has the
+// same false-empty defect as the bounded lexical window. Honesty
+// bound: the vec0 backend clamps K (vec0KnnMaxK, 4096), so past that many
+// stored vectors the filtered vector arm is explicitly approximate, exactly
+// as the plan's vector-mode contract allows; exact-filter completeness is
+// carried by the lexical arm.
+func conversationSemanticScoresExhaustive(brainDir string, e Embedder, query string, calibrate bool) map[string]float64 {
+	if e == nil || !memoryProjectionVectorsCurrent(brainDir, e) {
+		return nil
+	}
+	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
+	if !ok {
+		return nil
+	}
+	return historySemanticScoresWithStore(store, e, query, historyFTSFilteredScanCeiling, calibrate)
+}
+
 // rankConversationFused is the conversation arm's hybrid ranking: exchange-kind
 // BM25 fused with calibrated exchange vectors via the shared RRF merge. When
 // the semantic arm is unavailable it degrades to exactly the lexical ranking
 // (same list, same ok contract), so lexical-only operation stays fully
-// supported.
-func rankConversationFused(brainDir string, index historyIndex, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
-	scores := conversationSemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)
-	if len(scores) == 0 {
-		return rankHistoryViaFTS(brainDir, index, conversationKind, query, limit)
+// supported. A non-nil pred pushes structured filters into both arms: the
+// lexical arm filters during candidate generation against the full index (the
+// FTS store identity must never see a filtered view), the semantic arms rank
+// a filtered in-memory record slice over an exhaustive score neighborhood.
+// complete=false reports a lexical scan that hit the filtered-scan ceiling.
+func rankConversationFused(brainDir string, index historyIndex, query string, limit int, e Embedder, pred func(historyRecord) bool) ([]scoredHistoryRecord, bool, bool) {
+	semIndex := index
+	var scores map[string]float64
+	if pred != nil {
+		semIndex = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, pred)}
+		scores = conversationSemanticScoresExhaustive(brainDir, historySemanticEmbedder(e), query, true)
+	} else {
+		scores = conversationSemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)
 	}
-	lex, lexOK := rankHistoryViaFTS(brainDir, index, conversationKind, query, limit*4)
+	if len(scores) == 0 {
+		return rankHistoryViaFTSFiltered(brainDir, index, conversationKind, query, limit, historyFTSRelevanceCutoff, pred)
+	}
+	lex, complete, lexOK := rankHistoryViaFTSFiltered(brainDir, index, conversationKind, query, limit*4, historyFTSRelevanceCutoff, pred)
 	if !lexOK {
-		sem := rankConversationSemantic(index, scores, limit)
-		return sem, len(sem) > 0
+		sem := rankConversationSemantic(semIndex, scores, limit)
+		return sem, true, len(sem) > 0
 	}
 	lexicalIDs := make(map[string]struct{}, len(lex))
 	for _, scored := range lex {
 		lexicalIDs[scored.Record.ID] = struct{}{}
 	}
-	sem := rankConversationSemanticHybridRanks(index, scores, limit*4, lexicalIDs)
-	return fuseScoredRankLists([][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly}, limit), true
+	sem := rankConversationSemanticHybridRanks(semIndex, scores, limit*4, lexicalIDs)
+	return fuseScoredRankLists([][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly}, limit), complete, true
 }
 
 // syncHistoryVectors brings the persisted store in line with the index:

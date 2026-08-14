@@ -1,15 +1,97 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
+
+func replaceDeltaTranscriptSameMetadata(t *testing.T, path, oldText, newText string) {
+	t.Helper()
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := bytes.Replace(body, []byte(oldText), []byte(newText), 1)
+	if bytes.Equal(replaced, body) || len(replaced) != len(body) {
+		t.Fatalf("same-metadata replacement fixture invalid: old=%q new=%q bytes=%d/%d", oldText, newText, len(body), len(replaced))
+	}
+	// Create the replacement BESIDE the original and rename over it. Removing
+	// first and re-creating lets ext4 hand the just-freed inode straight back,
+	// so the fixture silently degrades into an in-place rewrite and stops
+	// exercising same-metadata inode replacement at all. Renaming while the
+	// original is still allocated guarantees a distinct inode everywhere.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".same-metadata-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmp.Write(replaced); err != nil {
+		tmp.Close()
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tmp.Name(), before.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only size and mtime are asserted. os.SameFile cannot express "this path
+	// now holds a different file" on Windows, where Lstat resolves identity
+	// lazily by path: both FileInfos re-resolve to whatever is at the path when
+	// SameFile is called, so they always compare equal. The property under test
+	// is that a same-metadata replacement is NOT reused from cache, and each
+	// caller asserts that directly through the scan/reuse counts.
+	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("replacement did not preserve size+mtime: before=%+v after=%+v", before, after)
+	}
+	if bytes.Equal(mustReadFile(t, path), body) {
+		t.Fatal("replacement did not change the file contents")
+	}
+}
+
+func mustReadFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func buildShortTermResult(t *testing.T, brainDir string) (shortTermStats, error) {
+	t.Helper()
+	var stats shortTermStats
+	err := withBrainWriteLock(brainDir, func() error {
+		var buildErr error
+		stats, buildErr = buildHistoryShortTermLocked(brainDir, time.Now().UTC())
+		return buildErr
+	})
+	return stats, err
+}
 
 // shortTermFixture builds a brain with one indexed session (full build), then
 // appends a new turn to it and adds a brand-new session WITHOUT re-running the
@@ -87,6 +169,101 @@ func buildShortTerm(t *testing.T, brainDir string) shortTermStats {
 		t.Fatal(err)
 	}
 	return stats
+}
+
+func TestShortTermDeltaRejectsLongTermCacheOnSameMetadataReplacement(t *testing.T) {
+	brainDir, rel, _ := historyProjectionFixture(t)
+	target := filepath.Join(brainDir, filepath.FromSlash(rel))
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
+
+	stats, err := buildShortTermResult(t, brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Scanned != 1 || stats.Reused != 0 {
+		t.Fatalf("same-metadata long-term replacement stats = %+v, want one scan", stats)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
+	entry, ok := overlay.Files[rel]
+	if !ok || entry.ContentDigest == "" {
+		t.Fatalf("replacement missing from digest-bound overlay: %+v", overlay.Files)
+	}
+	joined := ""
+	for _, record := range entry.Records {
+		joined += record.Summary + "\n"
+	}
+	if !strings.Contains(joined, "content first") || strings.Contains(joined, "manifest last") {
+		t.Fatalf("overlay retained stale long-term records: %q", joined)
+	}
+}
+
+func TestShortTermDeltaRejectsPriorOverlayOnSameMetadataReplacement(t *testing.T) {
+	brainDir, rel, _ := historyProjectionFixture(t)
+	target := filepath.Join(brainDir, filepath.FromSlash(rel))
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
+	firstStats, err := buildShortTermResult(t, brainDir)
+	if err != nil || firstStats.Scanned != 1 {
+		t.Fatalf("first delta stats=%+v err=%v", firstStats, err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := loadHistoryShortTerm(brainDir, manifest.Sources.History).Files[rel]
+	if first.ContentDigest == "" {
+		t.Fatal("first overlay omitted content digest")
+	}
+
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the content first", "commit the records first")
+	secondStats, err := buildShortTermResult(t, brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondStats.Scanned != 1 || secondStats.Reused != 0 {
+		t.Fatalf("same-metadata prior-overlay replacement stats = %+v, want rescan", secondStats)
+	}
+	second := loadHistoryShortTerm(brainDir, manifest.Sources.History).Files[rel]
+	if second.ContentDigest == "" || second.ContentDigest == first.ContentDigest {
+		t.Fatalf("overlay digest did not change: first=%q second=%q", first.ContentDigest, second.ContentDigest)
+	}
+	joined := ""
+	for _, record := range second.Records {
+		joined += record.Summary + "\n"
+	}
+	if !strings.Contains(joined, "records first") || strings.Contains(joined, "content first") {
+		t.Fatalf("prior overlay records were reused after content replacement: %q", joined)
+	}
+}
+
+func TestShortTermDeltaBoundFailurePreservesPriorOverlay(t *testing.T) {
+	brainDir, rel, _ := historyProjectionFixture(t)
+	target := filepath.Join(brainDir, filepath.FromSlash(rel))
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
+	if _, err := buildShortTermResult(t, brainDir); err != nil {
+		t.Fatal(err)
+	}
+	overlayPath := filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath))
+	before, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldMax := maxDocumentTranscriptBytes
+	maxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	if _, err := buildShortTermResult(t, brainDir); err == nil || !strings.Contains(err.Error(), memoryErrInputTooLarge) {
+		t.Fatalf("bounded delta error = %v", err)
+	}
+	after, err := os.ReadFile(overlayPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("bounded delta failure changed the prior overlay")
+	}
 }
 
 func TestShortTermDeltaIndexesOnlyChangedTranscripts(t *testing.T) {
@@ -211,7 +388,7 @@ func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 	}
 	// And ranking must not duplicate: the original decision exists in both
 	// tiers (same content), but only the overlay copy may surface.
-	scored := rankFreshHistory(fresh, "history", "lock timeout windows", 20, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	scored := rankFreshHistory(fresh, "history", "lock timeout windows", 20, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 		return rankHistoryViaFTS(brainDir, longTerm, "history", "lock timeout windows", 20)
 	})
 	seen := map[string]int{}
@@ -230,10 +407,18 @@ func TestShortTermLexicalOverlayPreservesDirectFTSPayloadPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Warm the derived payload store from the intact truth first: the direct
+	// path is an accelerator over an ALREADY-BUILT store, so building it is a
+	// precondition of the property under test, not part of it.
+	if _, _, _, warmErr := rankFreshHistoryLexicalFromSource(brainDir, manifest.Sources.History, "history", "exporter hot loop gzip", 20); warmErr != nil {
+		t.Fatalf("warm derived payload store: %v", warmErr)
+	}
 	// The direct FTS payload path must not need index.json even when a short-term
 	// overlay is present. Corrupt the truth file after the FTS generation and
 	// require both the direct access mode and the fresh overlay result.
-	indexPath := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	// The published index is generation-addressed, so resolve it from the
+	// manifest rather than assuming the legacy fixed path.
+	indexPath := filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.History.IndexPath))
 	corrupt, err := os.ReadFile(indexPath)
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +490,7 @@ func TestShortTermEmptyOverlayPreservesRankingExactly(t *testing.T) {
 	if !ok {
 		t.Fatal("fts unavailable")
 	}
-	wrapped := rankFreshHistory(fresh, "history", "flaky lock test", 10, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+	wrapped := rankFreshHistory(fresh, "history", "flaky lock test", 10, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
 		return rankHistoryViaFTS(brainDir, longTerm, "history", "flaky lock test", 10)
 	})
 	if len(direct) != len(wrapped) {
@@ -566,5 +751,323 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 1 {
 		t.Fatalf("consolidate-every=0 must refresh on change: refreshes=%d out=%q", refreshes, out.String())
+	}
+}
+
+// TestTwoTierStableIDReconciliation is the cross-tier reconciliation fixture: the same
+// stable exchange ID exists at an old path in the long-term index and at a
+// newer path with newer text in the short-term overlay (and, for a second ID,
+// the reverse). Search and get must agree on the newer copy in both
+// directions, and a duplicated ID may contribute rank at most once.
+func TestTwoTierStableIDReconciliation(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	generated := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)
+	oldPathX := "sessions/main/20260801T000000Z_sess-x.jsonl"
+	newPathX := "sessions/main/20260806T000000Z_sess-x.jsonl"
+	oldPathY := "sessions/main/20260802T000000Z_sess-y.jsonl"
+	newPathY := "sessions/main/20260807T000000Z_sess-y.jsonl"
+	idX := conversationIDPrefix + "xdup"
+	idY := conversationIDPrefix + "ydup"
+	mk := func(id, path, summary, digest, session string) historyRecord {
+		return historyRecord{
+			ID: id, Kind: conversationKind, Path: path, Line: 1, EndLine: 2, TurnOrdinal: 1,
+			SessionID: session, Summary: summary, ContentRole: conversationContentRole,
+			SourceDigest: digest,
+		}
+	}
+	// Long-term: X at its OLD export path, Y already at its NEW path.
+	index := historyIndex{GeneratedAt: generated, Records: []historyRecord{
+		mk(idX, oldPathX, "lock decision stale copy", "sha256:x-old", "sess-x"),
+		mk(idY, newPathY, "cache decision current copy", "sha256:y-new", "sess-y"),
+	}}
+	data, err := json.MarshalIndent(index, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   generated,
+		Sources: &brainSources{History: &historySourceManifest{
+			GeneratedAt: generated, IndexPath: historyIndexPath, Records: len(index.Records),
+		}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	// Overlay: X re-exported at a NEWER path with newer text, Y at an OLDER
+	// path with stale text.
+	overlay := shortTermIndex{
+		Version:           historyShortTermVersion,
+		ReconcilerVersion: historyShortTermReconcilerVersion,
+		BaseGeneratedAt:   generated,
+		GeneratedAt:       generated.Add(time.Hour),
+		Files: map[string]shortTermFile{
+			newPathX: {Records: []historyRecord{mk(idX, newPathX, "lock decision revised copy", "sha256:x-new", "sess-x")}},
+			oldPathY: {Records: []historyRecord{mk(idY, oldPathY, "cache decision stale copy", "sha256:y-old", "sess-y")}},
+		},
+	}
+	overlayData, err := json.MarshalIndent(overlay, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), overlayData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Search: exactly one copy per ID, and it is the newer source both ways.
+	scored := rankFreshHistory(fresh, conversationKind, "decision copy", 10, nil, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+		return rankHistoryViaFTS(brainDir, longTerm, conversationKind, "decision copy", 10)
+	})
+	paths := map[string][]string{}
+	for _, s := range scored {
+		paths[s.Record.ID] = append(paths[s.Record.ID], s.Record.Path)
+	}
+	if got := paths[idX]; len(got) != 1 || got[0] != newPathX {
+		t.Fatalf("search winner for X must be the newer overlay copy exactly once: %v", got)
+	}
+	if got := paths[idY]; len(got) != 1 || got[0] != newPathY {
+		t.Fatalf("search winner for Y must be the newer long-term copy exactly once: %v", got)
+	}
+
+	// Get: the same winners, so search and expansion cannot disagree.
+	found, missing, err := getUnifiedBatch("", brainDir, "main", []string{idX, idY})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(missing) != 0 || len(found) != 2 {
+		t.Fatalf("get: found=%d missing=%v", len(found), missing)
+	}
+	if found[0].Path != newPathX || !strings.Contains(found[0].Text, "revised") {
+		t.Fatalf("get X resolved the stale copy: path=%s text=%q", found[0].Path, found[0].Text)
+	}
+	if found[1].Path != newPathY || !strings.Contains(found[1].Text, "current") {
+		t.Fatalf("get Y resolved the stale copy: path=%s text=%q", found[1].Path, found[1].Text)
+	}
+
+	// The semantic view drops only the superseded long-term copy.
+	semIndex := fresh.longTermReconciled()
+	for _, r := range semIndex.Records {
+		if r.ID == idX {
+			t.Fatalf("superseded long-term copy of X still in the semantic view: %+v", r)
+		}
+		if r.ID == idY && r.Path != newPathY {
+			t.Fatalf("semantic view holds the wrong Y copy: %+v", r)
+		}
+	}
+}
+
+// TestShortTermOverlayStatesNeverClaimCoverage is the overlay-state acceptance
+// fixture: an unreadable transcript, an overflowed buffer, a corrupt overlay,
+// and an unknown overlay version are durably distinguishable, and none of
+// them lets doctor claim that short-term memory covers the long-term gap.
+func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brainDir := storage.BrainDir
+	writeTranscript := func(rel, request, response string) {
+		t.Helper()
+		full := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + request + `"}]}}` + "\n" +
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + response + `"}]}}` + "\n"
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	baseRel := "sessions/main/20260808T100000Z_base.jsonl"
+	writeTranscript(baseRel, "fix the exporter", "Decision: pinned the exporter version.")
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "base-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: baseRel, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
+		t.Fatal(err)
+	}
+	addSession := func(id, rel string) {
+		t.Helper()
+		onDisk, err := loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		onDisk.Sources.Sessions.Sessions = append(onDisk.Sources.Sessions.Sessions, exportSession{
+			SessionID: id, Branch: "main", Agent: "claude", LatestCheckpoint: "cp-" + id,
+			TranscriptPath: rel, CreatedAt: now.Add(-10 * time.Minute),
+		})
+		if err := writeBrainManifestAndReadme(brainDir, *onDisk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	freshness := func() (string, string, map[string]doctorCheckResult) {
+		t.Helper()
+		checks := map[string]doctorCheckResult{}
+		for _, check := range brainDoctorChecks((&cobra.Command{}).Context(), opts, repoDir) {
+			checks[check.Name] = check
+		}
+		f := checks["history_freshness"]
+		return f.State, f.Detail, checks
+	}
+
+	// New work after the build: a complete delta covers the gap.
+	newRel := "sessions/main/20260808T110000Z_new.jsonl"
+	writeTranscript(newRel, "profile the gzip loop", "Decision: gzip level 1.")
+	addSession("new-sess", newRel)
+	buildShortTerm(t, brainDir)
+	if state, detail, _ := freshness(); state != "ok" || !strings.Contains(detail, "covers the gap") {
+		t.Fatalf("complete overlay must cover the gap: %s %q", state, detail)
+	}
+
+	onDiskManifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One unreadable transcript: the delta must record the failure durably and
+	// doctor must stop claiming coverage. POSIX permission semantics; Windows
+	// cannot express an unreadable file through chmod.
+	if runtime.GOOS != "windows" {
+		badRel := "sessions/main/20260808T113000Z_bad.jsonl"
+		writeTranscript(badRel, "unreadable", "unreadable")
+		badFull := filepath.Join(brainDir, filepath.FromSlash(badRel))
+		if err := os.Chmod(badFull, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(badFull, 0o600) })
+		addSession("bad-sess", badRel)
+		failedStats := buildShortTerm(t, brainDir)
+		if failedStats.Failed != 1 {
+			t.Fatalf("stats.Failed = %d, want 1", failedStats.Failed)
+		}
+		overlay, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History)
+		if state != shortTermStateCurrent || len(overlay.FailedFiles) != 1 || overlay.FailedFiles[0] != badRel {
+			t.Fatalf("failed file identity not durable: state=%s failed=%v", state, overlay.FailedFiles)
+		}
+		if fstate, detail, checks := freshness(); fstate != "warn" || strings.Contains(detail, "covers the gap (") {
+			t.Fatalf("partial overlay must not claim coverage: %s %q %+v", fstate, detail, checks["short_term_memory"])
+		}
+		if err := os.Chmod(badFull, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Overflow: the truncated buffer is partial coverage.
+	oldMax := historyShortTermMaxRecords
+	historyShortTermMaxRecords = 1
+	defer func() { historyShortTermMaxRecords = oldMax }()
+	overflowStats := buildShortTerm(t, brainDir)
+	historyShortTermMaxRecords = oldMax
+	if !overflowStats.Truncated {
+		t.Fatalf("expected truncation: %+v", overflowStats)
+	}
+	if fstate, detail, _ := freshness(); fstate != "warn" || !strings.Contains(detail, "partially") {
+		t.Fatalf("truncated overlay must be partial: %s %q", fstate, detail)
+	}
+
+	// Corrupt overlay JSON.
+	overlayPath := filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath))
+	if err := os.WriteFile(overlayPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History); state != shortTermStateCorrupt {
+		t.Fatalf("corrupt overlay state = %s", state)
+	}
+	if fstate, detail, checks := freshness(); fstate != "warn" || !strings.Contains(checks["short_term_memory"].Detail, "corrupt") {
+		t.Fatalf("corrupt overlay must warn: %s %q %+v", fstate, detail, checks["short_term_memory"])
+	}
+
+	// Unknown (newer) overlay version.
+	if err := os.WriteFile(overlayPath, []byte(`{"version":99,"files":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, state := loadHistoryShortTermState(brainDir, onDiskManifest.Sources.History); state != shortTermStateUnsupported {
+		t.Fatalf("unknown version state = %s", state)
+	}
+	if fstate, _, checks := freshness(); fstate != "warn" || !strings.Contains(checks["short_term_memory"].Detail, "unsupported") {
+		t.Fatalf("unsupported overlay must warn: %s %+v", fstate, checks["short_term_memory"])
+	}
+}
+
+// TestShortTermReconcilerVersionGate proves the reconciler-version refinement: an overlay
+// built for a different record-reconciliation rule reads as unsupported and
+// never joins ranking or coverage claims.
+func TestShortTermReconcilerVersionGate(t *testing.T) {
+	brainDir, _, _ := shortTermFixture(t)
+	buildShortTerm(t, brainDir)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay, state := loadHistoryShortTermState(brainDir, manifest.Sources.History)
+	if state != shortTermStateCurrent {
+		t.Fatalf("fresh overlay state = %s", state)
+	}
+	overlay.ReconcilerVersion = historyShortTermReconcilerVersion - 1
+	if err := saveHistoryShortTerm(brainDir, overlay); err != nil {
+		t.Fatal(err)
+	}
+	if _, state := loadHistoryShortTermState(brainDir, manifest.Sources.History); state != shortTermStateUnsupported {
+		t.Fatalf("old reconciler version must read unsupported: %s", state)
+	}
+}
+
+// TestConsolidationKeepsOverlayCoveringNewerSources proves the
+// fingerprint gate: a full build from an older source set must not destroy an
+// overlay that covers newer work; a build from the same set clears it.
+func TestConsolidationKeepsOverlayCoveringNewerSources(t *testing.T) {
+	brainDir, _, _ := shortTermFixture(t)
+	buildShortTerm(t, brainDir)
+	overlayPath := filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath))
+	if _, err := os.Stat(overlayPath); err != nil {
+		t.Fatalf("overlay must exist: %v", err)
+	}
+	// Simulate an overlay built against a NEWER source set than the manifest
+	// the full build is about to consume.
+	overlay, state := loadHistoryShortTermRaw(brainDir)
+	if state != shortTermStateCurrent {
+		t.Fatalf("raw overlay state = %s", state)
+	}
+	overlay.SessionsFingerprint = "sha256:newer-than-this-build"
+	if err := saveHistoryShortTerm(brainDir, overlay); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 8, 15, 0, 0, 0, time.UTC), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(overlayPath); err != nil {
+		t.Fatalf("consolidation from an older source set must keep the newer overlay: %v", err)
+	}
+
+	// A delta rebuild re-pins the overlay to the current sources; the next
+	// consolidation covers it and clears.
+	buildShortTerm(t, brainDir)
+	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 8, 16, 0, 0, 0, time.UTC), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(overlayPath); !os.IsNotExist(err) {
+		t.Fatalf("covered overlay must be cleared by consolidation: %v", err)
 	}
 }

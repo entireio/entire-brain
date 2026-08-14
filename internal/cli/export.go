@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -33,11 +34,18 @@ const (
 	exportScopeAll    = "all"
 	exportScopeBranch = "branch"
 
-	v2MainRef        = "refs/entire/checkpoints/v2/main"
-	v1MainRef        = "refs/heads/entire/checkpoints/v1"
-	v1OriginRef      = "refs/remotes/origin/entire/checkpoints/v1"
-	v1RemoteFetchRef = "refs/heads/entire/checkpoints/v1"
-	v1RemoteRef      = v1RemoteFetchRef
+	v2MainRef           = "refs/entire/checkpoints/v2/main"
+	v1MainRef           = "refs/heads/entire/checkpoints/v1"
+	v1OriginRef         = "refs/remotes/origin/entire/checkpoints/v1"
+	v1RemoteFetchRef    = "refs/heads/entire/checkpoints/v1"
+	v1RemoteRef         = v1RemoteFetchRef
+	checkpointRefPrefix = "refs/entire/checkpoints/"
+
+	checkpointBackendGitBranch = "git-branch"
+	checkpointBackendGitRefs   = "git-refs"
+	checkpointPrimaryEnv       = "ENTIRE_CHECKPOINTS_PRIMARY"
+	checkpointMirrorsEnv       = "ENTIRE_CHECKPOINTS_MIRRORS"
+	gitNoLazyFetchEnv          = "GIT_NO_LAZY_FETCH"
 
 	checkpointRemoteProviderGitHub = "github"
 	checkpointRemoteBlobFilter     = "blob:limit=128k"
@@ -54,7 +62,9 @@ const (
 	gitLogFieldSeparator  = "\x00"
 )
 
-var checkpointTrailerRegex = regexp.MustCompile(checkpointTrailerKey + `:\s*([a-f0-9]{12})(?:\s|$)`)
+var checkpointTrailerRegex = regexp.MustCompile(
+	checkpointTrailerKey + `:\s*([a-f0-9]{12}|[0-7][0-9A-HJKMNP-TV-Z]{25})(?:\s|$)`,
+)
 
 type exportCommandOptions struct {
 	outputDir       string
@@ -167,12 +177,12 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 
 	if exportOpts.scope == exportScopeAll {
 		loadedSnapshot, snapshotWarnings, snapshotErr := loadConfiguredCheckpointSnapshot(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, exportOpts.checkpointLimit, branchDestinations, exportOpts.progress, metadataCache)
+		warnings = append(warnings, snapshotWarnings...)
 		if snapshotErr == nil {
 			snapshot = loadedSnapshot
 			defer snapshot.Cleanup()
 			selected = loadedSnapshot.Selected
 			checkpointsScanned = loadedSnapshot.CheckpointCount
-			warnings = append(warnings, snapshotWarnings...)
 			reportExportProgress(exportOpts.progress, checkpointsScanned, checkpointsScanned, len(selected))
 			if metadataCachePath != "" && metadataCacheBrainDir != "" {
 				_ = withBrainWriteLock(metadataCacheBrainDir, func() error {
@@ -186,6 +196,12 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	}
 
 	if selected == nil {
+		if brainNoEgressMode() {
+			if exportOpts.scope == exportScopeBranch {
+				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export")
+			}
+			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery")
+		}
 		checkpoints, discoverWarnings, err := discoverCheckpoints(ctx, opts.Runner, repoDir, exportOpts.entireBinary, exportOpts.scope, exportOpts.checkpointLimit)
 		if err != nil {
 			return err
@@ -193,61 +209,12 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		warnings = append(warnings, discoverWarnings...)
 		checkpointsScanned = len(checkpoints)
 
-		selected = make(map[string]selectedSession)
-		for i, checkpoint := range checkpoints {
-			reportExportProgress(exportOpts.progress, i+1, len(checkpoints), len(selected))
-			if !checkpoint.IsLogsOnly {
-				warnings = append(warnings, fmt.Sprintf("skipped non-committed checkpoint list entry %s", checkpoint.CheckpointID))
-				continue
-			}
-			if checkpoint.CheckpointID == "" {
-				warnings = append(warnings, "skipped checkpoint list entry with no checkpoint_id")
-				continue
-			}
-
-			detail, detailErr := checkpointDetail(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoint.CheckpointID)
-			if detailErr != nil {
-				return detailErr
-			}
-
-			for _, session := range detail.Sessions {
-				if session.Error != "" {
-					warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: %s", detail.CheckpointID, session.Index, session.Error))
-					continue
-				}
-				if session.SessionID == "" {
-					warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: missing session_id", detail.CheckpointID, session.Index))
-					continue
-				}
-
-				createdAt := checkpoint.Date
-				if session.CreatedAt != nil && !session.CreatedAt.IsZero() {
-					createdAt = *session.CreatedAt
-				}
-
-				candidate := selectedSession{
-					CheckpointID:     detail.CheckpointID,
-					SessionIndex:     session.Index,
-					SessionID:        session.SessionID,
-					Branch:           sessionBranch(session.Branch, detail.Branch),
-					Agent:            session.Agent,
-					Model:            session.Model,
-					Kind:             session.Kind,
-					ReviewSkills:     session.ReviewSkills,
-					CreatedAt:        createdAt,
-					TurnID:           session.TurnID,
-					IsTask:           session.IsTask,
-					ToolUseID:        session.ToolUseID,
-					FilesTouched:     session.FilesTouched,
-					TokenUsage:       session.TokenUsage,
-					Summary:          session.Summary,
-					CheckpointsCount: detail.CheckpointsCount,
-				}
-
-				addSelectedSession(selected, candidate, branchDestinations)
-			}
-			reportExportProgress(exportOpts.progress, i+1, len(checkpoints), len(selected))
+		routedSelected, routedWarnings, selectErr := selectRoutedCheckpointSessions(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress)
+		warnings = append(warnings, routedWarnings...)
+		if selectErr != nil {
+			return selectErr
 		}
+		selected = routedSelected
 	}
 
 	manifest := exportManifest{
@@ -304,8 +271,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			return err
 		}
 		var transcriptWarnings []string
+		transcriptsComplete := true
 		if snapshot != nil {
-			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			sessions, transcriptWarnings, transcriptsComplete, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
 			if err != nil {
 				return err
 			}
@@ -330,6 +298,18 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
+			if !transcriptsComplete {
+				// At least one requested transcript was unreadable, so the
+				// session list is a SUBSET of what this export covers. Sweeping
+				// against a subset would delete the copies a previous export
+				// wrote for exactly those sessions, silently destroying
+				// recallable history behind a scope-incomplete warning. Leave
+				// the stale files in place; the next complete export removes
+				// them. Before the skip-and-continue behavior an unreadable
+				// transcript aborted the export outright and left the brain
+				// untouched, so holding the sweep back is no worse than that.
+				return nil
+			}
 			return cleanupStaleSessionFiles(outputDir, sessions)
 		}); err != nil {
 			return err
@@ -344,7 +324,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 		var transcriptWarnings []string
 		if snapshot != nil {
-			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			sessions, transcriptWarnings, _, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
 			if err != nil {
 				return err
 			}
@@ -659,6 +639,27 @@ func runGitOutput(ctx context.Context, runner CommandRunner, repoDir string, arg
 	return stdout
 }
 
+// runCheckpointGitLocal reads local Git state with lazy promisor-object fetches
+// disabled. That environment bit is the process boundary behind no-egress
+// checkpoint reads: invoking a nominally read-only `git cat-file` in a partial
+// clone can otherwise contact a promisor remote. A custom runner must explicitly
+// implement the environment capability; silently dropping the override would
+// turn a local-only promise into best effort.
+func runCheckpointGitLocal(ctx context.Context, runner CommandRunner, repoDir string, args ...string) ([]byte, []byte, error) {
+	if len(args) == 0 {
+		return nil, nil, errors.New("local checkpoint git command is empty")
+	}
+	switch args[0] {
+	case "fetch", "pull", "push", "ls-remote":
+		return nil, nil, fmt.Errorf("local checkpoint git command refuses network-capable subcommand %q", args[0])
+	}
+	envRunner, ok := runner.(EnvironmentCommandRunner)
+	if !ok {
+		return nil, nil, errors.New("no_egress: command runner cannot enforce GIT_NO_LAZY_FETCH=1")
+	}
+	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{gitNoLazyFetchEnv: "1"}, "git", args...)
+}
+
 func gitRefExists(ctx context.Context, runner CommandRunner, repoDir, ref string) bool {
 	_, _, err := runner.Run(ctx, repoDir, "git", "show-ref", "--verify", "--quiet", ref)
 	return err == nil
@@ -691,7 +692,7 @@ func buildCheckpointBranchDestinations(ctx context.Context, runner CommandRunner
 		return destinations, []string{"default branch checkpoint reachability unavailable: could not resolve " + defaultBranch}
 	}
 
-	stdout, stderr, err := runner.Run(ctx, repoDir, "git", "log", "--format=%B", "--grep", checkpointTrailerKey+":", defaultRef)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--format=%B", "--grep", checkpointTrailerKey+":", defaultRef)
 	warnings := warningLines("default branch checkpoint reachability", stderr)
 	if err != nil {
 		warnings = append(warnings, "default branch checkpoint reachability unavailable: "+err.Error())
@@ -744,7 +745,7 @@ func checkpointIDsFromCommitMessageText(message string) []string {
 }
 
 func buildCheckpointAuthorIndex(ctx context.Context, runner CommandRunner, repoDir string) (checkpointAuthorIndex, []string) {
-	stdout, stderr, err := runner.Run(ctx, repoDir, "git", "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", checkpointTrailerKey+":")
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", checkpointTrailerKey+":")
 	warnings := warningLines("checkpoint author index", stderr)
 	if err != nil {
 		warnings = append(warnings, "checkpoint author index unavailable: "+err.Error())
@@ -853,69 +854,252 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(checkpoints) > 0 {
-		return checkpoints, warnings, nil
-	}
 	if brainNoEgressMode() {
 		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped")
 		return checkpoints, warnings, nil
 	}
 
-	fallback, fallbackWarnings, fallbackErr := listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
-	if fallbackErr != nil {
-		return nil, warnings, fmt.Errorf("all checkpoint discovery found no metadata refs and branch fallback failed: %w", fallbackErr)
-	}
-	warnings = append(warnings, "all checkpoint discovery found no metadata refs; used branch-visible checkpoint list fallback")
+	fallback, fallbackWarnings, fallbackErr := listAllRoutedCheckpoints(ctx, runner, repoDir, entireBinary, limit)
 	warnings = append(warnings, fallbackWarnings...)
-	return fallback, warnings, nil
+	scopeIncomplete := hasCheckpointScopeIncompleteWarning(fallbackWarnings)
+	if fallbackErr != nil {
+		if len(checkpoints) > 0 {
+			if scopeIncomplete {
+				warnings = append(warnings, checkpointScopeIncompleteCode+": routed checkpoint discovery failed after reporting partial scope; using locally enumerated ref names only")
+			} else {
+				warnings = append(warnings, "checkpoint_scope_incomplete: complete --search-all checkpoint discovery unavailable; using locally enumerated refs only: "+fallbackErr.Error())
+			}
+			return checkpoints, warnings, nil
+		}
+		if scopeIncomplete {
+			return nil, warnings, fmt.Errorf("%s: routed checkpoint discovery failed and no local checkpoint IDs were enumerable", checkpointScopeIncompleteCode)
+		}
+		return nil, warnings, fmt.Errorf("complete routed checkpoint discovery failed: %w", fallbackErr)
+	}
+	if scopeIncomplete && len(checkpoints) == 0 && len(fallback) == 0 {
+		return nil, warnings, fmt.Errorf("%s: Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory", checkpointScopeIncompleteCode)
+	}
+	if !scopeIncomplete && len(checkpoints) == 0 {
+		warnings = append(warnings, "used Entire's complete routed checkpoint list because no local metadata refs were enumerable")
+	} else if !scopeIncomplete {
+		warnings = append(warnings, "combined locally enumerated checkpoint refs with Entire's complete routed checkpoint list")
+	}
+	return mergeCheckpointListEntries(fallback, checkpoints, limit), warnings, nil
+}
+
+func hasCheckpointScopeIncompleteWarning(warnings []string) bool {
+	for _, warning := range warnings {
+		if strings.HasPrefix(strings.TrimSpace(warning), checkpointScopeIncompleteCode+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeCheckpointListEntries(preferred, additional []checkpointListEntry, limit int) []checkpointListEntry {
+	merged := make([]checkpointListEntry, 0, len(preferred)+len(additional))
+	seen := make(map[string]struct{}, len(preferred)+len(additional))
+	for _, entries := range [][]checkpointListEntry{preferred, additional} {
+		for _, entry := range entries {
+			if entry.CheckpointID == "" {
+				continue
+			}
+			if _, ok := seen[entry.CheckpointID]; ok {
+				continue
+			}
+			seen[entry.CheckpointID] = struct{}{}
+			merged = append(merged, entry)
+		}
+	}
+	if limit > 0 && len(merged) > limit {
+		merged = merged[:limit]
+	}
+	return merged
 }
 
 func listBranchCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, limit int) ([]checkpointListEntry, []string, error) {
+	return listRoutedCheckpoints(ctx, runner, repoDir, entireBinary, limit, false)
+}
+
+func listAllRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, limit int) ([]checkpointListEntry, []string, error) {
+	return listRoutedCheckpoints(ctx, runner, repoDir, entireBinary, limit, true)
+}
+
+const (
+	checkpointScopeIncompleteCode = "checkpoint_scope_incomplete"
+	entireCheckpointScopePrefix   = "ENTIRE_CHECKPOINT_SCOPE_V1 "
+)
+
+type routedCheckpointScopeStatus struct {
+	SchemaVersion int                          `json:"schema_version"`
+	Code          string                       `json:"code"`
+	Complete      bool                         `json:"complete"`
+	Issues        []routedCheckpointScopeIssue `json:"issues"`
+}
+
+type routedCheckpointScopeIssue struct {
+	Code  string `json:"code"`
+	Count int    `json:"count"`
+}
+
+func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, limit int, searchAll bool) ([]checkpointListEntry, []string, error) {
 	args := []string{"checkpoint", "explain", "--json"}
-	if limit > 0 {
+	if searchAll {
+		args = append(args, "--search-all", "--limit", strconv.Itoa(limit))
+	} else if limit > 0 {
 		args = append(args, "--limit", strconv.Itoa(limit))
 	}
 	stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, args...)
+	warnings := routedCheckpointWarnings(stderr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list checkpoints: %w", err)
+		return nil, warnings, fmt.Errorf("list checkpoints: %w", err)
 	}
 
 	var checkpoints []checkpointListEntry
 	if err := json.Unmarshal(stdout, &checkpoints); err != nil {
 		return nil, nil, fmt.Errorf("parse checkpoint list json: %w", err)
 	}
-	return checkpoints, warningLines("checkpoint list", stderr), nil
+	return checkpoints, warnings, nil
+}
+
+// routedCheckpointWarnings preserves ordinary stderr diagnostics while
+// recognizing Entire's additive complete-scope status line. The checkpoint
+// array on stdout intentionally remains backward-compatible; this stable
+// stderr record is what prevents an empty or partial array from being mistaken
+// for a complete inventory. Its payload contains codes and counts only.
+func routedCheckpointWarnings(data []byte) []string {
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	warnings := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if payload, ok := strings.CutPrefix(line, entireCheckpointScopePrefix); ok {
+			warnings = append(warnings, checkpointScopeWarning(payload))
+			continue
+		}
+		// Older Entire versions exposed remote discovery degradation as a human
+		// warning only. Classify that legacy line conservatively too, so upgrading
+		// Brain before Entire cannot reintroduce a false-complete manifest.
+		if strings.Contains(line, "could not reach checkpoint remote; showing local checkpoints only") {
+			warnings = append(warnings, checkpointScopeIncompleteCode+": Entire could not enumerate the configured checkpoint remote")
+			continue
+		}
+		warnings = append(warnings, "checkpoint list: "+line)
+	}
+	return warnings
+}
+
+func checkpointScopeWarning(payload string) string {
+	var status routedCheckpointScopeStatus
+	if err := json.Unmarshal([]byte(payload), &status); err != nil || status.SchemaVersion != 1 || status.Code != checkpointScopeIncompleteCode || status.Complete {
+		return checkpointScopeIncompleteCode + ": Entire emitted an invalid or contradictory checkpoint scope status"
+	}
+	parts := make([]string, 0, len(status.Issues))
+	for _, issue := range status.Issues {
+		code := strings.TrimSpace(issue.Code)
+		if code == "" {
+			continue
+		}
+		count := issue.Count
+		if count <= 0 {
+			count = 1
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d", code, count))
+	}
+	sort.Strings(parts)
+	if len(parts) == 0 {
+		return checkpointScopeIncompleteCode + ": Entire reported incomplete checkpoint enumeration"
+	}
+	return checkpointScopeIncompleteCode + ": Entire reported incomplete checkpoint enumeration (" + strings.Join(parts, ", ") + ")"
 }
 
 func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, limit int) ([]checkpointListEntry, []string, error) {
 	settings, settingsErr := readEntireSettings(repoDir)
 	includeV2 := settingsErr == nil && settings.CheckpointsV2Enabled()
 	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs(includeV2))
-	if len(ids) == 0 {
-		localWarnings := warnings
-		if brainNoEgressMode() {
-			warnings = append(localWarnings, "no_egress: checkpoint remote discovery skipped")
-			return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
-		}
-		remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
-		if settingsErr != nil {
-			remoteErr = settingsErr
-		}
-		if remoteErr == nil {
-			var remoteWarnings []string
-			ids, remoteWarnings = listRemoteCheckpointRefIDs(ctx, runner, remoteURL, remoteCheckpointRefs(includeV2))
-			if len(ids) > 0 {
-				warnings = remoteWarnings
-				warnings = append(warnings, "discovered checkpoint refs from configured checkpoint remote")
-			} else {
-				warnings = append(localWarnings, remoteWarnings...)
-			}
-		} else {
-			warnings = append(warnings, "checkpoint remote unavailable: "+remoteErr.Error())
-		}
+	refIDs, refWarnings := listLocalPerCheckpointRefIDs(ctx, runner, repoDir)
+	for id := range refIDs {
+		ids[id] = struct{}{}
+	}
+	warnings = append(warnings, refWarnings...)
+	if len(ids) == 0 && brainNoEgressMode() {
+		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped")
 	}
 
 	return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
+}
+
+// listLocalPerCheckpointRefIDs enumerates the current git-refs checkpoint
+// backend without reading checkpoint payloads. The ref name is an untrusted
+// boundary: accept only Entire's documented two-component layout and require
+// the shard to match the checkpoint ID before passing an ID to the CLI.
+func listLocalPerCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDir string) (map[string]struct{}, []string) {
+	ids := make(map[string]struct{})
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "for-each-ref", "--format=%(refname)", checkpointRefPrefix)
+	warnings := warningLines("checkpoint refs", stderr)
+	if err != nil {
+		warnings = append(warnings, "checkpoint ref namespace unavailable: "+err.Error())
+		return ids, warnings
+	}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if id, ok := checkpointIDFromRefName(strings.TrimSpace(line)); ok {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids, warnings
+}
+
+func checkpointIDFromRefName(ref string) (string, bool) {
+	relative, ok := strings.CutPrefix(ref, checkpointRefPrefix)
+	if !ok {
+		return "", false
+	}
+	parts := strings.Split(relative, "/")
+	if len(parts) != 2 || len(parts[0]) != 2 {
+		return "", false
+	}
+	id := parts[1]
+	if !isCheckpointRefID(id) || parts[0] != id[len(id)-2:] {
+		return "", false
+	}
+	return id, true
+}
+
+func isCheckpointRefID(value string) bool {
+	if isCheckpointID(value) {
+		return true
+	}
+	if len(value) != 26 || value[0] < '0' || value[0] > '7' {
+		return false
+	}
+	for _, r := range value {
+		if !strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", r) {
+			return false
+		}
+	}
+	return true
+}
+
+func checkpointULIDTime(value string) (time.Time, bool) {
+	if len(value) != 26 || !isCheckpointRefID(value) || isCheckpointID(value) {
+		return time.Time{}, false
+	}
+	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+	var millis uint64
+	for _, r := range value[:10] {
+		index := strings.IndexRune(alphabet, r)
+		if index < 0 {
+			return time.Time{}, false
+		}
+		millis = millis<<5 | uint64(index)
+	}
+	return time.UnixMilli(int64(millis)).UTC(), true
 }
 
 func localCheckpointRefs(includeV2 bool) []string {
@@ -925,20 +1109,13 @@ func localCheckpointRefs(includeV2 bool) []string {
 	return []string{v1MainRef, v1OriginRef}
 }
 
-func remoteCheckpointRefs(includeV2 bool) []string {
-	if includeV2 {
-		return []string{v2MainRef, v1RemoteFetchRef}
-	}
-	return []string{v1RemoteFetchRef}
-}
-
 func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDir string, refs []string) (map[string]struct{}, []string) {
 	ids := make(map[string]struct{})
 	var refErrors []string
 	var warnings []string
 
 	for _, ref := range refs {
-		stdout, stderr, err := runner.Run(ctx, repoDir, "git", "ls-tree", "-r", "--name-only", ref)
+		stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "ls-tree", "-r", "--name-only", ref)
 		if err != nil {
 			refErrors = append(refErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
 			continue
@@ -954,53 +1131,12 @@ func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDi
 	return ids, warnings
 }
 
-func listRemoteCheckpointRefIDs(ctx context.Context, runner CommandRunner, remoteURL string, refs []string) (map[string]struct{}, []string) {
-	ids := make(map[string]struct{})
-	var warnings []string
-
-	tmpDir, err := os.MkdirTemp("", "entire-brain-checkpoints-*")
-	if err != nil {
-		return ids, []string{"create checkpoint discovery temp repo: " + err.Error()}
-	}
-	defer os.RemoveAll(tmpDir)
-
-	if _, stderr, err := runner.Run(ctx, tmpDir, "git", "init", "-q"); err != nil {
-		warnings = append(warnings, "initialize checkpoint discovery temp repo: "+err.Error())
-		warnings = append(warnings, warningLines("git init", stderr)...)
-		return ids, warnings
-	}
-
-	for _, ref := range refs {
-		localRef := ref
-		refspec := "+" + ref + ":" + localRef
-		_, stderr, fetchErr := runner.Run(ctx, tmpDir, "git", "fetch", "--no-tags", "--depth=1", "--filter=blob:none", remoteURL, refspec)
-		if fetchErr != nil {
-			warnings = append(warnings, fmt.Sprintf("checkpoint remote ref %s unavailable: %v", ref, fetchErr))
-			warnings = append(warnings, warningLines("checkpoint remote "+ref, stderr)...)
-			continue
-		}
-
-		stdout, stderr, treeErr := runner.Run(ctx, tmpDir, "git", "ls-tree", "-r", "--name-only", localRef)
-		if treeErr != nil {
-			warnings = append(warnings, fmt.Sprintf("checkpoint remote ref %s unreadable after fetch: %v", ref, treeErr))
-			warnings = append(warnings, warningLines("checkpoint remote "+ref, stderr)...)
-			continue
-		}
-		warnings = append(warnings, warningLines("checkpoint remote "+ref, stderr)...)
-		for _, id := range checkpointIDsFromTreeListing(stdout) {
-			ids[id] = struct{}{}
-		}
-	}
-
-	return ids, warnings
-}
-
 func checkpointEntriesFromIDs(ids map[string]struct{}, limit int) []checkpointListEntry {
 	sorted := make([]string, 0, len(ids))
 	for id := range ids {
 		sorted = append(sorted, id)
 	}
-	sort.Strings(sorted)
+	sort.Sort(sort.Reverse(sort.StringSlice(sorted)))
 	if limit > 0 && len(sorted) > limit {
 		sorted = sorted[:limit]
 	}
@@ -1023,7 +1159,7 @@ func warningsFromLimit(ids map[string]struct{}, limit int, warnings []string) []
 }
 
 func readEntireSettings(repoDir string) (entireSettingsFile, error) {
-	data, err := os.ReadFile(filepath.Join(repoDir, ".entire", "settings.json"))
+	data, err := readSettingsFileConfined(filepath.Join(repoDir, ".entire", "settings.json"))
 	if err != nil {
 		return entireSettingsFile{}, fmt.Errorf("read .entire/settings.json: %w", err)
 	}
@@ -1108,97 +1244,562 @@ func (s entireStrategyOptions) CheckpointsVersionValue() int {
 var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
 
 func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
-	settings, err := readEntireSettings(repoDir)
-	if err != nil {
-		return loadDefaultLocalV1CheckpointSnapshot(ctx, runner, repoDir, raw, limit, branchDestinations, progress, cache)
+	settings, settingsErr := readEntireSettings(repoDir)
+	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
+	if primaryErr != nil {
+		warning := "direct checkpoint snapshot skipped: " + primaryErr.Error()
+		return nil, []string{warning}, fmt.Errorf("%w: %s", errCheckpointSnapshotUnavailable, warning)
+	}
+	if !configured {
+		primary = checkpointBackendGitBranch
+	}
+	if settingsErr != nil && !errors.Is(settingsErr, os.ErrNotExist) && !configured {
+		warning := "direct checkpoint snapshot skipped because base settings are malformed or unreadable: " + settingsErr.Error()
+		return nil, []string{warning}, fmt.Errorf("%w: %s", errCheckpointSnapshotUnavailable, warning)
 	}
 
-	version := checkpointStorageV1
-	refs := []string{v1MainRef, v1OriginRef}
-	transcriptFileName := v1TranscriptFileName
-	mode := "raw"
-	if settings.CheckpointsV2Enabled() {
-		version = checkpointStorageV2
-		refs = []string{v2MainRef}
-		transcriptFileName = v2TranscriptFileName
-		mode = "compact"
-		if raw {
-			return nil, nil, fmt.Errorf("%w: direct v2 raw transcript export is not implemented", errCheckpointSnapshotUnavailable)
+	// A configured remote can contain names that do not exist in the local ref
+	// namespace. The routed --search-all list is the only complete inventory for
+	// that topology, so do not let a locally readable fast path hide remote-only
+	// checkpoints. No-egress mode intentionally reads the local catalog only.
+	if !brainNoEgressMode() && checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
+		return nil, nil, fmt.Errorf("%w: configured checkpoint remote requires complete routed discovery", errCheckpointSnapshotUnavailable)
+	}
+
+	// The legacy compact v2 reader cannot be a complete scope-all fast path.
+	// New git-refs checkpoints are v1-shaped, and one export manifest cannot
+	// honestly label a mixed compact-v2/full-v1 snapshot with one transcript
+	// mode. Route through Entire, which resolves the active topology per ID.
+	if settingsErr == nil && settings.CheckpointsV2Enabled() && primary == checkpointBackendGitBranch {
+		refNames, probeWarnings, probeErr := probeLocalPerCheckpointRefs(ctx, runner, repoDir, brainNoEgressMode())
+		if probeErr != nil {
+			if brainNoEgressMode() {
+				probeWarnings = append(probeWarnings, "no_egress: checkpoint topology probe failed closed")
+			}
+			return nil, probeWarnings, fmt.Errorf("%w: cannot prove whether the v2 catalog is mixed with git-refs: %v", errCheckpointSnapshotUnavailable, probeErr)
 		}
+		if len(refNames) > 0 {
+			if brainNoEgressMode() {
+				return nil, probeWarnings, fmt.Errorf("%w: no-egress mode cannot route mixed v2 and git-refs transcript formats", errCheckpointSnapshotUnavailable)
+			}
+			return nil, probeWarnings, fmt.Errorf("%w: mixed v2 and git-refs checkpoint topology requires routed discovery", errCheckpointSnapshotUnavailable)
+		}
+		if raw {
+			return nil, probeWarnings, fmt.Errorf("%w: direct v2 raw transcript export is not implemented", errCheckpointSnapshotUnavailable)
+		}
+		treeOut, treeStderr, treeErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "ls-tree", "-r", "--name-only", v2MainRef)
+		probeWarnings = append(probeWarnings, warningLines("checkpoint ref "+v2MainRef, treeStderr)...)
+		if treeErr != nil {
+			if brainNoEgressMode() {
+				probeWarnings = append(probeWarnings, "no_egress: checkpoint remote snapshot fetch skipped")
+			}
+			return nil, probeWarnings, fmt.Errorf("%w: read checkpoint ref %s: %v", errCheckpointSnapshotUnavailable, v2MainRef, treeErr)
+		}
+		checkpointCount := len(checkpointIDsFromTreeListing(treeOut))
+		if limit > 0 && checkpointCount > limit {
+			return nil, probeWarnings, fmt.Errorf("%w: v2 local catalog has %d checkpoints and cannot apply newest-first limit %d without routed metadata", errCheckpointSnapshotUnavailable, checkpointCount, limit)
+		}
+		snapshot, snapshotWarnings, err := loadCheckpointSnapshotFromGitDirPolicy(ctx, runner, repoDir, v2MainRef, checkpointStorageV2, v2TranscriptFileName, "compact", 0, branchDestinations, progress, cache, brainNoEgressMode())
+		probeWarnings = append(probeWarnings, snapshotWarnings...)
+		if err != nil {
+			return nil, probeWarnings, err
+		}
+		probeWarnings = append(probeWarnings, fmt.Sprintf("exporting compact transcripts directly from local checkpoint ref %s", v2MainRef))
+		return snapshot, probeWarnings, nil
 	}
 
-	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, refs, version, transcriptFileName, mode, limit, branchDestinations, progress, cache)
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, limit, branchDestinations, progress, cache, brainNoEgressMode())
 	if err == nil {
-		warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from local checkpoint ref %s", mode, ref))
-		if version == checkpointStorageV1 && !raw {
+		warnings = append(warnings, "exporting raw transcripts directly from complete local checkpoint store union")
+		if !raw {
 			warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
 		}
 		return snapshot, warnings, nil
 	}
-
 	if brainNoEgressMode() {
 		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
 		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
-
-	remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
-	if remoteErr != nil {
-		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote unavailable: %v", errCheckpointSnapshotUnavailable, remoteErr)
-	}
-
-	remoteRef := remoteCheckpointRefs(version == checkpointStorageV2)[0]
-	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, remoteRef, version, transcriptFileName, mode, limit, branchDestinations, cache)
-	if remoteErr != nil {
-		warnings = append(warnings, remoteWarnings...)
-		return nil, warnings, remoteErr
-	}
-	warnings = remoteWarnings
-	warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from configured checkpoint remote ref %s", mode, remoteRef))
-	if version == checkpointStorageV1 && !raw {
-		warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
-	}
-	return remoteSnapshot, warnings, nil
+	return nil, warnings, err
 }
 
-func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
-	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, []string{v1MainRef, v1OriginRef}, checkpointStorageV1, v1TranscriptFileName, "raw", limit, branchDestinations, progress, cache)
+func checkpointRemoteMayExtendCatalog(repoDir string, base entireSettingsFile, baseErr error) bool {
+	if baseErr == nil && base.StrategyOptions.CheckpointRemote != nil {
+		return true
+	}
+	localPath := filepath.Join(repoDir, ".entire", "settings.local.json")
+	data, err := readSettingsFileConfined(localPath)
 	if err != nil {
-		return nil, warnings, err
+		return !errors.Is(err, os.ErrNotExist)
 	}
-	warnings = append(warnings, fmt.Sprintf("exporting raw transcripts directly from local checkpoint ref %s", ref))
-	if !raw {
-		warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
+	var envelope struct {
+		StrategyOptions map[string]json.RawMessage `json:"strategy_options"`
 	}
-	return snapshot, warnings, nil
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		// Entire's merged settings cannot be established either. Route through
+		// the CLI so a direct local snapshot cannot turn ambiguity into omission.
+		return true
+	}
+	_, present := envelope.StrategyOptions["checkpoint_remote"]
+	return present
 }
 
-func loadCheckpointSnapshotFromGitDirRefs(ctx context.Context, runner CommandRunner, gitDir string, refs []string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, string, []string, error) {
-	var warnings []string
-	for _, ref := range refs {
-		snapshot, refWarnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, gitDir, ref, version, transcriptFileName, mode, limit, branchDestinations, progress, cache)
-		if err == nil {
-			return snapshot, ref, append(warnings, refWarnings...), nil
+// configuredCheckpointPrimary resolves just the checkpoint selection needed to
+// decide whether the aggregate-branch snapshot is authoritative. It mirrors the
+// public precedence contract (environment, then local settings, then base
+// settings) without interpreting any backend-specific configuration.
+func configuredCheckpointPrimary(repoDir string, base entireSettingsFile) (string, bool, error) {
+	if value := strings.TrimSpace(os.Getenv(checkpointPrimaryEnv)); value != "" {
+		selected := entireCheckpointsSettings{Primary: entireCheckpointBackendSettings{Type: value}}
+		for _, mirror := range strings.Split(os.Getenv(checkpointMirrorsEnv), ",") {
+			if mirror = strings.TrimSpace(mirror); mirror != "" {
+				selected.Mirrors = append(selected.Mirrors, entireCheckpointBackendSettings{Type: mirror})
+			}
 		}
-		warnings = append(warnings, refWarnings...)
-		warnings = append(warnings, err.Error())
+		if err := validateDirectCheckpointTopology(selected); err != nil {
+			return "", true, err
+		}
+		return value, true, nil
 	}
-	return nil, "", warnings, fmt.Errorf("%w: no local checkpoint refs readable", errCheckpointSnapshotUnavailable)
+
+	basePath := filepath.Join(repoDir, ".entire", "settings.json")
+	localPath := filepath.Join(repoDir, ".entire", "settings.local.json")
+	raw, source, ok := rawCheckpointSettingsBlock(localPath)
+	if !ok {
+		raw, source, ok = rawCheckpointSettingsBlock(basePath)
+	}
+	if !ok {
+		// Retain the in-memory fallback for focused callers that do not create a
+		// settings file. Production callers resolve from the raw file so strict
+		// unknown-field handling stays identical to Entire's loader.
+		if base.Checkpoints == nil {
+			return "", false, nil
+		}
+		if err := validateDirectCheckpointTopology(*base.Checkpoints); err != nil {
+			return "", true, err
+		}
+		return base.Checkpoints.Primary.Type, true, nil
+	}
+
+	var selected entireCheckpointsSettings
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&selected); err != nil {
+		return "", true, fmt.Errorf("parse %s checkpoints: %w", source, err)
+	}
+	if err := validateDirectCheckpointTopology(selected); err != nil {
+		return "", true, fmt.Errorf("%s: %w", source, err)
+	}
+	return selected.Primary.Type, true, nil
 }
 
-func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
+// rawCheckpointSettingsBlock deliberately mirrors Entire's fail-soft envelope
+// extraction: an absent/unreadable/syntactically-invalid whole file contributes
+// no checkpoint selection, while a present checkpoints block is decoded
+// strictly by configuredCheckpointPrimary.
+func rawCheckpointSettingsBlock(filePath string) (json.RawMessage, string, bool) {
+	data, err := readSettingsFileConfined(filePath)
+	if err != nil {
+		return nil, filePath, false
+	}
+	var envelope struct {
+		Checkpoints json.RawMessage `json:"checkpoints"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil || len(envelope.Checkpoints) == 0 {
+		return nil, filePath, false
+	}
+	return envelope.Checkpoints, filePath, true
+}
+
+func readSettingsFileConfined(filePath string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(filePath))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.ReadFile(filepath.Base(filePath))
+}
+
+func validateDirectCheckpointTopology(selected entireCheckpointsSettings) error {
+	if selected.Primary.Type == "" {
+		return errors.New("checkpoints.primary.type is required")
+	}
+	if selected.Primary.Type != checkpointBackendGitBranch && selected.Primary.Type != checkpointBackendGitRefs {
+		return fmt.Errorf("checkpoint primary backend %q is not supported by direct local reads", selected.Primary.Type)
+	}
+	seen := map[string]struct{}{selected.Primary.Type: {}}
+	for i, mirror := range selected.Mirrors {
+		if mirror.Type == "" {
+			return fmt.Errorf("checkpoints.mirrors[%d].type is required", i)
+		}
+		if mirror.Type != checkpointBackendGitBranch && mirror.Type != checkpointBackendGitRefs {
+			return fmt.Errorf("checkpoint mirror backend %q is not supported by direct local reads", mirror.Type)
+		}
+		if _, exists := seen[mirror.Type]; exists {
+			return fmt.Errorf("checkpoint backend %q is configured more than once", mirror.Type)
+		}
+		seen[mirror.Type] = struct{}{}
+	}
+	return nil
+}
+
+type loadedLocalCheckpoint struct {
+	id        string
+	sourceKey string
+	source    checkpointSnapshotSource
+	selected  map[string]selectedSession
+	createdAt time.Time
+}
+
+// loadLocalCheckpointUnionSnapshot reads the same local persistent-store view
+// as Entire's kind-routing store without invoking Entire or fetching objects.
+// The aggregate git-branch tree and each git-refs checkpoint use different tree
+// roots, so every selected session retains a source key for later transcript
+// reads. This also prevents equal virtual paths from colliding during migration.
+func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner, repoDir, primary string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache, localOnly bool) (*checkpointSnapshot, []string, error) {
+	if primary == "" {
+		primary = checkpointBackendGitBranch
+	}
+	if primary != checkpointBackendGitBranch && primary != checkpointBackendGitRefs {
+		return nil, nil, fmt.Errorf("%w: unsupported local checkpoint primary %q", errCheckpointSnapshotUnavailable, primary)
+	}
+	reportExportStatus(progress, "reading local checkpoint stores")
+
+	branchSources, branchWarnings := loadAggregateCheckpointSources(ctx, runner, repoDir, localOnly, cache)
+	refSources, refWarnings := loadPerCheckpointSources(ctx, runner, repoDir, localOnly, cache)
+	warnings := append(branchWarnings, refWarnings...)
+
+	ids := make(map[string]struct{}, len(branchSources)+len(refSources))
+	for id := range branchSources {
+		ids[id] = struct{}{}
+	}
+	for id := range refSources {
+		ids[id] = struct{}{}
+	}
+	if len(ids) == 0 {
+		return nil, warnings, fmt.Errorf("%w: no local checkpoint refs readable", errCheckpointSnapshotUnavailable)
+	}
+
+	sortedIDs := make([]string, 0, len(ids))
+	for id := range ids {
+		sortedIDs = append(sortedIDs, id)
+	}
+	sort.Strings(sortedIDs)
+	loaded := make([]loadedLocalCheckpoint, 0, len(sortedIDs))
+	unreadable := make(map[string]struct{})
+	for _, id := range sortedIDs {
+		var candidates []checkpointSnapshotSource
+		if isCheckpointID(id) {
+			if primary == checkpointBackendGitRefs {
+				if source, ok := refSources[id]; ok {
+					candidates = append(candidates, source)
+				}
+				if source, ok := branchSources[id]; ok {
+					candidates = append(candidates, source)
+				}
+			} else if source, ok := branchSources[id]; ok {
+				// Legacy IDs are authoritative on git-branch when it is primary.
+				candidates = append(candidates, source)
+			}
+		} else if source, ok := refSources[id]; ok {
+			// ULIDs are kind-routed exclusively to git-refs under either primary.
+			candidates = append(candidates, source)
+		}
+		if len(candidates) == 0 {
+			unreadable[id] = struct{}{}
+			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because no configured local backend could read it", checkpointScopeIncompleteCode, id))
+			continue
+		}
+
+		var candidateWarnings []string
+		resolved := false
+		for _, source := range candidates {
+			reader := &checkpointBlobReader{
+				runner:      runner,
+				gitDir:      source.GitDir,
+				ref:         source.Ref,
+				virtualRoot: source.VirtualRoot,
+				actualRoot:  source.ActualRoot,
+				localOnly:   source.LocalOnly,
+				oids:        source.OIDs,
+				cache:       cache,
+			}
+			if cache != nil && len(source.OIDs) > 0 {
+				cache.active = true
+			}
+			selected, _, sourceWarnings, err := readCheckpointSnapshotMetadata(ctx, reader, v1TranscriptFileName, source.TreePaths, 0, branchDestinations, nil)
+			candidateWarnings = append(candidateWarnings, sourceWarnings...)
+			if err != nil {
+				candidateWarnings = append(candidateWarnings, fmt.Sprintf("checkpoint ref %s unreadable for %s: %v", source.Ref, id, err))
+				continue
+			}
+
+			sourceKey := source.Ref + "\x00" + id
+			var createdAt time.Time
+			for key, session := range selected {
+				if session.CheckpointID != id {
+					delete(selected, key)
+					continue
+				}
+				session.SourceKey = sourceKey
+				selected[key] = session
+				if session.CreatedAt.After(createdAt) {
+					createdAt = session.CreatedAt
+				}
+			}
+			if createdAt.IsZero() {
+				if ulidTime, ok := checkpointULIDTime(id); ok {
+					createdAt = ulidTime
+				}
+			}
+			if len(selected) == 0 {
+				candidateWarnings = append(candidateWarnings, fmt.Sprintf("checkpoint ref %s contained no matching sessions for %s", source.Ref, id))
+				continue
+			}
+			loaded = append(loaded, loadedLocalCheckpoint{id: id, sourceKey: sourceKey, source: source, selected: selected, createdAt: createdAt})
+			resolved = true
+			break
+		}
+		if !resolved {
+			unreadable[id] = struct{}{}
+			warnings = append(warnings, fmt.Sprintf("%s: skipped unreadable local checkpoint %s", checkpointScopeIncompleteCode, id))
+		}
+		warnings = append(warnings, candidateWarnings...)
+	}
+	if len(loaded) == 0 {
+		if len(unreadable) > 0 {
+			return nil, warnings, fmt.Errorf("%w: %s: none of %d requested local checkpoints were readable", errCheckpointSnapshotUnavailable, checkpointScopeIncompleteCode, len(unreadable))
+		}
+		return nil, warnings, fmt.Errorf("%w: local checkpoint stores contained no readable sessions", errCheckpointSnapshotUnavailable)
+	}
+
+	sort.SliceStable(loaded, func(i, j int) bool {
+		if !loaded[i].createdAt.Equal(loaded[j].createdAt) {
+			return loaded[i].createdAt.After(loaded[j].createdAt)
+		}
+		return loaded[i].id > loaded[j].id
+	})
+	if limit > 0 && len(loaded) > limit {
+		loaded = loaded[:limit]
+		warnings = append(warnings, fmt.Sprintf("checkpoint ref discovery capped at %d checkpoints; rerun with --checkpoint-limit <N> to inspect more", limit))
+	}
+
+	selected := make(map[string]selectedSession)
+	sources := make(map[string]checkpointSnapshotSource, len(loaded))
+	treePaths := make(map[string]struct{})
+	for _, checkpoint := range loaded {
+		sources[checkpoint.sourceKey] = checkpoint.source
+		for path := range checkpoint.source.TreePaths {
+			treePaths[path] = struct{}{}
+		}
+		for key, candidate := range checkpoint.selected {
+			current, exists := selected[key]
+			if !exists || shouldReplaceSession(current, candidate) {
+				selected[key] = candidate
+			}
+		}
+	}
+	first := loaded[0].source
+	return &checkpointSnapshot{
+		GitDir:                first.GitDir,
+		Ref:                   first.Ref,
+		Version:               checkpointStorageV1,
+		TranscriptMode:        "raw",
+		TranscriptFileName:    v1TranscriptFileName,
+		Selected:              selected,
+		CheckpointCount:       len(loaded),
+		TreePaths:             treePaths,
+		Sources:               sources,
+		UnreadableCheckpoints: unreadable,
+	}, warnings, nil
+}
+
+func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
+	sources := make(map[string]checkpointSnapshotSource)
+	var deferredErrors []string
+	for _, ref := range []string{v1MainRef, v1OriginRef} {
+		pathsOut, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
+		if err != nil {
+			deferredErrors = append(deferredErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
+			continue
+		}
+		paths := treePathSet(pathsOut)
+		oids := map[string]string(nil)
+		if cache != nil {
+			if oidOut, _, oidErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", ref); oidErr == nil {
+				oids = treePathOIDs(oidOut)
+			}
+		}
+		for _, id := range checkpointIDsFromTreeListing(pathsOut) {
+			root := checkpointPath(id)
+			sourcePaths := pathsUnderCheckpointRoot(paths, root)
+			if len(sourcePaths) == 0 {
+				continue
+			}
+			sources[id] = checkpointSnapshotSource{
+				GitDir:      repoDir,
+				Ref:         ref,
+				VirtualRoot: root,
+				ActualRoot:  root,
+				TreePaths:   sourcePaths,
+				OIDs:        oidsUnderCheckpointRoot(oids, root),
+				LocalOnly:   localOnly,
+			}
+		}
+		warnings := warningLines("checkpoint ref "+ref, stderr)
+		if len(sources) > 0 {
+			return sources, warnings
+		}
+		deferredErrors = append(deferredErrors, warnings...)
+	}
+	return sources, deferredErrors
+}
+
+func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
+	sources := make(map[string]checkpointSnapshotSource)
+	refs, warnings, err := probeLocalPerCheckpointRefs(ctx, runner, repoDir, localOnly)
+	if err != nil {
+		return sources, warnings
+	}
+	ids := make([]string, 0, len(refs))
+	for id := range refs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		ref := refs[id]
+		pathsOut, treeStderr, treeErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
+		if treeErr != nil {
+			warnings = append(warnings, fmt.Sprintf("checkpoint ref %s unreadable: %v", ref, treeErr))
+			sources[id] = checkpointSnapshotSource{
+				GitDir:      repoDir,
+				Ref:         ref,
+				VirtualRoot: checkpointPath(id),
+				TreePaths:   map[string]struct{}{},
+				LocalOnly:   localOnly,
+			}
+			continue
+		}
+		warnings = append(warnings, warningLines("checkpoint ref "+ref, treeStderr)...)
+		root := checkpointPath(id)
+		virtualPaths := virtualizePerCheckpointTree(treePathSet(pathsOut), root)
+		var virtualOIDs map[string]string
+		if cache != nil {
+			if oidOut, _, oidErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", ref); oidErr == nil {
+				virtualOIDs = virtualizePerCheckpointOIDs(treePathOIDs(oidOut), root)
+			}
+		}
+		sources[id] = checkpointSnapshotSource{
+			GitDir:      repoDir,
+			Ref:         ref,
+			VirtualRoot: root,
+			TreePaths:   virtualPaths,
+			OIDs:        virtualOIDs,
+			LocalOnly:   localOnly,
+		}
+	}
+	return sources, warnings
+}
+
+func probeLocalPerCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool) (map[string]string, []string, error) {
+	refs := make(map[string]string)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "for-each-ref", "--format=%(refname)", checkpointRefPrefix)
+	warnings := warningLines("checkpoint refs", stderr)
+	if err != nil {
+		warnings = append(warnings, "checkpoint ref namespace unavailable: "+err.Error())
+		return refs, warnings, err
+	}
+	for _, line := range strings.Split(string(stdout), "\n") {
+		ref := strings.TrimSpace(line)
+		id, ok := checkpointIDFromRefName(ref)
+		if !ok {
+			continue
+		}
+		refs[id] = ref
+	}
+	return refs, warnings, nil
+}
+
+func runCheckpointGitWithPolicy(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, args ...string) ([]byte, []byte, error) {
+	if localOnly {
+		return runCheckpointGitLocal(ctx, runner, repoDir, args...)
+	}
+	return runner.Run(ctx, repoDir, "git", args...)
+}
+
+func pathsUnderCheckpointRoot(paths map[string]struct{}, root string) map[string]struct{} {
+	subset := make(map[string]struct{})
+	prefix := strings.Trim(root, "/") + "/"
+	for candidate := range paths {
+		if strings.HasPrefix(candidate, prefix) {
+			subset[candidate] = struct{}{}
+		}
+	}
+	return subset
+}
+
+func oidsUnderCheckpointRoot(oids map[string]string, root string) map[string]string {
+	subset := make(map[string]string)
+	prefix := strings.Trim(root, "/") + "/"
+	for candidate, oid := range oids {
+		if strings.HasPrefix(candidate, prefix) {
+			subset[candidate] = oid
+		}
+	}
+	return subset
+}
+
+func virtualizePerCheckpointTree(paths map[string]struct{}, root string) map[string]struct{} {
+	virtual := make(map[string]struct{}, len(paths))
+	for candidate := range paths {
+		candidate = strings.Trim(candidate, "/")
+		if candidate == "" || candidate == "." || candidate == ".." || strings.HasPrefix(candidate, "../") {
+			continue
+		}
+		virtual[path.Join(root, candidate)] = struct{}{}
+	}
+	return virtual
+}
+
+func virtualizePerCheckpointOIDs(oids map[string]string, root string) map[string]string {
+	virtual := make(map[string]string, len(oids))
+	for candidate, oid := range oids {
+		candidate = strings.Trim(candidate, "/")
+		if candidate == "" || candidate == "." || candidate == ".." || strings.HasPrefix(candidate, "../") {
+			continue
+		}
+		virtual[path.Join(root, candidate)] = oid
+	}
+	return virtual
+}
+
+func loadCheckpointSnapshotFromGitDirPolicy(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache, localOnly bool) (*checkpointSnapshot, []string, error) {
 	reportExportStatus(progress, "reading checkpoint tree")
-	stdout, stderr, err := runner.Run(ctx, gitDir, "git", "ls-tree", "-r", "--name-only", ref)
+	var stdout, stderr []byte
+	var err error
+	if localOnly {
+		stdout, stderr, err = runCheckpointGitLocal(ctx, runner, gitDir, "ls-tree", "-r", "--name-only", ref)
+	} else {
+		stdout, stderr, err = runner.Run(ctx, gitDir, "git", "ls-tree", "-r", "--name-only", ref)
+	}
 	if err != nil {
 		warnings := warningLines("checkpoint ref "+ref, stderr)
 		return nil, warnings, fmt.Errorf("%w: read checkpoint ref %s: %v", errCheckpointSnapshotUnavailable, ref, err)
 	}
 	treePaths := treePathSet(stdout)
-	reader := &checkpointBlobReader{runner: runner, gitDir: gitDir, ref: ref}
+	reader := &checkpointBlobReader{runner: runner, gitDir: gitDir, ref: ref, localOnly: localOnly}
 	if cache != nil {
 		// One extra ls-tree resolves the object id for each metadata path,
 		// keying the cache. Negligible next to the thousands of cat-file calls
 		// it lets us skip. Failure to read object ids just disables caching.
-		if oidOut, _, oidErr := runner.Run(ctx, gitDir, "git", "ls-tree", "-r", ref); oidErr == nil {
+		var oidOut []byte
+		var oidErr error
+		if localOnly {
+			oidOut, _, oidErr = runCheckpointGitLocal(ctx, runner, gitDir, "ls-tree", "-r", ref)
+		} else {
+			oidOut, _, oidErr = runner.Run(ctx, gitDir, "git", "ls-tree", "-r", ref)
+		}
+		if oidErr == nil {
 			reader.oids = treePathOIDs(oidOut)
 			reader.cache = cache
 			cache.active = true // caching genuinely ran this pass; safe to persist
@@ -1209,6 +1810,18 @@ func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner,
 		return nil, append(warnings, warningLines("checkpoint ref "+ref, stderr)...), err
 	}
 	warnings = append(warnings, warningLines("checkpoint ref "+ref, stderr)...)
+	sourceKey := ref + "\x00aggregate"
+	for key, session := range selected {
+		session.SourceKey = sourceKey
+		selected[key] = session
+	}
+	source := checkpointSnapshotSource{
+		GitDir:    gitDir,
+		Ref:       ref,
+		TreePaths: treePaths,
+		OIDs:      reader.oids,
+		LocalOnly: localOnly,
+	}
 	return &checkpointSnapshot{
 		GitDir:             gitDir,
 		Ref:                ref,
@@ -1218,38 +1831,8 @@ func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner,
 		Selected:           selected,
 		CheckpointCount:    checkpointCount,
 		TreePaths:          treePaths,
+		Sources:            map[string]checkpointSnapshotSource{sourceKey: source},
 	}, warnings, nil
-}
-
-func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunner, remoteURL, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
-	tmpDir, err := os.MkdirTemp("", "entire-brain-checkpoints-*")
-	if err != nil {
-		return nil, nil, fmt.Errorf("create checkpoint snapshot temp repo: %w", err)
-	}
-	cleanupOnError := true
-	defer func() {
-		if cleanupOnError {
-			os.RemoveAll(tmpDir)
-		}
-	}()
-
-	if _, stderr, err := runner.Run(ctx, tmpDir, "git", "init", "-q"); err != nil {
-		return nil, warningLines("git init", stderr), fmt.Errorf("initialize checkpoint snapshot temp repo: %w", err)
-	}
-
-	refspec := "+" + ref + ":" + ref
-	if _, stderr, err := runner.Run(ctx, tmpDir, "git", "fetch", "--no-tags", "--depth=1", "--filter="+checkpointRemoteBlobFilter, remoteURL, refspec); err != nil {
-		warnings := warningLines("checkpoint remote "+ref, stderr)
-		return nil, warnings, fmt.Errorf("fetch checkpoint remote ref %s: %w", ref, err)
-	}
-
-	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, tmpDir, ref, version, transcriptFileName, mode, limit, branchDestinations, nil, cache)
-	if err != nil {
-		return nil, warnings, err
-	}
-	cleanupOnError = false
-	snapshot.TempDir = tmpDir
-	return snapshot, warnings, nil
 }
 
 func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobReader, transcriptFileName string, treePaths map[string]struct{}, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, int, []string, error) {
@@ -1290,7 +1873,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 	}
 	reportMetadataProgress(0)
 
-	rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, rootWarnings := readRootMetadataForSnapshot(ctx, reader, rootMetadataPaths, allowed, func() {
+	rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, unsafeCheckpointIDs, rootWarnings := readRootMetadataForSnapshot(ctx, reader, rootMetadataPaths, allowed, func() {
 		advanceMetadataProgress(0)
 	})
 	warnings = append(warnings, rootWarnings...)
@@ -1302,6 +1885,10 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 	for _, path := range sessionMetadataPaths {
 		checkpointID, sessionIndex, _ := sessionMetadataPathParts(path)
 		if _, ok := allowed[checkpointID]; !ok {
+			continue
+		}
+		if _, unsafe := unsafeCheckpointIDs[checkpointID]; unsafe {
+			advanceMetadataProgress(len(selected))
 			continue
 		}
 		checkpointsWithSessionMetadata[checkpointID] = struct{}{}
@@ -1347,6 +1934,9 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 		if _, ok := allowed[checkpointID]; !ok {
 			continue
 		}
+		if _, unsafe := unsafeCheckpointIDs[checkpointID]; unsafe {
+			continue
+		}
 		if _, ok := checkpointsWithSessionMetadata[checkpointID]; ok {
 			continue
 		}
@@ -1375,13 +1965,20 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 	}
 
 	if len(selected) == 0 {
-		return nil, min(len(checkpointIDs), limit), warnings, fmt.Errorf("%w: checkpoint ref %s contained no readable sessions", errCheckpointSnapshotUnavailable, reader.ref)
+		return nil, limitedCheckpointCount(len(checkpointIDs), limit), warnings, fmt.Errorf("%w: checkpoint ref %s contained no readable sessions", errCheckpointSnapshotUnavailable, reader.ref)
 	}
 
-	if len(checkpointIDs) > limit {
+	if limit > 0 && len(checkpointIDs) > limit {
 		warnings = append(warnings, fmt.Sprintf("checkpoint ref discovery capped at %d checkpoints; rerun with --checkpoint-limit <N> to inspect more", limit))
 	}
-	return selected, min(len(checkpointIDs), limit), warnings, nil
+	return selected, limitedCheckpointCount(len(checkpointIDs), limit), warnings, nil
+}
+
+func limitedCheckpointCount(count, limit int) int {
+	if limit > 0 && count > limit {
+		return limit
+	}
+	return count
 }
 
 func countAllowedSnapshotMetadataPaths(rootMetadataPaths, sessionMetadataPaths []string, allowed map[string]struct{}) int {
@@ -1407,10 +2004,13 @@ func countAllowedSnapshotMetadataPaths(rootMetadataPaths, sessionMetadataPaths [
 	return total
 }
 
-func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobReader, rootMetadataPaths []string, allowed map[string]struct{}, progress func()) (map[string][]byte, map[string]string, map[string]string, []string) {
+func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobReader, rootMetadataPaths []string, allowed map[string]struct{}, progress func()) (map[string][]byte, map[string]string, map[string]string, map[string]struct{}, []string) {
 	rootMetadataByCheckpoint := make(map[string][]byte)
 	transcriptPathsByMetadata := make(map[string]string)
 	branchByCheckpoint := make(map[string]string)
+	unsafeCheckpointIDs := make(map[string]struct{})
+	metadataOwners := make(map[string]string)
+	transcriptOwners := make(map[string]string)
 	var warnings []string
 
 	for _, path := range rootMetadataPaths {
@@ -1438,20 +2038,82 @@ func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobRead
 		if summary.Branch != "" {
 			branchByCheckpoint[checkpointID] = summary.Branch
 		}
-		for _, session := range summary.Sessions {
-			metadataPath := normalizeSnapshotPath(session.Metadata)
-			transcriptPath := normalizeSnapshotPath(session.Transcript)
+		for sessionIndex, session := range summary.Sessions {
+			metadataPath, metadataOK := reader.virtualizePointer(checkpointID, session.Metadata)
+			if !metadataOK {
+				warnings = append(warnings, fmt.Sprintf("skipped unsafe checkpoint %s session file pointer", checkpointID))
+				continue
+			}
+			transcriptPath := ""
+			if strings.TrimSpace(session.Transcript) != "" {
+				var transcriptOK bool
+				transcriptPath, transcriptOK = reader.virtualizePointer(checkpointID, session.Transcript)
+				if !transcriptOK {
+					warnings = append(warnings, fmt.Sprintf("skipped unsafe checkpoint %s session file pointer", checkpointID))
+					continue
+				}
+			}
+			owner := fmt.Sprintf("%s/%d", checkpointID, sessionIndex)
+			if metadataPath != "" {
+				if previous, duplicate := metadataOwners[metadataPath]; duplicate && previous != owner {
+					unsafeCheckpointIDs[checkpointID] = struct{}{}
+				}
+				metadataOwners[metadataPath] = owner
+			}
+			if transcriptPath != "" {
+				if previous, duplicate := transcriptOwners[transcriptPath]; duplicate && previous != owner {
+					unsafeCheckpointIDs[checkpointID] = struct{}{}
+				}
+				transcriptOwners[transcriptPath] = owner
+			}
 			if metadataPath != "" && transcriptPath != "" {
 				transcriptPathsByMetadata[metadataPath] = transcriptPath
 			}
 		}
+		if _, unsafe := unsafeCheckpointIDs[checkpointID]; unsafe {
+			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because its root summary assigns a retained path to multiple sessions", checkpointScopeIncompleteCode, checkpointID))
+		}
 	}
 
-	return rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, warnings
+	return rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, unsafeCheckpointIDs, warnings
+}
+
+func (r *checkpointBlobReader) virtualizePointer(checkpointID, storedPath string) (string, bool) {
+	storedPath = strings.TrimSpace(filepath.ToSlash(storedPath))
+	storedPath = strings.TrimPrefix(storedPath, "/")
+	if storedPath == "" {
+		return "", false
+	}
+	clean := path.Clean(storedPath)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean != storedPath {
+		return "", false
+	}
+	checkpointRoot := checkpointPath(checkpointID)
+	if r.virtualRoot != "" {
+		root := strings.Trim(r.virtualRoot, "/")
+		if clean == root || strings.HasPrefix(clean, root+"/") {
+			return clean, true
+		}
+		parts := strings.Split(clean, "/")
+		if len(parts) >= 2 && isCheckpointRefID(parts[0]+parts[1]) {
+			// A per-checkpoint ref stores paths relative to its own root. An
+			// aggregate-shaped pointer naming another checkpoint is not relative;
+			// reject it instead of accidentally rebasing B beneath A.
+			return "", false
+		}
+		return path.Join(root, clean), true
+	}
+	if clean == checkpointRoot || strings.HasPrefix(clean, checkpointRoot+"/") {
+		return clean, true
+	}
+	return "", false
 }
 
 func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath string, meta checkpointExportSession, checkpointBranch string, branchDestinations checkpointBranchDestinations) {
 	if meta.SessionID == "" {
+		return
+	}
+	if meta.CheckpointID != "" && meta.CheckpointID != checkpointID {
 		return
 	}
 
@@ -1519,7 +2181,7 @@ func limitedCheckpointSet(ids map[string]struct{}, limit int) map[string]struct{
 		sorted = append(sorted, id)
 	}
 	sort.Strings(sorted)
-	if len(sorted) > limit {
+	if limit > 0 && len(sorted) > limit {
 		sorted = sorted[:limit]
 	}
 	allowed := make(map[string]struct{}, len(sorted))
@@ -1535,7 +2197,7 @@ func checkpointIDFromRootMetadataPath(path string) (string, bool) {
 		return "", false
 	}
 	checkpointID := parts[0] + parts[1]
-	return checkpointID, isCheckpointID(checkpointID)
+	return checkpointID, isCheckpointRefID(checkpointID)
 }
 
 func sessionMetadataPathParts(path string) (string, int, bool) {
@@ -1544,7 +2206,7 @@ func sessionMetadataPathParts(path string) (string, int, bool) {
 		return "", 0, false
 	}
 	checkpointID := parts[0] + parts[1]
-	if !isCheckpointID(checkpointID) {
+	if !isCheckpointRefID(checkpointID) {
 		return "", 0, false
 	}
 	sessionIndex, err := strconv.Atoi(parts[2])
@@ -1563,7 +2225,7 @@ func checkpointIDsFromTreeListing(data []byte) []string {
 			continue
 		}
 		id := parts[0] + parts[1]
-		if isCheckpointID(id) {
+		if isCheckpointRefID(id) {
 			ids = append(ids, id)
 		}
 	}
@@ -1686,25 +2348,32 @@ func saveCheckpointMetadataCache(path string, cache *checkpointMetadataCache) {
 // object-id-keyed cache. When cache is nil it is a thin wrapper over catFile
 // and preserves the previous behavior exactly (no extra git calls, no caching).
 type checkpointBlobReader struct {
-	runner CommandRunner
-	gitDir string
-	ref    string
-	oids   map[string]string
-	cache  *checkpointMetadataCache
+	runner      CommandRunner
+	gitDir      string
+	ref         string
+	virtualRoot string
+	actualRoot  string
+	localOnly   bool
+	oids        map[string]string
+	cache       *checkpointMetadataCache
 }
 
-func (r *checkpointBlobReader) read(ctx context.Context, path string) ([]byte, error) {
-	if r.cache == nil {
-		return catFile(ctx, r.runner, r.gitDir, r.ref, path)
+func (r *checkpointBlobReader) read(ctx context.Context, virtualPath string) ([]byte, error) {
+	actualPath, err := (checkpointSnapshotSource{VirtualRoot: r.virtualRoot, ActualRoot: r.actualRoot}).actualPath(virtualPath)
+	if err != nil {
+		return nil, err
 	}
-	oid := r.oids[path]
+	if r.cache == nil {
+		return catFileWithPolicy(ctx, r.runner, r.gitDir, r.ref, actualPath, r.localOnly)
+	}
+	oid := r.oids[virtualPath]
 	if oid != "" {
 		if data, ok := r.cache.prev[oid]; ok {
 			r.cache.next[oid] = data
 			return data, nil
 		}
 	}
-	data, err := catFile(ctx, r.runner, r.gitDir, r.ref, path)
+	data, err := catFileWithPolicy(ctx, r.runner, r.gitDir, r.ref, actualPath, r.localOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -1729,10 +2398,6 @@ func snapshotRootTranscriptPath(checkpointID string, transcriptFileName string) 
 	return checkpointPath(checkpointID) + "/" + transcriptFileName
 }
 
-func normalizeSnapshotPath(path string) string {
-	return strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(path)), "/")
-}
-
 func hasSnapshotTranscript(basePath string, treePaths map[string]struct{}) bool {
 	if _, ok := treePaths[basePath]; ok {
 		return true
@@ -1741,7 +2406,17 @@ func hasSnapshotTranscript(basePath string, treePaths map[string]struct{}) bool 
 }
 
 func catFile(ctx context.Context, runner CommandRunner, gitDir, ref, path string) ([]byte, error) {
-	stdout, _, err := runner.Run(ctx, gitDir, "git", "cat-file", "-p", ref+":"+path)
+	return catFileWithPolicy(ctx, runner, gitDir, ref, path, false)
+}
+
+func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, filePath string, localOnly bool) ([]byte, error) {
+	var stdout []byte
+	var err error
+	if localOnly {
+		stdout, _, err = runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-p", ref+":"+filePath)
+	} else {
+		stdout, _, err = runner.Run(ctx, gitDir, "git", "cat-file", "-p", ref+":"+filePath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1774,6 +2449,72 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 		detail.CheckpointID = checkpointID
 	}
 	return detail, nil
+}
+
+func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, []string, error) {
+	selected := make(map[string]selectedSession)
+	var warnings []string
+	requestedCheckpointDetails := 0
+	readableCheckpointDetails := 0
+	for i, checkpoint := range checkpoints {
+		reportExportProgress(progress, i+1, len(checkpoints), len(selected))
+		if !checkpoint.IsLogsOnly {
+			warnings = append(warnings, fmt.Sprintf("skipped non-committed checkpoint list entry %s", checkpoint.CheckpointID))
+			continue
+		}
+		if checkpoint.CheckpointID == "" {
+			warnings = append(warnings, "skipped checkpoint list entry with no checkpoint_id")
+			continue
+		}
+
+		requestedCheckpointDetails++
+		detail, detailErr := checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+		if detailErr != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because its routed detail metadata was unreadable", checkpointScopeIncompleteCode, checkpoint.CheckpointID))
+			continue
+		}
+		readableCheckpointDetails++
+
+		for _, session := range detail.Sessions {
+			if session.Error != "" {
+				warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: %s", detail.CheckpointID, session.Index, session.Error))
+				continue
+			}
+			if session.SessionID == "" {
+				warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: missing session_id", detail.CheckpointID, session.Index))
+				continue
+			}
+
+			createdAt := checkpoint.Date
+			if session.CreatedAt != nil && !session.CreatedAt.IsZero() {
+				createdAt = *session.CreatedAt
+			}
+			candidate := selectedSession{
+				CheckpointID:     detail.CheckpointID,
+				SessionIndex:     session.Index,
+				SessionID:        session.SessionID,
+				Branch:           sessionBranch(session.Branch, detail.Branch),
+				Agent:            session.Agent,
+				Model:            session.Model,
+				Kind:             session.Kind,
+				ReviewSkills:     session.ReviewSkills,
+				CreatedAt:        createdAt,
+				TurnID:           session.TurnID,
+				IsTask:           session.IsTask,
+				ToolUseID:        session.ToolUseID,
+				FilesTouched:     session.FilesTouched,
+				TokenUsage:       session.TokenUsage,
+				Summary:          session.Summary,
+				CheckpointsCount: detail.CheckpointsCount,
+			}
+			addSelectedSession(selected, candidate, branchDestinations)
+		}
+		reportExportProgress(progress, i+1, len(checkpoints), len(selected))
+	}
+	if requestedCheckpointDetails > 0 && readableCheckpointDetails == 0 {
+		return nil, warnings, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)
+	}
+	return selected, warnings, nil
 }
 
 func shouldReplaceSession(current, candidate selectedSession) bool {
@@ -1824,6 +2565,7 @@ func flattenSessions(selected map[string]selectedSession) []exportSession {
 			Summary:              session.Summary,
 			CheckpointsCount:     session.CheckpointsCount,
 			SourceTranscriptPath: session.SourceTranscriptPath,
+			SourceKey:            session.SourceKey,
 		})
 	}
 
@@ -1889,14 +2631,27 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 	return warnings, nil
 }
 
-func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]exportSession, []string, error) {
+// writeSnapshotSessionTranscripts returns the sessions it actually wrote, any
+// warnings, and whether EVERY requested transcript was readable. A session
+// whose source blob cannot be read (for example a promisor-absent blob in a
+// partial clone under no-egress) is skipped with a scope-incomplete warning
+// rather than failing the whole export, so the returned session list is a
+// subset of the requested one. Callers must not treat that subset as the
+// complete session set for garbage-collection purposes: cleanupStaleSessionFiles
+// deletes every transcript the list does not claim, which would destroy the
+// copies a previous export already wrote for exactly the sessions that just
+// failed to read.
+func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]exportSession, []string, bool, error) {
 	var warnings []string
+	written := make([]exportSession, 0, len(sessions))
+	var firstSourceErr error
 	for i := range sessions {
 		session := &sessions[i]
 		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
 		relPath := filepath.Join(branchDirs[session.Branch], name)
 		if reuseTranscriptFromCursor(outputDir, cursor, *session, relPath, snapshot.TranscriptMode) {
 			session.TranscriptPath = filepath.ToSlash(relPath)
+			written = append(written, *session)
 			continue
 		}
 
@@ -1905,17 +2660,29 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 			sourcePath = snapshotTranscriptPath(session.LatestCheckpoint, session.SessionIndex, snapshot.TranscriptFileName)
 		}
 
-		transcript, err := readSnapshotTranscript(ctx, runner, snapshot, sourcePath)
+		transcript, err := readSnapshotTranscriptFromSource(ctx, runner, snapshot, session.SourceKey, sourcePath)
 		if err != nil {
-			return nil, warnings, fmt.Errorf("export transcript for session %s from checkpoint %s: %w", session.SessionID, session.LatestCheckpoint, err)
+			// Skipping keeps the rest of the export usable, but it also drops
+			// this session from the returned list, which is what the caller
+			// hands to the stale-file sweep. Report the incompleteness so the
+			// caller can hold that sweep back.
+			if firstSourceErr == nil {
+				firstSourceErr = err
+			}
+			warnings = append(warnings, fmt.Sprintf("%s: skipped unreadable local checkpoint %s session %d transcript", checkpointScopeIncompleteCode, session.LatestCheckpoint, session.SessionIndex))
+			continue
 		}
 
 		if err := writeTranscriptFile(outputDir, relPath, transcript); err != nil {
-			return nil, warnings, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
+			return nil, warnings, false, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
 		}
 		session.TranscriptPath = filepath.ToSlash(relPath)
+		written = append(written, *session)
 	}
-	return sessions, warnings, nil
+	if len(sessions) > 0 && len(written) == 0 && firstSourceErr != nil {
+		return nil, warnings, false, fmt.Errorf("%w: %s: none of the requested checkpoint transcripts were readable: %v", errCheckpointSnapshotUnavailable, checkpointScopeIncompleteCode, firstSourceErr)
+	}
+	return written, warnings, firstSourceErr == nil, nil
 }
 
 func reuseTranscriptFromCursor(outputDir string, cursor *exportCursor, session exportSession, relPath, transcriptMode string) bool {
@@ -1981,8 +2748,19 @@ func ensureExportDirectories(outputDir string, branchDirs map[string]string) err
 }
 
 func readSnapshotTranscript(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sourcePath string) ([]byte, error) {
+	return readSnapshotTranscriptFromSource(ctx, runner, snapshot, "", sourcePath)
+}
+
+func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sourceKey, sourcePath string) ([]byte, error) {
+	if sourceKey != "" {
+		source, ok := snapshot.Sources[sourceKey]
+		if !ok {
+			return nil, fmt.Errorf("checkpoint snapshot source %q not found", sourceKey)
+		}
+		return readCheckpointSourceTranscript(ctx, runner, source, sourcePath)
+	}
 	if _, ok := snapshot.TreePaths[sourcePath]; ok {
-		return catFile(ctx, runner, snapshot.GitDir, snapshot.Ref, sourcePath)
+		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, sourcePath, brainNoEgressMode())
 	}
 
 	chunks := snapshotTranscriptChunks(sourcePath, snapshot.TreePaths)
@@ -1992,7 +2770,7 @@ func readSnapshotTranscript(ctx context.Context, runner CommandRunner, snapshot 
 
 	var b strings.Builder
 	for i, chunk := range chunks {
-		data, err := catFile(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk)
+		data, err := catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
 		if err != nil {
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
 		}
@@ -2002,6 +2780,64 @@ func readSnapshotTranscript(ctx context.Context, runner CommandRunner, snapshot 
 		b.Write(data)
 	}
 	return []byte(b.String()), nil
+}
+
+func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) ([]byte, error) {
+	readOne := func(candidate string) ([]byte, error) {
+		actualPath, err := source.actualPath(candidate)
+		if err != nil {
+			return nil, err
+		}
+		return catFileWithPolicy(ctx, runner, source.GitDir, source.Ref, actualPath, source.LocalOnly)
+	}
+	if _, ok := source.TreePaths[virtualPath]; ok {
+		return readOne(virtualPath)
+	}
+	chunks := snapshotTranscriptChunks(virtualPath, source.TreePaths)
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("transcript path %s not found in %s", virtualPath, source.Ref)
+	}
+	var b strings.Builder
+	for i, chunk := range chunks {
+		data, err := readOne(chunk)
+		if err != nil {
+			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
+		}
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.Write(data)
+	}
+	return []byte(b.String()), nil
+}
+
+func (s checkpointSnapshotSource) actualPath(virtualPath string) (string, error) {
+	virtualPath = strings.TrimSpace(filepath.ToSlash(virtualPath))
+	if virtualPath == "" || strings.HasPrefix(virtualPath, "/") {
+		return "", fmt.Errorf("unsafe checkpoint snapshot path %q", virtualPath)
+	}
+	clean := path.Clean(virtualPath)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean != virtualPath {
+		return "", fmt.Errorf("unsafe checkpoint snapshot path %q", virtualPath)
+	}
+	root := strings.Trim(strings.TrimSpace(filepath.ToSlash(s.VirtualRoot)), "/")
+	relative := clean
+	if root != "" {
+		prefix := root + "/"
+		if !strings.HasPrefix(clean, prefix) {
+			return "", fmt.Errorf("checkpoint snapshot path %q escapes source root %q", virtualPath, root)
+		}
+		relative = strings.TrimPrefix(clean, prefix)
+	}
+	actualRoot := strings.Trim(strings.TrimSpace(filepath.ToSlash(s.ActualRoot)), "/")
+	actual := relative
+	if actualRoot != "" {
+		actual = path.Join(actualRoot, relative)
+	}
+	if actual == "." || actual == ".." || strings.HasPrefix(actual, "../") {
+		return "", fmt.Errorf("unsafe checkpoint snapshot source path %q", actual)
+	}
+	return actual, nil
 }
 
 func snapshotTranscriptChunks(basePath string, treePaths map[string]struct{}) []string {
@@ -2332,6 +3168,10 @@ func exportWarningIsDebugOnly(warning string) bool {
 		return true
 	case warning == "discovered checkpoint refs from configured checkpoint remote":
 		return true
+	case warning == "used Entire's complete routed checkpoint list because no local metadata refs were enumerable":
+		return true
+	case warning == "combined locally enumerated checkpoint refs with Entire's complete routed checkpoint list":
+		return true
 	default:
 		return false
 	}
@@ -2490,6 +3330,7 @@ type checkpointExportEnvelope struct {
 
 type checkpointExportSession struct {
 	Index            int                   `json:"index"`
+	CheckpointID     string                `json:"checkpoint_id,omitempty"`
 	SessionID        string                `json:"session_id,omitempty"`
 	Branch           string                `json:"branch,omitempty"`
 	Agent            string                `json:"agent,omitempty"`
@@ -2530,15 +3371,27 @@ type checkpointSessionPaths struct {
 }
 
 type checkpointSnapshot struct {
-	GitDir             string
-	TempDir            string
-	Ref                string
-	Version            int
-	TranscriptMode     string
-	TranscriptFileName string
-	Selected           map[string]selectedSession
-	CheckpointCount    int
-	TreePaths          map[string]struct{}
+	GitDir                string
+	TempDir               string
+	Ref                   string
+	Version               int
+	TranscriptMode        string
+	TranscriptFileName    string
+	Selected              map[string]selectedSession
+	CheckpointCount       int
+	TreePaths             map[string]struct{}
+	Sources               map[string]checkpointSnapshotSource
+	UnreadableCheckpoints map[string]struct{}
+}
+
+type checkpointSnapshotSource struct {
+	GitDir      string
+	Ref         string
+	VirtualRoot string
+	ActualRoot  string
+	TreePaths   map[string]struct{}
+	OIDs        map[string]string
+	LocalOnly   bool
 }
 
 type checkpointBranchDestinations struct {
@@ -2563,7 +3416,18 @@ func (s *checkpointSnapshot) Cleanup() {
 }
 
 type entireSettingsFile struct {
-	StrategyOptions entireStrategyOptions `json:"strategy_options,omitempty"`
+	StrategyOptions entireStrategyOptions      `json:"strategy_options,omitempty"`
+	Checkpoints     *entireCheckpointsSettings `json:"checkpoints,omitempty"`
+}
+
+type entireCheckpointsSettings struct {
+	Primary entireCheckpointBackendSettings   `json:"primary"`
+	Mirrors []entireCheckpointBackendSettings `json:"mirrors,omitempty"`
+}
+
+type entireCheckpointBackendSettings struct {
+	Type   string          `json:"type"`
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 type entireStrategyOptions struct {
@@ -2596,6 +3460,7 @@ type selectedSession struct {
 	Summary              *checkpointSummary
 	CheckpointsCount     int
 	SourceTranscriptPath string
+	SourceKey            string
 }
 
 type exportManifest struct {
@@ -2643,6 +3508,7 @@ type exportSession struct {
 	CheckpointsCount     int                   `json:"checkpoints_count,omitempty"`
 	TranscriptPath       string                `json:"transcript_path"`
 	SourceTranscriptPath string                `json:"-"`
+	SourceKey            string                `json:"-"`
 }
 
 type exportAuthor struct {

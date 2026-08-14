@@ -1,11 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -92,48 +92,16 @@ func TestAnnotateHistoryRecordBranchesCopiesRawRecords(t *testing.T) {
 	}
 }
 
+// TestHistoryIndexRejectsMutationBetweenFingerprintAndScan locks the
+// fail-closed ingestion contract: a transcript rewritten between identity
+// capture and the scan aborts the build. It used to be recorded as a warning
+// and the index published anyway, but a partial or mixed-generation inventory
+// must never be published as a complete projection.
 func TestHistoryIndexRejectsMutationBetweenFingerprintAndScan(t *testing.T) {
-	brainDir := t.TempDir()
-	sessionDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
-	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	stablePath := filepath.Join(sessionDir, "20260717T010000Z-stable.jsonl")
-	targetPath := filepath.Join(sessionDir, "20260717T020000Z-target.jsonl")
-	stable := `{"type":"agent_message","message":"Decision: retain stable record."}` + "\n"
-	initial := `{"type":"agent_message","message":"Decision: retain prior cache."}` + "\n"
-	before := `{"type":"agent_message","message":"Decision: retain alpha cache."}` + "\n"
-	after := `{"type":"agent_message","message":"Decision: retain omega cache."}` + "\n"
-	if len(before) != len(after) {
-		t.Fatalf("race fixture sizes differ: %d != %d", len(before), len(after))
-	}
-	for path, content := range map[string]string{stablePath: stable, targetPath: initial} {
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	now := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
-	if _, _, err := buildBrainHistoryIndex(brainDir, now, nil); err != nil {
-		t.Fatalf("prime v6 cache: %v", err)
-	}
-	if err := os.WriteFile(targetPath, []byte(before), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(targetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var expectedWarnings []string
-	expectedFiles, err := collectHistorySessionFiles(sessionDir, &expectedWarnings)
-	if err != nil || len(expectedWarnings) != 0 {
-		t.Fatalf("expected fingerprint: warnings=%v err=%v", expectedWarnings, err)
-	}
-	expectedFingerprint := historyTranscriptFilesFingerprint(brainDir, expectedFiles)
-
-	var progress [][2]int
+	brainDir, targetPath, info, now := historyMutationRaceFixture(t)
+	after := "{\"type\":\"agent_message\",\"message\":\"Decision: mutated after fingerprint.\"}\n"
 	mutated := false
-	index, source, err := buildBrainHistoryIndex(brainDir, now.Add(time.Second), func(done, total int) {
-		progress = append(progress, [2]int{done, total})
+	_, _, err := buildBrainHistoryIndex(brainDir, now.Add(time.Second), func(done, total int) {
 		if done != 0 || mutated {
 			return
 		}
@@ -145,59 +113,21 @@ func TestHistoryIndexRejectsMutationBetweenFingerprintAndScan(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if !mutated {
-		t.Fatal("progress hook did not mutate target after fingerprint collection")
+		t.Fatal("progress hook did not mutate target after identity capture")
 	}
-	if want := [][2]int{{0, 2}, {1, 2}, {2, 2}}; !reflect.DeepEqual(progress, want) {
-		t.Fatalf("progress = %v, want %v", progress, want)
+	if err == nil {
+		t.Fatal("a transcript mutated mid-build must abort the index, not warn")
 	}
-	wantWarning := "history transcript changed between fingerprint and scan: " + targetPath
-	if !reflect.DeepEqual(source.Warnings, []string{wantWarning}) {
-		t.Fatalf("warnings = %v, want [%q]", source.Warnings, wantWarning)
-	}
-	if source.TranscriptsFingerprint != expectedFingerprint {
-		t.Fatalf("fingerprint = %q, want pre-mutation %q", source.TranscriptsFingerprint, expectedFingerprint)
-	}
-	assertHistorySummaries(t, index, []string{"Decision: retain stable record."})
-	cache := loadHistoryScanCache(brainDir)
-	stableRel, _ := filepath.Rel(brainDir, stablePath)
-	targetRel, _ := filepath.Rel(brainDir, targetPath)
-	if len(cache.Files) != 1 {
-		t.Fatalf("cache files = %+v, want only stable transcript", cache.Files)
-	}
-	if _, ok := cache.Files[filepath.ToSlash(stableRel)]; !ok {
-		t.Fatalf("stable transcript missing from cache: %+v", cache.Files)
-	}
-	if _, ok := cache.Files[filepath.ToSlash(targetRel)]; ok {
-		t.Fatalf("raced transcript entered cache: %+v", cache.Files)
-	}
-	var currentWarnings []string
-	currentFiles, err := collectHistorySessionFiles(sessionDir, &currentWarnings)
-	if err != nil || len(currentWarnings) != 0 {
-		t.Fatalf("current fingerprint: warnings=%v err=%v", currentWarnings, err)
-	}
-	if current := historyTranscriptFilesFingerprint(brainDir, currentFiles); current == source.TranscriptsFingerprint {
-		t.Fatal("raced source fingerprint incorrectly described post-mutation bytes")
-	}
-
-	// The skipped file is retried on the next build and becomes cacheable once
-	// its hash and parsed bytes are the same stable version.
-	recovered, recoveredSource, err := buildBrainHistoryIndex(brainDir, now.Add(2*time.Second), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recoveredSource.Warnings) != 0 {
-		t.Fatalf("recovery warnings = %v", recoveredSource.Warnings)
-	}
-	assertHistorySummaries(t, recovered, []string{"Decision: retain stable record.", "Decision: retain omega cache."})
-	if got := loadHistoryScanCache(brainDir); len(got.Files) != 2 {
-		t.Fatalf("recovery cache = %+v", got.Files)
+	if !errors.Is(err, errHistorySessionInventoryDegraded) && !strings.Contains(err.Error(), memoryErrSourceStale) {
+		t.Fatalf("mutation error = %v, want a typed degraded/stale refusal", err)
 	}
 }
 
+// TestHistoryCacheEmptyRejectsOpenAndIdentityRaces locks that a transcript
+// deleted, inode-replaced, or symlink-swapped mid-build aborts the index and
+// never lets external bytes in. #83 made these typed refusals rather than
+// per-file warnings.
 func TestHistoryCacheEmptyRejectsOpenAndIdentityRaces(t *testing.T) {
 	for _, mode := range []string{"deleted", "inode replacement", "symlink swap"} {
 		t.Run(mode, func(t *testing.T) {
@@ -221,11 +151,8 @@ func TestHistoryCacheEmptyRejectsOpenAndIdentityRaces(t *testing.T) {
 					t.Skipf("symlinks unavailable: %v", err)
 				}
 			}
-
-			var progress [][2]int
 			mutated := false
-			index, source, err := buildBrainHistoryIndex(brainDir, time.Date(2026, 7, 18, 11, 0, 0, 0, time.UTC), func(done, total int) {
-				progress = append(progress, [2]int{done, total})
+			index, _, err := buildBrainHistoryIndex(brainDir, time.Date(2026, 7, 18, 11, 0, 0, 0, time.UTC), func(done, total int) {
 				if done != 0 || mutated {
 					return
 				}
@@ -244,29 +171,17 @@ func TestHistoryCacheEmptyRejectsOpenAndIdentityRaces(t *testing.T) {
 					}
 				}
 			})
-			if err != nil {
-				t.Fatal(err)
+			if err == nil {
+				t.Fatal("an open/identity race must abort the index, not warn")
 			}
-			if want := [][2]int{{0, 1}, {1, 1}}; !reflect.DeepEqual(progress, want) {
-				t.Fatalf("progress = %v, want %v", progress, want)
+			if !errors.Is(err, errHistorySessionInventoryDegraded) {
+				t.Fatalf("race error = %v, want the typed degraded refusal", err)
 			}
-			var wantWarning string
-			if mode == "deleted" {
-				wantWarning = (&os.PathError{Op: "open", Path: path, Err: syscall.ENOENT}).Error()
-			} else {
-				wantWarning = "history transcript changed while opening: " + path
+			if strings.Contains(err.Error(), secret) {
+				t.Fatalf("refusal exposed external content: %v", err)
 			}
-			if !reflect.DeepEqual(source.Warnings, []string{wantWarning}) {
-				t.Fatalf("warnings = %v, want [%q]", source.Warnings, wantWarning)
-			}
-			if strings.Contains(strings.Join(source.Warnings, "\n"), externalPath) || strings.Contains(strings.Join(source.Warnings, "\n"), secret) {
-				t.Fatalf("warning exposed external source: %v", source.Warnings)
-			}
-			if len(index.Records) != 0 || source.Records != 0 {
-				t.Fatalf("external or unstable bytes entered index: %+v source=%+v", index.Records, source)
-			}
-			if source.TranscriptsFingerprint != emptyHistoryTranscriptsFingerprint {
-				t.Fatalf("fingerprint = %q, want empty %q", source.TranscriptsFingerprint, emptyHistoryTranscriptsFingerprint)
+			if len(index.Records) != 0 {
+				t.Fatalf("external or unstable bytes entered the index: %+v", index.Records)
 			}
 			if cache := loadHistoryScanCache(brainDir); len(cache.Files) != 0 {
 				t.Fatalf("unstable file entered cache: %+v", cache.Files)
@@ -275,6 +190,9 @@ func TestHistoryCacheEmptyRejectsOpenAndIdentityRaces(t *testing.T) {
 	}
 }
 
+// TestHistoryCacheEmptyFailuresUseSortedScanOrder locks that the build refuses
+// on the FIRST failure in recency-sorted scan order, so the refusal is
+// deterministic regardless of directory enumeration order.
 func TestHistoryCacheEmptyFailuresUseSortedScanOrder(t *testing.T) {
 	brainDir := t.TempDir()
 	sessionDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
@@ -288,36 +206,54 @@ func TestHistoryCacheEmptyFailuresUseSortedScanOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	var progress [][2]int
-	_, source, err := buildBrainHistoryIndex(brainDir, time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), func(done, total int) {
-		progress = append(progress, [2]int{done, total})
-		if done == 0 {
-			for _, path := range []string{oldPath, newPath} {
-				if err := os.Remove(path); err != nil {
-					t.Fatal(err)
-				}
+	_, _, err := buildBrainHistoryIndex(brainDir, time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), func(done, total int) {
+		if done != 0 {
+			return
+		}
+		for _, path := range []string{oldPath, newPath} {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
 			}
 		}
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("removed transcripts must abort the index")
 	}
-	wantWarnings := []string{
-		(&os.PathError{Op: "open", Path: newPath, Err: syscall.ENOENT}).Error(),
-		(&os.PathError{Op: "open", Path: oldPath, Err: syscall.ENOENT}).Error(),
-	}
-	if !reflect.DeepEqual(source.Warnings, wantWarnings) {
-		t.Fatalf("warnings = %v, want sorted scan order %v", source.Warnings, wantWarnings)
-	}
-	if want := [][2]int{{0, 2}, {1, 2}, {2, 2}}; !reflect.DeepEqual(progress, want) {
-		t.Fatalf("progress = %v, want %v", progress, want)
-	}
-	if source.TranscriptsFingerprint != emptyHistoryTranscriptsFingerprint {
-		t.Fatalf("fingerprint = %q, want empty", source.TranscriptsFingerprint)
+	// Newest-first scan order: the newer transcript is the one reported.
+	if !strings.Contains(err.Error(), filepath.Base(newPath)) {
+		t.Fatalf("refusal = %v, want the newest-first candidate %q", err, filepath.Base(newPath))
 	}
 	if cache := loadHistoryScanCache(brainDir); len(cache.Files) != 0 {
 		t.Fatalf("failed files entered cache: %+v", cache.Files)
 	}
+}
+
+// historyMutationRaceFixture writes a two-transcript brain and returns the
+// target transcript plus its pre-mutation metadata.
+func historyMutationRaceFixture(t *testing.T) (string, string, os.FileInfo, time.Time) {
+	t.Helper()
+	brainDir := t.TempDir()
+	sessionDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stablePath := filepath.Join(sessionDir, "20260717T010000Z-stable.jsonl")
+	targetPath := filepath.Join(sessionDir, "20260717T020000Z-target.jsonl")
+	if err := os.WriteFile(stablePath, []byte(`{"type":"agent_message","message":"Decision: retain stable record."}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte(`{"type":"agent_message","message":"Decision: retain target record."}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 18, 10, 0, 0, 0, time.UTC)
+	if _, _, err := buildBrainHistoryIndex(brainDir, now, nil); err != nil {
+		t.Fatalf("prime cache: %v", err)
+	}
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return brainDir, targetPath, info, now
 }
 
 func TestHistoryCacheEmptyFingerprintsButDoesNotCacheParseLimitFailure(t *testing.T) {

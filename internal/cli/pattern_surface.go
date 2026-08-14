@@ -3,6 +3,7 @@ package cli
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,14 +23,20 @@ import (
 // surface (replacing the legacy procedure/practice JSON views). Each view
 // carries its dossier state (current/stale + verifier verdict) and top anchor.
 // Rejected dossiers are suppressed. Graceful: nil when no corpus exists.
-func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternView, bool) {
-	db, err := openPatternCorpusDB(brainDir)
+func loadCorpusPatternViewsChecked(brainDir string) ([]patternView, map[string]patternView, bool, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return nil, nil, false
+		return nil, nil, false, err
+	}
+	if !present {
+		return nil, nil, false, nil
 	}
 	defer db.Close()
 
-	anchors := topAnchorByPattern(db)
+	anchors, err := topAnchorByPatternChecked(db.DB)
+	if err != nil {
+		return nil, nil, true, err
+	}
 	rows, err := db.Query(`
 		SELECT p.id, p.type, p.scope, COALESCE(p.repo_key,''), COALESCE(p.workspace,''),
 		       COALESCE(p.intent_sig,''), COALESCE(p.gram,''), COALESCE(p.meta_id,''),
@@ -40,7 +47,7 @@ func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternV
 		LEFT JOIN dossiers d ON d.pattern_id = p.id
 		ORDER BY p.strength DESC`)
 	if err != nil {
-		return nil, nil, false
+		return nil, nil, true, err
 	}
 	defer rows.Close()
 	var views []patternView
@@ -54,7 +61,7 @@ func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternV
 		if err := rows.Scan(&v.ID, &v.Type, &v.Scope, &repoKey, &workspace,
 			&v.IntentSig, &v.Gram, &metaID, &v.Title, &v.Strength, &v.StrengthLabel, &v.Support, &v.Repos,
 			&succ, &corr, &neutral, &dossierStatus, &verdict); err != nil {
-			return nil, nil, false
+			return nil, nil, true, err
 		}
 		if verdict == "rejected" { // the agent verifier is the authority that removes
 			continue
@@ -73,10 +80,13 @@ func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternV
 		views = append(views, v)
 	}
 	if rows.Err() != nil {
-		return nil, nil, false
+		return nil, nil, true, rows.Err()
 	}
 	// Attach the per-repo breakdown to workspace-scope patterns.
-	breakdown := loadWorkspaceRepoBreakdown(db)
+	breakdown, err := loadWorkspaceRepoBreakdownChecked(db.DB)
+	if err != nil {
+		return nil, nil, true, err
+	}
 	for i := range views {
 		if views[i].Scope == "workspace" {
 			views[i].RepoBreakdown = breakdown[views[i].ID]
@@ -86,25 +96,38 @@ func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternV
 	for _, v := range views {
 		idx[v.ID] = v
 	}
-	return views, idx, true
+	return views, idx, true, nil
+}
+
+// loadCorpusPatternViews retains the historical best-effort helper for
+// internal scoring/tests. Production response surfaces use the checked form.
+func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternView, bool) {
+	views, index, present, _ := loadCorpusPatternViewsChecked(brainDir)
+	return views, index, present
 }
 
 // topAnchorByPattern returns each pattern's rank-0 evidence anchor (redacted).
 func topAnchorByPattern(db *sql.DB) map[string]episodeAnchor {
+	anchors, _ := topAnchorByPatternChecked(db)
+	return anchors
+}
+
+func topAnchorByPatternChecked(db *sql.DB) (map[string]episodeAnchor, error) {
 	out := map[string]episodeAnchor{}
 	rows, err := db.Query(`SELECT pattern_id, source_path, start_line FROM pattern_evidence WHERE rank=0`)
 	if err != nil {
-		return out
+		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id, path string
 		var line int
-		if rows.Scan(&id, &path, &line) == nil {
-			out[id] = episodeAnchor{Path: redactText(path), Line: line}
+		if err := rows.Scan(&id, &path, &line); err != nil {
+			return nil, err
 		}
+		out[id] = episodeAnchor{Path: redactText(path), Line: line}
 	}
-	return out
+	return out, rows.Err()
 }
 
 // briefConsolidation is the compact, task-relevant projection of a dossier the
@@ -133,31 +156,39 @@ type loadedDossier struct {
 
 // loadCorpusDossiers reads every dossier joined to its pattern type. Graceful:
 // returns nil when the corpus is absent or unreadable.
-func loadCorpusDossiers(brainDir string) []loadedDossier {
-	db, err := openPatternCorpusDB(brainDir)
+func loadCorpusDossiersChecked(brainDir string) ([]loadedDossier, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if !present {
+		return nil, nil
 	}
 	defer db.Close()
 	rows, err := db.Query(`SELECT d.json_redacted, p.type, d.status, COALESCE(d.verdict,'')
 		FROM dossiers d JOIN patterns p ON p.id=d.pattern_id`)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []loadedDossier
 	for rows.Next() {
 		var blob, typ, status, verdict string
 		if err := rows.Scan(&blob, &typ, &status, &verdict); err != nil {
-			return out
+			return out, err
 		}
 		var rec dossierRecord
-		if json.Unmarshal([]byte(blob), &rec) != nil {
-			continue
+		if err := json.Unmarshal([]byte(blob), &rec); err != nil {
+			return nil, fmt.Errorf("%s: parse corpus dossier for pattern surface: %w", memoryErrStateCorrupt, err)
 		}
 		out = append(out, loadedDossier{rec: rec, typ: typ, status: status, verdict: verdict})
 	}
-	return out
+	return out, rows.Err()
+}
+
+func loadCorpusDossiers(brainDir string) []loadedDossier {
+	dossiers, _ := loadCorpusDossiersChecked(brainDir)
+	return dossiers
 }
 
 // rankTaskRelevantConsolidations returns the dossiers whose title/trigger/
@@ -234,7 +265,16 @@ func consolidationView(d loadedDossier) briefConsolidation {
 // loadBriefConsolidations is the brief's entry point: task-relevant, capped,
 // corpus-backed consolidations. Empty (not error) when no corpus exists.
 func loadBriefConsolidations(brainDir string, terms []string, limit int) []briefConsolidation {
-	return rankTaskRelevantConsolidations(loadCorpusDossiers(brainDir), terms, limit)
+	consolidations, _ := loadBriefConsolidationsChecked(brainDir, terms, limit)
+	return consolidations
+}
+
+func loadBriefConsolidationsChecked(brainDir string, terms []string, limit int) ([]briefConsolidation, error) {
+	dossiers, err := loadCorpusDossiersChecked(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	return rankTaskRelevantConsolidations(dossiers, terms, limit), nil
 }
 
 // strongestConsolidations is the overview's entry point: the repo's top current
@@ -242,10 +282,18 @@ func loadBriefConsolidations(brainDir string, terms []string, limit int) []brief
 // Rejected and stale dossiers are excluded — the overview shows what currently
 // holds. Empty (not error) when no corpus exists.
 func strongestConsolidations(brainDir string, limit int) []briefConsolidation {
+	consolidations, _ := strongestConsolidationsChecked(brainDir, limit)
+	return consolidations
+}
+
+func strongestConsolidationsChecked(brainDir string, limit int) ([]briefConsolidation, error) {
 	if limit <= 0 {
-		return nil
+		return nil, nil
 	}
-	dossiers := loadCorpusDossiers(brainDir)
+	dossiers, err := loadCorpusDossiersChecked(brainDir)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]briefConsolidation, 0, len(dossiers))
 	for _, d := range dossiers {
 		if d.verdict == "rejected" || d.status != "current" {
@@ -257,7 +305,7 @@ func strongestConsolidations(brainDir string, limit int) []briefConsolidation {
 	if len(views) > limit {
 		views = views[:limit]
 	}
-	return views
+	return views, nil
 }
 
 const patternPointerCap = 5
@@ -272,15 +320,27 @@ type relatedPatternRef struct {
 // query by term overlap — discoverability only, never part of facts/history/docs
 // ranking. Rejected dossiers/themes are excluded; graceful (nil) when no corpus.
 func relatedPatternPointers(brainDir, query string, limit int) []relatedPatternRef {
+	pointers, _ := relatedPatternPointersChecked(brainDir, query, limit)
+	return pointers
+}
+
+func relatedPatternPointersChecked(brainDir, query string, limit int) ([]relatedPatternRef, error) {
 	terms := brainBriefFileMatchTerms(query)
 	if len(terms) == 0 || limit <= 0 {
-		return nil
+		return nil, nil
 	}
-	views, _, ok := loadCorpusPatternViews(brainDir)
+	views, _, ok, err := loadCorpusPatternViewsChecked(brainDir)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	for _, th := range loadThemeViews(brainDir, true) { // verified themes only
+	themes, err := loadThemeViewsChecked(brainDir, true)
+	if err != nil {
+		return nil, err
+	}
+	for _, th := range themes { // verified themes only
 		views = append(views, themePatternView(th))
 	}
 	termSet := map[string]bool{}
@@ -324,7 +384,7 @@ func relatedPatternPointers(brainDir, query string, limit int) []relatedPatternR
 		}
 		out = append(out, m.ref)
 	}
-	return out
+	return out, nil
 }
 
 // loadReviewPatternContext returns V2 risk/practice/task patterns whose recorded
@@ -332,12 +392,20 @@ func relatedPatternPointers(brainDir, query string, limit int) []relatedPatternR
 // `review --patterns`. Capped; graceful (nil) when no corpus. Rejected dossiers
 // are excluded.
 func loadReviewPatternContext(brainDir string, files []string, limit int) []reviewPatternRef {
+	context, _ := loadReviewPatternContextChecked(brainDir, files, limit)
+	return context
+}
+
+func loadReviewPatternContextChecked(brainDir string, files []string, limit int) ([]reviewPatternRef, error) {
 	if len(files) == 0 || limit <= 0 {
-		return nil
+		return nil, nil
 	}
-	db, err := openPatternCorpusDB(brainDir)
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if !present {
+		return nil, nil
 	}
 	defer db.Close()
 	ph := make([]string, len(files))
@@ -358,15 +426,15 @@ func loadReviewPatternContext(brainDir string, files []string, limit int) []revi
 		  AND ef.path IN (`+strings.Join(ph, ",")+`)
 		ORDER BY p.strength DESC LIMIT ?`, args...)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []reviewPatternRef
 	seen := map[string]bool{}
 	for rows.Next() {
 		var id, typ, title, path string
-		if rows.Scan(&id, &typ, &title, &path) != nil {
-			continue
+		if err := rows.Scan(&id, &typ, &title, &path); err != nil {
+			return out, err
 		}
 		key := id + "\x00" + path
 		if seen[key] {
@@ -378,17 +446,25 @@ func loadReviewPatternContext(brainDir string, files []string, limit int) []revi
 		}
 		out = append(out, reviewPatternRef{File: redactText(path), Type: typ, Title: redactText(title), ID: id})
 	}
-	return out
+	return out, rows.Err()
 }
 
 // handoffConsolidations returns the strongest dossiers for a handoff: current AND
 // stale (so staleness is visible on resume), excluding rejected, capped. Empty
 // when no corpus.
 func handoffConsolidations(brainDir string, limit int) []briefConsolidation {
+	consolidations, _ := handoffConsolidationsChecked(brainDir, limit)
+	return consolidations
+}
+
+func handoffConsolidationsChecked(brainDir string, limit int) ([]briefConsolidation, error) {
 	if limit <= 0 {
-		return nil
+		return nil, nil
 	}
-	dossiers := loadCorpusDossiers(brainDir)
+	dossiers, err := loadCorpusDossiersChecked(brainDir)
+	if err != nil {
+		return nil, err
+	}
 	views := make([]briefConsolidation, 0, len(dossiers))
 	for _, d := range dossiers {
 		if d.verdict == "rejected" {
@@ -400,32 +476,43 @@ func handoffConsolidations(brainDir string, limit int) []briefConsolidation {
 	if len(views) > limit {
 		views = views[:limit]
 	}
-	return views
+	return views, nil
 }
 
 // getCorpusConsolidation addresses one dossier by its pattern id for `get`.
 // Returns the consolidation as a unifiedResult, or false if absent.
 func getCorpusConsolidation(brainDir, patternID string) (unifiedResult, bool) {
-	db, err := openPatternCorpusDB(brainDir)
+	result, ok, _ := getCorpusConsolidationChecked(brainDir, patternID)
+	return result, ok
+}
+
+func getCorpusConsolidationChecked(brainDir, patternID string) (unifiedResult, bool, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return unifiedResult{}, false
+		return unifiedResult{}, false, err
+	}
+	if !present {
+		return unifiedResult{}, false, nil
 	}
 	defer db.Close()
 	var blob, status, verdict string
 	err = db.QueryRow(`SELECT json_redacted, status, COALESCE(verdict,'') FROM dossiers WHERE pattern_id=?`, patternID).
 		Scan(&blob, &status, &verdict)
 	if err != nil {
-		return unifiedResult{}, false
+		if err == sql.ErrNoRows {
+			return unifiedResult{}, false, nil
+		}
+		return unifiedResult{}, false, err
 	}
 	var rec dossierRecord
 	if json.Unmarshal([]byte(blob), &rec) != nil {
-		return unifiedResult{}, false
+		return unifiedResult{}, false, nil
 	}
 	return unifiedResult{
 		Source: "consolidation",
 		ID:     patternID,
 		Text:   renderConsolidationText(rec, status, verdict),
-	}, true
+	}, true, nil
 }
 
 func renderConsolidationText(rec dossierRecord, status, verdict string) string {

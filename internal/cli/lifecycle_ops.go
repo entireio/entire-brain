@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -24,33 +25,265 @@ type doctorCheckResult struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResult {
+	checks := make([]doctorCheckResult, 0, 15)
+	add := func(name, state, detail string) {
+		checks = append(checks, doctorCheckResult{Name: name, State: state, Detail: detail})
+	}
+	install, _ := snapshot.Payload["install"].(map[string]any)
+	if binary, ok := install["entire_binary"].(memoryInstallBinaryHealth); ok {
+		state := "warn"
+		switch binary.State {
+		case "not_found", "unsafe_relative_path", "lookup_failed":
+			state = "error"
+		}
+		detail := binary.State
+		if binary.Path != "" {
+			detail += " at " + binary.Path
+		}
+		detail += "; binary was not executed"
+		add("memory_install", state, detail)
+	}
+	if adapter, ok := install["host_adapter"].(memoryHostAdapterHealth); ok {
+		state := "warn"
+		if adapter.Observability != "not_observable" && adapter.State == "trusted" {
+			state = "ok"
+		}
+		add("memory_host_adapter", state, fmt.Sprintf("%s; authority %s; Claude Code/Codex presence, enablement, and trust are not attested by this process", adapter.State, adapter.Authority))
+	}
+	if coordinator, ok := snapshot.Payload["coordinator"].(map[string]any); ok {
+		stateName, _ := coordinator["state"].(string)
+		state := "ok"
+		detail := stateName
+		if stale, _ := coordinator["stale"].(bool); stale {
+			state = "warn"
+			detail += "; stale heartbeat, next coordinator owner may recover"
+		}
+		if code, _ := coordinator["error_code"].(string); code != "" {
+			state = "error"
+			detail = code
+		}
+		if stateName == "absent" {
+			detail = "no coordinator state yet"
+		}
+		add("memory_coordinator", state, detail)
+	}
+	if locks, ok := snapshot.Payload["locks"].(map[string]any); ok {
+		if writeLock, ok := locks["write"].(map[string]any); ok {
+			lockState, _ := writeLock["state"].(string)
+			state := "ok"
+			detail := lockState + "; read-only inspection does not probe-acquire the lock"
+			switch lockState {
+			case "unsafe", "unavailable":
+				state = "error"
+			case "present_unproven":
+				// NOT a warning. The lock file is created with O_CREATE and is
+				// never unlinked on release, so it exists permanently after the
+				// very first refresh; warning on its presence made every
+				// healthy brain report write_lock: warn forever, and since a
+				// genuinely held lock produces the identical read-only state,
+				// the warning carried no information either way. Liveness is
+				// reported by memory_coordinator (stale heartbeat), which is
+				// the signal that can actually distinguish a stuck refresh.
+				detail += "; the lock leaf persists after release, so presence alone is normal (see memory_coordinator for liveness)"
+			}
+			add("write_lock", state, detail)
+		}
+	}
+	if provider, ok := install["provider_egress"].(map[string]any); ok {
+		state := "ok"
+		detail := fmt.Sprintf("config %v; provider %v; configured egress %v; global policy %v; effective %v", provider["state"], provider["provider"], provider["egress_class"], provider["global_policy"], provider["effective_state"])
+		if code, _ := provider["error_code"].(string); code != "" {
+			state = "error"
+			detail = code
+		} else if effectiveState, _ := provider["effective_state"].(string); strings.HasPrefix(effectiveState, "blocked_") {
+			state = "warn"
+			if blockCode, _ := provider["block_code"].(string); blockCode != "" {
+				detail += "; " + blockCode
+			}
+		} else if providerState, _ := provider["provider_state"].(string); providerState == memoryErrProviderUnavail {
+			state = "warn"
+			detail += "; " + providerState
+		}
+		add("memory_provider_egress", state, detail)
+	}
+	add("memory_schema_capabilities", "ok", fmt.Sprintf("compiled support: manifest %d, overlay %d, FTS %s, vector %d, abstract %d, jobs %d", brainManifestSchemaVersion, historyShortTermVersion, historyFTSSchema, memoryVectorSchema, abstractSchemaVersion, memoryJobSchemaVersion))
+	schemaState := "error"
+	switch snapshot.ManifestHealth.State {
+	case "current":
+		schemaState = "ok"
+	case "absent":
+		schemaState = "warn"
+	}
+	schemaDetail := fmt.Sprintf("manifest observed state %s, schema %d, compiled support %d", snapshot.ManifestHealth.State, snapshot.ManifestHealth.SchemaVersion, snapshot.ManifestHealth.SupportedSchemaVersion)
+	if snapshot.ManifestHealth.ErrorCode != "" {
+		schemaDetail += "; " + snapshot.ManifestHealth.ErrorCode
+	}
+	if schemas, ok := snapshot.Payload["schemas"].(map[string]any); ok {
+		if observed, ok := schemas["observed_health"].(map[string]any); ok {
+			observedErrors := 0
+			observedWarnings := 0
+			errorCodes := map[string]bool{}
+			for _, value := range observed {
+				if health, ok := value.(map[string]any); ok {
+					state := normalizeMemoryObservedState(memoryObservedStateValue(health["state"]))
+					switch state {
+					case "corrupt", "unsafe", "unsupported", "unavailable":
+						observedErrors++
+					case "stale", "migration_required", "degraded":
+						observedWarnings++
+					}
+					code, _ := health["error_code"].(string)
+					switch code {
+					case memoryErrUnsupportedVersion, memoryErrStateCorrupt, memoryErrStateUnsafe, memoryErrMigrationRequired:
+						errorCodes[code] = true
+					}
+				}
+			}
+			if observedErrors > 0 {
+				schemaState = "error"
+				schemaDetail += fmt.Sprintf("; %d observed schema health error(s)", observedErrors)
+			} else if observedWarnings > 0 && schemaState == "ok" {
+				schemaState = "warn"
+				schemaDetail += fmt.Sprintf("; %d stale or migration-required schema observation(s)", observedWarnings)
+			}
+			if len(errorCodes) > 0 {
+				codes := make([]string, 0, len(errorCodes))
+				for code := range errorCodes {
+					codes = append(codes, code)
+				}
+				sort.Strings(codes)
+				schemaDetail += "; " + strings.Join(codes, ", ")
+			}
+		}
+	}
+	add("memory_schemas", schemaState, schemaDetail)
+	for _, artifact := range []struct {
+		name string
+		key  string
+	}{
+		{name: "memory_overlay", key: "overlay"},
+		{name: "memory_fts", key: "fts"},
+		{name: "memory_jobs", key: "job_inventory"},
+		{name: "memory_vectors", key: "vector_progress"},
+	} {
+		if health, ok := snapshot.Payload[artifact.key].(map[string]any); ok {
+			state, _ := health["state"].(string)
+			normalized := normalizeMemoryObservedState(state)
+			checkState := "ok"
+			switch normalized {
+			case "corrupt", "unsafe", "unsupported", "unavailable":
+				checkState = "error"
+			case "stale", "migration_required", "pending", "degraded":
+				checkState = "warn"
+			}
+			detail := normalized
+			if version, ok := health["schema_version"]; ok {
+				detail += fmt.Sprintf("; observed schema %v", version)
+			}
+			if supported, ok := health["supported_schema_version"]; ok {
+				detail += fmt.Sprintf("; supported schema %v", supported)
+			}
+			if code, _ := health["error_code"].(string); code != "" {
+				detail += "; " + code
+			}
+			add(artifact.name, checkState, detail)
+		}
+	}
+	if migrations, ok := snapshot.Payload["migrations"].([]memoryMigrationFinding); ok && len(migrations) > 0 {
+		state := "warn"
+		for _, finding := range migrations {
+			if finding.State == memoryErrStateUnsafe || finding.State == memoryErrStateCorrupt {
+				state = "error"
+				break
+			}
+		}
+		add("memory_migrations", state, fmt.Sprintf("%d derived-state finding(s); inspect with memory migrate dry-run", len(migrations)))
+	} else {
+		add("memory_migrations", "ok", "no derived-state migration findings")
+	}
+	if logHealth, ok := snapshot.Payload["worker_log"].(map[string]any); ok {
+		state := "ok"
+		if code, _ := logHealth["error_code"].(string); code != "" {
+			state = "error"
+		}
+		add("memory_worker_log", state, fmt.Sprintf("%v (bounded to %v bytes)", logHealth["path"], logHealth["max_bytes"]))
+	}
+	if sessions, ok := snapshot.Payload["canonical_sessions"].(map[string]any); ok {
+		stateName, _ := sessions["state"].(string)
+		state := "ok"
+		if stateName != "available" {
+			state = "warn"
+		}
+		if code, _ := sessions["error_code"].(string); code != "" {
+			state = "error"
+			stateName += "; " + code
+		}
+		add("memory_sessions", state, fmt.Sprintf("%s; %v canonical session(s)", stateName, sessions["count"]))
+	}
+	if reconciliation, ok := snapshot.Payload["reconciliation"].(map[string]any); ok {
+		stateName, _ := reconciliation["state"].(string)
+		state := "warn"
+		if current, _ := reconciliation["current"].(bool); current {
+			state = "ok"
+		}
+		if code, _ := reconciliation["error_code"].(string); code != "" {
+			state = "error"
+			stateName += "; " + code
+		}
+		detail := stateName
+		if at, ok := reconciliation["last_successful_at"]; ok {
+			detail += fmt.Sprintf("; last successful %v", at)
+		}
+		add("memory_reconciliation", state, detail)
+	}
+	return checks
+}
+
 // brainDoctorChecks walks the capture-to-recall chain for one brain:
 // capture (exported sessions), history index health + freshness against the
 // current session set, the conversation projection and its vector identity,
 // the derived FTS index, and the write lock. Every failure is a state, not an
 // error; doctor's job is to explain, never to crash on a broken brain.
 func brainDoctorChecks(ctx context.Context, opts Options, target string) []doctorCheckResult {
+	checks, _ := brainDoctorReadOnlyReport(ctx, opts, target)
+	return checks
+}
+
+// brainDoctorReadOnlyReport resolves the Brain and samples its operational
+// state exactly once. Doctor reuses the returned payload and checks so a
+// changing heartbeat or filesystem cannot produce a self-contradictory report.
+func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string) ([]doctorCheckResult, map[string]any) {
 	var checks []doctorCheckResult
+	var payload map[string]any
 	add := func(name, state, detail string) {
 		checks = append(checks, doctorCheckResult{Name: name, State: state, Detail: detail})
 	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		add("brain", "warn", "not a local repository; brain checks skipped")
-		return checks
+		return checks, payload
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		add("brain", "error", "brain storage unavailable: "+err.Error())
-		return checks
+		return checks, payload
 	}
 	brainDir := storage.BrainDir
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		add("manifest", "error", err.Error())
-		return checks
+	snapshot := memoryReadOnlyHealth(brainDir, opts.Now().UTC())
+	payload = snapshot.Payload
+	checks = append(checks, memoryDoctorChecks(snapshot)...)
+	manifest := snapshot.Manifest
+	switch snapshot.ManifestHealth.State {
+	case "current":
+		add("manifest", "ok", brainDir)
+	case "absent":
+		add("manifest", "warn", "absent; run `entire brain refresh`")
+		return checks, payload
+	default:
+		add("manifest", "error", fmt.Sprintf("%s: %s", snapshot.ManifestHealth.ErrorCode, snapshot.ManifestHealth.RecommendedAction))
+		return checks, payload
 	}
-	add("manifest", "ok", brainDir)
 
 	// Capture: exported sessions are the canonical input to every projection.
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
@@ -75,41 +308,61 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 	// a semantic-only refresh must never claim conversation freshness.
 	if manifest.Sources == nil || manifest.Sources.History == nil {
 		add("history_index", "warn", "no history index; run `entire brain refresh`")
-		return checks
+		return checks, payload
 	}
 	history := manifest.Sources.History
 	index, err := loadBrainHistoryIndex(brainDir, history)
 	if err != nil {
 		add("history_index", "error", "declared but unreadable: "+err.Error())
-		return checks
+		return checks, payload
 	}
 	add("history_index", "ok", fmt.Sprintf("%d records (generated %s)", len(index.Records), history.GeneratedAt.UTC().Format(time.RFC3339)))
+	if history.IndexDigest == "" {
+		add("history_integrity", "warn", "index predates manifest content digests; run `entire brain refresh`")
+	} else {
+		add("history_integrity", "ok", "index bytes match the manifest content digest")
+	}
 	current := brainSessionsFingerprint(brainDir)
-	shortTerm := loadHistoryShortTerm(brainDir, history)
+	shortTerm, shortTermState := loadHistoryShortTermState(brainDir, history)
+	// "Covers the gap" is claimable only for a CURRENT overlay built against
+	// the exact current source fingerprint with nothing failed, dropped, or
+	// truncated. Anything less is at best partial coverage.
+	shortTermCurrentForSources := shortTermState == shortTermStateCurrent && shortTerm.SessionsFingerprint == current
+	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
 	switch {
 	case history.SessionsFingerprint == "":
 		add("history_freshness", "warn", "index predates fingerprinting; run `entire brain refresh`")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
-	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current && !shortTerm.Truncated:
+	case shortTermCovers && shortTerm.complete():
 		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `entire brain refresh`)", len(shortTerm.Files)))
-	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current:
-		// A truncated overlay only PARTLY covers the gap (oldest changed
-		// transcripts were dropped): freshness must not claim ok (Bugbot #77).
-		add("history_freshness", "warn", "short-term memory covers the gap only partially (buffer full, oldest changed transcripts dropped); run `entire brain refresh` to consolidate")
+	case shortTermCurrentForSources && !shortTerm.complete():
+		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `entire brain refresh` to consolidate", shortTermIncompleteness(shortTerm)))
+	case shortTermState == shortTermStateCorrupt:
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
+	case shortTermState == shortTermStateUnsupported:
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `entire brain refresh delta` to rebuild it or `entire brain refresh` to consolidate")
 	default:
 		add("history_freshness", "warn", "exported sessions changed since the last index build; run `entire brain refresh delta` for immediate freshness or `entire brain refresh` to consolidate (a missed session-end hook is repaired the same way)")
 	}
-	if len(shortTerm.Files) > 0 {
+	switch shortTermState {
+	case shortTermStateCorrupt:
+		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `entire brain refresh delta`")
+	case shortTermStateUnsupported:
+		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `entire brain refresh delta`")
+	case shortTermStateCurrent:
+		if len(shortTerm.Files) == 0 && shortTerm.complete() {
+			break
+		}
 		records := 0
 		for _, entry := range shortTerm.Files {
 			records += len(entry.Records)
 		}
 		detail := fmt.Sprintf("%d records from %d changed transcripts (built %s)", records, len(shortTerm.Files), shortTerm.GeneratedAt.UTC().Format(time.RFC3339))
 		state := "ok"
-		if shortTerm.Truncated {
+		if !shortTerm.complete() {
 			state = "warn"
-			detail += "; buffer full; consolidate with `entire brain refresh`"
+			detail += "; " + shortTermIncompleteness(shortTerm)
 		}
 		add("short_term_memory", state, detail)
 	}
@@ -140,15 +393,7 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 		add("history_fts", "warn", "BM25 index absent or stale; it rebuilds on the next query")
 	}
 
-	// Write lock: a held lock is normal during a refresh, but a lock that
-	// never frees explains stuck refreshes.
-	if unlock, lerr := acquireBrainWriteLockTimeout(brainDir, 250*time.Millisecond); lerr == nil {
-		unlock()
-		add("write_lock", "ok", "free")
-	} else {
-		add("write_lock", "warn", "held or unavailable: "+lerr.Error())
-	}
-	return checks
+	return checks, payload
 }
 
 // --- stats ---
@@ -170,6 +415,10 @@ type brainStatsShortTerm struct {
 	Exchanges   int    `json:"exchanges"`
 	GeneratedAt string `json:"generated_at"`
 	Truncated   bool   `json:"truncated,omitempty"`
+	// State is the typed overlay load state; FailedFiles are the
+	// transcripts the last delta could not scan.
+	State       string   `json:"state,omitempty"`
+	FailedFiles []string `json:"failed_files,omitempty"`
 }
 
 type brainStatsSessions struct {
@@ -334,11 +583,13 @@ func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, er
 		conversation.Vectors = vectorStatus.Vectors
 	}
 	report.Conversation = &conversation
-	if shortTerm := loadHistoryShortTerm(brainDir, history); len(shortTerm.Files) > 0 {
+	if shortTerm, state := loadHistoryShortTermState(brainDir, history); state != shortTermStateAbsent && (len(shortTerm.Files) > 0 || !shortTerm.complete() || state != shortTermStateCurrent) {
 		stats := brainStatsShortTerm{
 			Files:       len(shortTerm.Files),
 			GeneratedAt: shortTerm.GeneratedAt.UTC().Format(time.RFC3339),
 			Truncated:   shortTerm.Truncated,
+			State:       state,
+			FailedFiles: shortTerm.FailedFiles,
 		}
 		for _, entry := range shortTerm.Files {
 			stats.Records += len(entry.Records)
@@ -380,8 +631,14 @@ func renderBrainStats(out io.Writer, report brainStatsReport) {
 	}
 	if s := report.ShortTerm; s != nil {
 		line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (built %s)", s.Records, s.Exchanges, s.Files, s.GeneratedAt)
+		if s.State != "" && s.State != shortTermStateCurrent {
+			line += "; state " + s.State
+		}
 		if s.Truncated {
 			line += "; buffer full, consolidate with `entire brain refresh`"
+		}
+		if len(s.FailedFiles) > 0 {
+			line += fmt.Sprintf("; %d transcripts failed to scan", len(s.FailedFiles))
 		}
 		fmt.Fprintln(out, line)
 	}

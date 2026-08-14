@@ -92,8 +92,12 @@ type theme struct {
 	verdict                                                   string
 }
 
+type corpusExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // storeTheme inserts one agent-proposed theme with its verdict-derived status.
-func storeTheme(db *sql.DB, th theme, ts string) error {
+func storeTheme(db corpusExecer, th theme, ts string) error {
 	var verdict any
 	if th.verdict != "" {
 		verdict = th.verdict
@@ -167,15 +171,33 @@ type themeView struct {
 // returned (for authoritative surfaces like brief/overview); rejected themes are
 // always suppressed. Graceful: nil when no corpus.
 func loadThemeViews(brainDir string, verifiedOnly bool) []themeView {
-	db, err := openPatternCorpusDB(brainDir)
+	themes, _ := loadThemeViewsChecked(brainDir, verifiedOnly)
+	return themes
+}
+
+func loadThemeViewsChecked(brainDir string, verifiedOnly bool) ([]themeView, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if !present {
+		return nil, nil
 	}
 	defer db.Close()
-	return queryThemeViews(db, verifiedOnly)
+	return queryThemeViewsChecked(db.DB, verifiedOnly)
 }
 
 func queryThemeViews(db *sql.DB, verifiedOnly bool) []themeView {
+	themes, _ := queryThemeViewsChecked(db, verifiedOnly)
+	return themes
+}
+
+func queryThemeViewsChecked(db *sql.DB, verifiedOnly bool) ([]themeView, error) {
+	// A corpus that predates the additive themes table has no themes, not a
+	// broken read.
+	if ok, err := patternCorpusHasTable(db, "themes"); err != nil || !ok {
+		return nil, err
+	}
 	q := `SELECT id, title, description, shape, support, strength, status, COALESCE(verdict,'') FROM themes WHERE COALESCE(verdict,'') != 'rejected'`
 	if verifiedOnly {
 		q += ` AND verdict='accepted'`
@@ -183,17 +205,18 @@ func queryThemeViews(db *sql.DB, verifiedOnly bool) []themeView {
 	q += ` ORDER BY strength DESC`
 	rows, err := db.Query(q)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []themeView
 	for rows.Next() {
 		var v themeView
-		if rows.Scan(&v.ID, &v.Title, &v.Description, &v.Shape, &v.Support, &v.Strength, &v.Status, &v.Verdict) == nil {
-			out = append(out, v)
+		if err := rows.Scan(&v.ID, &v.Title, &v.Description, &v.Shape, &v.Support, &v.Strength, &v.Status, &v.Verdict); err != nil {
+			return out, err
 		}
+		out = append(out, v)
 	}
-	return out
+	return out, rows.Err()
 }
 
 // themePatternView projects a theme into the unified patternView listing.
@@ -212,30 +235,52 @@ func themePatternView(th themeView) patternView {
 // strongestThemes returns the top verified themes by strength, capped — for the
 // overview. Empty when no corpus.
 func strongestThemes(brainDir string, limit int) []themeView {
+	themes, _ := strongestThemesChecked(brainDir, limit)
+	return themes
+}
+
+func strongestThemesChecked(brainDir string, limit int) ([]themeView, error) {
 	if limit <= 0 {
-		return nil
+		return nil, nil
 	}
-	themes := loadThemeViews(brainDir, true)
+	themes, err := loadThemeViewsChecked(brainDir, true)
+	if err != nil {
+		return nil, err
+	}
 	if len(themes) > limit {
 		themes = themes[:limit]
 	}
-	return themes
+	return themes, nil
 }
 
 // loadAcceptedThemeAsDeep maps an accepted theme into the deep-skill input so a
 // theme skill is synthesized from the VERIFIED latent practice (its agent
 // description), never a raw intent_sig.
 func loadAcceptedThemeAsDeep(brainDir, themeID string) (deepSkillInput, bool) {
-	db, err := openPatternCorpusDB(brainDir)
+	input, ok, _ := loadAcceptedThemeAsDeepChecked(brainDir, themeID)
+	return input, ok
+}
+
+func loadAcceptedThemeAsDeepChecked(brainDir, themeID string) (deepSkillInput, bool, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return deepSkillInput{}, false
+		return deepSkillInput{}, false, err
+	}
+	if !present {
+		return deepSkillInput{}, false, nil
 	}
 	defer db.Close()
+	if ok, err := patternCorpusHasTable(db.DB, "themes"); err != nil || !ok {
+		return deepSkillInput{}, false, err
+	}
 	var title, desc, shape, verdict string
 	err = db.QueryRow(`SELECT title, COALESCE(description,''), COALESCE(shape,''), COALESCE(verdict,'')
 		FROM themes WHERE id=?`, themeID).Scan(&title, &desc, &shape, &verdict)
 	if err != nil || verdict != "accepted" {
-		return deepSkillInput{}, false
+		if err != nil && err != sql.ErrNoRows {
+			return deepSkillInput{}, false, err
+		}
+		return deepSkillInput{}, false, nil
 	}
 	return deepSkillInput{
 		rec: deepDossierRecord{
@@ -245,22 +290,36 @@ func loadAcceptedThemeAsDeep(brainDir, themeID string) (deepSkillInput, bool) {
 			Trigger:       "latent practice (" + shape + "): " + desc,
 		},
 		verdict: dossierVerdict{Verdict: "accepted"},
-	}, true
+	}, true, nil
 }
 
 // getCorpusTheme resolves one theme by id for `get`.
 func getCorpusTheme(brainDir, themeID string) (unifiedResult, bool) {
-	db, err := openPatternCorpusDB(brainDir)
+	result, ok, _ := getCorpusThemeChecked(brainDir, themeID)
+	return result, ok
+}
+
+func getCorpusThemeChecked(brainDir, themeID string) (unifiedResult, bool, error) {
+	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
 	if err != nil {
-		return unifiedResult{}, false
+		return unifiedResult{}, false, err
+	}
+	if !present {
+		return unifiedResult{}, false, nil
 	}
 	defer db.Close()
+	if ok, err := patternCorpusHasTable(db.DB, "themes"); err != nil || !ok {
+		return unifiedResult{}, false, err
+	}
 	var v themeView
 	var members string
 	err = db.QueryRow(`SELECT id, title, description, shape, support, strength, status, COALESCE(verdict,''), COALESCE(member_keys,'')
 		FROM themes WHERE id=?`, themeID).Scan(&v.ID, &v.Title, &v.Description, &v.Shape, &v.Support, &v.Strength, &v.Status, &v.Verdict, &members)
 	if err != nil {
-		return unifiedResult{}, false
+		if err == sql.ErrNoRows {
+			return unifiedResult{}, false, nil
+		}
+		return unifiedResult{}, false, err
 	}
 	var b strings.Builder
 	b.WriteString(v.Title + "\n")
@@ -270,7 +329,7 @@ func getCorpusTheme(brainDir, themeID string) (unifiedResult, bool) {
 		state += "/" + v.Verdict
 	}
 	b.WriteString("members: " + strconv.Itoa(v.Support) + " episode(s) (" + state + ")")
-	return unifiedResult{Source: "theme", ID: v.ID, Text: redactText(b.String())}, true
+	return unifiedResult{Source: "theme", ID: v.ID, Text: redactText(b.String())}, true, nil
 }
 
 // rankTaskRelevantThemes returns verified themes whose title/description share a
@@ -396,13 +455,11 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 
 	repoKey := corpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
-	if _, err := db.Exec(`DELETE FROM themes`); err != nil { // agent re-proposes the full set
-		return stats, err
-	}
 	valid := map[string]bool{}
 	for _, k := range sampleKeys {
 		valid[k] = true
 	}
+	prepared := make([]theme, 0, len(proposed))
 	for _, pt := range proposed {
 		stats.Considered++
 		members := uniqueStrings(filterValidKeys(pt.MemberKeys, valid))
@@ -423,21 +480,35 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		shape := memberDominantShape(db, members)
 		strength := math.Round(supportScoreV2(len(members))*1000) / 1000
 		id := "theme:" + hexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
-		if err := storeTheme(db, theme{
+		prepared = append(prepared, theme{
 			id: id, repoKey: repoKey, scope: "repo",
 			title:       redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
 			description: redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
 			shape:       shape, memberKeys: string(memberJSON), support: len(members),
 			fingerprint: themeFingerprint(members), strength: strength, verdict: verdict,
-		}, ts); err != nil {
-			return stats, err
-		}
+		})
 		if verdict == "accepted" {
 			stats.Verified++
 		}
 	}
-	_ = setCorpusMeta(db, map[string]string{"themes_sample_fingerprint": sampleFP})
-	return stats, nil
+	tx, err := db.Begin()
+	if err != nil {
+		return stats, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM themes`); err != nil { // agent re-proposes the full set
+		return stats, err
+	}
+	for _, th := range prepared {
+		if err := storeTheme(tx, th, ts); err != nil {
+			return stats, err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('themes_sample_fingerprint', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, sampleFP); err != nil {
+		return stats, err
+	}
+	return stats, tx.Commit()
 }
 
 func parseProposedThemes(out string) ([]proposedTheme, error) {
