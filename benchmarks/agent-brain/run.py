@@ -3914,25 +3914,62 @@ def validate_temporal_source_artifact(
         raise RuntimeError("pinned temporal source artifact failed validation: " + "; ".join(mismatches))
 
 
-def copy_cached_plugin(cache_plugin: pathlib.Path, run_plugin: pathlib.Path, old_worktree: str, new_worktree: str) -> None:
+def cached_plugin_repo_dirs(run_plugin: pathlib.Path) -> list[pathlib.Path]:
+    """Every per-repository directory a cached plugin carries, across both scopes."""
+    dirs: list[pathlib.Path] = []
+    for scope in ("data", "state"):
+        root = run_plugin / scope / "repos" / "local"
+        if root.is_dir():
+            dirs.extend(sorted(entry for entry in root.iterdir() if entry.is_dir()))
+    return dirs
+
+
+def copy_cached_plugin(
+    cache_plugin: pathlib.Path,
+    run_plugin: pathlib.Path,
+    old_worktree: str,
+    new_worktree: str,
+    new_repo_key: str,
+) -> None:
     if run_plugin.exists():
         shutil.rmtree(run_plugin)
     shutil.copytree(cache_plugin, run_plugin)
     if old_worktree == new_worktree:
         return
-    old = old_worktree.encode()
-    new = new_worktree.encode()
+    # The brain names each repository directory <base>-<sha256(repo_path)[:12]>
+    # (localRepoKey in internal/cli/env.go), so a cached plugin carries the
+    # directory name of the cell that produced it. Rewriting file contents cannot
+    # rename a directory, so a reusing cell used to resolve a brain path that did
+    # not exist, read an empty brain, and fail prep with "produced no history
+    # index records" while the first cell of each cache key passed. The new name
+    # comes from the brain binary rather than a Python copy of the hash, so the
+    # Go implementation stays the single authority on repository identity.
+    renames: list[tuple[str, str]] = []
+    for repo_dir in cached_plugin_repo_dirs(run_plugin):
+        if repo_dir.name == new_repo_key:
+            continue
+        target = repo_dir.with_name(new_repo_key)
+        if target.exists():
+            shutil.rmtree(target)
+        repo_dir.rename(target)
+        renames.append((repo_dir.name, new_repo_key))
+    # The old key is also embedded in file contents (manifest repo_key, index
+    # provenance), so it has to be rewritten alongside the worktree path.
+    substitutions = [(old_worktree.encode(), new_worktree.encode())]
+    substitutions.extend((old.encode(), new.encode()) for old, new in dict(renames).items())
     for path in run_plugin.rglob("*"):
         if not path.is_file() or path.is_symlink():
             continue
         data = path.read_bytes()
-        if old not in data:
+        if not any(old in data for old, _ in substitutions):
             continue
         try:
             data.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        path.write_bytes(data.replace(old, new))
+        for old, new in substitutions:
+            data = data.replace(old, new)
+        path.write_bytes(data)
 
 
 def store_plugin_cache(cache_entry: pathlib.Path, plugin: pathlib.Path, metadata: dict[str, Any]) -> None:
@@ -4911,7 +4948,13 @@ def prepare_brain(
     prep["cache"] = {"enabled": use_cache, "key": key, "hit": False}
     if use_cache and cache_plugin.exists() and cache_meta.exists() and not refresh_cache:
         meta = json.loads(cache_meta.read_text())
-        copy_cached_plugin(cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
+        copy_cached_plugin(
+            cache_plugin,
+            plugin,
+            meta.get("source_worktree", ""),
+            str(worktree),
+            benchmark_brain_dir(worktree, env, tools).name,
+        )
         prep["history_sanitization"] = sanitize_brain_history(plugin)
         if is_temporal_memory_condition(condition):
             prep["memory_bundle"] = meta.get("memory_bundle")
@@ -4947,7 +4990,13 @@ def prepare_brain(
             raise RuntimeError("a pinned temporal source artifact requires the retained cache and forbids cache refresh")
         if use_cache and source_cache_plugin.exists() and source_cache_meta.exists() and not refresh_cache:
             meta = read_json_file(source_cache_meta)
-            copy_cached_plugin(source_cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
+            copy_cached_plugin(
+                source_cache_plugin,
+                plugin,
+                meta.get("source_worktree", ""),
+                str(worktree),
+                benchmark_brain_dir(worktree, env, tools).name,
+            )
             memory_record = meta.get("memory_bundle")
             if not isinstance(memory_record, dict):
                 raise RuntimeError("temporal source cache is missing frozen bundle provenance")
