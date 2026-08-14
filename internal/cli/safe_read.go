@@ -62,6 +62,19 @@ func safeReadFile(path string, max int64) ([]byte, error) {
 // safeReadAll reads up to max bytes from r. If r yields more than max bytes it
 // returns an error naming source, so an oversized untrusted stream fails loudly
 // instead of being silently truncated or driving the process out of memory.
+// readBoundExceededError marks the ONE failure that is genuinely about size,
+// so a caller can tell it apart from an I/O error or a cancelled context that
+// io.ReadAll surfaces through the same return. The message is unchanged from
+// the plain error it replaces.
+type readBoundExceededError struct {
+	source string
+	max    int64
+}
+
+func (e *readBoundExceededError) Error() string {
+	return fmt.Sprintf("%s exceeds maximum size of %d bytes", e.source, e.max)
+}
+
 func safeReadAll(r io.Reader, max int64, source string) ([]byte, error) {
 	if max <= 0 {
 		max = defaultMaxReadBytes
@@ -78,7 +91,7 @@ func safeReadAll(r io.Reader, max int64, source string) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(data)) > max {
-		return nil, fmt.Errorf("%s exceeds maximum size of %d bytes", source, max)
+		return nil, &readBoundExceededError{source: source, max: max}
 	}
 	return data, nil
 }

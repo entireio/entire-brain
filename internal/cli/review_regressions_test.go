@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -587,5 +588,100 @@ func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
 	}
 	if matches, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20); err == nil {
 		t.Fatalf("unreadable manifest must fail the raw scan closed; got %d matches", len(matches))
+	}
+}
+
+// TestBriefRawScanSkipsDerivedStores locks the raw walk against DERIVED state.
+//
+// The walk's exclusion guard matches transcript paths, because a bare file
+// carries no session identity. That covers sessions/, but every derived store
+// is rebuilt from those transcripts and holds their content under its own
+// filenames. A tombstone that has landed while cleanup is unfinished or was
+// interrupted leaves that content on disk, so a walk that reads derived state
+// surfaces exactly what the guard exists to hide.
+func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+	// The mid-cleanup window: the tombstone is live, but derived stores still
+	// carry the excluded session's content under names the guard cannot match.
+	derived := map[string]string{
+		"history/short-term.json": `{"version":1,"files":{"x":{"records":[{"summary":"` + privacyCanary + `"}]}}}`,
+		"facts/main.ndjson":       `{"id":"f1","text":"` + privacyCanary + `"}`,
+		"patterns/dossiers.json":  `[{"title":"` + privacyCanary + `"}]`,
+		"seed/seed.md":            "seed mentions " + privacyCanary,
+		"export/cursor.json":      `{"note":"` + privacyCanary + `"}`,
+		"history/index.json":      `{"records":[{"summary":"` + privacyCanary + `"}]}`,
+		"semantic/snapshot.jsonl": `{"name":"` + privacyCanary + `"}`,
+	}
+	for rel, body := range derived {
+		full := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for name, scan := range map[string]func() ([]brainTextMatch, error){
+		"single scan": func() ([]brainTextMatch, error) {
+			return brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 50)
+		},
+		"multi scan": func() ([]brainTextMatch, error) {
+			return brainBriefRawHistoryMatchesMultiScan(brainDir, privacyCanary, nil, 50, &brainBriefProfileRawHistory{})
+		},
+		"inspect": func() ([]brainTextMatch, error) {
+			report, err := inspectBrainRawText(brainDir, "all", privacyCanary, 50)
+			return report.Matches, err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			matches, err := scan()
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			for _, match := range matches {
+				if strings.Contains(match.Excerpt, privacyCanary) {
+					t.Fatalf("excluded content surfaced from derived store %s: %+v", match.Path, match)
+				}
+			}
+		})
+	}
+}
+
+// TestDocumentExpansionSeparatesReadFailureFromSizeBound locks the three
+// distinct expansion states apart. Wrapping every safeReadAll failure as
+// "too large" reported an I/O error or a cancelled context as a size-bound
+// violation, which is the one thing this surface promises not to do.
+func TestDocumentExpansionSeparatesReadFailureFromSizeBound(t *testing.T) {
+	// A genuine bound violation is still reported as one.
+	if _, err := safeReadAll(strings.NewReader(strings.Repeat("x", 64)), 8, "probe"); err == nil {
+		t.Fatal("oversized read must fail")
+	} else {
+		var bound *readBoundExceededError
+		if !errors.As(err, &bound) {
+			t.Fatalf("size overflow = %v, want a typed bound error", err)
+		}
+		if !strings.Contains(err.Error(), "exceeds maximum size of 8 bytes") {
+			t.Fatalf("bound message changed: %v", err)
+		}
+	}
+	// An I/O failure must NOT be classified as a bound violation.
+	injected := errors.New("injected device failure")
+	_, err := safeReadAll(iotest.ErrReader(injected), 1<<20, "probe")
+	if !errors.Is(err, injected) {
+		t.Fatalf("read failure = %v, want the underlying error", err)
+	}
+	var bound *readBoundExceededError
+	if errors.As(err, &bound) {
+		t.Fatalf("read failure was classified as a size-bound violation: %v", err)
+	}
+	if errors.Is(err, errConversationSourceTooLarge) {
+		t.Fatalf("read failure reported as conversation-source-too-large: %v", err)
 	}
 }

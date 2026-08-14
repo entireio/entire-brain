@@ -4748,6 +4748,38 @@ func (r *brainBriefCountingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// brainRawScanSkipsDerived reports whether a Brain-relative path is DERIVED
+// state that a raw text walk must not read.
+//
+// The exclusion guard available to a raw walk matches transcript PATHS, because
+// a bare file carries no session identity. That is enough for sessions/, but a
+// derived store is rebuilt FROM those transcripts and holds their content under
+// its own filenames: the short-term overlay, the history index and its
+// generations, distilled facts, pattern outputs. A tombstone that has landed
+// but whose cleanup has not finished (or was interrupted) leaves exactly that
+// content on disk, so scanning derived state would surface what the guard
+// exists to hide. Both raw walkers share this rule; keeping it in one place is
+// what stops the two skip lists from drifting apart again.
+func brainRawScanSkipsDerived(relSlash string) bool {
+	if relSlash == exportManifestFileName {
+		return true
+	}
+	for _, dir := range []string{
+		historyDirName,   // index, generations, staging, overlay, work records
+		factsDirName,     // distilled facts and the distill cache
+		"patterns",       // corpus, runs, derived pattern outputs
+		seedDirName,      // synthesized seed
+		semanticDirName,  // symbol graph snapshots and stores
+		"export",         // export cursor state
+		brainLockDirName, // lock leaves
+	} {
+		if relSlash == dir || strings.HasPrefix(relSlash, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistoryInspectReport, error) {
 	return inspectBrainRawTextObserved(brainDir, kind, query, maxHits, nil)
 }
@@ -4799,8 +4831,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
-		if relSlash == historyIndexPath || relSlash == "manifest.json" || strings.HasPrefix(relSlash, "seed/") ||
-			strings.HasPrefix(relSlash, historyGenerationsDir+"/") || strings.HasPrefix(relSlash, historyStagingDir+"/") {
+		if brainRawScanSkipsDerived(relSlash) {
 			return nil
 		}
 		if _, excluded := rawGuard.paths[relSlash]; excluded {
@@ -5039,8 +5070,7 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 		// Generation and staging directories hold projection copies of the same
 		// transcripts; scanning them would both duplicate hits and re-surface
 		// content the guard already excluded from the live projection.
-		if relSlash == historyIndexPath || relSlash == "manifest.json" || strings.HasPrefix(relSlash, "seed/") ||
-			strings.HasPrefix(relSlash, historyGenerationsDir+"/") || strings.HasPrefix(relSlash, historyStagingDir+"/") {
+		if brainRawScanSkipsDerived(relSlash) {
 			return nil
 		}
 		if _, excluded := rawGuard.paths[relSlash]; excluded {

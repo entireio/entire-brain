@@ -676,7 +676,15 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 		// index-time scan) instead of an unbounded slurp.
 		data, readErr := safeReadAll(br, maxDocumentTranscriptBytes, "document transcript "+record.Path)
 		if readErr != nil {
-			return conversationExpansion{}, fmt.Errorf("%w: %s", errConversationSourceTooLarge, readErr.Error())
+			// Only a genuine bound violation is reported as one. An I/O failure
+			// or a cancelled context reaches here through the same return, and
+			// labelling those "too large" collapses the distinct too-large,
+			// stale, and malformed states this surface promises to keep apart.
+			var bound *readBoundExceededError
+			if errors.As(readErr, &bound) {
+				return conversationExpansion{}, fmt.Errorf("%w: %s", errConversationSourceTooLarge, readErr.Error())
+			}
+			return conversationExpansion{}, readErr
 		}
 		if conversationStreamDigest(hasher) != record.SourceDigest {
 			return conversationExpansion{}, errConversationSourceStale
