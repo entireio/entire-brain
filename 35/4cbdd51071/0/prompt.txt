@@ -1,0 +1,33 @@
+Do a full review of the open PRs
+
+---
+
+Apply all fixes, ensure no functional regressions are introduced, then update the PR descriptions. Don't merge yet.
+
+---
+
+Work through the merge and check that you don't reintroduce the bug.
+
+---
+
+Work through the 27 conflicts. Given 83 is larger than originally described, also adjust title and description to cover all changes.
+
+---
+
+What are R0 and C1-C5?
+
+---
+
+Remove the numbering from title and description. Instead, summarize/describe what the PR actually does.
+
+---
+
+I hate the idea of a mapping table. The markers should have never landed in the code, they are meaningless over the long run. Fix that, regardless of how many files are affected.
+
+---
+
+The commit subjects and branch name are fine. Now ask both Cursor and Copilot for a review of the PR, address their findings (if valid), and keep looping until both show no more findings.
+
+---
+
+Cursor alone is fine. If CI is green, let's get it merged.
