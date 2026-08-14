@@ -366,8 +366,15 @@ func TestMemoryInstallHealthUsesTypedReadOnlyEvidence(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(historyPath, 0o700) })
 	history := inspectMemoryInstallDirectory(brainDir, historyDirName)
-	if history.State != "present_unproven" || !history.Exists || history.ModeWriteHint || history.WritabilityProven {
+	if history.State != "present_unproven" || !history.Exists || history.WritabilityProven {
 		t.Fatalf("read-only mode health = %+v", history)
+	}
+	// The mode-derived hint is a POSIX signal. Windows ignores mode bits on
+	// directories (ACLs govern access), so a 0500 mkdir still reports 0777 and
+	// the hint stays true. The states asserted above are the portable contract;
+	// only the hint is skipped.
+	if runtime.GOOS != "windows" && history.ModeWriteHint {
+		t.Fatalf("read-only mode hint = %+v", history)
 	}
 
 	outside := t.TempDir()
@@ -705,7 +712,9 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if got := checks["memory_schemas"]; got.State != "ok" || !strings.Contains(got.Detail, "observed state current") {
 		t.Fatalf("schema check = %+v", got)
 	}
-	if got := checks["memory_worker_log"]; got.State != "ok" || !strings.Contains(got.Detail, memoryWorkerLogRel) || !strings.Contains(got.Detail, fmt.Sprint(memoryWorkerLogMaxBytes)) {
+	// The detail reports an OS-native absolute path, so compare against the
+	// native spelling of the relative path rather than its slash form.
+	if got := checks["memory_worker_log"]; got.State != "ok" || !strings.Contains(got.Detail, filepath.FromSlash(memoryWorkerLogRel)) || !strings.Contains(got.Detail, fmt.Sprint(memoryWorkerLogMaxBytes)) {
 		t.Fatalf("worker log check = %+v", got)
 	}
 	install, _ := snapshot.Payload["install"].(map[string]any)

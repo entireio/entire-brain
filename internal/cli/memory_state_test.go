@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -883,6 +884,16 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 }
 
 func TestMemoryLegacyJobUsesActualPathForPrivacyCleanup(t *testing.T) {
+	// The legacy on-disk layout embeds the raw job id, which begins "job:".
+	// A colon cannot appear in a Windows filename: writing that path creates an
+	// NTFS alternate data stream instead of a listable file, so a legacy record
+	// could never have been written there by any build. memoryJobRel hashes the
+	// id for exactly this reason. The layout under test cannot exist on Windows,
+	// so there is nothing to adapt or purge.
+	if runtime.GOOS == "windows" {
+		t.Skip("legacy job layout embeds a colon and is unrepresentable on Windows")
+	}
+
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 9, 16, 30, 0, 0, time.UTC)
 	job := memoryJob{
@@ -928,6 +939,16 @@ func TestMemoryLegacyJobUsesActualPathForPrivacyCleanup(t *testing.T) {
 }
 
 func TestMemoryJobV1StringErrorAdaptsToV2(t *testing.T) {
+	// The legacy on-disk layout embeds the raw job id, which begins "job:".
+	// A colon cannot appear in a Windows filename: writing that path creates an
+	// NTFS alternate data stream instead of a listable file, so a legacy record
+	// could never have been written there by any build. memoryJobRel hashes the
+	// id for exactly this reason. The layout under test cannot exist on Windows,
+	// so there is nothing to adapt or purge.
+	if runtime.GOOS == "windows" {
+		t.Skip("legacy job layout embeds a colon and is unrepresentable on Windows")
+	}
+
 	brainDir := t.TempDir()
 	jobDir := filepath.Join(brainDir, filepath.FromSlash(memoryJobsDirRel))
 	if err := os.MkdirAll(jobDir, 0o700); err != nil {
