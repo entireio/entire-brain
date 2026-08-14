@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "de4655c49fc0",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_radar_tool_evidence.py",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/4655c49fc0/0/metadata.json",
+      "transcript": "/de/4655c49fc0/0/full.jsonl",
+      "compact_transcript": "/de/4655c49fc0/0/transcript.jsonl",
+      "content_hash": "/de/4655c49fc0/0/content_hash.txt",
+      "prompt": "/de/4655c49fc0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 108,
+    "cache_creation_tokens": 952520,
+    "cache_read_tokens": 51986980,
+    "output_tokens": 24461,
+    "api_call_count": 56
+  }
+}

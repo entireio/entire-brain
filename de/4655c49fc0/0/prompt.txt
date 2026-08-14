@@ -1,0 +1,137 @@
+Do a full review of the open PRs
+
+---
+
+Apply all fixes, ensure no functional regressions are introduced, then update the PR descriptions. Don't merge yet.
+
+---
+
+Work through the merge and check that you don't reintroduce the bug.
+
+---
+
+Work through the 27 conflicts. Given 83 is larger than originally described, also adjust title and description to cover all changes.
+
+---
+
+What are R0 and C1-C5?
+
+---
+
+Remove the numbering from title and description. Instead, summarize/describe what the PR actually does.
+
+---
+
+I hate the idea of a mapping table. The markers should have never landed in the code, they are meaningless over the long run. Fix that, regardless of how many files are affected.
+
+---
+
+The commit subjects and branch name are fine. Now ask both Cursor and Copilot for a review of the PR, address their findings (if valid), and keep looping until both show no more findings.
+
+---
+
+Cursor alone is fine. If CI is green, let's get it merged.
+
+---
+
+<task-notification>
+<task-id>bmsifu00j</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bmsifu00j.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for CI to finish on PR 83" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Merge 82, retarget 83 on main, then give me a plan to test on Windows without CI
+
+---
+
+You should be able to spin up a Windows VM via the authenticated az CLI
+
+---
+
+<task-notification>
+<task-id>bxqbz4kjw</task-id>
+<tool-use-id>toolu_01Xnh6hwyyKR3GWP4dUKQGeK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bxqbz4kjw.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the guest agent" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+What's the status?
+
+---
+
+<task-notification>
+<task-id>bvwx4n7ry</task-id>
+<tool-use-id>toolu_01UVtGbjm941ckcQmQDpapwB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bvwx4n7ry.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the in-flight run command to finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b97w2hiuf</task-id>
+<tool-use-id>toolu_012cYPFHbwFNLeJ7PJnmLj7m</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/b97w2hiuf.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for CI on the Windows fix" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bzx3q4m72</task-id>
+<tool-use-id>toolu_011ZfmWfFWBsR1AzRdV23vu2</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bzx3q4m72.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for CI on the final Windows fixes" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6eq21tb1</task-id>
+<tool-use-id>toolu_017njYjhmnrf8vYGe1behX2c</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/b6eq21tb1.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for all checks using the pending bucket" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bj3s2wo1k</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bj3s2wo1k.output</output-file>
+<status>completed</status>
+<summary>Background command "Trigger Bugbot on the current head and wait" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Did you shut down the Windows VM?
+
+---
+
+Let's merge the PR then
+
+---
+
+<task-notification>
+<task-id>b2osmudwt</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/b2osmudwt.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch post-merge CI on main" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Yes
