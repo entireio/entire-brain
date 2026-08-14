@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.9.1-nightly.202608080619.caa0c9be9",
+  "checkpoint_id": "354cbdd51071",
+  "strategy": "manual-commit",
+  "branch": "feat/r0-correctness-repair",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/history_delta_test.go",
+    "internal/cli/history_projection_atomicity_test.go",
+    "internal/cli/memory_state.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/35/4cbdd51071/0/metadata.json",
+      "transcript": "/35/4cbdd51071/0/full.jsonl",
+      "compact_transcript": "/35/4cbdd51071/0/transcript.jsonl",
+      "content_hash": "/35/4cbdd51071/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 30847,
+    "cache_read_tokens": 14037110,
+    "output_tokens": 11950,
+    "api_call_count": 17
+  }
+}
