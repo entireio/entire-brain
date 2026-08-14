@@ -452,7 +452,7 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// sessionReadGuard is the retrieval-time tombstone view (R0-1): every
+// sessionReadGuard is the retrieval-time tombstone view: every
 // conversation/history/fact retrieval boundary consults it so an excluded
 // session becomes unreadable the moment its tombstone lands, without waiting
 // for the derived rebuild. Defense in depth, not a substitute for cleanup.
@@ -562,7 +562,7 @@ func guardFactRecords(guard sessionReadGuard, facts []factRecord) []factRecord {
 }
 
 // filterTombstonedSessions drops excluded sessions from a derivation work
-// list (R0-1): an excluded session must never produce new derived facts or
+// list: an excluded session must never produce new derived facts or
 // records, even though its canonical transcript may still exist.
 func filterTombstonedSessions(brainDir string, sessions []exportSession) ([]exportSession, error) {
 	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: sessions}}}
@@ -601,7 +601,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 	brainDir := storage.BrainDir
 	if err := withBrainPrivacySideEffectLock(brainDir, func() error {
 		return withBrainWriteLock(brainDir, func() error {
-			// Exclusion is purge minus the transcript (R0-1): the tombstone guards
+			// Exclusion is purge minus the transcript: the tombstone guards
 			// reads immediately, then every derived projection the session fed --
 			// index records, facts, episodes, pattern outputs, caches, FTS and
 			// vector stores -- is removed or rebuilt from the surviving truth.
@@ -1088,7 +1088,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	if manifest.Sources != nil && manifest.Sources.History != nil {
 		// A declared-but-unreadable index is a real storage problem: failing
 		// here beats an under-reported plan that execution would then trust
-		// (R0-2: dry-run and execution inventories must match).
+		// (dry-run and execution inventories must match).
 		index, ierr := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 		if ierr != nil {
 			return plan, fmt.Errorf("load history index: %w", ierr)
@@ -1223,8 +1223,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 
 // privacyDerivedStoreRels is the static inventory of rebuildable derived
 // stores that exclude/purge delete wholesale and `privacy verify` re-checks;
-// dry-run, execution, and verification must never disagree on this list
-// (R0-2).
+// dry-run, execution, and verification must never disagree on this list.
 func privacyDerivedStoreRels() []string {
 	rels := []string{
 		historyFTSDBRelPath(),
@@ -1557,7 +1556,7 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 // purgeDistillCacheEntries drops the purged session's distill-cache entries
 // (fingerprint hashes keyed by branch/session; no content, but a purged
 // session must not look "already distilled" if it is ever re-included).
-// A failed write propagates (R0-2).
+// A failed write propagates.
 func purgeDistillCacheEntries(brainDir, sessionID string) error {
 	// Read with the SAME checked loader post-cleanup verification uses. The
 	// legacy loadDistillCache swallows every read/parse/version failure and
@@ -1590,7 +1589,7 @@ func purgeDistillCacheEntries(brainDir, sessionID string) error {
 	return saveDistillCache(brainDir, cache)
 }
 
-// --- R0.2: durable privacy transaction record ---
+// --- durable privacy transaction record ---
 //
 // Every exclude/purge/retention cleanup writes a content-free, versioned
 // transaction file with per-stage durable states, so an interrupted or
@@ -1701,16 +1700,16 @@ func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now 
 }
 
 // beforeSessionAbstractPrivacyCleanup is a deterministic crash/failure seam
-// after the tombstone and durable scope exist but before C4 artifacts are
+// after the tombstone and durable scope exist but before abstract artifacts are
 // removed. Production leaves it as a no-op.
 var beforeSessionAbstractPrivacyCleanup = func() error { return nil }
 
 // executeSessionCleanup is the shared exclude/purge executor: tombstone,
 // transcript deletion (purge only), derived-store deletion, fact/episode/
-// cache filtering, then the rebuild. Every deletion error propagates (R0-2);
+// cache filtering, then the rebuild. Every deletion error propagates;
 // the tombstone-first order keeps a failed run resumable and the session
-// unreadable in the meantime. Progress is a durable transaction record
-// (R0.2): each stage transition is persisted before the stage runs, and a
+// unreadable in the meantime. Progress is a durable transaction record:
+// each stage transition is persisted before the stage runs, and a
 // failure leaves an error state naming what stopped it.
 func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, now time.Time, reason string, keepTranscripts bool) (err error) {
 	// Operational publication state is classified before the transaction or
@@ -1836,7 +1835,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if _, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil); err != nil {
 		return err
 	}
-	// Success is published only after verification passes (R0-1): the same
+	// Success is published only after verification passes: the same
 	// checks `privacy verify` runs must find nothing for ANY tombstoned
 	// session, so a partially cleaned earlier failure also blocks this one.
 	report, verifyErr := verifySessionPrivacy(brainDir)
@@ -1880,7 +1879,7 @@ func purgeGitmetaSyncCaveats(env EntireEnv, repoKey string, plan sessionPurgePla
 // leaves. Ordinary derived stores retain the historical WAL/SHM expansion;
 // the pattern corpus instead uses the publication layer's one canonical
 // sidecar set, including its rollback journal. Missing files are fine, while
-// unsafe path components and every other failure propagate (R0-2).
+// unsafe path components and every other failure propagate.
 func removePrivacyDerivedStoreArtifact(brainDir, rel string) error {
 	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {

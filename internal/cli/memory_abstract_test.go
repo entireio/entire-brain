@@ -618,7 +618,7 @@ func TestMemoryMigrationRewritesLegacyJobs(t *testing.T) {
 	}
 }
 
-// TestProjectionReceiptsCommitThroughManifest is the R0.4 kill-boundary
+// TestProjectionReceiptsCommitThroughManifest is the kill-boundary
 // proof for receipt publication: a receipt file written without the manifest
 // commit is unreferenced, so readers stay on the previous readable generation.
 func TestProjectionReceiptsCommitThroughManifest(t *testing.T) {

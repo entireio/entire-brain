@@ -19,7 +19,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// memory_cmd.go is the C3/C5 administration surface over the durable work
+// memory_cmd.go is the administration surface over the durable work
 // record: content-free lifecycle hints (`memory notify`, the endpoint
 // implemented host adapters call across the external Entire CLI boundary),
 // reconciliation against the canonical manifest, a bounded synchronous

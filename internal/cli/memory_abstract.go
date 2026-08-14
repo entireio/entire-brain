@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// memory_abstract.go is C4: optional, evidence-linked session abstracts.
+// memory_abstract.go provides optional, evidence-linked session abstracts.
 // Abstracts are disposable navigation metadata, never capture truth, durable
 // facts, or instructions. Generation requires explicit configuration of a
 // provider; no network provider is ever selected implicitly, and every
@@ -783,7 +783,7 @@ type conversationAbstractInput struct {
 	IncludedRanges []abstractCoverageRange `json:"included_ranges"`
 }
 
-// ConversationAbstractor is the C4 provider seam. Implementations expose
+// ConversationAbstractor is the abstract provider seam. Implementations expose
 // their resolved identity; hosted providers may be invoked only with an
 // explicit egress acknowledgement.
 type ConversationAbstractor interface {
@@ -999,7 +999,7 @@ func decodeSessionAbstractOutput(out string) (sessionAbstract, error) {
 	return artifact, nil
 }
 
-// sessionViewDigest is the C4 abstract input identity, computed over the
+// sessionViewDigest is the abstract input identity, computed over the
 // reconciled session view sorted by turn ordinal.
 func sessionViewDigest(view conversationSessionView) string {
 	h := sha256.New()
@@ -1563,7 +1563,7 @@ func validateAbstractStatementLists(artifact sessionAbstract, allowed map[string
 	return nil
 }
 
-// validateSessionAbstract enforces every C4 bound and citation rule before
+// validateSessionAbstract enforces every abstract bound and citation rule before
 // publication. Partial or fabricated output is discarded, never stored.
 func validateSessionAbstract(artifact sessionAbstract, view conversationSessionView) error {
 	if artifact.SchemaVersion != abstractSchemaVersion {
@@ -1876,7 +1876,7 @@ func rejectMemoryAbstractJobForGlobalNoEgress(brainDir string, job memoryJob) er
 	return rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider)
 }
 
-// runSessionAbstractJob executes one durable C3 session_abstract job. The
+// runSessionAbstractJob executes one durable session_abstract job. The
 // coordinator lease and Brain write lock remain available while the dedicated
 // privacy-side-effect lock spans provider egress and durable publication.
 func runSessionAbstractJob(ctx context.Context, repoDir, brainDir, sessionRef, expectedDigest string, now time.Time) error {
@@ -1930,7 +1930,7 @@ func loadConversationSessionViewByRef(brainDir, ref string) (conversationSession
 	return view, nil
 }
 
-// sessionAbstractStatus resolves the C4 status for one session view without
+// sessionAbstractStatus resolves the abstract status for one session view without
 // ever making a generation call.
 func sessionAbstractStatus(brainDir string, view conversationSessionView) (string, *sessionAbstract) {
 	return newSessionAbstractResolver(brainDir).status(view)
@@ -1966,7 +1966,7 @@ func sessionAbstractJobStatus(brainDir, sessionRef, digest string) (string, bool
 	return "", false
 }
 
-// abstractWorkRequest is the disjoint C4-to-C3 integration seam. C3 may turn
+// abstractWorkRequest is the disjoint abstract-to-worker integration seam. The worker may turn
 // it into a content-free session_abstract job after deterministic projection;
 // constructing it never invokes a provider and stores no conversation text.
 type abstractWorkRequest struct {

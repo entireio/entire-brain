@@ -388,7 +388,7 @@ func conversationSemanticScores(brainDir string, e Embedder, query string, limit
 // conversationSemanticScoresExhaustive scores a KNN neighborhood large enough
 // to cover every stored conversation vector up to the filtered-scan ceiling.
 // Structured filters require it: a bounded semantic candidate window has the
-// same false-empty defect as the bounded lexical window (R0-3). Honesty
+// same false-empty defect as the bounded lexical window. Honesty
 // bound: the vec0 backend clamps K (vec0KnnMaxK, 4096), so past that many
 // stored vectors the filtered vector arm is explicitly approximate, exactly
 // as the plan's vector-mode contract allows; exact-filter completeness is

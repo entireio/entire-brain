@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// memory_state.go is the C3 durable work record: content-free lifecycle hint
+// memory_state.go is the durable work record: content-free lifecycle hint
 // files and per-job state files under history/work/v1/. Jobs are operational
 // history; the projection receipt (memory_receipts.go) is the durable proof
 // of currentness, and reconciliation against the canonical manifest remains
@@ -377,7 +377,7 @@ func legacyMemoryJobRel(jobID string) string {
 	return filepath.ToSlash(filepath.Join(memoryJobsDirRel, url.PathEscape(jobID)+".json"))
 }
 
-// memoryJobTransitions is the allowed state machine (C3).
+// memoryJobTransitions is the allowed state machine.
 var memoryJobTransitions = map[string]map[string]bool{
 	memoryJobStatePending:   {memoryJobStateRunning: true, memoryJobStateExcluded: true, memoryJobStateSuperseded: true, memoryJobStateCancelled: true},
 	memoryJobStateRunning:   {memoryJobStateComplete: true, memoryJobStateRetryable: true, memoryJobStateInvalid: true, memoryJobStateExcluded: true, memoryJobStateSuperseded: true, memoryJobStateCancelled: true},

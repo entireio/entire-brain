@@ -835,7 +835,7 @@ func TestConversationExchangeRecordsIdenticalRequestsDistinctOrdinals(t *testing
 	}
 }
 
-// TestConversationExpansionStreamsLargeTranscripts proves R0-7: expanding one
+// TestConversationExpansionStreamsLargeTranscripts proves bounded expansion: expanding one
 // exchange from an oversized line-oriented transcript streams the file (only
 // the indexed range is materialized) while the digest still covers the whole
 // stream, and a post-index append is reported stale, never served.
@@ -884,7 +884,7 @@ func TestConversationExpansionStreamsLargeTranscripts(t *testing.T) {
 	}
 }
 
-// TestConversationExpansionDistinguishesFailureStates proves R0-7's contract:
+// TestConversationExpansionDistinguishesFailureStates proves the expansion contract:
 // too-large, stale, and unreadable sources surface as distinct caveats, never
 // one collapsed stale answer.
 func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {

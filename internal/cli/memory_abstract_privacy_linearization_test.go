@@ -423,7 +423,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 		t.Fatalf("hosted receipt precondition: present=%t err=%v", present, err)
 	}
 
-	injected := fmt.Errorf("injected failure before C4 cleanup")
+	injected := fmt.Errorf("injected failure before abstract cleanup")
 	originalHook := beforeSessionAbstractPrivacyCleanup
 	beforeSessionAbstractPrivacyCleanup = func() error { return injected }
 	t.Cleanup(func() { beforeSessionAbstractPrivacyCleanup = originalHook })
@@ -450,7 +450,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	}
 
 	// A later refresh drops the session from the manifest before the user
-	// retries. Only the durable transaction can now identify its C4 artifacts.
+	// retries. Only the durable transaction can now identify its abstract artifacts.
 	if err := withBrainWriteLock(brainDir, func() error {
 		current, err := loadBrainManifest(brainDir)
 		if err != nil {
@@ -480,7 +480,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 		dirtyKinds[finding.Artifact] = true
 	}
 	if dirtyReport.Clean || !dirtyKinds["session_abstract"] || !dirtyKinds["abstract_egress_receipt"] {
-		t.Fatalf("verification false-cleaned durable C4 survivors: clean=%t findings=%+v", dirtyReport.Clean, dirtyReport.Findings)
+		t.Fatalf("verification false-cleaned durable abstract survivors: clean=%t findings=%+v", dirtyReport.Clean, dirtyReport.Findings)
 	}
 	beforeSessionAbstractPrivacyCleanup = func() error { return nil }
 	err = withBrainPrivacySideEffectLock(brainDir, func() error {

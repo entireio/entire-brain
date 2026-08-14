@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// memory_receipts.go is the C3 projection receipt: the durable, content-free
+// memory_receipts.go is the projection receipt: the durable, content-free
 // proof of which canonical sessions the last full consolidation represented,
 // at which input digests. Jobs are operational history; a deterministic job
 // is complete only when its identity appears here (or its session is

@@ -374,7 +374,7 @@ func TestRankConversationFusedSemanticArmEndToEnd(t *testing.T) {
 	}
 }
 
-// TestRankConversationFusedFilteredCompleteness proves R0-3 on the semantic
+// TestRankConversationFusedFilteredCompleteness proves filtered-window completeness on the semantic
 // and fused arms against the real vec0 store: an in-scope exchange that both
 // arms rank far below a wall of out-of-scope candidates is still returned
 // when a structured filter selects it, because filters reach candidate
@@ -447,7 +447,7 @@ func TestRankConversationFusedFilteredCompleteness(t *testing.T) {
 }
 
 // TestExclusionCleanupDeletesPopulatedConversationVectorStore is the
-// vector-store canary (R0-1/R0-2): a real vec0 store holding embeddings for a
+// vector-store canary: a real vec0 store holding embeddings for a
 // tombstoned session's exchanges is deleted by the shared cleanup and the
 // operation still verifies clean.
 func TestExclusionCleanupDeletesPopulatedConversationVectorStore(t *testing.T) {

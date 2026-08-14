@@ -326,7 +326,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	shortTerm, shortTermState := loadHistoryShortTermState(brainDir, history)
 	// "Covers the gap" is claimable only for a CURRENT overlay built against
 	// the exact current source fingerprint with nothing failed, dropped, or
-	// truncated (R0-6). Anything less is at best partial coverage.
+	// truncated. Anything less is at best partial coverage.
 	shortTermCurrentForSources := shortTermState == shortTermStateCurrent && shortTerm.SessionsFingerprint == current
 	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
 	switch {
@@ -415,7 +415,7 @@ type brainStatsShortTerm struct {
 	Exchanges   int    `json:"exchanges"`
 	GeneratedAt string `json:"generated_at"`
 	Truncated   bool   `json:"truncated,omitempty"`
-	// State is the typed overlay load state (R0-6); FailedFiles are the
+	// State is the typed overlay load state; FailedFiles are the
 	// transcripts the last delta could not scan.
 	State       string   `json:"state,omitempty"`
 	FailedFiles []string `json:"failed_files,omitempty"`

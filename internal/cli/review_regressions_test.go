@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// This file locks the defects found reviewing the R0 batch. Every case below
+// This file locks the defects found reviewing this branch. Every case below
 // was an untested path: the full suite passed with each bug present.
 
 // TestInspectRawTextFailsClosedOnUnreadableManifest locks the raw-scan
@@ -541,7 +541,7 @@ func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
 // The fast single-scan walker (used whenever profiling is off, i.e. the product
 // path) walks the Brain directly instead of going through inspectBrainRawText,
 // so it does not inherit that function's exclusion guard. Merging main's
-// performance rewrite would otherwise have silently reopened the R0-1 leak: a
+// performance rewrite would otherwise have silently reopened the exclusion leak: a
 // tombstoned session's transcript scanned here is merged straight into
 // report.History.Matches. The profiling multi-scan path routes through
 // inspectBrainRawTextObserved and is guarded there; this covers the other one.

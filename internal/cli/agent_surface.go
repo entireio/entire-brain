@@ -1531,7 +1531,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
-			// Exclusion guard (R0-1): the brief's history arm honors
+			// Exclusion guard: the brief's history arm honors
 			// tombstones at read time like every retrieval surface. The
 			// long-term ranking above was computed before the guard existed in
 			// this scope, so the post-filter below is what protects it; the
@@ -1592,7 +1592,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
-			// Exclusion guard (R0-1): the brief's fact context honors
+			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
 			facts = guardFactRecords(briefPrivacyGuard, facts)
 			// Semantic rerank on by default; nil reranker (embedder
@@ -1694,7 +1694,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// tokens; strong late candidates already refilled it before this point.
 	report.Semantic.Tests.Suggestions = visibleSemanticTestSuggestions(report.Semantic.Tests.Suggestions, briefOpts.limit)
 	// The checked loaders below fail the brief on unsafe or unreadable derived
-	// state instead of presenting it as empty (R0). A genuinely absent corpus
+	// state instead of presenting it as empty. A genuinely absent corpus
 	// is still optional and contributes nothing.
 	patternsStarted := profile.start()
 	views, _, perr := loadPatternViews(status.Brain.Path)
@@ -1743,7 +1743,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	}
 	// Every brief response leaves through the retrieval privacy boundary, so a
 	// tombstone landing mid-brief invalidates the response instead of letting
-	// already-rendered bytes escape (R0-1). That means buffering the packet
+	// already-rendered bytes escape. That means buffering the packet
 	// even on the non-profiling path; emitBrainBriefPacket dispatches text,
 	// legacy JSON, and the compact formats alike, so one wrapper covers all of
 	// them.
@@ -4761,7 +4761,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	if maxHits <= 0 {
 		maxHits = brainInspectHistoryMaxHits
 	}
-	// Exclusion guard (R0-1): the raw walk reads exported transcripts, so a
+	// Exclusion guard: the raw walk reads exported transcripts, so a
 	// tombstoned session's transcript (kept on exclude, deleted on purge)
 	// must be skipped here. rawGuard.paths is the ONLY exclusion mechanism in
 	// this walk (there is no session id to match against a bare file), and it
@@ -4993,7 +4993,7 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 		return nil, nil
 	}
 
-	// Exclusion guard (R0-1), identical to inspectBrainRawText's. This is the
+	// Exclusion guard, identical to inspectBrainRawText's. This is the
 	// DEFAULT product path (the profiling path routes through
 	// inspectBrainRawTextObserved and is guarded there), so without this a
 	// tombstoned session's transcript would be scanned here and its lines
@@ -5281,7 +5281,7 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 		return nil
 	}
 	candidateLimit := brainBriefExpandedCandidateLimit(limit, 3)
-	// Exclusion guard (R0-1): tombstoned sessions stay out of the focused
+	// Exclusion guard: tombstoned sessions stay out of the focused
 	// history context. The serving boundary loaded it fail-closed before
 	// assembling the brief.
 	var fGuardPred func(historyRecord) bool

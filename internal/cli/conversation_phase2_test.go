@@ -378,7 +378,7 @@ func TestConversationVectorModeExplicitUnavailable(t *testing.T) {
 	}
 }
 
-// writeConversationWindowFixture is the R0-3 adversarial fixture: far more
+// writeConversationWindowFixture is the filtered-window adversarial fixture: far more
 // than 16x the requested limit of out-of-scope exchanges that outrank the
 // single in-scope exchange lexically, so any bounded unfiltered candidate
 // window drops the in-scope hit before post-filtering.
@@ -426,7 +426,7 @@ func writeConversationWindowFixture(t *testing.T) string {
 	return brainDir
 }
 
-// TestConversationFilteredCandidateWindowCompleteness proves R0-3: exact
+// TestConversationFilteredCandidateWindowCompleteness proves filtered-window completeness: exact
 // structured filters cannot false-empty because an in-scope match fell below
 // a bounded unfiltered candidate window.
 func TestConversationFilteredCandidateWindowCompleteness(t *testing.T) {

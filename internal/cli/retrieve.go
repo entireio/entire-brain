@@ -39,7 +39,7 @@ type unifiedResult struct {
 	// weak match is diagnosable instead of opaque (conversation search only).
 	MatchedTerms []string `json:"matched_terms,omitempty"`
 
-	// C1 session navigation (additive; conversation source only).
+	// Session navigation (additive; conversation source only).
 	SessionRef      string             `json:"session_ref,omitempty"`
 	TargetID        string             `json:"target_id,omitempty"`
 	ContextBefore   int                `json:"context_before,omitempty"`
@@ -50,13 +50,13 @@ type unifiedResult struct {
 	NextTurn        int                `json:"next_turn,omitempty"`
 	PacketTruncated bool               `json:"packet_truncated,omitempty"`
 
-	// C4 abstract status on session outlines (additive; never a generation
+	// Abstract status on session outlines (additive; never a generation
 	// call).
 	AbstractStatus string           `json:"abstract_status,omitempty"`
 	AbstractIssue  string           `json:"abstract_issue,omitempty"`
 	Abstract       *sessionAbstract `json:"abstract,omitempty"`
 
-	// C2 multi-concept session coverage (additive; heading session_coverage).
+	// Multi-concept session coverage (additive; heading session_coverage).
 	Concepts          []string       `json:"concepts,omitempty"`
 	ConceptMatches    []conceptMatch `json:"concept_matches,omitempty"`
 	EvidenceIDs       []string       `json:"evidence_ids,omitempty"`
@@ -104,7 +104,7 @@ type retrievalOptions struct {
 	SessionID string
 	Agent     string
 	Branch    string
-	// Concepts are the C2 additional multi-concept queries (one to four,
+	// Concepts are the additional multi-concept queries (one to four,
 	// joined with the primary query for session-scoped AND coverage). Valid
 	// only with Source == "conversation".
 	Concepts []string
@@ -210,7 +210,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	if candidateLimit < limit { // integer overflow guard for unreasonable inputs
 		candidateLimit = limit
 	}
-	// Exclusion guard (R0-1): consulted at this retrieval boundary so a
+	// Exclusion guard: consulted at this retrieval boundary so a
 	// tombstoned session's derived records are unreadable immediately, even
 	// mid-cleanup. Empty guard (the normal case) changes nothing.
 	guard, err := loadSessionReadGuard(brainDir, nil)
@@ -332,7 +332,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 			// loading index.json, but it cannot apply an exclusion predicate
 			// during candidate generation and does not resolve the two-tier
 			// duplicate winner. A brain with live tombstones therefore takes
-			// the full path below (R0-1, R0-4); an unguarded brain, the common
+			// the full path below; an unguarded brain, the common
 			// case, keeps the fast path.
 			if mode != modeVector && historySem == nil && guardPred == nil {
 				// The common BM25-only path hydrates its small result window from
@@ -358,8 +358,8 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 				// Semantic arms rank the long-term records minus files the
 				// short-term overlay superseded (overlay records have no vectors
 				// until consolidation; the lexical tier carries their freshness)
-				// and minus copies a newer overlay copy supersedes (R0-4). The
-				// exclusion guard filters both arms (R0-1); it already carries
+				// and minus copies a newer overlay copy supersedes. The
+				// exclusion guard filters both arms; it already carries
 				// the manifest-derived transcript paths, resolved before the
 				// facts arm ran, so records that lost their session id block by
 				// path here too.
@@ -706,13 +706,13 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		return nil, fmt.Errorf("load history index: %w", err)
 	}
 	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
-	// Structured filters are pushed into candidate generation (R0-3): every
+	// Structured filters are pushed into candidate generation: every
 	// arm ranks only in-scope records, so a valid session/agent/time/branch
 	// match can never be displaced out of a bounded candidate window by
 	// higher-ranked out-of-scope rows. The over-fetch below is dedup/diversity
-	// headroom only. The exclusion guard joins the same predicate (R0-1): a
+	// headroom only. The exclusion guard joins the same predicate: a
 	// tombstoned session is unreadable here even while its derived cleanup is
-	// still running. Superseded duplicate copies join it too (R0-4): a stale
+	// still running. Superseded duplicate copies join it too: a stale
 	// copy must not even consume a candidate slot.
 	guard, err := loadSessionReadGuard(brainDir, manifest)
 	if err != nil {
@@ -751,7 +751,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		// Semantic-only ranks long-term vectors; short-term records have no
 		// vectors until consolidation and are deliberately absent here. The
 		// reconciled view also drops long-term copies a newer overlay copy
-		// supersedes (R0-4): those wait for consolidation like any other
+		// supersedes: those wait for consolidation like any other
 		// short-term record instead of surfacing stale.
 		semIndex := fresh.longTermReconciled()
 		if pred != nil {
@@ -820,7 +820,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	out := make([]unifiedResult, len(kept))
 	for i, s := range kept {
 		out[i] = conversationToUnified(s.Record)
-		// Session navigation identity (C1): every hit names its virtual
+		// Session navigation identity: every hit names its virtual
 		// session so callers can fetch the outline or adjacent context.
 		out[i].SessionRef, _ = recordSessionRef(s.Record, manifest.RepoKey, manifest)
 		// Explainability: which query tokens actually hit this record, so a
@@ -940,7 +940,7 @@ func conversationToUnified(record historyRecord) unifiedResult {
 // indexed range from the canonical transcript when its digest still matches;
 // otherwise degrade to the stored projection with a caveat naming WHICH
 // contract failed. Too-large, stale, and unreadable sources are distinct
-// states (R0-7), never one collapsed "stale" answer.
+// states, never one collapsed "stale" answer.
 func conversationGetResult(brainDir string, record historyRecord) unifiedResult {
 	result := conversationToUnified(record)
 	expansion, err := expandConversationExchange(brainDir, record)
@@ -1028,7 +1028,7 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopts getOptions) (found []unifiedResult, missing []string, err error) {
 	// One request fans out to at most this many record resolutions; each
 	// conversation id triggers a bounded transcript read, so the batch size
-	// itself must be bounded too (R0-7).
+	// itself must be bounded too.
 	if len(ids) > maxGetBatchIDs {
 		return nil, nil, fmt.Errorf("at most %d ids per get/multi-get request (got %d)", maxGetBatchIDs, len(ids))
 	}
@@ -1059,7 +1059,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			return nil, nil, err
 		}
 	}
-	// Navigation arguments are type-specific (C1): context counts belong to a
+	// Navigation arguments are type-specific: context counts belong to a
 	// single conversation: target, outline cursor/limit to a single
 	// conversation-session: target. Anything else is a structured
 	// invalid-argument error, never an ignored option.
@@ -1075,7 +1075,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	if wantSession && len(ids) != 1 {
 		return nil, nil, fmt.Errorf("a conversation-session: outline requires its own single-id request")
 	}
-	// Exclusion guard (R0-1): a tombstoned session's records resolve as "not
+	// Exclusion guard: a tombstoned session's records resolve as "not
 	// found" on every get surface immediately, even before cleanup finishes.
 	guard, err := loadSessionReadGuard(brainDir, nil)
 	if err != nil {
@@ -1125,7 +1125,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	var abstractResolver *sessionAbstractResolver
 	// convScopes maps a conversation id to its session scopes (ref -> newest
 	// record in that scope), so a legacy id colliding across scopes is a
-	// structured ambiguity, never a silent last-write-wins pick (C1).
+	// structured ambiguity, never a silent last-write-wins pick.
 	convScopes := map[string]map[string]historyRecord{}
 	if wantHistory || wantConversation || wantSession {
 		// A corrupt manifest, or a history index the manifest declares but that is
@@ -1163,7 +1163,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			}
 			// reconciledRecords collapses duplicate stable IDs to the same
 			// newest-copy winner ranking uses, so get expands exactly the
-			// record search returned (R0-4).
+			// record search returned.
 			for _, r := range fresh.reconciledRecords() {
 				if guard.blocksRecord(r) {
 					continue
@@ -1251,7 +1251,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			if len(scopes) > 1 {
 				// The existing branch selector may disambiguate a legacy id
 				// that collides across session scopes; a silent winner never
-				// may (C1).
+				// may.
 				matching := map[string]historyRecord{}
 				for ref, record := range scopes {
 					if record.Branch == branch {

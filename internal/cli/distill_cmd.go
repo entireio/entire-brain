@@ -686,7 +686,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
-	// Excluded sessions must never produce new derived facts (R0-1).
+	// Excluded sessions must never produce new derived facts.
 	sessions, err = filterTombstonedSessions(brainDir, sessions)
 	if err != nil {
 		return nil, err
@@ -1226,7 +1226,7 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
-	// Excluded sessions must never produce new derived facts (R0-1).
+	// Excluded sessions must never produce new derived facts.
 	sessions, err := filterTombstonedSessions(brainDir, sessions)
 	if err != nil {
 		return distillPlan{}, err

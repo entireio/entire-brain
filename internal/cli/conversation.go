@@ -619,11 +619,11 @@ func validateConversationSourcePath(brainDir, rel string) (string, error) {
 
 // errConversationSourceTooLarge marks a document-form transcript over the
 // bounded-read ceiling; distinct from stale (digest/missing) and malformed
-// (parse) states so callers and users see which contract failed (R0-7).
+// (parse) states so callers and users see which contract failed.
 var errConversationSourceTooLarge = errors.New("conversation source transcript exceeds the document read bound")
 
 // expandConversationExchange re-parses the bounded full exchange from its
-// source transcript in ONE streaming pass (R0-7): line-oriented transcripts
+// source transcript in ONE streaming pass: line-oriented transcripts
 // never materialize in memory; only the indexed line range is retained while
 // the digest hashes the full stream. Document-form transcripts use the same
 // bounded read contract as index-time scanning. The stored digest is verified

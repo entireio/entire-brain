@@ -19,7 +19,7 @@ var (
 	memoryStateOpenFile = os.OpenFile
 )
 
-// readMemoryStateFile is the single reader for untrusted C3/C4 state. It binds
+// readMemoryStateFile is the single reader for untrusted work-record and abstract state. It binds
 // the opened descriptor to both lstat observations, rejects aliases and
 // non-regular files, and reads at most maxBytes. memoryStateReadOpenFlags adds
 // O_NONBLOCK on Unix so a regular-file-to-FIFO swap cannot hang the worker.

@@ -17,13 +17,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// memory_admin.go is the C5 maintenance surface: repair (verify dependencies,
+// memory_admin.go is the maintenance surface: repair (verify dependencies,
 // smallest deterministic rebuild), rebuild (recreate disposable projections
 // from canonical sessions), and migrate (upgrade derived schemas atomically,
 // build-beside-then-switch, never delete first). Every mutation returns a
 // versioned, content-free receipt with stable error codes.
 
-// Stable error codes (C5 taxonomy). An empty result never stands in for any
+// Stable error codes (maintenance taxonomy). An empty result never stands in for any
 // of these states.
 const (
 	memoryErrStateCorrupt               = "memory_state_corrupt"
@@ -1253,7 +1253,7 @@ func inspectEntireBinary() memoryInstallBinaryHealth {
 }
 
 // memoryInstallHealth reports binary capabilities and directory health for
-// memory status (C5 installation and integration health). It is strictly
+// memory status (installation and integration health). It is strictly
 // read-only: presence and permission-mode observations are never presented as
 // proof that a later write, host adapter, or binary invocation will succeed.
 func memoryInstallHealth(brainDir string) map[string]any {
@@ -1862,7 +1862,7 @@ func projectionReceiptHealth(brainDir string, source *historySourceManifest) (pr
 	return receipts, health
 }
 
-// memoryAggregateHealth is the shared read-only C5 status payload used by the
+// memoryAggregateHealth is the shared read-only status payload used by the
 // CLI status namespace and the MCP brain_status preflight.
 func memoryAggregateHealth(brainDir string, source *historySourceManifest) map[string]any {
 	return memoryAggregateHealthAt(brainDir, source, time.Now().UTC())

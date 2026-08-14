@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// conversation_multiconcept.go is C2 of the conversational-memory plan:
+// conversation_multiconcept.go implements multi-concept session recall:
 // session-scoped AND coverage over two to five concepts. A session matches
 // only when EVERY concept has at least one matching exchange; the result is
 // the session's virtual identity plus the exact supporting exchanges, so the
@@ -85,9 +85,9 @@ type conceptRankList struct {
 	approximate bool
 }
 
-// retrieveConversationMultiConcept executes the C2 contract. Filters and the
+// retrieveConversationMultiConcept executes the multi-concept contract. Filters and the
 // exclusion guard reach candidate generation exactly like single-concept
-// retrieval (R0-3/R0-1); lexical mode enumerates each concept's complete
+// retrieval; lexical mode enumerates each concept's complete
 // in-scope match set up to the safety ceiling and fails structured
 // (memory_query_too_broad) beyond it; vector and hybrid modes are explicitly
 // approximate but never violate filters.

@@ -637,7 +637,7 @@ func TestPrivacyRetentionSelectsByAgeAndBranch(t *testing.T) {
 	}
 }
 
-// TestExclusionReadGuardBlocksImmediately proves R0-1's read boundary: the
+// TestExclusionReadGuardBlocksImmediately proves the exclusion read boundary: the
 // moment a tombstone lands (before any rebuild or cleanup), the session's
 // records stop being served by conversation retrieval, unified retrieval,
 // and get, even though the derived artifacts still physically exist.
@@ -707,7 +707,7 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 	}
 }
 
-// TestExcludeCleansDerivedArtifactsAndKeepsTranscript proves the R0-1
+// TestExcludeCleansDerivedArtifactsAndKeepsTranscript proves the
 // exclusion contract: exclude removes or rebuilds every derived projection
 // (facts, episodes, pattern outputs, caches, stores) exactly like purge,
 // while deliberately keeping the exported transcript.
@@ -758,7 +758,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A stale overlay file must be inside the shared inventory (R0-2: dry-run
+	// A stale overlay file must be inside the shared inventory (dry-run
 	// and execution agree on artifact identity).
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), []byte(`{"version":1}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -845,14 +845,14 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	if !report.Clean {
 		t.Fatalf("post-exclusion verify must be clean: %+v", report.Findings)
 	}
-	// R0.2: the durable transaction record ends complete.
+	// The durable transaction record ends complete.
 	tx, ok := loadPrivacyTransaction(brainDir, "secret-sess")
 	if !ok || tx.State != privacyStateComplete || tx.Operation != "exclude" {
 		t.Fatalf("transaction record = %+v ok=%v, want complete exclude", tx, ok)
 	}
 }
 
-// TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers proves R0-2: a store
+// TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers proves purge truthfulness: a store
 // that cannot be deleted fails the purge with the exact artifact named,
 // verify flags the surviving store, and re-running the (idempotent) purge
 // after the fault is removed succeeds and verifies clean.
@@ -892,7 +892,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	if !strings.Contains(err.Error(), patternCorpusPath) {
 		t.Fatalf("failure must name the artifact: %v", err)
 	}
-	// R0.2: the failure is a durable error state naming what stopped it.
+	// The failure is a durable error state naming what stopped it.
 	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateError || !strings.Contains(tx.Error, patternCorpusPath) {
 		t.Fatalf("transaction record after failure = %+v ok=%v", tx, ok)
 	}
@@ -935,7 +935,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	assertCanaryAbsent(t, brainDir)
 }
 
-// TestVerifyFlagsDirtyFTSStoreByContent proves the R0-2 refinement: a BM25
+// TestVerifyFlagsDirtyFTSStoreByContent proves the store-content refinement: a BM25
 // store still holding rows for an excluded transcript is flagged by content
 // inspection even when its mtime looks fresh.
 func TestVerifyFlagsDirtyFTSStoreByContent(t *testing.T) {
@@ -979,7 +979,7 @@ func TestVerifyFlagsDirtyFTSStoreByContent(t *testing.T) {
 	}
 }
 
-// TestGetBatchCapsRequestSize locks the R0-7 fan-out bound: one get/multi-get
+// TestGetBatchCapsRequestSize locks the fan-out bound: one get/multi-get
 // request resolves at most maxGetBatchIDs ids.
 func TestGetBatchCapsRequestSize(t *testing.T) {
 	ids := make([]string, maxGetBatchIDs+1)

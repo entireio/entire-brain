@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// doc_contract_test.go is the R0-8 doc-contract lock: user-facing docs, tool
+// doc_contract_test.go is the doc-contract lock: user-facing docs, tool
 // descriptions, and the CLI/MCP source-mode surface must describe the same
 // tested capability matrix. When behavior changes, this test forces the
 // documentation to move with it instead of drifting.
@@ -97,7 +97,7 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 	}
 	searchProps, _ := json.Marshal(searchSchema["properties"])
 	vsearchProps, _ := json.Marshal(vsearchSchema["properties"])
-	// C2: all three retrieval tools share one strict schema (source,
+	// All three retrieval tools share one strict schema (source,
 	// structured filters, concepts).
 	for _, arg := range []string{"source", "session_id", "agent", "after", "before", "concepts"} {
 		if !strings.Contains(string(searchProps), `"`+arg+`"`) {

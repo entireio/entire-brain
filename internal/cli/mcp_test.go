@@ -1698,7 +1698,7 @@ func mcpConversationFixture(t *testing.T, repoDir string, env EntireEnv, runner 
 }
 
 // TestMCPToolsListSourceEnumOnRetrievalTools locks the retrieval schema
-// contract: since C2, brain_query, brain_search, and brain_vsearch all
+// contract: brain_query, brain_search, and brain_vsearch all
 // advertise the same enum-valued source argument (including "conversation").
 func TestMCPToolsListSourceEnumOnRetrievalTools(t *testing.T) {
 	defs := mcpToolDefinitions()
@@ -1845,7 +1845,7 @@ func TestMCPConversationQueryThenGet(t *testing.T) {
 // TestMCPConversationFilterArguments locks the Phase 2 filter contract:
 // after/before/session_id/agent are accepted on brain_search/brain_query,
 // validated (bad dates and non-conversation sources are structured errors),
-// and share the strict schema with brain_vsearch (C2).
+// and share the strict schema with brain_vsearch.
 func TestMCPConversationFilterArguments(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -1884,14 +1884,14 @@ func TestMCPConversationFilterArguments(t *testing.T) {
 	if responses[2]["error"] == nil {
 		t.Fatalf("filter without conversation source must error: %+v", responses[2])
 	}
-	// 4: since C2 vsearch shares the strict retrieval schema, so a filter
+	// 4: vsearch shares the strict retrieval schema, so a filter
 	// without source=conversation is the same structured error as elsewhere.
 	if responses[3]["error"] == nil {
 		t.Fatalf("brain_vsearch with a filter and no conversation source must error: %+v", responses[3])
 	}
 }
 
-// TestMCPConversationNavigation locks C1's MCP parity: brain_get accepts
+// TestMCPConversationNavigation locks session-navigation MCP parity: brain_get accepts
 // context_before/context_after for conversation: ids and after_turn/limit for
 // conversation-session: ids, with type mismatches as structured errors.
 func TestMCPConversationNavigation(t *testing.T) {
@@ -1961,7 +1961,7 @@ func TestMCPConversationNavigation(t *testing.T) {
 	}
 }
 
-// TestMCPMultiConceptQuery locks C2's MCP parity: a concepts array on
+// TestMCPMultiConceptQuery locks multi-concept MCP parity: a concepts array on
 // brain_query returns session_coverage results with evidence ids, and
 // concepts without the conversation source are a structured error.
 func TestMCPMultiConceptQuery(t *testing.T) {

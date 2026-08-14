@@ -344,7 +344,7 @@ func mcpToolDefinitions() []map[string]any {
 			"branch": branchArg(),
 		}
 	}
-	// One strict retrieval schema for query, search, and vsearch (C2: no new
+	// One strict retrieval schema for query, search, and vsearch (no new
 	// tool family, same source selector, structured filters, and concepts on
 	// all three). The structured filters and concepts are
 	// conversation-source-only; supplying them with another source is an
@@ -379,8 +379,8 @@ func mcpToolDefinitions() []map[string]any {
 	}
 	retrievalSchema := func() map[string]any {
 		schema := objectSchema([]string{"query"}, retrievalArgsWithSource())
-		// The 50-row ceiling belongs to C2 multi-concept coverage only. Express
-		// it conditionally so existing non-C2 MCP retrievals retain their prior
+		// The 50-row ceiling belongs to multi-concept coverage only. Express
+		// it conditionally so existing single-concept MCP retrievals retain their prior
 		// limit contract.
 		schema["allOf"] = []map[string]any{{
 			"if": map[string]any{"required": []string{"concepts"}},
@@ -763,7 +763,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_vsearch":
 		err = requireMCPQuery(query)
 		if err == nil {
-			// C2: vsearch shares the strict retrieval schema (source,
+			// vsearch shares the strict retrieval schema (source,
 			// structured filters, concepts). An unavailable or stale
 			// conversation vector store returns the structured vector-state
 			// error rather than an empty result.
@@ -1062,7 +1062,7 @@ func mcpRetrievalOptions(args map[string]any, branch string) (retrievalOptions, 
 				return retrievalOptions{}, fmt.Errorf("concepts must be an array of strings")
 			}
 			// Deliberately unfiltered: an empty concept is a structured input
-			// error downstream, never silently dropped (C2).
+			// error downstream, never silently dropped.
 			concepts = append(concepts, s)
 		}
 	}

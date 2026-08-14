@@ -2044,7 +2044,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// The complete retrieval-options contract, including the branch filter,
 	// reaches every member: an explicit --branch bounds conversation results
 	// to that captured branch in each member brain, exactly like the
-	// top-level verbs (R0-5). Members without that branch simply return no
+	// top-level verbs. Members without that branch simply return no
 	// conversation hits.
 	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch, retrieveOpts.concepts)
 	if err != nil {
@@ -2113,7 +2113,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// The workspace-graph group joins only the default source set. An explicit
 	// single-source selection (conversation, fact, history, doc) is a source
 	// isolation contract: no fan-out or append stage may add records from any
-	// other source (R0-5).
+	// other source.
 	if mode != modeVector && ropts.Source == retrievalSourceAll {
 		graphResults, err := retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {

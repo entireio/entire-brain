@@ -144,7 +144,7 @@ counts and ranges by branch, agent, source kind, completion state
 and index versions (scan cache, FTS schema). Automatic indexing is inherited:
 `watch` already drives the deterministic refresh that rebuilds exchanges.
 
-Durable freshness coordination (C3): `entire brain memory` is the CLI-only
+Durable freshness coordination: `entire brain memory` is the CLI-only
 work-record surface. `memory notify --event session_start|checkpoint|session_end
 --session <id> [--branch <branch>] [--repo-key <key>]` records a content-free,
 generation-coalesced lifecycle hint (the endpoint a host adapter calls; hint
@@ -166,7 +166,7 @@ reconcile, claim, one consolidation, settle jobs against the receipts,
 consume satisfied hints. Reconciliation remains the correctness authority
 throughout; jobs are operational history, receipts are the durable proof.
 
-Maintenance and optional abstracts (C4/C5): `memory repair` verifies
+Maintenance and optional abstracts: `memory repair` verifies
 dependencies and performs the smallest deterministic rebuild; `memory rebuild
 --all` recreates every disposable projection from canonical sessions; `memory
 migrate` upgrades derived schemas (build beside, atomic switch, never delete
@@ -209,7 +209,7 @@ Cross-repo expansion stays explicit: `workspace get <ws>
 <repo-key>/conversation:<id>` is the second, repo-qualified step before any
 raw content leaves another repository's brain.
 
-Session navigation (C1): conversation results carry `session_ref`;
+Session navigation: conversation results carry `session_ref`;
 `brain_get` expands a `conversation:` id with `context_before`/`context_after`
 (0-3 adjacent exchanges, 128 KiB packet cap, farthest-first eviction) and
 returns a bounded paginated outline for a `conversation-session:` id
@@ -219,9 +219,9 @@ mismatch is a structured error. A legacy exchange id that resolves in more
 than one session scope returns `memory_identity_ambiguous` unless `--branch`
 selects one.
 
-Multi-concept session recall (C2): `search`, `query`, and `vsearch` take
+Multi-concept session recall: `search`, `query`, and `vsearch` take
 repeatable `--concept` flags (MCP: a `concepts` array on all three retrieval
-tools, which since C2 share one strict schema including `source` and the
+tools, which share one strict schema including `source` and the
 structured filters on `brain_vsearch` too). Two to five total concepts
 including the query; conversation source only. Results are
 `conversation-session:` records with heading `session_coverage`: a session

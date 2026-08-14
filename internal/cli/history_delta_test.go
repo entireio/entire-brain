@@ -720,7 +720,7 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 	}
 }
 
-// TestTwoTierStableIDReconciliation is the R0-4 adversarial fixture: the same
+// TestTwoTierStableIDReconciliation is the cross-tier reconciliation fixture: the same
 // stable exchange ID exists at an old path in the long-term index and at a
 // newer path with newer text in the short-term overlay (and, for a second ID,
 // the reverse). Search and get must agree on the newer copy in both
@@ -832,7 +832,7 @@ func TestTwoTierStableIDReconciliation(t *testing.T) {
 	}
 }
 
-// TestShortTermOverlayStatesNeverClaimCoverage is the R0-6 acceptance
+// TestShortTermOverlayStatesNeverClaimCoverage is the overlay-state acceptance
 // fixture: an unreadable transcript, an overflowed buffer, a corrupt overlay,
 // and an unknown overlay version are durably distinguishable, and none of
 // them lets doctor claim that short-term memory covers the long-term gap.
@@ -977,7 +977,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 	}
 }
 
-// TestShortTermReconcilerVersionGate proves the R0-6 refinement: an overlay
+// TestShortTermReconcilerVersionGate proves the reconciler-version refinement: an overlay
 // built for a different record-reconciliation rule reads as unsupported and
 // never joins ranking or coverage claims.
 func TestShortTermReconcilerVersionGate(t *testing.T) {
@@ -1000,7 +1000,7 @@ func TestShortTermReconcilerVersionGate(t *testing.T) {
 	}
 }
 
-// TestConsolidationKeepsOverlayCoveringNewerSources proves the R0-6
+// TestConsolidationKeepsOverlayCoveringNewerSources proves the
 // fingerprint gate: a full build from an older source set must not destroy an
 // overlay that covers newer work; a build from the same set clears it.
 func TestConsolidationKeepsOverlayCoveringNewerSources(t *testing.T) {

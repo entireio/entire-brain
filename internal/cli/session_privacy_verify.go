@@ -543,7 +543,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 
 	// Resolve each tombstoned session's durable cleanup scope. The transaction
 	// retains canonical refs and transcript artifacts captured before mutation,
-	// so refresh cannot make C4 artifacts unverifiable by dropping the manifest
+	// so refresh cannot make abstract artifacts unverifiable by dropping the manifest
 	// entry after a failed tombstone-first cleanup.
 	pathsBySession := map[string]map[string]bool{}
 	refsBySession := map[string]map[string]bool{}
@@ -691,7 +691,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			}
 		}
 	}
-	// Derived binary stores (R0-2): exclude and purge delete every store in
+	// Derived binary stores: exclude and purge delete every store in
 	// the shared inventory wholesale (then rebuild what regenerates), and
 	// later rebuilds honor tombstones at build time. A store file that still
 	// predates the last tombstone write is exactly the failed/locked deletion
@@ -865,7 +865,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			}
 		}
 	}
-	// C4 abstracts: an artifact whose session reference belongs to a
+	// Abstracts: an artifact whose session reference belongs to a
 	// tombstoned session is a violation (cleanup deletes them; verify proves
 	// it). Inventory is bounded and fail-closed: an unsafe or unparseable file
 	// cannot be skipped because its session_ref cannot be trusted.
@@ -888,7 +888,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			add(id, "session_abstract", "artifact "+filepath.Base(abstractRel(digest))+" survives for an excluded session; re-run purge")
 		}
 	}
-	// C3 operational metadata is content-free, but privacy purge promises to
+	// Operational metadata is content-free, but privacy purge promises to
 	// remove session-linked hints and jobs immediately. Treat survivors as a
 	// verification failure rather than silently retaining lifecycle identity.
 	for _, hint := range hints {
@@ -902,7 +902,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 	}
 	// Failed cleanup transactions stay visible until a re-run completes them
-	// (R0.2). In-flight states are not findings: this function runs inside
+	//. In-flight states are not findings: this function runs inside
 	// the cleanup itself, whose own transaction is mid-transition.
 	for id := range stones.Excluded {
 		if tx, ok := txBySession[id]; ok && tx.State == privacyStateError {
@@ -1038,7 +1038,7 @@ func applyPrivacyRetention(brainDir string, env EntireEnv, repoKey string, now, 
 				// Both actions run the shared cleanup executor: retention
 				// exclude removes derived facts/episodes/patterns/caches/
 				// stores exactly like the privacy exclude command, and both
-				// paths publish success only after verification (R0-1).
+				// paths publish success only after verification.
 				sessionPlan, planErr := buildSessionPurgePlan(brainDir, entry.SessionID)
 				if planErr != nil {
 					return planErr

@@ -3243,7 +3243,7 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 	}
 }
 
-// R0-5 adversarial fixture: a workspace holding both graph matches and
+// Workspace source-isolation fixture: a workspace holding both graph matches and
 // conversation matches for the same query must keep source=conversation
 // results conversation-only, and the branch filter must reach every member
 // brain in the fan-out.

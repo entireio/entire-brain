@@ -308,7 +308,7 @@ func buildRetrievalJSONPayload(query, branch string, rows []compactUnifiedResult
 	if truncated {
 		payload["response_truncated"] = true
 		if len(rows) > 0 {
-			// Preserve the additive row marker shipped by the initial C2 surface,
+			// Preserve the additive row marker shipped by the initial multi-concept surface,
 			// while making the envelope marker usable even when zero rows fit.
 			rows[len(rows)-1].ResponseTruncated = true
 			payload["results"] = rows
@@ -408,7 +408,7 @@ type retrievalIDQualifier func(string) string
 func identityRetrievalID(id string) string { return id }
 
 // renderRetrievalRowsText is shared by single-repo and workspace text modes,
-// keeping the C2 proof contract at parity. Every proof line is independently
+// keeping the multi-concept proof contract at parity. Every proof line is independently
 // bounded even though concepts and identifiers already have stricter input
 // limits.
 func renderRetrievalRowsText(out io.Writer, results []unifiedResult, qualify retrievalIDQualifier) {

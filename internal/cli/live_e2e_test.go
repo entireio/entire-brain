@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// live_e2e_test.go is the R0.4 live capture-loop journey: a REAL harness
+// live_e2e_test.go is the live capture-loop journey: a REAL harness
 // session captured by the REAL Entire CLI in an isolated scratch repository,
 // then recalled through the brain pipeline: capture -> checkpoint fold ->
 // export -> delta -> query -> get -> consolidation -> receipts.

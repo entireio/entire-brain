@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// conversation_session.go is C1 of the conversational-memory plan: a VIRTUAL
+// conversation_session.go implements virtual session navigation: a VIRTUAL
 // session identity over the reconciled exchange view, bounded adjacent-context
 // expansion for `get conversation:<id>`, and a bounded session outline for
 // `get conversation-session:<id>`. No session body or second archive exists;
@@ -73,7 +73,7 @@ func recordSessionRef(record historyRecord, repoKey string, manifest *exportMani
 }
 
 // conversationSessionView is the reconciled per-session record list, ordered
-// by turn ordinal. Duplicate ordinals resolve through the R0-4 newest-record
+// by turn ordinal. Duplicate ordinals resolve through the newest-record
 // rule; there is no silent map-order winner.
 type conversationSessionView struct {
 	Ref      string
@@ -86,7 +86,7 @@ type conversationSessionView struct {
 // one: a legacy exchange ID colliding across two session scopes must stay
 // visible in both scopes so lookup can report the ambiguity instead of a
 // silent winner. Within one scope, duplicate ordinals still resolve through
-// the R0-4 newest-record rule.
+// the newest-record rule.
 func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest *exportManifest, guard sessionReadGuard) map[string]conversationSessionView {
 	views := map[string]conversationSessionView{}
 	for _, record := range fresh.mergedRecords() {
@@ -325,7 +325,7 @@ func printConversationTurns(out io.Writer, r unifiedResult) {
 	}
 }
 
-// getOptions is the C1 navigation contract for get: context counts for a
+// getOptions is the navigation contract for get: context counts for a
 // conversation: target, cursor and limit for a conversation-session: target.
 // Options are type-specific and never silently ignored.
 type getOptions struct {

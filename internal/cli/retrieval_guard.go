@@ -16,7 +16,7 @@ const (
 	retrievalCaveatHistoricalDocument       = "historical_document"
 	retrievalCaveatHistoricalConversation   = "historical_conversation"
 	retrievalCaveatConversationSourceStale  = "conversation_source_stale"
-	// Distinct expansion failure states (R0-7): a too-large or unreadable
+	// Distinct expansion failure states: a too-large or unreadable
 	// source is not the same contract failure as a changed digest.
 	retrievalCaveatConversationSourceTooLarge   = "conversation_source_too_large"
 	retrievalCaveatConversationSourceUnreadable = "conversation_source_unreadable"

@@ -93,7 +93,7 @@ type historySourceManifest struct {
 	// indexing (their content is never retained; see session_privacy.go).
 	ExcludedSessions int      `json:"excluded_sessions,omitempty"`
 	Warnings         []string `json:"warnings,omitempty"`
-	// ProjectionStatePath/Digest publish the C3 projection receipt file; the
+	// ProjectionStatePath/Digest publish the projection receipt file; the
 	// manifest's atomic replacement is the commit point, so an interruption
 	// before it leaves readers on the previous receipt set.
 	ProjectionStatePath   string `json:"projection_state_path,omitempty"`

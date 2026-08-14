@@ -213,7 +213,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
 			// A delta that failed to scan any transcript did NOT fully carry
-			// the new work, so it must not defer consolidation (R0-6).
+			// the new work, so it must not defer consolidation.
 			deltaHealthy = stats.Failed == 0
 			bufferFull = stats.Truncated
 			deltaNeedsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
@@ -481,7 +481,7 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 		entireBinary:    "entire",
 		graphBinary:     "entire",
 		scope:           exportScopeAll,
-		// The history projection must not bypass the durable C3 ledger. The
+		// The history projection must not bypass the durable work ledger. The
 		// per-tick delta above already makes new conversations recallable while
 		// the coordinator consolidates asynchronously.
 		historyIndex: false,

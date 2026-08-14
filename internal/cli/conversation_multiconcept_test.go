@@ -243,7 +243,7 @@ func multiConceptOverflowRecord(id string, ordinal int) historyRecord {
 	}
 }
 
-// The C2 lexical contract measures the ceiling after the in-scope winner
+// The multi-concept lexical contract measures the ceiling after the in-scope winner
 // rules, not at an arbitrary FTS SQL window. Every record in this fixture is
 // in scope and distinct, so a complete scan must reject rather than return a
 // partial session intersection.
@@ -297,7 +297,7 @@ func TestMultiConceptCeilingCountsOnlyInScopeLongTermMatches(t *testing.T) {
 
 // The exhaustive path has a separate, intentionally high raw-row guard. It
 // is not a result window: the preceding test proves an in-scope hit can occur
-// after out-of-scope rows within this allowance. Beyond it C2 refuses with a
+// after out-of-scope rows within this allowance. Beyond it multi-concept recall refuses with a
 // typed error instead of reading an unbounded FTS result set.
 func TestMultiConceptRawFTSScanCeilingIsStructured(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
@@ -410,7 +410,7 @@ func TestMultiConceptExhaustiveFTSAndFallbackUseSameMatchContract(t *testing.T) 
 }
 
 // Short-term records are not in the FTS store. They must nevertheless be
-// counted before C2 produces coverage, otherwise a busy in-flight session can
+// counted before multi-concept recall produces coverage, otherwise a busy in-flight session can
 // make an AND query silently partial even when the long-term index is empty.
 func TestMultiConceptTooBroadForOverlayMatches(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
@@ -446,7 +446,7 @@ func TestMultiConceptTooBroadForOverlayMatches(t *testing.T) {
 	}
 }
 
-// Equal prose is not duplicate session evidence. C2 must preserve both stable
+// Equal prose is not duplicate session evidence. Multi-concept recall must preserve both stable
 // exchange identities in the FTS path and in its in-memory overlay/fallback
 // path, otherwise one session silently loses AND coverage.
 func TestMultiConceptPreservesIdenticalSummariesAcrossSessions(t *testing.T) {

@@ -51,7 +51,7 @@ const (
 	historyShortTermReconcilerVersion = 3
 )
 
-// Typed overlay load states (R0-6): callers must be able to distinguish "no
+// Typed overlay load states: callers must be able to distinguish "no
 // overlay" from "unusable overlay", and doctor must never claim coverage from
 // anything but a current, complete overlay.
 const (
@@ -87,7 +87,7 @@ type shortTermIndex struct {
 	Truncated           bool                     `json:"truncated,omitempty"`
 	Files               map[string]shortTermFile `json:"files"`
 	// FailedFiles are transcripts the delta scan could not read or parse this
-	// pass (R0-6): the overlay is durably partial, never silently complete.
+	// pass: the overlay is durably partial, never silently complete.
 	FailedFiles []string `json:"failed_files,omitempty"`
 	// ScanWarnings are directory-level collection problems; like FailedFiles
 	// they void any completeness claim.
@@ -131,7 +131,7 @@ type shortTermFile struct {
 	IncompleteExchanges int             `json:"incomplete_exchanges,omitempty"`
 }
 
-// loadHistoryShortTermState loads the overlay with a typed state (R0-6):
+// loadHistoryShortTermState loads the overlay with a typed state:
 // absent, current, stale (base pin mismatch), corrupt (unreadable/oversized/
 // invalid JSON), or unsupported (version mismatch). Only a current overlay
 // carries records; every other state returns the empty overlay so retrieval
@@ -154,7 +154,7 @@ func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (
 	}
 	// An overlay built for a different record-reconciliation rule must not
 	// participate in ranking or coverage claims: the winner selection it was
-	// built to join no longer holds (R0-6).
+	// built to join no longer holds.
 	if overlay.ReconcilerVersion != historyShortTermReconcilerVersion {
 		return empty, shortTermStateUnsupported
 	}
@@ -223,7 +223,7 @@ type shortTermStats struct {
 	Scanned             int  `json:"scanned_files"`
 	Truncated           bool `json:"truncated,omitempty"`
 	// Failed counts transcripts this delta could not scan; the overlay
-	// records their identities durably (R0-6).
+	// records their identities durably.
 	Failed int `json:"failed_files,omitempty"`
 }
 
@@ -339,7 +339,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 		records, incomplete, _, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
 		if !ok {
 			// Unscannable now: record the identity durably so no surface can
-			// claim complete coverage (R0-6); the next delta or full build
+			// claim complete coverage; the next delta or full build
 			// retries it.
 			overlay.FailedFiles = append(overlay.FailedFiles, rel)
 			stats.Failed++
@@ -406,7 +406,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	}
 	// An overlay that holds no records but DID fail or drop something must
 	// stay on disk: deleting it would erase the very state that proves
-	// coverage is incomplete (R0-6).
+	// coverage is incomplete.
 	if len(overlay.Files) == 0 && overlay.complete() {
 		clearHistoryShortTerm(outputDir)
 		return stats, nil
@@ -487,7 +487,7 @@ func historyRecordSourceTime(r historyRecord) time.Time {
 // newest source time, then lexicographically greatest path (paths embed the
 // export timestamp), then greatest source digest. The rule is derived only
 // from the records themselves, never from which tier held them, so search,
-// fusion, and get cannot disagree on the winner (R0-4).
+// fusion, and get cannot disagree on the winner.
 func newestHistoryRecord(a, b historyRecord) historyRecord {
 	at, bt := historyRecordSourceTime(a), historyRecordSourceTime(b)
 	if at.After(bt) {
@@ -608,7 +608,7 @@ func (f freshHistory) mergedRecords() []historyRecord {
 	return append(out, f.overlay...)
 }
 
-// reconciledRecords is the get/multi-get view (R0-4): the two-tier union with
+// reconciledRecords is the get/multi-get view: the two-tier union with
 // every duplicate replacement-scoped identity collapsed to its newest valid
 // copy through the same winner rule ranking uses, so expansion resolves
 // exactly the record search ranked while cross-session ID collisions remain.
@@ -634,7 +634,7 @@ func (f freshHistory) reconciledRecords() []historyRecord {
 }
 
 // longTermReconciled is longTermActive minus copies superseded by a newer
-// overlay copy (R0-4). The semantic arms rank over it so a stale long-term
+// overlay copy. The semantic arms rank over it so a stale long-term
 // copy can never be scored while get would expand the newer overlay copy.
 func (f freshHistory) longTermReconciled() historyIndex {
 	active := f.longTermActive()
@@ -675,7 +675,7 @@ func (f freshHistory) longTermActive() historyIndex {
 // bit-for-bit default preservation. A non-nil pred applies the structured
 // filters to the in-memory arms (overlay and substring fallback) during
 // candidate generation; the longTermRank closure is responsible for pushing
-// the same predicate into its own arm (R0-3). Superseded long-term hits are
+// the same predicate into its own arm. Superseded long-term hits are
 // dropped even when the filtered overlay is empty: their file was re-scanned,
 // so they are stale copies either way.
 func rankFreshHistory(
@@ -696,7 +696,7 @@ func rankFreshHistory(
 	if len(fresh.overlay) == 0 {
 		return lex
 	}
-	// One winner per replacement-scoped identity across the tiers (R0-4): a superseded copy
+	// One winner per replacement-scoped identity across the tiers: a superseded copy
 	// neither surfaces nor contributes a duplicate rank vote to the fusion.
 	winners := fresh.duplicateRecordWinners()
 	superseded := func(r historyRecord) bool {
@@ -730,7 +730,7 @@ func rankFreshHistory(
 	return fuseScoredRankLists([][]scoredHistoryRecord{kept, overlayRanked}, limit)
 }
 
-// rankFreshHistoryExhaustive is the two-tier counterpart for the C2 lexical
+// rankFreshHistoryExhaustive is the two-tier counterpart for the multi-concept lexical
 // AND contract. It enumerates the effective long-term and short-term candidate
 // sets through the same replacement-scoped winner rules as normal
 // retrieval, then detects overflow only after those rules and the supplied
@@ -811,7 +811,7 @@ func rankFreshHistoryExhaustive(
 	return fused, historyExhaustiveRankComplete
 }
 
-// exhaustiveHistoryRecordIdentity is C2's candidate dedup key. Logical session
+// exhaustiveHistoryRecordIdentity is the multi-concept candidate dedup key. Logical session
 // scope distinguishes legacy ID collisions across sessions; physical identity
 // is the fallback for records that predate stable IDs. Copy-winner
 // reconciliation runs before this key is consulted, so re-exported copies
@@ -820,7 +820,7 @@ func exhaustiveHistoryRecordIdentity(r historyRecord) historyRecordReplacementKe
 	return recordReplacementKey(r)
 }
 
-// rankHistoryRecordsScoredExhaustive is the in-memory lexical ranker for C2's
+// rankHistoryRecordsScoredExhaustive is the in-memory lexical ranker for multi-concept
 // complete-enumeration path. The ordinary ranker intentionally collapses equal
 // normalized summaries for concise single-concept results; that policy is not
 // valid for session-scoped AND coverage because equal text can be independent

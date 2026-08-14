@@ -777,7 +777,7 @@ func historyFTSContainsPathPhraseAt(path, rel string) (bool, error) {
 // degraded state.
 var historyFTSFilteredScanCeiling = 10000
 
-// historyFTSExhaustiveRawScanCeiling is a resource guard for C2's complete
+// historyFTSExhaustiveRawScanCeiling is a resource guard for multi-concept complete
 // lexical enumeration. It is deliberately much larger than the in-scope
 // candidate ceiling: rows that fail a scope predicate must never recreate the
 // old bounded-window false negative. Reaching this guard is a conservative
@@ -793,7 +793,7 @@ const (
 )
 
 // rankHistoryViaFTSFiltered pushes a structured-filter predicate into
-// candidate generation (R0-3): a matching row that fails pred is skipped
+// candidate generation: a matching row that fails pred is skipped
 // before the relevance cutoff, the summary dedup, and the limit apply, so an
 // in-scope hit can never be displaced out of a bounded candidate window by
 // higher-ranked out-of-scope rows. The cutoff then compares in-scope rows
@@ -952,13 +952,13 @@ func rankHistoryViaFTSExhaustiveFiltered(brainDir string, index historyIndex, ki
 			continue
 		}
 		// FTS uses an OR expression to enumerate possible rows efficiently, but
-		// C2's exact lexical match contract is the shared canonical scorer. Apply
+		// The exact lexical match contract is the shared canonical scorer. Apply
 		// it after scope filtering so SQLite and the pure-Go/overlay paths admit
 		// the same exchanges (an any-one-term FTS hit is not sufficient).
 		if historyRecordQueryScoreMin(rec, query, 0) == 0 {
 			continue
 		}
-		// C2 coverage is session/evidence exact. Two exchanges with identical
+		// Multi-concept coverage is session/evidence exact. Two exchanges with identical
 		// text but different stable identities are both candidates; only an
 		// already-reconciled copy of the same identity may be collapsed.
 		key := exhaustiveHistoryRecordIdentity(rec)

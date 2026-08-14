@@ -38,10 +38,10 @@ type compactUnifiedResult struct {
 	CreatedAt    string   `json:"created_at,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty"`
 	MatchedTerms []string `json:"matched_terms,omitempty"`
-	// SessionRef names the C1 virtual session so a caller can fetch the
+	// SessionRef names the virtual session so a caller can fetch the
 	// outline or adjacent context.
 	SessionRef string `json:"session_ref,omitempty"`
-	// C2 multi-concept session coverage (additive).
+	// Multi-concept session coverage (additive).
 	Concepts          []string       `json:"concepts,omitempty"`
 	ConceptMatches    []conceptMatch `json:"concept_matches,omitempty"`
 	EvidenceIDs       []string       `json:"evidence_ids,omitempty"`
@@ -226,7 +226,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		}
 	}
 	if !multiConcept {
-		// Preserve the pre-C2 payload byte-for-byte, but buffer it so the shared
+		// Preserve the pre-multi-concept payload byte-for-byte, but buffer it so the shared
 		// final privacy check runs after assembly and before the first write. The
 		// 128 KiB response contract and proof rendering still belong only to
 		// multi-concept coverage.
