@@ -30,10 +30,26 @@ func replaceDeltaTranscriptSameMetadata(t *testing.T, path, oldText, newText str
 	if bytes.Equal(replaced, body) || len(replaced) != len(body) {
 		t.Fatalf("same-metadata replacement fixture invalid: old=%q new=%q bytes=%d/%d", oldText, newText, len(body), len(replaced))
 	}
-	if err := os.Remove(path); err != nil {
+	// Create the replacement BESIDE the original and rename over it. Removing
+	// first and re-creating lets ext4 hand the just-freed inode straight back,
+	// so the fixture silently degrades into an in-place rewrite and stops
+	// exercising same-metadata inode replacement at all. Renaming while the
+	// original is still allocated guarantees a distinct inode everywhere.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".same-metadata-*")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, replaced, before.Mode().Perm()); err != nil {
+	if _, err := tmp.Write(replaced); err != nil {
+		tmp.Close()
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tmp.Name(), before.Mode().Perm()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {

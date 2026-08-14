@@ -173,11 +173,45 @@ func (e *memoryStateLoadError) Error() string {
 	return fmt.Sprintf("%s: %s state file %s", e.Issues[0].Code, e.Issues[0].Kind, e.Issues[0].File)
 }
 
+// memoryStateSeverityRank orders issue codes so the reported one is the most
+// urgent rather than whichever the filesystem happened to enumerate first.
+func memoryStateSeverityRank(code string) int {
+	switch code {
+	case memoryErrStateUnsafe:
+		return 0
+	case memoryErrStateCorrupt:
+		return 1
+	case memoryErrMigrationRequired:
+		return 2
+	case memoryErrUnsupportedVersion:
+		return 3
+	default:
+		return 4
+	}
+}
+
 func memoryStateError(issues []memoryStateIssue) error {
 	if len(issues) == 0 {
 		return nil
 	}
-	return &memoryStateLoadError{Issues: issues}
+	// Error() reports Issues[0], and the issues arrive in directory-read order,
+	// which is creation-ordered on APFS but hash-ordered on ext4. The same
+	// damaged Brain therefore produced different text on different machines.
+	// Sort a copy (the caller's slice keeps its discovery order) most severe
+	// first, tie-broken by kind and file so the message is fully determined by
+	// the state on disk.
+	ordered := append([]memoryStateIssue(nil), issues...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		ri, rj := memoryStateSeverityRank(ordered[i].Code), memoryStateSeverityRank(ordered[j].Code)
+		if ri != rj {
+			return ri < rj
+		}
+		if ordered[i].Kind != ordered[j].Kind {
+			return ordered[i].Kind < ordered[j].Kind
+		}
+		return ordered[i].File < ordered[j].File
+	})
+	return &memoryStateLoadError{Issues: ordered}
 }
 
 type memoryHintInventory struct {

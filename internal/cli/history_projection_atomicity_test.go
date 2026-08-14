@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -138,34 +137,7 @@ func TestHistoryProjectionSameMetadataReplacementBeforeCommitPublishesNothing(t 
 	}
 
 	target := filepath.Join(brainDir, filepath.FromSlash(rel))
-	oldInfo, err := os.Stat(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldBody, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	newBody := bytes.Replace(oldBody, []byte("commit the manifest last"), []byte("commit the content first"), 1)
-	if bytes.Equal(newBody, oldBody) || len(newBody) != len(oldBody) {
-		t.Fatalf("replacement fixture must change content without changing size: old=%d new=%d", len(oldBody), len(newBody))
-	}
-	if err := os.Remove(target); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(target, newBody, oldInfo.Mode().Perm()); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(target, oldInfo.ModTime(), oldInfo.ModTime()); err != nil {
-		t.Fatal(err)
-	}
-	newInfo, err := os.Stat(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if newInfo.Size() != oldInfo.Size() || !newInfo.ModTime().Equal(oldInfo.ModTime()) || os.SameFile(oldInfo, newInfo) {
-		t.Fatalf("replacement did not preserve only size+mtime while changing inode: old=%+v new=%+v", oldInfo, newInfo)
-	}
+	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
 
 	err = withBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
