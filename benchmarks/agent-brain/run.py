@@ -2036,6 +2036,7 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
         private_paths,
         paths_present=paths_present,
         scrub_replacements=history_scrub_replacements(task),
+        leak_patterns=[str(p) for p in task.get("history_leak_patterns", [])],
     )
     # Never use a linked worktree here. A linked worktree shares the developer
     # repository's refs, reflogs, object store, and checkpoint objects; benchmark
@@ -2158,6 +2159,7 @@ def filtered_agent_history_repo(
     *,
     paths_present: list[str] | None = None,
     scrub_replacements: list[tuple[bytes, bytes]] | None = None,
+    leak_patterns: list[str] | None = None,
 ) -> pathlib.Path:
     """Cache ordinary source history with benchmark/Entire-private paths removed."""
     source_commit = run_cmd(
@@ -2166,6 +2168,7 @@ def filtered_agent_history_repo(
         check=True,
     ).stdout.strip()
     scrub_replacements = list(scrub_replacements or [])
+    leak_patterns = list(leak_patterns or [])
     key_payload = {
         "schema": FILTERED_HISTORY_CACHE_SCHEMA,
         "source_commit": source_commit,
@@ -2176,6 +2179,7 @@ def filtered_agent_history_repo(
             [old.decode(errors="replace"), new.decode(errors="replace")]
             for old, new in scrub_replacements
         ],
+        "leak_patterns": leak_patterns,
     }
     key = hashlib.sha256(
         json.dumps(key_payload, sort_keys=True, separators=(",", ":")).encode()
@@ -2301,22 +2305,46 @@ def filtered_agent_history_repo(
         ).stdout.strip()
         if leaked:
             raise RuntimeError(f"filtered source history still contains private path {path}")
-    if scrub_replacements:
-        # Prove the answer is gone from every reachable commit rather than trusting
-        # the rewrite, the same way private paths are proven absent above. Checking
-        # only the tip would miss the older commits that a pickaxe search reads.
+    if scrub_replacements or leak_patterns:
+        # Prove the answer is unreachable rather than trusting the rewrite, the same
+        # way private paths are proven absent above. Both a blob and a commit message
+        # can state a decision, and an agent reads `git log` before it reads a diff,
+        # so every reachable commit is checked on both surfaces.
         revisions = run_cmd(
             ["git", "rev-list", "--all"], cwd=staging_repo, check=True
         ).stdout.split()
+        messages = run_cmd(
+            ["git", "log", "--all", "--format=%B"], cwd=staging_repo, check=True
+        ).stdout
         for old, _new in scrub_replacements:
+            text = old.decode(errors="replace")
             found = run_cmd(
-                ["git", "grep", "-l", "-F", "-e", old.decode(errors="replace"), *revisions],
-                cwd=staging_repo,
+                ["git", "grep", "-l", "-F", "-e", text, *revisions], cwd=staging_repo
             )
             if found.returncode == 0 and found.stdout.strip():
                 raise RuntimeError(
                     "filtered source history still contains scrubbed answer text at "
                     f"{found.stdout.strip().splitlines()[:3]}"
+                )
+            if text in messages:
+                raise RuntimeError(
+                    "filtered source history still contains scrubbed answer text in a "
+                    f"commit message: {text!r}"
+                )
+        for pattern in leak_patterns:
+            # Declaring the answer's signature makes absence provable instead of
+            # assumed: the build fails until every phrasing has been scrubbed, so a
+            # task cannot quietly go back to leaking the value it is probing for.
+            compiled = re.compile(pattern)
+            hits = [line.strip() for line in messages.splitlines() if compiled.search(line)]
+            listing = run_cmd(
+                ["git", "grep", "-l", "-E", pattern, *revisions], cwd=staging_repo
+            )
+            if listing.returncode == 0 and listing.stdout.strip():
+                hits.extend(listing.stdout.strip().splitlines())
+            if hits:
+                raise RuntimeError(
+                    f"filtered source history still matches declared answer pattern {pattern!r}: {hits[:3]}"
                 )
     try:
         os.replace(staging_repo, cache_repo)

@@ -25,7 +25,14 @@
     {
       "old": "falls back to the default (0.75)",
       "new": "falls back to the default"
+    },
+    {
+      "old": "default 0.75",
+      "new": "the default"
     }
+  ],
+  "history_leak_patterns": [
+    "0\\.75[^0-9]*(?:confidence|threshold|gate|default)|(?:confidence|threshold|gate|default)[^0-9\\n]{0,40}0\\.75"
   ],
   "validation": [
     "test $(rg -n 'defaultFactConfidenceThreshold = 0\\.75' internal/cli/facts_merge.go | wc -l | tr -d ' ') -eq 1",
