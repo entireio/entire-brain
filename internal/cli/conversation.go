@@ -635,13 +635,22 @@ func expandConversationExchange(brainDir string, record historyRecord) (conversa
 }
 
 func expandConversationExchangeContext(ctx context.Context, brainDir string, record historyRecord) (expansion conversationExpansion, returnErr error) {
-	_, err := validateConversationSourcePath(brainDir, record.Path)
-	if err != nil {
+	// A transcript that is simply GONE is stale, not unreadable, wherever the
+	// absence is noticed: path validation lstats it, the component walk lstats
+	// each component, and the open can still lose a race with a delete. Those
+	// three report ENOENT differently (bare os.ErrNotExist from the walk,
+	// wrapped in a typed inventory error from the other two), so classify with
+	// errors.Is rather than os.IsNotExist, which does not unwrap. Genuinely
+	// unsafe paths carry no ENOENT and stay hard errors.
+	if _, err := validateConversationSourcePath(brainDir, record.Path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return conversationExpansion{}, errConversationSourceStale
+		}
 		return conversationExpansion{}, err
 	}
 	f, finish, err := openCanonicalHistoryTranscript(ctx, brainDir, record.Path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return conversationExpansion{}, errConversationSourceStale
 		}
 		return conversationExpansion{}, err
@@ -652,13 +661,13 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 			returnErr = finishErr
 		}
 	}()
-	info, statErr := f.Stat()
-	if statErr != nil {
-		return conversationExpansion{}, statErr
-	}
-	if info.Size() > maxDocumentTranscriptBytes {
-		return conversationExpansion{}, fmt.Errorf("%w: document transcript %s exceeds maximum size of %d bytes", errConversationSourceTooLarge, record.Path, maxDocumentTranscriptBytes)
-	}
+	// No size gate here. The document bound belongs to the DOCUMENT branch
+	// below, where safeReadAll enforces it; applying it before dialect
+	// detection rejected a large LINE transcript as "document too large",
+	// which contradicts the streaming contract this function exists to
+	// provide (digest over the full stream, only the indexed range
+	// materialized). Line transcripts stay bounded per line and by the
+	// requested range.
 	hasher := sha256.New()
 	br := bufio.NewReaderSize(io.TeeReader(contextCheckingReader{ctx: ctx, r: f}, hasher), 64*1024)
 

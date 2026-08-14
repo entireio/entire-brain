@@ -685,3 +685,87 @@ func TestDocumentExpansionSeparatesReadFailureFromSizeBound(t *testing.T) {
 		t.Fatalf("read failure reported as conversation-source-too-large: %v", err)
 	}
 }
+
+// TestLineTranscriptExpansionIsNotBoundedByTheDocumentCap locks the streaming
+// contract for LINE transcripts. A size gate applied before dialect detection
+// rejected any transcript over the document ceiling as "document too large",
+// which is precisely the case this surface is supposed to stream: the digest
+// covers the whole file, but only the requested range is materialized.
+func TestLineTranscriptExpansionIsNotBoundedByTheDocumentCap(t *testing.T) {
+	brainDir := t.TempDir()
+	rel := "sessions/main/20260808T000000Z_line.jsonl"
+	full := filepath.Join(brainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var body strings.Builder
+	body.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"why did the export fail"}]}}` + "\n")
+	body.WriteString(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: the cursor skipped it."}]}}` + "\n")
+	// Bulk well past the document ceiling, in lines that are individually small.
+	for i := 0; i < 400; i++ {
+		body.WriteString(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + strings.Repeat("filler ", 40) + `"}]}}` + "\n")
+	}
+	raw := []byte(body.String())
+	if err := os.WriteFile(full, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := historyRecord{
+		ID: conversationIDPrefix + "line", Kind: conversationKind, Path: rel,
+		Line: 1, EndLine: 2, Summary: "stored projection", ContentRole: conversationContentRole,
+		SourceDigest: conversationDigest(raw),
+	}
+	oldMax := maxDocumentTranscriptBytes
+	maxDocumentTranscriptBytes = 1024 // far below the transcript size
+	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	if int64(len(raw)) <= maxDocumentTranscriptBytes {
+		t.Fatalf("fixture invalid: transcript must exceed the document cap (%d bytes)", len(raw))
+	}
+
+	expansion, err := expandConversationExchange(brainDir, record)
+	if err != nil {
+		t.Fatalf("line transcript over the document cap must still stream: %v", err)
+	}
+	if errors.Is(err, errConversationSourceTooLarge) {
+		t.Fatal("line transcript reported as a document size-bound violation")
+	}
+	if !strings.Contains(expansion.Request+expansion.Response, "why did the export fail") {
+		t.Fatalf("expansion lost the requested range: %+v", expansion)
+	}
+}
+
+// TestDeletedTranscriptReportsStaleNotUnreadable locks the classification of a
+// vanished transcript. The component walk reports a bare os.ErrNotExist, but a
+// delete racing the open surfaces the same ENOENT wrapped in a typed inventory
+// error; os.IsNotExist cannot see through that, so the reader was told the
+// transcript was unreadable rather than stale.
+func TestDeletedTranscriptReportsStaleNotUnreadable(t *testing.T) {
+	brainDir := t.TempDir()
+	rel := "sessions/main/20260808T000000Z_gone.jsonl"
+	full := filepath.Join(brainDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"why did the export fail"}]}}` + "\n")
+	if err := os.WriteFile(full, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := historyRecord{
+		ID: conversationIDPrefix + "gone", Kind: conversationKind, Path: rel,
+		Line: 1, EndLine: 1, Summary: "stored projection", ContentRole: conversationContentRole,
+		SourceDigest: conversationDigest(raw),
+	}
+	if err := os.Remove(full); err != nil {
+		t.Fatal(err)
+	}
+	_, err := expandConversationExchange(brainDir, record)
+	if !errors.Is(err, errConversationSourceStale) {
+		t.Fatalf("deleted transcript = %v, want the stale classification", err)
+	}
+	result := conversationGetResult(brainDir, record)
+	if !hasCaveatKind(result, retrievalCaveatConversationSourceStale) {
+		t.Fatalf("deleted transcript caveats = %+v, want stale", result.Caveats)
+	}
+	if hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+		t.Fatalf("deleted transcript reported unreadable: %+v", result.Caveats)
+	}
+}
