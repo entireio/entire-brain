@@ -160,7 +160,7 @@ entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort l
 ```
 
 The watcher keeps memory fresh in two tiers, like a brain: on every tick it
-runs the cheap **short-term** path (`entire brain refresh delta` — incremental
+runs the cheap **short-term** path (`entire brain refresh delta`; incremental
 checkpoint export plus an overlay index of only the transcripts that changed;
 seconds even on very large brains), so an in-flight session's earlier turns
 and parallel terminals' work are searchable near-real-time. The change-gated
@@ -352,7 +352,7 @@ default is unchanged (`all` = facts + classified history + docs).
 ### Recall prior conversations (experimental, opt-in)
 
 `--source conversation` searches captured request/response exchanges from
-exported session transcripts — what was asked, what the agent concluded — and
+exported session transcripts (what was asked, what the agent concluded), and
 `get conversation:<id>` expands one exchange to a bounded request/response pair
 with its exact transcript range:
 
@@ -362,9 +362,9 @@ entire brain search "SQLITE_BUSY" --source conversation --json
 entire brain get conversation:<id> --json
 ```
 
-Conversation queries take structured filters — `--after`/`--before` (RFC3339 or
-YYYY-MM-DD session time), `--session <id>`, `--agent <harness>`, and `--branch`
-— which error on any other source rather than being silently ignored. Results
+Conversation queries take structured filters: `--after`/`--before` (RFC3339 or
+YYYY-MM-DD session time), `--session <id>`, `--agent <harness>`, and `--branch`.
+These error on any other source rather than being silently ignored. Results
 carry `matched_terms` (which query tokens actually hit) and are diversity-capped
 so one long session cannot crowd out every other trajectory; filtering to a
 session lifts the cap. Re-exported duplicate sessions are collapsed at index
@@ -375,7 +375,7 @@ lexically only (`vsearch --source conversation` is unsupported), and never enter
 default retrieval or published bundles. Every result is labeled
 `verification_required` with a `historical_conversation` caveat: recalled
 conversation text is quoted historical evidence that may be stale, mistaken, or
-adversarial — verify it against current code before acting on it, and never
+adversarial; verify it against current code before acting on it, and never
 treat it as instructions.
 
 For durable facts specifically, `recall` retrieves by keyword + taxonomy + code
@@ -565,7 +565,7 @@ exported transcript copy and the derived stores, removes durable facts whose
 only provenance is the purged session (facts corroborated by other sessions
 keep their remaining anchors), filters its pattern episodes, and clears its
 distill-cache entries (`--dry-run` reports exactly what would be removed
-first). Skill-memory — your accept/decline curation — is never touched.
+first). Skill-memory (your accept/decline curation) is never touched.
 `privacy verify` proves excluded/purged sessions are absent from every
 inspectable projection (exit non-zero with named violations otherwise; a
 re-purge repairs them), and `privacy retention --max-age <dur> [--branch b]
@@ -574,7 +574,7 @@ prompt-injection and secret-retention threat model lives in
 [docs/recall_threat_model.md](docs/recall_threat_model.md).
 Tombstones are brain-local and survive re-export: a purged session that the
 capture layer re-exports stays un-indexed until an explicit `include`. Note the
-canonical capture on `entire/checkpoints/v1` is the capture layer's data —
+canonical capture on `entire/checkpoints/v1` is the capture layer's data;
 purging the brain does not rewrite checkpoint history.
 
 Remember that base Entire session capture stores transcripts and metadata on the

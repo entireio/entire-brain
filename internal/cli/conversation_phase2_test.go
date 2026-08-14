@@ -627,7 +627,7 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 
 	// A session exported after the index build (a missed hook) must flip
 	// history_freshness to warn until the next refresh repairs it. Reload the
-	// on-disk manifest first — the index build annotated it with the history
+	// on-disk manifest first; the index build annotated it with the history
 	// source, which the tampered rewrite must preserve.
 	onDisk, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {

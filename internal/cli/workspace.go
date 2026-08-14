@@ -2023,7 +2023,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// invalid selector is one structured error rather than N per-repo copies.
 	// Note: retrieveOpts.branch is the facts-branch selector resolved per
 	// member below; the conversation branch filter is deliberately NOT wired
-	// to it here (member repos are on different branches — filter per-repo
+	// to it here (member repos are on different branches; filter per-repo
 	// results by branch in the caller if needed).
 	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, "")
 	if err != nil {

@@ -100,7 +100,7 @@ func TestBackendRoundTripPersistsToDisk(t *testing.T) {
 		t.Fatalf("Current blob = %q; want %q (byte-for-byte)", gotBlob, plaintext)
 	}
 
-	// It really wrote a git repo — not an in-memory store.
+	// It really wrote a git repo; not an in-memory store.
 	for _, rel := range []string{"HEAD", filepath.Join("refs", "meta", "local", "main")} {
 		if _, statErr := os.Stat(filepath.Join(dir, rel)); statErr != nil {
 			t.Fatalf("expected %s on disk under %s: %v", rel, dir, statErr)
@@ -139,8 +139,8 @@ func TestBackendAdvanceNoChange(t *testing.T) {
 	}
 }
 
-// TestBackendAdvanceConflict proves both conflict shapes map to ErrConflict — a
-// stale/unknown oldRef and a create over an existing head — leave the head
+// TestBackendAdvanceConflict proves both conflict shapes (a stale/unknown
+// oldRef and a create over an existing head) map to ErrConflict, leave the head
 // untouched (no partial write), and that advancing from the correct ref then
 // succeeds.
 func TestBackendAdvanceConflict(t *testing.T) {
@@ -183,7 +183,7 @@ func TestBackendAdvanceConflict(t *testing.T) {
 }
 
 // interposeOnce wraps a Server and, once armed, runs a competing member's full
-// Sync immediately after the next Current — staling the caller's read so its
+// Sync immediately after the next Current; staling the caller's read so its
 // following Advance loses the value-CAS and must re-read + re-merge. It mirrors
 // factsync/sync_test's conflictOnceServer, but drives the REAL local backend.
 type interposeOnce struct {
@@ -211,7 +211,7 @@ func (s *interposeOnce) Advance(ctx context.Context, repoID, branch, oldRef stri
 // TestBackendTwoWriterInterleaveViaSync drives factsync.Sync against the real
 // local backend through a deterministic conflict: member M reads, competitor C
 // advances the head underneath, M's Advance conflicts, and Sync re-reads +
-// re-merges. The converged head must hold ALL THREE members' facts — nothing
+// re-merges. The converged head must hold ALL THREE members' facts; nothing
 // dropped through the conflict/retry.
 func TestBackendTwoWriterInterleaveViaSync(t *testing.T) {
 	ctx := context.Background()
@@ -261,7 +261,7 @@ func TestBackendTwoWriterInterleaveViaSync(t *testing.T) {
 // head from empty at once. go-git's create ref write is UNCONDITIONAL (it skips
 // the absence check when the old ref is nil), so before the advisory lock both
 // creates "won" and one member's facts were silently dropped. With the lock,
-// exactly one wins and the loser gets ErrConflict — Sync then re-reads and
+// exactly one wins and the loser gets ErrConflict; Sync then re-reads and
 // re-merges, never dropping a member's facts.
 func TestBackendConcurrentCreateNoLostUpdate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "gitmeta.git")
@@ -312,7 +312,7 @@ func TestBackendConcurrentCreateNoLostUpdate(t *testing.T) {
 		t.Fatalf("concurrent create: want exactly 1 win + 1 conflict, got wins=%d conflicts=%d", wins, conflicts)
 	}
 
-	// The head + blob left on disk are consistent — the racer did not corrupt it.
+	// The head + blob left on disk are consistent; the racer did not corrupt it.
 	ref, blob, found, err := bA.Current(context.Background(), "repo", "main")
 	if err != nil {
 		t.Fatalf("Current after race: %v", err)

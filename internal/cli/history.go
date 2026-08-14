@@ -102,7 +102,7 @@ type historyRecord struct {
 	// Experimental conversation-exchange extension (kind "exchange", see
 	// conversation.go). All fields are additive and omitted for classic
 	// records, so the established history JSON is byte-identical for them.
-	// Summary holds the bounded deterministic search projection — the only
+	// Summary holds the bounded deterministic search projection; the only
 	// conversation body stored in the index; full text lives only in the
 	// exported transcript and is re-parsed by get.
 	SessionID   string `json:"session_id,omitempty"`
@@ -297,7 +297,7 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 	}
 	// Consolidation: a completed full build has absorbed everything the
 	// short-term overlay held (both re-scan changed files), so the overlay is
-	// cleared here — the long-term memory is now current and the short-term
+	// cleared here; the long-term memory is now current and the short-term
 	// buffer starts empty. See history_delta.go.
 	clearHistoryShortTerm(outputDir)
 	return source, nil
@@ -386,7 +386,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	}
 	seenDecisions := map[string]struct{}{}
 	// Re-exported sessions (the same session written under multiple transcript
-	// paths) produce byte-identical exchanges with identical IDs — measured at
+	// paths) produce byte-identical exchanges with identical IDs; measured at
 	// 17–31% of exchange records on real brains. Files iterate newest-first, so
 	// keeping the first occurrence of each exchange ID retains the newest
 	// export's copy (which also carries any appended assistant output).
@@ -1918,7 +1918,7 @@ func historyRequiredQueryMatches(termCount int) int {
 // (non-kind-scoped) history surface must skip: user-prompt requests (measured
 // ranking noise) and conversation exchanges (returned only when the caller
 // explicitly selects the conversation source; excluded from history vectors in
-// Phase 1 — no semantic exchange arm exists yet).
+// Phase 1; no semantic exchange arm exists yet).
 func historyGeneralRankingHiddenKind(kind string) bool {
 	return kind == "request" || kind == conversationKind
 }

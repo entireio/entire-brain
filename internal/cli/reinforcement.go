@@ -212,7 +212,7 @@ type episodeSegment struct {
 // keep only visible assistant narrative and filter hook injections and
 // API-error envelopes (isConversationInjectedRequest /
 // isConversationNoiseNarrative). The shared kernel is a dozen lines of loop
-// scaffolding — converging them would either change one side's measured
+// scaffolding; converging them would either change one side's measured
 // semantics or produce an abstraction with more parameters than shared code
 // (the Phase 2 convergence question was evaluated and closed this way; see
 // also the intentionally-divergent query stopword regimes for the precedent).

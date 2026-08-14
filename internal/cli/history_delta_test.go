@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +13,7 @@ import (
 
 // shortTermFixture builds a brain with one indexed session (full build), then
 // appends a new turn to it and adds a brand-new session WITHOUT re-running the
-// full build — the exact "in-flight work" state the short-term path serves.
+// full build; the exact "in-flight work" state the short-term path serves.
 func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string) {
 	t.Helper()
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
@@ -400,6 +402,102 @@ func TestWatchTickRunsShortTermDeltaEveryTick(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "short-term memory updated") {
 		t.Fatalf("tick output missing short-term line: %q", out.String())
+	}
+}
+
+// TestWatchTickFailedDeltaRepairIsBounded locks the repair path against
+// unbounded thrash. A failing delta must still escalate to the full refresh
+// (that is the freshness repair path), but the delta and the full refresh
+// contend for the same brain write lock, so a PERSISTENTLY failing delta must
+// not fire the heavy refresh on every tick: consecutive repairs back off from
+// one tick up to --consolidate-every. The first healthy delta clears the
+// backoff.
+func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
+	start := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	options := defaultWatchOptions() // interval 5m, consolidateEvery 30m
+	clock := start
+	refreshes := 0
+	tick := 0
+	deltaFails := true
+	steps := watchSteps{
+		now:         func() time.Time { return clock },
+		fingerprint: func(ctxArg context.Context) string { return fmt.Sprintf("fp-%d", tick) },
+		delta: func(ctxArg context.Context) (shortTermStats, error) {
+			if deltaFails {
+				return shortTermStats{}, errors.New("brain write lock busy")
+			}
+			return shortTermStats{Records: 1, Files: 1}, nil
+		},
+		refresh: func(ctxArg context.Context) error { refreshes++; return nil },
+		seed:    func(ctxArg context.Context) error { return nil },
+		distill: func(ctxArg context.Context) error { return nil },
+	}
+	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
+	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "seed", LastRefreshAt: start.Add(-6 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 20 ticks of simulated wall clock with the delta failing every time and the
+	// fingerprint flipping every tick (an active agent session).
+	var out strings.Builder
+	calls := 0
+	const ticks = 20
+	for ; tick < ticks; tick++ {
+		watchTick(nil, &out, options, cursorPath, steps, &calls)
+		clock = clock.Add(options.interval)
+	}
+	// Pre-fix this was one full refresh per tick. The backoff must cut it to a
+	// small fraction; the exact schedule is 5m/10m/20m/30m/30m over 100 minutes.
+	if refreshes >= ticks {
+		t.Fatalf("failed delta must not consolidate every tick: refreshes=%d over %d ticks\n%s", refreshes, ticks, out.String())
+	}
+	if refreshes > 7 {
+		t.Fatalf("repair backoff too loose: refreshes=%d over %d ticks\n%s", refreshes, ticks, out.String())
+	}
+	// It must still repair; deferring forever would leave freshness broken.
+	if refreshes == 0 {
+		t.Fatalf("failed delta must still escalate to a repair refresh: out=%q", out.String())
+	}
+	if !strings.Contains(out.String(), "repair refresh backing off") {
+		t.Fatalf("deferral must name the repair backoff: %q", out.String())
+	}
+	cursor := loadWatchCursor(cursorPath)
+	if cursor.ConsolidationRepairs == 0 {
+		t.Fatalf("consecutive repairs must be recorded: %+v", cursor)
+	}
+
+	// A healthy delta clears the backoff so the next failure repairs promptly again.
+	deltaFails = false
+	out.Reset()
+	clock = clock.Add(options.consolidateEvery)
+	watchTick(nil, &out, options, cursorPath, steps, &calls)
+	if cursor := loadWatchCursor(cursorPath); cursor.ConsolidationRepairs != 0 {
+		t.Fatalf("healthy delta must reset the repair backoff: %+v", cursor)
+	}
+}
+
+// TestWatchTickNilDeltaKeepsNormalCadence locks that a watchSteps without a
+// delta step is not treated as a permanently failing delta: with no short-term
+// path there is nothing to repair, so --consolidate-every applies as usual.
+func TestWatchTickNilDeltaKeepsNormalCadence(t *testing.T) {
+	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	refreshes := 0
+	steps := watchSteps{
+		now:         func() time.Time { return now },
+		fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
+		refresh:     func(ctxArg context.Context) error { refreshes++; return nil },
+		seed:        func(ctxArg context.Context) error { return nil },
+		distill:     func(ctxArg context.Context) error { return nil },
+	}
+	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
+	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	calls := 0
+	watchTick(nil, &out, defaultWatchOptions(), cursorPath, steps, &calls)
+	if refreshes != 0 || !strings.Contains(out.String(), "short-term memory is current") {
+		t.Fatalf("nil delta must defer on the normal cadence: refreshes=%d out=%q", refreshes, out.String())
 	}
 }
 

@@ -201,7 +201,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		for rel := range pathsBySession[id] {
 			if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); statErr == nil {
-				add(id, "exported_transcript", rel+" (re-exported by the capture layer; projections stay excluded — purge again to delete the copy)")
+				add(id, "exported_transcript", rel+" (re-exported by the capture layer; projections stay excluded; purge again to delete the copy)")
 			}
 		}
 	}

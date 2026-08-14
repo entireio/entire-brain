@@ -647,7 +647,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		// the 2026-08-07 calibration on the entire-brain corpus (22-task exact
 		// pack + 10-task paraphrase stratum, EmbeddingGemma) measured fusion
 		// trading exact-match precision (R@1 0.864→0.773, one R@5 loss, one
-		// paraphrase dropped from rank 1 to unranked) for +1 paraphrase hit —
+		// paraphrase dropped from rank 1 to unranked) for +1 paraphrase hit;
 		// the same displacement failure mode that closed Model2Vec history
 		// fusion. Same discipline as historyFusionEligible: the fused arm
 		// ships dark behind a development flag until an eval-ledger row
@@ -717,7 +717,7 @@ func conversationRecordMatchesFilters(record historyRecord, opts retrievalOption
 // capConversationSessionShare enforces the per-session diversity cap: at most
 // max(1, limit/conversationSessionTopKDivisor) results per session while other
 // sessions still have candidates. If the cap leaves the list short and only
-// capped sessions have candidates left, they backfill in rank order — the cap
+// capped sessions have candidates left, they backfill in rank order; the cap
 // prevents crowding out, it does not hide the only matching session. An
 // explicit session filter disables the cap entirely.
 func capConversationSessionShare(scored []scoredHistoryRecord, limit int, opts retrievalOptions) []scoredHistoryRecord {
@@ -971,7 +971,7 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 				continue
 			}
 		case strings.HasPrefix(id, conversationIDPrefix):
-			// The transcript path is resolved from the indexed record only —
+			// The transcript path is resolved from the indexed record only;
 			// a client-supplied id can never choose a filesystem path.
 			if r, ok := convByID[id]; ok {
 				found = append(found, conversationGetResult(brainDir, r))

@@ -12,8 +12,8 @@ import (
 
 // lifecycle_ops.go is Phase 3 (lifecycle reliability and operations) of the
 // conversational-memory plan: observability for the capture -> export -> index
-// -> recall chain. Automatic indexing itself is inherited — `watch` already
-// drives the deterministic refresh that builds exchanges — so what lives here
+// -> recall chain. Automatic indexing itself is inherited (`watch` already
+// drives the deterministic refresh that builds exchanges), so what lives here
 // is the explanation layer: doctor's capture-to-recall checks and the stats
 // surface (counts/ranges by branch, agent, source, completion state, and index
 // version).
@@ -28,7 +28,7 @@ type doctorCheckResult struct {
 // capture (exported sessions), history index health + freshness against the
 // current session set, the conversation projection and its vector identity,
 // the derived FTS index, and the write lock. Every failure is a state, not an
-// error — doctor's job is to explain, never to crash on a broken brain.
+// error; doctor's job is to explain, never to crash on a broken brain.
 func brainDoctorChecks(ctx context.Context, opts Options, target string) []doctorCheckResult {
 	var checks []doctorCheckResult
 	add := func(name, state, detail string) {
@@ -71,7 +71,7 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 	}
 
 	// History index health and conversation freshness: the projection is fresh
-	// only when it was built from the CURRENT session set (fingerprint match) —
+	// only when it was built from the CURRENT session set (fingerprint match);
 	// a semantic-only refresh must never claim conversation freshness.
 	if manifest.Sources == nil || manifest.Sources.History == nil {
 		add("history_index", "warn", "no history index; run `entire brain refresh`")
@@ -91,8 +91,12 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 		add("history_freshness", "warn", "index predates fingerprinting; run `entire brain refresh`")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
-	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current:
+	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current && !shortTerm.Truncated:
 		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `entire brain refresh`)", len(shortTerm.Files)))
+	case len(shortTerm.Files) > 0 && shortTerm.SessionsFingerprint == current:
+		// A truncated overlay only PARTLY covers the gap (oldest changed
+		// transcripts were dropped): freshness must not claim ok (Bugbot #77).
+		add("history_freshness", "warn", "short-term memory covers the gap only partially (buffer full, oldest changed transcripts dropped); run `entire brain refresh` to consolidate")
 	default:
 		add("history_freshness", "warn", "exported sessions changed since the last index build; run `entire brain refresh delta` for immediate freshness or `entire brain refresh` to consolidate (a missed session-end hook is repaired the same way)")
 	}
@@ -105,7 +109,7 @@ func brainDoctorChecks(ctx context.Context, opts Options, target string) []docto
 		state := "ok"
 		if shortTerm.Truncated {
 			state = "warn"
-			detail += "; buffer full — consolidate with `entire brain refresh`"
+			detail += "; buffer full; consolidate with `entire brain refresh`"
 		}
 		add("short_term_memory", state, detail)
 	}
@@ -377,7 +381,7 @@ func renderBrainStats(out io.Writer, report brainStatsReport) {
 	if s := report.ShortTerm; s != nil {
 		line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (built %s)", s.Records, s.Exchanges, s.Files, s.GeneratedAt)
 		if s.Truncated {
-			line += " — buffer full, consolidate with `entire brain refresh`"
+			line += "; buffer full, consolidate with `entire brain refresh`"
 		}
 		fmt.Fprintln(out, line)
 	}

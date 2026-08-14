@@ -161,7 +161,7 @@ func rankHistorySemanticFiltered(
 	return rankSemanticFilteredKinds(index, scores, limit, requireRelevance, alwaysKeep, collectCalibrationArm, historyGeneralRankingHiddenKind)
 }
 
-// rankConversationSemantic ranks ONLY exchange records by cosine — the
+// rankConversationSemantic ranks ONLY exchange records by cosine; the
 // explicit conversation vector arm. Mirrors rankHistorySemantic: no relevance
 // calibration for explicit vector search.
 func rankConversationSemantic(index historyIndex, scores map[string]float64, limit int) []scoredHistoryRecord {
@@ -334,7 +334,7 @@ func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHisto
 // conversationEmbeddingTextVersion versions the exchange embedding scheme.
 // Bumping it changes the store identity, so a scheme change rebuilds the
 // vectors cleanly instead of silently mixing embeddings of different texts.
-// reqw1: request-weighted — the request line plus a bounded response head,
+// reqw1: request-weighted; the request line plus a bounded response head,
 // instead of the full mixed 2 KiB projection (the 2026-08-07 calibration's
 // reopen avenue: response tails diluted the exchange embeddings).
 const conversationEmbeddingTextVersion = "reqw1"
@@ -373,8 +373,8 @@ func conversationSemanticScores(brainDir string, e Embedder, query string, limit
 
 // rankConversationFused is the conversation arm's hybrid ranking: exchange-kind
 // BM25 fused with calibrated exchange vectors via the shared RRF merge. When
-// the semantic arm is unavailable it degrades to exactly the lexical ranking —
-// same list, same ok contract — so lexical-only operation stays fully
+// the semantic arm is unavailable it degrades to exactly the lexical ranking
+// (same list, same ok contract), so lexical-only operation stays fully
 // supported.
 func rankConversationFused(brainDir string, index historyIndex, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
 	scores := conversationSemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)

@@ -17,7 +17,7 @@ import (
 // for:
 //
 //   - short-term path: `refresh delta` scans just the changed/new transcripts
-//     (seconds even on huge brains — change detection rides the same
+//     (seconds even on huge brains; change detection rides the same
 //     size+mtime signal as the scan cache) and writes history/short-term.json.
 //     Retrieval searches it alongside the long-term index, so an in-flight
 //     session's earlier turns and a parallel terminal's work are recallable
@@ -29,7 +29,7 @@ import (
 //
 // The overlay is disposable and always rebuildable; it never becomes a second
 // source of truth. When it is empty or absent, every retrieval path returns
-// byte-identical results to the pre-overlay behavior — freshness is additive,
+// byte-identical results to the pre-overlay behavior; freshness is additive,
 // never a ranking change for cold brains.
 
 const (
@@ -68,8 +68,8 @@ type shortTermFile struct {
 }
 
 // loadHistoryShortTerm returns the overlay when it is valid for the CURRENT
-// long-term build (version + base pin match); anything else — missing,
-// corrupt, or stale — reads as an empty overlay, which restores exact
+// long-term build (version + base pin match); anything else (missing,
+// corrupt, or stale) reads as an empty overlay, which restores exact
 // long-term-only behavior.
 func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortTermIndex {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
@@ -101,7 +101,7 @@ func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
 }
 
 // clearHistoryShortTerm removes the overlay (called after a completed full
-// build — consolidation — under the brain write lock). Best-effort: a missing
+// build (consolidation) under the brain write lock). Best-effort: a missing
 // file is the desired state, and a leftover stale overlay is voided by the
 // BaseGeneratedAt pin anyway.
 func clearHistoryShortTerm(brainDir string) {
@@ -246,7 +246,7 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 
 // freshHistory is the two-tier view retrieval ranks over: the long-term index
 // exactly as loaded (FTS freshness identity untouched) plus the short-term
-// overlay, with per-file replacement semantics — a file the overlay re-scanned
+// overlay, with per-file replacement semantics; a file the overlay re-scanned
 // supersedes that file's long-term records, exactly as a full rebuild would.
 type freshHistory struct {
 	index    historyIndex // long-term, as on disk
@@ -304,7 +304,7 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 }
 
 // mergedRecords is the get/multi-get view: long-term records minus superseded
-// files, plus every overlay record (overlay wins for duplicate IDs by order —
+// files, plus every overlay record (overlay wins for duplicate IDs by order;
 // callers index into maps last-write-wins).
 func (f freshHistory) mergedRecords() []historyRecord {
 	if len(f.overlay) == 0 {
@@ -339,8 +339,8 @@ func (f freshHistory) longTermActive() historyIndex {
 // rankFreshHistory ranks the two tiers: longTermRank runs against the on-disk
 // long-term index (so the FTS freshness identity is untouched), superseded
 // files' hits are dropped, the overlay is ranked in-memory, and the two lists
-// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged
-// — bit-for-bit default preservation.
+// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged:
+// bit-for-bit default preservation.
 func rankFreshHistory(
 	fresh freshHistory,
 	kind, query string,
@@ -402,7 +402,7 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 	line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (%d re-scanned, %d carried over)",
 		stats.Records, stats.Exchanges, stats.Files, stats.Scanned, stats.Reused)
 	if stats.Truncated {
-		line += "; buffer full — run `entire brain refresh` to consolidate"
+		line += "; buffer full; run `entire brain refresh` to consolidate"
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), line)
 	return nil

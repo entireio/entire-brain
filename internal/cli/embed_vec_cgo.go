@@ -263,7 +263,7 @@ func newHistoryVectorStore(brainDir, modelID string, dim int) (historyVectorStor
 
 // conversationVecStoreFileName keeps conversation-exchange vectors in their own
 // vec0 file beside the history vectors: the stores share machinery but not
-// identity — general history KNN must never spend budget on exchanges, and a
+// identity; general history KNN must never spend budget on exchanges, and a
 // conversation model migration must not invalidate history vectors (or vice
 // versa).
 const conversationVecStoreFileName = "conversation-vectors.sqlite"

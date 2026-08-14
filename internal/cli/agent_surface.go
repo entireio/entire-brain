@@ -115,7 +115,7 @@ type brainStatusConversation struct {
 	IncompleteExchanges int `json:"incomplete_exchanges,omitempty"`
 	// VectorState: "disabled" (no embedder opt-in), "gate_closed" (embedder
 	// unavailable or not fusion-eligible), "unavailable_build" (pure-Go build),
-	// "absent" (never built or built for another model — run refresh), or
+	// "absent" (never built or built for another model; run refresh), or
 	// "current".
 	VectorState   string `json:"vector_state"`
 	VectorModelID string `json:"vector_model_id,omitempty"`
@@ -207,7 +207,7 @@ type brainBriefReport struct {
 	// work) relevant to the task. Task-gated and capped; verifier-accepted only.
 	Themes []themeView `json:"themes,omitempty"`
 	// Conversation holds bounded conversation-exchange pointers (experimental;
-	// present only under the ENTIRE_BRAIN_BRIEF_CONVERSATION development flag —
+	// present only under the ENTIRE_BRAIN_BRIEF_CONVERSATION development flag;
 	// default packets are unchanged until qualification).
 	Conversation []brainBriefConversationHit `json:"conversation,omitempty"`
 	Guidance     []string                    `json:"guidance"`
@@ -1652,7 +1652,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	}
 	// Conversation hits (experimental): development-flag opt-in only, so the
 	// default compact packet is unchanged until qualification (plan Phase 2
-	// deliverable 5). Failure to retrieve is silent — the flag adds context,
+	// deliverable 5). Failure to retrieve is silent; the flag adds context,
 	// never breaks a brief.
 	if envBool("ENTIRE_BRAIN_BRIEF_CONVERSATION") {
 		report.Conversation = brainBriefConversationHits(status.Brain.Path, task, briefOpts.limit)
@@ -5102,7 +5102,7 @@ func historyRecordTextMatch(record historyRecord) brainTextMatch {
 	return match
 }
 
-func brainBriefFocusedHistoryMatches(brainDir string, index historyIndex, primary semanticRecord, limit int) []brainTextMatch {
+func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primary semanticRecord, limit int) []brainTextMatch {
 	if limit <= 0 {
 		return nil
 	}
@@ -5114,13 +5114,15 @@ func brainBriefFocusedHistoryMatches(brainDir string, index historyIndex, primar
 		return nil
 	}
 	candidateLimit := brainBriefExpandedCandidateLimit(limit, 3)
-	var records []historyRecord
-	if scored, ok := rankHistoryFused(brainDir, index, "history", query, candidateLimit, defaultEmbedder()); ok {
-		for _, item := range scored {
-			records = append(records, item.Record)
-		}
-	} else {
-		records = rankHistoryRecords(index, "history", query, candidateLimit)
+	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
+	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
+	// merged index here rebuilt or misresolved the BM25 store).
+	scored := rankFreshHistory(fresh, "history", query, candidateLimit, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+		return rankHistoryFused(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder())
+	})
+	records := make([]historyRecord, 0, len(scored))
+	for _, item := range scored {
+		records = append(records, item.Record)
 	}
 	// A command that merely searched for a symbol is weaker evidence than the
 	// decision, patch, or documentation it was searching for. Keep the retriever

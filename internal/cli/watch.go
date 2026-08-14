@@ -49,7 +49,17 @@ type watchCursor struct {
 	LastFingerprint  string    `json:"last_fingerprint"`
 	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
 	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
+	// ConsolidationRepairs counts CONSECUTIVE full refreshes that ran early
+	// because the short-term delta failed. It is the backoff state for
+	// watchRepairWait: a single failure repairs promptly, a persistent one
+	// settles back to the normal consolidation cadence instead of firing the
+	// heavy refresh every tick. Reset to 0 by the first healthy delta.
+	ConsolidationRepairs int `json:"consolidation_repairs,omitempty"`
 }
+
+// watchRepairBackoffMax caps ConsolidationRepairs so the persisted counter stays
+// bounded and the doubling in watchRepairWait can never overflow.
+const watchRepairBackoffMax = 16
 
 const watchCursorLockName = "watch.lock"
 
@@ -182,12 +192,17 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 // ticks/members so --budget caps total token spend across the whole run.
 func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps, agentCalls *int) {
 	// Short-term memory first, every tick: cheap (change detection + only
-	// changed transcripts), and it must never block or fail the tick — a delta
+	// changed transcripts), and it must never block or fail the tick; a delta
 	// failure just means the long-term path repairs freshness later.
 	bufferFull := false
+	// No delta step configured means there is no short-term path that could
+	// have failed, so the throttle applies at its normal cadence rather than
+	// treating every tick as a repair.
+	deltaHealthy := true
 	if steps.delta != nil {
 		stats, err := steps.delta(ctx)
 		if err != nil {
+			deltaHealthy = false
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
 			bufferFull = stats.Truncated
@@ -202,15 +217,29 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		return
 	}
 	// Consolidation throttle: the fingerprint includes checkpoint refs, so an
-	// active agent session flips it every turn — without a throttle the heavy
+	// active agent session flips it every turn; without a throttle the heavy
 	// full refresh would run every tick exactly when the machine is busiest.
-	// The delta above already made the new work recallable; consolidation can
-	// wait for the interval unless the short-term buffer overflowed (recall
-	// completeness is at risk) or this is the first ever refresh.
+	// A failed delta means nothing carried the new work, so the full refresh is
+	// the repair path and must not wait the whole interval (Bugbot PR #78),
+	// but it is throttled too, just on a shorter clock. The delta and the full
+	// refresh contend for the SAME brain write lock, so an unthrottled repair
+	// would fire the heavy path every tick for as long as the delta keeps
+	// failing, contending for the very lock that broke it. watchRepairWait
+	// escalates after one tick and then backs off to the normal cadence. An
+	// overflowed buffer still forces consolidation immediately: recall
+	// completeness is at risk, and a successful consolidation clears the
+	// overlay, so it cannot repeat the way a failing delta can. The first ever
+	// refresh always runs.
 	if w.consolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
-		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < w.consolidateEvery {
-			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; short-term memory is current)\n",
-				since.Round(time.Second), (w.consolidateEvery - since).Round(time.Second))
+		wait := w.consolidateEvery
+		state := "short-term memory is current"
+		if !deltaHealthy {
+			wait = watchRepairWait(w, cursor.ConsolidationRepairs)
+			state = fmt.Sprintf("short-term memory failed; repair refresh backing off after %d consecutive repairs", cursor.ConsolidationRepairs)
+		}
+		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < wait {
+			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; %s)\n",
+				since.Round(time.Second), (wait - since).Round(time.Second), state)
 			return
 		}
 	}
@@ -221,7 +250,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC())
+	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC(), !deltaHealthy)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
 		return
@@ -275,7 +304,7 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 }
 
 // watchShortTermDelta runs the short-term memory path for one repo: quiet
-// (output discarded — the tick logs one summary line), deterministic, and
+// (output discarded; the tick logs one summary line), deterministic, and
 // token-free. The returned stats let the tick escalate to consolidation when
 // the buffer overflows.
 func watchShortTermDelta(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) (shortTermStats, error) {
@@ -305,7 +334,34 @@ func watchShouldSpend(w watchCommandOptions, cursor watchCursor, agentCalls int,
 	return true, ""
 }
 
-func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time) (bool, string, error) {
+// watchRepairWait is the minimum time between full consolidations while the
+// short-term delta is failing. It starts at one tick (a transient delta failure
+// repairs on the very next pass) and doubles per consecutive repair up to the
+// normal --consolidate-every, so a persistently failing delta degrades to the
+// ordinary consolidation cadence instead of thrashing the shared brain write
+// lock on every tick.
+func watchRepairWait(w watchCommandOptions, repairs int) time.Duration {
+	wait := w.interval
+	if wait <= 0 {
+		wait = time.Minute
+	}
+	if repairs > watchRepairBackoffMax {
+		repairs = watchRepairBackoffMax
+	}
+	for i := 0; i < repairs && wait < w.consolidateEvery; i++ {
+		wait *= 2
+	}
+	if wait > w.consolidateEvery {
+		wait = w.consolidateEvery
+	}
+	return wait
+}
+
+// reserveWatchAgentSpend advances the refresh cursor after a successful full
+// refresh and decides whether the gated token work may run. repair reports
+// whether THIS refresh ran early because the short-term delta failed; it drives
+// the watchRepairWait backoff and is cleared by the first healthy delta.
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time, repair bool) (bool, string, error) {
 	var cursor watchCursor
 	var reserved bool
 	var reason string
@@ -315,6 +371,13 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOption
 		if changed {
 			cursor.LastFingerprint = fingerprint
 			cursor.LastRefreshAt = now
+			if repair {
+				if cursor.ConsolidationRepairs < watchRepairBackoffMax {
+					cursor.ConsolidationRepairs++
+				}
+			} else {
+				cursor.ConsolidationRepairs = 0
+			}
 		}
 		if !w.agentWorkEnabled() {
 			if changed {
