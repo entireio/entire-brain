@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "35ce70c213c3",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/test_isolation_repairs.py",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/35/ce70c213c3/0/metadata.json",
+      "transcript": "/35/ce70c213c3/0/full.jsonl",
+      "compact_transcript": "/35/ce70c213c3/0/transcript.jsonl",
+      "content_hash": "/35/ce70c213c3/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 66,
+    "cache_creation_tokens": 32671,
+    "cache_read_tokens": 22184010,
+    "output_tokens": 22762,
+    "api_call_count": 33
+  }
+}
