@@ -7614,18 +7614,18 @@ def strip_agent_worktree_prefix(text: str, worktree: str | None) -> str:
     return text
 
 
-def tool_arguments_access_forbidden_memory_artifact(
+def tool_arguments_forbidden_memory_artifact_hardness(
     tool_name: str, value: Any, worktree: str | None = None
-) -> bool:
+) -> str | None:
     """Inspect path-bearing tool arguments without retaining private path text."""
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
-            return False
-        return tool_arguments_access_forbidden_memory_artifact(tool_name, parsed, worktree)
+            return None
+        return tool_arguments_forbidden_memory_artifact_hardness(tool_name, parsed, worktree)
     if not isinstance(value, dict):
-        return False
+        return None
     path_keys = {
         "cwd",
         "dir",
@@ -7654,43 +7654,71 @@ def tool_arguments_access_forbidden_memory_artifact(
     if "glob" in tool_name.lower():
         path_keys.add("pattern")
 
-    def references_private_path(item: Any) -> bool:
+    def reference_hardness(item: Any) -> str | None:
         if isinstance(item, str):
             stripped = strip_agent_worktree_prefix(item.strip(), worktree).lower()
             if stripped.startswith("!"):
-                return False
+                return None
             # A backslash may be a path separator or a regex/glob escape (\. -> .);
             # either interpretation reaching a private artifact flags the argument.
             candidates = (
                 stripped.replace("\\", "/"),
                 stripped.replace("\\.", ".").replace("\\", "/"),
             )
-            return any(
-                re.search(r"(?:^|/|\*\*/)(?:\.entire|\.benchmark)(?:/|$|\*)", candidate)
-                or re.search(r"(?:^|/|\*\*/)benchmarks/agent-brain(?:/|$|\*)", candidate)
-                or "refs/heads/entire/checkpoints" in candidate
-                for candidate in candidates
-            )
+            result: str | None = None
+            for candidate in candidates:
+                if (
+                    re.search(r"(?:^|/|\*\*/)(?:\.entire|\.benchmark)(?:/|$|\*)", candidate)
+                    or re.search(r"(?:^|/|\*\*/)benchmarks/agent-brain(?:/|$|\*)", candidate)
+                    or "refs/heads/entire/checkpoints" in candidate
+                ):
+                    hardness = private_artifact_reference_hardness(candidate, worktree)
+                    if hardness == "hard":
+                        return "hard"
+                    if hardness == "advisory":
+                        result = "advisory"
+            return result
+        strongest: str | None = None
+        children: Iterable[Any] = ()
         if isinstance(item, list):
-            return any(references_private_path(child) for child in item)
-        if isinstance(item, dict):
-            return any(references_private_path(child) for child in item.values())
-        return False
+            children = item
+        elif isinstance(item, dict):
+            children = item.values()
+        for child in children:
+            hardness = reference_hardness(child)
+            if hardness == "hard":
+                return "hard"
+            if hardness == "advisory":
+                strongest = "advisory"
+        return strongest
 
-    def mapping_accesses_private_path(mapping: dict[str, Any]) -> bool:
+    def mapping_hardness(mapping: dict[str, Any]) -> str | None:
+        strongest: str | None = None
         for key, item in mapping.items():
             normalized_key = str(key).lower().replace("-", "_")
-            if normalized_key in path_keys and references_private_path(item):
-                return True
-            if isinstance(item, dict) and mapping_accesses_private_path(item):
-                return True
-            if isinstance(item, list) and any(
-                isinstance(child, dict) and mapping_accesses_private_path(child) for child in item
-            ):
-                return True
-        return False
+            candidates: list[str | None] = []
+            if normalized_key in path_keys:
+                candidates.append(reference_hardness(item))
+            if isinstance(item, dict):
+                candidates.append(mapping_hardness(item))
+            if isinstance(item, list):
+                candidates.extend(
+                    mapping_hardness(child) for child in item if isinstance(child, dict)
+                )
+            for hardness in candidates:
+                if hardness == "hard":
+                    return "hard"
+                if hardness == "advisory":
+                    strongest = "advisory"
+        return strongest
 
-    return mapping_accesses_private_path(value)
+    return mapping_hardness(value)
+
+
+def tool_arguments_access_forbidden_memory_artifact(
+    tool_name: str, value: Any, worktree: str | None = None
+) -> bool:
+    return tool_arguments_forbidden_memory_artifact_hardness(tool_name, value, worktree) == "hard"
 
 
 def tool_event_errored(value: Any) -> bool:
@@ -7736,7 +7764,12 @@ def collect_json_tool_events(value: Any, worktree: str | None = None) -> list[di
                 "event_id": value.get("id"),
                 "arguments": safe_tool_arguments(raw_args),
                 "forbidden_memory_artifact_argument_access": (
-                    tool_arguments_access_forbidden_memory_artifact(name, raw_args, worktree)
+                    tool_arguments_forbidden_memory_artifact_hardness(name, raw_args, worktree)
+                    == "hard"
+                ),
+                "forbidden_memory_artifact_probe": (
+                    tool_arguments_forbidden_memory_artifact_hardness(name, raw_args, worktree)
+                    == "advisory"
                 ),
                 "errored": tool_event_errored(value),
             })
@@ -7856,7 +7889,51 @@ def extract_resolved_model(stdout: str) -> str | None:
     return max(counts, key=lambda value: counts[value])
 
 
-def command_accesses_forbidden_memory_artifact(command: str, worktree: str | None = None) -> bool:
+def private_artifact_reference_hardness(token: str, worktree: str | None) -> str | None:
+    """Classify a private-artifact reference by what it could actually read.
+
+    Isolation is physical: hidden directories are deleted from the worktree,
+    the checkpoint ref and its objects are purged, and the sandbox denies the
+    harness tree outside the worktree. A probe of something that exists (the
+    .benchmark brain store in a treatment arm) is a HARD adherence violation,
+    because content could flow. A probe of something removed, never present,
+    or sandbox-denied is an ADVISORY dead end: intent without information, the
+    same reasoning the boundary audit applies on scrubbed tasks. Excluding rows
+    for information-free probes starved comparisons below the minimum
+    repetitions while proving nothing about the treatment.
+    """
+    if worktree is None:
+        return "hard"
+    cleaned = token.strip().strip("'\"")
+    for glob_char in ("*", "?"):
+        if glob_char in cleaned:
+            cleaned = cleaned.split(glob_char, 1)[0]
+    cleaned = cleaned.rstrip("/")
+    if "refs/heads/entire/checkpoints" in cleaned:
+        probe = run_cmd(
+            ["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=worktree
+        )
+        return "hard" if probe.returncode == 0 else "advisory"
+    lowered = cleaned.lower()
+    start = -1
+    for marker in ("benchmarks/agent-brain", ".benchmark", ".entire"):
+        found = lowered.find(marker)
+        if found != -1 and (start == -1 or found < start):
+            start = found
+    if start == -1:
+        return "advisory"
+    # Judge by the marker-relative tail: after the worktree prefix strip, an
+    # in-worktree absolute path keeps only a leading separator, while a path
+    # outside the worktree keeps its full (sandbox-denied) prefix; both resolve
+    # correctly against the worktree, and only content that is actually there
+    # makes the probe hard.
+    relative = cleaned[start:]
+    return "hard" if (pathlib.Path(worktree) / relative).exists() else "advisory"
+
+
+def command_forbidden_memory_artifact_hardness(
+    command: str, worktree: str | None = None
+) -> str | None:
     command = strip_agent_worktree_prefix(command, worktree)
     try:
         tokens = shlex.split(command)
@@ -7865,7 +7942,8 @@ def command_accesses_forbidden_memory_artifact(command: str, worktree: str | Non
     if tokens and pathlib.Path(tokens[0]).name in {"sh", "bash", "dash", "ksh", "zsh"}:
         for index, token in enumerate(tokens[1:], start=1):
             if token.startswith("-") and "c" in token[1:] and index + 1 < len(tokens):
-                return command_accesses_forbidden_memory_artifact(tokens[index + 1], worktree)
+                return command_forbidden_memory_artifact_hardness(tokens[index + 1], worktree)
+    result: str | None = None
     for index, token in enumerate(tokens):
         normalized = token.lower().replace(r"\.", ".")
         if not re.search(
@@ -7874,10 +7952,15 @@ def command_accesses_forbidden_memory_artifact(command: str, worktree: str | Non
         ):
             continue
         previous = tokens[index - 1].lower() if index else ""
+        before_previous = tokens[index - 2].lower() if index >= 2 else ""
         following = tokens[index + 1].lower() if index + 1 < len(tokens) else ""
         if previous == "-v":
             continue
-        if previous in {"-path", "-wholename"} and following == "-prune":
+        if previous in {"-path", "-wholename", "-ipath"} and (
+            following == "-prune" or before_previous == "-not"
+        ):
+            # `-path X -prune` and `-not -path X` both EXCLUDE the private tree
+            # from a search; neither reads it.
             continue
         if previous in {"--exclude", "--exclude-dir"}:
             continue
@@ -7885,8 +7968,16 @@ def command_accesses_forbidden_memory_artifact(command: str, worktree: str | Non
             continue
         if previous in {"--glob", "-g"} and normalized.lstrip("'").startswith("!"):
             continue
-        return True
-    return False
+        hardness = private_artifact_reference_hardness(token, worktree)
+        if hardness == "hard":
+            return "hard"
+        if hardness == "advisory":
+            result = "advisory"
+    return result
+
+
+def command_accesses_forbidden_memory_artifact(command: str, worktree: str | None = None) -> bool:
+    return command_forbidden_memory_artifact_hardness(command, worktree) == "hard"
 
 
 def structured_activity_source(stdout: str, stderr: str, worktree: str | None = None) -> dict[str, Any]:
@@ -7905,6 +7996,9 @@ def structured_activity_source(stdout: str, stderr: str, worktree: str | None = 
                 "arguments": dict(event.get("arguments") or {}),
                 "forbidden_memory_artifact_argument_access": bool(
                     event.get("forbidden_memory_artifact_argument_access")
+                ),
+                "forbidden_memory_artifact_probe": bool(
+                    event.get("forbidden_memory_artifact_probe")
                 ),
                 "errored": bool(event.get("errored")),
             }
@@ -8014,12 +8108,22 @@ def extract_agent_activity(stdout: str, stderr: str, worktree: str | None = None
             or first_tool_command_tokens[:2] == ["entire-brain", "search"]
         )
     )
-    forbidden_memory_artifact_access = any(
-        command_accesses_forbidden_memory_artifact(command, worktree)
+    command_hardness = [
+        command_forbidden_memory_artifact_hardness(command, worktree)
         for command in activity_source["commands"]
+    ]
+    forbidden_memory_artifact_access = any(
+        hardness == "hard" for hardness in command_hardness
     ) or any(
         bool(detail.get("forbidden_memory_artifact_argument_access"))
         for detail in activity_source.get("tool_details", [])
+    )
+    forbidden_memory_artifact_probes = sum(
+        1 for hardness in command_hardness if hardness == "advisory"
+    ) + sum(
+        1
+        for detail in activity_source.get("tool_details", [])
+        if detail.get("forbidden_memory_artifact_probe")
     )
     search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
     search_call_matches = re.findall(r"\b(?:git\s+grep|rg|grep|find)\b", command_lower)
@@ -8046,6 +8150,7 @@ def extract_agent_activity(stdout: str, stderr: str, worktree: str | None = None
         "first_tool_is_memory_search": first_tool_is_memory_search,
         "first_tool_command_tokens": first_tool_command_tokens,
         "forbidden_memory_artifact_access": forbidden_memory_artifact_access,
+        "forbidden_memory_artifact_probes": forbidden_memory_artifact_probes,
         "mcp_tool_names": sorted(set(mcp_tool_names)),
         "mcp_tool_details": mcp_tool_details,
         "mcp_tool_calls": len(mcp_tool_names),

@@ -1,18 +1,28 @@
 #!/usr/bin/env python3
-"""Tests that private-artifact detection judges paths inside the agent worktree.
+"""Tests that private-artifact detection tracks information access, not intent.
 
-Benchmark worktrees live under benchmarks/agent-brain/results/, so the absolute
-path of an ordinary source file in the worktree contains the same substring that
-marks a private benchmark artifact. Matching the raw absolute path therefore
-flagged agents for editing the very file the task asked them to edit, which fails
-the adherence axis and disqualifies the comparison that depends on those records.
+Two layers. First, paths are judged inside the agent worktree: benchmark
+worktrees live under benchmarks/agent-brain/results/, so the absolute path of
+an ordinary source file contains the same substring that marks a private
+artifact, and matching the raw path flagged agents for editing the file the
+task asked them to edit.
+
+Second, isolation is physical: hidden directories are deleted, the checkpoint
+ref and its objects are purged, and the sandbox denies the harness tree outside
+the worktree. A probe of an artifact that EXISTS (the .benchmark brain store in
+a treatment arm) is a hard violation because content could flow; a probe of
+something removed or denied is an advisory dead end. Excluding rows for
+information-free probes starved comparisons below the minimum repetitions while
+proving nothing about the treatment.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import pathlib
+import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -26,45 +36,89 @@ sys.modules[SPEC.name] = run
 SPEC.loader.exec_module(run)
 
 
-WORKTREE = "/repo/benchmarks/agent-brain/results/panel-x-20260814T000000Z/.worktrees/repo-abc123/repo"
+class ForbiddenArtifactHardnessTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.worktree = pathlib.Path(self._tmp.name) / "repo"
+        (self.worktree / ".benchmark" / "plugin" / "data").mkdir(parents=True)
+        (self.worktree / ".benchmark" / "plugin" / "data" / "index.json").write_text("{}")
+        (self.worktree / "internal" / "cli").mkdir(parents=True)
+        (self.worktree / "internal" / "cli" / "facts_merge.go").write_text("package cli\n")
+        # benchmarks/agent-brain is deliberately ABSENT: the harness deletes it.
+        self.addCleanup(self._tmp.cleanup)
 
-
-class ForbiddenArtifactScopeTest(unittest.TestCase):
-    def _flags_read(self, path: str) -> bool:
-        return run.tool_arguments_access_forbidden_memory_artifact(
-            "Read", {"file_path": path}, WORKTREE
+    def _read_hardness(self, path: str) -> str | None:
+        return run.tool_arguments_forbidden_memory_artifact_hardness(
+            "Read", {"file_path": path}, str(self.worktree)
         )
 
-    def test_task_target_file_in_worktree_is_allowed(self) -> None:
-        self.assertFalse(self._flags_read(f"{WORKTREE}/internal/cli/facts_merge.go"))
+    def test_task_target_file_is_not_a_reference_at_all(self) -> None:
+        self.assertIsNone(self._read_hardness(f"{self.worktree}/internal/cli/facts_merge.go"))
 
-    def test_benchmark_scaffolding_inside_worktree_is_flagged(self) -> None:
-        self.assertTrue(self._flags_read(f"{WORKTREE}/benchmarks/agent-brain/tasks/task.json"))
+    def test_probe_of_existing_brain_store_is_hard(self) -> None:
+        self.assertEqual(
+            self._read_hardness(f"{self.worktree}/.benchmark/plugin/data/index.json"), "hard"
+        )
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(
+                "cat .benchmark/plugin/data/index.json", str(self.worktree)
+            ),
+            "hard",
+        )
 
-    def test_brain_state_inside_worktree_is_flagged(self) -> None:
-        self.assertTrue(self._flags_read(f"{WORKTREE}/.entire/facts.json"))
-        self.assertTrue(self._flags_read(f"{WORKTREE}/.benchmark/plugin/data/repos/local/repo-a/x"))
+    def test_probe_of_removed_directory_is_advisory(self) -> None:
+        self.assertEqual(
+            self._read_hardness(f"{self.worktree}/benchmarks/agent-brain/tasks/task.json"),
+            "advisory",
+        )
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(
+                "ls benchmarks/agent-brain 2>/dev/null", str(self.worktree)
+            ),
+            "advisory",
+        )
 
-    def test_private_artifact_outside_worktree_is_flagged(self) -> None:
-        self.assertTrue(self._flags_read("/elsewhere/benchmarks/agent-brain/tasks/task.json"))
+    def test_absolute_path_outside_worktree_is_advisory(self) -> None:
+        # The sandbox denies the harness tree; the probe cannot read content.
+        self.assertEqual(
+            self._read_hardness("/elsewhere/benchmarks/agent-brain/results/.worktrees"),
+            "advisory",
+        )
 
-    def test_relative_paths_keep_their_meaning(self) -> None:
-        self.assertFalse(self._flags_read("internal/cli/facts_merge.go"))
-        self.assertTrue(self._flags_read(".entire/facts.json"))
-
-    def test_commands_are_scoped_the_same_way(self) -> None:
-        self.assertFalse(
-            run.command_accesses_forbidden_memory_artifact(
-                f"go test {WORKTREE}/internal/cli/...", WORKTREE
+    def test_exclusion_patterns_are_not_findings(self) -> None:
+        for command in (
+            'find . -iname "*.md" -not -path "./.benchmark/*"',
+            'find . -path ./.benchmark -prune -o -print',
+            'grep -rn conf . --exclude-dir=.benchmark',
+            'find . | grep -v /.benchmark',
+        ):
+            self.assertIsNone(
+                run.command_forbidden_memory_artifact_hardness(command, str(self.worktree)),
+                command,
             )
+
+    def test_checkpoint_ref_probe_tracks_ref_existence(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.worktree)], check=True)
+        env_cmd = ["git", "-C", str(self.worktree)]
+        subprocess.run([*env_cmd, "config", "user.email", "t@example.invalid"], check=True)
+        subprocess.run([*env_cmd, "config", "user.name", "T"], check=True)
+        subprocess.run([*env_cmd, "commit", "-qm", "base", "--allow-empty"], check=True)
+        probe = "git log refs/heads/entire/checkpoints/v1"
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(probe, str(self.worktree)),
+            "advisory",
+            "purged ref: nothing to read",
         )
-        self.assertTrue(
-            run.command_accesses_forbidden_memory_artifact(
-                f"cat {WORKTREE}/benchmarks/agent-brain/tasks/task.json", WORKTREE
-            )
+        subprocess.run(
+            [*env_cmd, "update-ref", "refs/heads/entire/checkpoints/v1", "HEAD"], check=True
+        )
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(probe, str(self.worktree)),
+            "hard",
+            "a present ref is raw session history",
         )
 
-    def test_detection_without_a_worktree_is_unchanged(self) -> None:
+    def test_detection_without_a_worktree_stays_strict(self) -> None:
         self.assertTrue(run.command_accesses_forbidden_memory_artifact("cat .entire/facts.json"))
         self.assertFalse(run.command_accesses_forbidden_memory_artifact("cat internal/cli/x.go"))
 
