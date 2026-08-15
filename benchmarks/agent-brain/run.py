@@ -5068,6 +5068,7 @@ def temporal_agent_read_isolation(
     tools: dict[str, pathlib.Path],
     sandbox_executable: pathlib.Path = TEMPORAL_AGENT_SANDBOX_EXECUTABLE,
     host_env: dict[str, str] | None = None,
+    extra_allowed_roots: Iterable[pathlib.Path] = (),
 ) -> tuple[str, dict[str, Any]]:
     """Build a deny-first read profile for a harness-owned causal row.
 
@@ -5082,7 +5083,12 @@ def temporal_agent_read_isolation(
         raise RuntimeError("harness memory delivery requires /usr/bin/sandbox-exec read isolation")
     denied_roots = {ROOT.resolve(), pathlib.Path(source).resolve()}
     allowed_roots = sorted(
-        {pathlib.Path(worktree).resolve(), pathlib.Path(tools["bin"]).resolve()}, key=str
+        {
+            pathlib.Path(worktree).resolve(),
+            pathlib.Path(tools["bin"]).resolve(),
+            *(pathlib.Path(path).resolve() for path in extra_allowed_roots),
+        },
+        key=str,
     )
 
     host_env = dict(os.environ) if host_env is None else dict(host_env)
@@ -8736,6 +8742,27 @@ def run_one(
                     tools=tools,
                     worktree=worktree,
                 )
+        if read_isolation_profile is None:
+            # Every causal cell gets the physical isolation the temporal
+            # delivery lane always had. Observed without it: a no_brain agent
+            # derived the source checkout's path from the worktree's origin
+            # remote URL, cd'ed into the real repository, and read the scrubbed
+            # answer from its ordinary git history. The worktree is
+            # self-contained by design, so removing the remote and denying
+            # reads of the harness and source trees changes nothing for a
+            # compliant agent in any arm.
+            record["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
+            standard_cell_allowed_roots = []
+            if agent_bin is not None:
+                standard_cell_allowed_roots.append(CACHE_DIR / "agent-bin" / agent_bin["key"])
+            read_isolation_profile, read_isolation = temporal_agent_read_isolation(
+                worktree,
+                source,
+                tools,
+                host_env=env,
+                extra_allowed_roots=standard_cell_allowed_roots,
+            )
+            record["agent_read_isolation"] = read_isolation
         prompt = prompt_for(task, condition, runner, memory_packet=memory_packet)
         (run_dir / "prompt.txt").write_text(prompt)
         record["prompt_artifact"] = {

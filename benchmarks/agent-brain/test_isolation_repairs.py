@@ -117,6 +117,41 @@ class ScrubbedTaskBoundaryPolicyTest(unittest.TestCase):
             self.assertNotIn("advisory_findings", audit)
 
 
+class StandardCellIsolationTest(unittest.TestCase):
+    def test_origin_remote_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            src = root / "src"
+            src.mkdir()
+            _git("init", "-q", cwd=src)
+            _git("config", "user.email", "t@example.invalid", cwd=src)
+            _git("config", "user.name", "T", cwd=src)
+            _git("commit", "-qm", "base", "--allow-empty", cwd=src)
+            worktree = root / "wt"
+            subprocess.run(
+                ["git", "clone", "-q", "--no-local", str(src), str(worktree)], check=True
+            )
+            self.assertIn("origin", _git("remote", cwd=worktree))
+
+            run.remove_agent_visible_git_remotes(worktree)
+
+            self.assertEqual(_git("remote", cwd=worktree).strip(), "")
+
+    def test_profile_allows_extra_roots_inside_denied_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            worktree = root / "wt"
+            worktree.mkdir()
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            extra = run.CACHE_DIR / "agent-bin"
+            profile, meta = run.temporal_agent_read_isolation(
+                worktree, run.ROOT, {"bin": bin_dir}, host_env={}, extra_allowed_roots=[extra]
+            )
+            self.assertIn(str(extra), profile)
+            self.assertTrue(meta["harness_and_source_read_write_denied"])
+
+
 class RecordHostPathHygieneTest(unittest.TestCase):
     def test_unregistered_host_paths_are_scrubbed_generically(self) -> None:
         record = {
