@@ -23,7 +23,10 @@ import (
 
 const (
 	defaultExportDir        = ""
-	defaultCheckpointLimit  = 10000
+	// Unlimited by default: the brain's value is recovering old decisions, and a
+	// cap silently truncates exactly the history that makes it useful. 0 means
+	// all; --checkpoint-limit stays available for callers who want a bound.
+	defaultCheckpointLimit  = 0
 	exportManifestFileName  = "manifest.json"
 	exportReadmeFileName    = "README.md"
 	exportSessionsDirectory = "sessions"
@@ -1528,7 +1531,14 @@ func (d checkpointBranchDestinations) BranchesFor(checkpointID, metadataBranch s
 	return []string{branch}
 }
 
+// limitedCheckpointSet honours the documented "0 means all" contract. Every
+// other cap site guards on limit > 0; this one truncated unconditionally, so a
+// zero limit selected nothing instead of everything and the export silently
+// produced an empty corpus.
 func limitedCheckpointSet(ids map[string]struct{}, limit int) map[string]struct{} {
+	if limit <= 0 {
+		return ids
+	}
 	sorted := make([]string, 0, len(ids))
 	for id := range ids {
 		sorted = append(sorted, id)

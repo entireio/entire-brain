@@ -10510,7 +10510,7 @@ def main() -> int:
     run_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     run_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     run_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
-    run_p.add_argument("--checkpoint-limit", type=int, default=200)
+    run_p.add_argument("--checkpoint-limit", type=int, default=0)
     run_p.add_argument(
         "--source-root",
         help="Directory containing task repositories; use the same value for every compared Brain ref.",
@@ -10547,7 +10547,7 @@ def main() -> int:
     panel_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     panel_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     panel_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
-    panel_p.add_argument("--checkpoint-limit", type=int, default=200)
+    panel_p.add_argument("--checkpoint-limit", type=int, default=0)
     panel_p.add_argument(
         "--source-root",
         help="Directory containing task repositories; use the same value for every compared Brain ref.",
@@ -10566,7 +10566,7 @@ def main() -> int:
     prep_p = sub.add_parser("prep")
     prep_p.add_argument("--tasks", nargs="*", default=[])
     prep_p.add_argument("--conditions", default="semantic_brain,semantic_history_brain")
-    prep_p.add_argument("--checkpoint-limit", type=int, default=200)
+    prep_p.add_argument("--checkpoint-limit", type=int, default=0)
     prep_p.add_argument("--source-root", help="Directory containing task repositories")
     prep_p.add_argument("--suite-name")
     prep_p.add_argument("--keep-worktrees", action="store_true")
@@ -10596,7 +10596,7 @@ def main() -> int:
 
     check_p = sub.add_parser("check")
     check_p.add_argument("--tasks", nargs="*", default=[])
-    check_p.add_argument("--checkpoint-limit", type=int, default=50)
+    check_p.add_argument("--checkpoint-limit", type=int, default=0)
     check_p.add_argument("--source-root", help="Directory containing task repositories")
     check_p.add_argument("--keep-check-dir", action="store_true")
     check_p.add_argument("--no-brain-cache", action="store_true")
