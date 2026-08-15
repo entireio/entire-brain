@@ -38,7 +38,7 @@ func TestExtractHistoryJSONFragmentsPiMessages(t *testing.T) {
 	}
 
 	// toolResult content is mined for code facts like Claude tool_result blocks.
-	toolResult := parse(`{"type":"message","message":{"role":"toolResult","toolName":"bash","content":[{"type":"text","text":"state.transcriptPath resolved to sessions/main"}]}}`)
+	toolResult := parse(`{"type":"message","message":{"role":"toolResult","toolName":"bash","content":[{"type":"text","text":"state.transcriptPath = \"sessions/main\""}]}}`)
 	fragments = extractHistoryJSONFragments(toolResult)
 	if len(fragments) == 0 || fragments[0].Source != "tool_result_fact" {
 		t.Errorf("pi toolResult with code-fact signal not indexed: %+v", fragments)

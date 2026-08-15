@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1365,15 +1366,28 @@ func cleanHistoryCodeFactSnippet(value string) string {
 	return truncateString(value, 4000)
 }
 
+// historyFactSignal matches output that states a durable fact about the code:
+// a declaration, a flag's documented default, an assignment to a literal, or a
+// file:line anchor. Those are the shapes a command prints when it reveals a
+// decided value, which is precisely what a later session needs to recover.
+//
+// This replaces a hardcoded list of phrases ("bare auth", "brainignore",
+// "schema contract", "attributionbasecommit", ...) that had been lifted from
+// individual benchmark task names. Tool output was indexed only when it
+// happened to contain one of them, so on any real repository essentially no
+// command output entered the history index: a default printed by --help, a
+// constant echoed by a build, or a value dumped by a config command was
+// unsearchable. Matching structure instead of vocabulary keeps the index
+// repository-agnostic.
+var historyFactSignal = regexp.MustCompile(
+	`(?:^|[\s(])(?:const|func|type|class|def|var|let|interface|enum|struct)\s+[A-Za-z_]` +
+		`|--[A-Za-z][\w-]*[^\n]{0,200}?\(default\b` +
+		`|[A-Za-z_][A-Za-z0-9_.]*\s*(?::=|=)\s*(?:-?\d|"|'|` + "`" + `|true\b|false\b)` +
+		`|[\w./-]+\.(?:go|ts|tsx|js|jsx|py|rs|java|rb|c|cc|cpp|h|hpp|kt|swift|sh|sql):\d+`,
+)
+
 func historyTextHasCodeFactSignal(text string) bool {
-	lower := strings.ToLower(text)
-	return containsAny(lower,
-		"attributionbasecommit", "realignattributionbase", "human_added", "human added",
-		"resolve transcript path", "resolvetranscriptpath", "transcriptpath", "state.transcriptpath",
-		"reresolvestonestedlayout", "re-resolved path", "subsequent reads use",
-		"brainignore", ".brainignore", ".github", "github workflow", "workflow/tooling",
-		"seed-agent", "seed agent", "schema contract", "bare auth",
-	)
+	return historyFactSignal.MatchString(text)
 }
 
 func historyLineHasCodeFactSignal(line string) bool {
