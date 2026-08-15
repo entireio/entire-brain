@@ -1,0 +1,5 @@
+What's checkpoint_limit?
+
+---
+
+Remove this cap alltogether, both in benchmark and in product (except as a user param, default unlimited).
