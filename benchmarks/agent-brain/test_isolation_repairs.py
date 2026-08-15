@@ -174,5 +174,39 @@ class RecordHostPathHygieneTest(unittest.TestCase):
         self.assertEqual(out["worktree"], "<agent-worktree>/internal")
 
 
+
+
+class RemoteSourceFetchAuditTest(unittest.TestCase):
+    def _audit(self, *commands: str) -> dict:
+        return run.remote_source_fetch_audit({"activity": {"commands": list(commands)}})
+
+    def test_network_clone_of_upstream_is_a_hard_violation(self) -> None:
+        for command in (
+            "git clone https://github.com/ashtom/entire-brain /tmp/upstream",
+            "git fetch https://github.com/ashtom/entire-brain main",
+            "git ls-remote git@github.com:ashtom/entire-brain.git",
+            "git remote add up https://github.com/entireio/entire-brain && git fetch up",
+            "curl -sL https://raw.githubusercontent.com/ashtom/entire-brain/main/internal/factmerge/merge.go",
+            "gh api repos/ashtom/entire-brain/contents/internal/factmerge/merge.go",
+        ):
+            audit = self._audit(command)
+            self.assertFalse(audit["ok"], command)
+            self.assertEqual(audit["findings"][0]["kind"], "remote_source_fetch")
+
+    def test_local_git_stays_permitted(self) -> None:
+        audit = self._audit(
+            "git log --all -S defaultFactConfidenceThreshold",
+            "git fetch",
+            "git pull --rebase",
+            "git clone /tmp/somewhere/local.git x",
+            "go test ./internal/cli/",
+        )
+        self.assertTrue(audit["ok"], audit)
+
+    def test_findings_retain_only_hashes(self) -> None:
+        audit = self._audit("git clone https://github.com/ashtom/entire-brain")
+        self.assertNotIn("github.com", str(audit["findings"]))
+
+
 if __name__ == "__main__":
     unittest.main()

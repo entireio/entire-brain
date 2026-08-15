@@ -3644,6 +3644,35 @@ def brain_cli_condition_audit(
     }
 
 
+REMOTE_SOURCE_FETCH_RE = re.compile(
+    r"\bgit\b[^\n|;&]*\b(?:clone|fetch|pull|ls-remote|remote\s+add|submodule)\b[^\n|;&]*"
+    r"(?:https?://|git@|ssh://|git://)"
+    r"|\b(?:curl|wget)\b[^\n|;&]*(?:github\.com|gitlab\.com|bitbucket\.org|codeload\.github\.com|raw\.githubusercontent\.com)"
+    r"|\bgh\s+(?:repo\s+clone|api)\b",
+    re.IGNORECASE,
+)
+
+
+def remote_source_fetch_audit(agent_info: dict[str, Any]) -> dict[str, Any]:
+    """Reject fetching source history from the network in any arm.
+
+    The disposable worktree is self-contained by design and its origin remote is
+    removed, so no remote git operation is ever part of a compliant run. The
+    filesystem sandbox cannot stop a network clone of the same repository, and
+    both directions were observed live: a no_brain agent recovered the scrubbed
+    answer by cloning the public upstream named in go.mod and reading the
+    refactored constant from CURRENT code. Content flows, so this is a hard
+    adherence violation, symmetric across arms, kept as hashes only.
+    """
+    activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
+    findings = [
+        {"kind": "remote_source_fetch", "command_sha256": text_sha256(str(command))}
+        for command in activity.get("commands", [])
+        if REMOTE_SOURCE_FETCH_RE.search(str(command))
+    ]
+    return {"ok": not findings, "required": True, "findings": findings}
+
+
 def baseline_history_audit(
     agent_info: dict[str, Any],
     attestations: Iterable[dict[str, Any]],
@@ -8875,6 +8904,8 @@ def run_one(
             ],
             task,
         )
+        remote_fetch_audit = remote_source_fetch_audit(agent_info)
+        record["remote_source_fetch_audit"] = remote_fetch_audit
         files = changed_files(worktree)
         secret_postflight = agent_secret_preflight(worktree)
         record["agent_secret_postflight"] = secret_postflight
@@ -8890,6 +8921,7 @@ def run_one(
             and brain_cli_audit["ok"]
             and temporal_audit["ok"]
             and baseline_audit["ok"]
+            and remote_fetch_audit["ok"]
         )
         integrity_ok = (
             leak_audit["ok"]
