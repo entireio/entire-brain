@@ -5167,6 +5167,20 @@ def temporal_agent_read_isolation(
     lines.extend(
         f"(deny file-read-data (subpath {json.dumps(str(path))}))" for path in denied_roots
     )
+    # Agent CLIs discover ancestor configuration (.claude/, CLAUDE.md, ...)
+    # from a cwd that sits under the harness root. With metadata visible, that
+    # discovery finds the files, and the CLI treats the subsequent
+    # unreadable-content EPERM as fatal instead of skipping. Denying metadata
+    # on exactly these entries restores the clean skip while ordinary ancestor
+    # path resolution stays statable.
+    agent_config_names = (
+        ".claude", ".codex", ".cursor", ".entire", ".mcp.json", "CLAUDE.md", "AGENTS.md",
+    )
+    lines.extend(
+        f"(deny file-read* (subpath {json.dumps(str(path / name))}))"
+        for path in denied_roots
+        for name in agent_config_names
+    )
     lines.extend(
         f"(deny file-write* (subpath {json.dumps(str(path))}))" for path in denied_roots
     )
@@ -5178,8 +5192,14 @@ def temporal_agent_read_isolation(
         f"(deny process-exec (literal {json.dumps(str(path))}))"
         for path in sorted(host_entire_executables, key=str)
     )
+    # The deny above is operation-specific (file-read-data), and seatbelt lets
+    # a specific deny outrank a later broader allow, so the re-allow must name
+    # the same specific operation for the worktree to stay readable.
     lines.extend(
         f"(allow file-read* (subpath {json.dumps(str(path))}))" for path in allowed_roots
+    )
+    lines.extend(
+        f"(allow file-read-data (subpath {json.dumps(str(path))}))" for path in allowed_roots
     )
     lines.append(
         f"(allow file-write* (subpath {json.dumps(str(pathlib.Path(worktree).resolve()))}))"
