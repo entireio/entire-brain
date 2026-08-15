@@ -7956,6 +7956,33 @@ def extract_resolved_model(stdout: str) -> str | None:
     return max(counts, key=lambda value: counts[value])
 
 
+HARNESS_RUNTIME_BENCHMARK_ENTRIES = {"go-build-cache", "go-tmp", "go-env"}
+
+
+def private_artifact_content_present(path: pathlib.Path) -> bool:
+    """True when a probed path holds content an agent must not see.
+
+    The harness itself keeps Go runtime state (build cache, tmp dir, GOENV
+    file) under the worktree's .benchmark container in EVERY arm, so the
+    container's existence proves nothing about memory artifacts: a name-only
+    probe in a no_brain cell resolved .benchmark, classified hard, and starved
+    the baseline below the minimum repetitions. Only private content (the
+    brain store, delivered history) makes a probe hard; an empty container or
+    pure harness runtime state is an information-free dead end.
+    """
+    if path.name in HARNESS_RUNTIME_BENCHMARK_ENTRIES:
+        return False
+    try:
+        if not path.exists():
+            return False
+        if not path.is_dir():
+            return True
+        return any(private_artifact_content_present(child) for child in path.iterdir())
+    except OSError:
+        # Unreadable is indistinguishable from private: fail closed.
+        return True
+
+
 def private_artifact_reference_hardness(token: str, worktree: str | None) -> str | None:
     """Classify a private-artifact reference by what it could actually read.
 
@@ -7995,7 +8022,11 @@ def private_artifact_reference_hardness(token: str, worktree: str | None) -> str
     # correctly against the worktree, and only content that is actually there
     # makes the probe hard.
     relative = cleaned[start:]
-    return "hard" if (pathlib.Path(worktree) / relative).exists() else "advisory"
+    return (
+        "hard"
+        if private_artifact_content_present(pathlib.Path(worktree) / relative)
+        else "advisory"
+    )
 
 
 def command_forbidden_memory_artifact_hardness(

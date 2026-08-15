@@ -66,6 +66,33 @@ class ForbiddenArtifactHardnessTest(unittest.TestCase):
             "hard",
         )
 
+    def test_harness_go_runtime_state_does_not_make_a_probe_hard(self) -> None:
+        # The harness creates these in EVERY arm (plugin_env), so a no_brain
+        # worktree contains .benchmark even though no memory artifact exists.
+        # Observed live: a name-only `find` existence probe in a no_brain cell
+        # classified hard and starved the baseline below minimum repetitions.
+        bare = pathlib.Path(self._tmp.name) / "no-brain-repo"
+        (bare / ".benchmark" / "go-build-cache").mkdir(parents=True)
+        (bare / ".benchmark" / "go-tmp").mkdir(parents=True)
+        (bare / ".benchmark" / "go-env").write_text("GOPROXY=off\n")
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(
+                'find . -maxdepth 1 -name ".entire*" -o -maxdepth 1 -name ".benchmark*"',
+                str(bare),
+            ),
+            "advisory",
+        )
+        # The moment private content appears in the container, the same probe
+        # is hard again.
+        (bare / ".benchmark" / "plugin" / "data").mkdir(parents=True)
+        (bare / ".benchmark" / "plugin" / "data" / "index.json").write_text("{}")
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(
+                'find . -maxdepth 1 -name ".benchmark*"', str(bare)
+            ),
+            "hard",
+        )
+
     def test_probe_of_removed_directory_is_advisory(self) -> None:
         self.assertEqual(
             self._read_hardness(f"{self.worktree}/benchmarks/agent-brain/tasks/task.json"),
