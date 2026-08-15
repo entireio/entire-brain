@@ -1,0 +1,5 @@
+Why this? "commit 6419e98e also switched the arm from full_brain (distilled facts) to semantic_history_brain (no facts) — a weaker channel."
+
+---
+
+2/4 is still not good enough. Learn how full-brain losses 2 and fix it. Do not modify the benchmark, I want real wins.

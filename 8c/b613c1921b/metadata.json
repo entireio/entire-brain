@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "8cb613c1921b",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/export.go",
+    "internal/cli/export_empty_guard_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8c/b613c1921b/0/metadata.json",
+      "transcript": "/8c/b613c1921b/0/full.jsonl",
+      "compact_transcript": "/8c/b613c1921b/0/transcript.jsonl",
+      "content_hash": "/8c/b613c1921b/0/content_hash.txt",
+      "prompt": "/8c/b613c1921b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 96,
+    "cache_creation_tokens": 371526,
+    "cache_read_tokens": 17468704,
+    "output_tokens": 33637,
+    "api_call_count": 48
+  }
+}
