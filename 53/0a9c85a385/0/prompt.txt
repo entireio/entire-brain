@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bm6idkhba</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bm6idkhba.output</output-file>
+<status>failed</status>
+<summary>Background command "Run the panel with full isolation" failed with exit code 1</summary>
+</task-notification>
