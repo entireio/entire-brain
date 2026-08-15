@@ -5158,8 +5158,14 @@ def temporal_agent_read_isolation(
                 host_entire_executables.add(resolved)
 
     lines = ["(version 1)", "(allow default)"]
+    # deny file-read-data, not file-read*: metadata (lstat/stat) of the denied
+    # trees stays allowed because path resolution walks every ancestor of the
+    # worktree, which lives under the harness root. Denying metadata made
+    # EvalSymlinks fail on the ROOT component, which broke every repo-scoped
+    # brain CLI command inside the sandbox while the contents deny is what the
+    # isolation actually needs: no directory listings, no file contents.
     lines.extend(
-        f"(deny file-read* (subpath {json.dumps(str(path))}))" for path in denied_roots
+        f"(deny file-read-data (subpath {json.dumps(str(path))}))" for path in denied_roots
     )
     lines.extend(
         f"(deny file-write* (subpath {json.dumps(str(path))}))" for path in denied_roots
