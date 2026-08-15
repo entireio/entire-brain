@@ -231,11 +231,25 @@ def validate_run_manifest(value: dict[str, Any]) -> list[str]:
                 else:
                     errors.append("v2 run manifest provider invocation state is ambiguous")
             execution_identity = execution_gate.get("execution_identity")
+            billing_integrity = execution_gate.get("billing_integrity")
+            # A cell execution identity can only be minted from a frozen pricing
+            # quote bound at launch (the confirmatory lane). Runs launched without
+            # one record billing_integrity.required=False and legitimately carry
+            # no identity; demanding one there fails every non-confirmatory suite.
+            billing_bound = (
+                isinstance(billing_integrity, dict)
+                and billing_integrity.get("required") is True
+            )
             if provider_state in {
                 STRUCTURAL_ZERO_NO_PROVIDER_INVOCATION,
                 PROVIDER_INVOCATIONS_OBSERVED,
             }:
-                if (
+                if execution_identity is None:
+                    if billing_bound:
+                        errors.append(
+                            "v2 run manifest cell execution identity is required when a pricing quote is bound"
+                        )
+                elif (
                     not isinstance(execution_identity, dict)
                     or execution_identity.get("schema") != EXECUTION_IDENTITY_SCHEMA
                     or execution_identity.get("identity_sha256")
