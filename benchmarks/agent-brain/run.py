@@ -4135,6 +4135,12 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
             "GOMODCACHE": str(BENCH_GO_MOD_CACHE),
             "GOTMPDIR": str(go_tmp),
             "GOTOOLCHAIN": "auto",
+            # The filesystem sandbox denies reads, not host-config writes: a cell
+            # agent's `go env -w` wrote GOPROXY=off into the HOST go env file,
+            # which poisoned dependency prewarm for every later cell and mutated
+            # the operator's machine. A per-worktree GOENV keeps agent writes
+            # inside the cell and keeps prewarm blind to host Go configuration.
+            "GOENV": str(worktree / ".benchmark" / "go-env"),
         }
     )
     return env

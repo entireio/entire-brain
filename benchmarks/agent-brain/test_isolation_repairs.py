@@ -208,5 +208,65 @@ class RemoteSourceFetchAuditTest(unittest.TestCase):
         self.assertNotIn("github.com", str(audit["findings"]))
 
 
+class HostGoConfigIsolationTest(unittest.TestCase):
+    """A cell's Go configuration must be a per-worktree file, both directions.
+
+    Observed live: a sandboxed no_brain agent ran `go env -w ... GOPROXY=off`,
+    which wrote the HOST go env file (the sandbox denies reads, not host-config
+    writes). Every later cell's dependency prewarm inherited GOPROXY=off and
+    died before agent execution, and the operator's machine was left mutated.
+    """
+
+    def _cell_env(self, root: pathlib.Path) -> dict[str, str]:
+        worktree = root / "wt"
+        run_dir = root / "run"
+        bin_dir = root / "bin"
+        for path in (worktree, run_dir, bin_dir):
+            path.mkdir(parents=True, exist_ok=True)
+        return run.plugin_env(run_dir, worktree, {"bin": bin_dir})
+
+    def test_cell_goenv_is_pinned_inside_the_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            env = self._cell_env(root)
+            self.assertEqual(
+                pathlib.Path(env["GOENV"]), root / "wt" / ".benchmark" / "go-env"
+            )
+
+    def test_cell_is_blind_to_poisoned_host_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            env = self._cell_env(root)
+            host_config = root / "home" / "Library" / "Application Support" / "go"
+            host_config.mkdir(parents=True)
+            (host_config / "env").write_text("GOPROXY=off\n")
+            env["HOME"] = str(root / "home")
+            proxy = subprocess.run(
+                ["go", "env", "GOPROXY"], env=env, capture_output=True, text=True
+            ).stdout.strip()
+            self.assertNotEqual(proxy, "off")
+
+    def test_cell_go_env_writes_stay_inside_the_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            env = self._cell_env(root)
+            host_config = root / "home" / "Library" / "Application Support" / "go"
+            host_config.mkdir(parents=True)
+            host_env = host_config / "env"
+            host_env.write_text("")
+            env["HOME"] = str(root / "home")
+            subprocess.run(
+                ["go", "env", "-w", "GOPROXY=off"],
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(host_env.read_text(), "")
+            self.assertIn(
+                "GOPROXY=off",
+                (root / "wt" / ".benchmark" / "go-env").read_text(),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
