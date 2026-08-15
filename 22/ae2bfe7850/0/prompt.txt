@@ -1,0 +1,13 @@
+Before you make the fix, review the current plan (see also ../entire-plan), architecture, code, tests, and benchmarks. Hunt for problems and weaknesses, such as the above (and its fix). Sort the fixes by priority, while not diverting from the plan and the intent for entire-brain.
+
+---
+
+What's the fairest solution, in which brain can offer all its value without cheating?
+
+---
+
+I am not following. Why is a git prune needed and why you talking about sabotaged state?
+
+---
+
+Yes. Also address the other product issues you found.
