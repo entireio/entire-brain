@@ -121,8 +121,8 @@ func cacheContainsRecordID(cache historyScanCache, id string) bool {
 // Branch may already contain manifest inference cannot masquerade as v7 raw
 // scanner records.
 func TestHistoryScanCacheV6AnnotatedEntriesIgnored(t *testing.T) {
-	if historyScanCacheVersion != 7 {
-		t.Fatalf("test pins the incompatible v6 -> v7 cache migration; version = %d", historyScanCacheVersion)
+	if historyScanCacheVersion < 7 {
+		t.Fatalf("test guards the incompatible v6 -> v7 cache migration; any later version must also reject v6 entries (version = %d)", historyScanCacheVersion)
 	}
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, historyDirName), 0o700); err != nil {

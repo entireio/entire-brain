@@ -57,6 +57,7 @@ func TestScanHistoryFileOpencodeDocument(t *testing.T) {
       "info": {"role": "assistant"},
       "parts": [
         {"type": "tool", "tool": "edit", "state": {"output": "huge tool output"}},
+        {"type": "tool", "tool": "bash", "state": {"output": "borderWidth = 0"}},
         {"type": "text", "text": "The root cause is the duplicated border; removed both."}
       ]
     }
@@ -74,17 +75,31 @@ func TestScanHistoryFileOpencodeDocument(t *testing.T) {
 	if len(records) == 0 {
 		t.Fatal("document-form transcript indexed to nothing; the line scanner cannot parse it and the document path must take over")
 	}
+	sawNarrative := false
+	sawToolFact := false
 	for _, record := range records {
-		if !strings.Contains(record.Summary, "root cause") {
-			t.Errorf("unexpected record from document transcript: %+v", record)
-		}
 		// The assistant message object opens on line 8 of the document.
 		if record.Line != 8 {
 			t.Errorf("record anchored to line %d, want 8 (the message object's opening line)", record.Line)
 		}
 		if strings.Contains(record.Summary, "huge tool output") {
-			t.Errorf("tool output leaked into the index: %+v", record)
+			t.Errorf("bulk tool output leaked into the index: %+v", record)
 		}
+		if strings.Contains(record.Summary, "root cause") {
+			sawNarrative = true
+		}
+		if record.Kind == "code_fact" && strings.Contains(record.Summary, "borderWidth = 0") {
+			sawToolFact = true
+		}
+	}
+	if !sawNarrative {
+		t.Error("assistant narrative missing from document records")
+	}
+	// Tool outputs carry the durable facts commands print; only snippets with
+	// a structural code-fact signal enter the index, so the fact record exists
+	// while the signal-free bulk output above stays out.
+	if !sawToolFact {
+		t.Errorf("tool-output code fact missing from document records: %+v", records)
 	}
 
 	// JSONL files must still go through the line scanner.

@@ -1337,6 +1337,11 @@ type documentMessage struct {
 	Role string // the message's info.role ("user", "assistant", ...); "" when absent
 	Text string // whitespace-collapsed conversation text; "" for tool-only messages
 	Line int    // 1-based line of the message object's opening brace in the document
+	// ToolOutputs carries each tool part's state.output verbatim. The JSONL
+	// path mines tool results for durable code facts; without this field the
+	// document path silently dropped the same evidence, so a flag default or a
+	// constant echoed by a command was unindexable from document-form sessions.
+	ToolOutputs []string
 }
 
 // parseDocumentConversation extracts the conversation messages from a
@@ -1411,24 +1416,33 @@ func parseDocumentConversation(content string) ([]documentMessage, bool) {
 					Role string `json:"role"`
 				} `json:"info"`
 				Parts []struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
+					Type  string `json:"type"`
+					Text  string `json:"text"`
+					State struct {
+						Output string `json:"output"`
+					} `json:"state"`
 				} `json:"parts"`
 			}
 			if err := dec.Decode(&msg); err != nil {
 				return nil, false
 			}
 			var words []string
+			var toolOutputs []string
 			for _, part := range msg.Parts {
+				if part.Type == "tool" && strings.TrimSpace(part.State.Output) != "" {
+					toolOutputs = append(toolOutputs, part.State.Output)
+					continue
+				}
 				if part.Type != "text" || part.Text == "" {
-					continue // tool, patch, reasoning, step-start/finish, file, ...
+					continue // patch, reasoning, step-start/finish, file, ...
 				}
 				words = append(words, strings.Fields(part.Text)...)
 			}
 			messages = append(messages, documentMessage{
-				Role: msg.Info.Role,
-				Text: strings.Join(words, " "),
-				Line: msgLine,
+				Role:        msg.Info.Role,
+				Text:        strings.Join(words, " "),
+				Line:        msgLine,
+				ToolOutputs: toolOutputs,
 			})
 		}
 		for _, message := range messages {

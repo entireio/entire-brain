@@ -367,8 +367,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_delete_project",
-			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only.",
-			"inputSchema": objectSchema(nil, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)")}),
+			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only. Irreversible: exported session history and indexes for the project are erased, so confirm=true is required.",
+			"inputSchema": objectSchema([]string{"confirm"}, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)"), "confirm": boolArg("confirm", "Must be true; acknowledges that the project's exported history and indexes are erased irreversibly")}),
 		},
 		{
 			"name":        "brain_search_code",
@@ -602,6 +602,22 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
 		if stringErr != nil {
 			err = stringErr
+			break
+		}
+		if _, present := params.Arguments["confirm"]; !present {
+			err = errors.New("confirm is required")
+			break
+		}
+		confirmed, boolErr := mcpBool(params.Arguments, "confirm")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		if !confirmed {
+			// Deleting a brain erases the project's exported session history and
+			// every derived index in one call, and an agent exploring the tool
+			// surface mid-session must not be able to do that as a side effect.
+			err = errors.New("brain_delete_project is irreversible; pass confirm=true to erase this project's brain")
 			break
 		}
 		err = runMCPDeleteProject(ctx, cmd, opts, strings.TrimSpace(repoKey))

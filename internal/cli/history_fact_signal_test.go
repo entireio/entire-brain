@@ -52,6 +52,36 @@ func TestHistoryFactSignalIgnoresRoutineChatter(t *testing.T) {
 	}
 }
 
+// The pre-decode line filter runs on RAW transcript lines, where embedded
+// quotes are JSON-escaped. A line whose only content is a code fact used to be
+// dropped before the fragment extractor could see it, so tool output carrying
+// a decided value never reached the index unless narrative keywords happened
+// to share the line.
+func TestPrefilterAdmitsRawCodeFactLines(t *testing.T) {
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"defaultFactConfidenceThreshold = 0.75"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"--confidence float   Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review (default 0.75)"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"timeout = 30\nretries = 5\nmode = \"strict\""}]}}`,
+	}
+	for _, line := range lines {
+		if !historyLineMayContainIndexedContent(line) {
+			t.Errorf("raw code-fact line dropped before decode: %q", line)
+		}
+	}
+}
+
+func TestPrefilterStillSkipsIrrelevantLines(t *testing.T) {
+	lines := []string{
+		`{"type":"system","subtype":"init"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"please take a look at the header"}]}}`,
+	}
+	for _, line := range lines {
+		if historyLineMayContainIndexedContent(line) {
+			t.Errorf("irrelevant line passed the fast-path filter: %q", line)
+		}
+	}
+}
+
 // The predicate must not depend on vocabulary borrowed from benchmark tasks.
 // These strings were the entire allowlist; matching them as such would mean the
 // index is once again tuned to the benchmark rather than to code.
