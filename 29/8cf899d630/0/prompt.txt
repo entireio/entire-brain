@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bvuj39n5y</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bvuj39n5y.output</output-file>
+<status>completed</status>
+<summary>Background command "Relaunch the clean-proof panel from the repo root" completed (exit code 0)</summary>
+</task-notification>
