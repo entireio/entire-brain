@@ -58,5 +58,12 @@
     "confidence needed before auto applying a merge",
     "gate that decides which fact updates apply automatically",
     "low confidence merge should not silently overwrite a fact"
+  ],
+  "binary_replacements": [
+    {
+      "path": "internal/factmerge/merge.go",
+      "old": "\tDefaultConfidenceThreshold = 0.75",
+      "new": "\tDefaultConfidenceThreshold = 0.7"
+    }
   ]
 }

@@ -1250,6 +1250,132 @@ def git_head(repo: pathlib.Path) -> str:
     return run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, check=True).stdout.strip()
 
 
+def build_agent_visible_brain(
+    task: dict[str, Any], tools: dict[str, pathlib.Path]
+) -> dict[str, Any] | None:
+    """Build the entire-brain binary agents may invoke, without compiled-in answers.
+
+    tools["brain"] is built from harness HEAD, which contains the true value a
+    self-hosted task removed from the agent worktree; pflag renders compiled-in
+    defaults into --help, so the binary on PATH printed the answer outright
+    (observed live: `entire-brain distill --help` -> "(default 0.75)"). Retrieval
+    must still run CURRENT product code (an old worktree build would benchmark a
+    stale brain), so the agent-visible binary is HEAD code with the task's own
+    setup_replacements applied in a throwaway overlay: same implementation, the
+    sabotaged constant, no oracle. Prep and audits keep using tools["brain"].
+    """
+    if not task.get("scrub_answer_from_history"):
+        return None
+    # binary_replacements pin the answer's definition site at CURRENT harness
+    # HEAD; setup_replacements pin it at the task's (possibly much older) base
+    # commit and are only a fallback while the two still coincide. When a
+    # refactor moves the site, apply_replacements fails loudly and the help-tree
+    # sentinel below is the second line of defense.
+    replacements = [
+        replacement
+        for replacement in task.get("binary_replacements", task.get("setup_replacements", []))
+        if str(replacement.get("old") or "") != str(replacement.get("new") or "")
+    ]
+    if not replacements or not (ROOT / "cmd" / "entire-brain").is_dir():
+        return None
+    head = git_head(ROOT)
+    key = hashlib.sha256(
+        json.dumps({"schema": 2, "head": head, "replacements": replacements}, sort_keys=True).encode()
+    ).hexdigest()[:24]
+    cell_bin = CACHE_DIR / "agent-bin" / key
+    brain_bin = cell_bin / "entire-brain"
+    provenance = {
+        "source": "head_with_task_replacements",
+        "head": head,
+        "key": key,
+        "bin": display_path(cell_bin),
+    }
+    if brain_bin.exists() and (cell_bin / "entire").exists():
+        return provenance
+    overlay = pathlib.Path(tempfile.mkdtemp(prefix=f"agent-bin-{key}-"))
+    try:
+        run_cmd(["git", "-C", str(ROOT), "worktree", "add", "--detach", str(overlay), head], check=True)
+        try:
+            apply_replacements(overlay, replacements, "agent-visible binary")
+            staging = cell_bin.with_name(cell_bin.name + f".tmp-{os.getpid()}")
+            if staging.exists():
+                shutil.rmtree(staging)
+            staging.mkdir(parents=True)
+            build_env = {**os.environ, "GOFLAGS": "-mod=mod"}
+            run_cmd(
+                ["go", "build", "-o", str(staging / "entire-brain"), "./cmd/entire-brain"],
+                cwd=overlay,
+                env=build_env,
+                check=True,
+            )
+            graph_bin = tools.get("graph")
+            graph_branch = ""
+            if graph_bin:
+                graph_branch = f"""if [[ "${{1:-}}" == "graph" ]]; then
+  shift
+  exec "{graph_bin}" "$@"
+fi
+"""
+            # The wrapper execs the FINAL location, not the staging path.
+            wrapper = f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "brain" ]]; then
+  shift
+  exec "{cell_bin / 'entire-brain'}" "$@"
+fi
+{graph_branch}echo "entire wrapper only supports brain and graph in this benchmark" >&2
+exit 127
+"""
+            (staging / "entire").write_text(wrapper)
+            (staging / "entire").chmod(0o755)
+            assert_binary_free_of_answers(staging / "entire-brain", task)
+            cell_bin.parent.mkdir(parents=True, exist_ok=True)
+            if cell_bin.exists():
+                shutil.rmtree(cell_bin)
+            staging.rename(cell_bin)
+        finally:
+            run_cmd(["git", "-C", str(ROOT), "worktree", "remove", "--force", str(overlay)])
+    finally:
+        shutil.rmtree(overlay, ignore_errors=True)
+    return provenance
+
+
+def assert_binary_free_of_answers(binary: pathlib.Path, task: dict[str, Any]) -> None:
+    """Fail closed if the agent-visible binary still emits scrubbed answer text.
+
+    Walks the first level of the help tree (root --help plus each advertised
+    subcommand's --help), which is where pflag renders compiled-in defaults, and
+    applies the task's declared leak patterns plus every scrubbed literal. A
+    sentinel, not a proof; the build-from-replacements overlay is the guarantee,
+    this catches a replacement that silently stopped matching the flag site.
+    """
+    literals = [
+        str(replacement.get("old") or "")
+        for replacement in task.get("setup_replacements", [])
+        if str(replacement.get("old") or "") != str(replacement.get("new") or "")
+    ]
+    patterns = [re.compile(str(pattern)) for pattern in task.get("history_leak_patterns", [])]
+    root_help = run_cmd([str(binary), "--help"], timeout=60).stdout
+    helps = [("", root_help)]
+    for line in root_help.splitlines():
+        match = re.match(r"^  ([a-z][a-z0-9-]*)\s{2,}", line)
+        if match:
+            name = match.group(1)
+            helps.append((name, run_cmd([str(binary), name, "--help"], timeout=60).stdout))
+    for name, text in helps:
+        for literal in literals:
+            if literal and literal.strip() and literal.strip() in text:
+                raise RuntimeError(
+                    f"agent-visible binary still prints scrubbed text in `{name or 'root'} --help`: {literal!r}"
+                )
+        for pattern in patterns:
+            found = [line for line in text.splitlines() if pattern.search(line)]
+            if found:
+                raise RuntimeError(
+                    f"agent-visible binary help matches declared leak pattern in `{name or 'root'} --help`: {found[:2]}"
+                )
+
+
 def file_sha256(path: pathlib.Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -1737,6 +1863,17 @@ def provenance_path_reference(
     return reference
 
 
+# Mirrors the release auditor's HOST_PATH_RE: any string matching it in a
+# retained record is flagged as I:release_host_path_leak. Known roots are
+# rewritten to semantic labels first; whatever machine-local path remains after
+# that (an agent-invented /tmp scratch file, a $HOME reference echoed into a
+# command) carries no evidentiary value and is scrubbed generically, so record
+# hygiene does not depend on enumerating every path an agent might type.
+RECORD_HOST_PATH_RE = re.compile(
+    r"(?i)(?:/Users/[^\s\"'`]+|/home/[^\s\"'`]+|/private/(?:var|tmp)/[^\s\"'`]+|/tmp/[^\s\"'`]+|[A-Z]:\\Users\\[^\s\"'`]+)"
+)
+
+
 def redact_record_host_paths(value: Any, paths: dict[pathlib.Path, str]) -> Any:
     """Remove known machine-local paths from the persisted record tree."""
     replacements: dict[str, str] = {}
@@ -1777,7 +1914,7 @@ def redact_record_host_paths(value: Any, paths: dict[pathlib.Path, str]) -> Any:
         output = item
         for raw, label in sorted(replacements.items(), key=lambda pair: len(pair[0]), reverse=True):
             output = output.replace(raw, label)
-        return output
+        return RECORD_HOST_PATH_RE.sub("<redacted-host-path>", output)
 
     return redact(value)
 
@@ -2919,6 +3056,60 @@ def sanitize_repo_session_corpus(repo_root: pathlib.Path) -> dict[str, Any]:
     }
 
 
+def republish_brain_history(
+    plugin: pathlib.Path, worktree: pathlib.Path, tools: dict[str, pathlib.Path]
+) -> dict[str, Any]:
+    """Have the product rebuild the history index after the harness mutated the corpus.
+
+    Sanitization removes contaminated sessions and the secret scrub rewrites
+    transcript bytes in place. Hand-editing history/index.json alongside that
+    left the manifest's integrity fields (index_bytes, index_sha256,
+    records_fingerprint, transcripts_fingerprint) describing the pre-scrub
+    artifact, so the product's fail-closed loader rejected every prepared brain
+    and history search was silently disabled in every treatment run. The brain
+    binary is the single authority on those fields, so it republishes them over
+    the final bytes; the harness never computes them again.
+    """
+    repos_root = plugin / "data" / "repos"
+    indexes = sorted(repos_root.glob("*/*/history/index.json")) if repos_root.exists() else []
+    if not indexes:
+        return {"ran": False, "reason": "no_history_index"}
+    env = {
+        **os.environ,
+        "ENTIRE_REPO_ROOT": str(worktree),
+        "ENTIRE_PLUGIN_CONFIG_DIR": str(plugin / "config"),
+        "ENTIRE_PLUGIN_DATA_DIR": str(plugin / "data"),
+        "ENTIRE_PLUGIN_STATE_DIR": str(plugin / "state"),
+        "ENTIRE_PLUGIN_CACHE_DIR": str(plugin / "cache"),
+    }
+    proc = run_cmd([str(tools["brain"]), "refresh", "history"], cwd=worktree, env=env, timeout=1800)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "brain history republish failed after sanitization:\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    result: dict[str, Any] = {"ran": True, "indexes": []}
+    for index_path in indexes:
+        manifest_path = index_path.parent.parent / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        source = ((manifest.get("sources") or {}).get("history") or {})
+        declared = int(source.get("index_bytes") or 0)
+        actual = index_path.stat().st_size
+        if declared != actual:
+            raise RuntimeError(
+                f"brain history republish left an incoherent manifest for {index_path}: "
+                f"declared {declared} bytes, actual {actual}"
+            )
+        result["indexes"].append(
+            {
+                "path": display_path(index_path),
+                "records": int(source.get("records") or 0),
+                "index_bytes": actual,
+            }
+        )
+    return result
+
+
 def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
     brain_roots = [
         plugin / "data" / "brain",
@@ -3456,6 +3647,7 @@ def brain_cli_condition_audit(
 def baseline_history_audit(
     agent_info: dict[str, Any],
     attestations: Iterable[dict[str, Any]],
+    task: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reject reconstruction of the harness-only setup boundary.
 
@@ -3544,6 +3736,22 @@ def baseline_history_audit(
                     "command_sha256": text_sha256(command),
                 }
             )
+    if findings and isinstance(task, dict) and task.get("scrub_answer_from_history"):
+        # On a scrubbed task the synthetic boundary is provably answer-free:
+        # HEAD and HEAD^1 share a tree, HEAD^2 is the scrubbed source history,
+        # and checkpoint objects are repacked away. Probing it is an ordinary
+        # dead-end search strategy, so it costs the row its outcome on the
+        # merits (and its time/token budget), not its protocol validity.
+        # Excluding these rows starved both arms below the minimum repetitions
+        # and no comparison could form at all. Unscrubbed tasks keep the strict
+        # exclusion because there the boundary still reveals the setup patch.
+        return {
+            "ok": True,
+            "required": True,
+            "findings": [],
+            "advisory_findings": findings,
+            "advisory_reason": "scrubbed_task_boundary_is_answer_free",
+        }
     return {"ok": not findings, "required": True, "findings": findings}
 
 
@@ -3852,7 +4060,22 @@ def remove_agent_visible_entire_history(worktree: pathlib.Path) -> bool:
     if run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=worktree).returncode == 0:
         run_cmd(["git", "update-ref", "-d", CHECKPOINT_REF], cwd=worktree)
         run_cmd(["git", "reflog", "expire", "--expire=now", "--all"], cwd=worktree)
+        # A checkpoint fetch of any real size arrives as a PACK, and `git prune`
+        # deletes only loose unreachable objects, so the "deleted" transcripts
+        # stayed fully recoverable via `git fsck --unreachable` + `git cat-file`
+        # (observed live: an agent recovered ~80 transcript copies of the task's
+        # answer that way). Repacking reachable-only first makes the removal
+        # real; prune then clears the loosened remainder.
+        run_cmd(["git", "repack", "-a", "-d", "-q"], cwd=worktree, check=True)
         run_cmd(["git", "prune", "--expire=now"], cwd=worktree)
+        leftovers = run_cmd(
+            ["git", "fsck", "--unreachable", "--no-reflogs"], cwd=worktree
+        ).stdout.strip()
+        if leftovers:
+            raise RuntimeError(
+                "checkpoint history removal left recoverable objects in the agent worktree:\n"
+                + "\n".join(leftovers.splitlines()[:5])
+            )
         removed = True
     return removed
 
@@ -5113,6 +5336,7 @@ def prepare_brain(
             benchmark_brain_dir(worktree, env, tools).name,
         )
         prep["history_sanitization"] = sanitize_brain_history(plugin)
+        prep["history_republish"] = republish_brain_history(plugin, worktree, tools)
         if is_temporal_memory_condition(condition):
             prep["memory_bundle"] = meta.get("memory_bundle")
             if not isinstance(prep["memory_bundle"], dict):
@@ -5227,6 +5451,7 @@ def prepare_brain(
         )
         prep["memory_bundle"]["delivery"] = isolate_temporal_memory_delivery(condition, worktree, env, tools)
     prep["history_sanitization"] = sanitize_brain_history(plugin)
+    prep["history_republish"] = republish_brain_history(plugin, worktree, tools)
     if use_cache:
         store_plugin_cache(
             cache_entry,
@@ -8344,6 +8569,13 @@ def run_one(
                 private_paths=filtered_agent_history_paths(task),
             )
         record["go_dependency_prewarm"] = prewarm_go_dependencies(worktree, env)
+        agent_bin = build_agent_visible_brain(task, tools)
+        if agent_bin is not None:
+            # Shadow the harness wrappers with the answer-free build for the
+            # AGENT only; prep and audits address tools["brain"] absolutely and
+            # are unaffected. Applied identically in every arm.
+            env["PATH"] = f"{CACHE_DIR / 'agent-bin' / agent_bin['key']}:{env['PATH']}"
+            record["agent_visible_tools"] = agent_bin
         agent_visible_entire_removed = False
         if should_remove_agent_visible_entire_history(task, condition):
             agent_visible_entire_removed = remove_agent_visible_entire_history(worktree)
@@ -8483,6 +8715,7 @@ def run_one(
                 record.get("agent_baseline_history", {}),
                 record.get("post_brain_baseline_history", {}),
             ],
+            task,
         )
         files = changed_files(worktree)
         secret_postflight = agent_secret_preflight(worktree)
