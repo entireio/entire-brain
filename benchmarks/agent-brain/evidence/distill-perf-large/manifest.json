@@ -12,9 +12,9 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:c22df84c4b207c20d2a35f3cc1a30296efef57851467a6fad90bcc2d86c4f4eb",
-    "serial_run": "sha256:c78d8f851e0e80add2c04b5fec92a40325de4e57a9a9baf7d995e0e90d4c61e1",
-    "parallel_run": "sha256:f0344c96633c06b4a993361e1f99afb7964705f703cbd995ab57ed71f14ce694"
+    "dry_run": "sha256:9ece139178903ba15a491f3703cf2d000dddd81e44c0b5f3493fa753a3914cff",
+    "serial_run": "sha256:33cd919880871bd6990404e816d9b32b25e03311a23b3bc0d3e4dc400124116c",
+    "parallel_run": "sha256:93d12cc38e9b2547914b8e014099ac871ec0c7158abd3a091f24c58cb15775bc"
   },
   "source_sha256": {
     "internal/cli/distill.go": "sha256:ff21f1af55ff4d37c487b614fde9f25fea34b8c53ed842732a05d52508fc375d",
