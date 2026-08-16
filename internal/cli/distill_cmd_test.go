@@ -3,13 +3,19 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1486,5 +1492,314 @@ func TestDistillDryRunPredictsCacheAccurately(t *testing.T) {
 	}
 	if report.SessionsToDistill != 2 || report.CachedSessions != 0 {
 		t.Fatalf("changed-model dry-run must predict re-distill: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
+	}
+}
+
+func TestDistillCommandOllamaLoopbackProducesTimedSummary(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+	}}
+	opts := Options{
+		Version: "test",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   t.TempDir(),
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return now },
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	writeDistillFixtureAt(t, storage.BrainDir, now)
+	runner.calls = nil
+
+	type ollamaRequest struct {
+		Model  string `json:"model"`
+		System string `json:"system"`
+		Prompt string `json:"prompt"`
+		Stream bool   `json:"stream"`
+	}
+	var seenMu sync.Mutex
+	var seen []ollamaRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var req ollamaRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		seenMu.Lock()
+		seen = append(seen, req)
+		seenMu.Unlock()
+		if req.Stream {
+			t.Fatal("distill ollama CLI path must request non-streaming output")
+		}
+		fmt.Fprint(w, `{"response":"project.tooling.stack\tThe project uses Go.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	var stdout, stderr bytes.Buffer
+	cmd := NewRootCommand(opts)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"distill", "--agent", "ollama", "--model", "llama3.2", "--json", "--force", "--jobs", "2"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("distill ollama command: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	var source factSourceManifest
+	if err := json.Unmarshal(stdout.Bytes(), &source); err != nil {
+		t.Fatalf("distill ollama JSON did not decode: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if source.Agent != "ollama" || source.Model != "llama3.2" || source.Jobs != 2 {
+		t.Fatalf("summary missing ollama run config: %+v", source)
+	}
+	if source.Facts != 2 || source.ExtractionCalls != 2 || source.ReconcileCalls != 0 || source.TotalAgentCalls != 2 {
+		t.Fatalf("summary missing fact/call counts: %+v", source)
+	}
+	if source.TotalSeconds < 0 || source.ExtractionWaitSeconds < 0 || source.WriteSeconds < 0 {
+		t.Fatalf("summary timings should be non-negative: %+v", source)
+	}
+	seenMu.Lock()
+	seen = append([]ollamaRequest(nil), seen...)
+	seenMu.Unlock()
+	if len(seen) != 2 {
+		t.Fatalf("expected one loopback ollama request per fixture session, got %d", len(seen))
+	}
+	for _, req := range seen {
+		if req.Model != "llama3.2" {
+			t.Fatalf("ollama request used wrong model: %+v", req)
+		}
+		if !strings.Contains(req.System, "durable facts") || !strings.Contains(req.Prompt, "turn one") {
+			t.Fatalf("ollama request missing distill system/prompt context: %+v", req)
+		}
+	}
+	for _, call := range runner.calls {
+		if call.name == "ollama" {
+			t.Fatalf("distill must use loopback HTTP runner, not PATH ollama binary: %+v", call)
+		}
+	}
+}
+
+func TestExecOllamaDistillAgentUsesLoopbackGenerateAPI(t *testing.T) {
+	var sawModel, sawSystem, sawPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var req struct {
+			Model  string `json:"model"`
+			System string `json:"system"`
+			Prompt string `json:"prompt"`
+			Stream bool   `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		sawModel, sawSystem, sawPrompt = req.Model, req.System, req.Prompt
+		if req.Stream {
+			t.Fatal("ollama distill must request non-streaming output")
+		}
+		fmt.Fprint(w, `{"response":"project.tooling.stack\tThe project uses Go.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	out, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system prompt"}, []byte("chunk input"), time.Second)
+	if err != nil {
+		t.Fatalf("ollama runner: %v", err)
+	}
+	if !strings.Contains(out, "project.tooling.stack") {
+		t.Fatalf("unexpected output %q", out)
+	}
+	if sawModel != "llama3.2" || sawSystem != "system prompt" || sawPrompt != "chunk input" {
+		t.Fatalf("unexpected request model/system/prompt: %q %q %q", sawModel, sawSystem, sawPrompt)
+	}
+}
+
+func TestExecOllamaDistillAgentIgnoresProxyTransport(t *testing.T) {
+	var proxyCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"response":"project.local\tLoopback stayed local.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			proxyCalls.Add(1)
+			return nil, fmt.Errorf("proxy should not be used for loopback ollama distill")
+		},
+	}
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	out, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err != nil {
+		t.Fatalf("ollama runner should ignore proxy transport: %v", err)
+	}
+	if !strings.Contains(out, "Loopback stayed local") {
+		t.Fatalf("unexpected output %q", out)
+	}
+	if proxyCalls.Load() != 0 {
+		t.Fatalf("ollama distill consulted proxy %d times", proxyCalls.Load())
+	}
+}
+
+func TestExecOllamaDistillAgentIgnoresCustomTLSDialHook(t *testing.T) {
+	var tlsDialCalls atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"response":"project.local\tHTTPS loopback stayed local.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	originalTransport := http.DefaultTransport
+	baseTransport := server.Client().Transport.(*http.Transport).Clone()
+	baseTransport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		tlsDialCalls.Add(1)
+		return nil, fmt.Errorf("custom TLS dial hook should not be used for loopback ollama distill")
+	}
+	http.DefaultTransport = baseTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	out, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err != nil {
+		t.Fatalf("ollama runner should ignore custom TLS dial hook: %v", err)
+	}
+	if !strings.Contains(out, "HTTPS loopback stayed local") {
+		t.Fatalf("unexpected output %q", out)
+	}
+	if tlsDialCalls.Load() != 0 {
+		t.Fatalf("ollama distill consulted custom TLS dial hook %d times", tlsDialCalls.Load())
+	}
+}
+
+func TestExecOllamaDistillAgentRejectsNonLoopbackURL(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", "https://example.com/api/generate")
+	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err == nil || !strings.Contains(err.Error(), "loopback-only") {
+		t.Fatalf("expected loopback rejection, got %v", err)
+	}
+}
+
+func TestExecOllamaDistillAgentRejectsNonLoopbackRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://example.com/api/generate", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err == nil || !strings.Contains(err.Error(), "redirect must stay loopback-only") {
+		t.Fatalf("expected redirect loopback rejection, got %v", err)
+	}
+}
+
+func TestIsLoopbackHTTPURLAllowsFullLoopbackRange(t *testing.T) {
+	for _, raw := range []string{
+		"http://localhost:11434/api/generate",
+		"http://127.0.0.1:11434/api/generate",
+		"http://127.0.0.2:11434/api/generate",
+		"http://[::1]:11434/api/generate",
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isLoopbackHTTPURL(u) {
+			t.Fatalf("%s should be accepted as loopback", raw)
+		}
+	}
+	for _, raw := range []string{
+		"http://example.com/api/generate",
+		"http://127.0.0.1.example.com/api/generate",
+		"file://127.0.0.1/api/generate",
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if isLoopbackHTTPURL(u) {
+			t.Fatalf("%s should not be accepted as loopback", raw)
+		}
+	}
+}
+
+func TestLoopbackOnlyDialContextRejectsNonLoopbackTargets(t *testing.T) {
+	if _, err := loopbackOnlyDialContext(context.Background(), "tcp", net.JoinHostPort("203.0.113.7", "11434")); err == nil || !strings.Contains(err.Error(), "loopback-only") {
+		t.Fatalf("expected non-loopback dial rejection, got %v", err)
+	}
+	if conn, err := loopbackOnlyDialContext(context.Background(), "tcp", "missing-port"); err == nil {
+		_ = conn.Close()
+		t.Fatal("dial target without port should be rejected")
+	}
+}
+
+func TestLoopbackOnlyDialContextAllowsLocalhostResolution(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := loopbackOnlyDialContext(context.Background(), "tcp", net.JoinHostPort("localhost", port))
+	if err != nil {
+		t.Fatalf("localhost should resolve to loopback: %v", err)
+	}
+	_ = conn.Close()
+	select {
+	case serverConn := <-accepted:
+		_ = serverConn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("server did not receive loopback connection")
+	}
+}
+
+func writeDistillFixtureAt(t *testing.T, brainDir string, now time.Time) {
+	t.Helper()
+	sessions := []exportSession{
+		{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
+		{SessionID: "s2", Branch: "feature", LatestCheckpoint: "cp2", TranscriptPath: "sessions/branches/feature/s2.jsonl", CreatedAt: now.Add(-1 * time.Hour)},
+	}
+	for _, s := range sessions {
+		path := filepath.Join(brainDir, filepath.FromSlash(s.TranscriptPath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("turn one\nturn two\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources: &brainSources{
+			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions},
+		},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
 	}
 }

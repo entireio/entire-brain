@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,7 +59,13 @@ const (
 	// content_digest from the descriptor-rooted inventory, one on content_sha256
 	// with pre-annotation raw records). They are deliberately invalidated rather
 	// than guessed apart, exactly as the two v6 formats were.
-	historyScanCacheVersion = 8
+	// v9: two independent v8s merged. One lineage's v8 switched code-fact
+	// extraction from a fixed phrase list to the structural signal
+	// (declarations, documented flag defaults, literal assignments, file:line
+	// anchors) with a matching pre-decode line filter; the other's v8 was the
+	// parallel-format invalidation above. A warm v8 cache from either lineage
+	// would silently keep that lineage's behavior, so both are invalidated.
+	historyScanCacheVersion = 9
 )
 
 type historySourceManifest struct {
@@ -1929,21 +1936,31 @@ func scanDocumentHistoryFileContext(ctx context.Context, f io.Reader, rel string
 // hash-then-scan parity reference can share exactly this projection.
 func historyDocumentRecords(rel string, messages []documentMessage) []historyRecord {
 	var records []historyRecord
-	for _, message := range messages {
-		if message.Role != "assistant" || message.Text == "" {
-			continue
-		}
-		fragment := historyFragment{Text: message.Text, Source: "assistant_message"}
+	appendFragment := func(fragment historyFragment, line int) {
 		for _, kind := range classifyHistoryFragment(fragment) {
 			records = append(records, historyRecord{
-				ID:      historyRecordID(rel, message.Line, kind, fragment.Text),
+				ID:      historyRecordID(rel, line, kind, fragment.Text),
 				Kind:    kind,
 				Path:    rel,
-				Line:    message.Line,
+				Line:    line,
 				Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
 				Terms:   historyTerms(fragment.Text),
 			})
 		}
+	}
+	for _, message := range messages {
+		// Tool outputs are mined through the same fact extractor as JSONL
+		// tool_result blocks: only snippets with a structural code-fact signal
+		// survive, so bulk tool output still never enters the index.
+		for _, output := range message.ToolOutputs {
+			for _, fragment := range extractToolResultFacts(output) {
+				appendFragment(fragment, message.Line)
+			}
+		}
+		if message.Role != "assistant" || message.Text == "" {
+			continue
+		}
+		appendFragment(historyFragment{Text: message.Text, Source: "assistant_message"}, message.Line)
 	}
 	return records
 }
@@ -2160,15 +2177,44 @@ func cleanHistoryCodeFactSnippet(value string) string {
 	return truncateString(value, 4000)
 }
 
+// historyFactSignal matches output that states a durable fact about the code:
+// a declaration, a flag's documented default, an assignment to a literal, or a
+// file:line anchor. Those are the shapes a command prints when it reveals a
+// decided value, which is precisely what a later session needs to recover.
+//
+// This replaces a hardcoded list of phrases ("bare auth", "brainignore",
+// "schema contract", "attributionbasecommit", ...) that had been lifted from
+// individual benchmark task names. Tool output was indexed only when it
+// happened to contain one of them, so on any real repository essentially no
+// command output entered the history index: a default printed by --help, a
+// constant echoed by a build, or a value dumped by a config command was
+// unsearchable. Matching structure instead of vocabulary keeps the index
+// repository-agnostic.
+// The quote alternative accepts an optional backslash so the signal also fires
+// on raw transcript lines, where an embedded quote is JSON-escaped as \".
+var historyFactSignal = regexp.MustCompile(
+	`(?:^|[\s(])(?:const|func|type|class|def|var|let|interface|enum|struct)\s+[A-Za-z_]` +
+		`|--[A-Za-z][\w-]*[^\n]{0,200}?\(default\b` +
+		`|[A-Za-z_][A-Za-z0-9_.]*\s*(?::=|=)\s*(?:-?\d|\\?["'` + "`" + `]|true\b|false\b)` +
+		`|[\w./-]+\.(?:go|ts|tsx|js|jsx|py|rs|java|rb|c|cc|cpp|h|hpp|kt|swift|sh|sql):\d+`,
+)
+
+// historyFactSignalRelaxed is the pre-decode variant of historyFactSignal. Raw
+// transcript lines JSON-escape structure (a declaration can sit directly after
+// \" or \n), so the strict leading boundary misses content the extractor would
+// keep after decoding. The prefilter is an admission gate, not a classifier: a
+// false positive costs one JSON decode, a false negative loses the record, so
+// declarations here need only a word boundary. Keep the alternatives in sync
+// with historyFactSignal.
+var historyFactSignalRelaxed = regexp.MustCompile(
+	`\b(?:const|func|type|class|def|var|let|interface|enum|struct)\s+[A-Za-z_]` +
+		`|--[A-Za-z][\w-]*[^\n]{0,200}?\(default\b` +
+		`|[A-Za-z_][A-Za-z0-9_.]*\s*(?::=|=)\s*(?:-?\d|\\?["'` + "`" + `]|true\b|false\b)` +
+		`|[\w./-]+\.(?:go|ts|tsx|js|jsx|py|rs|java|rb|c|cc|cpp|h|hpp|kt|swift|sh|sql):\d+`,
+)
+
 func historyTextHasCodeFactSignal(text string) bool {
-	lower := strings.ToLower(text)
-	return containsAny(lower,
-		"attributionbasecommit", "realignattributionbase", "human_added", "human added",
-		"resolve transcript path", "resolvetranscriptpath", "transcriptpath", "state.transcriptpath",
-		"reresolvestonestedlayout", "re-resolved path", "subsequent reads use",
-		"brainignore", ".brainignore", ".github", "github workflow", "workflow/tooling",
-		"seed-agent", "seed agent", "schema contract", "bare auth",
-	)
+	return historyFactSignal.MatchString(text)
 }
 
 func historyLineHasCodeFactSignal(line string) bool {
@@ -2245,10 +2291,16 @@ func historyLineMayContainIndexedContent(text string) bool {
 		"must ", "must not", "should ", "should not", "keep ", "preserve ", "restore ",
 		"compatibility", "because", "fix ", "fixed ", "implemented ", "updated ",
 		"changed ", "added ", "removed ", "avoid ", "fallback", "source of truth",
-		"attributionbasecommit", "realignattributionbase", "human_added", "human added",
-		"resolvetranscriptpath", "transcriptpath", "state.transcriptpath", "reresolvestonestedlayout",
-		".github", "brainignore", ".brainignore", "github workflow", "seed-agent", "schema contract",
-	)
+	) ||
+		// The keyword fast-path only knows narrative vocabulary, but tool output
+		// states durable facts in code shapes with no such words on the line: a
+		// flag default from --help, a constant echoed by a build, an assignment
+		// in a config dump. Those lines must survive to the fragment extractor,
+		// so the same structural signal that admits a fragment also admits the
+		// raw line. The former tail of this list (attributionbasecommit,
+		// seed-agent, schema contract, ...) was vocabulary lifted from benchmark
+		// task names and is deliberately gone.
+		historyFactSignalRelaxed.MatchString(text)
 }
 
 func isDecisionFragment(source, lower string) bool {
@@ -2325,14 +2377,15 @@ func cleanHistorySummary(text string) string {
 
 func historyTerms(text string) []string {
 	lower := strings.ToLower(text)
+	// Generic domain vocabulary only. The former tail of this list
+	// (attributionbasecommit, resolvetranscriptpath, brainignore, ...) was
+	// lifted from benchmark task names, which biased FTS text toward benchmark
+	// queries on every repository.
 	candidates := []string{
 		"decision", "rationale", "validation", "go test", "apply_patch", "exec_command",
 		"semantic", "brief", "stale", "checkpoint", "transcript", "schema", "env",
 		"provenance", "bundle", "sha256", "review", "hook", "plugin", "workspace",
-		"architecture", "contract", "invariant", "manual commit", "manual_commit",
-		"attribution", "basecommit", "attributionbasecommit", "realignattributionbase",
-		"human_added", "transcriptpath", "resolvetranscriptpath", "reresolvestonestedlayout",
-		"github workflow", ".github", "brainignore", "tool", "test", "fallback",
+		"architecture", "contract", "invariant", "tool", "test", "fallback",
 	}
 	var terms []string
 	for _, candidate := range candidates {
@@ -3013,7 +3066,7 @@ func loadBrainHistoryIndexWithLegacyIdentity(brainDir string, source *historySou
 
 func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (historyIndex, error) {
 	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
-		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d", len(data), source.IndexBytes)
+		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `entire brain refresh history` to rebuild it", len(data), source.IndexBytes)
 	}
 	if source.IndexSHA256 != "" && historyIndexBytesFingerprint(data) != source.IndexSHA256 {
 		return historyIndex{}, errors.New("history index checksum does not match manifest")

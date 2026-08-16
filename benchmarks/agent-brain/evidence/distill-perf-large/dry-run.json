@@ -1,1287 +1,2700 @@
 {
+  "schema_version": 1,
+  "generated_at": "2026-08-16T17:05:51.829925Z",
+  "brain_path": "/tmp/distill-large-evidence/repos/gh/entireio/cli",
+  "force": true,
   "agent": "command",
-  "brain_path": "redacted/repos/gh/entireio/cli",
+  "jobs": 1,
+  "extraction_jobs_cap": 1,
+  "max_chunk_bytes": 262144,
+  "confidence_threshold": 0.75,
+  "sessions": 2080,
+  "cached_sessions": 0,
+  "sessions_to_distill": 2080,
+  "missing_transcripts": 0,
+  "raw_bytes": 3705016920,
+  "preprocessed_bytes": 93223332,
+  "chunks": 2104,
+  "chunks_if_uncached": 2104,
+  "extraction_agent_calls": 2104,
+  "reconcile_agent_calls_upper_bound": 2104,
+  "estimated_agent_calls_upper_bound": 4208,
   "branches": [
     {
-      "branch": "branch-0000",
+      "branch": "20260205-gitleaks",
+      "sessions": 6,
       "cached_sessions": 0,
+      "sessions_to_distill": 6,
+      "chunks": 6,
+      "chunks_if_uncached": 6,
+      "preprocessed_bytes": 29395
+    },
+    {
+      "branch": "20260206-farting-around-with-secrets",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 269
+    },
+    {
+      "branch": "20260602-auth-contexts",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 48049
+    },
+    {
+      "branch": "20260602-auth-contexts-docs",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 9831
+    },
+    {
+      "branch": "add-auto-aupdate",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19859
+    },
+    {
+      "branch": "add-thinking-lines-compact-transcript",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 92960
+    },
+    {
+      "branch": "add-versions-agent-hook-configurations",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 43445
+    },
+    {
+      "branch": "agent-improvements",
+      "sessions": 69,
+      "cached_sessions": 0,
+      "sessions_to_distill": 69,
+      "chunks": 73,
+      "chunks_if_uncached": 73,
+      "preprocessed_bytes": 4784090
+    },
+    {
+      "branch": "alex/add-copilot-agent",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 36300
+    },
+    {
+      "branch": "alex/add-edit-tool-hooks",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 161385
+    },
+    {
+      "branch": "alex/cli-auth-followup-fixes",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 43207
+    },
+    {
+      "branch": "alex/consolidate-e2e-tests",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 163531
+    },
+    {
+      "branch": "alex/copilot-e2e-fix",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 37242
+    },
+    {
+      "branch": "alex/ent-109-text-output-checkpoint-flag",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 41697
+    },
+    {
+      "branch": "alex/ent-221-cleanup-and-sessions-fix",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 82275
+    },
+    {
+      "branch": "alex/ent-221-phase-aware-git-hooks",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 29352
+    },
+    {
+      "branch": "alex/ent-242-fix-index-corruption",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 117812
+    },
+    {
+      "branch": "alex/ent-242-worktree-status-shim",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 104807
+    },
+    {
+      "branch": "alex/ent-258-mid-turn-commits",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 62189
+    },
+    {
+      "branch": "alex/ent-259-fix-deferred-condense-attribution",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 25466
+    },
+    {
+      "branch": "alex/extract-git-package",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 19291,
-      "sessions": 3,
-      "sessions_to_distill": 3
+      "preprocessed_bytes": 261042
     },
     {
-      "branch": "branch-0001",
+      "branch": "alex/fix-gemini-checkpointing",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 269,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 86158
     },
     {
-      "branch": "branch-0002",
+      "branch": "alex/handle-subagent-logs",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 70112
+    },
+    {
+      "branch": "alex/parallelize-integration-tests",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 18783
+    },
+    {
+      "branch": "alex/stop-hook-updates-remote-checkpoints",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
       "chunks": 2,
       "chunks_if_uncached": 2,
-      "preprocessed_bytes": 43445,
-      "sessions": 2,
-      "sessions_to_distill": 2
+      "preprocessed_bytes": 140314
     },
     {
-      "branch": "branch-0003",
+      "branch": "alex/test2",
+      "sessions": 1,
       "cached_sessions": 0,
-      "chunks": 42,
-      "chunks_if_uncached": 42,
-      "preprocessed_bytes": 2370511,
-      "sessions": 41,
-      "sessions_to_distill": 41
-    },
-    {
-      "branch": "branch-0004",
-      "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 44212,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 275
     },
     {
-      "branch": "branch-0005",
+      "branch": "alex/trails-multi-pr",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 37242,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 90074
     },
     {
-      "branch": "branch-0006",
+      "branch": "alisha/droid-e2e-fix",
+      "sessions": 9,
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 41697,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "sessions_to_distill": 9,
+      "chunks": 9,
+      "chunks_if_uncached": 9,
+      "preprocessed_bytes": 81395
     },
     {
-      "branch": "branch-0007",
+      "branch": "alisha/entire-enable",
+      "sessions": 3,
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 82275,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0008",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 29352,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0009",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 117812,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0010",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 104807,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0011",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 61184,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0012",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 17337,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0013",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 70112,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0014",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 90468,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0015",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 81252,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0016",
-      "cached_sessions": 0,
-      "chunks": 5,
-      "chunks_if_uncached": 5,
-      "preprocessed_bytes": 66296,
-      "sessions": 5,
-      "sessions_to_distill": 5
-    },
-    {
-      "branch": "branch-0017",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 9888,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0018",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 27389,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0019",
-      "cached_sessions": 0,
-      "chunks": 14,
-      "chunks_if_uncached": 14,
-      "preprocessed_bytes": 181005,
-      "sessions": 14,
-      "sessions_to_distill": 14
-    },
-    {
-      "branch": "branch-0020",
-      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 25688,
+      "preprocessed_bytes": 58095
+    },
+    {
+      "branch": "alisha/kiro-agent",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 27389
+    },
+    {
+      "branch": "alisha/kiro-oneshot",
+      "sessions": 36,
+      "cached_sessions": 0,
+      "sessions_to_distill": 36,
+      "chunks": 36,
+      "chunks_if_uncached": 36,
+      "preprocessed_bytes": 616869
+    },
+    {
+      "branch": "alisha/kiro-plugin",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 18086
+    },
+    {
+      "branch": "alisha/playground-test",
       "sessions": 3,
-      "sessions_to_distill": 3
-    },
-    {
-      "branch": "branch-0021",
       "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 8128,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0022",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 1928,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0023",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 43876,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0024",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 33234,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0025",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 36602,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0026",
-      "cached_sessions": 0,
-      "chunks": 14,
-      "chunks_if_uncached": 14,
-      "preprocessed_bytes": 255270,
-      "sessions": 14,
-      "sessions_to_distill": 14
-    },
-    {
-      "branch": "branch-0027",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 6935,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0028",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 11321,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0029",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 22515,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0030",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 82521,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0031",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 40541,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0032",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 6812,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0033",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 253,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0034",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 5707,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0035",
-      "cached_sessions": 0,
-      "chunks": 7,
-      "chunks_if_uncached": 7,
-      "preprocessed_bytes": 201169,
-      "sessions": 7,
-      "sessions_to_distill": 7
-    },
-    {
-      "branch": "branch-0036",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 16698,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0037",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 34589,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0038",
-      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 304222,
+      "preprocessed_bytes": 25688
+    },
+    {
+      "branch": "alisha/search-test",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 140
+    },
+    {
+      "branch": "alisha/stop-hook-error",
       "sessions": 3,
-      "sessions_to_distill": 3
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 20926
     },
     {
-      "branch": "branch-0039",
+      "branch": "alisha/worktree-config-bug",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 100877,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 1928
     },
     {
-      "branch": "branch-0040",
+      "branch": "app-to-validate-checkpoints-while-developing",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 130492,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 43876
     },
     {
-      "branch": "branch-0041",
+      "branch": "ashtom/codex-image",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 23808,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 33234
     },
     {
-      "branch": "branch-0042",
+      "branch": "ashtom/external-agent-patches",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 46991,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 6009
     },
     {
-      "branch": "branch-0043",
+      "branch": "ashtom/plugin-exploration",
+      "sessions": 3,
       "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 102931
+    },
+    {
+      "branch": "ashtom/plugin-index",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 128073,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 70801
     },
     {
-      "branch": "branch-0044",
+      "branch": "ashtom/profiling",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 17934
+    },
+    {
+      "branch": "ashtom/tree-sitter",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 39750
+    },
+    {
+      "branch": "attach-session-id",
+      "sessions": 34,
+      "cached_sessions": 0,
+      "sessions_to_distill": 34,
+      "chunks": 33,
+      "chunks_if_uncached": 33,
+      "preprocessed_bytes": 383933
+    },
+    {
+      "branch": "bump-go-git",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 7532
+    },
+    {
+      "branch": "changelog",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6935
+    },
+    {
+      "branch": "checkpoint-export-cli",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 47409
+    },
+    {
+      "branch": "checkpoint-version",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 74669
+    },
+    {
+      "branch": "chore/add-pi-extension",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 7352
+    },
+    {
+      "branch": "cli-api-bearer-auth",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 29946
+    },
+    {
+      "branch": "cli-completion-updater",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
       "chunks": 2,
       "chunks_if_uncached": 2,
-      "preprocessed_bytes": 238815,
-      "sessions": 2,
-      "sessions_to_distill": 2
+      "preprocessed_bytes": 11321
     },
     {
-      "branch": "branch-0045",
+      "branch": "cli-trail-branches-optional",
+      "sessions": 1,
       "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 97063,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0046",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 208331,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0047",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 156478,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0048",
-      "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 86312,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 6121
     },
     {
-      "branch": "branch-0049",
+      "branch": "codex/entire-blame-why",
+      "sessions": 2,
       "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 48114
+    },
+    {
+      "branch": "codex/remove-v2-transcript-fallback",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 346476
+    },
+    {
+      "branch": "collab/95042499/claude",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 62989,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 22515
     },
     {
-      "branch": "branch-0050",
+      "branch": "collab/ba7318a2/codex",
+      "sessions": 1,
       "cached_sessions": 0,
-      "chunks": 19,
-      "chunks_if_uncached": 19,
-      "preprocessed_bytes": 2110857,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 64220
+    },
+    {
+      "branch": "commit",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 82521
+    },
+    {
+      "branch": "completion-stanza-manager",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 20824
+    },
+    {
+      "branch": "convert-full-transcript",
       "sessions": 15,
-      "sessions_to_distill": 15
+      "cached_sessions": 0,
+      "sessions_to_distill": 15,
+      "chunks": 10,
+      "chunks_if_uncached": 10,
+      "preprocessed_bytes": 111597
     },
     {
-      "branch": "branch-0051",
+      "branch": "convert-full-transcript-agent-support",
+      "sessions": 5,
       "cached_sessions": 0,
+      "sessions_to_distill": 5,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 40118
+    },
+    {
+      "branch": "copilot-cloud",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 36966
+    },
+    {
+      "branch": "cor-389-control-plane-context-aware",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 35129
+    },
+    {
+      "branch": "cursor-export-import-sessions-work",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16430
+    },
+    {
+      "branch": "deleteme-after-checkpoint-testing",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 476
+    },
+    {
+      "branch": "dependabot/go_modules/go-dependencies-8020cebb01",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 5707
+    },
+    {
+      "branch": "dip/trail-list-filters-output",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 7975
+    },
+    {
+      "branch": "dipree/entire-wingman",
+      "sessions": 16,
+      "cached_sessions": 0,
+      "sessions_to_distill": 16,
+      "chunks": 16,
+      "chunks_if_uncached": 16,
+      "preprocessed_bytes": 402120
+    },
+    {
+      "branch": "dipree/wingman-agent-command",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 13705
+    },
+    {
+      "branch": "dispatch-me-and-author-flags",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16698
+    },
+    {
+      "branch": "docs/opencode-agent-documentation",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2810
+    },
+    {
+      "branch": "e2e-opencode-shadow-branch",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 15059
+    },
+    {
+      "branch": "e2e-triage-fix",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 63337
+    },
+    {
+      "branch": "enitre-review",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 79032
+    },
+    {
+      "branch": "entire-activity",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 4,
       "chunks_if_uncached": 4,
-      "preprocessed_bytes": 705539,
-      "sessions": 2,
-      "sessions_to_distill": 2
+      "preprocessed_bytes": 532760
     },
     {
-      "branch": "branch-0052",
+      "branch": "entire-attach-picker-impl",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 100877
+    },
+    {
+      "branch": "entire-dispatch",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 136779
+    },
+    {
+      "branch": "entire-labs-investigate",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
       "chunks": 2,
       "chunks_if_uncached": 2,
-      "preprocessed_bytes": 266974,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 59623
     },
     {
-      "branch": "branch-0053",
+      "branch": "entire-learn",
+      "sessions": 3,
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 238581,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0054",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 15322,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0055",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 12056,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0056",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 8629,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0057",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 8628,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0058",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 187428,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0059",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 96892,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0060",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 2452,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0061",
-      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 352285,
-      "sessions": 3,
-      "sessions_to_distill": 3
+      "preprocessed_bytes": 57812
     },
     {
-      "branch": "branch-0062",
+      "branch": "evis/public-repo-warning",
+      "sessions": 1,
       "cached_sessions": 0,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "preprocessed_bytes": 230370,
-      "sessions": 3,
-      "sessions_to_distill": 3
-    },
-    {
-      "branch": "branch-0063",
-      "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 32289,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 47085
     },
     {
-      "branch": "branch-0064",
+      "branch": "feat/advanced-entire-activity-key-bindings",
+      "sessions": 4,
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 6502,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "sessions_to_distill": 4,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 149287
     },
     {
-      "branch": "branch-0065",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 29411,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0066",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 19094,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0067",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 20654,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0068",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 46790,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0069",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 14453,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0070",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 70381,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0071",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 12625,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0072",
-      "cached_sessions": 0,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "preprocessed_bytes": 148208,
-      "sessions": 3,
-      "sessions_to_distill": 3
-    },
-    {
-      "branch": "branch-0073",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 10820,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0074",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 8216,
+      "branch": "feat/all-agents-streaming-progress",
       "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0075",
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 62644,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0076",
-      "cached_sessions": 0,
-      "chunks": 559,
-      "chunks_if_uncached": 559,
-      "preprocessed_bytes": 26938957,
-      "sessions": 553,
-      "sessions_to_distill": 553
-    },
-    {
-      "branch": "branch-0077",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 2082,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0078",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 25372,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0079",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 55323,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0080",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 2447,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0081",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 30027,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0082",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 3104,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0083",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 10310,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0084",
-      "cached_sessions": 0,
+      "sessions_to_distill": 2,
       "chunks": 2,
       "chunks_if_uncached": 2,
-      "preprocessed_bytes": 361096,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 238815
     },
     {
-      "branch": "branch-0085",
+      "branch": "feat/all-agents-summary-error-handling",
+      "sessions": 2,
       "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 170304
+    },
+    {
+      "branch": "feat/antigravity-agent",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 488582
+    },
+    {
+      "branch": "feat/best-effort-transcript-capture",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 506090
+    },
+    {
+      "branch": "feat/checkpoints-v2-validation",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 156478
+    },
+    {
+      "branch": "feat/detect-hook-managers",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 8944
+    },
+    {
+      "branch": "feat/entire-review",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 86312
+    },
+    {
+      "branch": "feat/entire-review-multi-agent",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 570452
+    },
+    {
+      "branch": "feat/entire-review-simplify",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 270224
+    },
+    {
+      "branch": "feat/entire-why",
+      "sessions": 29,
+      "cached_sessions": 0,
+      "sessions_to_distill": 29,
+      "chunks": 33,
+      "chunks_if_uncached": 33,
+      "preprocessed_bytes": 3155228
+    },
+    {
+      "branch": "feat/entire-why-prototype",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 705539
+    },
+    {
+      "branch": "feat/explain-stream-progress",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 309623
+    },
+    {
+      "branch": "feat/explain-stream-progress-standalone",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 333499
+    },
+    {
+      "branch": "feat/openai-privacy-filter",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 358742
+    },
+    {
+      "branch": "feat/redaction-rule-extensions",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 15322
+    },
+    {
+      "branch": "feat/review-base-flag-mainline-default",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 359014
+    },
+    {
+      "branch": "feat/review-pr2-verify",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 160136
+    },
+    {
+      "branch": "feat/review-pr3a-dashboard",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 253425
+    },
+    {
+      "branch": "feat/trail-api-migration",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 12056
+    },
+    {
+      "branch": "feature/agent-installation-validation",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 19652
+    },
+    {
+      "branch": "feature/multiple-llm-provider-support-for-checkpoint-AI-summarization",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 26599
+    },
+    {
+      "branch": "fix-checkpoint-token",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 8628
+    },
+    {
+      "branch": "fix-flaky-e2e-tests-local",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 190942
+    },
+    {
+      "branch": "fix-investigation-diagrams",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16438
+    },
+    {
+      "branch": "fix-slow-v2-pushes",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 316931
+    },
+    {
+      "branch": "fix-stale-date-manifest-test",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2452
+    },
+    {
+      "branch": "fix-token-header",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2934
+    },
+    {
+      "branch": "fix-trail-list-empty-state",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19710
+    },
+    {
+      "branch": "fix-tty-detection",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 98591
+    },
+    {
+      "branch": "fix/1password-commit-signing",
+      "sessions": 8,
+      "cached_sessions": 0,
+      "sessions_to_distill": 8,
+      "chunks": 8,
+      "chunks_if_uncached": 8,
+      "preprocessed_bytes": 757076
+    },
+    {
+      "branch": "fix/active-session-overlap-failopen",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 52611
+    },
+    {
+      "branch": "fix/attribution-accuracy-cli",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 33195
+    },
+    {
+      "branch": "fix/attribution-intermediate-commit-inflation",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 230370
+    },
+    {
+      "branch": "fix/checkpoint-remote-fork-detection",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 32289
+    },
+    {
+      "branch": "fix/claude-worktree-transcript-resolution",
+      "sessions": 6,
+      "cached_sessions": 0,
+      "sessions_to_distill": 6,
+      "chunks": 6,
+      "chunks_if_uncached": 6,
+      "preprocessed_bytes": 147922
+    },
+    {
+      "branch": "fix/e2e-gemini-interactive-attribution-prompt",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14240
+    },
+    {
+      "branch": "fix/e2e-opencode-flakes",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 94142
+    },
+    {
+      "branch": "fix/enable-agent-flag-missing-value",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 5303
+    },
+    {
+      "branch": "fix/enable-fetch-checkpoint-remote",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 34877
+    },
+    {
+      "branch": "fix/entire-disabled-hooks",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 21668
+    },
+    {
+      "branch": "fix/explain-fetch-remote-checkpoints",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6199
+    },
+    {
+      "branch": "fix/flaky-e2e-tests",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 45903
+    },
+    {
+      "branch": "fix/issue-1036-auth-storage",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 59904
+    },
+    {
+      "branch": "fix/issue-750-claude-json-compat",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 176433
+    },
+    {
+      "branch": "fix/slow-integration-tests",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 65531
+    },
+    {
+      "branch": "fix/squash-merge-rewind",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 50166
+    },
+    {
+      "branch": "flaky-e2e-tests",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 21062
+    },
+    {
+      "branch": "format-entire-explain",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 72074
+    },
+    {
+      "branch": "git-remote-entire-info-flags",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2755
+    },
+    {
+      "branch": "gtrrz-victor/cursor-agent-creates-checkpoints",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 12625
+    },
+    {
+      "branch": "gtrrz-victor/cursor-export-import-sessions",
+      "sessions": 5,
+      "cached_sessions": 0,
+      "sessions_to_distill": 5,
       "chunks": 5,
       "chunks_if_uncached": 5,
-      "preprocessed_bytes": 130536,
-      "sessions": 5,
-      "sessions_to_distill": 5
+      "preprocessed_bytes": 188089
     },
     {
-      "branch": "branch-0086",
+      "branch": "gtrrz-victor/cursor-ide-support",
+      "sessions": 2,
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 15019,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0087",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 13872,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0088",
-      "cached_sessions": 0,
+      "sessions_to_distill": 2,
       "chunks": 2,
       "chunks_if_uncached": 2,
-      "preprocessed_bytes": 53265,
-      "sessions": 2,
-      "sessions_to_distill": 2
+      "preprocessed_bytes": 94499
     },
     {
-      "branch": "branch-0089",
+      "branch": "gtrrz-victor/e2e-poc-1",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 1131,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 10820
     },
     {
-      "branch": "branch-0090",
+      "branch": "gtrrz-victor/fix-restore-sessions",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 1281
+    },
+    {
+      "branch": "gtrrz-victor/fix-windows-test",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
       "chunks": 2,
       "chunks_if_uncached": 2,
-      "preprocessed_bytes": 149165,
-      "sessions": 2,
-      "sessions_to_distill": 2
+      "preprocessed_bytes": 55214
     },
     {
-      "branch": "branch-0091",
+      "branch": "gtrrz-victor/github-copilot-support",
+      "sessions": 4,
       "cached_sessions": 0,
+      "sessions_to_distill": 4,
       "chunks": 4,
       "chunks_if_uncached": 4,
-      "preprocessed_bytes": 418488,
+      "preprocessed_bytes": 120891
+    },
+    {
+      "branch": "gtrrz-victor/opencode-detect-process-exit",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 61260
+    },
+    {
+      "branch": "gtrrz-victor/opencode-refactor-2",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 204721
+    },
+    {
+      "branch": "gtrrz-victor/release-nightlys",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 8216
+    },
+    {
+      "branch": "gtrrz-victor/restructure-entire-session-files",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 3436
+    },
+    {
+      "branch": "http2",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 27337
+    },
+    {
+      "branch": "initial-v1.1-setup",
+      "sessions": 5,
+      "cached_sessions": 0,
+      "sessions_to_distill": 5,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 173525
+    },
+    {
+      "branch": "keyboard-exit-behavior",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 153197
+    },
+    {
+      "branch": "keyring",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 8817
+    },
+    {
+      "branch": "logging-context-injection",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 62644
+    },
+    {
+      "branch": "main",
+      "sessions": 1394,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1394,
+      "chunks": 1405,
+      "chunks_if_uncached": 1405,
+      "preprocessed_bytes": 57519346
+    },
+    {
+      "branch": "migrate-force-fixups",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 32908
+    },
+    {
+      "branch": "migrate-refs",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 41891
+    },
+    {
+      "branch": "missing-checkpoints-migration-fallback-fixes",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 28879
+    },
+    {
+      "branch": "movechekcpointtestpackage",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2082
+    },
+    {
+      "branch": "no-limit",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 15389
+    },
+    {
+      "branch": "nodo/ext-agent-mid-turn",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 25372
+    },
+    {
+      "branch": "nodo/external-agent-explain",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 55323
+    },
+    {
+      "branch": "nodo/external-plugins",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2447
+    },
+    {
+      "branch": "nodo/external-plugins-cursor-test",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 11296
+    },
+    {
+      "branch": "nodo/fix-dispatch",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 7112
+    },
+    {
+      "branch": "optimize_claude_start",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 30027
+    },
+    {
+      "branch": "overview-cmd",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 35304
+    },
+    {
+      "branch": "paul/cor-393-demolish-auth-fallbacks",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 91682
+    },
+    {
+      "branch": "perf/force-condense-ended-sessions",
       "sessions": 3,
-      "sessions_to_distill": 3
-    },
-    {
-      "branch": "branch-0092",
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 12955,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0093",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 44182,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0094",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 112198,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0095",
-      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 67759,
+      "preprocessed_bytes": 202908
+    },
+    {
+      "branch": "perf/stop-hook-optimization",
+      "sessions": 5,
+      "cached_sessions": 0,
+      "sessions_to_distill": 5,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 176467
+    },
+    {
+      "branch": "peyton/ent-834-linkage-cleanup",
       "sessions": 3,
-      "sessions_to_distill": 3
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 668864
     },
     {
-      "branch": "branch-0096",
+      "branch": "peyton/ent-834-tree-hash-checkpoint-linkage",
+      "sessions": 5,
       "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 9306,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "sessions_to_distill": 5,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 264021
     },
     {
-      "branch": "branch-0097",
+      "branch": "pjbgf/claude-worktrees",
+      "sessions": 3,
       "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 141778,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0098",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 36004,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0099",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 23371,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0100",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 22875,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0101",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 35612,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0102",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 123524,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0103",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 27335,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0104",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 5673,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0105",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 91320,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0106",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 45908,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0107",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 9459,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0108",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 2131,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0109",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 7424,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0110",
-      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 214633,
+      "preprocessed_bytes": 124477
+    },
+    {
+      "branch": "pjbgf/copilot",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19573
+    },
+    {
+      "branch": "pjbgf/cosign",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2811
+    },
+    {
+      "branch": "pjbgf/delete-me",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 255
+    },
+    {
+      "branch": "pjbgf/entire-remote",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 5883
+    },
+    {
+      "branch": "pjbgf/fetch",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 13872
+    },
+    {
+      "branch": "pjbgf/jsonl-data",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 53265
+    },
+    {
+      "branch": "pjbgf/non-fast-forward",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 3560
+    },
+    {
+      "branch": "pjbgf/pprof",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 1131
+    },
+    {
+      "branch": "pjbgf/resync",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 88364
+    },
+    {
+      "branch": "pjbgf/sign-commits",
       "sessions": 3,
-      "sessions_to_distill": 3
-    },
-    {
-      "branch": "branch-0111",
       "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 134240,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0112",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 25080,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0113",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 52914,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0114",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 207249,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0115",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 10519,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0116",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 20749,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0117",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 65702,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0118",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 11524,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0119",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 237536,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0120",
-      "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 71193,
-      "sessions": 2,
-      "sessions_to_distill": 2
-    },
-    {
-      "branch": "branch-0121",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 14724,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0122",
-      "cached_sessions": 0,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 21698,
-      "sessions": 1,
-      "sessions_to_distill": 1
-    },
-    {
-      "branch": "branch-0123",
-      "cached_sessions": 0,
+      "sessions_to_distill": 3,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 74778,
+      "preprocessed_bytes": 71122
+    },
+    {
+      "branch": "post-file-edit-gemini",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 156233
+    },
+    {
+      "branch": "pr-599",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 56433
+    },
+    {
+      "branch": "push-compact-for-v1",
+      "sessions": 5,
+      "cached_sessions": 0,
+      "sessions_to_distill": 5,
+      "chunks": 0,
+      "chunks_if_uncached": 0,
+      "preprocessed_bytes": 297
+    },
+    {
+      "branch": "redact-2",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 6,
+      "chunks_if_uncached": 6,
+      "preprocessed_bytes": 683518
+    },
+    {
+      "branch": "redo-review",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 132752
+    },
+    {
+      "branch": "reduce-tty-complexity",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 105318
+    },
+    {
+      "branch": "refactor/unify-tree-operations",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 12955
+    },
+    {
+      "branch": "refactoring-transcript-reads",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 103187
+    },
+    {
+      "branch": "remove-deadcode",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19922
+    },
+    {
+      "branch": "remove-v2-write-paths",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 27742
+    },
+    {
+      "branch": "review-876",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 112198
+    },
+    {
+      "branch": "review-codex",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 144121
+    },
+    {
+      "branch": "redacted-private-branch",
+      "sessions": 12,
+      "cached_sessions": 0,
+      "sessions_to_distill": 12,
+      "chunks": 12,
+      "chunks_if_uncached": 12,
+      "preprocessed_bytes": 517015
+    },
+    {
+      "branch": "redacted-private-branch-rebuilt",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 79032
+    },
+    {
+      "branch": "review-pi-reviewer",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 115285
+    },
+    {
+      "branch": "review-profiles",
       "sessions": 3,
-      "sessions_to_distill": 3
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 155540
     },
     {
-      "branch": "branch-0124",
+      "branch": "review-review",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 3257,
-      "sessions": 1,
-      "sessions_to_distill": 1
+      "preprocessed_bytes": 162644
     },
     {
-      "branch": "branch-0125",
+      "branch": "robin/cursor-agent",
+      "sessions": 3,
       "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 67759
+    },
+    {
+      "branch": "rwr/e2e-cursor",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 55129
+    },
+    {
+      "branch": "rwr/fix-cursor-cli",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 567,
+      "preprocessed_bytes": 1907
+    },
+    {
+      "branch": "rwr/husky-hook-compat",
       "sessions": 1,
-      "sessions_to_distill": 1
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 15375
     },
     {
-      "branch": "branch-0126",
+      "branch": "rwr/refactor-calculateTokenUsage",
+      "sessions": 1,
       "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 116161,
-      "sessions": 2,
-      "sessions_to_distill": 2
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14392
     },
     {
-      "branch": "branch-0127",
+      "branch": "rwr/test-bingo",
+      "sessions": 1,
       "cached_sessions": 0,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 39878,
-      "sessions": 2,
-      "sessions_to_distill": 2
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 1880
     },
     {
-      "branch": "branch-0128",
+      "branch": "rwr/tests-for-cursor-agent-cli",
+      "sessions": 1,
       "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 10197
+    },
+    {
+      "branch": "rwr/use-TokenCalculator-interface",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 33859
+    },
+    {
+      "branch": "sign-at-push",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 64249
+    },
+    {
+      "branch": "signal-notifycontext",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
       "chunks": 2,
       "chunks_if_uncached": 2,
-      "preprocessed_bytes": 40129,
+      "preprocessed_bytes": 59621
+    },
+    {
+      "branch": "simplify-enable-onboarding",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14403
+    },
+    {
+      "branch": "simplify-path-install-message",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 941
+    },
+    {
+      "branch": "slow-codex-in-review",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 274739
+    },
+    {
+      "branch": "soph/add-filtering",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 96220
+    },
+    {
+      "branch": "soph/add-interactive-mid-turn-e2e",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 39391
+    },
+    {
+      "branch": "soph/add-remote-tracking-to-entire-sessions",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2994
+    },
+    {
+      "branch": "soph/agent-attribution",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 43893
+    },
+    {
+      "branch": "soph/alert-e2e",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 1992
+    },
+    {
+      "branch": "soph/allow-dogfood-local-dev",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 30686
+    },
+    {
+      "branch": "soph/auth-go",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 33200
+    },
+    {
+      "branch": "soph/better-local-dev",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16831
+    },
+    {
+      "branch": "soph/better-migration-email",
       "sessions": 2,
-      "sessions_to_distill": 2
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 77100
+    },
+    {
+      "branch": "soph/better-version-check-for-dev-release",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 5138
+    },
+    {
+      "branch": "soph/bug-with-rebase-or-commit-change-during-claude-session",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 25902
+    },
+    {
+      "branch": "soph/bump-go-1.26.3",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 34457
+    },
+    {
+      "branch": "soph/carry-forward-improvements",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 100058
+    },
+    {
+      "branch": "soph/checkpoint-ref-sync-tests",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16824
+    },
+    {
+      "branch": "soph/checkpoint-session-bug",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 33326
+    },
+    {
+      "branch": "soph/cli-hardening",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19491
+    },
+    {
+      "branch": "soph/codex-e2e-fix",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 173656
+    },
+    {
+      "branch": "soph/codex-fixes-tmp",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 35612
+    },
+    {
+      "branch": "soph/codex-resume",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 123524
+    },
+    {
+      "branch": "soph/copilot-e2e",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 27335
+    },
+    {
+      "branch": "soph/copy-checkpoints-from-forks",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 17489
+    },
+    {
+      "branch": "soph/cursor-fix-v2",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 33046
+    },
+    {
+      "branch": "soph/enable-codex-e2e",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 244618
+    },
+    {
+      "branch": "soph/experiment-tombstones",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 94372
+    },
+    {
+      "branch": "soph/external-command-support",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 30110
+    },
+    {
+      "branch": "soph/fix-checkpoint-path-traversal",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 93856
+    },
+    {
+      "branch": "soph/fix-droid-e2e-setup",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 52552
+    },
+    {
+      "branch": "soph/fix-issue-with-reusing-checkpoint-id",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 16569
+    },
+    {
+      "branch": "soph/fix-main",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2131
+    },
+    {
+      "branch": "soph/fix-multi-parallel-sessions",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 38175
+    },
+    {
+      "branch": "soph/fix-session-date-change-bug",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 10506
+    },
+    {
+      "branch": "soph/git-helper",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 76584
+    },
+    {
+      "branch": "soph/gmeta",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 244948
+    },
+    {
+      "branch": "soph/gmeta-mainport",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 134240
+    },
+    {
+      "branch": "soph/handle-failing-push-better",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 53339
+    },
+    {
+      "branch": "soph/improve-redaction",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 52914
+    },
+    {
+      "branch": "soph/improve-session-list",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19618
+    },
+    {
+      "branch": "soph/improve-v2",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 215312
+    },
+    {
+      "branch": "soph/improved-shadow",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 134187
+    },
+    {
+      "branch": "soph/improved-shadow-v2",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 110189
+    },
+    {
+      "branch": "soph/investigate-952",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 10519
+    },
+    {
+      "branch": "soph/investigate-codex",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 10311
+    },
+    {
+      "branch": "soph/make-attach-external-agent-aware",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 20749
+    },
+    {
+      "branch": "soph/make-list-like-git-log",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 98218
+    },
+    {
+      "branch": "soph/more-gemini-fixes",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 77229
+    },
+    {
+      "branch": "soph/more-path-hardening",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 18142
+    },
+    {
+      "branch": "soph/move-pi-in",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19240
+    },
+    {
+      "branch": "soph/one-to-one-checkpoints",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 302809
+    },
+    {
+      "branch": "soph/opencode-agent-guide",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 32809
+    },
+    {
+      "branch": "soph/opencode-fixing",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 237536
+    },
+    {
+      "branch": "soph/opencode-refactor-e2e",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2853
+    },
+    {
+      "branch": "soph/release-0-5-2",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 4668
+    },
+    {
+      "branch": "soph/remove-entire-sessions",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6798
+    },
+    {
+      "branch": "soph/resume-session-ordering",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 57582
+    },
+    {
+      "branch": "soph/settings-v2",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 95582
+    },
+    {
+      "branch": "soph/skip-ephemeral-codex-session",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 63664
+    },
+    {
+      "branch": "soph/test-coverage-for-hook-contracts",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14724
+    },
+    {
+      "branch": "soph/track-attach-reason",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 21698
+    },
+    {
+      "branch": "soph/trail-runner",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 100830
+    },
+    {
+      "branch": "soph/update-go-git",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 1680
+    },
+    {
+      "branch": "soph/validate-command",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 3257
+    },
+    {
+      "branch": "soph/vendor-entiredb-repo",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 65054
+    },
+    {
+      "branch": "stale-hooks-warning",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 43880
+    },
+    {
+      "branch": "summary-tui",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14802
+    },
+    {
+      "branch": "test",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 21723
+    },
+    {
+      "branch": "test/checkpoint-ref-sync-scenarios",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14584
+    },
+    {
+      "branch": "testbranchqeue",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 309
+    },
+    {
+      "branch": "testqueue",
+      "sessions": 9,
+      "cached_sessions": 0,
+      "sessions_to_distill": 9,
+      "chunks": 9,
+      "chunks_if_uncached": 9,
+      "preprocessed_bytes": 275554
+    },
+    {
+      "branch": "tmp-migrate-v2-script",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 281592
+    },
+    {
+      "branch": "tmp-migrate-v2-script-go",
+      "sessions": 5,
+      "cached_sessions": 0,
+      "sessions_to_distill": 5,
+      "chunks": 8,
+      "chunks_if_uncached": 8,
+      "preprocessed_bytes": 907843
+    },
+    {
+      "branch": "tokens",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 447726
+    },
+    {
+      "branch": "tokens-agent-brief",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 393947
+    },
+    {
+      "branch": "tokens-profile",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 448230
+    },
+    {
+      "branch": "trail-watch-review-session-events",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 4001
+    },
+    {
+      "branch": "update-marshaling-handling",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16530
+    },
+    {
+      "branch": "update_enable",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 20410
+    },
+    {
+      "branch": "v1-custom-ref",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 165593
+    },
+    {
+      "branch": "v1.1-checkpoints-local-mirror",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 311636
+    },
+    {
+      "branch": "v2-migration-performance",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 39878
+    },
+    {
+      "branch": "v2-push-fixes",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 104607
+    },
+    {
+      "branch": "vscode-copilot-compat",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 147045
+    },
+    {
+      "branch": "yasu/add-dashboard-tui",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 62637
     }
   ],
-  "cached_sessions": 0,
-  "chunks": 838,
-  "chunks_if_uncached": 838,
-  "confidence_threshold": 0.75,
-  "estimated_agent_calls_upper_bound": 1676,
-  "extraction_agent_calls": 838,
-  "extraction_jobs_cap": 1,
-  "force": true,
-  "generated_at": "2026-06-18T17:24:01.245298Z",
-  "jobs": 1,
   "largest_sessions": [
     {
-      "branch": "branch-0076",
+      "session_id": "867880db-f612-4ff9-8ec6-3804423d1849",
+      "branch": "agent-improvements",
+      "transcript": "sessions/branches/agent-improvements-e840281b/20260505T193238Z_gemini-cli_867880db-f612-4ff9-8ec6-3804423d1849_848b4623396a.jsonl",
       "cached": false,
       "chunks": 4,
       "chunks_if_uncached": 4,
-      "preprocessed_bytes": 823521,
+      "raw_bytes": 866113,
+      "preprocessed_bytes": 866113
+    },
+    {
+      "session_id": "019db237-74fc-7f23-91ee-b21f5ed5af04",
+      "branch": "main",
+      "transcript": "sessions/main/20260425T002810Z_codex_019db237-74fc-7f23-91ee-b21f5ed5af04_1419811d5541.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
       "raw_bytes": 14476495,
-      "session_id": "session-0000",
-      "transcript": "redacted"
+      "preprocessed_bytes": 823521
     },
     {
-      "branch": "branch-0076",
+      "session_id": "019e6628-27cf-7320-9310-9b6afc4bae27",
+      "branch": "tmp-migrate-v2-script-go",
+      "transcript": "sessions/branches/tmp-migrate-v2-script-go-e318b20b/20260529T200445Z_codex_019e6628-27cf-7320-9310-9b6afc4bae27_77778444950d.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 12159971,
+      "preprocessed_bytes": 823266
+    },
+    {
+      "session_id": "019e415e-af99-7130-9ad7-a69fe0c5ca94",
+      "branch": "main",
+      "transcript": "sessions/main/20260519T180051Z_codex_019e415e-af99-7130-9ad7-a69fe0c5ca94_1cf96d1dbe7e.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 1716216,
+      "preprocessed_bytes": 717635
+    },
+    {
+      "session_id": "7c0fb9b8-d164-46a3-ae4b-7bfead34d6ec",
+      "branch": "main",
+      "transcript": "sessions/main/20260326T183912Z_claude-code_7c0fb9b8-d164-46a3-ae4b-7bfead34d6ec_04c64e27ea67.jsonl",
       "cached": false,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 3983797,
       "raw_bytes": 7305797,
-      "session_id": "session-0001",
-      "transcript": "redacted"
+      "preprocessed_bytes": 3983797
     },
     {
-      "branch": "branch-0050",
+      "session_id": "019df9cd-55af-78a1-ba56-85910d0fd078",
+      "branch": "main",
+      "transcript": "sessions/main/20260507T213012Z_codex_019df9cd-55af-78a1-ba56-85910d0fd078_cd3fb9643dcc.jsonl",
       "cached": false,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 715321,
+      "raw_bytes": 30770310,
+      "preprocessed_bytes": 786429
+    },
+    {
+      "session_id": "019db1cd-719a-7850-97d8-b287ad51e7a0",
+      "branch": "feat/entire-why",
+      "transcript": "sessions/branches/feat-entire-why-004b289f/20260428T230133Z_codex_019db1cd-719a-7850-97d8-b287ad51e7a0_0d943b07d60c.jsonl",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
       "raw_bytes": 20232364,
-      "session_id": "session-0002",
-      "transcript": "redacted"
+      "preprocessed_bytes": 715321
     },
     {
-      "branch": "branch-0051",
+      "session_id": "019db1cd-719a-7850-97d8-b287ad51e7a0",
+      "branch": "feat/entire-why-prototype",
+      "transcript": "sessions/branches/feat-entire-why-prototype-954e262e/20260427T213810Z_codex_019db1cd-719a-7850-97d8-b287ad51e7a0_39e3a74b26e9.jsonl",
       "cached": false,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 660878,
       "raw_bytes": 19614291,
-      "session_id": "session-0003",
-      "transcript": "redacted"
+      "preprocessed_bytes": 660878
     },
     {
-      "branch": "branch-0050",
+      "session_id": "019dd0f5-bf9d-7521-a357-f745b5c66cf7",
+      "branch": "feat/entire-why",
+      "transcript": "sessions/branches/feat-entire-why-004b289f/20260501T224811Z_codex_019dd0f5-bf9d-7521-a357-f745b5c66cf7_a854cf6329c2.jsonl",
       "cached": false,
       "chunks": 3,
       "chunks_if_uncached": 3,
-      "preprocessed_bytes": 570156,
-      "raw_bytes": 31415500,
-      "session_id": "session-0004",
-      "transcript": "redacted"
+      "raw_bytes": 32103190,
+      "preprocessed_bytes": 596697
     },
     {
-      "branch": "branch-0076",
+      "session_id": "a654b6ca-4957-4d7c-8c99-62db313ff0a0",
+      "branch": "main",
+      "transcript": "sessions/main/20260504T213425Z_claude-code_a654b6ca-4957-4d7c-8c99-62db313ff0a0_beb9e66203f5.jsonl",
       "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 458143,
-      "raw_bytes": 8194737,
-      "session_id": "session-0005",
-      "transcript": "redacted"
-    },
-    {
-      "branch": "branch-0076",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 435868,
-      "raw_bytes": 19889252,
-      "session_id": "session-0006",
-      "transcript": "redacted"
-    },
-    {
-      "branch": "branch-0084",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 361096,
-      "raw_bytes": 4071832,
-      "session_id": "session-0007",
-      "transcript": "redacted"
-    },
-    {
-      "branch": "branch-0076",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 354561,
-      "raw_bytes": 10542777,
-      "session_id": "session-0008",
-      "transcript": "redacted"
-    },
-    {
-      "branch": "branch-0003",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 316754,
-      "raw_bytes": 4210595,
-      "session_id": "session-0009",
-      "transcript": "redacted"
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "raw_bytes": 13614317,
+      "preprocessed_bytes": 533877
     }
-  ],
-  "max_chunk_bytes": 262144,
-  "missing_transcripts": 0,
-  "preprocessed_bytes": 41023721,
-  "raw_bytes": 1694279136,
-  "reconcile_agent_calls_upper_bound": 838,
-  "schema_version": 1,
-  "sessions": 822,
-  "sessions_to_distill": 822
+  ]
 }

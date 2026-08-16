@@ -7,6 +7,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from typing import Any
 from unittest import mock
 
 
@@ -870,6 +871,91 @@ class ConfirmatoryAnalysisV2Tests(unittest.TestCase):
             "v2 run manifest component timeout limit must be positive",
             evidence.validate_run_manifest(manifest),
         )
+
+    def test_v2_manifest_execution_identity_tracks_pricing_binding(self) -> None:
+        def manifest(identity: Any, required: bool) -> dict[str, Any]:
+            base = {
+                "schema": evidence.RUN_SCHEMA,
+                "run_id": "run",
+                "identity_sha256": "a" * 64,
+                "executed": True,
+                "artifacts": [],
+                "execution_gate": {
+                    "treatment_started": True,
+                    "agent_ran": True,
+                    "execution_identity": identity,
+                    "provider_invocation": {
+                        "schema": evidence.PROVIDER_INVOCATION_SCHEMA,
+                        "state": evidence.PROVIDER_INVOCATIONS_OBSERVED,
+                        "invocation_count": 1,
+                        "attestation": "retained_attempt_ledger",
+                        "reason": None,
+                    },
+                    "billing_integrity": {
+                        "required": required,
+                        "passed": True,
+                        "attempt_count": 1,
+                    },
+                },
+                "raw_metrics": {
+                    "score": {},
+                    "code_quality": {
+                        "schema": confirmatory.QUALITY_SCHEMA,
+                        "rubric": "task_relative_output_outcome_patch_focus_v2",
+                        "task_normalized_score": 0.75,
+                        "critical_failure": False,
+                        "critical_failure_reasons": [],
+                        "excluded_components": [
+                            "validation_discipline",
+                            "runtime_efficiency",
+                            "brain_use",
+                        ],
+                    },
+                    "usage": {},
+                    "attempt_usage": [
+                        {
+                            "attempt": 1,
+                            "returncode": 0,
+                            "usage": {},
+                            "stdout_artifact": {},
+                            "stderr_artifact": {},
+                        }
+                    ],
+                    "duration_seconds": 12.0,
+                    "timing": {
+                        "primary": "end_to_end_user_visible_wall_seconds",
+                        "end_to_end_user_visible_wall_seconds": 12.0,
+                        "timeout_occurred": False,
+                        "timeout_stage": None,
+                        "agent_timeout_limit_seconds": 100.0,
+                        "timeout_component_limit_seconds": None,
+                        "harness_agent_interval_wall_seconds": 10.0,
+                        "agent_reported_api_seconds": 9.0,
+                        "cell_setup_wall_seconds": 3.0,
+                        "cell_total_wall_seconds": 15.0,
+                        "pre_treatment_setup_included_in_primary": False,
+                        "treatment_retrieval_included_in_primary": True,
+                        "hidden_validation_included_in_primary": False,
+                    },
+                },
+            }
+            return base
+
+        # No pricing quote bound at launch: an identity cannot exist and its
+        # absence must not fail verification (the estimate-free evidence lane).
+        self.assertEqual(evidence.validate_run_manifest(manifest(None, False)), [])
+        # A bound quote makes the identity mandatory.
+        self.assertIn(
+            "v2 run manifest cell execution identity is required when a pricing quote is bound",
+            evidence.validate_run_manifest(manifest(None, True)),
+        )
+        # A present identity must validate regardless of billing binding.
+        self.assertIn(
+            "v2 run manifest cell execution identity is invalid",
+            evidence.validate_run_manifest(manifest({"schema": "bogus"}, False)),
+        )
+        valid = cell_execution_identity(frozen_runner_identity(), price_quote())
+        self.assertEqual(evidence.validate_run_manifest(manifest(valid, True)), [])
 
     def test_v2_manifest_represents_pre_treatment_non_outcome_truthfully(self) -> None:
         record = {

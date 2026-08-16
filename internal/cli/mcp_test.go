@@ -190,7 +190,7 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
 		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "brain_index_repository", "arguments": map[string]any{"path": repoDir}}}) +
 		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_list_projects","arguments":{}}}`) +
-		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "brain_delete_project", "arguments": map[string]any{"repo_key": repoKey}}})
+		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "brain_delete_project", "arguments": map[string]any{"repo_key": repoKey, "confirm": true}}})
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)

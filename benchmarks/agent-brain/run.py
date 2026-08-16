@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -1214,7 +1215,7 @@ def build_tools(run_root: pathlib.Path, env: dict[str, str] | None = None) -> di
         for sem_cmd in ("./cmd/entire-graph", "./cmd/entire-sem"):
             if not (repo_dir / sem_cmd).is_dir():
                 continue
-            proc = run_cmd(["go", "build", "-o", str(sem_bin), sem_cmd], cwd=repo_dir, env=build_env)
+            proc = run_cmd(["go", "build", "-o", str(graph_bin), sem_cmd], cwd=repo_dir, env=build_env)
             if proc.returncode == 0:
                 sem_built = True
                 break
@@ -1247,6 +1248,132 @@ exit 127
 
 def git_head(repo: pathlib.Path) -> str:
     return run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, check=True).stdout.strip()
+
+
+def build_agent_visible_brain(
+    task: dict[str, Any], tools: dict[str, pathlib.Path]
+) -> dict[str, Any] | None:
+    """Build the entire-brain binary agents may invoke, without compiled-in answers.
+
+    tools["brain"] is built from harness HEAD, which contains the true value a
+    self-hosted task removed from the agent worktree; pflag renders compiled-in
+    defaults into --help, so the binary on PATH printed the answer outright
+    (observed live: `entire-brain distill --help` -> "(default 0.75)"). Retrieval
+    must still run CURRENT product code (an old worktree build would benchmark a
+    stale brain), so the agent-visible binary is HEAD code with the task's own
+    setup_replacements applied in a throwaway overlay: same implementation, the
+    sabotaged constant, no oracle. Prep and audits keep using tools["brain"].
+    """
+    if not task.get("scrub_answer_from_history"):
+        return None
+    # binary_replacements pin the answer's definition site at CURRENT harness
+    # HEAD; setup_replacements pin it at the task's (possibly much older) base
+    # commit and are only a fallback while the two still coincide. When a
+    # refactor moves the site, apply_replacements fails loudly and the help-tree
+    # sentinel below is the second line of defense.
+    replacements = [
+        replacement
+        for replacement in task.get("binary_replacements", task.get("setup_replacements", []))
+        if str(replacement.get("old") or "") != str(replacement.get("new") or "")
+    ]
+    if not replacements or not (ROOT / "cmd" / "entire-brain").is_dir():
+        return None
+    head = git_head(ROOT)
+    key = hashlib.sha256(
+        json.dumps({"schema": 2, "head": head, "replacements": replacements}, sort_keys=True).encode()
+    ).hexdigest()[:24]
+    cell_bin = CACHE_DIR / "agent-bin" / key
+    brain_bin = cell_bin / "entire-brain"
+    provenance = {
+        "source": "head_with_task_replacements",
+        "head": head,
+        "key": key,
+        "bin": display_path(cell_bin),
+    }
+    if brain_bin.exists() and (cell_bin / "entire").exists():
+        return provenance
+    overlay = pathlib.Path(tempfile.mkdtemp(prefix=f"agent-bin-{key}-"))
+    try:
+        run_cmd(["git", "-C", str(ROOT), "worktree", "add", "--detach", str(overlay), head], check=True)
+        try:
+            apply_replacements(overlay, replacements, "agent-visible binary")
+            staging = cell_bin.with_name(cell_bin.name + f".tmp-{os.getpid()}")
+            if staging.exists():
+                shutil.rmtree(staging)
+            staging.mkdir(parents=True)
+            build_env = {**os.environ, "GOFLAGS": "-mod=mod"}
+            run_cmd(
+                ["go", "build", "-o", str(staging / "entire-brain"), "./cmd/entire-brain"],
+                cwd=overlay,
+                env=build_env,
+                check=True,
+            )
+            graph_bin = tools.get("graph")
+            graph_branch = ""
+            if graph_bin:
+                graph_branch = f"""if [[ "${{1:-}}" == "graph" ]]; then
+  shift
+  exec "{graph_bin}" "$@"
+fi
+"""
+            # The wrapper execs the FINAL location, not the staging path.
+            wrapper = f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${{1:-}}" == "brain" ]]; then
+  shift
+  exec "{cell_bin / 'entire-brain'}" "$@"
+fi
+{graph_branch}echo "entire wrapper only supports brain and graph in this benchmark" >&2
+exit 127
+"""
+            (staging / "entire").write_text(wrapper)
+            (staging / "entire").chmod(0o755)
+            assert_binary_free_of_answers(staging / "entire-brain", task)
+            cell_bin.parent.mkdir(parents=True, exist_ok=True)
+            if cell_bin.exists():
+                shutil.rmtree(cell_bin)
+            staging.rename(cell_bin)
+        finally:
+            run_cmd(["git", "-C", str(ROOT), "worktree", "remove", "--force", str(overlay)])
+    finally:
+        shutil.rmtree(overlay, ignore_errors=True)
+    return provenance
+
+
+def assert_binary_free_of_answers(binary: pathlib.Path, task: dict[str, Any]) -> None:
+    """Fail closed if the agent-visible binary still emits scrubbed answer text.
+
+    Walks the first level of the help tree (root --help plus each advertised
+    subcommand's --help), which is where pflag renders compiled-in defaults, and
+    applies the task's declared leak patterns plus every scrubbed literal. A
+    sentinel, not a proof; the build-from-replacements overlay is the guarantee,
+    this catches a replacement that silently stopped matching the flag site.
+    """
+    literals = [
+        str(replacement.get("old") or "")
+        for replacement in task.get("setup_replacements", [])
+        if str(replacement.get("old") or "") != str(replacement.get("new") or "")
+    ]
+    patterns = [re.compile(str(pattern)) for pattern in task.get("history_leak_patterns", [])]
+    root_help = run_cmd([str(binary), "--help"], timeout=60).stdout
+    helps = [("", root_help)]
+    for line in root_help.splitlines():
+        match = re.match(r"^  ([a-z][a-z0-9-]*)\s{2,}", line)
+        if match:
+            name = match.group(1)
+            helps.append((name, run_cmd([str(binary), name, "--help"], timeout=60).stdout))
+    for name, text in helps:
+        for literal in literals:
+            if literal and literal.strip() and literal.strip() in text:
+                raise RuntimeError(
+                    f"agent-visible binary still prints scrubbed text in `{name or 'root'} --help`: {literal!r}"
+                )
+        for pattern in patterns:
+            found = [line for line in text.splitlines() if pattern.search(line)]
+            if found:
+                raise RuntimeError(
+                    f"agent-visible binary help matches declared leak pattern in `{name or 'root'} --help`: {found[:2]}"
+                )
 
 
 def file_sha256(path: pathlib.Path) -> str:
@@ -1736,6 +1863,17 @@ def provenance_path_reference(
     return reference
 
 
+# Mirrors the release auditor's HOST_PATH_RE: any string matching it in a
+# retained record is flagged as I:release_host_path_leak. Known roots are
+# rewritten to semantic labels first; whatever machine-local path remains after
+# that (an agent-invented /tmp scratch file, a $HOME reference echoed into a
+# command) carries no evidentiary value and is scrubbed generically, so record
+# hygiene does not depend on enumerating every path an agent might type.
+RECORD_HOST_PATH_RE = re.compile(
+    r"(?i)(?:/Users/[^\s\"'`]+|/home/[^\s\"'`]+|/private/(?:var|tmp)/[^\s\"'`]+|/tmp/[^\s\"'`]+|[A-Z]:\\Users\\[^\s\"'`]+)"
+)
+
+
 def redact_record_host_paths(value: Any, paths: dict[pathlib.Path, str]) -> Any:
     """Remove known machine-local paths from the persisted record tree."""
     replacements: dict[str, str] = {}
@@ -1776,7 +1914,7 @@ def redact_record_host_paths(value: Any, paths: dict[pathlib.Path, str]) -> Any:
         output = item
         for raw, label in sorted(replacements.items(), key=lambda pair: len(pair[0]), reverse=True):
             output = output.replace(raw, label)
-        return output
+        return RECORD_HOST_PATH_RE.sub("<redacted-host-path>", output)
 
     return redact(value)
 
@@ -2034,6 +2172,8 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
         source_commit,
         private_paths,
         paths_present=paths_present,
+        scrub_replacements=history_scrub_replacements(task),
+        leak_patterns=[str(p) for p in task.get("history_leak_patterns", [])],
     )
     # Never use a linked worktree here. A linked worktree shares the developer
     # repository's refs, reflogs, object store, and checkpoint objects; benchmark
@@ -2061,7 +2201,12 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
     patch = task.get("setup_patch", "")
     if patch:
         run_cmd(["git", "apply", "-"], cwd=worktree, input_text=patch, check=True)
-    apply_replacements(worktree, task.get("setup_replacements", []), "setup")
+    apply_replacements(
+        worktree,
+        task.get("setup_replacements", []),
+        "setup",
+        already_scrubbed=bool(history_scrub_replacements(task)),
+    )
     setup_env = os.environ.copy()
     setup_env["BENCH_SOURCE_REPO"] = str(source)  # portable handle to the source repo for setup_commands
     for command in task.get("setup_commands", []):
@@ -2087,12 +2232,71 @@ def filtered_agent_history_paths(task: dict[str, Any] | None = None) -> list[str
     )
 
 
+def history_scrub_replacements(task: dict[str, Any] | None) -> list[tuple[bytes, bytes]]:
+    """Answer text that must not survive in the history the agent may freely read.
+
+    brain_query_answer_texts already classifies a setup_replacement's ``old`` value
+    as hidden answer text, but the setup only rewrites the working tree, so the
+    decided value stayed committed in ordinary source history. The baseline-history
+    audit deliberately permits ordinary log/blame/pickaxe use, so an agent that ran
+    `git log -S` recovered the answer without committing any protocol violation, and
+    the comparison measured how hard each arm searched rather than whether the
+    decision was reachable at all. Tasks whose premise is that a decision lives only
+    in retained session history opt in here so the premise actually holds.
+    """
+    if not isinstance(task, dict) or not task.get("scrub_answer_from_history"):
+        return []
+    pairs: list[tuple[bytes, bytes]] = []
+    for replacement in task.get("setup_replacements", []):
+        old = str(replacement.get("old", ""))
+        new = str(replacement.get("new", ""))
+        if old and old != new:
+            pairs.append((old.encode(), new.encode()))
+    for replacement in task.get("history_scrub_replacements", []):
+        old = str(replacement.get("old", ""))
+        new = str(replacement.get("new", ""))
+        if old and old != new:
+            pairs.append((old.encode(), new.encode()))
+    return pairs
+
+
+def rewrite_fast_export_payloads(
+    reader: Any, writer: Any, replacements: list[tuple[bytes, bytes]]
+) -> None:
+    """Stream a fast-export dump, rewriting declared answer text inside payloads.
+
+    Every ``data <n>`` payload is transformed, so the text disappears from blob
+    contents and commit messages alike. The length header is emitted only after the
+    payload is rewritten, because a substitution changes the byte count.
+    """
+    while True:
+        line = reader.readline()
+        if not line:
+            return
+        if not line.startswith(b"data "):
+            writer.write(line)
+            continue
+        length = int(line[len("data ") :].strip())
+        payload = b""
+        while len(payload) < length:
+            chunk = reader.read(length - len(payload))
+            if not chunk:
+                raise RuntimeError("fast-export stream ended inside a data payload")
+            payload += chunk
+        for old, new in replacements:
+            payload = payload.replace(old, new)
+        writer.write(b"data " + str(len(payload)).encode() + b"\n")
+        writer.write(payload)
+
+
 def filtered_agent_history_repo(
     source: pathlib.Path,
     base: str,
     private_paths: list[str],
     *,
     paths_present: list[str] | None = None,
+    scrub_replacements: list[tuple[bytes, bytes]] | None = None,
+    leak_patterns: list[str] | None = None,
 ) -> pathlib.Path:
     """Cache ordinary source history with benchmark/Entire-private paths removed."""
     source_commit = run_cmd(
@@ -2100,10 +2304,19 @@ def filtered_agent_history_repo(
         cwd=source,
         check=True,
     ).stdout.strip()
+    scrub_replacements = list(scrub_replacements or [])
+    leak_patterns = list(leak_patterns or [])
     key_payload = {
         "schema": FILTERED_HISTORY_CACHE_SCHEMA,
         "source_commit": source_commit,
         "private_paths": private_paths,
+        # A scrubbed history is a different artifact from an unscrubbed one, so it
+        # must never be served from the same cache entry.
+        "scrub_replacements": [
+            [old.decode(errors="replace"), new.decode(errors="replace")]
+            for old, new in scrub_replacements
+        ],
+        "leak_patterns": leak_patterns,
     }
     key = hashlib.sha256(
         json.dumps(key_payload, sort_keys=True, separators=(",", ":")).encode()
@@ -2127,7 +2340,7 @@ def filtered_agent_history_repo(
     paths_present = paths_present if paths_present is not None else private_paths_present_in_history(
         source, source_commit, private_paths
     )
-    if paths_present:
+    if paths_present or scrub_replacements:
         run_cmd(["git", "update-ref", export_ref, source_commit], cwd=source, check=True)
         try:
             export_command = [
@@ -2147,13 +2360,39 @@ def filtered_agent_history_repo(
                     stderr=export_stderr,
                 )
                 assert exporter.stdout is not None
-                importer = subprocess.run(
-                    ["git", "fast-import", "--quiet"],
-                    cwd=staging_repo,
-                    stdin=exporter.stdout,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
+                if scrub_replacements:
+                    # Rewriting the stream keeps the scrub in one place: the answer
+                    # text leaves blob contents and commit messages together, and no
+                    # unscrubbed object is ever written to the cache.
+                    importer_process = subprocess.Popen(
+                        ["git", "fast-import", "--quiet"],
+                        cwd=staging_repo,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    assert importer_process.stdin is not None
+                    try:
+                        rewrite_fast_export_payloads(
+                            exporter.stdout, importer_process.stdin, scrub_replacements
+                        )
+                    finally:
+                        importer_process.stdin.close()
+                    importer_stdout, importer_stderr = importer_process.communicate()
+                    importer = subprocess.CompletedProcess(
+                        importer_process.args,
+                        importer_process.returncode,
+                        importer_stdout,
+                        importer_stderr,
+                    )
+                else:
+                    importer = subprocess.run(
+                        ["git", "fast-import", "--quiet"],
+                        cwd=staging_repo,
+                        stdin=exporter.stdout,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
                 exporter.stdout.close()
                 export_returncode = exporter.wait()
                 export_stderr.seek(0)
@@ -2203,6 +2442,47 @@ def filtered_agent_history_repo(
         ).stdout.strip()
         if leaked:
             raise RuntimeError(f"filtered source history still contains private path {path}")
+    if scrub_replacements or leak_patterns:
+        # Prove the answer is unreachable rather than trusting the rewrite, the same
+        # way private paths are proven absent above. Both a blob and a commit message
+        # can state a decision, and an agent reads `git log` before it reads a diff,
+        # so every reachable commit is checked on both surfaces.
+        revisions = run_cmd(
+            ["git", "rev-list", "--all"], cwd=staging_repo, check=True
+        ).stdout.split()
+        messages = run_cmd(
+            ["git", "log", "--all", "--format=%B"], cwd=staging_repo, check=True
+        ).stdout
+        for old, _new in scrub_replacements:
+            text = old.decode(errors="replace")
+            found = run_cmd(
+                ["git", "grep", "-l", "-F", "-e", text, *revisions], cwd=staging_repo
+            )
+            if found.returncode == 0 and found.stdout.strip():
+                raise RuntimeError(
+                    "filtered source history still contains scrubbed answer text at "
+                    f"{found.stdout.strip().splitlines()[:3]}"
+                )
+            if text in messages:
+                raise RuntimeError(
+                    "filtered source history still contains scrubbed answer text in a "
+                    f"commit message: {text!r}"
+                )
+        for pattern in leak_patterns:
+            # Declaring the answer's signature makes absence provable instead of
+            # assumed: the build fails until every phrasing has been scrubbed, so a
+            # task cannot quietly go back to leaking the value it is probing for.
+            compiled = re.compile(pattern)
+            hits = [line.strip() for line in messages.splitlines() if compiled.search(line)]
+            listing = run_cmd(
+                ["git", "grep", "-l", "-E", pattern, *revisions], cwd=staging_repo
+            )
+            if listing.returncode == 0 and listing.stdout.strip():
+                hits.extend(listing.stdout.strip().splitlines())
+            if hits:
+                raise RuntimeError(
+                    f"filtered source history still matches declared answer pattern {pattern!r}: {hits[:3]}"
+                )
     try:
         os.replace(staging_repo, cache_repo)
     except OSError as exc:
@@ -2449,7 +2729,13 @@ def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool
     return changed
 
 
-def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]], label: str) -> None:
+def apply_replacements(
+    worktree: pathlib.Path,
+    replacements: list[dict[str, str]],
+    label: str,
+    *,
+    already_scrubbed: bool = False,
+) -> None:
     for replacement in replacements:
         rel = replacement["path"]
         path = worktree / rel
@@ -2457,6 +2743,15 @@ def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]
         old = replacement["old"]
         new = replacement["new"]
         count = data.count(old)
+        if already_scrubbed and count == 0:
+            # Scrubbing the answer from history also rewrites the checked-out tip,
+            # so the setup mutation is already in place. Require the scrubbed state
+            # instead of silently accepting a replacement that did nothing.
+            if data.count(new) != 1:
+                raise RuntimeError(
+                    f"{label} replacement for {rel} is neither pending nor scrubbed into place"
+                )
+            continue
         if count != 1:
             raise RuntimeError(f"{label} replacement for {rel} matched {count} times, expected 1")
         path.write_text(data.replace(old, new, 1))
@@ -2759,6 +3054,60 @@ def sanitize_repo_session_corpus(repo_root: pathlib.Path) -> dict[str, Any]:
         "session_files": session_files,
         "history_index": history_path if history_path.is_file() else None,
     }
+
+
+def republish_brain_history(
+    plugin: pathlib.Path, worktree: pathlib.Path, tools: dict[str, pathlib.Path]
+) -> dict[str, Any]:
+    """Have the product rebuild the history index after the harness mutated the corpus.
+
+    Sanitization removes contaminated sessions and the secret scrub rewrites
+    transcript bytes in place. Hand-editing history/index.json alongside that
+    left the manifest's integrity fields (index_bytes, index_sha256,
+    records_fingerprint, transcripts_fingerprint) describing the pre-scrub
+    artifact, so the product's fail-closed loader rejected every prepared brain
+    and history search was silently disabled in every treatment run. The brain
+    binary is the single authority on those fields, so it republishes them over
+    the final bytes; the harness never computes them again.
+    """
+    repos_root = plugin / "data" / "repos"
+    indexes = sorted(repos_root.glob("*/*/history/index.json")) if repos_root.exists() else []
+    if not indexes:
+        return {"ran": False, "reason": "no_history_index"}
+    env = {
+        **os.environ,
+        "ENTIRE_REPO_ROOT": str(worktree),
+        "ENTIRE_PLUGIN_CONFIG_DIR": str(plugin / "config"),
+        "ENTIRE_PLUGIN_DATA_DIR": str(plugin / "data"),
+        "ENTIRE_PLUGIN_STATE_DIR": str(plugin / "state"),
+        "ENTIRE_PLUGIN_CACHE_DIR": str(plugin / "cache"),
+    }
+    proc = run_cmd([str(tools["brain"]), "refresh", "history"], cwd=worktree, env=env, timeout=1800)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "brain history republish failed after sanitization:\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    result: dict[str, Any] = {"ran": True, "indexes": []}
+    for index_path in indexes:
+        manifest_path = index_path.parent.parent / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        source = ((manifest.get("sources") or {}).get("history") or {})
+        declared = int(source.get("index_bytes") or 0)
+        actual = index_path.stat().st_size
+        if declared != actual:
+            raise RuntimeError(
+                f"brain history republish left an incoherent manifest for {index_path}: "
+                f"declared {declared} bytes, actual {actual}"
+            )
+        result["indexes"].append(
+            {
+                "path": display_path(index_path),
+                "records": int(source.get("records") or 0),
+                "index_bytes": actual,
+            }
+        )
+    return result
 
 
 def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
@@ -3295,9 +3644,39 @@ def brain_cli_condition_audit(
     }
 
 
+REMOTE_SOURCE_FETCH_RE = re.compile(
+    r"\bgit\b[^\n|;&]*\b(?:clone|fetch|pull|ls-remote|remote\s+add|submodule)\b[^\n|;&]*"
+    r"(?:https?://|git@|ssh://|git://)"
+    r"|\b(?:curl|wget)\b[^\n|;&]*(?:github\.com|gitlab\.com|bitbucket\.org|codeload\.github\.com|raw\.githubusercontent\.com)"
+    r"|\bgh\s+(?:repo\s+clone|api)\b",
+    re.IGNORECASE,
+)
+
+
+def remote_source_fetch_audit(agent_info: dict[str, Any]) -> dict[str, Any]:
+    """Reject fetching source history from the network in any arm.
+
+    The disposable worktree is self-contained by design and its origin remote is
+    removed, so no remote git operation is ever part of a compliant run. The
+    filesystem sandbox cannot stop a network clone of the same repository, and
+    both directions were observed live: a no_brain agent recovered the scrubbed
+    answer by cloning the public upstream named in go.mod and reading the
+    refactored constant from CURRENT code. Content flows, so this is a hard
+    adherence violation, symmetric across arms, kept as hashes only.
+    """
+    activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
+    findings = [
+        {"kind": "remote_source_fetch", "command_sha256": text_sha256(str(command))}
+        for command in activity.get("commands", [])
+        if REMOTE_SOURCE_FETCH_RE.search(str(command))
+    ]
+    return {"ok": not findings, "required": True, "findings": findings}
+
+
 def baseline_history_audit(
     agent_info: dict[str, Any],
     attestations: Iterable[dict[str, Any]],
+    task: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Reject reconstruction of the harness-only setup boundary.
 
@@ -3312,6 +3691,17 @@ def baseline_history_audit(
         str(attestation.get("source_history_parent"))
         for attestation in attestations
         if isinstance(attestation, dict) and attestation.get("source_history_parent")
+    }
+    # The workspace side of the synthetic merge: HEAD and its first parent.
+    # A diff is only revealing when it spans the boundary — workspace content
+    # against the attested source-history parent. Diffs between the boundary
+    # parent and its own ancestors are ordinary history archaeology.
+    workspace_commits = {
+        str(attestation.get(key))
+        for attestation in attestations
+        if isinstance(attestation, dict)
+        for key in ("head_commit", "first_parent")
+        if attestation.get(key)
     }
     findings: list[dict[str, Any]] = []
     for command in commands:
@@ -3342,27 +3732,42 @@ def baseline_history_audit(
             and any(token in {"-m", "--cc", "-c", "--combined"} for token in lowered)
             and re.search(r"\bhead\b", joined)
         )
-        parent_discovery = bool(
-            (
-                re.search(r"\bgit\s+(?:show|log|rev-list)\b", joined)
-                and re.search(r"(?:--parents|--format=(?:format:)?%p|--pretty=(?:format:)?%p)", joined)
-                and re.search(r"\bhead\b", joined)
-            )
-            or re.search(r"\bgit\s+cat-file\s+-p\s+head\b", joined)
+        # Parent DISCOVERY (git log --parents, %P formats, cat-file -p HEAD) is
+        # deliberately not a finding: it reveals only commit-graph metadata that
+        # plain `git log` prints for any merge ("Merge: p1 p2"), and the audit's
+        # contract allows ordinary commit inspection. Observed live: an
+        # orientation command (`git log --oneline -5 --parents`) invalidated a
+        # baseline row that never touched boundary content. What stays hard is
+        # USING the boundary: ^2/^@ refs, merge patches, and diffs against the
+        # attested parent hash (boundary_diff / derived_boundary_diff below).
+        revision_tokens = [
+            revision
+            for token in lowered
+            for revision in re.split(r"\.{2,3}", token)
+            if re.fullmatch(r"[0-9a-f]{7,40}", revision)
+        ]
+        exact_boundary_ref = any(
+            any(commit.lower().startswith(revision) for commit in boundary_commits)
+            for revision in revision_tokens
         )
-        exact_boundary_ref = False
-        for token in lowered:
-            for revision in re.split(r"\.{2,3}", token):
-                if not re.fullmatch(r"[0-9a-f]{7,40}", revision):
-                    continue
-                if any(commit.lower().startswith(revision) for commit in boundary_commits):
-                    exact_boundary_ref = True
-                    break
-            if exact_boundary_ref:
-                break
+        exact_workspace_ref = any(
+            any(commit.lower().startswith(revision) for commit in workspace_commits)
+            for revision in revision_tokens
+        )
+        # Hard only when the diff spans the boundary: the attested parent
+        # against the workspace side (HEAD textually, a workspace hash, or a
+        # one-sided diff whose implicit other side is the worktree). Observed
+        # live: `git diff <ancestor> <boundary-parent> -- file` — two commits
+        # inside ordinary source history — was flagged and vetoed a bundle
+        # while revealing nothing the agent could not read with git log -p.
         boundary_diff = bool(
             re.search(r"\bgit\s+diff\b", joined)
             and exact_boundary_ref
+            and (
+                exact_workspace_ref
+                or re.search(r"\bhead\b|(?<![\w])@(?![\w])", joined)
+                or len(revision_tokens) == 1
+            )
         )
         derived_boundary_diff = bool(
             re.search(r"\bgit\s+diff\b", joined)
@@ -3376,7 +3781,6 @@ def baseline_history_audit(
             or parent_set_expansion
             or discarded_navigation
             or merge_patch
-            or parent_discovery
             or boundary_diff
             or derived_boundary_diff
         ):
@@ -3386,6 +3790,22 @@ def baseline_history_audit(
                     "command_sha256": text_sha256(command),
                 }
             )
+    if findings and isinstance(task, dict) and task.get("scrub_answer_from_history"):
+        # On a scrubbed task the synthetic boundary is provably answer-free:
+        # HEAD and HEAD^1 share a tree, HEAD^2 is the scrubbed source history,
+        # and checkpoint objects are repacked away. Probing it is an ordinary
+        # dead-end search strategy, so it costs the row its outcome on the
+        # merits (and its time/token budget), not its protocol validity.
+        # Excluding these rows starved both arms below the minimum repetitions
+        # and no comparison could form at all. Unscrubbed tasks keep the strict
+        # exclusion because there the boundary still reveals the setup patch.
+        return {
+            "ok": True,
+            "required": True,
+            "findings": [],
+            "advisory_findings": findings,
+            "advisory_reason": "scrubbed_task_boundary_is_answer_free",
+        }
     return {"ok": not findings, "required": True, "findings": findings}
 
 
@@ -3694,7 +4114,22 @@ def remove_agent_visible_entire_history(worktree: pathlib.Path) -> bool:
     if run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=worktree).returncode == 0:
         run_cmd(["git", "update-ref", "-d", CHECKPOINT_REF], cwd=worktree)
         run_cmd(["git", "reflog", "expire", "--expire=now", "--all"], cwd=worktree)
+        # A checkpoint fetch of any real size arrives as a PACK, and `git prune`
+        # deletes only loose unreachable objects, so the "deleted" transcripts
+        # stayed fully recoverable via `git fsck --unreachable` + `git cat-file`
+        # (observed live: an agent recovered ~80 transcript copies of the task's
+        # answer that way). Repacking reachable-only first makes the removal
+        # real; prune then clears the loosened remainder.
+        run_cmd(["git", "repack", "-a", "-d", "-q"], cwd=worktree, check=True)
         run_cmd(["git", "prune", "--expire=now"], cwd=worktree)
+        leftovers = run_cmd(
+            ["git", "fsck", "--unreachable", "--no-reflogs"], cwd=worktree
+        ).stdout.strip()
+        if leftovers:
+            raise RuntimeError(
+                "checkpoint history removal left recoverable objects in the agent worktree:\n"
+                + "\n".join(leftovers.splitlines()[:5])
+            )
         removed = True
     return removed
 
@@ -3725,9 +4160,41 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
             "GOMODCACHE": str(BENCH_GO_MOD_CACHE),
             "GOTMPDIR": str(go_tmp),
             "GOTOOLCHAIN": "auto",
+            # The filesystem sandbox denies reads, not host-config writes: a cell
+            # agent's `go env -w` wrote GOPROXY=off into the HOST go env file,
+            # which poisoned dependency prewarm for every later cell and mutated
+            # the operator's machine. A per-worktree GOENV keeps agent writes
+            # inside the cell and keeps prewarm blind to host Go configuration.
+            "GOENV": str(worktree / ".benchmark" / "go-env"),
         }
     )
     return env
+
+
+def prewarm_go_dependencies(worktree: pathlib.Path, env: dict[str, str]) -> dict[str, Any]:
+    """Resolve a task repository's declared Go toolchain and modules before timing.
+
+    Agents run sandboxed and should spend their budget on the task, not on repairing
+    host module-cache permissions or downloading an auto-selected patch toolchain.
+    This uses the exact agent environment and shared writable module cache, while the
+    per-worktree build cache remains cold for a fair branch/main comparison.
+    """
+    if not (worktree / "go.mod").is_file():
+        return {"ran": False, "reason": "no_go_mod"}
+    started = time.monotonic()
+    proc = run_cmd(["go", "mod", "download"], cwd=worktree, env=env, timeout=600)
+    result = {
+        "ran": True,
+        "ok": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "seconds": round(time.monotonic() - started, 3),
+    }
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "benchmark Go dependency prewarm failed before agent execution:\n"
+            f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+        )
+    return result
 
 
 def apply_task_env(
@@ -3887,25 +4354,62 @@ def validate_temporal_source_artifact(
         raise RuntimeError("pinned temporal source artifact failed validation: " + "; ".join(mismatches))
 
 
-def copy_cached_plugin(cache_plugin: pathlib.Path, run_plugin: pathlib.Path, old_worktree: str, new_worktree: str) -> None:
+def cached_plugin_repo_dirs(run_plugin: pathlib.Path) -> list[pathlib.Path]:
+    """Every per-repository directory a cached plugin carries, across both scopes."""
+    dirs: list[pathlib.Path] = []
+    for scope in ("data", "state"):
+        root = run_plugin / scope / "repos" / "local"
+        if root.is_dir():
+            dirs.extend(sorted(entry for entry in root.iterdir() if entry.is_dir()))
+    return dirs
+
+
+def copy_cached_plugin(
+    cache_plugin: pathlib.Path,
+    run_plugin: pathlib.Path,
+    old_worktree: str,
+    new_worktree: str,
+    new_repo_key: str,
+) -> None:
     if run_plugin.exists():
         shutil.rmtree(run_plugin)
     shutil.copytree(cache_plugin, run_plugin)
     if old_worktree == new_worktree:
         return
-    old = old_worktree.encode()
-    new = new_worktree.encode()
+    # The brain names each repository directory <base>-<sha256(repo_path)[:12]>
+    # (localRepoKey in internal/cli/env.go), so a cached plugin carries the
+    # directory name of the cell that produced it. Rewriting file contents cannot
+    # rename a directory, so a reusing cell used to resolve a brain path that did
+    # not exist, read an empty brain, and fail prep with "produced no history
+    # index records" while the first cell of each cache key passed. The new name
+    # comes from the brain binary rather than a Python copy of the hash, so the
+    # Go implementation stays the single authority on repository identity.
+    renames: list[tuple[str, str]] = []
+    for repo_dir in cached_plugin_repo_dirs(run_plugin):
+        if repo_dir.name == new_repo_key:
+            continue
+        target = repo_dir.with_name(new_repo_key)
+        if target.exists():
+            shutil.rmtree(target)
+        repo_dir.rename(target)
+        renames.append((repo_dir.name, new_repo_key))
+    # The old key is also embedded in file contents (manifest repo_key, index
+    # provenance), so it has to be rewritten alongside the worktree path.
+    substitutions = [(old_worktree.encode(), new_worktree.encode())]
+    substitutions.extend((old.encode(), new.encode()) for old, new in dict(renames).items())
     for path in run_plugin.rglob("*"):
         if not path.is_file() or path.is_symlink():
             continue
         data = path.read_bytes()
-        if old not in data:
+        if not any(old in data for old, _ in substitutions):
             continue
         try:
             data.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        path.write_bytes(data.replace(old, new))
+        for old, new in substitutions:
+            data = data.replace(old, new)
+        path.write_bytes(data)
 
 
 def store_plugin_cache(cache_entry: pathlib.Path, plugin: pathlib.Path, metadata: dict[str, Any]) -> None:
@@ -4624,6 +5128,7 @@ def temporal_agent_read_isolation(
     tools: dict[str, pathlib.Path],
     sandbox_executable: pathlib.Path = TEMPORAL_AGENT_SANDBOX_EXECUTABLE,
     host_env: dict[str, str] | None = None,
+    extra_allowed_roots: Iterable[pathlib.Path] = (),
 ) -> tuple[str, dict[str, Any]]:
     """Build a deny-first read profile for a harness-owned causal row.
 
@@ -4636,12 +5141,28 @@ def temporal_agent_read_isolation(
     sandbox_executable = sandbox_executable.resolve()
     if not sandbox_executable.is_file():
         raise RuntimeError("harness memory delivery requires /usr/bin/sandbox-exec read isolation")
-    denied_roots = {ROOT.resolve(), pathlib.Path(source).resolve()}
-    allowed_roots = sorted(
-        {pathlib.Path(worktree).resolve(), pathlib.Path(tools["bin"]).resolve()}, key=str
-    )
-
     host_env = dict(os.environ) if host_env is None else dict(host_env)
+    denied_roots = {ROOT.resolve(), pathlib.Path(source).resolve()}
+    # The cell env is a contract: every cache path it designates must actually
+    # be usable under the profile, which denies read-back inside the harness
+    # tree where the run-dir runtime caches live. When the designated caches
+    # are unusable, agents improvise their own (observed live: `go env -w`
+    # pointing at /tmp, then hand-built caches under .benchmark), turning
+    # toolchain plumbing into adherence findings and host mutations.
+    env_designated_cache_roots = set()
+    for cache_key in ("GOCACHE", "GOMODCACHE", "GOTMPDIR"):
+        raw = host_env.get(cache_key)
+        if raw and pathlib.Path(raw).is_absolute():
+            env_designated_cache_roots.add(pathlib.Path(raw).resolve())
+    allowed_roots = sorted(
+        {
+            pathlib.Path(worktree).resolve(),
+            pathlib.Path(tools["bin"]).resolve(),
+            *(pathlib.Path(path).resolve() for path in extra_allowed_roots),
+            *env_designated_cache_roots,
+        },
+        key=str,
+    )
     host_home = pathlib.Path(host_env.get("HOME") or pathlib.Path.home()).resolve()
     host_entire_roots = {
         host_home / ".config" / "entire",
@@ -4708,8 +5229,28 @@ def temporal_agent_read_isolation(
                 host_entire_executables.add(resolved)
 
     lines = ["(version 1)", "(allow default)"]
+    # deny file-read-data, not file-read*: metadata (lstat/stat) of the denied
+    # trees stays allowed because path resolution walks every ancestor of the
+    # worktree, which lives under the harness root. Denying metadata made
+    # EvalSymlinks fail on the ROOT component, which broke every repo-scoped
+    # brain CLI command inside the sandbox while the contents deny is what the
+    # isolation actually needs: no directory listings, no file contents.
     lines.extend(
-        f"(deny file-read* (subpath {json.dumps(str(path))}))" for path in denied_roots
+        f"(deny file-read-data (subpath {json.dumps(str(path))}))" for path in denied_roots
+    )
+    # Agent CLIs discover ancestor configuration (.claude/, CLAUDE.md, ...)
+    # from a cwd that sits under the harness root. With metadata visible, that
+    # discovery finds the files, and the CLI treats the subsequent
+    # unreadable-content EPERM as fatal instead of skipping. Denying metadata
+    # on exactly these entries restores the clean skip while ordinary ancestor
+    # path resolution stays statable.
+    agent_config_names = (
+        ".claude", ".codex", ".cursor", ".entire", ".mcp.json", "CLAUDE.md", "AGENTS.md",
+    )
+    lines.extend(
+        f"(deny file-read* (subpath {json.dumps(str(path / name))}))"
+        for path in denied_roots
+        for name in agent_config_names
     )
     lines.extend(
         f"(deny file-write* (subpath {json.dumps(str(path))}))" for path in denied_roots
@@ -4722,8 +5263,14 @@ def temporal_agent_read_isolation(
         f"(deny process-exec (literal {json.dumps(str(path))}))"
         for path in sorted(host_entire_executables, key=str)
     )
+    # The deny above is operation-specific (file-read-data), and seatbelt lets
+    # a specific deny outrank a later broader allow, so the re-allow must name
+    # the same specific operation for the worktree to stay readable.
     lines.extend(
         f"(allow file-read* (subpath {json.dumps(str(path))}))" for path in allowed_roots
+    )
+    lines.extend(
+        f"(allow file-read-data (subpath {json.dumps(str(path))}))" for path in allowed_roots
     )
     lines.append(
         f"(allow file-write* (subpath {json.dumps(str(pathlib.Path(worktree).resolve()))}))"
@@ -4884,8 +5431,15 @@ def prepare_brain(
     prep["cache"] = {"enabled": use_cache, "key": key, "hit": False}
     if use_cache and cache_plugin.exists() and cache_meta.exists() and not refresh_cache:
         meta = json.loads(cache_meta.read_text())
-        copy_cached_plugin(cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
+        copy_cached_plugin(
+            cache_plugin,
+            plugin,
+            meta.get("source_worktree", ""),
+            str(worktree),
+            benchmark_brain_dir(worktree, env, tools).name,
+        )
         prep["history_sanitization"] = sanitize_brain_history(plugin)
+        prep["history_republish"] = republish_brain_history(plugin, worktree, tools)
         if is_temporal_memory_condition(condition):
             prep["memory_bundle"] = meta.get("memory_bundle")
             if not isinstance(prep["memory_bundle"], dict):
@@ -4920,7 +5474,13 @@ def prepare_brain(
             raise RuntimeError("a pinned temporal source artifact requires the retained cache and forbids cache refresh")
         if use_cache and source_cache_plugin.exists() and source_cache_meta.exists() and not refresh_cache:
             meta = read_json_file(source_cache_meta)
-            copy_cached_plugin(source_cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
+            copy_cached_plugin(
+                source_cache_plugin,
+                plugin,
+                meta.get("source_worktree", ""),
+                str(worktree),
+                benchmark_brain_dir(worktree, env, tools).name,
+            )
             memory_record = meta.get("memory_bundle")
             if not isinstance(memory_record, dict):
                 raise RuntimeError("temporal source cache is missing frozen bundle provenance")
@@ -4994,6 +5554,7 @@ def prepare_brain(
         )
         prep["memory_bundle"]["delivery"] = isolate_temporal_memory_delivery(condition, worktree, env, tools)
     prep["history_sanitization"] = sanitize_brain_history(plugin)
+    prep["history_republish"] = republish_brain_history(plugin, worktree, tools)
     if use_cache:
         store_plugin_cache(
             cache_entry,
@@ -6571,7 +7132,7 @@ def run_agent(
         ),
         "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
     }
-    activity = extract_agent_activity(proc.stdout, proc.stderr)
+    activity = extract_agent_activity(proc.stdout, proc.stderr, str(worktree))
     if usage.get("cost_usd") is None:
         usage["cost_usd"] = estimate_cost_usd(runner, usage, pricing)
         usage["cost_source"] = "estimated" if usage["cost_usd"] is not None else None
@@ -7133,16 +7694,41 @@ def safe_tool_arguments(value: Any) -> dict[str, Any]:
     return safe
 
 
-def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) -> bool:
+def strip_agent_worktree_prefix(text: str, worktree: str | None) -> str:
+    """Judge a path by where it sits inside the agent worktree, not by the worktree's own prefix.
+
+    Benchmark worktrees live under benchmarks/agent-brain/results/, so the absolute
+    path of an ordinary source file in the worktree contains the very substring that
+    marks a private benchmark artifact. Dropping the worktree prefix keeps
+    <worktree>/benchmarks/agent-brain/... and <worktree>/.entire/... flagged while
+    clearing <worktree>/internal/cli/facts_merge.go, which is the file the task asks
+    the agent to edit.
+    """
+    if not worktree:
+        return text
+    prefixes = {str(worktree)}
+    try:
+        prefixes.add(os.path.realpath(str(worktree)))
+    except OSError:
+        pass
+    for prefix in sorted(prefixes, key=len, reverse=True):
+        if prefix:
+            text = text.replace(prefix, "").replace(prefix.lower(), "")
+    return text
+
+
+def tool_arguments_forbidden_memory_artifact_hardness(
+    tool_name: str, value: Any, worktree: str | None = None
+) -> str | None:
     """Inspect path-bearing tool arguments without retaining private path text."""
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
         except json.JSONDecodeError:
-            return False
-        return tool_arguments_access_forbidden_memory_artifact(tool_name, parsed)
+            return None
+        return tool_arguments_forbidden_memory_artifact_hardness(tool_name, parsed, worktree)
     if not isinstance(value, dict):
-        return False
+        return None
     path_keys = {
         "cwd",
         "dir",
@@ -7171,43 +7757,71 @@ def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) 
     if "glob" in tool_name.lower():
         path_keys.add("pattern")
 
-    def references_private_path(item: Any) -> bool:
+    def reference_hardness(item: Any) -> str | None:
         if isinstance(item, str):
-            stripped = item.strip().lower()
+            stripped = strip_agent_worktree_prefix(item.strip(), worktree).lower()
             if stripped.startswith("!"):
-                return False
+                return None
             # A backslash may be a path separator or a regex/glob escape (\. -> .);
             # either interpretation reaching a private artifact flags the argument.
             candidates = (
                 stripped.replace("\\", "/"),
                 stripped.replace("\\.", ".").replace("\\", "/"),
             )
-            return any(
-                re.search(r"(?:^|/|\*\*/)(?:\.entire|\.benchmark)(?:/|$|\*)", candidate)
-                or re.search(r"(?:^|/|\*\*/)benchmarks/agent-brain(?:/|$|\*)", candidate)
-                or "refs/heads/entire/checkpoints" in candidate
-                for candidate in candidates
-            )
+            result: str | None = None
+            for candidate in candidates:
+                if (
+                    re.search(r"(?:^|/|\*\*/)(?:\.entire|\.benchmark)(?:/|$|\*)", candidate)
+                    or re.search(r"(?:^|/|\*\*/)benchmarks/agent-brain(?:/|$|\*)", candidate)
+                    or "refs/heads/entire/checkpoints" in candidate
+                ):
+                    hardness = private_artifact_reference_hardness(candidate, worktree)
+                    if hardness == "hard":
+                        return "hard"
+                    if hardness == "advisory":
+                        result = "advisory"
+            return result
+        strongest: str | None = None
+        children: Iterable[Any] = ()
         if isinstance(item, list):
-            return any(references_private_path(child) for child in item)
-        if isinstance(item, dict):
-            return any(references_private_path(child) for child in item.values())
-        return False
+            children = item
+        elif isinstance(item, dict):
+            children = item.values()
+        for child in children:
+            hardness = reference_hardness(child)
+            if hardness == "hard":
+                return "hard"
+            if hardness == "advisory":
+                strongest = "advisory"
+        return strongest
 
-    def mapping_accesses_private_path(mapping: dict[str, Any]) -> bool:
+    def mapping_hardness(mapping: dict[str, Any]) -> str | None:
+        strongest: str | None = None
         for key, item in mapping.items():
             normalized_key = str(key).lower().replace("-", "_")
-            if normalized_key in path_keys and references_private_path(item):
-                return True
-            if isinstance(item, dict) and mapping_accesses_private_path(item):
-                return True
-            if isinstance(item, list) and any(
-                isinstance(child, dict) and mapping_accesses_private_path(child) for child in item
-            ):
-                return True
-        return False
+            candidates: list[str | None] = []
+            if normalized_key in path_keys:
+                candidates.append(reference_hardness(item))
+            if isinstance(item, dict):
+                candidates.append(mapping_hardness(item))
+            if isinstance(item, list):
+                candidates.extend(
+                    mapping_hardness(child) for child in item if isinstance(child, dict)
+                )
+            for hardness in candidates:
+                if hardness == "hard":
+                    return "hard"
+                if hardness == "advisory":
+                    strongest = "advisory"
+        return strongest
 
-    return mapping_accesses_private_path(value)
+    return mapping_hardness(value)
+
+
+def tool_arguments_access_forbidden_memory_artifact(
+    tool_name: str, value: Any, worktree: str | None = None
+) -> bool:
+    return tool_arguments_forbidden_memory_artifact_hardness(tool_name, value, worktree) == "hard"
 
 
 def tool_event_errored(value: Any) -> bool:
@@ -7221,7 +7835,7 @@ def tool_event_errored(value: Any) -> bool:
     return value.get("error") not in (None, "", False)
 
 
-def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
+def collect_json_tool_events(value: Any, worktree: str | None = None) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     if isinstance(value, dict):
         event_type = value.get("type")
@@ -7253,19 +7867,24 @@ def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
                 "event_id": value.get("id"),
                 "arguments": safe_tool_arguments(raw_args),
                 "forbidden_memory_artifact_argument_access": (
-                    tool_arguments_access_forbidden_memory_artifact(name, raw_args)
+                    tool_arguments_forbidden_memory_artifact_hardness(name, raw_args, worktree)
+                    == "hard"
+                ),
+                "forbidden_memory_artifact_probe": (
+                    tool_arguments_forbidden_memory_artifact_hardness(name, raw_args, worktree)
+                    == "advisory"
                 ),
                 "errored": tool_event_errored(value),
             })
         for item in value.values():
-            events.extend(collect_json_tool_events(item))
+            events.extend(collect_json_tool_events(item, worktree))
     elif isinstance(value, list):
         for item in value:
-            events.extend(collect_json_tool_events(item))
+            events.extend(collect_json_tool_events(item, worktree))
     return events
 
 
-def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
+def structured_tool_events(stdout: str, worktree: str | None = None) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
     event_indexes: dict[tuple[str, str], int] = {}
     for line in stdout.splitlines():
@@ -7276,7 +7895,7 @@ def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
             payload = json.loads(line)
         except json.JSONDecodeError:
             continue
-        for event in collect_json_tool_events(payload):
+        for event in collect_json_tool_events(payload, worktree):
             event_id = event.get("event_id")
             name = event.get("name")
             if isinstance(event_id, str) and event_id and isinstance(name, str):
@@ -7373,7 +7992,90 @@ def extract_resolved_model(stdout: str) -> str | None:
     return max(counts, key=lambda value: counts[value])
 
 
-def command_accesses_forbidden_memory_artifact(command: str) -> bool:
+def private_artifact_content_present(path: pathlib.Path) -> bool:
+    """True when a probed path holds content an agent must not see.
+
+    The harness itself keeps Go runtime state (build cache, tmp dir, GOENV
+    file) under the worktree's .benchmark container in EVERY arm, so the
+    container's existence proves nothing about memory artifacts: a name-only
+    probe in a no_brain cell resolved .benchmark, classified hard, and starved
+    the baseline below the minimum repetitions. Agents also create their OWN
+    go-* cache entries there when improvising around toolchain problems
+    (observed live: mkdir .benchmark/go-mod-cache), and populated Go caches
+    hold only public modules and objects built from readable source. Only
+    private content (the brain store, delivered history) makes a probe hard;
+    an empty container or Go toolchain runtime state is an information-free
+    dead end.
+    """
+    if path.name.startswith("go-"):
+        return False
+    try:
+        if not path.exists():
+            return False
+        if not path.is_dir():
+            return True
+        return any(private_artifact_content_present(child) for child in path.iterdir())
+    except OSError:
+        # Unreadable is indistinguishable from private: fail closed.
+        return True
+
+
+def private_artifact_reference_hardness(token: str, worktree: str | None) -> str | None:
+    """Classify a private-artifact reference by what it could actually read.
+
+    Isolation is physical: hidden directories are deleted from the worktree,
+    the checkpoint ref and its objects are purged, and the sandbox denies the
+    harness tree outside the worktree. A probe of something that exists (the
+    .benchmark brain store in a treatment arm) is a HARD adherence violation,
+    because content could flow. A probe of something removed, never present,
+    or sandbox-denied is an ADVISORY dead end: intent without information, the
+    same reasoning the boundary audit applies on scrubbed tasks. Excluding rows
+    for information-free probes starved comparisons below the minimum
+    repetitions while proving nothing about the treatment.
+    """
+    if worktree is None:
+        return "hard"
+    cleaned = token.strip().strip("'\"")
+    for glob_char in ("*", "?"):
+        if glob_char in cleaned:
+            cleaned = cleaned.split(glob_char, 1)[0]
+    cleaned = cleaned.rstrip("/")
+    if "refs/heads/entire/checkpoints" in cleaned:
+        probe = run_cmd(
+            ["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=worktree
+        )
+        return "hard" if probe.returncode == 0 else "advisory"
+    lowered = cleaned.lower()
+    start = -1
+    for marker in ("benchmarks/agent-brain", ".benchmark", ".entire"):
+        found = lowered.find(marker)
+        if found != -1 and (start == -1 or found < start):
+            start = found
+    if start == -1:
+        return "advisory"
+    # Judge by the marker-relative tail: after the worktree prefix strip, an
+    # in-worktree absolute path keeps only a leading separator, while a path
+    # outside the worktree keeps its full (sandbox-denied) prefix; both resolve
+    # correctly against the worktree, and only content that is actually there
+    # makes the probe hard.
+    relative = cleaned[start:]
+    # Go runtime state may be referenced by a subpath whose own name has no
+    # go- prefix (observed live: .benchmark/go-tmp/gocache-scratch, an
+    # agent-made GOCACHE inside the exempt go-tmp entry). Any reference that
+    # passes through a go-* component is toolchain plumbing, not memory.
+    if any(part.startswith("go-") for part in pathlib.PurePosixPath(relative).parts):
+        return "advisory"
+    return (
+        "hard"
+        if private_artifact_content_present(pathlib.Path(worktree) / relative)
+        else "advisory"
+    )
+
+
+def command_forbidden_memory_artifact_hardness(
+    command: str, worktree: str | None = None
+) -> str | None:
+    command = strip_agent_worktree_prefix(command, worktree)
     try:
         tokens = shlex.split(command)
     except ValueError:
@@ -7381,7 +8083,8 @@ def command_accesses_forbidden_memory_artifact(command: str) -> bool:
     if tokens and pathlib.Path(tokens[0]).name in {"sh", "bash", "dash", "ksh", "zsh"}:
         for index, token in enumerate(tokens[1:], start=1):
             if token.startswith("-") and "c" in token[1:] and index + 1 < len(tokens):
-                return command_accesses_forbidden_memory_artifact(tokens[index + 1])
+                return command_forbidden_memory_artifact_hardness(tokens[index + 1], worktree)
+    result: str | None = None
     for index, token in enumerate(tokens):
         normalized = token.lower().replace(r"\.", ".")
         if not re.search(
@@ -7390,10 +8093,15 @@ def command_accesses_forbidden_memory_artifact(command: str) -> bool:
         ):
             continue
         previous = tokens[index - 1].lower() if index else ""
+        before_previous = tokens[index - 2].lower() if index >= 2 else ""
         following = tokens[index + 1].lower() if index + 1 < len(tokens) else ""
         if previous == "-v":
             continue
-        if previous in {"-path", "-wholename"} and following == "-prune":
+        if previous in {"-path", "-wholename", "-ipath"} and (
+            following == "-prune" or before_previous == "-not"
+        ):
+            # `-path X -prune` and `-not -path X` both EXCLUDE the private tree
+            # from a search; neither reads it.
             continue
         if previous in {"--exclude", "--exclude-dir"}:
             continue
@@ -7401,12 +8109,20 @@ def command_accesses_forbidden_memory_artifact(command: str) -> bool:
             continue
         if previous in {"--glob", "-g"} and normalized.lstrip("'").startswith("!"):
             continue
-        return True
-    return False
+        hardness = private_artifact_reference_hardness(token, worktree)
+        if hardness == "hard":
+            return "hard"
+        if hardness == "advisory":
+            result = "advisory"
+    return result
 
 
-def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
-    events = structured_tool_events(stdout)
+def command_accesses_forbidden_memory_artifact(command: str, worktree: str | None = None) -> bool:
+    return command_forbidden_memory_artifact_hardness(command, worktree) == "hard"
+
+
+def structured_activity_source(stdout: str, stderr: str, worktree: str | None = None) -> dict[str, Any]:
+    events = structured_tool_events(stdout, worktree)
     if events:
         commands = [
             command
@@ -7421,6 +8137,9 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
                 "arguments": dict(event.get("arguments") or {}),
                 "forbidden_memory_artifact_argument_access": bool(
                     event.get("forbidden_memory_artifact_argument_access")
+                ),
+                "forbidden_memory_artifact_probe": bool(
+                    event.get("forbidden_memory_artifact_probe")
                 ),
                 "errored": bool(event.get("errored")),
             }
@@ -7456,8 +8175,8 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
     }
 
 
-def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
-    activity_source = structured_activity_source(stdout, stderr)
+def extract_agent_activity(stdout: str, stderr: str, worktree: str | None = None) -> dict[str, Any]:
+    activity_source = structured_activity_source(stdout, stderr, worktree)
     lower = activity_source["lower"]
     command_text = "\n".join(activity_source["commands"])
     command_lower = command_text.lower()
@@ -7530,11 +8249,22 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
             or first_tool_command_tokens[:2] == ["entire-brain", "search"]
         )
     )
+    command_hardness = [
+        command_forbidden_memory_artifact_hardness(command, worktree)
+        for command in activity_source["commands"]
+    ]
     forbidden_memory_artifact_access = any(
-        command_accesses_forbidden_memory_artifact(command) for command in activity_source["commands"]
+        hardness == "hard" for hardness in command_hardness
     ) or any(
         bool(detail.get("forbidden_memory_artifact_argument_access"))
         for detail in activity_source.get("tool_details", [])
+    )
+    forbidden_memory_artifact_probes = sum(
+        1 for hardness in command_hardness if hardness == "advisory"
+    ) + sum(
+        1
+        for detail in activity_source.get("tool_details", [])
+        if detail.get("forbidden_memory_artifact_probe")
     )
     search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
     search_call_matches = re.findall(r"\b(?:git\s+grep|rg|grep|find)\b", command_lower)
@@ -7561,6 +8291,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         "first_tool_is_memory_search": first_tool_is_memory_search,
         "first_tool_command_tokens": first_tool_command_tokens,
         "forbidden_memory_artifact_access": forbidden_memory_artifact_access,
+        "forbidden_memory_artifact_probes": forbidden_memory_artifact_probes,
         "mcp_tool_names": sorted(set(mcp_tool_names)),
         "mcp_tool_details": mcp_tool_details,
         "mcp_tool_calls": len(mcp_tool_names),
@@ -8084,6 +8815,13 @@ def run_one(
                 private_paths=filtered_agent_history_paths(task),
             )
         record["go_dependency_prewarm"] = prewarm_go_dependencies(worktree, env)
+        agent_bin = build_agent_visible_brain(task, tools)
+        if agent_bin is not None:
+            # Shadow the harness wrappers with the answer-free build for the
+            # AGENT only; prep and audits address tools["brain"] absolutely and
+            # are unaffected. Applied identically in every arm.
+            env["PATH"] = f"{CACHE_DIR / 'agent-bin' / agent_bin['key']}:{env['PATH']}"
+            record["agent_visible_tools"] = agent_bin
         agent_visible_entire_removed = False
         if should_remove_agent_visible_entire_history(task, condition):
             agent_visible_entire_removed = remove_agent_visible_entire_history(worktree)
@@ -8139,6 +8877,27 @@ def run_one(
                     tools=tools,
                     worktree=worktree,
                 )
+        if read_isolation_profile is None:
+            # Every causal cell gets the physical isolation the temporal
+            # delivery lane always had. Observed without it: a no_brain agent
+            # derived the source checkout's path from the worktree's origin
+            # remote URL, cd'ed into the real repository, and read the scrubbed
+            # answer from its ordinary git history. The worktree is
+            # self-contained by design, so removing the remote and denying
+            # reads of the harness and source trees changes nothing for a
+            # compliant agent in any arm.
+            record["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
+            standard_cell_allowed_roots = []
+            if agent_bin is not None:
+                standard_cell_allowed_roots.append(CACHE_DIR / "agent-bin" / agent_bin["key"])
+            read_isolation_profile, read_isolation = temporal_agent_read_isolation(
+                worktree,
+                source,
+                tools,
+                host_env=env,
+                extra_allowed_roots=standard_cell_allowed_roots,
+            )
+            record["agent_read_isolation"] = read_isolation
         prompt = prompt_for(task, condition, runner, memory_packet=memory_packet)
         (run_dir / "prompt.txt").write_text(prompt)
         record["prompt_artifact"] = {
@@ -8223,7 +8982,10 @@ def run_one(
                 record.get("agent_baseline_history", {}),
                 record.get("post_brain_baseline_history", {}),
             ],
+            task,
         )
+        remote_fetch_audit = remote_source_fetch_audit(agent_info)
+        record["remote_source_fetch_audit"] = remote_fetch_audit
         files = changed_files(worktree)
         secret_postflight = agent_secret_preflight(worktree)
         record["agent_secret_postflight"] = secret_postflight
@@ -8234,6 +8996,19 @@ def run_one(
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
         scoring = score(task, condition, agent_info, validation, files, diff)
+        adherence_ok = (
+            mcp_audit["ok"]
+            and brain_cli_audit["ok"]
+            and temporal_audit["ok"]
+            and baseline_audit["ok"]
+            and remote_fetch_audit["ok"]
+        )
+        integrity_ok = (
+            leak_audit["ok"]
+            and secret_preflight["ok"]
+            and secret_postflight["ok"]
+            and not patch_secret_hits
+        )
         quality = confirmatory_code_quality(
             scoring,
             validation_ok=validation["ok"],
@@ -10238,7 +11013,7 @@ def main() -> int:
     run_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     run_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     run_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
-    run_p.add_argument("--checkpoint-limit", type=int, default=200)
+    run_p.add_argument("--checkpoint-limit", type=int, default=0)
     run_p.add_argument(
         "--source-root",
         help="Directory containing task repositories; use the same value for every compared Brain ref.",
@@ -10275,7 +11050,7 @@ def main() -> int:
     panel_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     panel_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     panel_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
-    panel_p.add_argument("--checkpoint-limit", type=int, default=200)
+    panel_p.add_argument("--checkpoint-limit", type=int, default=0)
     panel_p.add_argument(
         "--source-root",
         help="Directory containing task repositories; use the same value for every compared Brain ref.",
@@ -10294,7 +11069,7 @@ def main() -> int:
     prep_p = sub.add_parser("prep")
     prep_p.add_argument("--tasks", nargs="*", default=[])
     prep_p.add_argument("--conditions", default="semantic_brain,semantic_history_brain")
-    prep_p.add_argument("--checkpoint-limit", type=int, default=200)
+    prep_p.add_argument("--checkpoint-limit", type=int, default=0)
     prep_p.add_argument("--source-root", help="Directory containing task repositories")
     prep_p.add_argument("--suite-name")
     prep_p.add_argument("--keep-worktrees", action="store_true")
@@ -10324,7 +11099,7 @@ def main() -> int:
 
     check_p = sub.add_parser("check")
     check_p.add_argument("--tasks", nargs="*", default=[])
-    check_p.add_argument("--checkpoint-limit", type=int, default=50)
+    check_p.add_argument("--checkpoint-limit", type=int, default=0)
     check_p.add_argument("--source-root", help="Directory containing task repositories")
     check_p.add_argument("--keep-check-dir", action="store_true")
     check_p.add_argument("--no-brain-cache", action="store_true")

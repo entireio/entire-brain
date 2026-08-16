@@ -55,7 +55,7 @@ REQUIRED_TESTS = [
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
     "TestMCPToolsListIncludesQMDRetrievalSurface",
-    "TestMCPToolsListAdvertisesStaleBlindSpots",
+    "TestMCPToolsListAdvertisesCompactStatusAndDetails",
     "TestMCPToolSchemasRejectAdditionalProperties",
     "TestMCPToolSchemasMatchArgumentValidator",
     "TestMCPToolRequiredArgumentsAreEnforced",

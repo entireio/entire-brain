@@ -2141,7 +2141,7 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		fakeCommandKey("git", "remote", "get-url", "origin"): {
 			stdout: "https://github.com/entireio/cli.git\n",
 		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "10000"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
 		},
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
@@ -2215,7 +2215,7 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		fakeCommandKey("git", "remote", "get-url", "origin"): {
 			stdout: "https://github.com/entireio/cli.git\n",
 		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "10000"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
 		},
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
