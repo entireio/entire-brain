@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "0bb2c0004b26",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/distill-perf/go-test-internal-cli-ollama-distill.jsonl",
+    "benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0b/b2c0004b26/0/metadata.json",
+      "transcript": "/0b/b2c0004b26/0/full.jsonl",
+      "compact_transcript": "/0b/b2c0004b26/0/transcript.jsonl",
+      "content_hash": "/0b/b2c0004b26/0/content_hash.txt",
+      "prompt": "/0b/b2c0004b26/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 73,
+    "cache_creation_tokens": 432424,
+    "cache_read_tokens": 16561486,
+    "output_tokens": 27169,
+    "api_call_count": 39
+  }
+}
