@@ -5,13 +5,25 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"sort"
+	"strings"
 )
 
 // CommandRunner runs external commands. Tests replace it so export behavior
 // can be verified without requiring a real Entire checkout.
 type CommandRunner interface {
 	Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error)
+}
+
+// EnvironmentCommandRunner is the narrow capability used when a child process
+// needs an operation-specific environment safety boundary. Keeping it optional
+// avoids making every test runner and provider adapter environment-aware while
+// still letting security-sensitive callers fail closed when the capability is
+// unavailable.
+type EnvironmentCommandRunner interface {
+	RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error)
 }
 
 // CommandStreamer is an optional capability for CommandRunner implementations
@@ -44,9 +56,20 @@ const streamStderrCap = 256 * 1024
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	return runExecCommand(ctx, dir, nil, name, args...)
+}
+
+func (ExecRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	return runExecCommand(ctx, dir, env, name, args...)
+}
+
+func runExecCommand(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
+	}
+	if len(env) > 0 {
+		cmd.Env = mergeCommandEnv(os.Environ(), env)
 	}
 
 	var stdout bytes.Buffer
@@ -62,6 +85,29 @@ func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) ([]
 		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("%s %v: %w", name, args, err)
 	}
 	return stdout.Bytes(), stderr.Bytes(), nil
+}
+
+func mergeCommandEnv(base []string, overrides map[string]string) []string {
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok {
+			if _, replaced := overrides[key]; replaced {
+				continue
+			}
+		}
+		out = append(out, entry)
+	}
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := overrides[key]
+		out = append(out, key+"="+value)
+	}
+	return out
 }
 
 // Stream starts name and exposes its stdout as a streaming reader. stderr is

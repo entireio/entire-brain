@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -178,9 +179,12 @@ func expandHomePath(path string) string {
 
 // loadBrainSkillMemory reads the user-state skill memory. Missing file -> empty.
 func loadBrainSkillMemory(brainDir string) ([]skillMemoryRecord, error) {
-	content, err := readBrainRelativeFile(brainDir, patternsSkillMemoryPath)
+	content, err := readBrainRelativeStateFile(brainDir, patternsSkillMemoryPath)
 	if err != nil {
-		return nil, nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	var records []skillMemoryRecord
 	for _, line := range strings.Split(content, "\n") {

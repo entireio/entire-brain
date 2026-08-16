@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -83,10 +85,13 @@ reads the brain from disk read-only: no agent calls, no outbound network.`,
 // Like the dashboard, it captures a single brain (brainDir/branch/manifest) at
 // startup; re-run `viz` to pick up a fresh `refresh`.
 type vizServer struct {
-	repoDir  string
-	brainDir string
-	branch   string
-	manifest *exportManifest
+	repoDir       string
+	brainDir      string
+	branch        string
+	manifest      *exportManifest
+	guardMu       sync.Mutex
+	guard         sessionReadGuard
+	guardObserved bool
 	// repo coordinates parsed from the brain key (provider/owner/repo), used to
 	// build real entire.io + source links. Empty provider = local repo (no links).
 	provider string
@@ -118,8 +123,15 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 	if status, serr := buildBrainStatusReport(ctx, opts, target); serr == nil {
 		manifest = status.Manifest
 	}
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return err
+	}
 
-	srv := &vizServer{repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest}
+	srv := &vizServer{
+		repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest,
+		guard: guard, guardObserved: !guard.empty(),
+	}
 	// The manifest's RepoKey is the canonical key (it survives nested owner
 	// groups and any store-layout change); the brainDir tail is the fallback.
 	if manifest != nil && manifest.RepoKey != "" {
@@ -190,7 +202,80 @@ func (s *vizServer) mux() (http.Handler, error) {
 		return nil, fmt.Errorf("embedded web UI unavailable (build error): %w", err)
 	}
 	m.Handle("/", http.FileServer(http.FS(sub)))
-	return m, nil
+	return s.privacyResponseMiddleware(m), nil
+}
+
+// bufferedVizResponse keeps API status, headers, and body private until the
+// complete response can be revalidated against the exact privacy policy under
+// which the handler assembled it. Static UI assets contain no brain data and
+// bypass this buffer.
+type bufferedVizResponse struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (w *bufferedVizResponse) Header() http.Header { return w.header }
+
+func (w *bufferedVizResponse) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *bufferedVizResponse) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.body.Write(p)
+}
+
+func copyHTTPHeaders(dst, src http.Header) {
+	for key, values := range src {
+		dst[key] = append([]string(nil), values...)
+	}
+}
+
+// privacyResponseMiddleware is the HTTP equivalent of the CLI's buffered final
+// writer. A tombstone cannot linearize between the last policy check and the
+// first response byte because both use the same per-Brain write lock.
+func (s *vizServer) privacyResponseMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		policy, err := captureRetrievalPrivacyPolicy(s.brainDir)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		buffered := &bufferedVizResponse{header: make(http.Header)}
+		next.ServeHTTP(buffered, r)
+		status := buffered.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		beforeRetrievalResponsePrivacyEmissionCheck()
+		err = withLockedRetrievalPrivacyPolicies([]retrievalPrivacyPolicy{policy}, func() error {
+			beforeRetrievalResponseWrite()
+			copyHTTPHeaders(w.Header(), buffered.header)
+			w.WriteHeader(status)
+			if buffered.body.Len() == 0 {
+				return nil
+			}
+			n, writeErr := w.Write(buffered.body.Bytes())
+			if writeErr == nil && n != buffered.body.Len() {
+				return io.ErrShortWrite
+			}
+			return writeErr
+		})
+		if err != nil {
+			// The real response has not been committed when validation fails, so
+			// return a typed, content-free failure instead of stale API bytes.
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		}
+	})
 }
 
 // vizSecurityHeaders makes the no-egress guarantee machine-checkable: the CSP
@@ -309,6 +394,10 @@ func (s *vizServer) repoDisplayName() string {
 }
 
 func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
+	guard, ok := s.requestSessionGuard(w)
+	if !ok {
+		return
+	}
 	resp := vizSummaryResp{Repo: s.repoDisplayName(), Branch: s.branch}
 	// Counts come straight from the manifest captured at startup. Rebuilding the
 	// full status report here costs several seconds on large brains and would
@@ -329,7 +418,7 @@ func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
 			resp.Counts.Facts = f.Facts
 		}
 		if ss := m.Sources.Sessions; ss != nil {
-			resp.Counts.Sessions = len(ss.Sessions)
+			resp.Counts.Sessions = len(s.sessionsFromManifest(guard))
 		}
 	}
 	if docs, err := loadDocIndex(s.brainDir); err == nil {
@@ -339,11 +428,46 @@ func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionsFromManifest returns the export sessions captured in the manifest.
-func (s *vizServer) sessionsFromManifest() []exportSession {
+func (s *vizServer) sessionsFromManifest(guard sessionReadGuard) []exportSession {
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.Sessions == nil {
 		return nil
 	}
-	return s.manifest.Sources.Sessions.Sessions
+	return guardExportSessions(guard, s.manifest.Sources.Sessions.Sessions)
+}
+
+// requestSessionGuard reloads privacy state at every HTTP request boundary.
+// The visualization intentionally pins its manifest for a stable graph, but a
+// privacy exclusion must take effect without restarting that long-lived
+// process. Present invalid state returns a typed 503 and no derived content.
+// If the policy file unexpectedly disappears, retain the startup guard as a
+// conservative denial until an explicit current (possibly empty) policy is
+// written or the server restarts.
+func (s *vizServer) requestSessionGuard(w http.ResponseWriter) (sessionReadGuard, bool) {
+	// Serialize refreshes so one request cannot replace a newer valid policy
+	// snapshot with an older one while another request is reading it.
+	s.guardMu.Lock()
+	defer s.guardMu.Unlock()
+
+	stones, state, err := loadSessionTombstonesChecked(s.brainDir)
+	if err != nil {
+		writeJSONHTTP(w, http.StatusServiceUnavailable, map[string]any{
+			"error": commandErrorCode(err), "message": "session privacy state is unavailable",
+		})
+		return sessionReadGuard{}, false
+	}
+	if state.State == sessionTombstoneAbsent && s.guardObserved {
+		return s.guard, true
+	}
+	if state.State == sessionTombstoneCurrent {
+		s.guardObserved = true
+		if len(stones.Excluded) == 0 {
+			s.guard = sessionReadGuard{}
+		} else {
+			s.guard = sessionReadGuard{ids: stones.Excluded, paths: excludedTranscriptPaths(s.manifest, stones)}
+		}
+		return s.guard, true
+	}
+	return s.guard, true
 }
 
 // vizQueryLimit parses ?limit with the shared safety policy: invalid input
@@ -587,6 +711,10 @@ func (s *vizServer) factBranches() []string {
 }
 
 func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
+	guard, ok := s.requestSessionGuard(w)
+	if !ok {
+		return
+	}
 	limit := vizQueryLimit(r, 3000)
 	seen := map[string]bool{}
 	all := []factRecord{}
@@ -597,6 +725,7 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 			warnings = append(warnings, "facts["+br+"]: "+err.Error())
 			continue
 		}
+		fs = guardFactRecords(guard, fs)
 		for _, f := range fs {
 			// Graph node IDs must be unique and non-empty; a record without one
 			// (corrupt or hand-edited store) would collide with its siblings in
@@ -689,11 +818,15 @@ func vizSessionFallbackText(se exportSession) string {
 }
 
 func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+	guard, ok := s.requestSessionGuard(w)
+	if !ok {
+		return
+	}
 	limit := vizQueryLimit(r, 3000)
 	// Same defense as facts/history: node IDs must be unique and non-empty.
 	// Filter before counting so Total and the slider's "N of total" stay
 	// consistent with the nodes actually served.
-	all := s.sessionsFromManifest()
+	all := s.sessionsFromManifest(guard)
 	sessions := make([]exportSession, 0, len(all))
 	for _, se := range all {
 		if se.SessionID != "" {
@@ -774,13 +907,17 @@ const vizReplayMaxNodes = 1500
 // session across the code graph: light up each file's symbols in turn, tracing
 // the path the agent took through the codebase.
 func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) {
+	guard, ok := s.requestSessionGuard(w)
+	if !ok {
+		return
+	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	resp := vizReplayResp{Files: []string{}, Steps: []vizReplayStep{}, Nodes: []vizGNode{}, Edges: []vizGEdge{}}
 	if id == "" {
 		writeJSONHTTP(w, http.StatusBadRequest, vizReplayResp{Warnings: []string{"missing id"}})
 		return
 	}
-	sessions := s.sessionsFromManifest()
+	sessions := s.sessionsFromManifest(guard)
 	var se *exportSession
 	for i := range sessions {
 		if sessions[i].SessionID == id {
@@ -916,6 +1053,10 @@ func vizHistoryColor(kind string) string {
 }
 
 func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
+	guard, ok := s.requestSessionGuard(w)
+	if !ok {
+		return
+	}
 	// History can hold hundreds of thousands of records — far too many to render
 	// legibly — so it stays capped (the UI shows an honest "N of total"), but the
 	// node-count slider lets you dial it up. The 0 sentinel and the vizGraphMaxView
@@ -935,7 +1076,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	recs := make([]historyRecord, 0, len(idx.Records))
 	seen := make(map[string]bool, len(idx.Records))
 	for _, h := range idx.Records {
-		if h.ID == "" || seen[h.ID] {
+		if h.ID == "" || seen[h.ID] || guard.blocksRecord(h) {
 			continue
 		}
 		seen[h.ID] = true

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -21,12 +20,14 @@ func newDoctorCommand(opts Options) *cobra.Command {
 }
 
 // doctorReport is the machine-readable doctor contract: environment values,
-// plugin-dir writability, and — when run inside a repository — the
-// capture -> export -> index -> recall chain checks (brainDoctorChecks).
+// read-only plugin-directory capability hints and, when run inside a
+// repository, the capture -> export -> index -> recall chain plus maintenance health.
 type doctorReport struct {
-	Env    map[string]string   `json:"env"`
-	Dirs   []doctorCheckResult `json:"dirs"`
-	Checks []doctorCheckResult `json:"checks,omitempty"`
+	Env             map[string]string              `json:"env"`
+	Dirs            []doctorCheckResult            `json:"dirs"`
+	DirectoryHealth []memoryInstallDirectoryHealth `json:"directory_health"`
+	Checks          []doctorCheckResult            `json:"checks,omitempty"`
+	Memory          map[string]any                 `json:"memory,omitempty"`
 }
 
 func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
@@ -52,15 +53,23 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 		{label: "plugin state dir", path: dirs.State},
 		{label: "plugin cache dir", path: dirs.Cache},
 	} {
-		result := doctorCheckResult{Name: check.label, State: "ok", Detail: check.path}
-		if probeErr := probeWritableDir(check.path); probeErr != nil {
-			result.State = "error"
-			result.Detail = probeErr.Error()
+		health := inspectAbsoluteInstallDirectory(check.path)
+		report.DirectoryHealth = append(report.DirectoryHealth, health)
+		state := "ok"
+		if health.State != "present_unproven" {
+			state = "warn"
 		}
-		report.Dirs = append(report.Dirs, result)
+		if health.State == "unsafe" || health.State == "unavailable" {
+			state = "error"
+		}
+		detail := fmt.Sprintf("%s: %s", health.State, health.Path)
+		if health.RecommendedAction != "" && health.RecommendedAction != "none" {
+			detail += "; " + health.RecommendedAction
+		}
+		report.Dirs = append(report.Dirs, doctorCheckResult{Name: check.label, State: state, Detail: detail})
 	}
 	if env.RepoRoot != "" && opts.Runner != nil {
-		report.Checks = brainDoctorChecks(cmd.Context(), opts, env.RepoRoot)
+		report.Checks, report.Memory = brainDoctorReadOnlyReport(cmd.Context(), opts, env.RepoRoot)
 		if semReport, semErr := semanticStaleReport(cmd.Context(), opts, env.RepoRoot); semErr != nil {
 			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: "warn", Detail: "unavailable: " + semErr.Error()})
 		} else {
@@ -79,10 +88,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 		fmt.Fprintf(out, "%s=%s\n", key, valueOrUnset(report.Env[key]))
 	}
 	for _, dir := range report.Dirs {
-		if dir.State != "ok" {
-			return fmt.Errorf("%s: %s", dir.Name, dir.Detail)
-		}
-		fmt.Fprintf(out, "%s: writable (%s)\n", dir.Name, dir.Detail)
+		fmt.Fprintf(out, "%s: %s (%s)\n", dir.Name, dir.State, dir.Detail)
 	}
 	for _, check := range report.Checks {
 		fmt.Fprintf(out, "%s: %s", check.Name, check.State)
@@ -90,24 +96,6 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 			fmt.Fprintf(out, " (%s)", check.Detail)
 		}
 		fmt.Fprintln(out)
-	}
-	return nil
-}
-
-func probeWritableDir(dir string) error {
-	if err := ensureDir(dir); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-	f, err := os.CreateTemp(dir, ".write-test-*")
-	if err != nil {
-		return fmt.Errorf("write probe: %w", err)
-	}
-	name := f.Name()
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("close write probe: %w", err)
-	}
-	if err := os.Remove(name); err != nil {
-		return fmt.Errorf("remove write probe: %w", err)
 	}
 	return nil
 }

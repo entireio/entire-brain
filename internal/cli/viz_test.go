@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A server with no manifest (unbuilt brain) must degrade to an empty graph with
@@ -267,6 +268,78 @@ func TestVizListenAddrLoopback(t *testing.T) {
 		if strings.HasPrefix(addr, "0.0.0.0") || strings.HasPrefix(addr, "[::") {
 			t.Fatalf("vizListenAddr(%d) = %q binds off-host", port, addr)
 		}
+	}
+}
+
+func TestVizSessionEndpointsOmitExcludedSessionCanary(t *testing.T) {
+	const canary = "PRIVATE-VIZ-CANARY"
+	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
+		{SessionID: "private", Summary: &checkpointSummary{Intent: canary}, FilesTouched: []string{"private.go"}},
+		{SessionID: "public", Summary: &checkpointSummary{Intent: "safe"}, FilesTouched: []string{"public.go"}},
+	}}}}
+	srv := &vizServer{
+		brainDir: t.TempDir(), branch: "main", manifest: manifest,
+		guard: sessionReadGuard{ids: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}},
+	}
+	rec := httptest.NewRecorder()
+	srv.handleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), canary) || strings.Contains(rec.Body.String(), "private.go") {
+		t.Fatalf("sessions endpoint exposed excluded session: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var graph vizFeatureGraph
+	if err := json.Unmarshal(rec.Body.Bytes(), &graph); err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Nodes) != 1 || graph.Nodes[0].ID != "public" {
+		t.Fatalf("sessions endpoint nodes = %+v", graph.Nodes)
+	}
+
+	replay := httptest.NewRecorder()
+	srv.handleSessionReplay(replay, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=private", nil))
+	if replay.Code != http.StatusNotFound || strings.Contains(replay.Body.String(), canary) {
+		t.Fatalf("excluded replay status=%d body=%s", replay.Code, replay.Body.String())
+	}
+}
+
+func TestVizReloadsPrivacyStateForEveryRequest(t *testing.T) {
+	const canary = "PRIVATE-LIVE-VIZ-CANARY"
+	brainDir := t.TempDir()
+	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
+		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &checkpointSummary{Intent: canary}},
+		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &checkpointSummary{Intent: "safe"}},
+	}}}}
+	srv := &vizServer{brainDir: brainDir, branch: "main", manifest: manifest}
+	request := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		srv.handleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+		return rec
+	}
+
+	before := request()
+	if before.Code != http.StatusOK || !strings.Contains(before.Body.String(), canary) {
+		t.Fatalf("pre-exclusion response = %d %s", before.Code, before.Body.String())
+	}
+	stones := emptySessionTombstones()
+	stones.Excluded["private"] = sessionTombstone{At: time.Now().UTC()}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+	after := request()
+	if after.Code != http.StatusOK || strings.Contains(after.Body.String(), canary) || strings.Contains(after.Body.String(), "private") {
+		t.Fatalf("same server exposed a newly excluded session: %d %s", after.Code, after.Body.String())
+	}
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))); err != nil {
+		t.Fatal(err)
+	}
+	disappeared := request()
+	if disappeared.Code != http.StatusOK || strings.Contains(disappeared.Body.String(), canary) || strings.Contains(disappeared.Body.String(), "private") {
+		t.Fatalf("disappeared policy resurrected an excluded session: %d %s", disappeared.Code, disappeared.Body.String())
+	}
+
+	writeSessionTombstoneBytes(t, brainDir, []byte("{broken"))
+	corrupt := request()
+	if corrupt.Code != http.StatusServiceUnavailable || strings.Contains(corrupt.Body.String(), canary) || !strings.Contains(corrupt.Body.String(), memoryErrStateCorrupt) {
+		t.Fatalf("corrupt live policy did not fail closed: %d %s", corrupt.Code, corrupt.Body.String())
 	}
 }
 

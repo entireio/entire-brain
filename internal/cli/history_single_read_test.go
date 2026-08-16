@@ -16,7 +16,12 @@ import (
 	"time"
 )
 
-func TestScanHistoryFileWithContentSHAMatchesHashThenScan(t *testing.T) {
+// TestHistoryTranscriptSingleReadYieldsDigestAndRecords locks the single-read
+// property that scanHistoryFileWithContentSHA used to provide: one bounded,
+// descriptor-rooted read produces BOTH the verified content digest and the
+// parsed records, so a same-path rewrite between hashing and parsing cannot
+// produce a digest of one generation and records of another.
+func TestHistoryTranscriptSingleReadYieldsDigestAndRecords(t *testing.T) {
 	document := `{
   "messages": [
     {"info":{"role":"assistant"},"parts":[{"type":"text","text":"Decision: retain document parsing."}]}
@@ -26,77 +31,71 @@ func TestScanHistoryFileWithContentSHAMatchesHashThenScan(t *testing.T) {
 		name        string
 		ext         string
 		content     string
-		want        []historyRecord
+		wantSummary string
 		wantScanErr bool
 	}{
-		{
-			name:    "jsonl",
-			ext:     ".jsonl",
-			content: `{"type":"agent_message","message":"Decision: retain JSONL parsing."}` + "\n",
-			want: []historyRecord{{
-				ID: "history:e79c56dc0ff031d309e52a67", Kind: "decision", Path: "session.jsonl", Line: 1,
-				Summary: "Decision: retain JSONL parsing.", Terms: []string{"decision"},
-			}},
-		},
-		{
-			name: "document", ext: ".json", content: document,
-			want: []historyRecord{{
-				ID: "history:3e8aa748e5177ac7374fab87", Kind: "decision", Path: "session.json", Line: 3,
-				Summary: "Decision: retain document parsing.", Terms: []string{"decision"},
-			}},
-		},
-		{
-			name: "raw markdown", ext: ".md", content: "Decision: retain markdown parsing.\n",
-			want: []historyRecord{{
-				ID: "history:182c14090a163962f4906bc0", Kind: "decision", Path: "session.md", Line: 1,
-				Summary: "Decision: retain markdown parsing.", Terms: []string{"decision"},
-			}},
-		},
-		{
-			name: "document-shaped fallback", ext: ".md", content: "{\nDecision: retain bounded fallback parsing.\n",
-			want: []historyRecord{{
-				ID: "history:68d9b55402aa6df95a7f8aac", Kind: "decision", Path: "session.md", Line: 2,
-				Summary: "Decision: retain bounded fallback parsing.", Terms: []string{"decision", "fallback"},
-			}},
-		},
-		{
-			name: "oversized line", ext: ".txt", content: "Decision: " + strings.Repeat("x", historyMaxLineBytes+1) + "\n",
-			wantScanErr: true,
-		},
+		{name: "jsonl", ext: ".jsonl", content: `{"type":"agent_message","message":"Decision: retain JSONL parsing."}` + "\n", wantSummary: "Decision: retain JSONL parsing."},
+		{name: "document", ext: ".json", content: document, wantSummary: "Decision: retain document parsing."},
+		{name: "markdown", ext: ".md", content: "Decision: retain markdown parsing.\n", wantSummary: "Decision: retain markdown parsing."},
+		{name: "document-shaped fallback", ext: ".md", content: "{\nDecision: retain bounded fallback parsing.\n", wantSummary: "Decision: retain bounded fallback parsing."},
+		{name: "oversized line", ext: ".txt", content: "Decision: " + strings.Repeat("x", historyMaxLineBytes+1) + "\n", wantScanErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "session"+tc.ext)
-			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+			brainDir := t.TempDir()
+			rel := "sessions/main/session" + tc.ext
+			full := filepath.Join(brainDir, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			info, err := os.Stat(path)
+			if err := os.WriteFile(full, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			inventory, err := collectHistorySessionInventory(context.Background(), brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
-			gotRecords, gotSHA, gotErr := scanHistoryFileWithContentSHA(dir, path, info)
+			defer inventory.Close()
+			if len(inventory.files) != 1 {
+				t.Fatalf("inventory = %d files, want 1", len(inventory.files))
+			}
+			file := inventory.files[0]
+			content, digest, err := readHistorySessionInventoryFile(context.Background(), inventory, file)
+			if err != nil {
+				t.Fatalf("read: %v", err)
+			}
 			sum := sha256.Sum256([]byte(tc.content))
-			wantSHA := "sha256:" + hex.EncodeToString(sum[:])
-			if gotSHA != wantSHA {
-				t.Fatalf("SHA = %q, want %q", gotSHA, wantSHA)
+			if want := "sha256:" + hex.EncodeToString(sum[:]); digest != want {
+				t.Fatalf("digest = %q, want %q", digest, want)
 			}
+			records, _, warnings, ok := scanSessionFileReaderRecords(context.Background(), bytes.NewReader(content), file.Path, file.Rel)
 			if tc.wantScanErr {
-				if gotErr == nil || !strings.Contains(gotErr.Error(), "token too long") {
-					t.Fatalf("oversized scan error = %v, want token-too-long error", gotErr)
+				if ok || len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "token too long") {
+					t.Fatalf("oversized scan = ok:%v warnings:%v, want a token-too-long refusal", ok, warnings)
 				}
-			} else if gotErr != nil {
-				t.Fatalf("scan error: %v", gotErr)
+				return
 			}
-			if !reflect.DeepEqual(gotRecords, tc.want) {
-				t.Fatalf("records changed\ngot:  %#v\nwant: %#v", gotRecords, tc.want)
+			if !ok {
+				t.Fatalf("scan failed: %v", warnings)
+			}
+			found := false
+			for _, record := range records {
+				if record.Summary == tc.wantSummary {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("records missing %q: %#v", tc.wantSummary, records)
 			}
 		})
 	}
 }
 
-func TestHistoryTranscriptAggregateFingerprintGolden(t *testing.T) {
-	dir := t.TempDir()
+// TestHistoryTranscriptAggregateFingerprintIsStableAndContentBound locks the
+// transcripts fingerprint: it commits the exact included set, is independent of
+// enumeration order, and changes when any transcript's bytes change.
+func TestHistoryTranscriptAggregateFingerprintIsStableAndContentBound(t *testing.T) {
+	brainDir := t.TempDir()
 	document := "{\n  \"messages\": [\n    {\"info\":{\"role\":\"assistant\"},\"parts\":[{\"type\":\"text\",\"text\":\"Decision: retain document parsing.\"}]}\n  ]\n}"
 	contents := map[string]string{
 		"a.jsonl": `{"type":"agent_message","message":"Decision: retain JSONL parsing."}` + "\n",
@@ -104,30 +103,48 @@ func TestHistoryTranscriptAggregateFingerprintGolden(t *testing.T) {
 		"c.md":    "Decision: retain markdown parsing.\n",
 		"d.md":    "{\nDecision: retain bounded fallback parsing.\n",
 	}
+	dir := filepath.Join(brainDir, "sessions", "main")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for name, content := range contents {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	var warnings []string
-	files, err := collectHistorySessionFiles(dir, &warnings)
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("collect: warnings=%v err=%v", warnings, err)
+	files, err := collectHistorySessionDigests(context.Background(), brainDir, nil)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
 	}
-	for _, file := range files {
-		rel, err := filepath.Rel(dir, file.Path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		sum := sha256.Sum256([]byte(contents[filepath.ToSlash(rel)]))
-		wantSHA := "sha256:" + hex.EncodeToString(sum[:])
-		if file.ContentSHA256 != wantSHA {
-			t.Fatalf("%s SHA = %q, want %q", rel, file.ContentSHA256, wantSHA)
-		}
+	if len(files) != len(contents) {
+		t.Fatalf("collected %d files, want %d", len(files), len(contents))
 	}
-	const want = "sha256:c7154db7e49cc647a5253aae39dc8ee1c38c07c11e2aa8e8a9975e63dc097332"
-	if got := historyTranscriptFilesFingerprint(dir, files); got != want {
-		t.Fatalf("aggregate fingerprint = %q, want %q", got, want)
+	first := historyTranscriptFilesFingerprint(files)
+	if !validHistorySHA256(first) {
+		t.Fatalf("fingerprint = %q, want a sha256", first)
+	}
+	// Enumeration order must not matter.
+	shuffled := append([]historySessionFile(nil), files...)
+	sort.Slice(shuffled, func(i, j int) bool { return shuffled[i].Rel > shuffled[j].Rel })
+	if got := historyTranscriptFilesFingerprint(shuffled); got != first {
+		t.Fatalf("fingerprint depends on order: %q vs %q", got, first)
+	}
+	// A single changed byte must change it.
+	if err := os.WriteFile(filepath.Join(dir, "c.md"), []byte("Decision: retain markdown parsing!\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := collectHistorySessionDigests(context.Background(), brainDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := historyTranscriptFilesFingerprint(changed); got == first {
+		t.Fatal("fingerprint survived a transcript content change")
+	}
+	// A missing digest must refuse to produce a fingerprint at all.
+	partial := append([]historySessionFile(nil), files...)
+	partial[0].ContentDigest = ""
+	if got := historyTranscriptFilesFingerprint(partial); got != "" {
+		t.Fatalf("fingerprint over an unverified set = %q, want empty", got)
 	}
 }
 
@@ -191,11 +208,11 @@ func TestHistorySingleReadPreservesIndexAndBriefPacket(t *testing.T) {
 // full rebuild.
 func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time) (historyIndex, *historySourceManifest, error) {
 	index := historyIndex{GeneratedAt: now}
-	files, err := collectHistorySessionFiles(filepath.Join(outputDir, exportSessionsDirectory), &index.Warnings)
+	files, err := collectHistorySessionDigests(context.Background(), outputDir, nil)
 	if err != nil {
 		return index, nil, err
 	}
-	transcriptsFingerprint := historyTranscriptFilesFingerprint(outputDir, files)
+	transcriptsFingerprint := historyTranscriptFilesFingerprint(files)
 	manifest, _ := loadBrainManifest(outputDir)
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
@@ -211,7 +228,7 @@ func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time
 			index.Warnings = append(index.Warnings, scanErr.Error())
 			continue
 		}
-		newCache.Files[rel] = historyScanCacheEntry{ContentSHA256: file.ContentSHA256, Records: records}
+		newCache.Files[rel] = historyScanCacheEntry{ContentDigest: file.ContentDigest, Records: records}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		for _, record := range records {
 			if record.Kind == "decision" {
@@ -275,7 +292,7 @@ func scanHistoryFileHashThenScanReference(outputDir, path string) ([]historyReco
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-	return scanHistoryLines(rel, filepath.Ext(path), f)
+	return scanHistoryLines(context.Background(), rel, filepath.Ext(path), f)
 }
 
 func scanDocumentHistoryFileHashThenScanReference(f *os.File, rel string) ([]historyRecord, bool, error) {

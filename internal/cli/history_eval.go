@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -67,7 +68,7 @@ Emits a tasks.json consumable by 'history-eval --tasks'.`,
 			if err != nil {
 				return err
 			}
-			tasks := generateHistoryEvalTasks(brainDir, manifest, index, branch, minRecords, maxRecords, limit, midtask)
+			tasks := generateHistoryEvalTasksContext(cmd.Context(), brainDir, manifest, index, branch, minRecords, maxRecords, limit, midtask)
 			if len(tasks) == 0 {
 				return fmt.Errorf("no sessions qualified as tasks (need >= %d indexed records and a recoverable opening request)", minRecords)
 			}
@@ -119,6 +120,10 @@ const midtaskTasksPerSession = 3
 // the record was extracted from — which equals the session's manifest
 // TranscriptPath (both are slash-relative to the brain dir).
 func generateHistoryEvalTasks(brainDir string, manifest *exportManifest, index historyIndex, branch string, minRecords, maxRecords, limit int, midtask bool) []evalTask {
+	return generateHistoryEvalTasksContext(context.Background(), brainDir, manifest, index, branch, minRecords, maxRecords, limit, midtask)
+}
+
+func generateHistoryEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, index historyIndex, branch string, minRecords, maxRecords, limit int, midtask bool) []evalTask {
 	type pathRecords struct {
 		rankable []historyRecord // non-request records, the labelable set
 		requests []historyRecord // request records, line-ordered below
@@ -159,10 +164,11 @@ func generateHistoryEvalTasks(brainDir string, manifest *exportManifest, index h
 		if pr == nil || !withinBounds(len(pr.rankable)) {
 			continue
 		}
-		content, readErr := readBrainRelativeFile(brainDir, s.TranscriptPath)
+		data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, s.TranscriptPath)
 		if readErr != nil {
 			continue
 		}
+		content := string(data)
 		request := firstUserRequest(content)
 		if request == "" {
 			continue

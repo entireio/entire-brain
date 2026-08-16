@@ -73,7 +73,9 @@ type brainStatusReport struct {
 	Facts       *brainStatusFacts     `json:"facts,omitempty"`
 	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
 	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
+	Memory      map[string]any        `json:"memory,omitempty"`
 	Live        brainLiveState        `json:"live"`
+	Issues      []memoryHealthIssue   `json:"issues,omitempty"`
 	Warnings    []string              `json:"warnings,omitempty"`
 	// Manifest is for in-process consumers (brief, overview, regressions). It is
 	// deliberately not part of the JSON contract: it duplicates the structured
@@ -115,8 +117,9 @@ type brainStatusConversation struct {
 	IncompleteExchanges int `json:"incomplete_exchanges,omitempty"`
 	// VectorState: "disabled" (no embedder opt-in), "gate_closed" (embedder
 	// unavailable or not fusion-eligible), "unavailable_build" (pure-Go build),
-	// "absent" (never built or built for another model — run refresh), or
-	// "current".
+	// "absent" (never built), "pending" (bounded sync incomplete), "stale"
+	// (different model/source/privacy epoch), "unsupported" (newer progress
+	// schema), "degraded" (unsafe/corrupt/inconsistent state), or "current".
 	VectorState   string `json:"vector_state"`
 	VectorModelID string `json:"vector_model_id,omitempty"`
 	Vectors       int    `json:"vectors,omitempty"`
@@ -151,9 +154,11 @@ type brainStatusRepo struct {
 }
 
 type brainStatusBrain struct {
-	Path        string `json:"path"`
-	Schema      int    `json:"schema_version"`
-	GeneratedAt string `json:"generated_at,omitempty"`
+	Path            string `json:"path"`
+	Schema          int    `json:"schema_version"`
+	SupportedSchema int    `json:"supported_schema_version"`
+	ManifestState   string `json:"manifest_state"`
+	GeneratedAt     string `json:"generated_at,omitempty"`
 }
 
 type brainStatusSources struct {
@@ -207,7 +212,7 @@ type brainBriefReport struct {
 	// work) relevant to the task. Task-gated and capped; verifier-accepted only.
 	Themes []themeView `json:"themes,omitempty"`
 	// Conversation holds bounded conversation-exchange pointers (experimental;
-	// present only under the ENTIRE_BRAIN_BRIEF_CONVERSATION development flag —
+	// present only under the ENTIRE_BRAIN_BRIEF_CONVERSATION development flag;
 	// default packets are unchanged until qualification).
 	Conversation []brainBriefConversationHit `json:"conversation,omitempty"`
 	Guidance     []string                    `json:"guidance"`
@@ -436,6 +441,15 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	if err != nil {
 		return err
 	}
+	overviewPrivacyGuard, err := loadSessionReadGuard(status.Brain.Path, status.Manifest)
+	if err != nil {
+		return err
+	}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: overviewPrivacyGuard.policyIdentity}
+	privacyPolicy.RequireDerivedClean = true
+	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
+		return err
+	}
 	report := brainOverviewReport{
 		GeneratedAt: opts.Now().UTC(),
 		Repo:        status.Repo,
@@ -474,22 +488,33 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			}
 		}
 		if status.Manifest.Sources.History != nil {
-			report.RecentDecisions = recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions)
+			report.RecentDecisions = recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions, overviewPrivacyGuard)
 		}
-		report.StrongestPatterns = strongestPatterns(status.Brain.Path, 3)
-		report.StrongestConsolidations = strongestConsolidations(status.Brain.Path, 3)
-		report.StrongestThemes = strongestThemes(status.Brain.Path, 3)
 	}
-	if jsonOut {
-		return writeJSON(cmd, report)
+	report.StrongestPatterns, err = strongestPatternsChecked(status.Brain.Path, 3)
+	if err != nil {
+		return err
 	}
-	renderBrainOverviewText(cmd, report)
-	return nil
+	report.StrongestConsolidations, err = strongestConsolidationsChecked(status.Brain.Path, 3)
+	if err != nil {
+		return err
+	}
+	report.StrongestThemes, err = strongestThemesChecked(status.Brain.Path, 3)
+	if err != nil {
+		return err
+	}
+	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+		if jsonOut {
+			return writeJSON(cmd, report)
+		}
+		renderBrainOverviewText(cmd, report)
+		return nil
+	})
 }
 
 // recentDecisionMatches returns the most recent decision records so an agent can
 // see how the project's design has been steered, newest first.
-func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int) []brainTextMatch {
+func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int, guard sessionReadGuard) []brainTextMatch {
 	if limit <= 0 {
 		return nil
 	}
@@ -499,7 +524,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 	}
 	var decisions []historyRecord
 	for _, record := range index.Records {
-		if record.Kind == "decision" {
+		if record.Kind == "decision" && !guard.blocksRecord(record) {
 			decisions = append(decisions, record)
 		}
 	}
@@ -687,7 +712,7 @@ Retrieval (qmd-inspired verbs; search/vsearch/query take --json/--format json|cl
 get/multi-get take --json/--format json|cli/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
   entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
-  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs (+ history with a Gemma-class embedder)
+  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs (+ history/conversation with a Gemma-class embedder)
   entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
   entire brain multi-get <id>... --json     # fetch several by id
 
@@ -1015,7 +1040,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
-	report, err := buildBrainStatusReport(ctx, opts, target)
+	report, err := buildAvailableBrainStatusReport(ctx, opts, target)
 	if err != nil {
 		return err
 	}
@@ -1154,6 +1179,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 	fmt.Fprintln(out, "Brain")
 	fmt.Fprintf(out, "  path: %s\n", report.Brain.Path)
 	fmt.Fprintf(out, "  repo: %s (key %s)\n", report.Repo.Root, report.Repo.Key)
+	fmt.Fprintf(out, "  manifest: %s (schema %d; supported %d)\n", report.Brain.ManifestState, report.Brain.Schema, report.Brain.SupportedSchema)
 	if report.Brain.GeneratedAt != "" {
 		fmt.Fprintf(out, "  generated: %s\n", report.Brain.GeneratedAt)
 	}
@@ -1272,6 +1298,16 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 	for _, symbol := range report.Live.ChangedSymbolHints {
 		fmt.Fprintf(out, "  changed symbol: %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
 	}
+	if len(report.Issues) > 0 {
+		fmt.Fprintln(out, "\nHealth issues")
+		for _, issue := range report.Issues {
+			fmt.Fprintf(out, "  %s %s: %s", issue.Code, issue.Path, issue.Kind)
+			if issue.Action != "" {
+				fmt.Fprintf(out, " (%s)", issue.Action)
+			}
+			fmt.Fprintln(out)
+		}
+	}
 	warnings := append(append([]string(nil), report.Warnings...), report.Live.Warnings...)
 	if len(warnings) > 0 {
 		fmt.Fprintln(out, "\nWarnings")
@@ -1313,6 +1349,13 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		profile.finishStage(&profile.StatusBuildState, statusStarted, 1, statusOutputs, statusErrors)
 	}
 	if err != nil {
+		return err
+	}
+	briefPrivacyGuard, err := loadSessionReadGuard(status.Brain.Path, status.Manifest)
+	if err != nil {
+		return err
+	}
+	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
 		return err
 	}
 	report := brainBriefReport{
@@ -1488,10 +1531,32 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
+			// Exclusion guard: the brief's history arm honors
+			// tombstones at read time like every retrieval surface. The
+			// long-term ranking above was computed before the guard existed in
+			// this scope, so the post-filter below is what protects it; the
+			// predicate handed to rankFreshHistory protects the overlay arm.
+			briefGuard := briefPrivacyGuard
+			var briefGuardPred func(historyRecord) bool
+			if !briefGuard.empty() {
+				briefGuardPred = func(r historyRecord) bool { return !briefGuard.blocksRecord(r) }
+			}
 			if len(freshOverlay.overlay) > 0 {
-				scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, func(historyIndex) ([]scoredHistoryRecord, bool) {
+				// The closure ignores its argument and returns the ranking
+				// already computed from the LONG-TERM tier, so the on-disk BM25
+				// store never sees a merged record set (Bugbot PR #77).
+				scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(historyIndex) ([]scoredHistoryRecord, bool) {
 					return scoredHistory, true
 				})
+			}
+			if briefGuardPred != nil {
+				kept := scoredHistory[:0:0]
+				for _, s := range scoredHistory {
+					if briefGuardPred(s.Record) {
+						kept = append(kept, s)
+					}
+				}
+				scoredHistory = kept
 			}
 			indexedMatches := make([]brainTextMatch, 0, len(scoredHistory))
 			for _, scored := range scoredHistory {
@@ -1527,6 +1592,9 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
+			// Exclusion guard: the brief's fact context honors
+			// tombstones at read time like every retrieval surface.
+			facts = guardFactRecords(briefPrivacyGuard, facts)
 			// Semantic rerank on by default; nil reranker (embedder
 			// unavailable or --no-semantic) falls back to lexical ranking. The
 			// disk-backed cache avoids re-embedding the branch each brief.
@@ -1625,34 +1693,40 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// Weak rows in the ranked reservoir are not useful enough to spend packet
 	// tokens; strong late candidates already refilled it before this point.
 	report.Semantic.Tests.Suggestions = visibleSemanticTestSuggestions(report.Semantic.Tests.Suggestions, briefOpts.limit)
+	// The checked loaders below fail the brief on unsafe or unreadable derived
+	// state instead of presenting it as empty. A genuinely absent corpus
+	// is still optional and contributes nothing.
 	patternsStarted := profile.start()
 	views, _, perr := loadPatternViews(status.Brain.Path)
-	if perr == nil {
-		report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	if perr != nil {
+		return perr
 	}
+	report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
 	if profile != nil {
-		patternErrors := 0
-		if perr != nil {
-			patternErrors = 1
-		}
-		profile.finishStage(&profile.Knowledge.Patterns, patternsStarted, len(views), len(report.Patterns), patternErrors)
+		profile.finishStage(&profile.Knowledge.Patterns, patternsStarted, len(views), len(report.Patterns), 0)
 	}
-	// Corpus consolidations (v2): task-relevant dossiers, capped, no ambient
-	// noise. Graceful — absent corpus contributes nothing.
 	consolidationsStarted := profile.start()
-	report.Consolidations = loadBriefConsolidations(status.Brain.Path, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	consolidations, consolidationsErr := loadBriefConsolidationsChecked(status.Brain.Path, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	if consolidationsErr != nil {
+		return consolidationsErr
+	}
+	report.Consolidations = consolidations
 	if profile != nil {
 		profile.finishStage(&profile.Knowledge.Consolidations, consolidationsStarted, 0, len(report.Consolidations), 0)
 	}
 	// Verified latent-practice themes relevant to the task (no noise; accepted only).
 	themesStarted := profile.start()
-	report.Themes = rankTaskRelevantThemes(loadThemeViews(status.Brain.Path, true), brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	themes, themeErr := loadThemeViewsChecked(status.Brain.Path, true)
+	if themeErr != nil {
+		return themeErr
+	}
+	report.Themes = rankTaskRelevantThemes(themes, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
 	if profile != nil {
 		profile.finishStage(&profile.Knowledge.Themes, themesStarted, 0, len(report.Themes), 0)
 	}
 	// Conversation hits (experimental): development-flag opt-in only, so the
 	// default compact packet is unchanged until qualification (plan Phase 2
-	// deliverable 5). Failure to retrieve is silent — the flag adds context,
+	// deliverable 5). Failure to retrieve is silent; the flag adds context,
 	// never breaks a brief.
 	if envBool("ENTIRE_BRAIN_BRIEF_CONVERSATION") {
 		report.Conversation = brainBriefConversationHits(status.Brain.Path, task, briefOpts.limit)
@@ -1667,8 +1741,22 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), status.Brain.Path, receiptBranch, receiptSurface,
 			status.Live.Head, task, receiptFactIDs)
 	}
+	// Every brief response leaves through the retrieval privacy boundary, so a
+	// tombstone landing mid-brief invalidates the response instead of letting
+	// already-rendered bytes escape. That means buffering the packet
+	// even on the non-profiling path; emitBrainBriefPacket dispatches text,
+	// legacy JSON, and the compact formats alike, so one wrapper covers all of
+	// them.
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.policyIdentity}
+	privacyPolicy.RequireDerivedClean = true
 	if profile == nil {
-		if err := emitBrainBriefPacket(cmd, report, packetFormat); err != nil {
+		var packet bytes.Buffer
+		packetCmd := &cobra.Command{}
+		packetCmd.SetOut(&packet)
+		if err := emitBrainBriefPacket(packetCmd, report, packetFormat); err != nil {
+			return err
+		}
+		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), packet.Bytes(), privacyPolicy); err != nil {
 			return err
 		}
 		if len(receiptFactIDs) > 0 {
@@ -1700,7 +1788,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if err := writeBrainBriefProfile(briefOpts.profileJSON, *profile); err != nil {
 		return err
 	}
-	if _, err = io.Copy(cmd.OutOrStdout(), &packet); err != nil {
+	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), packet.Bytes(), privacyPolicy); err != nil {
 		return err
 	}
 	if len(receiptFactIDs) > 0 {
@@ -4288,6 +4376,17 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 }
 
 func buildBrainStatusReport(ctx context.Context, opts Options, target string) (brainStatusReport, error) {
+	return buildBrainStatusReportWithAvailability(ctx, opts, target, false)
+}
+
+// buildAvailableBrainStatusReport is the health-only variant used by status
+// and brain_status. Other read surfaces retain the strict loader so a damaged
+// or forward-version manifest cannot be mistaken for an empty Brain.
+func buildAvailableBrainStatusReport(ctx context.Context, opts Options, target string) (brainStatusReport, error) {
+	return buildBrainStatusReportWithAvailability(ctx, opts, target, true)
+}
+
+func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, partialHealth bool) (brainStatusReport, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return brainStatusReport{}, err
@@ -4299,24 +4398,43 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	if err != nil {
 		return brainStatusReport{}, err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		return brainStatusReport{}, err
+	generatedAt := opts.Now().UTC()
+	manifestState := "current"
+	manifestSchema := brainManifestSchemaVersion
+	var manifest *exportManifest
+	var memoryHealth map[string]any
+	var healthIssues []memoryHealthIssue
+	if partialHealth {
+		snapshot := memoryReadOnlyHealth(storage.BrainDir, generatedAt)
+		manifest = snapshot.Manifest
+		manifestState = snapshot.ManifestHealth.State
+		manifestSchema = snapshot.ManifestHealth.SchemaVersion
+		memoryHealth = snapshot.Payload
+		healthIssues = snapshot.Issues
+	} else {
+		manifest, err = loadBrainManifest(storage.BrainDir)
+		if err != nil {
+			return brainStatusReport{}, err
+		}
+		manifestSchema = manifest.SchemaVersion
 	}
 	report := brainStatusReport{
-		GeneratedAt: opts.Now().UTC(),
+		GeneratedAt: generatedAt,
 		Repo:        brainStatusRepo{Root: repoDir, Key: storage.Key},
 		Brain: brainStatusBrain{
-			Path:        storage.BrainDir,
-			Schema:      manifest.SchemaVersion,
-			GeneratedAt: manifest.GeneratedAt.Format(time.RFC3339),
+			Path:            storage.BrainDir,
+			Schema:          manifestSchema,
+			SupportedSchema: brainManifestSchemaVersion,
+			ManifestState:   manifestState,
 		},
 		Manifest: manifest,
+		Memory:   memoryHealth,
+		Issues:   healthIssues,
 	}
-	if manifest.GeneratedAt.IsZero() {
-		report.Brain.GeneratedAt = ""
+	if manifest != nil && !manifest.GeneratedAt.IsZero() {
+		report.Brain.GeneratedAt = manifest.GeneratedAt.Format(time.RFC3339)
 	}
-	if manifest.Sources != nil {
+	if manifest != nil && manifest.Sources != nil {
 		report.Sources.Seed = manifest.Sources.Seed != nil
 		report.Sources.Sessions = manifest.Sources.Sessions != nil
 		report.Sources.Semantic = manifest.Sources.Semantic != nil
@@ -4352,7 +4470,7 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	} else {
 		report.Live = live
 	}
-	if manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
+	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
 		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, repoDir, manifest, report.Live)
 		if report.Retrieval != nil {
 			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
@@ -4451,14 +4569,19 @@ func buildConversationStatus(brainDir string, manifest *exportManifest) *brainSt
 		return status
 	}
 	ids, ok := store.ids()
+	state := memoryProjectionVectorState(brainDir, e)
 	if !ok {
-		// Never built, or built for another model/dim: either way the current
-		// embedder sees no usable vectors and a refresh rebuilds cleanly.
-		status.VectorState = "absent"
+		if state == "current" {
+			state = "degraded" // progress claims a store that cannot be opened
+		}
+		status.VectorState = state
 		status.VectorModelID = e.ID()
 		return status
 	}
-	status.VectorState = "current"
+	if state == "absent" {
+		state = "stale" // an untracked store is not proof of current inputs
+	}
+	status.VectorState = state
 	status.VectorModelID = e.ID()
 	status.Vectors = len(ids)
 	return status
@@ -4625,6 +4748,38 @@ func (r *brainBriefCountingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// brainRawScanSkipsDerived reports whether a Brain-relative path is DERIVED
+// state that a raw text walk must not read.
+//
+// The exclusion guard available to a raw walk matches transcript PATHS, because
+// a bare file carries no session identity. That is enough for sessions/, but a
+// derived store is rebuilt FROM those transcripts and holds their content under
+// its own filenames: the short-term overlay, the history index and its
+// generations, distilled facts, pattern outputs. A tombstone that has landed
+// but whose cleanup has not finished (or was interrupted) leaves exactly that
+// content on disk, so scanning derived state would surface what the guard
+// exists to hide. Both raw walkers share this rule; keeping it in one place is
+// what stops the two skip lists from drifting apart again.
+func brainRawScanSkipsDerived(relSlash string) bool {
+	if relSlash == exportManifestFileName {
+		return true
+	}
+	for _, dir := range []string{
+		historyDirName,   // index, generations, staging, overlay, work records
+		factsDirName,     // distilled facts and the distill cache
+		"patterns",       // corpus, runs, derived pattern outputs
+		seedDirName,      // synthesized seed
+		semanticDirName,  // symbol graph snapshots and stores
+		"export",         // export cursor state
+		brainLockDirName, // lock leaves
+	} {
+		if relSlash == dir || strings.HasPrefix(relSlash, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistoryInspectReport, error) {
 	return inspectBrainRawTextObserved(brainDir, kind, query, maxHits, nil)
 }
@@ -4637,6 +4792,22 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	}
 	if maxHits <= 0 {
 		maxHits = brainInspectHistoryMaxHits
+	}
+	// Exclusion guard: the raw walk reads exported transcripts, so a
+	// tombstoned session's transcript (kept on exclude, deleted on purge)
+	// must be skipped here. rawGuard.paths is the ONLY exclusion mechanism in
+	// this walk (there is no session id to match against a bare file), and it
+	// is populated only from the manifest, so a manifest that fails to load
+	// must fail the scan rather than silently scanning excluded transcripts.
+	// An absent manifest is not an error: loadBrainManifest returns an empty
+	// one, and a brain with no manifest has no exported sessions to exclude.
+	rawManifest, manifestErr := loadBrainManifest(brainDir)
+	if manifestErr != nil {
+		return report, manifestErr
+	}
+	rawGuard, guardErr := loadSessionReadGuard(brainDir, rawManifest)
+	if guardErr != nil {
+		return report, guardErr
 	}
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -4660,7 +4831,10 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
-		if relSlash == historyIndexPath || relSlash == "manifest.json" || strings.HasPrefix(relSlash, "seed/") {
+		if brainRawScanSkipsDerived(relSlash) {
+			return nil
+		}
+		if _, excluded := rawGuard.paths[relSlash]; excluded {
 			return nil
 		}
 		report.Scanned++
@@ -4850,6 +5024,23 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 		return nil, nil
 	}
 
+	// Exclusion guard, identical to inspectBrainRawText's. This is the
+	// DEFAULT product path (the profiling path routes through
+	// inspectBrainRawTextObserved and is guarded there), so without this a
+	// tombstoned session's transcript would be scanned here and its lines
+	// merged straight into report.History.Matches. rawGuard.paths is the only
+	// exclusion mechanism available in a raw file walk, and it is populated
+	// only from the manifest, so an unreadable manifest must fail the scan
+	// rather than scan unguarded. An absent manifest is not an error.
+	rawManifest, manifestErr := loadBrainManifest(brainDir)
+	if manifestErr != nil {
+		return nil, manifestErr
+	}
+	rawGuard, guardErr := loadSessionReadGuard(brainDir, rawManifest)
+	if guardErr != nil {
+		return nil, guardErr
+	}
+
 	fullQueries := 0
 	scannedFiles := 0
 	scanBuffer := make([]byte, 64*1024)
@@ -4876,7 +5067,13 @@ func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []bra
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		relSlash := filepath.ToSlash(rel)
-		if relSlash == historyIndexPath || relSlash == "manifest.json" || strings.HasPrefix(relSlash, "seed/") {
+		// Generation and staging directories hold projection copies of the same
+		// transcripts; scanning them would both duplicate hits and re-surface
+		// content the guard already excluded from the live projection.
+		if brainRawScanSkipsDerived(relSlash) {
+			return nil
+		}
+		if _, excluded := rawGuard.paths[relSlash]; excluded {
 			return nil
 		}
 		scannedFiles++
@@ -5102,7 +5299,7 @@ func historyRecordTextMatch(record historyRecord) brainTextMatch {
 	return match
 }
 
-func brainBriefFocusedHistoryMatches(brainDir string, index historyIndex, primary semanticRecord, limit int) []brainTextMatch {
+func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primary semanticRecord, limit int, fGuard sessionReadGuard) []brainTextMatch {
 	if limit <= 0 {
 		return nil
 	}
@@ -5114,13 +5311,25 @@ func brainBriefFocusedHistoryMatches(brainDir string, index historyIndex, primar
 		return nil
 	}
 	candidateLimit := brainBriefExpandedCandidateLimit(limit, 3)
-	var records []historyRecord
-	if scored, ok := rankHistoryFused(brainDir, index, "history", query, candidateLimit, defaultEmbedder()); ok {
-		for _, item := range scored {
-			records = append(records, item.Record)
+	// Exclusion guard: tombstoned sessions stay out of the focused
+	// history context. The serving boundary loaded it fail-closed before
+	// assembling the brief.
+	var fGuardPred func(historyRecord) bool
+	if !fGuard.empty() {
+		fGuardPred = func(r historyRecord) bool { return !fGuard.blocksRecord(r) }
+	}
+	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
+	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
+	// merged index here rebuilt or misresolved the BM25 store).
+	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex) ([]scoredHistoryRecord, bool) {
+		return rankHistoryFused(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder())
+	})
+	records := make([]historyRecord, 0, len(scored))
+	for _, item := range scored {
+		if fGuardPred != nil && !fGuardPred(item.Record) {
+			continue
 		}
-	} else {
-		records = rankHistoryRecords(index, "history", query, candidateLimit)
+		records = append(records, item.Record)
 	}
 	// A command that merely searched for a symbol is weaker evidence than the
 	// decision, patch, or documentation it was searching for. Keep the retriever

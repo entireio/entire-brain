@@ -64,7 +64,7 @@ func rejectUnsafeExistingRegularFile(path, label string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%s must be a regular file: %s", label, path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return err
 	}

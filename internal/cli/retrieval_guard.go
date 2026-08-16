@@ -16,6 +16,10 @@ const (
 	retrievalCaveatHistoricalDocument       = "historical_document"
 	retrievalCaveatHistoricalConversation   = "historical_conversation"
 	retrievalCaveatConversationSourceStale  = "conversation_source_stale"
+	// Distinct expansion failure states: a too-large or unreadable
+	// source is not the same contract failure as a changed digest.
+	retrievalCaveatConversationSourceTooLarge   = "conversation_source_too_large"
+	retrievalCaveatConversationSourceUnreadable = "conversation_source_unreadable"
 )
 
 // retrievalCaveat is a machine-readable reason an agent must verify a memory

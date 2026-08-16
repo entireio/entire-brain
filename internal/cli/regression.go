@@ -1327,6 +1327,20 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	if err != nil {
 		return err
 	}
+	var patternPrivacyPolicy retrievalPrivacyPolicy
+	if ro.patterns {
+		patternPrivacyPolicy, err = captureRetrievalPrivacyPolicy(status.Brain.Path)
+		if err != nil {
+			return err
+		}
+		patternPrivacyPolicy.RequireDerivedClean = true
+		if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
+			return err
+		}
+		if err := requirePatternCorpusAvailable(status.Brain.Path); err != nil {
+			return err
+		}
+	}
 	var semSource *semanticSourceManifest
 	if status.Manifest != nil && status.Manifest.Sources != nil {
 		semSource = status.Manifest.Sources.Semantic
@@ -1379,24 +1393,33 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		for _, f := range findings {
 			files = append(files, f.File)
 		}
-		report.PatternContext = loadReviewPatternContext(status.Brain.Path, files, ro.limit)
+		report.PatternContext, err = loadReviewPatternContextChecked(status.Brain.Path, files, ro.limit)
+		if err != nil {
+			return err
+		}
 	}
-	if ro.json {
-		return writeJSON(cmd, report)
+	render := func() error {
+		if ro.json {
+			return writeJSON(cmd, report)
+		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintln(out, report.Summary)
+		for _, f := range findings {
+			fmt.Fprintf(out, "\n  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
+				strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+		}
+		for _, pc := range report.PatternContext {
+			fmt.Fprintf(out, "  pattern context [%s] %s — %s   id %s\n", pc.Type, pc.File, pc.Title, pc.ID)
+		}
+		for _, w := range warnings {
+			fmt.Fprintf(out, "  note: %s\n", w)
+		}
+		return nil
 	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, report.Summary)
-	for _, f := range findings {
-		fmt.Fprintf(out, "\n  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
-			strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+	if ro.patterns {
+		return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{patternPrivacyPolicy}, render)
 	}
-	for _, pc := range report.PatternContext {
-		fmt.Fprintf(out, "  pattern context [%s] %s — %s   id %s\n", pc.Type, pc.File, pc.Title, pc.ID)
-	}
-	for _, w := range warnings {
-		fmt.Fprintf(out, "  note: %s\n", w)
-	}
-	return nil
+	return render()
 }
 
 func newBrainReviewCommand(opts Options) *cobra.Command {

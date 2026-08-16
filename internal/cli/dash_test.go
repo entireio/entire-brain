@@ -42,7 +42,7 @@ func TestDashSessionViewsMapsUsageAndSummary(t *testing.T) {
 		TokenUsage: &checkpointTokenUsage{InputTokens: 100, OutputTokens: 40},
 		Summary:    &checkpointSummary{Intent: "add dash", Outcome: "shipped"},
 	}}
-	v := dashSessionViews(sessions, "/brain", 0)[0]
+	v := dashSessionViews(sessions, "/brain", 0, sessionReadGuard{})[0]
 	if v.Agent != "claude-code" || v.Model != "opus" || v.InputTok != 100 || v.OutputTok != 40 {
 		t.Errorf("session usage mapped wrong: %+v", v)
 	}
@@ -51,6 +51,18 @@ func TestDashSessionViewsMapsUsageAndSummary(t *testing.T) {
 	}
 	if v.Created != "2026-06-09 10:00Z" || v.Source != filepath.Join("/brain", "sessions/x.jsonl") {
 		t.Errorf("session created/source mapped wrong: %q / %q", v.Created, v.Source)
+	}
+}
+
+func TestDashSessionViewsOmitExcludedMetadata(t *testing.T) {
+	sessions := []exportSession{
+		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &checkpointSummary{Intent: "PRIVATE-DASH-CANARY"}},
+		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &checkpointSummary{Intent: "safe"}},
+	}
+	guard := sessionReadGuard{ids: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}}
+	views := dashSessionViews(sessions, "/brain", 0, guard)
+	if len(views) != 1 || views[0].ID != "public" || views[0].Intent != "safe" {
+		t.Fatalf("dashboard exposed excluded session metadata: %+v", views)
 	}
 }
 

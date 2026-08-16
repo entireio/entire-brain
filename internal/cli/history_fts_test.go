@@ -495,3 +495,95 @@ func TestHistoryFTSRebuildDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryFTSRebuildsForEqualTimeAndCountGeneration(t *testing.T) {
+	brainDir := t.TempDir()
+	generatedAt := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	first := historyIndex{
+		GeneratedAt: generatedAt,
+		Records: []historyRecord{{
+			ID: "old", Kind: "decision", Path: "sessions/main/old.jsonl", Line: 1,
+			Summary: "PRIVATE-OLD-GENERATION-CANARY alpha",
+		}},
+		storageIdentity: "history/generations/v1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/index.json",
+		contentIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	if scored, ok := rankHistoryViaFTS(brainDir, first, "decisions", "alpha", 10); !ok || len(scored) != 1 || scored[0].Record.ID != "old" {
+		t.Fatalf("seed generation ranking: ok=%v scored=%+v", ok, scored)
+	}
+
+	second := historyIndex{
+		GeneratedAt: generatedAt,
+		Records: []historyRecord{{
+			ID: "new", Kind: "decision", Path: "sessions/main/new.jsonl", Line: 1,
+			Summary: "replacement generation beta",
+		}},
+		storageIdentity: "history/generations/v1/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/index.json",
+		contentIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	if scored, ok := rankHistoryViaFTS(brainDir, second, "decisions", "beta", 10); !ok || len(scored) != 1 || scored[0].Record.ID != "new" {
+		t.Fatalf("replacement generation did not rebuild FTS: ok=%v scored=%+v", ok, scored)
+	}
+	if stale, ok := rankHistoryViaFTS(brainDir, second, "decisions", "alpha", 10); !ok || len(stale) != 0 {
+		t.Fatalf("old generation canary survived replacement: ok=%v scored=%+v", ok, stale)
+	}
+}
+
+// TestBriefFocusedHistoryNeverRebuildsFTSFromMergedRecords locks the contract
+// behind Bugbot PR #77: the on-disk BM25 store must only ever rank the
+// LONG-TERM tier.
+//
+// openHistoryFTS keys freshness on historyFTSIdentityFromIndex (records
+// fingerprint + count). Handing it a merged (short-term-inclusive) index
+// therefore does not just read the wrong rows: the identity mismatches, so the
+// store is REBUILT from the merged set, and every later long-term reader finds
+// it stale and rebuilds it back. This test drives the real
+// brainBriefFocusedHistoryMatches against a two-tier view and proves the store
+// is still fresh for the long-term index afterwards. Passing the merged set
+// (the pre-fix behavior) fails it.
+func TestBriefFocusedHistoryNeverRebuildsFTSFromMergedRecords(t *testing.T) {
+	brainDir, _, _ := shortTermFixture(t)
+	buildShortTerm(t, brainDir)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fresh.overlay) == 0 {
+		t.Fatal("fixture invalid: the two-tier view needs a non-empty overlay")
+	}
+	longTerm := fresh.index
+	merged := historyIndex{GeneratedAt: longTerm.GeneratedAt, Records: fresh.mergedRecords()}
+	if historyFTSIdentityFromIndex(longTerm) == historyFTSIdentityFromIndex(merged) {
+		t.Fatal("fixture invalid: the merged and long-term identities must differ for this to prove anything")
+	}
+
+	// Prime the store from the long-term tier. Skip where SQLite/FTS5 is not
+	// compiled in: there is no store to corrupt.
+	primed, err := openHistoryFTS(brainDir, longTerm)
+	if err != nil || primed == nil {
+		t.Skipf("history FTS unavailable in this build: %v", err)
+	}
+	primed.Close()
+
+	matches := brainBriefFocusedHistoryMatches(
+		brainDir,
+		fresh,
+		semanticRecord{Name: "gzip", QualifiedName: "gzip"},
+		5,
+		sessionReadGuard{},
+	)
+	_ = matches // ranking output is not the contract under test; the store identity is.
+
+	after, err := openHistoryFTSIfFresh(brainDir, longTerm)
+	if err != nil {
+		t.Fatalf("history FTS unreadable after the focused lookup: %v", err)
+	}
+	if after == nil {
+		t.Fatal("focused history left the BM25 store stale for the long-term index: it was rebuilt from a merged record set")
+	}
+	after.Close()
+}

@@ -77,20 +77,28 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 	if err != nil {
 		return err
 	}
+	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	if err != nil {
+		return err
+	}
 
 	snap, err := assembleBrainSnapshot(ctx, opts, target, repoDir, brainDir, branch, flags.limit)
 	if err != nil {
 		return err
 	}
 
-	if flags.json {
-		return writeJSON(cmd, snap)
+	if flags.json || flags.plain || !commandOutputIsTTY(cmd) {
+		return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
+			if flags.json {
+				return writeJSON(cmd, snap)
+			}
+			printDashPlain(cmd, snap)
+			return nil
+		})
 	}
-	if flags.plain || !commandOutputIsTTY(cmd) {
-		printDashPlain(cmd, snap)
-		return nil
-	}
-	return tui.Run(snap, theme, brainSearchFunc(repoDir, brainDir, branch), startTab, cmd.OutOrStdout())
+	return tui.Run(snap, theme, brainSearchFunc(repoDir, brainDir, branch), startTab, privacyLinearizedWriter{
+		out: cmd.OutOrStdout(), policies: []retrievalPrivacyPolicy{privacyPolicy},
+	})
 }
 
 // brainSearchFunc adapts the lexical retrieval (`entire brain search`) into the
@@ -149,12 +157,17 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 	}
 	snap.GeneratedAt = status.Brain.GeneratedAt
 	manifest := status.Manifest
-	snap.Home = dashHomeView(status, manifest, branch)
+	guard, err := loadSessionReadGuard(brainDir, manifest)
+	if err != nil {
+		return snap, err
+	}
+	snap.Home = dashHomeView(status, manifest, branch, guard)
 
 	// Facts (per branch).
 	if facts, err := loadFacts(brainDir, branch); err != nil {
 		snap.Home.Warnings = append(snap.Home.Warnings, "facts unavailable: "+err.Error())
 	} else {
+		facts = guardFactRecords(guard, facts)
 		snap.Facts = dashFactViews(facts, brainDir, limit)
 		snap.Notes = appendCapNote(snap.Notes, "facts", len(facts), len(snap.Facts))
 	}
@@ -162,16 +175,18 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 	if manifest != nil && manifest.Sources != nil {
 		// Sessions (from the manifest).
 		if s := manifest.Sources.Sessions; s != nil {
-			snap.Sessions = dashSessionViews(s.Sessions, brainDir, limit)
-			snap.Notes = appendCapNote(snap.Notes, "sessions", len(s.Sessions), len(snap.Sessions))
+			visibleSessions := guardExportSessions(guard, s.Sessions)
+			snap.Sessions = dashSessionViews(visibleSessions, brainDir, limit, guard)
+			snap.Notes = appendCapNote(snap.Notes, "sessions", len(visibleSessions), len(snap.Sessions))
 		}
 		// History (index.json).
 		if h := manifest.Sources.History; h != nil {
 			if idx, err := loadBrainHistoryIndex(brainDir, h); err != nil {
 				snap.Home.Warnings = append(snap.Home.Warnings, "history unavailable: "+err.Error())
 			} else {
-				snap.History = dashHistoryViews(idx.Records, brainDir, limit)
-				snap.Notes = appendCapNote(snap.Notes, "history", len(idx.Records), len(snap.History))
+				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guard.blocksRecord(record) })
+				snap.History = dashHistoryViews(records, brainDir, limit)
+				snap.Notes = appendCapNote(snap.Notes, "history", len(records), len(snap.History))
 			}
 		}
 		// Semantic symbols (snapshot.ndjson).
@@ -189,7 +204,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 }
 
 // dashHomeView maps the status report into the Home tab view model.
-func dashHomeView(status brainStatusReport, manifest *exportManifest, branch string) tui.HomeView {
+func dashHomeView(status brainStatusReport, manifest *exportManifest, branch string, guards ...sessionReadGuard) tui.HomeView {
 	home := tui.HomeView{
 		Freshness:  brainStatusFreshnessSeverity(status),
 		Warnings:   append([]string(nil), status.Warnings...),
@@ -197,7 +212,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	}
 
 	present := status.Sources
-	detail := dashSourceDetails(manifest)
+	detail := dashSourceDetails(manifest, guards...)
 	home.Sources = []tui.SourceHealth{
 		{Name: "Seed", Present: present.Seed, Detail: detail["seed"]},
 		{Name: "Sessions", Present: present.Sessions, Detail: detail["sessions"]},
@@ -226,14 +241,22 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	return home
 }
 
-func dashSourceDetails(manifest *exportManifest) map[string]string {
+func dashSourceDetails(manifest *exportManifest, guards ...sessionReadGuard) map[string]string {
 	out := map[string]string{}
 	if manifest == nil || manifest.Sources == nil {
 		return out
 	}
 	src := manifest.Sources
 	if s := src.Sessions; s != nil {
-		out["sessions"] = fmt.Sprintf("%d sessions · %d checkpoints scanned", len(s.Sessions), s.CheckpointsScanned)
+		count, checkpoints := len(s.Sessions), s.CheckpointsScanned
+		if len(guards) > 0 && !guards[0].empty() {
+			visible := guardExportSessions(guards[0], s.Sessions)
+			count, checkpoints = len(visible), 0
+			for _, session := range visible {
+				checkpoints += session.CheckpointsCount
+			}
+		}
+		out["sessions"] = fmt.Sprintf("%d sessions · %d checkpoints scanned", count, checkpoints)
 	}
 	if s := src.Semantic; s != nil {
 		out["semantic"] = fmt.Sprintf("%d symbols · %d relations · %d files", s.Symbols, s.Relations, s.Files)
@@ -330,7 +353,8 @@ func dashFactViews(facts []factRecord, brainDir string, limit int) []tui.FactVie
 	return out
 }
 
-func dashSessionViews(sessions []exportSession, brainDir string, limit int) []tui.SessionView {
+func dashSessionViews(sessions []exportSession, brainDir string, limit int, guard sessionReadGuard) []tui.SessionView {
+	sessions = guardExportSessions(guard, sessions)
 	if limit > 0 && len(sessions) > limit {
 		sessions = sessions[:limit]
 	}

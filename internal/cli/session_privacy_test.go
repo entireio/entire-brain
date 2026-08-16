@@ -2,9 +2,11 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +57,11 @@ func writePrivacyFixture(t *testing.T) (brainDir string) {
 // and the sessions tree.
 func assertCanaryAbsent(t *testing.T, brainDir string) {
 	t.Helper()
-	indexBytes, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)))
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexBytes, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.History.IndexPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,10 +75,6 @@ func assertCanaryAbsent(t *testing.T, brainDir string) {
 				t.Fatalf("canary survived in scan cache entry %s", rel)
 			}
 		}
-	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		t.Fatal(err)
 	}
 	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 	if err != nil {
@@ -137,7 +139,7 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 
 	// Derived records are gone; the exported transcript survives (exclude,
 	// not purge).
-	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)))
+	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.IndexPath)))
 	if strings.Contains(string(indexBytes), privacyCanary) {
 		t.Fatal("excluded session still indexed")
 	}
@@ -249,16 +251,17 @@ func TestSessionPurgeCanaryAbsentEverywhereAndIdempotent(t *testing.T) {
 	if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writeBrainHistoryIndexAndSource(brainDir, now.Add(2*time.Minute), nil); err != nil {
+	source, err := writeBrainHistoryIndexAndSource(brainDir, now.Add(2*time.Minute), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)))
+	indexBytes, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.IndexPath)))
 	if strings.Contains(string(indexBytes), privacyCanary) {
 		t.Fatal("tombstone failed: re-exported session was re-indexed")
 	}
 }
 
-func TestSessionTombstonesRoundTripAndCorruptFallback(t *testing.T) {
+func TestSessionTombstonesRoundTripAndCorruptFailClosed(t *testing.T) {
 	brainDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
 		t.Fatal(err)
@@ -275,27 +278,29 @@ func TestSessionTombstonesRoundTripAndCorruptFallback(t *testing.T) {
 	if _, ok := reloaded.Excluded["s1"]; !ok || reloaded.Version != sessionTombstonesVersion {
 		t.Fatalf("round trip failed: %+v", reloaded)
 	}
-	// The tombstone file must never retain excluded content — only id, time,
+	// The tombstone file must never retain excluded content; only id, time,
 	// and the caller-supplied reason.
 	raw, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)))
 	var generic map[string]any
 	if err := json.Unmarshal(raw, &generic); err != nil {
 		t.Fatal(err)
 	}
-	// Corrupt file fails open to "nothing excluded" (an explicit action model:
-	// corruption can only restore indexing, never delete data).
+	// A present corrupt policy is not equivalent to an absent policy: failing
+	// open here could disclose or re-index a session excluded before restart.
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)), []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := loadSessionTombstones(brainDir); len(got.Excluded) != 0 {
-		t.Fatalf("corrupt tombstones must read as empty: %+v", got)
+	_, state, err := loadSessionTombstonesChecked(brainDir)
+	var loadErr *sessionTombstoneLoadError
+	if !errors.As(err, &loadErr) || loadErr.Code != memoryErrStateCorrupt || state.State != sessionTombstoneCorrupt {
+		t.Fatalf("corrupt tombstones state=%+v err=%v, want typed %s", state, err, memoryErrStateCorrupt)
 	}
 }
 
 // TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts extends the canary
 // gate across the remaining derived layers: durable facts (single-source
 // deleted, corroborated facts keep their other anchors), pattern episodes,
-// derived pattern stores, and the distill cache — while skill-memory (user
+// derived pattern stores, and the distill cache; while skill-memory (user
 // curation) survives.
 func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
@@ -376,7 +381,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	}
 
 	// Canary absent from every surviving artifact under the brain dir except
-	// nothing — walk everything.
+	// nothing; walk everything.
 	assertCanaryAbsent(t, brainDir)
 	err = filepath.Walk(brainDir, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info == nil || info.IsDir() {
@@ -629,5 +634,362 @@ func TestPrivacyRetentionSelectsByAgeAndBranch(t *testing.T) {
 	report, err := verifySessionPrivacy(brainDir)
 	if err != nil || !report.Clean {
 		t.Fatalf("retention-excluded brain must verify clean: %v %+v", err, report.Findings)
+	}
+}
+
+// TestExclusionReadGuardBlocksImmediately proves the exclusion read boundary: the
+// moment a tombstone lands (before any rebuild or cleanup), the session's
+// records stop being served by conversation retrieval, unified retrieval,
+// and get, even though the derived artifacts still physically exist.
+func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
+	single := factRecord{
+		ID: factRecordID("the leaked key "+privacyCanary+" was rotated", nil), Text: "the leaked key " + privacyCanary + " was rotated",
+		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+		Provenance: []factAnchor{{SessionID: "secret-sess"}},
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{single}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Adversarial precondition: everything is served before the tombstone.
+	pre, err := retrieveConversation(brainDir, privacyCanary, 10, modeLexical, retrievalOptions{})
+	if err != nil || len(pre) == 0 {
+		t.Fatalf("canary conversation must be retrievable before exclusion: %v (%d)", err, len(pre))
+	}
+	var canaryConvID string
+	for _, r := range pre {
+		if r.SessionID == "secret-sess" {
+			canaryConvID = r.ID
+		}
+	}
+	if canaryConvID == "" {
+		t.Fatalf("no secret-sess conversation hit: %+v", pre)
+	}
+	preFound, _, err := getUnifiedBatch("", brainDir, "main", []string{canaryConvID, single.ID})
+	if err != nil || len(preFound) != 2 {
+		t.Fatalf("pre-exclusion get: err=%v found=%d", err, len(preFound))
+	}
+
+	// Tombstone only; deliberately NO rebuild and NO cleanup (the mid-cleanup
+	// window the guard exists for).
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+
+	post, err := retrieveConversation(brainDir, privacyCanary, 10, modeLexical, retrievalOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range post {
+		if strings.Contains(r.Text, privacyCanary) || r.SessionID == "secret-sess" {
+			t.Fatalf("tombstoned conversation still served: %+v", r)
+		}
+	}
+	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, modeLexical, retrievalOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range unified {
+		if strings.Contains(r.Text, privacyCanary) {
+			t.Fatalf("tombstoned content leaked through unified retrieval: %+v", r)
+		}
+	}
+	postFound, postMissing, err := getUnifiedBatch("", brainDir, "main", []string{canaryConvID, single.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(postFound) != 0 || len(postMissing) != 2 {
+		t.Fatalf("tombstoned ids must resolve as not found: found=%+v missing=%v", postFound, postMissing)
+	}
+}
+
+// TestExcludeCleansDerivedArtifactsAndKeepsTranscript proves the
+// exclusion contract: exclude removes or rebuilds every derived projection
+// (facts, episodes, pattern outputs, caches, stores) exactly like purge,
+// while deliberately keeping the exported transcript.
+func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 8, 11, 0, 0, 0, time.UTC)
+	if _, err := writeMemoryHint(brainDir, "test/privacy", "secret-sess", "main", "session_end", now); err != nil {
+		t.Fatal(err)
+	}
+	secretJob := memoryJob{
+		Kind: memoryJobKindProjection, RepoKey: "test/privacy", SessionID: "secret-sess",
+		SessionRef: "conversation-session:secret", InputDigest: "sha256:secret", Trigger: "session_end",
+		State: memoryJobStateRunning, Attempt: 1, CreatedAt: now, AvailableAt: now,
+	}
+	secretJob.JobID = memoryJobID(secretJob.RepoKey, secretJob.SessionRef, secretJob.InputDigest, secretJob.Kind)
+	secretJob.OwnerToken = "privacy-test-owner"
+	secretJob.HeartbeatAt = &now
+	if err := saveMemoryJob(brainDir, secretJob); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeMemoryCancellationRequest(brainDir, secretJob, now); err != nil {
+		t.Fatal(err)
+	}
+	single := factRecord{
+		ID: factRecordID("the leaked key "+privacyCanary+" was rotated", nil), Text: "the leaked key " + privacyCanary + " was rotated",
+		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+		Provenance: []factAnchor{{SessionID: "secret-sess"}},
+	}
+	multi := factRecord{
+		ID: factRecordID("cursor reuses unchanged transcripts", nil), Text: "cursor reuses unchanged transcripts",
+		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
+		Provenance: []factAnchor{{SessionID: "secret-sess"}, {SessionID: "clean-sess"}},
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{single, multi}); err != nil {
+		t.Fatal(err)
+	}
+	secretEpisode := episodeRecord{ID: "ep-secret", SessionID: "secret-sess", Intent: "rotate " + privacyCanary,
+		Source: episodeAnchor{Path: "sessions/main/20260802T000000Z_secret.jsonl", Line: 1}, Reinforcement: "neutral"}
+	line, _ := json.Marshal(secretEpisode)
+	if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{patternsTasksPath, patternCorpusPath} {
+		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A stale overlay file must be inside the shared inventory (dry-run
+	// and execution agree on artifact identity).
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), []byte(`{"version":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache := loadDistillCache(brainDir)
+	if cache.Sessions == nil {
+		cache.Sessions = map[string]string{}
+	}
+	cache.Sessions["main/secret-sess"] = "sha256:aaa"
+	if err := saveDistillCache(brainDir, cache); err != nil {
+		t.Fatal(err)
+	}
+
+	var plan sessionPurgePlan
+	if err := withBrainWriteLock(brainDir, func() error {
+		var planErr error
+		plan, planErr = buildSessionPurgePlan(brainDir, "secret-sess")
+		if planErr != nil {
+			return planErr
+		}
+		return executeSessionCleanup(brainDir, "secret-sess", plan, now, "user requested", true)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	overlayListed := false
+	for _, store := range plan.DerivedStores {
+		if store.Path == historyShortTermPath {
+			overlayListed = true
+		}
+	}
+	if !overlayListed {
+		t.Fatalf("short-term overlay missing from the cleanup inventory: %+v", plan.DerivedStores)
+	}
+	if len(plan.WorkMetadata) != 3 {
+		t.Fatalf("session hint, job, and cancellation marker must be inventoried: %+v", plan.WorkMetadata)
+	}
+
+	// The transcript survives exclusion.
+	if _, err := os.Stat(filepath.Join(brainDir, "sessions/main/20260802T000000Z_secret.jsonl")); err != nil {
+		t.Fatalf("exclude must keep the exported transcript: %v", err)
+	}
+	// Every derived projection is clean: walk everything except sessions/.
+	err := filepath.Walk(brainDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(brainDir, path)
+		if strings.HasPrefix(filepath.ToSlash(rel), "sessions/") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr == nil && strings.Contains(string(data), privacyCanary) {
+			t.Fatalf("canary survived exclusion in %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := loadFacts(brainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 1 || facts[0].ID != multi.ID || len(facts[0].Provenance) != 1 {
+		t.Fatalf("exclusion fact cleanup wrong: %+v", facts)
+	}
+	for _, hint := range loadMemoryHints(brainDir) {
+		if hint.SessionID == "secret-sess" {
+			t.Fatalf("excluded session hint survived cleanup: %+v", hint)
+		}
+	}
+	for _, job := range loadMemoryJobs(brainDir) {
+		if job.SessionID == "secret-sess" {
+			t.Fatalf("excluded session job survived cleanup: %+v", job)
+		}
+	}
+	if request, err := loadMemoryCancellationRequest(brainDir, secretJob.JobID); err != nil || request != nil {
+		t.Fatalf("excluded session cancellation marker survived cleanup: request=%+v err=%v", request, err)
+	}
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Clean {
+		t.Fatalf("post-exclusion verify must be clean: %+v", report.Findings)
+	}
+	// The durable transaction record ends complete.
+	tx, ok := loadPrivacyTransaction(brainDir, "secret-sess")
+	if !ok || tx.State != privacyStateComplete || tx.Operation != "exclude" {
+		t.Fatalf("transaction record = %+v ok=%v, want complete exclude", tx, ok)
+	}
+}
+
+// TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers proves purge truthfulness: a store
+// that cannot be deleted fails the purge with the exact artifact named,
+// verify flags the surviving store, and re-running the (idempotent) purge
+// after the fault is removed succeeds and verifies clean.
+func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permission bits do not restrict deletion on Windows")
+	}
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
+	patternsDir := filepath.Join(brainDir, "patterns")
+	if err := os.MkdirAll(patternsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	corpusFull := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	if err := os.WriteFile(corpusFull, []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Anchor the store's mtime firmly before the tombstone write so the verify
+	// flag does not depend on filesystem timestamp granularity.
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(corpusFull, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(patternsDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(patternsDir, 0o700) })
+
+	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = executeSessionPurge(brainDir, "secret-sess", plan, now)
+	if err == nil {
+		t.Fatal("purge with an undeletable store must fail")
+	}
+	if !strings.Contains(err.Error(), patternCorpusPath) {
+		t.Fatalf("failure must name the artifact: %v", err)
+	}
+	// The failure is a durable error state naming what stopped it.
+	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateError || !strings.Contains(tx.Error, patternCorpusPath) {
+		t.Fatalf("transaction record after failure = %+v ok=%v", tx, ok)
+	}
+	// Verification independently flags the survivor.
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagged := false
+	for _, finding := range report.Findings {
+		if finding.Artifact == "derived_store" && strings.Contains(finding.Detail, patternCorpusPath) {
+			flagged = true
+		}
+	}
+	if report.Clean || !flagged {
+		t.Fatalf("verify must flag the undeleted store: %+v", report.Findings)
+	}
+
+	// Remove the fault; the purge is resumable and completes.
+	if err := os.Chmod(patternsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executeSessionPurge(brainDir, "secret-sess", plan, now); err != nil {
+		t.Fatalf("recovered purge: %v", err)
+	}
+	report, err = verifySessionPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Clean {
+		t.Fatalf("post-recovery verify must be clean: %+v", report.Findings)
+	}
+	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateComplete || tx.Operation != "purge" {
+		t.Fatalf("transaction record after recovery = %+v ok=%v", tx, ok)
+	}
+	assertCanaryAbsent(t, brainDir)
+}
+
+// TestVerifyFlagsDirtyFTSStoreByContent proves the store-content refinement: a BM25
+// store still holding rows for an excluded transcript is flagged by content
+// inspection even when its mtime looks fresh.
+func TestVerifyFlagsDirtyFTSStoreByContent(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Warm the FTS store from the pre-exclusion index (canary rows included).
+	if _, ok := rankHistoryViaFTS(brainDir, index, "history", "rotated", 5); !ok {
+		t.Fatal("fts warmup failed")
+	}
+	// Tombstone without cleanup, then make the dirty store LOOK newer than the
+	// tombstone write: the mtime heuristic alone would pass it.
+	stones := loadSessionTombstones(brainDir)
+	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+	ftsPath := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(ftsPath, future, future); err != nil {
+		t.Fatal(err)
+	}
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagged := false
+	for _, finding := range report.Findings {
+		if finding.Artifact == "fts_store" {
+			flagged = true
+		}
+	}
+	if !flagged {
+		t.Fatalf("dirty FTS store not flagged by content inspection: %+v", report.Findings)
+	}
+}
+
+// TestGetBatchCapsRequestSize locks the fan-out bound: one get/multi-get
+// request resolves at most maxGetBatchIDs ids.
+func TestGetBatchCapsRequestSize(t *testing.T) {
+	ids := make([]string, maxGetBatchIDs+1)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("doc:%03d", i)
+	}
+	if _, _, err := getUnifiedBatch("", t.TempDir(), "main", ids); err == nil {
+		t.Fatal("oversized id batch must be rejected")
+	}
+	if _, _, err := getUnifiedBatch("", t.TempDir(), "main", ids[:maxGetBatchIDs]); err != nil {
+		t.Fatalf("at-cap batch must be accepted: %v", err)
 	}
 }

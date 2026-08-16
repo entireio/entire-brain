@@ -16,8 +16,9 @@ import (
 )
 
 // watch keeps the brain fresh automatically. Token-frugality is structural, not a quota:
-// the deterministic refresh (sessions + semantic index + history index, seed agent ALWAYS "none") spends
-// ZERO agent tokens and runs whenever the checkpoint/HEAD fingerprint changes. The ONLY token-spending
+// the deterministic refresh (sessions + semantic index + durable history reconciliation, seed agent
+// ALWAYS "none") spends ZERO agent tokens and runs whenever the checkpoint/HEAD fingerprint changes.
+// The ONLY token-spending
 // work — distill and/or agent seed synthesis (--seed-agent) — is OFF by default and, when enabled, runs
 // at most once per --distill-every, on the cheap --model/--effort, capped by --budget, and a persisted
 // cursor means a restart never re-spends within the interval. Both token steps share the one gate, so
@@ -49,7 +50,17 @@ type watchCursor struct {
 	LastFingerprint  string    `json:"last_fingerprint"`
 	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
 	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
+	// ConsolidationRepairs counts CONSECUTIVE full refreshes that ran early
+	// because the short-term delta failed. It is the backoff state for
+	// watchRepairWait: a single failure repairs promptly, a persistent one
+	// settles back to the normal consolidation cadence instead of firing the
+	// heavy refresh every tick. Reset to 0 by the first healthy delta.
+	ConsolidationRepairs int `json:"consolidation_repairs,omitempty"`
 }
+
+// watchRepairBackoffMax caps ConsolidationRepairs so the persisted counter stays
+// bounded and the doubling in watchRepairWait can never overflow.
+const watchRepairBackoffMax = 16
 
 const watchCursorLockName = "watch.lock"
 
@@ -65,10 +76,14 @@ type watchSteps struct {
 	// gate, so an in-flight session's turns are recallable near-real-time; the
 	// full refresh below is consolidation and is throttled by
 	// --consolidate-every unless the delta reports the buffer full.
-	delta   func(context.Context) (shortTermStats, error)
-	refresh func(context.Context) error
-	seed    func(context.Context) error
-	distill func(context.Context) error
+	delta func(context.Context) (shortTermStats, error)
+	// reconcile durably queues long-term conversation work independently of
+	// the git/checkpoint fingerprint. Exported transcripts can change while
+	// that fingerprint stays stable (for example, a late host export).
+	reconcile func(context.Context) error
+	refresh   func(context.Context) error
+	seed      func(context.Context) error
+	distill   func(context.Context) error
 }
 
 // defaultWatchOptions are the shared defaults for `watch` and `workspace watch`.
@@ -182,16 +197,40 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 // ticks/members so --budget caps total token spend across the whole run.
 func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps, agentCalls *int) {
 	// Short-term memory first, every tick: cheap (change detection + only
-	// changed transcripts), and it must never block or fail the tick — a delta
+	// changed transcripts), and it must never block or fail the tick; a delta
 	// failure just means the long-term path repairs freshness later.
 	bufferFull := false
+	// No delta step configured means there is no short-term path that could
+	// have failed, so the throttle applies at its normal cadence rather than
+	// treating every tick as a repair.
+	deltaHealthy := true
+	deltaNeedsReconcile := false
 	if steps.delta != nil {
 		stats, err := steps.delta(ctx)
 		if err != nil {
+			deltaHealthy = false
+			deltaNeedsReconcile = true
 			fmt.Fprintf(out, "[watch] short-term memory update failed (continuing): %v\n", err)
 		} else {
+			// A delta that failed to scan any transcript did NOT fully carry
+			// the new work, so it must not defer consolidation.
+			deltaHealthy = stats.Failed == 0
 			bufferFull = stats.Truncated
+			deltaNeedsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
+			if stats.Failed > 0 {
+				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; consolidation will repair\n", stats.Failed)
+			}
+		}
+	}
+	// Delta state is itself a source-change signal. Do this before the git
+	// fingerprint gate so a changed/failed/overflowed export is never stranded
+	// in the short-term overlay waiting for an unrelated commit or restart.
+	if deltaNeedsReconcile && steps.reconcile != nil {
+		if err := steps.reconcile(ctx); err != nil {
+			fmt.Fprintf(out, "[watch] memory reconciliation failed (durable overlay retained): %v\n", err)
+		} else {
+			fmt.Fprintln(out, "[watch] long-term memory reconciliation queued")
 		}
 	}
 	cursor := loadWatchCursor(cursorPath)
@@ -202,15 +241,29 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		return
 	}
 	// Consolidation throttle: the fingerprint includes checkpoint refs, so an
-	// active agent session flips it every turn — without a throttle the heavy
+	// active agent session flips it every turn; without a throttle the heavy
 	// full refresh would run every tick exactly when the machine is busiest.
-	// The delta above already made the new work recallable; consolidation can
-	// wait for the interval unless the short-term buffer overflowed (recall
-	// completeness is at risk) or this is the first ever refresh.
+	// A failed delta means nothing carried the new work, so the full refresh is
+	// the repair path and must not wait the whole interval (Bugbot PR #78),
+	// but it is throttled too, just on a shorter clock. The delta and the full
+	// refresh contend for the SAME brain write lock, so an unthrottled repair
+	// would fire the heavy path every tick for as long as the delta keeps
+	// failing, contending for the very lock that broke it. watchRepairWait
+	// escalates after one tick and then backs off to the normal cadence. An
+	// overflowed buffer still forces consolidation immediately: recall
+	// completeness is at risk, and a successful consolidation clears the
+	// overlay, so it cannot repeat the way a failing delta can. The first ever
+	// refresh always runs.
 	if w.consolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
-		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < w.consolidateEvery {
-			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; short-term memory is current)\n",
-				since.Round(time.Second), (w.consolidateEvery - since).Round(time.Second))
+		wait := w.consolidateEvery
+		state := "short-term memory is current"
+		if !deltaHealthy {
+			wait = watchRepairWait(w, cursor.ConsolidationRepairs)
+			state = fmt.Sprintf("short-term memory failed; repair refresh backing off after %d consecutive repairs", cursor.ConsolidationRepairs)
+		}
+		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < wait {
+			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; %s)\n",
+				since.Round(time.Second), (wait - since).Round(time.Second), state)
 			return
 		}
 	}
@@ -221,7 +274,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC())
+	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC(), !deltaHealthy)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
 		return
@@ -268,14 +321,21 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 		now:         now,
 		fingerprint: func(c context.Context) string { return watchFingerprint(c, opts.Runner, repoDir) },
 		delta:       func(c context.Context) (shortTermStats, error) { return watchShortTermDelta(c, cmd, opts, repoDir) },
-		refresh:     func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
-		seed:        func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
-		distill:     func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
+		reconcile: func(c context.Context) error {
+			_, warning, err := reconcileMemoryAndLaunch(c, opts, repoDir, "watch")
+			if warning != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
+			}
+			return err
+		},
+		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
+		seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
+		distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
 	}
 }
 
 // watchShortTermDelta runs the short-term memory path for one repo: quiet
-// (output discarded — the tick logs one summary line), deterministic, and
+// (output discarded; the tick logs one summary line), deterministic, and
 // token-free. The returned stats let the tick escalate to consolidation when
 // the buffer overflows.
 func watchShortTermDelta(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) (shortTermStats, error) {
@@ -305,7 +365,34 @@ func watchShouldSpend(w watchCommandOptions, cursor watchCursor, agentCalls int,
 	return true, ""
 }
 
-func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time) (bool, string, error) {
+// watchRepairWait is the minimum time between full consolidations while the
+// short-term delta is failing. It starts at one tick (a transient delta failure
+// repairs on the very next pass) and doubles per consecutive repair up to the
+// normal --consolidate-every, so a persistently failing delta degrades to the
+// ordinary consolidation cadence instead of thrashing the shared brain write
+// lock on every tick.
+func watchRepairWait(w watchCommandOptions, repairs int) time.Duration {
+	wait := w.interval
+	if wait <= 0 {
+		wait = time.Minute
+	}
+	if repairs > watchRepairBackoffMax {
+		repairs = watchRepairBackoffMax
+	}
+	for i := 0; i < repairs && wait < w.consolidateEvery; i++ {
+		wait *= 2
+	}
+	if wait > w.consolidateEvery {
+		wait = w.consolidateEvery
+	}
+	return wait
+}
+
+// reserveWatchAgentSpend advances the refresh cursor after a successful full
+// refresh and decides whether the gated token work may run. repair reports
+// whether THIS refresh ran early because the short-term delta failed; it drives
+// the watchRepairWait backoff and is cleared by the first healthy delta.
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time, repair bool) (bool, string, error) {
 	var cursor watchCursor
 	var reserved bool
 	var reason string
@@ -315,6 +402,13 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOption
 		if changed {
 			cursor.LastFingerprint = fingerprint
 			cursor.LastRefreshAt = now
+			if repair {
+				if cursor.ConsolidationRepairs < watchRepairBackoffMax {
+					cursor.ConsolidationRepairs++
+				}
+			} else {
+				cursor.ConsolidationRepairs = 0
+			}
 		}
 		if !w.agentWorkEnabled() {
 			if changed {
@@ -374,9 +468,10 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 	return rev(v1MainRef) + ":" + rev(v1OriginRef) + ":" + rev("HEAD")
 }
 
-// watchDeterministicRefresh refreshes sessions + semantic + history index with the seed agent ALWAYS
-// "none" — so it spends ZERO agent tokens and is safe to run on every change. Agent seed synthesis is a
-// separate, gated step (watchSeed). It reuses runRefresh, pointing it at repoDir via the env.
+// watchDeterministicRefresh refreshes sessions + semantic state with the seed
+// agent ALWAYS "none", then durably reconciles long-term conversation work.
+// The coordinator owns projection publication, retries, and crash recovery;
+// watch only nudges it. Agent seed synthesis remains a separate gated step.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
@@ -386,8 +481,11 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 		entireBinary:    "entire",
 		graphBinary:     "entire",
 		scope:           exportScopeAll,
-		historyIndex:    true,
-		semantic:        true,
+		// The history projection must not bypass the durable work ledger. The
+		// per-tick delta above already makes new conversations recallable while
+		// the coordinator consolidates asynchronously.
+		historyIndex: false,
+		semantic:     true,
 		seed: seedCommandOptions{
 			includeTests:       true,
 			maxFileBytes:       defaultSeedMaxFileBytes,
@@ -404,7 +502,14 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())
 	sub.SetErr(cmd.ErrOrStderr())
-	return runRefresh(ctx, sub, perRepo, refreshOpts)
+	if err := runRefresh(ctx, sub, perRepo, refreshOpts); err != nil {
+		return err
+	}
+	_, warning, err := reconcileMemoryAndLaunch(ctx, perRepo, repoDir, "watch")
+	if warning != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
+	}
+	return err
 }
 
 // watchSeed is the GATED agent seed synthesis step: it re-synthesizes the seed on the cheap --model/

@@ -15,7 +15,7 @@ import (
 
 const (
 	// factsBackendLocalGitmeta is the default: a bare, on-disk git-meta store
-	// under the plugin cache — fully local, no network/entiredb/Postgres.
+	// under the plugin cache; fully local, no network/entiredb/Postgres.
 	factsBackendLocalGitmeta = "local-gitmeta"
 	// factsBackendHTTP drives the hosted entire-api FactSetStore (factsync.HTTPServer).
 	factsBackendHTTP = "http"
@@ -43,7 +43,7 @@ func newFactsSyncCommand(opts Options) *cobra.Command {
 		Short: "Read-merge-CAS this branch's local facts into the shared fact-set head",
 		Long: `sync runs the factsync read-merge-CAS loop for the current branch: pull the
 current fact-set head, keep-both merge this member's local facts into it, and
-compare-and-swap the result back — retrying on a losing swap.
+compare-and-swap the result back; retrying on a losing swap.
 
 Backends (--facts-backend, or ` + envFactsBackend + `):
   local-gitmeta  (default) a bare, on-disk git-meta store under the brain cache
@@ -242,8 +242,8 @@ func resolveSyncMemberID(ctx context.Context, runner CommandRunner, repoDir, ove
 	return "local"
 }
 
-// gitmetaDirForKey resolves the local git-meta store path for a repo key —
-// <cache>/brain/<key>/gitmeta.git — mirroring brainDirForKey's key handling but
+// gitmetaDirForKey resolves the local git-meta store path for a repo key
+// (<cache>/brain/<key>/gitmeta.git), mirroring brainDirForKey's key handling but
 // rooted in the plugin CACHE tree (the store is a local, rebuildable sync
 // staging area, not authoritative brain data).
 func gitmetaDirForKey(env EntireEnv, key string) (string, error) {

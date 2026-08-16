@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,8 +21,9 @@ import (
 // for:
 //
 //   - short-term path: `refresh delta` scans just the changed/new transcripts
-//     (seconds even on huge brains — change detection rides the same
-//     size+mtime signal as the scan cache) and writes history/short-term.json.
+//     (seconds even on huge brains; change detection rides the same
+//     descriptor-rooted content identity as the scan cache) and writes
+//     history/short-term.json.
 //     Retrieval searches it alongside the long-term index, so an in-flight
 //     session's earlier turns and a parallel terminal's work are recallable
 //     near-real-time.
@@ -29,13 +34,32 @@ import (
 //
 // The overlay is disposable and always rebuildable; it never becomes a second
 // source of truth. When it is empty or absent, every retrieval path returns
-// byte-identical results to the pre-overlay behavior — freshness is additive,
+// byte-identical results to the pre-overlay behavior; freshness is additive,
 // never a ranking change for cold brains.
 
 const (
 	historyShortTermFileName = "short-term.json"
 	historyShortTermPath     = historyDirName + "/" + historyShortTermFileName
-	historyShortTermVersion  = 1
+	// historyShortTermVersion 3 binds per-file reuse to the exact bounded
+	// descriptor-rooted content digest. Older size+mtime-only overlays are
+	// disposable and rebuild on the next delta.
+	historyShortTermVersion = 3
+	// historyShortTermReconcilerVersion stamps the record-reconciliation rule
+	// the overlay was built to participate in (3 = newest-valid-copy selection
+	// scoped by logical conversation session, preserving legacy ID collisions
+	// across branches/sessions).
+	historyShortTermReconcilerVersion = 3
+)
+
+// Typed overlay load states: callers must be able to distinguish "no
+// overlay" from "unusable overlay", and doctor must never claim coverage from
+// anything but a current, complete overlay.
+const (
+	shortTermStateAbsent      = "absent"
+	shortTermStateCurrent     = "current"
+	shortTermStateStale       = "stale"
+	shortTermStateCorrupt     = "corrupt"
+	shortTermStateUnsupported = "unsupported"
 )
 
 // historyShortTermMaxRecords bounds the overlay. Short-term memory is a
@@ -44,6 +68,11 @@ const (
 // itself truncated so doctor can recommend consolidation. A var so tests can
 // exercise the bound without 20k-record fixtures.
 var historyShortTermMaxRecords = 20000
+
+// beforeHistoryShortTermInventoryRecheck is the deterministic membership-race
+// seam immediately before the final bounded inventory comparison and overlay
+// publication.
+var beforeHistoryShortTermInventoryRecheck = func() {}
 
 type shortTermIndex struct {
 	Version int `json:"version"`
@@ -57,38 +86,115 @@ type shortTermIndex struct {
 	GeneratedAt         time.Time                `json:"generated_at"`
 	Truncated           bool                     `json:"truncated,omitempty"`
 	Files               map[string]shortTermFile `json:"files"`
+	// FailedFiles are transcripts the delta scan could not read or parse this
+	// pass: the overlay is durably partial, never silently complete.
+	FailedFiles []string `json:"failed_files,omitempty"`
+	// ScanWarnings are directory-level collection problems; like FailedFiles
+	// they void any completeness claim.
+	ScanWarnings []string `json:"scan_warnings,omitempty"`
+	// ReconcilerVersion records the cross-tier record-reconciliation rule this
+	// overlay was built for.
+	ReconcilerVersion int `json:"reconciler_version,omitempty"`
+}
+
+// complete reports whether the overlay fully represents every changed
+// transcript it was asked to cover: nothing failed, nothing dropped.
+func (o shortTermIndex) complete() bool {
+	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0
+}
+
+// shortTermIncompleteness names exactly why an overlay is not complete
+// coverage, for doctor/stats messaging.
+func shortTermIncompleteness(overlay shortTermIndex) string {
+	var parts []string
+	if overlay.Truncated {
+		parts = append(parts, "buffer full, oldest changed transcripts dropped")
+	}
+	if n := len(overlay.FailedFiles); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d transcripts failed to scan", n))
+	}
+	if n := len(overlay.ScanWarnings); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d collection warnings", n))
+	}
+	if len(parts) == 0 {
+		return "incomplete"
+	}
+	return strings.Join(parts, "; ")
 }
 
 type shortTermFile struct {
 	Size                int64           `json:"size"`
 	ModUnixNano         int64           `json:"mod_unix_nano"`
+	ContentDigest       string          `json:"content_digest"`
 	SortTime            time.Time       `json:"sort_time"`
 	Records             []historyRecord `json:"records"`
 	IncompleteExchanges int             `json:"incomplete_exchanges,omitempty"`
 }
 
-// loadHistoryShortTerm returns the overlay when it is valid for the CURRENT
-// long-term build (version + base pin match); anything else — missing,
-// corrupt, or stale — reads as an empty overlay, which restores exact
-// long-term-only behavior.
-func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortTermIndex {
+// loadHistoryShortTermState loads the overlay with a typed state:
+// absent, current, stale (base pin mismatch), corrupt (unreadable/oversized/
+// invalid JSON), or unsupported (version mismatch). Only a current overlay
+// carries records; every other state returns the empty overlay so retrieval
+// falls back to exact long-term-only behavior.
+func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)))
+	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
 	if err != nil {
-		return empty
+		if os.IsNotExist(err) {
+			return empty, shortTermStateAbsent
+		}
+		return empty, shortTermStateCorrupt
 	}
 	var overlay shortTermIndex
-	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil || overlay.Version != historyShortTermVersion {
-		return empty
+	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
+		return empty, shortTermStateCorrupt
+	}
+	if overlay.Version != historyShortTermVersion {
+		return empty, shortTermStateUnsupported
+	}
+	// An overlay built for a different record-reconciliation rule must not
+	// participate in ranking or coverage claims: the winner selection it was
+	// built to join no longer holds.
+	if overlay.ReconcilerVersion != historyShortTermReconcilerVersion {
+		return empty, shortTermStateUnsupported
 	}
 	base := time.Time{}
 	if source != nil {
 		base = source.GeneratedAt
 	}
 	if !overlay.BaseGeneratedAt.Equal(base) {
-		return empty
+		return empty, shortTermStateStale
 	}
+	return overlay, shortTermStateCurrent
+}
+
+// loadHistoryShortTerm returns the overlay when it is valid for the CURRENT
+// long-term build; every non-current state reads as an empty overlay, which
+// restores exact long-term-only behavior. Health surfaces use
+// loadHistoryShortTermState to tell the failure modes apart.
+func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortTermIndex {
+	overlay, _ := loadHistoryShortTermState(brainDir, source)
 	return overlay
+}
+
+// loadHistoryShortTermRaw parses the overlay file without the base-pin or
+// version checks, for the consolidation guard: it runs after the pin has
+// already moved and only needs the covered source fingerprint. Never rank
+// from this view.
+func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
+	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
+	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return empty, shortTermStateAbsent
+		}
+		return empty, shortTermStateCorrupt
+	}
+	var overlay shortTermIndex
+	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
+		return empty, shortTermStateCorrupt
+	}
+	return overlay, shortTermStateCurrent
 }
 
 func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
@@ -101,7 +207,7 @@ func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
 }
 
 // clearHistoryShortTerm removes the overlay (called after a completed full
-// build — consolidation — under the brain write lock). Best-effort: a missing
+// build; consolidation; under the brain write lock). Best-effort: a missing
 // file is the desired state, and a leftover stale overlay is voided by the
 // BaseGeneratedAt pin anyway.
 func clearHistoryShortTerm(brainDir string) {
@@ -116,13 +222,37 @@ type shortTermStats struct {
 	Reused              int  `json:"reused_files"`
 	Scanned             int  `json:"scanned_files"`
 	Truncated           bool `json:"truncated,omitempty"`
+	// Failed counts transcripts this delta could not scan; the overlay
+	// records their identities durably.
+	Failed int `json:"failed_files,omitempty"`
+}
+
+// shortTermCanonicalInputRefusal separates ordinary availability failures,
+// which remain durably visible as an incomplete overlay, from failures that
+// make the canonical input unsafe or unbounded. Permission-denied preserves
+// the established retryable FailedFiles behavior; containment, source races,
+// cancellation, and bounds refuse publication and leave the prior generation
+// untouched.
+func shortTermCanonicalInputRefusal(err error) bool {
+	if err == nil || os.IsPermission(err) {
+		return false
+	}
+	return errors.Is(err, errHistorySessionInventoryDegraded) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(err.Error(), memoryErrSourceStale) ||
+		strings.Contains(err.Error(), memoryErrInputTooLarge)
 }
 
 // buildHistoryShortTermLocked rebuilds the overlay: every session transcript
-// whose (size, mtime) differs from the long-term scan cache is short-term
+// whose content digest differs from the long-term scan cache is short-term
 // material; files unchanged since the previous delta are carried over without
-// re-scanning. Caller holds the brain write lock.
+// re-parsing. Caller holds the brain write lock.
 func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStats, error) {
+	return buildHistoryShortTermLockedContext(context.Background(), outputDir, now)
+}
+
+func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, now time.Time) (shortTermStats, error) {
 	var stats shortTermStats
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
@@ -132,26 +262,29 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	sessionsRoot := filepath.Join(outputDir, exportSessionsDirectory)
-	if _, err := os.Stat(sessionsRoot); err != nil {
-		if os.IsNotExist(err) {
+	stones, _, err := loadSessionTombstonesChecked(outputDir)
+	if err != nil {
+		return stats, err
+	}
+	inventory, err := collectHistorySessionInventory(ctx, outputDir)
+	if err != nil {
+		// Match the explicit sentinel, not fs.ErrNotExist: a transcript
+		// directory that vanishes DEEPER in the walk also carries an ENOENT,
+		// and treating that as an empty Brain would silently clear the overlay
+		// on a real integrity failure. os.IsNotExist never matched either,
+		// because it does not unwrap.
+		if errors.Is(err, errHistorySessionsRootMissing) {
 			// No exported sessions at all: an empty overlay is correct.
 			clearHistoryShortTerm(outputDir)
 			return stats, nil
 		}
 		return stats, err
 	}
-	var warnings []string
-	// Delta only needs cheap metadata to identify likely changes. A selected
-	// transcript is then parsed and strongly fingerprinted in one bounded read;
-	// the full history build remains content-hash authoritative.
-	files, err := collectHistorySessionFileCandidates(sessionsRoot, &warnings)
-	if err != nil {
-		return stats, err
-	}
+	defer inventory.Close()
+	files := inventory.files
 	cache := loadHistoryScanCache(outputDir)
 	previous := loadHistoryShortTerm(outputDir, source)
-	excludedByPath := excludedTranscriptPaths(manifest, loadSessionTombstones(outputDir))
+	excludedByPath := excludedTranscriptPaths(manifest, stones)
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
 	repoKey := ""
@@ -163,40 +296,65 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 		GeneratedAt:         now,
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Files:               map[string]shortTermFile{},
+		ReconcilerVersion:   historyShortTermReconcilerVersion,
 	}
 	if source != nil {
 		overlay.BaseGeneratedAt = source.GeneratedAt
 	}
 	for _, file := range files {
-		rel, relErr := filepath.Rel(outputDir, file.Path)
-		if relErr != nil {
-			rel = file.Path
+		if err := ctx.Err(); err != nil {
+			return stats, err
 		}
-		rel = filepath.ToSlash(rel)
+		rel := file.Rel
 		if _, excluded := excludedByPath[rel]; excluded {
 			continue
 		}
-		// Long-term already current for this file: not short-term material.
-		if cached, ok := cache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano {
+		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if readErr != nil {
+			if shortTermCanonicalInputRefusal(readErr) {
+				// Canonical containment, bound, and source-stability failures
+				// refuse the entire delta. The prior overlay remains active.
+				return stats, readErr
+			}
+			overlay.FailedFiles = append(overlay.FailedFiles, rel)
+			stats.Failed++
 			continue
 		}
-		// Unchanged since the previous delta: carry over without re-scanning.
-		if prev, ok := previous.Files[rel]; ok && prev.Size == file.Size && prev.ModUnixNano == file.ModUnixNano {
+		// Long-term already current for this file: not short-term material.
+		if cached, ok := cache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano && cached.ContentDigest != "" && cached.ContentDigest == contentDigest {
+			if err := inventory.validateFileMembership(ctx, file); err != nil {
+				return stats, err
+			}
+			continue
+		}
+		// Unchanged since the previous delta: carry over without re-parsing.
+		if prev, ok := previous.Files[rel]; ok && prev.Size == file.Size && prev.ModUnixNano == file.ModUnixNano && prev.ContentDigest != "" && prev.ContentDigest == contentDigest {
+			if err := inventory.validateFileMembership(ctx, file); err != nil {
+				return stats, err
+			}
 			overlay.Files[rel] = prev
 			stats.Reused++
 			continue
 		}
-		records, incomplete, _, ok := scanSessionFileRecords(outputDir, file.Path, rel)
+		records, incomplete, _, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
 		if !ok {
-			continue // unscannable now; the next delta or full build retries
+			// Unscannable now: record the identity durably so no surface can
+			// claim complete coverage; the next delta or full build
+			// retries it.
+			overlay.FailedFiles = append(overlay.FailedFiles, rel)
+			stats.Failed++
+			continue
 		}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
 		overlay.Files[rel] = shortTermFile{
-			Size: file.Size, ModUnixNano: file.ModUnixNano, SortTime: file.SortTime,
+			Size: file.Size, ModUnixNano: file.ModUnixNano, ContentDigest: contentDigest, SortTime: file.SortTime,
 			Records: records, IncompleteExchanges: incomplete,
 		}
 		stats.Scanned++
+	}
+	if err := inventory.validateAll(ctx); err != nil {
+		return stats, err
 	}
 	// Bound the buffer: drop oldest files first (canonical transcripts retain
 	// everything; consolidation restores completeness).
@@ -224,6 +382,7 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 			overlay.Truncated = true
 		}
 	}
+	sort.Strings(overlay.FailedFiles)
 	stats.Truncated = overlay.Truncated
 	stats.Files = len(overlay.Files)
 	for _, entry := range overlay.Files {
@@ -235,7 +394,20 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 			}
 		}
 	}
-	if len(overlay.Files) == 0 {
+	beforeHistoryShortTermInventoryRecheck()
+	currentInventory, err := collectHistorySessionInventory(ctx, outputDir)
+	if err != nil {
+		return stats, err
+	}
+	membershipUnchanged := inventory.sameMembership(currentInventory)
+	_ = currentInventory.Close()
+	if !membershipUnchanged {
+		return stats, fmt.Errorf("%s: canonical transcript membership changed before short-term publication", memoryErrSourceStale)
+	}
+	// An overlay that holds no records but DID fail or drop something must
+	// stay on disk: deleting it would erase the very state that proves
+	// coverage is incomplete.
+	if len(overlay.Files) == 0 && overlay.complete() {
 		clearHistoryShortTerm(outputDir)
 		return stats, nil
 	}
@@ -246,7 +418,7 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 
 // freshHistory is the two-tier view retrieval ranks over: the long-term index
 // exactly as loaded (FTS freshness identity untouched) plus the short-term
-// overlay, with per-file replacement semantics — a file the overlay re-scanned
+// overlay, with per-file replacement semantics; a file the overlay re-scanned
 // supersedes that file's long-term records, exactly as a full rebuild would.
 type freshHistory struct {
 	index    historyIndex // long-term, as on disk
@@ -297,15 +469,131 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 	if len(fresh.overlay) == 0 {
 		return longTerm, access, inputs, nil
 	}
-	merged := rankFreshHistory(fresh, kind, query, limit, func(historyIndex) ([]scoredHistoryRecord, bool) {
+	merged := rankFreshHistory(fresh, kind, query, limit, nil, func(historyIndex) ([]scoredHistoryRecord, bool) {
 		return longTerm, true
 	})
 	return merged, access, inputs, nil
 }
 
-// mergedRecords is the get/multi-get view: long-term records minus superseded
-// files, plus every overlay record (overlay wins for duplicate IDs by order —
-// callers index into maps last-write-wins).
+// historyRecordSourceTime derives a record's source recency from its
+// transcript path: the exporter embeds a sortable timestamp in the filename,
+// and the full build's re-export dedupe iterates files newest-first on
+// exactly this key. Zero when the filename carries no timestamp.
+func historyRecordSourceTime(r historyRecord) time.Time {
+	return historySessionSortTime(r.Path, time.Time{})
+}
+
+// newestHistoryRecord picks the winner between two copies of one stable ID:
+// newest source time, then lexicographically greatest path (paths embed the
+// export timestamp), then greatest source digest. The rule is derived only
+// from the records themselves, never from which tier held them, so search,
+// fusion, and get cannot disagree on the winner.
+func newestHistoryRecord(a, b historyRecord) historyRecord {
+	at, bt := historyRecordSourceTime(a), historyRecordSourceTime(b)
+	if at.After(bt) {
+		return a
+	}
+	if bt.After(at) {
+		return b
+	}
+	if a.Path != b.Path {
+		if a.Path > b.Path {
+			return a
+		}
+		return b
+	}
+	if a.SourceDigest >= b.SourceDigest {
+		return a
+	}
+	return b
+}
+
+// sameRecordCopy reports whether two records are the same physical copy of a
+// stable identity: same source path, digest, and anchor line.
+func sameRecordCopy(a, b historyRecord) bool {
+	return a.Path == b.Path && a.SourceDigest == b.SourceDigest && a.Line == b.Line
+}
+
+// historyRecordReplacementKey is the scope in which one physical export may
+// replace another. Conversation IDs from older indexes are not globally
+// unique: the same legacy ID can legitimately occur in different branches or
+// sessions. Keeping that scope in the key preserves the ambiguity for callers
+// to resolve instead of silently deleting one conversation. Records without a
+// stable ID use their physical identity and are never globally collapsed.
+type historyRecordReplacementKey struct {
+	ID           string
+	Kind         string
+	Branch       string
+	Session      string
+	Path         string
+	Line         int
+	SourceDigest string
+}
+
+func recordReplacementKey(r historyRecord) historyRecordReplacementKey {
+	id := strings.TrimSpace(r.ID)
+	if id == "" {
+		return historyRecordReplacementKey{
+			Kind: r.Kind, Path: r.Path, Line: r.Line, SourceDigest: r.SourceDigest,
+		}
+	}
+	key := historyRecordReplacementKey{ID: id, Kind: r.Kind}
+	if r.Kind == conversationKind {
+		// Per-Brain repository identity is implicit. This matches virtual
+		// session identity's branch normalization for annotated records and
+		// uses its stable default for legacy records without branch metadata.
+		key.Branch = conversationCanonicalBranch(r, nil)
+		key.Session = strings.TrimSpace(r.SessionID)
+		if key.Session == "" {
+			// This is the same fallback used by virtual session identity. It
+			// prevents two degraded sessions from replacing one another merely
+			// because an old producer emitted the same exchange ID.
+			key.Session = strings.TrimSpace(r.SourceDigest)
+		}
+	}
+	return key
+}
+
+// duplicateRecordWinners maps every replacement-scoped stable identity that
+// appears more than once across the two tiers (or twice inside the overlay,
+// which lacks the full build's re-export dedupe) to its newest valid copy.
+// Empty overlay means the long-term index's own build-time dedupe already
+// holds and there is nothing to reconcile.
+func (f freshHistory) duplicateRecordWinners() map[historyRecordReplacementKey]historyRecord {
+	if len(f.overlay) == 0 {
+		return nil
+	}
+	seen := map[historyRecordReplacementKey]historyRecord{}
+	var winners map[historyRecordReplacementKey]historyRecord
+	consider := func(r historyRecord) {
+		key := recordReplacementKey(r)
+		prev, ok := seen[key]
+		if !ok {
+			seen[key] = r
+			return
+		}
+		w := newestHistoryRecord(prev, r)
+		seen[key] = w
+		if winners == nil {
+			winners = map[historyRecordReplacementKey]historyRecord{}
+		}
+		winners[key] = w
+	}
+	for _, r := range f.index.Records {
+		if f.replaced[r.Path] {
+			continue
+		}
+		consider(r)
+	}
+	for _, r := range f.overlay {
+		consider(r)
+	}
+	return winners
+}
+
+// mergedRecords is the raw two-tier union: long-term records minus superseded
+// files, plus every overlay record. Duplicate stable IDs are NOT reconciled
+// here; readers that resolve records by ID must use reconciledRecords.
 func (f freshHistory) mergedRecords() []historyRecord {
 	if len(f.overlay) == 0 {
 		return f.index.Records
@@ -318,6 +606,50 @@ func (f freshHistory) mergedRecords() []historyRecord {
 		out = append(out, record)
 	}
 	return append(out, f.overlay...)
+}
+
+// reconciledRecords is the get/multi-get view: the two-tier union with
+// every duplicate replacement-scoped identity collapsed to its newest valid
+// copy through the same winner rule ranking uses, so expansion resolves
+// exactly the record search ranked while cross-session ID collisions remain.
+func (f freshHistory) reconciledRecords() []historyRecord {
+	merged := f.mergedRecords()
+	winners := f.duplicateRecordWinners()
+	if len(winners) == 0 {
+		return merged
+	}
+	out := make([]historyRecord, 0, len(merged))
+	emitted := map[historyRecordReplacementKey]bool{}
+	for _, r := range merged {
+		key := recordReplacementKey(r)
+		if w, ok := winners[key]; ok {
+			if !sameRecordCopy(w, r) || emitted[key] {
+				continue
+			}
+			emitted[key] = true
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// longTermReconciled is longTermActive minus copies superseded by a newer
+// overlay copy. The semantic arms rank over it so a stale long-term
+// copy can never be scored while get would expand the newer overlay copy.
+func (f freshHistory) longTermReconciled() historyIndex {
+	active := f.longTermActive()
+	winners := f.duplicateRecordWinners()
+	if len(winners) == 0 {
+		return active
+	}
+	kept := make([]historyRecord, 0, len(active.Records))
+	for _, r := range active.Records {
+		if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return historyIndex{GeneratedAt: active.GeneratedAt, Records: kept}
 }
 
 // longTermActive returns the long-term records minus superseded files, for
@@ -339,33 +671,228 @@ func (f freshHistory) longTermActive() historyIndex {
 // rankFreshHistory ranks the two tiers: longTermRank runs against the on-disk
 // long-term index (so the FTS freshness identity is untouched), superseded
 // files' hits are dropped, the overlay is ranked in-memory, and the two lists
-// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged
-// — bit-for-bit default preservation.
+// RRF-fuse. With an empty overlay the long-term ranking is returned unchanged:
+// bit-for-bit default preservation. A non-nil pred applies the structured
+// filters to the in-memory arms (overlay and substring fallback) during
+// candidate generation; the longTermRank closure is responsible for pushing
+// the same predicate into its own arm. Superseded long-term hits are
+// dropped even when the filtered overlay is empty: their file was re-scanned,
+// so they are stale copies either way.
 func rankFreshHistory(
 	fresh freshHistory,
 	kind, query string,
 	limit int,
+	pred func(historyRecord) bool,
 	longTermRank func(historyIndex) ([]scoredHistoryRecord, bool),
 ) []scoredHistoryRecord {
 	lex, ok := longTermRank(fresh.index)
 	if !ok {
-		lex = rankHistoryRecordsScored(fresh.index, kind, query, limit, 0)
+		fallback := fresh.index
+		if pred != nil {
+			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, pred)}
+		}
+		lex = rankHistoryRecordsScored(fallback, kind, query, limit, 0)
 	}
 	if len(fresh.overlay) == 0 {
 		return lex
 	}
+	// One winner per replacement-scoped identity across the tiers: a superseded copy
+	// neither surfaces nor contributes a duplicate rank vote to the fusion.
+	winners := fresh.duplicateRecordWinners()
+	superseded := func(r historyRecord) bool {
+		w, ok := winners[recordReplacementKey(r)]
+		return ok && !sameRecordCopy(w, r)
+	}
 	kept := lex[:0:0]
 	for _, scored := range lex {
-		if fresh.replaced[scored.Record.Path] {
+		if fresh.replaced[scored.Record.Path] || superseded(scored.Record) {
 			continue
 		}
 		kept = append(kept, scored)
 	}
-	overlayRanked := rankHistoryRecordsScored(historyIndex{Records: fresh.overlay}, kind, query, limit, 0)
+	overlayRecords := make([]historyRecord, 0, len(fresh.overlay))
+	seenOverlay := map[historyRecordReplacementKey]bool{}
+	for _, r := range fresh.overlay {
+		if pred != nil && !pred(r) {
+			continue
+		}
+		key := recordReplacementKey(r)
+		if superseded(r) || (winners[key].ID != "" && seenOverlay[key]) {
+			continue
+		}
+		seenOverlay[key] = true
+		overlayRecords = append(overlayRecords, r)
+	}
+	overlayRanked := rankHistoryRecordsScored(historyIndex{Records: overlayRecords}, kind, query, limit, 0)
 	if len(overlayRanked) == 0 {
 		return kept
 	}
 	return fuseScoredRankLists([][]scoredHistoryRecord{kept, overlayRanked}, limit)
+}
+
+// rankFreshHistoryExhaustive is the two-tier counterpart for the multi-concept lexical
+// AND contract. It enumerates the effective long-term and short-term candidate
+// sets through the same replacement-scoped winner rules as normal
+// retrieval, then detects overflow only after those rules and the supplied
+// filters have been applied. It intentionally does not change rankFreshHistory:
+// ordinary single-concept retrieval remains bounded and fast.
+func rankFreshHistoryExhaustive(
+	fresh freshHistory,
+	kind, query string,
+	ceiling int,
+	pred func(historyRecord) bool,
+	longTermRank func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int),
+) ([]scoredHistoryRecord, historyExhaustiveRankState) {
+	if ceiling <= 0 {
+		return nil, historyExhaustiveRankComplete
+	}
+	winners := fresh.duplicateRecordWinners()
+	superseded := func(r historyRecord) bool {
+		w, ok := winners[recordReplacementKey(r)]
+		return ok && !sameRecordCopy(w, r)
+	}
+	eligibleLongTerm := func(r historyRecord) bool {
+		if fresh.replaced[r.Path] || superseded(r) {
+			return false
+		}
+		return pred == nil || pred(r)
+	}
+
+	lex, state, ok, rawScanned := longTermRank(fresh.index, eligibleLongTerm)
+	if state != historyExhaustiveRankComplete {
+		return nil, state
+	}
+	if !ok {
+		// A pure-Go fallback must inspect the complete long-term slice to prove
+		// exhaustive coverage. Bound that work before allocating a filtered copy;
+		// unlike SQLite, there is no inverted index that can skip non-matches.
+		fallbackScanned := len(fresh.index.Records)
+		if fallbackScanned > historyFTSExhaustiveRawScanCeiling ||
+			rawScanned > historyFTSExhaustiveRawScanCeiling-fallbackScanned {
+			return nil, historyExhaustiveRankRawScanOverflow
+		}
+		rawScanned += fallbackScanned
+		fallback := historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, eligibleLongTerm)}
+		lex = rankHistoryRecordsScoredExhaustive(fallback, kind, query, ceiling+1)
+		if len(lex) > ceiling {
+			return nil, historyExhaustiveRankCandidateOverflow
+		}
+	}
+	if len(fresh.overlay) == 0 {
+		return lex, historyExhaustiveRankComplete
+	}
+	// The overlay is always ranked in memory. Its inspection budget joins the
+	// long-term arm's budget for this concept rather than resetting it, so a
+	// large two-tier union cannot evade the raw-scan refusal by splitting rows
+	// across the FTS and overlay stores.
+	if len(fresh.overlay) > historyFTSExhaustiveRawScanCeiling ||
+		rawScanned > historyFTSExhaustiveRawScanCeiling-len(fresh.overlay) {
+		return nil, historyExhaustiveRankRawScanOverflow
+	}
+
+	overlayRecords := make([]historyRecord, 0, len(fresh.overlay))
+	seenOverlay := map[historyRecordReplacementKey]bool{}
+	for _, r := range fresh.overlay {
+		key := recordReplacementKey(r)
+		if superseded(r) || (winners[key].ID != "" && seenOverlay[key]) || (pred != nil && !pred(r)) {
+			continue
+		}
+		seenOverlay[key] = true
+		overlayRecords = append(overlayRecords, r)
+	}
+	overlayRanked := rankHistoryRecordsScoredExhaustive(historyIndex{Records: overlayRecords}, kind, query, ceiling+1)
+	if len(overlayRanked) > ceiling {
+		return nil, historyExhaustiveRankCandidateOverflow
+	}
+	fused := fuseScoredRankLists([][]scoredHistoryRecord{lex, overlayRanked}, ceiling+1)
+	if len(fused) > ceiling {
+		return nil, historyExhaustiveRankCandidateOverflow
+	}
+	return fused, historyExhaustiveRankComplete
+}
+
+// exhaustiveHistoryRecordIdentity is the multi-concept candidate dedup key. Logical session
+// scope distinguishes legacy ID collisions across sessions; physical identity
+// is the fallback for records that predate stable IDs. Copy-winner
+// reconciliation runs before this key is consulted, so re-exported copies
+// still contribute once.
+func exhaustiveHistoryRecordIdentity(r historyRecord) historyRecordReplacementKey {
+	return recordReplacementKey(r)
+}
+
+// rankHistoryRecordsScoredExhaustive is the in-memory lexical ranker for multi-concept
+// complete-enumeration path. The ordinary ranker intentionally collapses equal
+// normalized summaries for concise single-concept results; that policy is not
+// valid for session-scoped AND coverage because equal text can be independent
+// evidence in two sessions.
+func rankHistoryRecordsScoredExhaustive(index historyIndex, kind, query string, limit int) []scoredHistoryRecord {
+	if limit <= 0 {
+		return nil
+	}
+	allowed := historyInspectKinds(kind)
+	scored := make([]scoredHistoryRecord, 0, min(len(index.Records), limit))
+	seen := map[historyRecordReplacementKey]struct{}{}
+	for i, record := range index.Records {
+		if len(allowed) > 0 {
+			if _, ok := allowed[record.Kind]; !ok {
+				continue
+			}
+		} else if historyGeneralRankingHiddenKind(record.Kind) {
+			continue
+		}
+		score := historyRecordQueryScoreMin(record, query, 0)
+		if score == 0 {
+			continue
+		}
+		key := exhaustiveHistoryRecordIdentity(record)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		score += historyInspectKindPreference(kind, record.Kind)
+		scored = append(scored, scoredHistoryRecord{Record: record, Score: score, Order: i})
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		left, right := scored[i], scored[j]
+		if left.Score != right.Score {
+			return left.Score > right.Score
+		}
+		leftTime, leftOK := historyRecordTimestamp(left.Record.Path)
+		rightTime, rightOK := historyRecordTimestamp(right.Record.Path)
+		if leftOK && rightOK && !leftTime.Equal(rightTime) {
+			return leftTime.After(rightTime)
+		}
+		if leftOK != rightOK {
+			return leftOK
+		}
+		if historyKindRank(left.Record.Kind) != historyKindRank(right.Record.Kind) {
+			return historyKindRank(left.Record.Kind) > historyKindRank(right.Record.Kind)
+		}
+		if left.Record.Path != right.Record.Path {
+			return left.Record.Path > right.Record.Path
+		}
+		if left.Record.Line != right.Record.Line {
+			return left.Record.Line < right.Record.Line
+		}
+		return left.Order < right.Order
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	return scored
+}
+
+// filterHistoryRecords returns the records passing pred, for the in-memory
+// ranking arms. Never feed a filtered slice to the FTS ranker: the shared
+// store's freshness identity must only ever see the on-disk index.
+func filterHistoryRecords(records []historyRecord, pred func(historyRecord) bool) []historyRecord {
+	kept := make([]historyRecord, 0, len(records))
+	for _, r := range records {
+		if pred(r) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }
 
 // --- refresh delta verb ---
@@ -402,7 +929,7 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 	line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (%d re-scanned, %d carried over)",
 		stats.Records, stats.Exchanges, stats.Files, stats.Scanned, stats.Reused)
 	if stats.Truncated {
-		line += "; buffer full — run `entire brain refresh` to consolidate"
+		line += "; buffer full; run `entire brain refresh` to consolidate"
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), line)
 	return nil
@@ -439,7 +966,7 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool) (shortT
 	var stats shortTermStats
 	err = withBrainWriteLock(storage.BrainDir, func() error {
 		var buildErr error
-		stats, buildErr = buildHistoryShortTermLocked(storage.BrainDir, opts.Now().UTC())
+		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())
 		return buildErr
 	})
 	return stats, err

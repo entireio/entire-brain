@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strings"
 
@@ -93,6 +94,10 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
+	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
+	}
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
@@ -103,16 +108,18 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	if resolved == "none" {
 		return fmt.Errorf("workspace family judgment requires an agent (codex or claude-code); none found on PATH")
 	}
-	stats, err := proposeWorkspaceFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
-	if err != nil {
-		return err
-	}
-	if asJSON {
-		return writeJSON(cmd, stats)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "workspace %s verify: %d family proposal(s) — %d accepted, %d cached, %d dropped\n",
-		name, stats.Considered, stats.Verified, stats.Cached, stats.Failed)
-	return nil
+	return runPrivacyLinearizedPatternMutation(cmd, privacyPolicies, func() error {
+		stats, err := proposeWorkspaceFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			return writeJSON(cmd, stats)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "workspace %s verify: %d family proposal(s) — %d accepted, %d cached, %d dropped\n",
+			name, stats.Considered, stats.Verified, stats.Cached, stats.Failed)
+		return nil
+	})
 }
 
 // newWorkspaceSkillsCommand mirrors `patterns skills`: list cross-repo task
@@ -406,7 +413,13 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err != nil {
 		return err
 	}
-	members, err := loadMemberPatterns(opts, manifest)
+	// Refresh IS the documented recovery for an interrupted corpus publication,
+	// so it must clear the marker before the derived-read gate below fails
+	// closed on it.
+	if err := recoverWorkspacePatternCorpusPublication(opts.Env, manifest); err != nil {
+		return err
+	}
+	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}
@@ -414,27 +427,47 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err != nil {
 		return err
 	}
-	// Primary V2 source: aggregate member corpora into the workspace corpus.
-	counts, err := buildWorkspacePatternCorpus(opts.Env, manifest, opts.Now().UTC())
-	if err != nil {
+	var (
+		members memberPatterns
+		counts  workspaceCorpusCounts
+	)
+	// Member reads and every aggregate artifact write share one policy-locked
+	// snapshot. A concurrent tombstone either waits until this generation is
+	// complete or wins before validation and aborts it without stale outputs.
+	if err := withLockedRetrievalPrivacyPolicies(privacyPolicies, func() error {
+		var lockedErr error
+		members, lockedErr = loadMemberPatterns(opts, manifest)
+		if lockedErr != nil {
+			return lockedErr
+		}
+		// Primary V2 source: aggregate member corpora into the workspace corpus.
+		counts, lockedErr = buildWorkspacePatternCorpusLocked(opts.Env, manifest, opts.Now().UTC())
+		if lockedErr != nil {
+			return lockedErr
+		}
+		// Legacy JSON views remain only so the workspace skills path
+		// (loadBrainTasks) keeps working; they are no longer the analytical
+		// source for the listing.
+		procs := buildWorkspaceProcedures(members.procsByRepo, members.repoOrder, len(manifest.Repos), name)
+		pracs := buildWorkspacePractices(members.pracsByRepo, members.repoOrder, len(manifest.Repos), name)
+		tasks := buildWorkspaceTaskCandidates(members.tasksByRepo, members.repoOrder, len(manifest.Repos), name)
+		if lockedErr = writeBrainProceduresFile(wsDir, procs); lockedErr != nil {
+			return lockedErr
+		}
+		if lockedErr = writeBrainPracticesFile(wsDir, pracs); lockedErr != nil {
+			return lockedErr
+		}
+		return writeBrainTasksFile(wsDir, tasks)
+	}); err != nil {
 		return err
 	}
-	// Legacy JSON views remain only so the workspace skills path (loadBrainTasks)
-	// keeps working; they are no longer the analytical source for the listing.
-	procs := buildWorkspaceProcedures(members.procsByRepo, members.repoOrder, len(manifest.Repos), name)
-	pracs := buildWorkspacePractices(members.pracsByRepo, members.repoOrder, len(manifest.Repos), name)
-	tasks := buildWorkspaceTaskCandidates(members.tasksByRepo, members.repoOrder, len(manifest.Repos), name)
-	if err := writeBrainProceduresFile(wsDir, procs); err != nil {
+	if err := bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: %d cross-repo V2 pattern(s) from %d/%d member corpora\n",
+			name, counts.Patterns, counts.WithCorpus, counts.Members)
+		return nil
+	}); err != nil {
 		return err
 	}
-	if err := writeBrainPracticesFile(wsDir, pracs); err != nil {
-		return err
-	}
-	if err := writeBrainTasksFile(wsDir, tasks); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: %d cross-repo V2 pattern(s) from %d/%d member corpora\n",
-		name, counts.Patterns, counts.WithCorpus, counts.Members)
 	for _, w := range append(counts.Warnings, members.warnings...) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 	}
@@ -442,15 +475,30 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 }
 
 func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternsListOptions) error {
+	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	if err != nil {
+		return err
+	}
+	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
+	}
 	wsDir, err := workspaceDir(opts.Env, name)
 	if err != nil {
 		return err
 	}
-	views, _, corpusBacked := loadCorpusPatternViews(wsDir)
+	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+		return err
+	}
+	views, _, corpusBacked, err := loadCorpusPatternViewsChecked(wsDir)
+	if err != nil {
+		return err
+	}
 	if !corpusBacked {
-		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "workspace %s: no cross-repo corpus (run `entire brain workspace patterns refresh %s`)\n", name, name)
-		return nil
+		return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `entire brain workspace patterns refresh %s`)\n", name, name)
+			return nil
+		})
 	}
 	filtered := views[:0:0]
 	for _, v := range views {
@@ -466,18 +514,20 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if list.limit > 0 && len(filtered) > list.limit {
 		filtered = filtered[:list.limit]
 	}
-	if list.asJSON {
-		return writeJSON(cmd, filtered)
-	}
-	out := cmd.OutOrStdout()
-	if len(filtered) == 0 {
-		fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `entire brain workspace patterns refresh %s`)\n", name, name)
+	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+		if list.asJSON {
+			return writeJSON(cmd, filtered)
+		}
+		out := cmd.OutOrStdout()
+		if len(filtered) == 0 {
+			fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `entire brain workspace patterns refresh %s`)\n", name, name)
+			return nil
+		}
+		for _, v := range filtered {
+			renderPatternView(out, v)
+		}
 		return nil
-	}
-	for _, v := range filtered {
-		renderPatternView(out, v)
-	}
-	return nil
+	})
 }
 
 func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
@@ -485,29 +535,58 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
+	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
+	}
 	wsDir, err := workspaceDir(opts.Env, name)
 	if err != nil {
 		return err
 	}
-	procs, _ := loadBrainProcedures(wsDir)
-	pracs, _ := loadBrainPractices(wsDir)
-	members, _ := loadMemberPatterns(opts, manifest)
+	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+		return err
+	}
+	procs, err := loadBrainProcedures(wsDir)
+	if err != nil {
+		return err
+	}
+	pracs, err := loadBrainPractices(wsDir)
+	if err != nil {
+		return err
+	}
+	members, err := loadMemberPatterns(opts, manifest)
+	if err != nil {
+		return err
+	}
+	views, _, corpusPresent, err := loadCorpusPatternViewsChecked(wsDir)
+	if err != nil {
+		return err
+	}
+	lastRun, hasLastRun, err := lastPatternRunChecked(wsDir)
+	if err != nil {
+		return err
+	}
 	covered := 0
 	for _, repoKey := range members.repoOrder {
 		if len(members.procsByRepo[repoKey]) > 0 || len(members.pracsByRepo[repoKey]) > 0 {
 			covered++
 		}
 	}
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "workspace: %s\n", name)
-	fmt.Fprintf(out, "member repos: %d (%d with patterns)\n", len(manifest.Repos), covered)
-	fmt.Fprintf(out, "cross-repo procedures: %d\n", len(procs))
-	fmt.Fprintf(out, "cross-repo practices: %d\n", len(pracs))
-	if views, _, ok := loadCorpusPatternViews(wsDir); ok {
-		fmt.Fprintf(out, "cross-repo V2 patterns: %d\n", len(views))
-	}
-	if run, ok := lastPatternRun(wsDir); ok {
-		fmt.Fprintf(out, "last run: %s — %d pattern(s), %d synapse(s)\n", run.At, run.Patterns, run.Synapses)
+	if err := bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "workspace: %s\n", name)
+		fmt.Fprintf(out, "member repos: %d (%d with patterns)\n", len(manifest.Repos), covered)
+		fmt.Fprintf(out, "cross-repo procedures: %d\n", len(procs))
+		fmt.Fprintf(out, "cross-repo practices: %d\n", len(pracs))
+		if corpusPresent {
+			fmt.Fprintf(out, "cross-repo V2 patterns: %d\n", len(views))
+		}
+		if hasLastRun {
+			fmt.Fprintf(out, "last run: %s — %d pattern(s), %d synapse(s)\n", lastRun.At, lastRun.Patterns, lastRun.Synapses)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	for _, w := range members.warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
@@ -604,54 +683,68 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 // verified semantic groupings, not the raw exact-aggregated rows. Run
 // `workspace patterns verify` to produce them.
 func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
+	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var privacyPolicies []retrievalPrivacyPolicy
+	if err == nil {
+		privacyPolicies, err = captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
+		if err != nil {
+			return err
+		}
+	}
 	wsDir, err := workspaceDir(opts.Env, name)
 	if err != nil {
 		return err
 	}
-	families := loadAcceptedWorkspaceFamilies(wsDir)
+	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+		return err
+	}
+	families, err := loadAcceptedWorkspaceFamiliesChecked(wsDir)
+	if err != nil {
+		return err
+	}
 	if limit > 0 && len(families) > limit {
 		families = families[:limit]
 	}
-	if asJSON {
-		return writeJSON(cmd, families)
-	}
-	out := cmd.OutOrStdout()
-	if len(families) == 0 {
-		fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `entire brain workspace patterns verify %s`)\n", name, name)
-		return nil
-	}
-	for _, f := range families {
-		repos := make([]string, 0, len(f.PerRepo))
-		for _, v := range f.PerRepo {
-			repos = append(repos, v.RepoKey)
+	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
+		if asJSON {
+			return writeJSON(cmd, families)
 		}
-		fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", redactText(f.Title), f.repoCount(), strings.Join(repos, ", "))
-		fmt.Fprintf(out, "    trigger: %s\n", redactText(f.Trigger))
-		fmt.Fprintf(out, "    id %s\n", f.ID)
-	}
-	return nil
+		out := cmd.OutOrStdout()
+		if len(families) == 0 {
+			fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `entire brain workspace patterns verify %s`)\n", name, name)
+			return nil
+		}
+		for _, f := range families {
+			repos := make([]string, 0, len(f.PerRepo))
+			for _, v := range f.PerRepo {
+				repos = append(repos, v.RepoKey)
+			}
+			fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", redactText(f.Title), f.repoCount(), strings.Join(repos, ", "))
+			fmt.Fprintf(out, "    trigger: %s\n", redactText(f.Trigger))
+			fmt.Fprintf(out, "    id %s\n", f.ID)
+		}
+		return nil
+	})
 }
 
 func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, s skillFormOptions) error {
+	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	if err != nil {
+		return err
+	}
+	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
+	if err != nil {
+		return err
+	}
 	wsDir, err := workspaceDir(opts.Env, name)
 	if err != nil {
 		return err
 	}
-	// Workspace skills MUST come from an accepted cross-repo family dossier.
-	fam, ok := getAcceptedWorkspaceFamily(wsDir, s.taskID)
-	if !ok {
-		return fmt.Errorf("no accepted workspace family %q: run `entire brain workspace patterns verify %s` (explicit, egress-gated), then `entire brain workspace patterns skills %s`", s.taskID, name, name)
-	}
-	// A synthetic candidate carries id/name/scope + per-repo breakdown for the
-	// skill-memory record; synthesis itself runs from the family.
-	breakdown := make([]patternRepoStat, 0, len(fam.PerRepo))
-	for _, v := range fam.PerRepo {
-		breakdown = append(breakdown, patternRepoStat{RepoKey: v.RepoKey, Support: 1})
-	}
-	cand := taskCandidate{
-		ID: fam.ID, Label: fam.Title, Workspace: name, Repos: fam.repoCount(),
-		RepoBreakdown: breakdown, Commands: fam.CommonWorkflow, Support: fam.repoCount(),
-		Strength: 0.7, StrengthLabel: "high",
+	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+		return err
 	}
 	agent := s.agent
 	if agent == "" || agent == "auto" {
@@ -660,5 +753,28 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	return synthesizeAndForm(ctx, cmd, cand, nil, &fam, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	return runPrivacyLinearizedPatternMutation(cmd, privacyPolicies, func() error {
+		// Resolve the accepted source only after every member policy/lock is
+		// pinned. Workspace verification uses the same locks, so a concurrent
+		// family replacement cannot leave synthesis using a stale dossier.
+		fam, ok, err := getAcceptedWorkspaceFamilyChecked(wsDir, s.taskID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("no accepted workspace family %q: run `entire brain workspace patterns verify %s` (explicit, egress-gated), then `entire brain workspace patterns skills %s`", s.taskID, name, name)
+		}
+		// A synthetic candidate carries id/name/scope + per-repo breakdown for
+		// the skill-memory record; synthesis itself runs from the family.
+		breakdown := make([]patternRepoStat, 0, len(fam.PerRepo))
+		for _, v := range fam.PerRepo {
+			breakdown = append(breakdown, patternRepoStat{RepoKey: v.RepoKey, Support: 1})
+		}
+		cand := taskCandidate{
+			ID: fam.ID, Label: fam.Title, Workspace: name, Repos: fam.repoCount(),
+			RepoBreakdown: breakdown, Commands: fam.CommonWorkflow, Support: fam.repoCount(),
+			Strength: 0.7, StrengthLabel: "high",
+		}
+		return synthesizeAndForm(ctx, cmd, cand, nil, &fam, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	})
 }

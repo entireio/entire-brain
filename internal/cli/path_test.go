@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,6 +124,108 @@ func TestPathRejectsMissingWindowsDrivePathAsRemote(t *testing.T) {
 	}
 }
 
+func TestResolveLocalTargetRepoDirPreservesExplicitSymlinkSpelling(t *testing.T) {
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "repo")
+	if err := os.Mkdir(repoDir, 0o700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	alias := filepath.Join(parent, "repo-alias")
+	if err := os.Symlink(repoDir, alias); err != nil {
+		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
+	}
+
+	resolved, local, err := resolveLocalTargetRepoDir(context.Background(), nil, alias)
+	if err != nil {
+		t.Fatalf("resolve symlink target: %v", err)
+	}
+	if !local {
+		t.Fatal("symlink target was not local")
+	}
+	want := filepath.Clean(alias)
+	if resolved != want {
+		t.Fatalf("resolved lexical root = %q, want %q", resolved, want)
+	}
+}
+
+func TestPathExplicitAliasRecoversLegacyLocalBrain(t *testing.T) {
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "repo")
+	if err := os.Mkdir(repoDir, 0o700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	alias := filepath.Join(parent, "repo-alias")
+	if err := os.Symlink(repoDir, alias); err != nil {
+		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
+	}
+	env := EntireEnv{
+		PluginConfigDir: t.TempDir(),
+		PluginDataDir:   t.TempDir(),
+		PluginStateDir:  t.TempDir(),
+		PluginCacheDir:  t.TempDir(),
+	}
+	dirs, err := resolvePluginDirs(env)
+	if err != nil {
+		t.Fatalf("plugin dirs: %v", err)
+	}
+	legacyKey := filepath.ToSlash(filepath.Join("local", localRepoKey(alias)))
+	legacy := repoStorageForKey(dirs, legacyKey)
+	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
+		t.Fatalf("create legacy brain: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy.BrainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write legacy manifest: %v", err)
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {err: os.ErrNotExist},
+	}}
+	cmd := NewRootCommand(Options{Version: "test", Env: env, Runner: runner})
+
+	out, err := execute(t, cmd, "path", alias)
+	if err != nil {
+		t.Fatalf("path alias: %v\n%s", err, out)
+	}
+	if out != legacy.BrainDir+"\n" {
+		t.Fatalf("path alias output = %q, want legacy brain %q", out, legacy.BrainDir+"\n")
+	}
+	for _, call := range runner.calls {
+		if call.name != "git" {
+			t.Fatalf("legacy brain should avoid export, calls: %+v", runner.calls)
+		}
+	}
+}
+
+func TestResolveLocalTargetRepoDirPreservesLexicalAncestorAgainstGitPhysicalRoot(t *testing.T) {
+	parent := t.TempDir()
+	realParent := filepath.Join(parent, "real-parent")
+	realRepo := filepath.Join(realParent, "repo")
+	subdir := filepath.Join(realRepo, "subdir")
+	if err := os.MkdirAll(subdir, 0o700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	aliasParent := filepath.Join(parent, "alias-parent")
+	if err := os.Symlink(realParent, aliasParent); err != nil {
+		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
+	}
+	logicalRepo := filepath.Join(aliasParent, "repo")
+	logicalSubdir := filepath.Join(logicalRepo, "subdir")
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: realRepo + "\n"},
+	}}
+
+	resolved, local, err := resolveLocalTargetRepoDir(context.Background(), runner, logicalSubdir)
+	if err != nil {
+		t.Fatalf("resolve logical subdir: %v", err)
+	}
+	if !local {
+		t.Fatal("logical subdir was not local")
+	}
+	if resolved != logicalRepo {
+		t.Fatalf("resolved root = %q, want lexical root %q", resolved, logicalRepo)
+	}
+}
+
 func TestPathUsesExistingLocalBrainWithoutExport(t *testing.T) {
 	repoDir := t.TempDir()
 	subDir := filepath.Join(repoDir, "internal", "pkg")
@@ -190,7 +293,7 @@ func TestPathExportsExistingRepoWhenMissing(t *testing.T) {
 			stdout: "https://github.com/entireio/cli.git\n",
 		},
 		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
 		},
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {

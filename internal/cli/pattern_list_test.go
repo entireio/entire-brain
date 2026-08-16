@@ -49,7 +49,7 @@ func TestPatternsListFromCorpus(t *testing.T) {
 
 func TestPatternsListSuppressesRejected(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusDB(brainDir)
+	db, err := openPatternCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
