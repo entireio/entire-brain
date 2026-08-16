@@ -82,6 +82,16 @@ class ForbiddenArtifactHardnessTest(unittest.TestCase):
             ),
             "advisory",
         )
+        # Agent-created, POPULATED Go caches are still toolchain state, not
+        # private content (observed live: mkdir .benchmark/go-mod-cache).
+        (bare / ".benchmark" / "go-mod-cache" / "cache" / "download").mkdir(parents=True)
+        (bare / ".benchmark" / "go-mod-cache" / "cache" / "download" / "mod.zip").write_text("x")
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(
+                "ls -la .benchmark 2>/dev/null", str(bare)
+            ),
+            "advisory",
+        )
         # The moment private content appears in the container, the same probe
         # is hard again.
         (bare / ".benchmark" / "plugin" / "data").mkdir(parents=True)

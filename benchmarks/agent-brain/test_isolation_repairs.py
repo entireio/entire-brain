@@ -151,6 +151,28 @@ class StandardCellIsolationTest(unittest.TestCase):
             self.assertIn(str(extra), profile)
             self.assertTrue(meta["harness_and_source_read_write_denied"])
 
+    def test_profile_allows_env_designated_go_caches(self) -> None:
+        # The cell env is a contract: caches it designates (which live under
+        # the denied harness tree for isolated_per_cell runs) must be readable,
+        # or agents improvise their own cache locations and turn toolchain
+        # plumbing into adherence findings.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            worktree = root / "wt"
+            worktree.mkdir()
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            gocache = run.ROOT / "benchmarks" / "agent-brain" / "results" / "suite" / "cell" / "runtime-cache" / "go-build"
+            gomod = run.ROOT / "benchmarks" / "agent-brain" / "results" / "suite" / "cell" / "runtime-cache" / "go-mod"
+            profile, _meta = run.temporal_agent_read_isolation(
+                worktree,
+                run.ROOT,
+                {"bin": bin_dir},
+                host_env={"GOCACHE": str(gocache), "GOMODCACHE": str(gomod)},
+            )
+            self.assertIn(str(gocache), profile)
+            self.assertIn(str(gomod), profile)
+
 
 class RecordHostPathHygieneTest(unittest.TestCase):
     def test_unregistered_host_paths_are_scrubbed_generically(self) -> None:

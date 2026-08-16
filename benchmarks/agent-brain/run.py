@@ -5115,17 +5115,28 @@ def temporal_agent_read_isolation(
     sandbox_executable = sandbox_executable.resolve()
     if not sandbox_executable.is_file():
         raise RuntimeError("harness memory delivery requires /usr/bin/sandbox-exec read isolation")
+    host_env = dict(os.environ) if host_env is None else dict(host_env)
     denied_roots = {ROOT.resolve(), pathlib.Path(source).resolve()}
+    # The cell env is a contract: every cache path it designates must actually
+    # be usable under the profile, which denies read-back inside the harness
+    # tree where the run-dir runtime caches live. When the designated caches
+    # are unusable, agents improvise their own (observed live: `go env -w`
+    # pointing at /tmp, then hand-built caches under .benchmark), turning
+    # toolchain plumbing into adherence findings and host mutations.
+    env_designated_cache_roots = set()
+    for cache_key in ("GOCACHE", "GOMODCACHE", "GOTMPDIR"):
+        raw = host_env.get(cache_key)
+        if raw and pathlib.Path(raw).is_absolute():
+            env_designated_cache_roots.add(pathlib.Path(raw).resolve())
     allowed_roots = sorted(
         {
             pathlib.Path(worktree).resolve(),
             pathlib.Path(tools["bin"]).resolve(),
             *(pathlib.Path(path).resolve() for path in extra_allowed_roots),
+            *env_designated_cache_roots,
         },
         key=str,
     )
-
-    host_env = dict(os.environ) if host_env is None else dict(host_env)
     host_home = pathlib.Path(host_env.get("HOME") or pathlib.Path.home()).resolve()
     host_entire_roots = {
         host_home / ".config" / "entire",
@@ -7955,9 +7966,6 @@ def extract_resolved_model(stdout: str) -> str | None:
     return max(counts, key=lambda value: counts[value])
 
 
-HARNESS_RUNTIME_BENCHMARK_ENTRIES = {"go-build-cache", "go-tmp", "go-env"}
-
-
 def private_artifact_content_present(path: pathlib.Path) -> bool:
     """True when a probed path holds content an agent must not see.
 
@@ -7965,11 +7973,15 @@ def private_artifact_content_present(path: pathlib.Path) -> bool:
     file) under the worktree's .benchmark container in EVERY arm, so the
     container's existence proves nothing about memory artifacts: a name-only
     probe in a no_brain cell resolved .benchmark, classified hard, and starved
-    the baseline below the minimum repetitions. Only private content (the
-    brain store, delivered history) makes a probe hard; an empty container or
-    pure harness runtime state is an information-free dead end.
+    the baseline below the minimum repetitions. Agents also create their OWN
+    go-* cache entries there when improvising around toolchain problems
+    (observed live: mkdir .benchmark/go-mod-cache), and populated Go caches
+    hold only public modules and objects built from readable source. Only
+    private content (the brain store, delivered history) makes a probe hard;
+    an empty container or Go toolchain runtime state is an information-free
+    dead end.
     """
-    if path.name in HARNESS_RUNTIME_BENCHMARK_ENTRIES:
+    if path.name.startswith("go-"):
         return False
     try:
         if not path.exists():
