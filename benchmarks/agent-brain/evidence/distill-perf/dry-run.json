@@ -1,25 +1,34 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-06-11T00:59:27.154407Z",
-  "brain_path": "/tmp/pr33-evidence-data/repos/gh/ashtom/entire-brain",
+  "generated_at": "2026-08-16T12:07:11.059373Z",
+  "brain_path": "/tmp/distill-evidence-data/repos/gh/ashtom/entire-brain",
   "force": true,
   "agent": "command",
   "jobs": 1,
   "extraction_jobs_cap": 1,
   "max_chunk_bytes": 262144,
   "confidence_threshold": 0.75,
-  "sessions": 158,
+  "sessions": 186,
   "cached_sessions": 0,
-  "sessions_to_distill": 158,
+  "sessions_to_distill": 186,
   "missing_transcripts": 0,
-  "raw_bytes": 379742189,
-  "preprocessed_bytes": 11748560,
-  "chunks": 185,
-  "chunks_if_uncached": 185,
-  "extraction_agent_calls": 185,
-  "reconcile_agent_calls_upper_bound": 185,
-  "estimated_agent_calls_upper_bound": 370,
+  "raw_bytes": 521933198,
+  "preprocessed_bytes": 14448382,
+  "chunks": 216,
+  "chunks_if_uncached": 216,
+  "extraction_agent_calls": 216,
+  "reconcile_agent_calls_upper_bound": 216,
+  "estimated_agent_calls_upper_bound": 432,
   "branches": [
+    {
+      "branch": "claude/pr49-review-fixes",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 109811
+    },
     {
       "branch": "claude/thomas-asks",
       "sessions": 1,
@@ -30,22 +39,13 @@
       "preprocessed_bytes": 806422
     },
     {
-      "branch": "codex/release-readiness-audit-cleanup",
-      "sessions": 2,
+      "branch": "codex/full-plan-implementation",
+      "sessions": 1,
       "cached_sessions": 0,
-      "sessions_to_distill": 2,
-      "chunks": 13,
-      "chunks_if_uncached": 13,
-      "preprocessed_bytes": 3036863
-    },
-    {
-      "branch": "codex/release-readiness-hardening",
-      "sessions": 7,
-      "cached_sessions": 0,
-      "sessions_to_distill": 7,
-      "chunks": 11,
-      "chunks_if_uncached": 11,
-      "preprocessed_bytes": 1165174
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 112704
     },
     {
       "branch": "codex/thomas-release-readiness",
@@ -64,6 +64,15 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 298305
+    },
+    {
+      "branch": "feat/r0-correctness-repair",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 139192
     },
     {
       "branch": "feat/stage1a-derived-index",
@@ -84,6 +93,33 @@
       "preprocessed_bytes": 145175
     },
     {
+      "branch": "feat/workspace-dir-home",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 125554
+    },
+    {
+      "branch": "fix/bugbot-review-findings",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 85228
+    },
+    {
+      "branch": "fix/release-evidence-gate",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 160149
+    },
+    {
       "branch": "harvest/agent-ux-and-embedder-ux",
       "sessions": 1,
       "cached_sessions": 0,
@@ -94,19 +130,28 @@
     },
     {
       "branch": "main",
-      "sessions": 143,
+      "sessions": 171,
       "cached_sessions": 0,
-      "sessions_to_distill": 143,
-      "chunks": 148,
-      "chunks_if_uncached": 148,
-      "preprocessed_bytes": 5305311
+      "sessions_to_distill": 171,
+      "chunks": 194,
+      "chunks_if_uncached": 194,
+      "preprocessed_bytes": 11262709
+    },
+    {
+      "branch": "pr35-fixes",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 211823
     }
   ],
   "largest_sessions": [
     {
       "session_id": "019eacc8-4c81-7c91-b807-b3c82bbba45d",
-      "branch": "codex/release-readiness-audit-cleanup",
-      "transcript": "sessions/branches/codex-release-readiness-audit-cleanup-62d9e2f9/20260610T193245Z_codex_019eacc8-4c81-7c91-b807-b3c82bbba45d_2a5d7c0001d4.jsonl",
+      "branch": "main",
+      "transcript": "sessions/main/20260611T045448Z_codex_019eacc8-4c81-7c91-b807-b3c82bbba45d_4c4529ffc1ee.jsonl",
       "cached": false,
       "chunks": 9,
       "chunks_if_uncached": 9,
@@ -115,23 +160,13 @@
     },
     {
       "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
-      "branch": "codex/release-readiness-audit-cleanup",
-      "transcript": "sessions/branches/codex-release-readiness-audit-cleanup-62d9e2f9/20260610T192127Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_ef1b4e94861f.jsonl",
+      "branch": "main",
+      "transcript": "sessions/main/20260705T215931Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_1f324c1e0b17.jsonl",
       "cached": false,
-      "chunks": 4,
-      "chunks_if_uncached": 4,
-      "raw_bytes": 31099090,
-      "preprocessed_bytes": 880265
-    },
-    {
-      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
-      "branch": "codex/release-readiness-hardening",
-      "transcript": "sessions/branches/codex-release-readiness-hardening-7906d857/20260610T173430Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_f46f98590028.jsonl",
-      "cached": false,
-      "chunks": 4,
-      "chunks_if_uncached": 4,
-      "raw_bytes": 30982901,
-      "preprocessed_bytes": 875745
+      "chunks": 7,
+      "chunks_if_uncached": 7,
+      "raw_bytes": 52419357,
+      "preprocessed_bytes": 1574660
     },
     {
       "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
@@ -144,14 +179,14 @@
       "preprocessed_bytes": 849723
     },
     {
-      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+      "session_id": "019f8699-0371-7851-a1ea-91e735789006",
       "branch": "main",
-      "transcript": "sessions/main/20260609T165349Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_eccdab54b573.jsonl",
+      "transcript": "sessions/main/20260724T195219Z_codex_019f8699-0371-7851-a1ea-91e735789006_a8a92a057db2.jsonl",
       "cached": false,
       "chunks": 4,
       "chunks_if_uncached": 4,
-      "raw_bytes": 30729719,
-      "preprocessed_bytes": 849723
+      "raw_bytes": 41630069,
+      "preprocessed_bytes": 840274
     },
     {
       "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
@@ -164,6 +199,16 @@
       "preprocessed_bytes": 806422
     },
     {
+      "session_id": "928f9558-c860-40f7-919a-be6fa62f3381",
+      "branch": "main",
+      "transcript": "sessions/main/20260715T082213Z_claude-code_928f9558-c860-40f7-919a-be6fa62f3381_d4d383d2bd17.jsonl",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "raw_bytes": 18573785,
+      "preprocessed_bytes": 725743
+    },
+    {
       "session_id": "019e849b-3b23-7890-8852-066ab00a19ad",
       "branch": "main",
       "transcript": "sessions/main/20260602T171529Z_codex_019e849b-3b23-7890-8852-066ab00a19ad_ae53453795e3.jsonl",
@@ -172,6 +217,16 @@
       "chunks_if_uncached": 3,
       "raw_bytes": 9232578,
       "preprocessed_bytes": 616181
+    },
+    {
+      "session_id": "7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35",
+      "branch": "main",
+      "transcript": "sessions/main/20260618T081610Z_claude-code_7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35_c8a94cbb6806.jsonl",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "raw_bytes": 16508099,
+      "preprocessed_bytes": 316362
     },
     {
       "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
@@ -192,16 +247,6 @@
       "chunks_if_uncached": 2,
       "raw_bytes": 12645268,
       "preprocessed_bytes": 298305
-    },
-    {
-      "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
-      "branch": "codex/release-readiness-hardening",
-      "transcript": "sessions/branches/codex-release-readiness-hardening-7906d857/20260610T173425Z_claude-code_3c8f3e78-b939-42b0-8ab8-aae534b6f768_f46f98590028.jsonl",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "raw_bytes": 4414879,
-      "preprocessed_bytes": 266234
     }
   ]
 }
