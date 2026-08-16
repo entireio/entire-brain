@@ -3692,6 +3692,17 @@ def baseline_history_audit(
         for attestation in attestations
         if isinstance(attestation, dict) and attestation.get("source_history_parent")
     }
+    # The workspace side of the synthetic merge: HEAD and its first parent.
+    # A diff is only revealing when it spans the boundary — workspace content
+    # against the attested source-history parent. Diffs between the boundary
+    # parent and its own ancestors are ordinary history archaeology.
+    workspace_commits = {
+        str(attestation.get(key))
+        for attestation in attestations
+        if isinstance(attestation, dict)
+        for key in ("head_commit", "first_parent")
+        if attestation.get(key)
+    }
     findings: list[dict[str, Any]] = []
     for command in commands:
         try:
@@ -3729,19 +3740,34 @@ def baseline_history_audit(
         # baseline row that never touched boundary content. What stays hard is
         # USING the boundary: ^2/^@ refs, merge patches, and diffs against the
         # attested parent hash (boundary_diff / derived_boundary_diff below).
-        exact_boundary_ref = False
-        for token in lowered:
-            for revision in re.split(r"\.{2,3}", token):
-                if not re.fullmatch(r"[0-9a-f]{7,40}", revision):
-                    continue
-                if any(commit.lower().startswith(revision) for commit in boundary_commits):
-                    exact_boundary_ref = True
-                    break
-            if exact_boundary_ref:
-                break
+        revision_tokens = [
+            revision
+            for token in lowered
+            for revision in re.split(r"\.{2,3}", token)
+            if re.fullmatch(r"[0-9a-f]{7,40}", revision)
+        ]
+        exact_boundary_ref = any(
+            any(commit.lower().startswith(revision) for commit in boundary_commits)
+            for revision in revision_tokens
+        )
+        exact_workspace_ref = any(
+            any(commit.lower().startswith(revision) for commit in workspace_commits)
+            for revision in revision_tokens
+        )
+        # Hard only when the diff spans the boundary: the attested parent
+        # against the workspace side (HEAD textually, a workspace hash, or a
+        # one-sided diff whose implicit other side is the worktree). Observed
+        # live: `git diff <ancestor> <boundary-parent> -- file` — two commits
+        # inside ordinary source history — was flagged and vetoed a bundle
+        # while revealing nothing the agent could not read with git log -p.
         boundary_diff = bool(
             re.search(r"\bgit\s+diff\b", joined)
             and exact_boundary_ref
+            and (
+                exact_workspace_ref
+                or re.search(r"\bhead\b|(?<![\w])@(?![\w])", joined)
+                or len(revision_tokens) == 1
+            )
         )
         derived_boundary_diff = bool(
             re.search(r"\bgit\s+diff\b", joined)
@@ -8033,6 +8059,12 @@ def private_artifact_reference_hardness(token: str, worktree: str | None) -> str
     # correctly against the worktree, and only content that is actually there
     # makes the probe hard.
     relative = cleaned[start:]
+    # Go runtime state may be referenced by a subpath whose own name has no
+    # go- prefix (observed live: .benchmark/go-tmp/gocache-scratch, an
+    # agent-made GOCACHE inside the exempt go-tmp entry). Any reference that
+    # passes through a go-* component is toolchain plumbing, not memory.
+    if any(part.startswith("go-") for part in pathlib.PurePosixPath(relative).parts):
+        return "advisory"
     return (
         "hard"
         if private_artifact_content_present(pathlib.Path(worktree) / relative)

@@ -92,6 +92,16 @@ class ForbiddenArtifactHardnessTest(unittest.TestCase):
             ),
             "advisory",
         )
+        # A subpath THROUGH a go-* entry is exempt even when its own name has
+        # no go- prefix (observed live: .benchmark/go-tmp/gocache-scratch).
+        (bare / ".benchmark" / "go-tmp" / "gocache-scratch").mkdir(parents=True)
+        (bare / ".benchmark" / "go-tmp" / "gocache-scratch" / "obj").write_text("x")
+        self.assertEqual(
+            run.command_forbidden_memory_artifact_hardness(
+                "export GOCACHE=.benchmark/go-tmp/gocache-scratch", str(bare)
+            ),
+            "advisory",
+        )
         # The moment private content appears in the container, the same probe
         # is hard again.
         (bare / ".benchmark" / "plugin" / "data").mkdir(parents=True)
