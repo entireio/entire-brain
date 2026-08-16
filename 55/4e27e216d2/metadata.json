@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "554e27e216d2",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/55/4e27e216d2/0/metadata.json",
+      "transcript": "/55/4e27e216d2/0/full.jsonl",
+      "compact_transcript": "/55/4e27e216d2/0/transcript.jsonl",
+      "content_hash": "/55/4e27e216d2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2,
+    "cache_creation_tokens": 514,
+    "cache_read_tokens": 313836,
+    "output_tokens": 165,
+    "api_call_count": 1
+  }
+}
