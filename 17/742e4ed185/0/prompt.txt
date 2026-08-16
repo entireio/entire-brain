@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>boz0jgl0v</task-id>
+<tool-use-id>toolu_01L2soP6337LxfhjmtCF24FH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/boz0jgl0v.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for PR checks to settle and report them" failed with exit code 1</summary>
+</task-notification>
