@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "a7aae1f331b5",
+  "session_id": "f4cbf1aa-f617-43ee-8b24-f2077cd47262",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-16T19:26:41.861937Z",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.json",
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "bf8950f872dc",
+  "checkpoint_transcript_start": 1779,
+  "transcript_lines_at_start": 1779,
+  "compact_transcript_start": 477,
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 11301,
+    "cache_read_tokens": 8733578,
+    "output_tokens": 6571,
+    "api_call_count": 18
+  },
+  "session_metrics": {
+    "turn_count": 18
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-16T19:26:41.728958Z",
+    "agent_lines": 2,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "total_lines_changed": 4,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

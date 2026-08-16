@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "a7aae1f331b5",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.json",
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a7/aae1f331b5/0/metadata.json",
+      "transcript": "/a7/aae1f331b5/0/full.jsonl",
+      "compact_transcript": "/a7/aae1f331b5/0/transcript.jsonl",
+      "content_hash": "/a7/aae1f331b5/0/content_hash.txt",
+      "prompt": "/a7/aae1f331b5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 11301,
+    "cache_read_tokens": 8733578,
+    "output_tokens": 6571,
+    "api_call_count": 18
+  }
+}

@@ -1,0 +1,15 @@
+<task-notification>
+<task-id>bmv8f6pp1</task-id>
+<tool-use-id>toolu_01SenuY1RvusbyW7Q2Q25pMf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bmv8f6pp1.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for all PR checks to settle" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Merge and watch CI
+
+---
+
+Update?
