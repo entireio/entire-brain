@@ -1,0 +1,102 @@
+<task-notification>
+<task-id>b3fstm1oa</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/b3fstm1oa.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the main CI run and report per-job results" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bthfaiq2t</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/bthfaiq2t.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch the new main CI run to completion" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+All PRs closed?
+
+---
+
+Yes, do that
+
+---
+
+<task-notification>
+<task-id>aac93e974971d3076</task-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/aac93e974971d3076.output</output-file>
+<status>completed</status>
+<summary>Agent "/code-review 85 high" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All verifications are complete. Tally: 41 candidates survived (20 correctness CONFIRMED + 1 PLAUSIBLE; 19 cleanup CONFIRMED + 1 PLAUSIBLE; 2 REFUTED — the doctor read-only redesign is documented and tested as intentional, and the export settings-loader duplication has no in-repo helper to reuse). The 10-finding cap forces cuts; per the protocol, correctness outranks cleanup, so all cleanup findings (duplicated versioned-decode dance, four bounded-fit loops, per-open SQLite copies, full privacy re-verification up to 3x per retrieve, double corpus SHA-256 on refresh, dead wrappers, go-* name exemption, seatbelt config-name tuple, depth-1 help sentinel, etc.) and the lower-severity correctness survivors (empty-code health issues, duplicate-manifest stale-job parking, phantom vector progress, unsynchronized worker log, staging-dir leak, FTS first-query rebuild, excerpt omitempty narrowing, overlay-forced exhaustive scan) were cut. The two export stale-sweep variants were merged into one finding.
+
+```json
+[
+  {
+    "file": "internal/cli/export.go",
+    "line": 2498,
+    "summary": "The stale-file sweep runs against incomplete session sets: routed discovery downgrades per-checkpoint explain failures to a warning (and snapshot discovery drops unreadable checkpoints with UnreadableCheckpoints never consulted), so cleanupStaleSessionFiles deletes previously exported transcripts for checkpoints that merely failed to enumerate",
+    "failure_scenario": "Persistent brain holds transcripts for checkpoints A and B; on the next export `entire checkpoint explain B` fails transiently (or B is dropped at the metadata stage via unreadable[id] at export.go:1582). selectRoutedCheckpointSessions only appends a checkpoint_scope_incomplete warning; transcriptsComplete stays true (it is set only by per-blob read failures at export.go:2710), so cleanupStaleSessionFiles(outputDir, sessions) at export.go:331 deletes B's previously exported transcripts and the indexed history is silently destroyed. Before this change detailErr aborted the export."
+  },
+  {
+    "file": "internal/cli/memory_abstract.go",
+    "line": 2044,
+    "summary": "sessionRefsForSessionID omits the distillDefaultBranch/manifest fallback the abstract write path uses, so purge and privacy verify compute a different session ref and miss stored abstracts while reporting clean",
+    "failure_scenario": "Manifest with empty Sources.Sessions.DefaultBranch (json omitempty, reachable) and a session with empty Branch: abstracts are written under conversationSessionRef(repoKey, \"main\", id) via conversationCanonicalBranch (conversation_session.go:58-68 falls back to distillDefaultBranch=\"main\"), but sessionRefsForSessionID hashes branch \"\" -&gt; different sha256, so purgeSessionAbstractsForRefs (session_privacy.go:1055) and verify's ref-owner lookup (session_privacy_verify.go:553) skip the artifact: an excluded/purged session's transcript-derived abstract survives while verify publishes Clean=true."
+  },
+  {
+    "file": "internal/cli/workspace_patterns.go",
+    "line": 687,
+    "summary": "runWorkspaceSkillsList treats a missing workspace manifest as zero privacy policies but still reads and emits families from a surviving workspace corpus, bypassing the derived-read privacy gate",
+    "failure_scenario": "workspace.json is lost (crash/partial delete) while &lt;wsDir&gt;/patterns/corpus.sqlite survives: the os.IsNotExist branch skips captureWorkspaceDerivedReadPolicies entirely (no member tombstone policies, no requirePrivacyDerivedRead on the workspace corpus), then loadAcceptedWorkspaceFamiliesChecked -&gt; openPatternCorpusReadDBIfPresent queries deep_dossiers and emits member-transcript-derived family content with an empty policy set — including content from sessions a member brain has since excluded."
+  },
+  {
+    "file": "internal/cli/memory_abstract.go",
+    "line": 2538,
+    "summary": "`oneOff := provider != \"\" || model != \"\" || allowEgress` makes override/acknowledgment flags trigger durable enqueue plus immediate provider generation — including hosted egress — without the documented --generate action flag",
+    "failure_scenario": "`entire memory abstract &lt;ref&gt; --provider codex --allow-hosted-egress` without --generate: mutating becomes true, enqueueManualAbstractJobWithReceipt creates a durable job and driveManualAbstractJob (memory_abstract.go:2644) immediately drives a paid hosted provider call sending session projections off-machine, though the flag docs (:2705-2709) present --generate as \"Generate now\" and --allow-hosted-egress as an acknowledgment \"for this generation only\"."
+  },
+  {
+    "file": "internal/cli/refresh.go",
+    "line": 439,
+    "summary": "historyIndexCurrent on the unvalidated `brain refresh` path calls loadSessionTombstones, which this branch rewrote to panic on any load error, so a corrupt or forward-version tombstone file crashes refresh",
+    "failure_scenario": "session-tombstones.json is truncated, contains an unknown field (DisallowUnknownFields at session_privacy.go:242), or was written by a newer CLI (version check at :233): runRefresh reaches historyIndexCurrent with no prior checked load and no recover() on this path, and loadSessionTombstones (session_privacy.go:279-283) panics instead of returning the typed memory_state_corrupt/unsupported error every other boundary returns."
+  },
+  {
+    "file": "internal/cli/session_privacy_verify.go",
+    "line": 751,
+    "summary": "Derived-store staleness is judged against the tombstone FILE mtime, so any tombstone rewrite (e.g. `sessions include` of one session while another stays excluded) falsely marks every clean derived store dirty and blocks all derived reads",
+    "failure_scenario": "Exclude A and B (tombstone mtime T0), rebuild stores at T1&gt;T0 (clean), then `sessions include A`: includeSessionLocked (session_privacy.go:683-748) rewrites session-tombstones.json (mtime T2&gt;T1) but rebuilds only the history projection. B is still excluded, so the next requirePrivacyDerivedRead uses cutoff=T2 (verify cutoff := tombstoneInfo.ModTime() at :716), every store fails ModTime().After(cutoff), and all pattern/retrieval/derived surfaces return 'deletion failed or was skipped, re-run purge' until the user re-purges."
+  },
+  {
+    "file": "internal/cli/export.go",
+    "line": 966,
+    "summary": "The --search-all branch passes `--limit 0` unconditionally to the external `entire checkpoint explain` CLI, which rejects any explicit limit &lt;= 0, so default routed complete discovery now fails",
+    "failure_scenario": "defaultCheckpointLimit was changed to 0 (\"0 means all\") in this diff; listAllRoutedCheckpoints runs `entire checkpoint explain --json --search-all --limit 0`, and the real entire CLI (cmd/entire/cli/explain.go:489-494) errors '--limit must be positive' when the flag is explicitly passed with &lt;= 0. Default routed discovery therefore fails and degrades to the checkpoint_scope_incomplete local-refs fallback (export.go:886-888), defeating the complete-inventory contract; the sibling non-search-all branch's `else if limit &gt; 0` guard shows the intended handling."
+  },
+  {
+    "file": "benchmarks/agent-brain/run.py",
+    "line": 8043,
+    "summary": "private_artifact_reference_hardness truncates the token at the first glob metachar BEFORE searching for private markers, so leading-glob references to real private artifacts are always downgraded to advisory",
+    "failure_scenario": "Agent runs `cat **/.entire/facts.ndjson` (or globs '**/.benchmark/**') against a populated brain store: cleaned = token.split('*',1)[0] = '', the marker search over the empty string returns start == -1, and the function returns 'advisory' — a hard access to existing private content is not flagged, adherence_ok stays true, and the contaminated row is retained in the benchmark comparison."
+  },
+  {
+    "file": "benchmarks/agent-brain/run.py",
+    "line": 3647,
+    "summary": "REMOTE_SOURCE_FETCH_RE is a command-vocabulary blocklist and the sole gate against network recovery of scrubbed source — the sandbox has no network rules — so `go mod download`/`go get`/pip/urllib fetches bypass it undetected",
+    "failure_scenario": "The seatbelt profile (run.py:5231+) is `(allow default)` with only file-read/write and process-exec denies, and no GOPROXY=off is set for agent runs; a no_brain agent runs `go mod download &lt;upstream&gt;@latest` (the exact upstream named in go.mod that the observed live incident cloned), matches nothing in the git/curl/wget/gh regex, recovers the scrubbed answer, and remote_source_fetch_audit returns ok=True — corrupting the measured comparison this audit exists to protect."
+  },
+  {
+    "file": "benchmarks/agent-brain/temporal-memory/generate_sealed_report.py",
+    "line": 108,
+    "summary": "Report-regeneration scripts (also generate_report.py:118) call the changed extract_agent_activity() without the new worktree argument, so the fail-closed worktree=None branch reclassifies advisory dead-end probes as hard violations, contradicting the recorded run",
+    "failure_scenario": "run.py's hardness audit now grades probes by actual worktree content (`if worktree is None: return \"hard\"` at ~run.py:8036; the go-* exemption is below that) and the live run passes str(worktree) (run.py:7135). Regenerating a sealed report over retained results re-audits stored stdout with worktree=None, so a run whose `ls .entire` probe against the physically removed store was accepted as advisory is now flagged forbidden_memory_artifact_access -&gt; 'protocol audit failed', producing different per-condition retention than the run records it summarizes."
+  }
+]
+```</result>
+<usage><subagent_tokens>95092</subagent_tokens><tool_uses>24</tool_uses><duration_ms>1187354</duration_ms></usage>
+</task-notification>
