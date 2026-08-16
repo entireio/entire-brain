@@ -22,8 +22,9 @@ machine.
 local memory. `entire-graph` is the semantic provider: it parses source locally and
 gives the brain a code-structure graph (symbols, relations, boundaries, and
 likely tests), with freshness and blind-spot reporting so an agent knows how far
-to trust it. The local replay-lab agent-benchmark harness measures whether those
-tools improve task outcomes, instead of relying on demos or anecdotes.
+to trust it. The local entire-replay-lab agent-benchmark harness measures
+whether those tools improve task outcomes, instead of relying on demos or
+anecdotes.
 
 ## What Is Shipped
 
@@ -109,10 +110,9 @@ items here measure whether the tools change agent outcomes on a task.
 
 ## Blocked Or Access-Dependent
 
-- Backend-specific audits wait for backend access. [Unverified from this repo.]
-- Slack and onboarding-dependent release workflow details wait for workspace
-  access. [Unverified from this repo.]
-- Frontend and hosted-model distill latency, paired facts evals, and broader
+- Backend-specific audits and Slack/onboarding-dependent release workflow
+  details wait for backend/Slack access. [Unverified from this repo.]
+- Frontend/hosted-model distill latency, paired facts evals, and broader
   multi-task replay evidence are still pending. The large-repo command-agent
   extraction-scheduler speedup is retained (`distill-perf-large`); the
   hosted-model latency and fact-quality claim is not.
