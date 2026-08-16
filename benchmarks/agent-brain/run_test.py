@@ -2253,8 +2253,28 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertTrue(activity["first_tool_is_memory_search"])
 
     def test_baseline_history_audit_allows_git_history_but_rejects_setup_boundary(self):
-        attestation = {"source_history_parent": "a" * 40}
-        ordinary = {"activity": {"commands": ["git log -p -- src/file.go", "git blame src/file.go"]}}
+        attestation = {
+            "source_history_parent": "a" * 40,
+            "head_commit": "b" * 40,
+            "first_parent": "c" * 40,
+        }
+        ordinary = {
+            "activity": {
+                "commands": [
+                    "git log -p -- src/file.go",
+                    "git blame src/file.go",
+                    # Parent discovery is commit-graph metadata that plain
+                    # `git log` prints for any merge; only USING the boundary
+                    # (^2 refs, merge patches, diffs against the attested
+                    # parent) reconstructs the setup mutation.
+                    "git log --oneline -5 --parents; echo ---; git cat-file -p HEAD | head -20",
+                    "git show --format=%P --no-patch HEAD",
+                    # A diff between the boundary parent and its own ancestor
+                    # never touches the workspace side: ordinary archaeology.
+                    f"git diff {'d' * 40} {'a' * 40} -- internal/cli/export.go",
+                ]
+            }
+        }
         self.assertTrue(run.baseline_history_audit(ordinary, [attestation])["ok"])
         for command in [
             "git diff HEAD^2 HEAD",
@@ -2265,10 +2285,12 @@ class RunnerAndConditionTests(unittest.TestCase):
             "git diff HEAD@{1}",
             "git reflog -p",
             "git log -g -p",
-            "git show --format=%P --no-patch HEAD",
-            "git cat-file -p HEAD",
             "git show -m HEAD",
             f"git diff {'a' * 40} HEAD",
+            # One-sided diff: the implicit other side is the worktree.
+            f"git diff {'a' * 40} -- internal/cli/export.go",
+            # Boundary parent against a workspace-side hash.
+            f"git diff {'a' * 40} {'c' * 40}",
         ]:
             audit = run.baseline_history_audit({"activity": {"commands": [command]}}, [attestation])
             self.assertFalse(audit["ok"], command)

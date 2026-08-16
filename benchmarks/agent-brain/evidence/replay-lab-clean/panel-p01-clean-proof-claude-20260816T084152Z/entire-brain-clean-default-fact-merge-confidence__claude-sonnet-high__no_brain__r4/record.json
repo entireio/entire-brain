@@ -1,0 +1,890 @@
+{
+  "adherence_ok": true,
+  "agent": "claude",
+  "agent_baseline_history": {
+    "commit_count": 424,
+    "first_parent": "2d383620e9d1dc5609f1657d1d40a4b247433b03",
+    "head_commit": "b46dd08390d34fd5ebb2ec714e452fdeae33a044",
+    "mode": "isolated_filtered_source_history",
+    "orig_head_exists": false,
+    "parent_count": 2,
+    "private_path_findings": [],
+    "private_paths_filtered": true,
+    "repository_isolated": true,
+    "shared_object_store": false,
+    "source_history_available": true,
+    "source_history_parent": "9fe412a262a23ee04687e17ac98699b646a2382a",
+    "visible_reflog_entries": 0,
+    "visible_refs": [],
+    "visible_remotes": []
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": true,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "commands": [
+        "grep -rn \"auto.apply\\|autoApply\\|AUTO_APPLY\" --include=*.ts --include=*.py --include=*.go --include=*.rs --include=*.js -il . 2>/dev/null | grep -v node_modules | grep -v .worktrees | head -50",
+        "grep -rniE \"auto.?apply|confidence.?gate|reconcile\" . --exclude-dir=node_modules --exclude-dir=.git -l 2>/dev/null | head -50",
+        "grep -n \"onfidence\" internal/cli/reconcile.go | head -50",
+        "grep -rn \"Threshold\\|threshold\" internal/cli/reconcile.go internal/cli/facts.go | head -50",
+        "grep -n \"Confidence\\|confidence\" internal/cli/facts.go | head -80",
+        "sed -n '1,140p' internal/cli/facts.go",
+        "grep -rn \"confidence\" internal/cli/distill_cmd.go",
+        "grep -n \"defaultFactConfidenceThreshold\" -r internal/cli/",
+        "sed -n '1,30p' internal/cli/facts_merge.go",
+        "git log --oneline --all -- internal/cli/facts_merge.go | head -30",
+        "git log --oneline --all | wc -l; git log --oneline --all | head -30",
+        "git log --oneline --all -- docs/durable_facts_plan.md docs/durable_facts_handover.md | head -30",
+        "git log --all --oneline | grep -i \"confiden\\|durable.fact\\|reconcile\" | head -30",
+        "git log --all --oneline | grep -iE \"threshold|confidence gate|auto-apply|autoapply\" | head -30",
+        "git log --all -p -- internal/cli/facts_merge.go | grep -n \"confidenceThreshold\\|Threshold = \\|0\\.[0-9]\" | head -60",
+        "for c in d1d751b c2bd2a5 4d51d02 bc11012 4781380 63d47f1 24f2cf9 774105e 925948f; do echo \"== $c ==\"; git show $c --stat | head -5; done",
+        "for c in d1d751b c2bd2a5 4d51d02 bc11012 4781380 24f2cf9; do echo \"== $c ==\"; git show $c | grep -in \"confidence\\|threshold\" ; done",
+        "git show d1d751b -- docs/durable_facts_plan.md | sed -n '440,480p'",
+        "git log --all -p -- docs/durable_facts_plan.md docs/durable_facts_handover.md docs/release_readiness_audit.md | grep -in \"0\\.[0-9]\\{1,2\\}\" | grep -i \"conf\\|threshold\\|gate\" ",
+        "git log --all -p --follow -- internal/cli/facts_merge.go 2>&1 | grep -n \"^commit\\|Threshold =\"",
+        "git log --all --follow --oneline -- internal/cli/facts_merge.go",
+        "git show 29688d6 --stat",
+        "grep -n \"confidence\" docs/durable_facts_handover.md docs/release_readiness_audit.md docs/durable_facts_plan.md 2>/dev/null",
+        "git log --all -p | grep -n \"ConfidenceThreshold = 0\\.\\|confidenceThreshold.*0\\.\\|\\-\\-confidence.*0\\.\\|confidence.*default.*0\\.\" -i | head -60",
+        "grep -n \"confidence\" README.md",
+        "find . -iname \"CHANGELOG*\" -not -path \"*/node_modules/*\" 2>/dev/null; git log --all --oneline | grep -i \"changelog\" | head",
+        "git log --all --oneline --follow -- internal/cli/distill_cmd.go | head -50",
+        "git show 538a05b | grep -n \"confidence\" -i -A3 -B3 | head -100",
+        "git show 5070683 | grep -n \"confidence\" -i | head -60",
+        "grep -n \"0\\.[0-9]\" internal/cli/reconcile.go internal/cli/facts_merge.go internal/cli/distill_cmd.go internal/cli/hook_cmd.go internal/cli/watch.go",
+        "git log --all --oneline -S\"defaultFactConfidenceThreshold =\" -- internal/cli/facts_merge.go",
+        "git merge-base --is-ancestor 29688d6 HEAD && echo \"ancestor\" || echo \"NOT ancestor\"\ngit branch --all --contains 29688d6 | head\ngit log --oneline -1 29688d6\ngit log --oneline -1 2d38362",
+        "git log --all --oneline -S\"defaultFactConfidenceThreshold =\"",
+        "git show 796b09e | grep -n \"confidence\" -i\necho ---\ngit show 30641c9 | grep -n \"confidence\" -i\necho ---\ngit show 90d94e3 | grep -n \"confidence\" -i",
+        "git log --all -p -S\"confidenceThreshold: 0.72\" | head -100",
+        "sed -n '90,130p' internal/cli/hook_cmd.go",
+        "grep -n \"\\\"reconcile\\\"\\|reconcileCmd\\|newReconcileCmd\" internal/cli/*.go | grep -v _test",
+        "sed -n '1,133p' internal/cli/facts_merge.go",
+        "git log --all --oneline -S\"ConfidenceThreshold\" | head -30",
+        "for c in 057a177 247f0a7 6f5641b 20b100d cba237e 5070683 29688d6; do echo \"== $c ==\"; git show $c -- internal/cli/facts_merge.go internal/cli/distill_cmd.go internal/cli/hook_cmd.go internal/cli/watch.go 2>/dev/null | grep -n \"ConfidenceThreshold\\s*=\\s*0\\|confidenceThreshold:\\s*0\\|\\\"confidence\\\", 0\"; done",
+        "grep -n \"0\\.[0-9][0-9]*\" docs/durable_facts_plan.md docs/durable_facts_handover.md docs/release_readiness_audit.md docs/worktree_overlay_seam.md docs/pattern_consolidation_plan.md docs/semantic_brain_plan.md 2>/dev/null",
+        "grep -n -- \"--confidence\" -r docs/ README.md 2>/dev/null",
+        "sed -n '690,725p' docs/durable_facts_plan.md",
+        "grep -n -i \"gate\\|threshold\\|reconcile\" docs/durable_facts_handover.md | head -60",
+        "go test ./internal/cli/... -run \"Confidence|Reconcile|Merge|Facts\" -v 2>&1 | tail -150",
+        "export GOCACHE=$(mktemp -d)\ngo env -w GOCACHE=$GOCACHE 2>&1 | head\ngo test ./internal/cli/... -run \"Confidence|Reconcile|Merge|Facts\" -v 2>&1 | tail -200",
+        "grep -n -i \"settle\\|decided\\|chose\\|choose\\|threshold\\|0\\.7\\|0\\.75\\|0\\.8\\b\\|0\\.65\\|0\\.6\\b\" docs/durable_facts_plan.md",
+        "grep -rn \">=\\s*0\\.\\|<\\s*0\\.\\|Threshold\\s*=\\s*0\\.\\|threshold\\s*=\\s*0\\.\" --include=*.go . | grep -v _test.go | grep -v node_modules",
+        "grep -rn \">=\\s*0\\.\\|<\\s*0\\.\\|[Tt]hreshold\\s*=\\s*0\\.\" $(find . -name \"*.go\" -not -path \"*/node_modules/*\") | grep -v _test.go",
+        "git show -s --format=fuller 29688d6",
+        "sed -n '1150,1175p' internal/cli/distill_cmd.go",
+        "git show -s --format=\"%H %ai %s\" 29688d6 2d38362 b46dd08 9fe412a",
+        "git log --oneline --first-parent b46dd08 | tail -20\necho ---\ngit log --oneline --first-parent b46dd08 | wc -l",
+        "grep -n \"onfidence\\|Threshold\\|auto.pply\\|auto_apply\" internal/cli/practices.go | head -40",
+        "grep -n \"onfidence\" internal/cli/history_semantic_calib_test.go | head -20",
+        "grep -rn \"0\\.75\" . --exclude-dir=.git --exclude-dir=node_modules 2>/dev/null | grep -v \"\\.worktrees\" ",
+        "sed -n '1,135p' internal/cli/reconcile.go",
+        "grep -rn \"confidenceThreshold\\s*:\" $(find . -name \"*.go\" -not -path \"*/node_modules/*\") | grep -v _test.go",
+        "git diff 29688d6 -- internal/cli/facts_merge.go | head -50\necho \"===diff with 2d38362===\"\ngit diff 2d38362 -- internal/cli/facts_merge.go | head -50",
+        "grep -rn \"confidence\" docs/durable_facts_plan.md docs/durable_facts_handover.md | grep -i \"%\\|percent\"\ngrep -rn \"%\" docs/durable_facts_plan.md | grep -i conf",
+        "grep -n -i \"reconcile\\|confidence\" internal/cli/pattern_dossier.go | head -40",
+        "grep -n \"Confidence:\\|confidence\" internal/cli/facts_merge_test.go",
+        "grep -rn \"FactConfidenceThreshold\\|fact_confidence_threshold\\|confidence_threshold\" $(find . -type f \\( -name \"*.go\" -o -name \"*.md\" -o -name \"*.json\" -o -name \"*.yaml\" -o -name \"*.yml\" -o -name \"*.toml\" \\) -not -path \"*/node_modules/*\" -not -path \"*/.git/*\")",
+        "git remote -v; head -3 go.mod 2>/dev/null",
+        "sed -n '190,230p' docs/durable_facts_plan.md",
+        "git log --all --format=\"%H %s\" | grep -iE \"confidence|threshold|gate\" ",
+        "sed -n '1,20p' internal/cli/facts_merge.go | cat -A | sed -n '13,18p'",
+        "sed -n '13,18p' internal/cli/facts_merge.go | cat -A -- -",
+        "grep -n -i \"reconcile\\|merge.*confidence\\|supersede\" docs/release_readiness_audit.md | head -40",
+        "grep -rn \"0\\.7\\b\" docs/ README.md 2>/dev/null",
+        "git reflog show --all 2>&1 | head -20\necho ---\ngit fsck --unreachable --no-reflogs 2>&1 | head -30",
+        "git show 605aa35 --stat | head -40",
+        "grep -rln \"confidence\" $(find . -type f -not -path \"./.git/*\" -not -path \"*/node_modules/*\") 2>/dev/null | grep -v \"\\.go$\" | grep -v \"\\.md$\"",
+        "git show c2bd2a5 | head -150",
+        "grep -n \"Threshold\\|0\\.[0-9]\" docs/durable_facts_plan.md | grep -v \"^.*[0-9]\\{2,\\}\\.[0-9]\"",
+        "grep -n -i \"reconcile\" docs/durable_facts_handover.md",
+        "sed -n '190,215p' docs/durable_facts_handover.md",
+        "find . -maxdepth 2 -type d -not -path \"./.git*\" | sort; find . -iname \"*entire-cli*\" -maxdepth 3",
+        "ls docs/archive/ 2>/dev/null; grep -rln \"confidence\" docs/archive/ 2>/dev/null",
+        "grep -n -i \"confidence\" docs/archive/agent_ux_polish_plan.md",
+        "grep -n -i \"reconcile\\|merge.*supersede\\|fact.*confidence\" docs/archive/progress-so-far.md | head -20",
+        "git log --all --oneline -p -- internal/cli/ | grep -nE \"^\\+.*0\\.7[0-9]?\\b|^-.*0\\.7[0-9]?\\b\" | grep -iv \"0.70[0-9]\\|667\\|076\\|71\\b\" | head -50",
+        "git log --all --oneline -S\"Threshold\" --all -- internal/cli/ 2>/dev/null | wc -l\ngit log --all -p -- internal/cli/ | grep -inE \"gateConfidence|minConfidence|confidenceGate|autoApplyThreshold|mergeThreshold|applyThreshold\" | head -20",
+        "sed -n '630,670p' internal/cli/distill_cmd.go",
+        "grep -n \"threshold\" internal/cli/distill_cmd.go",
+        "sed -n '560,650p' docs/durable_facts_plan.md",
+        "git show 925948f --stat",
+        "git show ca3e23f --stat | head -20",
+        "git for-each-ref | wc -l\ngit for-each-ref\ngit stash list\ngit tag",
+        "sed -n '1,60p' docs/release_readiness_audit.md",
+        "grep -rln \"confidence_threshold\" . --exclude-dir=.git 2>/dev/null",
+        "find . -iname \"*distill_perf*\" -o -iname \"*audit_distill*\" 2>/dev/null | grep -v .git",
+        "grep -rln \"supersede\" $(find . -name \"*.go\" -not -path \"*/node_modules/*\")",
+        "grep -n \"onfidence\\|hreshold\" internal/cli/facts_admin.go internal/cli/facts_admin_cmd.go",
+        "grep -n -i \"reconcile\\|confidence\" docs/worktree_overlay_seam.md | head -30",
+        "git show 29688d6:internal/cli/facts_merge_test.go | head -60",
+        "ls templates/ 2>/dev/null; grep -rln \"confidence\" templates/ 2>/dev/null",
+        "grep -n \"confidence\" templates/entire-brain-distill.md",
+        "grep -rln \"confidence\" scripts/ mise-tasks/ .devcontainer/ cmd/ 2>/dev/null\nfind . -iname \"*.yml\" -o -iname \"*.yaml\" | grep -v node_modules | grep -v .git | xargs grep -l \"confidence\" 2>/dev/null",
+        "git show 9fe412a --stat",
+        "grep -n -i \"confidence\\|threshold\\|0\\.7\\|gate\" docs/pattern_v3.md | head -60",
+        "sed -n '260,280p' docs/pattern_v3.md",
+        "grep -rn \"7/10\\|seventy\\|three.quarters\\|75%\\|70%\\|four.fifths\\|80%\" docs/ 2>/dev/null",
+        "sed -n '1,20p' docs/release-blockers.md; echo ...; grep -n -i \"fact.merge.confidence\\|merge.confidence\\|confidence.*gate\" docs/release-blockers.md",
+        "grep -n -i \"confidence\" docs/release-blockers.md",
+        "grep -rn -i \"auto-apply\\|auto apply\\|autoapply\" $(find . -type f -not -path \"./.git/*\" -not -path \"*/node_modules/*\") 2>/dev/null",
+        "sed -n '480,520p' docs/pattern_consolidation_plan.md",
+        "find . -maxdepth 1 -name \".*\" | sort",
+        "find .github -type f | head -30\ngrep -rln \"confidence\" .github .claude .brainignore 2>/dev/null",
+        "git show 29688d6:internal/cli/facts_merge.go | sed -n '1,20p' | od -c | grep -A2 \"0   .   7\"",
+        "git log --oneline --all --since=\"2026-06-01\" --until=\"2026-06-06\" --reverse | head -40",
+        "git log --oneline --date=short --pretty=\"%ad %h %s\" --all | awk '$1>=\"2026-06-01\" && $1<=\"2026-06-06\"'",
+        "git log --all -p | grep -B3 -iE \"(merge|supersede).{0,60}0\\.[0-9]{1,2}\\b\" | grep -v \"^--$\" | head -100",
+        "git show HEAD:internal/cli/facts_merge.go | sed -n '1,18p'",
+        "ls .claude/agents/ 2>/dev/null; grep -rln \"confidence\" .claude/ 2>/dev/null",
+        "echo \"=== all refs ===\" && git for-each-ref && echo \"=== fsck ===\" && git fsck --unreachable --no-reflogs --full 2>&1 | head -50 && echo \"=== reflog ===\" && git reflog show --all 2>&1 | head -50",
+        "for n in 0.6 0.65 0.68 0.7 0.72 0.73 0.75 0.78 0.8 0.82 0.85 0.9 0.95 70 72 75 78 80; do\n  hits=$(git log --all -S\"$n\" --oneline 2>/dev/null)\n  if [ -n \"$hits\" ]; then echo \"--- $n ---\"; echo \"$hits\"; fi\ndone",
+        "echo \"=== commits mentioning threshold/confidence in message body ===\" \ngit log --all --format='%H %s' -i --grep='threshold' --grep='confidence' 2>&1\necho \"=== full messages of key commits ===\"\nfor c in 29688d6 5070683 c5846ee 605aa35 9fe412a; do\n  echo \"----- $c -----\"\n  git log -1 --format='%B' \"$c\" 2>&1\ndone",
+        "echo \"=== all commits touching facts_merge.go or reconcile.go ===\"\ngit log --all --oneline --follow -- internal/cli/facts_merge.go internal/cli/reconcile.go 2>&1\necho \"=== grep repo for other confidence/threshold constants ===\"\ngrep -rniE \"confidenceThreshold|confidence_threshold|threshold.*confidence\" --include=\"*.go\" . 2>&1 | grep -v _test.go\necho \"=== grep test files for threshold literal expectations ===\"\ngrep -rniE \"0\\.[0-9]+\" internal/cli/facts_merge*.go internal/cli/reconcile*.go 2>&1",
+        "git show 29688d6 -- internal/cli/facts_merge.go | sed -n '1,60p'\necho \"=== check distill_cmd.go flag help / --confidence in docs ===\"\ngrep -rn \"confidence\" docs/*.md docs/archive/*.md 2>/dev/null | grep -iE \"0\\.[0-9]|threshold\"\necho \"=== check plan docs for any specific number ===\"\ngrep -rn \"0\\.7\\|confiden\" docs/durable_facts_plan.md docs/durable_facts_handover.md 2>/dev/null",
+        "sed -n '600,650p' docs/durable_facts_plan.md\necho \"---appendix search---\"\ngrep -n \"Appendix A\" docs/durable_facts_plan.md | head -5",
+        "git show -s --format=\"%H %P\" b46dd08\necho ---\ngit log --oneline b46dd08^2 -3 2>/dev/null\necho ---\ngit merge-base b46dd08^1 b46dd08^2",
+        "git show 9fe412a:internal/cli/facts_merge.go | sed -n '1,18p'",
+        "find . -name \"facts_merge*.go\" -not -path \"*/node_modules/*\"\ngrep -rn \"^//go:build\\|^// +build\" internal/cli/facts_merge.go\ngrep -rln \"applyFactActions\" $(find . -name \"*.go\" -not -path \"*/node_modules/*\")",
+        "find . -iname \"*.json\" -not -path \"*/node_modules/*\" -not -path \"./.git/*\" | xargs grep -l \"confidence_threshold\" 2>/dev/null\nfind . -iname \"*.ndjson\" -not -path \"*/node_modules/*\" -not -path \"./.git/*\" | xargs grep -l \"confidence_threshold\" 2>/dev/null\nfind . -type d -iname \"testdata\" -not -path \"*/node_modules/*\"",
+        "grep -rl \"confidence\" internal/cli/testdata/ 2>/dev/null\nls internal/cli/testdata | head -30",
+        "grep -n \"confidence\" internal/cli/testdata/embed_golden.json | head -5",
+        "git cat-file -p 2d38362^{tree} | grep -w internal\ngit ls-tree -r 2d38362 -- internal/cli/facts_merge.go",
+        "git ls-tree -r 9fe412a -- internal/cli/facts_merge.go\ngit ls-tree -r b46dd08 -- internal/cli/facts_merge.go\ngit ls-tree -r 29688d6 -- internal/cli/facts_merge.go",
+        "grep -rniE \"reconcile\" $(find . -name \"*.go\" -not -path \"*/node_modules/*\") | grep -iv \"_test.go\" | grep -vE \"internal/cli/(reconcile|facts|distill_cmd|hook_cmd|watch|practices)\\.go\" ",
+        "cat go.mod | head -30",
+        "git log --all --format=\"%H %s\" | grep -iE \"just short|fall short|treated as|auto-apply|round value|settled\" \ngit log --all --grep=\"confidence\" --format=\"%H %s\"",
+        "git show 4f2443d | grep -n -i \"confidence\\|threshold\" ",
+        "grep -rn \"ENTIRE_BRAIN_\" $(find . -name \"*.go\" -not -path \"*/node_modules/*\") | grep -v _test.go | grep -i \"conf\\|thresh\"",
+        "grep -rln -- \"--confidence\" docs/ README.md 2>/dev/null",
+        "grep -n -A3 -B3 \"confidence_threshold\" docs/release_readiness_audit.md",
+        "grep -n \"0\\.[0-9]\" internal/cli/reconcile_test.go",
+        "ls internal/config/ 2>/dev/null\ngrep -rn \"confidence\" internal/config/ 2>/dev/null",
+        "git log --all --format=\"%ai %h %s\" -- internal/cli/facts.go internal/cli/facts_merge.go internal/cli/distill_cmd.go internal/cli/reconcile.go docs/durable_facts_plan.md | sort | head -40",
+        "git log --all --oneline -- internal/cli/facts.go | head -5\necho ---\ngit log --all --oneline -- internal/cli/reconcile.go | head -5",
+        "git log --all --oneline -- internal/cli/facts_merge.go",
+        "git log --all --full-history --oneline -- internal/cli/facts_merge.go",
+        "for c in 0377ab8 e51258c 63d47f1; do echo \"== $c ==\"; git show $c --stat -- internal/cli/facts_merge.go; echo \"--- parents ---\"; git show -s --format=\"%P\" $c; done",
+        "for pair in \"e51258c5df79f543cbed608c2ac52a5666f4868a df5a0783f958a099e4e12c8884720623e0bacf98\" \"f26f14db8e83e74fbe7644f8a8d3115a0d032878 75ac78e6d9f90424e7bc696d2ccec19cce4786fc\" \"706dc1e5ce7364682ed98c1281fae394c10d94ca 5546515f1c2329d5673a1b6db690687c814dd93b\"; do\n  set -- $pair\n  echo \"== comparing $1 vs $2 ==\"\n  h1=$(git ls-tree $1 -- internal/cli/facts_merge.go | awk '{print $3}')\n  h2=$(git ls-tree $2 -- internal/cli/facts_merge.go | awk '{print $3}')\n  echo \"$1: $h1\"\n  echo \"$2: $h2\"\ndone",
+        "check_pair() {\n  h1=$(git ls-tree \"$1\" -- internal/cli/facts_merge.go | awk '{print $3}')\n  h2=$(git ls-tree \"$2\" -- internal/cli/facts_merge.go | awk '{print $3}')\n  echo \"$1: $h1\"\n  echo \"$2: $h2\"\n  echo\n}\ncheck_pair e51258c5df79f543cbed608c2ac52a5666f4868a df5a0783f958a099e4e12c8884720623e0bacf98\ncheck_pair f26f14db8e83e74fbe7644f8a8d3115a0d032878 75ac78e6d9f90424e7bc696d2ccec19cce4786fc\ncheck_pair 706dc1e5ce7364682ed98c1281fae394c10d94ca 5546515f1c2329d5673a1b6db690687c814dd93b",
+        "git log --all --full-history --oneline -S\"defaultFactConfidenceThreshold\" -- internal/cli/",
+        "git show 057a177 | head -80",
+        "git log --all --full-history --oneline -- docs/durable_facts_plan.md | head -20",
+        "git log --all --full-history -p -- docs/durable_facts_plan.md | grep -n \"onfidence.*[0-9]\\.[0-9]\\|[0-9]\\.[0-9].*onfidence\" | head -30",
+        "git log --all --full-history -p -- internal/cli/facts_merge.go internal/cli/distill_cmd.go internal/cli/hook_cmd.go internal/cli/watch.go internal/cli/reconcile.go 2>/dev/null | grep -nE \"^[+-].*[Cc]onfidence.*=.*0\\.[0-9]|^[+-].*0\\.[0-9].*[Tt]hreshold\" | sort -u",
+        "find . -iname \"pattern_workspace_semantic*\"\ngrep -n \"0\\.[0-9]\\|[Tt]hreshold\" internal/cli/pattern_workspace_semantic.go 2>/dev/null | head -30",
+        "git log --all --full-history -p 2>/dev/null | grep -nE \"^\\+.*(0\\.7[1-9]|0\\.8[0-9]?)\\b\" | grep -iv \"prob\\|score\\|weight\\|recall\\|precision\\|useful\\|cohen|holm|p=|p<|d=|t=|strength|reachability\\|percent|accuracy\" | head -60",
+        "git show -s --format=\"%H %P\" 2d38362",
+        "git diff --stat 2d38362 b46dd08 -- internal/cli/ docs/ | grep -iE \"fact|reconcile|confidence|distill\" ",
+        "git diff --stat 2d38362 b46dd08 | tail -20",
+        "for f in internal/cli/distill_cmd.go internal/cli/reconcile.go internal/cli/hook_cmd.go internal/cli/watch.go internal/cli/facts.go internal/cli/facts_merge.go internal/cli/facts_merge_test.go internal/cli/reconcile_test.go; do\n  h1=$(git ls-tree HEAD -- \"$f\" 2>/dev/null | awk '{print $3}')\n  h2=$(git ls-tree 9fe412a -- \"$f\" 2>/dev/null | awk '{print $3}')\n  if [ \"$h1\" != \"$h2\" ]; then\n    echo \"DIFFERS: $f (HEAD=$h1 vs 9fe412a=$h2)\"\n  else\n    echo \"same: $f\"\n  fi\ndone",
+        "grep -rl \"confidence\" $(find . -name \"*.go\" -not -path \"*/node_modules/*\") 2>/dev/null",
+        "for f in internal/cli/pattern_themes.go internal/cli/regression.go internal/cli/facts_admin_cmd.go internal/cli/pattern_skill_conventions.go internal/cli/semantic.go internal/cli/facts.go internal/cli/semantic_boundary_external_test.go internal/cli/hook_cmd.go internal/cli/pattern_dossier.go internal/cli/distill_cmd.go internal/cli/pattern_workspace.go internal/cli/semantic_audit_test.go internal/cli/pattern_surface_test.go internal/cli/facts_merge_test.go internal/cli/pattern_workspace_semantic.go internal/cli/practices.go internal/cli/pattern_skill_lessons.go internal/cli/agent_surface.go internal/cli/patterns_cmd.go internal/cli/mcp.go internal/cli/pattern_surface.go internal/cli/regression_test.go internal/cli/pattern_verify.go internal/cli/seed.go internal/cli/pattern_themes_test.go internal/cli/reconcile_test.go internal/cli/pattern_skill_bridge.go internal/cli/reconcile.go internal/cli/facts_merge.go internal/cli/pattern_deep.go internal/cli/pattern_skill_bridge_test.go internal/cli/workspace.go internal/cli/watch.go internal/cli/pattern_workspace_semantic_test.go internal/cli/semantic_test.go; do\n  h1=$(git ls-tree HEAD -- \"$f\" 2>/dev/null | awk '{print $3}')\n  h2=$(git ls-tree 9fe412a -- \"$f\" 2>/dev/null | awk '{print $3}')\n  if [ \"$h1\" != \"$h2\" ]; then\n    echo \"DIFFERS: $f\"\n  fi\ndone\necho \"done checking\"",
+        "git show bc11012 -- docs/durable_facts_plan.md | grep -n -B5 -A5 \"onfidence\"",
+        "git show d1d751b:docs/durable_facts_plan.md | grep -n -B3 -A5 \"Confidence gates application\"",
+        "grep -n \"= 0\\.\\|float64 = \\|const.*float\" internal/cli/facts*.go internal/cli/reconcile*.go internal/cli/distill_cmd.go internal/cli/hook_cmd.go internal/cli/watch.go",
+        "git rev-list --all --max-parents=0",
+        "git show -s --format=\"%H %ai %s\" 4018d86\ngit log --oneline 4018d86 | wc -l\ngit log --oneline 4018d86 -3",
+        "git merge-base --is-ancestor 4018d86 9fe412a && echo \"4018d86 is ancestor of 9fe412a\"\ngit log --oneline 9fe412a | wc -l\ngit log --oneline 9fe412a | tail -5",
+        "git grep -n \"0\\.75\" $(git rev-list --all) 2>/dev/null | grep -v \"^\\$\" | head -20",
+        "find . -iname \"*decision*\" -o -iname \"*adr*\" -o -iname \"*rfc*\" 2>/dev/null | grep -v .git\nls docs/",
+        "grep -n -i \"confidence\\|reconcile\\|merge.*supersede\" docs/eval_ledger.md | head -40",
+        "grep -n -i \"confidence.*0\\.\\|0\\.[0-9].*confidence\\|fact.*merge.*confidence\" docs/pattern_v2.md docs/seed_plan.md docs/semantic_brain_plan.md docs/diffless_review_seam.md docs/release_press_release.md docs/entire_cli_semantic_provider_prompt.md docs/semantic_agent_guide.md docs/semantic_mcp_guide.md 2>/dev/null",
+        "sed -n '30,50p' docs/diffless_review_seam.md",
+        "git diff 2d38362 b46dd08 | wc -l\ngit diff --stat 2d38362 b46dd08 | wc -l\ngit rev-parse 2d38362^{tree} b46dd08^{tree}",
+        "git notes list 2>&1 | head\ngit log --all --oneline --grep=\".\" -i --all-match --format=\"%H\" | wc -l\ncat .gitattributes 2>/dev/null",
+        "sed -n '225,250p' internal/cli/reconcile.go",
+        "grep -n -B3 -A3 \"confidence\" internal/cli/seed.go"
+      ],
+      "direct_brain_cli_calls": 0,
+      "entire_family_tools": [],
+      "first_tool_command_tokens": null,
+      "first_tool_is_memory_search": false,
+      "first_tool_name": "Bash",
+      "forbidden_memory_artifact_access": false,
+      "forbidden_memory_artifact_probes": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 159,
+      "search_commands": [
+        "find",
+        "git\ngrep",
+        "git grep",
+        "grep"
+      ],
+      "structured_tool_event_count": 174,
+      "test_commands": [
+        "go test"
+      ],
+      "top_level_entire_commands": [],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "claude",
+    "agent_reported_api_seconds": 1272.128,
+    "attempts": [
+      {
+        "agent_reported_api_seconds": 1272.128,
+        "attempt": 1,
+        "resolved_model": "claude-sonnet-5",
+        "returncode": 0,
+        "seconds": 1338.752205167024,
+        "stderr_artifact": {
+          "bytes": 0,
+          "path": "agent.attempt1.stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout_artifact": {
+          "bytes": 1268063,
+          "path": "agent.attempt1.stdout",
+          "sha256": "7c8953a65a87c9d91e61b62000c214939a8ced107f41c67c523f3bad5021db91"
+        },
+        "timed_out": false,
+        "transient_failure_reason": null,
+        "usage": {
+          "accounting_rule": "total_input_includes_uncached_plus_cache_read_plus_cache_creation; total_tokens=total_input_plus_output",
+          "accounting_source": null,
+          "accounting_version": 3,
+          "billing_v2": null,
+          "cache_creation_tokens": null,
+          "cache_read_tokens": null,
+          "cost_usd": null,
+          "cross_runner_definition": "provider_total_input_processed_plus_output; compare only within the same runner, accounting_version, and accounting_source",
+          "input_tokens": null,
+          "output_tokens": null,
+          "reasoning_tokens": null,
+          "total_input_tokens": null,
+          "total_tokens": null,
+          "turns": null,
+          "usage_report": {
+            "accounting_basis": null,
+            "actual_models": [
+              "claude-haiku-4-5-20251001",
+              "claude-sonnet-5"
+            ],
+            "complete": false,
+            "error": "Claude result contains multiple model rows requiring separate frozen prices",
+            "parser": "claude_result_model_usage_v1",
+            "source_events": 1
+          }
+        }
+      }
+    ],
+    "billing_integrity": {
+      "aggregate_present": false,
+      "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
+      "attempt_count": 1,
+      "complete_attempts": 0,
+      "incomplete_attempts": [
+        1
+      ],
+      "passed": true,
+      "required": false,
+      "schema": "agent-brain-attempt-billing-integrity/v1"
+    },
+    "cmd": [
+      "/usr/bin/sandbox-exec",
+      "..."
+    ],
+    "execution_identity": null,
+    "isolation": {
+      "auth": "host Claude Max/OAuth auth may still be used",
+      "filesystem_read": {
+        "allowed_root_sha256": [
+          "ff10fd7d7f598f1bada92fbb74829c29f5b02894de71a578fe0058ccd6ea9428",
+          "825aad0814c9a270d2d0e581d7647ccaa49ce38c8a038b5a4579f5d99a2d5d04",
+          "d8ea8d91a7db4b4db05baa9fa67f511d41f87d2b5a033784ae4482e5afd42a2a",
+          "6d53dd1466b23fa8a7458c9e470156d850ebb50d35595e5737d3ae9c4a94e4a3",
+          "64f3c9a72155c32c0a7386d93532d46156dae33a7ce4a28b224007e6ab1e6209",
+          "247fe827b101aa8d9b6096089278b4dad133eeb79e87ac728ada8dd8a3e8f90a"
+        ],
+        "backend": "macos-sandbox-exec",
+        "denied_root_sha256": [
+          "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+          "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+          "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+          "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+          "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+          "939c2d5bf125e744b27a212df36741fb1e8edfb0ad9f7e7ed9f572336d2595e6",
+          "827e0a816a8479b36f763b784cbeb400b6d1c710afe13e276a3346d00b610af0"
+        ],
+        "harness_and_source_read_write_denied": true,
+        "host_entire_executable_sha256": [
+          "fadec7d69f96bb71d9b56799e7373cc7a001b7b615f071261b1ee025c8f5c1ba",
+          "51109be0488c8eac041ca4bb641426fbfc161aebef4af40ac8ba2f30d894ec0b",
+          "995cba3821538f0110d3e94d11609e771157961e30641bddd045ee7df9bbda4f",
+          "83500acacd49b6d9456a24a8bac62b6ffa8c27855bed06d733585e15334c36ff"
+        ],
+        "host_entire_executables_denied": true,
+        "host_entire_root_sha256": [
+          "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+          "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+          "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+          "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+          "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+          "827e0a816a8479b36f763b784cbeb400b6d1c710afe13e276a3346d00b610af0"
+        ],
+        "host_entire_state_read_write_denied": true,
+        "profile_sha256": "34eede9c3af2605f69e13c08ef06d34a0d48fd390eb1734ad651c9e3260c0aeb",
+        "sandbox_executable_sha256": "e3d7a792c58a5d3783d2f7274c82d70062393830d8cb1ded713ca554a470bd2f",
+        "worktree_and_frozen_tools_allowed": true
+      },
+      "mcp": "strict empty config",
+      "session": "no-session-persistence",
+      "settings": "safe mode for non-MCP runs; host settings retained only when an explicit MCP server is required",
+      "slash_commands": "disabled"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "provider_invocation": {
+      "attestation": "retained_attempt_ledger",
+      "invocation_count": 1,
+      "reason": null,
+      "schema": "agent-brain-provider-invocation-state/v1",
+      "state": "provider_invocations_observed"
+    },
+    "resolved_model": "claude-sonnet-5",
+    "returncode": 0,
+    "runner": {
+      "agent": "claude",
+      "effort": "high",
+      "id": "claude-sonnet-high",
+      "model": "sonnet"
+    },
+    "seconds": 1338.7522175419726,
+    "stderr_bytes": 0,
+    "stderr_tail": "",
+    "stdout_bytes": 1268063,
+    "stdout_tail": "utput_tokens\":95405,\"output_tokens_details\":{\"thinking_tokens\":75768},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":174289,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"not_available\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":1754,\"cache_read_input_tokens\":194858,\"cache_creation_input_tokens\":3232,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":3232},\"type\":\"message\"}],\"speed\":\"standard\"},\"modelUsage\":{\"claude-haiku-4-5-20251001\":{\"inputTokens\":787,\"outputTokens\":18,\"cacheReadInputTokens\":0,\"cacheCreationInputTokens\":0,\"webSearchRequests\":0,\"costUSD\":0.0008770000000000001,\"contextWindow\":200000,\"maxOutputTokens\":32000,\"canonicalModel\":\"claude-haiku-4-5\",\"provider\":\"firstParty\"},\"claude-sonnet-5\":{\"inputTokens\":348,\"outputTokens\":98443,\"cacheReadInputTokens\":17421781,\"cacheCreationInputTokens\":208390,\"webSearchRequests\":0,\"costUSD\":7.877836050000001,\"contextWindow\":1000000,\"maxOutputTokens\":64000,\"canonicalModel\":\"claude-sonnet-5\",\"provider\":\"firstParty\"}},\"permission_denials\":[],\"terminal_reason\":\"completed\",\"fast_mode_state\":\"off\",\"fast_mode_disabled_reason\":\"sdk_opt_in_required\",\"subtype\":\"success\",\"api_error_status\":null,\"result\":\"I did an extremely thorough investigation into this and want to walk through what I found before making any change, because the evidence doesn't support the premise as I understand it.\\n\\n**What I checked.** The constant in question is `defaultFactConfidenceThreshold` in `internal/cli/facts_merge.go:17` (currently `0.7`), which gates `applyFactActions` \u2014 the durable-facts reconcile engine's auto-apply logic for `merge`/`supersede` decisions (below it, both facts stay active and the decision queues as a `facts review` proposal instead).\\n\\nI searched for an alternate \\\"originally decided\\\" value via:\\n- `git log --all --full-history -p` (and `-S`) on `facts_merge.go`, `reconcile.go`, `distill_cmd.go`, `hook_cmd.go`, `watch.go` \u2014 every commit and every merge across the repo's full history, not just the simplified view.\\n- Direct blob-hash comparison (`git ls-tree`) of every file in the repo that mentions \\\"confidence\\\" (~34 files) between `HEAD` and the real project-history tip (`9fe412a`) \u2014 all identical, byte-for-byte.\\n- The tree hash of the \\\"Prepared task workspace\\\" merge commit is *identical* to its first-parent snapshot (`cbce27d...`), so no bug was introduced via that merge for any file.\\n- Every doc (`durable_facts_plan.md`, `durable_facts_handover.md`, `release_readiness_audit.md`, `pattern_consolidation_plan.md`, `pattern_v3.md`, `eval_ledger.md`, etc.) \u2014 the design doc *deliberately* only ever says \\\"the configured confidence threshold\\\" in the abstract, even in its original Jun 4 version, before any number was chosen.\\n- Tests, CI, templates, config \u2014 no numeric threshold recorded anywhere else.\\n- A fresh independent agent re-ran this search from scratch and reached the same conclusion.\\n\\n**Result:** `0.7` was set exactly once, in commit `29688d6` (\\\"facts: add deterministic merge/supersede apply engine\\\", with rationale comment but no calibration discussion), and has never been touched by any of the 422 subsequent real commits. No alternate value \u2014 0.72, 0.75, 0.8, or otherwise \u2014 appears anywhere in this repository's accessible history, docs, or tests in connection with this gate.\\n\\nI don't have a textual basis to \\\"restore\\\" a different number without guessing, which the task explicitly rules out, so I haven't changed the code. Could you point me at where the originally-decided value should be recoverable from (e.g. a specific commit, PR, or doc I haven't checked)? I've run out of angles I can pursue safely under the given constraints (no `.entire`/`.benchmark`/checkpoint inspection, no second-parent diffing).\",\"ttft_ms\":1306,\"ttft_stream_ms\":753,\"time_to_request_ms\":13,\"type\":\"result\",\"duration_ms\":1337739,\"uuid\":\"0372a9b5-0daa-4101-9752-ba8042feb729\"}\n",
+    "transient_retries": 0,
+    "usage": {
+      "accounting_rule": null,
+      "accounting_source": null,
+      "accounting_version": 3,
+      "billing_v2": null,
+      "cache_creation_tokens": null,
+      "cache_read_tokens": null,
+      "cost_source": null,
+      "cost_usd": null,
+      "cross_runner_definition": "provider_total_input_processed_plus_output; compare only within the same runner, accounting_version, and accounting_source",
+      "input_tokens": null,
+      "output_tokens": null,
+      "reasoning_tokens": null,
+      "total_input_tokens": null,
+      "total_tokens": null,
+      "turns": null,
+      "usage_report": {
+        "accounting_basis": "sum_per_isolated_provider_invocation_attempt_total",
+        "attempt_count": 1,
+        "attempt_parsers": [
+          "claude_result_model_usage_v1"
+        ],
+        "complete": false,
+        "complete_attempts": [],
+        "error": "one or more provider invocations lacks unambiguous usage",
+        "incomplete_attempts": [
+          1
+        ],
+        "parser": "provider_attempt_sum_v1",
+        "source_events": 1
+      }
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_patch_secret_audit": {
+    "ok": true,
+    "patterns": []
+  },
+  "agent_ran": true,
+  "agent_read_isolation": {
+    "allowed_root_sha256": [
+      "ff10fd7d7f598f1bada92fbb74829c29f5b02894de71a578fe0058ccd6ea9428",
+      "825aad0814c9a270d2d0e581d7647ccaa49ce38c8a038b5a4579f5d99a2d5d04",
+      "d8ea8d91a7db4b4db05baa9fa67f511d41f87d2b5a033784ae4482e5afd42a2a",
+      "6d53dd1466b23fa8a7458c9e470156d850ebb50d35595e5737d3ae9c4a94e4a3",
+      "64f3c9a72155c32c0a7386d93532d46156dae33a7ce4a28b224007e6ab1e6209",
+      "247fe827b101aa8d9b6096089278b4dad133eeb79e87ac728ada8dd8a3e8f90a"
+    ],
+    "backend": "macos-sandbox-exec",
+    "denied_root_sha256": [
+      "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+      "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+      "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+      "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+      "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+      "939c2d5bf125e744b27a212df36741fb1e8edfb0ad9f7e7ed9f572336d2595e6",
+      "827e0a816a8479b36f763b784cbeb400b6d1c710afe13e276a3346d00b610af0"
+    ],
+    "harness_and_source_read_write_denied": true,
+    "host_entire_executable_sha256": [
+      "fadec7d69f96bb71d9b56799e7373cc7a001b7b615f071261b1ee025c8f5c1ba",
+      "51109be0488c8eac041ca4bb641426fbfc161aebef4af40ac8ba2f30d894ec0b",
+      "995cba3821538f0110d3e94d11609e771157961e30641bddd045ee7df9bbda4f",
+      "83500acacd49b6d9456a24a8bac62b6ffa8c27855bed06d733585e15334c36ff"
+    ],
+    "host_entire_executables_denied": true,
+    "host_entire_root_sha256": [
+      "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+      "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+      "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+      "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+      "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+      "827e0a816a8479b36f763b784cbeb400b6d1c710afe13e276a3346d00b610af0"
+    ],
+    "host_entire_state_read_write_denied": true,
+    "profile_sha256": "34eede9c3af2605f69e13c08ef06d34a0d48fd390eb1734ad651c9e3260c0aeb",
+    "sandbox_executable_sha256": "e3d7a792c58a5d3783d2f7274c82d70062393830d8cb1ded713ca554a470bd2f",
+    "worktree_and_frozen_tools_allowed": true
+  },
+  "agent_runtime_history": {
+    "commit_count": 424,
+    "first_parent": "2d383620e9d1dc5609f1657d1d40a4b247433b03",
+    "head_commit": "b46dd08390d34fd5ebb2ec714e452fdeae33a044",
+    "mode": "isolated_filtered_source_history",
+    "orig_head_exists": false,
+    "parent_count": 2,
+    "private_path_findings": [],
+    "private_paths_filtered": true,
+    "repository_isolated": true,
+    "shared_object_store": false,
+    "source_history_available": true,
+    "source_history_parent": "9fe412a262a23ee04687e17ac98699b646a2382a",
+    "visible_reflog_entries": 0,
+    "visible_refs": [],
+    "visible_remotes": []
+  },
+  "agent_secret_postflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_visible_tools": {
+    "bin": "benchmarks/agent-brain/cache/agent-bin/5c245390895d5215bd770d58",
+    "head": "6139817c901e28c943e03df4d7b8c5f2ec48fdb3",
+    "key": "5c245390895d5215bd770d58",
+    "source": "head_with_task_replacements"
+  },
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "baseline_history_audit": {
+    "advisory_findings": [
+      {
+        "command_sha256": "45f0cdcf72bb125afd039d362b016127c9faa88293da3ee27c5897f6e84fcfb0",
+        "kind": "benchmark_baseline_boundary_inspection"
+      },
+      {
+        "command_sha256": "81d72c410fd795a72c7c3648306fc496c544c633657845681de9d85a6b735387",
+        "kind": "benchmark_baseline_boundary_inspection"
+      }
+    ],
+    "advisory_reason": "scrubbed_task_boundary_is_answer_free",
+    "findings": [],
+    "ok": true,
+    "required": true
+  },
+  "brain_cli_condition_audit": {
+    "entire_family_tools": [],
+    "findings": [],
+    "first_tool_command_tokens": null,
+    "ok": true,
+    "required": false
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [],
+  "code_quality": {
+    "critical_failure": true,
+    "critical_failure_reasons": [
+      "validation_failed"
+    ],
+    "excluded_components": [
+      "validation_discipline",
+      "runtime_efficiency",
+      "brain_use"
+    ],
+    "rubric": "task_relative_output_outcome_patch_focus_v2",
+    "schema": "agent-brain-code-quality/v2",
+    "task_normalized_score": 0.0
+  },
+  "condition": "no_brain",
+  "delivery_mode": "agent_tool",
+  "diff_stat": {
+    "bytes": 0,
+    "shortstat": "",
+    "untracked_files": []
+  },
+  "finished_at": "2026-08-16T11:28:13.377796+00:00",
+  "git_remote_isolation": {
+    "remaining": [],
+    "removed": []
+  },
+  "go_dependency_prewarm": {
+    "ok": true,
+    "ran": true,
+    "returncode": 0,
+    "seconds": 3.322
+  },
+  "integrity_ok": true,
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": false,
+  "patch_artifact": {
+    "bytes": 0,
+    "path": "agent.patch",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tracked_files": [],
+    "untracked_files": []
+  },
+  "planned_ordinal": 18,
+  "post_brain_setup_applied": false,
+  "prompt_artifact": {
+    "bytes": 1334,
+    "path": "prompt.txt",
+    "sha256": "a9425daa38f89f49cfee8f8c6321dfcf5db961fa647c2fe3a716112c07cd41a8"
+  },
+  "provenance": {
+    "captured_at": "2026-08-16T11:05:38.047336+00:00",
+    "fingerprint": "bfcb3c9f40603e7fbecc557bdfdb541dc54d05419ab7d14b9a7ce289d7ad2f51",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Thomas Dohmke",
+        "available": true,
+        "commit": "6139817c901e28c943e03df4d7b8c5f2ec48fdb3",
+        "committer_date": "2026-08-16T01:40:59-07:00",
+        "parent_count": 1,
+        "parents": [
+          "4bed3a95adca5e1d4ea54911e9f988d479f560b3"
+        ],
+        "ref": "HEAD",
+        "subject": "fix(bench): flag only boundary-spanning diffs, and exempt nested Go scratch"
+      },
+      "repo_name": "entire-brain",
+      "repo_role": "benchmark_harness"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 0,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null,
+        "ENTIRE_BENCH_CAPTURE_BRIEF": null,
+        "ENTIRE_BRAIN_ACTION_CHECKLIST": null
+      },
+      "fingerprint": "a3c3ad68a200a67380133e32ddb82fe5c0818c21171d78355a879af8dc49ea37",
+      "panel": {
+        "config_sha256": "13edfb3708b28db96bb9635a174e922e5716cad07c0f145c968aa3521d1caa67",
+        "name": "p01-clean-proof-claude",
+        "path": {
+          "name": "p01-clean-proof-claude.json",
+          "role": "panel_manifest",
+          "sha256": "729e0d60959d55eddb6eb538131def9b3ad3a896cc27d9bf186ed287a2a959d2",
+          "sha256_kind": "redacted_reference"
+        }
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 4,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,semantic_history_brain",
+        "repetitions": 5,
+        "runners": "claude:sonnet:high",
+        "tasks": [
+          "entire-brain-clean-default-fact-merge-confidence.json",
+          "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+        ]
+      },
+      "runner": {
+        "agent": "claude",
+        "effort": "high",
+        "id": "claude-sonnet-high",
+        "model": "sonnet"
+      },
+      "runtime_controls": {
+        "cache_policy": "isolated_per_cell",
+        "order_policy": "counterbalanced",
+        "planned_ordinal": 18,
+        "schedule_seed": 0,
+        "schedule_sha256": "5fac688a444097519a258fc0433c68121bc0875ce5096c16ec2650f13f459583",
+        "timing_primary": "end_to_end_user_visible_wall_seconds"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "panel-p01-clean-proof-claude-20260816T084152Z",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Thomas Dohmke",
+        "available": true,
+        "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "committer_date": "2026-06-18T10:29:30+02:00",
+        "parent_count": 1,
+        "parents": [
+          "b219090c791f0ecdea069f449b9fcfdb9758ca27"
+        ],
+        "ref": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "subject": "Add v3 plan for pattern detection."
+      },
+      "base_ref": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Thomas Dohmke",
+        "available": true,
+        "commit": "6139817c901e28c943e03df4d7b8c5f2ec48fdb3",
+        "committer_date": "2026-08-16T01:40:59-07:00",
+        "parent_count": 1,
+        "parents": [
+          "4bed3a95adca5e1d4ea54911e9f988d479f560b3"
+        ],
+        "ref": "HEAD",
+        "subject": "fix(bench): flag only boundary-spanning diffs, and exempt nested Go scratch"
+      },
+      "origin_url": "https://github.com/ashtom/entire-brain.git",
+      "repo": "entire-brain",
+      "repo_path_input": "entire-brain",
+      "repo_path_name": "entire-brain",
+      "repo_path_role": "task_source"
+    },
+    "task": {
+      "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "base_commit_source": "task.base_commit",
+      "config_sha256": "5e9f521d3dbdb8a02cec6b4a8604b38de36e6a9b3dfa0432795f4fb101cf90a8",
+      "id": "entire-brain-clean-default-fact-merge-confidence",
+      "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+      "radar_include_deletions": false
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "name": "bin",
+        "role": "frozen_tool_directory"
+      },
+      "brain": {
+        "exists": true,
+        "name": "entire-brain",
+        "role": "frozen_run_tool",
+        "sha256": "b9053ec9e3c30d5eb5638e68ad159f2543765bde425e3c7bdb8305fad5c8dc2a"
+      },
+      "entire": {
+        "exists": true,
+        "name": "entire",
+        "role": "frozen_run_tool",
+        "sha256": "8f5a0bf0402b59e4d2574d801198cb5a2c404de0cc46e74038caaef8b5498f6b"
+      },
+      "graph": {
+        "exists": true,
+        "name": "entire-graph",
+        "role": "frozen_run_tool",
+        "sha256": "fd91812872d08b5d9cbf303f7182cff3c06c44d09987a0dc0ca2607564334268"
+      }
+    }
+  },
+  "remote_source_fetch_audit": {
+    "findings": [],
+    "ok": true,
+    "required": true
+  },
+  "repetition": 4,
+  "repo": "entire-brain",
+  "retrieval_query_source": "legacy",
+  "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4",
+  "runner": {
+    "agent": "claude",
+    "effort": "high",
+    "id": "claude-sonnet-high",
+    "model": "sonnet"
+  },
+  "runtime_controls": {
+    "ambient_go_cache_inherited": false,
+    "cache_paths": {
+      "GOCACHE": {
+        "path": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4/runtime-cache/go-build",
+        "path_sha256": "c9d2be656596d062f6a7ba76ddde2e88b62619f0dfca24692cb32a751eed1b6a"
+      },
+      "GOMODCACHE": {
+        "path": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4/runtime-cache/go-mod",
+        "path_sha256": "091199e0e135234c2084ebe0fec9c876f45257c554d1e0c19b9c8341b033091d"
+      },
+      "retrieval_vector_cache": {
+        "path": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4/runtime-cache/retrieval-vectors",
+        "path_sha256": "a7b4c891f0176565113c2f93466eb13b4155c84d980394fbdc75914d311a5378"
+      },
+      "root": {
+        "path": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4/runtime-cache",
+        "path_sha256": "57c887c21236f6b47aca2046b24daa2dccdcca475498bbed6ce932a2d8f581c3"
+      }
+    },
+    "cache_policy": "isolated_per_cell",
+    "timing_definitions": {
+      "agent_reported_api_seconds": "Provider/agent-CLI reported API duration when present in structured output; null otherwise.",
+      "agent_timeout_limit_seconds": "Frozen limit passed to the agent component; metadata only and never substituted for the measured end-to-end elapsed-time observation.",
+      "cell_setup_wall_seconds": "Harness monotonic wall time from cell start until the agent interval begins.",
+      "cell_total_wall_seconds": "Harness monotonic wall time for setup, agent execution, validation, and record assembly.",
+      "end_to_end_user_visible_wall_seconds": "Harness monotonic wall time immediately before harness-owned treatment retrieval/delivery (a no-op at the same logical point for no-memory) through agent CLI completion, or through the immediately observed treatment-failure / timeout-termination boundary when no final response exists. The boundary is captured before usage parsing, hashing, and artifact writes. Worktree/cache setup, secret preflight, and hidden validation are excluded.",
+      "harness_agent_interval_wall_seconds": "Harness monotonic wall time immediately around the agent CLI invocation. Confirmatory provider retries are frozen at zero; exploratory retries and backoff remain included. Setup, cache prewarm, and validation are excluded.",
+      "primary": "end_to_end_user_visible_wall_seconds",
+      "timeout_component_limit_seconds": "Exact limit of the retrieval/delivery or agent component that raised TimeoutExpired; null when no component timed out and never substituted for measured end-to-end elapsed time."
+    }
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 1338.7522175419726,
+      "brain_commands": [],
+      "changed_file_count": 0,
+      "checked_diff": true,
+      "diff_bytes": 0,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "ran_tests": true,
+      "search_calls": 159,
+      "structured_tool_event_count": 174,
+      "total_tokens": null,
+      "unexpected_files_touched": [],
+      "validation_count": 2,
+      "validation_passed": 1
+    },
+    "outcome": 23,
+    "patch_focus": 3,
+    "runtime_efficiency": 3,
+    "total": 42,
+    "validation_discipline": 8,
+    "version": 2
+  },
+  "started_at": "2026-08-16T11:05:38.030806+00:00",
+  "task_id": "entire-brain-clean-default-fact-merge-confidence",
+  "task_ok": false,
+  "task_validity": {
+    "automated_disposition": "oracle_assisted",
+    "confirmatory_eligible": false,
+    "findings": [
+      {
+        "excerpt_sha256": "4953a0b29723bb01",
+        "kind": "edit_location"
+      }
+    ],
+    "note": "automated lint is triage; approved_symptom_only requires a human review-ledger entry",
+    "prompt_sha256": "22335a8577458fd2a2d0102bebc3da67cf5144176081b07d640db190300a837e",
+    "schema": 1,
+    "task_id": "entire-brain-clean-default-fact-merge-confidence"
+  },
+  "temporal_memory_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "timing": {
+    "agent_reported_api_seconds": 1272.128,
+    "agent_timeout_limit_seconds": 1800.0,
+    "cell_setup_wall_seconds": 4.948264541977551,
+    "cell_total_wall_seconds": 1355.3955002090079,
+    "end_to_end_user_visible_wall_seconds": 1338.7766813340131,
+    "harness_agent_interval_wall_seconds": 1338.7522227920126,
+    "hidden_validation_included_in_primary": false,
+    "pre_treatment_setup_included_in_primary": false,
+    "primary": "end_to_end_user_visible_wall_seconds",
+    "timeout_component_limit_seconds": null,
+    "timeout_occurred": false,
+    "timeout_stage": null,
+    "treatment_retrieval_included_in_primary": true
+  },
+  "treatment": {
+    "arm": "no_memory",
+    "confirmatory_eligible": false,
+    "query_source": "legacy"
+  },
+  "treatment_started": true,
+  "validation": {
+    "kinds": {
+      "exact": {
+        "count": 2,
+        "passed": 1
+      }
+    },
+    "ok": false,
+    "results": [
+      {
+        "command": "test $(rg -n 'defaultFactConfidenceThreshold = 0\\.75' internal/cli/facts_merge.go | wc -l | tr -d ' ') -eq 1",
+        "kind": "exact",
+        "returncode": 1,
+        "seconds": 0.01510000228881836,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "go test ./internal/cli -run 'TestApplyFactActionsHighConfidenceMerge|TestApplyFactActionsLowConfidenceQueuesProposal|TestApplyFactActionsHighConfidenceSupersede'",
+        "kind": "exact",
+        "returncode": 0,
+        "seconds": 11.443164110183716,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/ashtom/entire-brain/internal/cli\t0.684s\n"
+      }
+    ]
+  },
+  "worktree": {
+    "name": "repo",
+    "role": "agent_worktree",
+    "sha256": "bfdecd6e76cc3ec3661367780f18e5586c0b8e6b9db4402d1304f54e9556d3c1",
+    "sha256_kind": "redacted_reference"
+  }
+}

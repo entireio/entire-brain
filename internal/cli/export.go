@@ -23,8 +23,11 @@ import (
 )
 
 const (
-	defaultExportDir        = ""
-	defaultCheckpointLimit  = 10000
+	defaultExportDir = ""
+	// Unlimited by default: the brain's value is recovering old decisions, and a
+	// cap silently truncates exactly the history that makes it useful. 0 means
+	// all; --checkpoint-limit stays available for callers who want a bound.
+	defaultCheckpointLimit  = 0
 	exportManifestFileName  = "manifest.json"
 	exportReadmeFileName    = "README.md"
 	exportSessionsDirectory = "sessions"
@@ -247,6 +250,21 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		outputDir = storage.BrainDir
 		cursorFile = storage.HeadPath
 		cursor = loadExportCursor(cursorFile)
+
+		// An export that discovers nothing is ambiguous: the repository may
+		// genuinely have no checkpoints yet, or the source may have become
+		// unreachable (ref not fetched into a fresh clone, checkpoint remote
+		// down, wrong branch checked out). Those look identical here, and the
+		// write phase below treats every transcript already on disk as stale,
+		// so continuing would erase an entire indexed corpus and republish an
+		// empty history index. Refuse instead: a loud failure is recoverable,
+		// a silently emptied brain is not. A repository with no exported
+		// sessions yet has nothing to lose and still proceeds.
+		if len(sessions) == 0 {
+			if existing, err := loadBrainManifest(outputDir); err == nil && existing != nil && len(existing.Sessions) > 0 {
+				return errors.New(emptyExportRefusalMessage(len(existing.Sessions)))
+			}
+		}
 	}
 
 	if persistentBrain {
@@ -2175,7 +2193,14 @@ func (d checkpointBranchDestinations) BranchesFor(checkpointID, metadataBranch s
 	return []string{branch}
 }
 
+// limitedCheckpointSet honours the documented "0 means all" contract. Every
+// other cap site guards on limit > 0; this one truncated unconditionally, so a
+// zero limit selected nothing instead of everything and the export silently
+// produced an empty corpus.
 func limitedCheckpointSet(ids map[string]struct{}, limit int) map[string]struct{} {
+	if limit <= 0 {
+		return ids
+	}
 	sorted := make([]string, 0, len(ids))
 	for id := range ids {
 		sorted = append(sorted, id)
@@ -2929,6 +2954,19 @@ func writeExportCursor(path string, manifest exportManifest) error {
 		return fmt.Errorf("write export cursor: %w", err)
 	}
 	return nil
+}
+
+// emptyExportRefusalMessage states what is at stake and what to check, because
+// the operator has to be able to tell a vanished source from a repository that
+// legitimately has no checkpoints.
+func emptyExportRefusalMessage(retained int) string {
+	return fmt.Sprintf(
+		"checkpoint export found no sessions but this brain already has %d exported %s; "+
+			"refusing to erase them. Verify %s is present and fetched, then re-run",
+		retained,
+		pluralUnit("session", retained),
+		v1MainRef,
+	)
 }
 
 func cleanupStaleSessionFiles(outputDir string, sessions []exportSession) error {

@@ -32,7 +32,7 @@
       "TestMCPToolRequiredArgumentsAreEnforced",
       "TestMCPToolSchemasMatchArgumentValidator",
       "TestMCPToolSchemasRejectAdditionalProperties",
-      "TestMCPToolsListAdvertisesStaleBlindSpots",
+      "TestMCPToolsListAdvertisesCompactStatusAndDetails",
       "TestMCPToolsListIncludesQMDRetrievalSurface",
       "TestMCPToolsListIncludesRegressions",
       "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
@@ -57,7 +57,7 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:875d46f66c91532ed9252f534d58e4a3f4a96715c10e36326bb89d4301d40dc5"
+    "sha256": "sha256:ae387fc610d9bc763e6e7320a4faf0a9279d5b9329850d5c98e33218cb8e0999"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -88,7 +88,7 @@
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
     "TestMCPToolsListIncludesQMDRetrievalSurface",
-    "TestMCPToolsListAdvertisesStaleBlindSpots",
+    "TestMCPToolsListAdvertisesCompactStatusAndDetails",
     "TestMCPToolSchemasRejectAdditionalProperties",
     "TestMCPToolSchemasMatchArgumentValidator",
     "TestMCPToolRequiredArgumentsAreEnforced",
@@ -124,6 +124,6 @@
   ],
   "schema": 1,
   "source_drift_paths": [],
-  "source_head": "427207e9920fb35694a8df935ffe68193ccfd1db",
+  "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
   "warnings": []
 }

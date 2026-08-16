@@ -1,0 +1,785 @@
+{
+  "comparisons": [
+    {
+      "agent": "claude",
+      "baseline": "no_brain",
+      "brain_positive_gate": {
+        "requires_repetitions_per_side": 4,
+        "score_delta": 0.7999999999999972,
+        "search_improvement_ratio": 0.3880597014925374,
+        "success_delta": 0.0,
+        "time_improvement_ratio": 0.025780882695085213,
+        "time_overhead_ratio": -0.025780882695085213,
+        "token_improvement_ratio": null,
+        "token_overhead_ratio": null
+      },
+      "candidate_proof_ready": false,
+      "condition": "semantic_history_brain",
+      "delivery_mode": "agent_tool",
+      "delivery_scope": "semantic_history_brain",
+      "delta": 0.7999999999999972,
+      "delta_score_core": 0.3999999999999915,
+      "duration_metric": "harness_agent_interval_wall_seconds_with_legacy_agent_info_fallback",
+      "env_flags": {},
+      "mean_agent_seconds_baseline": 217.62939841637854,
+      "mean_agent_seconds_condition": 212.01872042480392,
+      "mean_baseline": 93.8,
+      "mean_brain_use_baseline": 5.0,
+      "mean_brain_use_condition": 5.0,
+      "mean_condition": 94.6,
+      "mean_cost_usd_baseline": null,
+      "mean_cost_usd_condition": null,
+      "mean_direct_brain_cli_calls_baseline": 0.0,
+      "mean_direct_brain_cli_calls_condition": 1.0,
+      "mean_mcp_tool_calls_baseline": 0.0,
+      "mean_mcp_tool_calls_condition": 0.0,
+      "mean_outcome_baseline": 45.0,
+      "mean_outcome_condition": 45.0,
+      "mean_patch_focus_baseline": 29.0,
+      "mean_patch_focus_condition": 29.0,
+      "mean_runtime_efficiency_baseline": 5.6,
+      "mean_runtime_efficiency_condition": 6.0,
+      "mean_score_core_baseline": 83.2,
+      "mean_score_core_condition": 83.6,
+      "mean_search_calls_baseline": 13.4,
+      "mean_search_calls_condition": 8.2,
+      "mean_total_tokens_baseline": null,
+      "mean_total_tokens_condition": null,
+      "mean_turns_baseline": null,
+      "mean_turns_condition": null,
+      "mean_validation_discipline_baseline": 9.2,
+      "mean_validation_discipline_condition": 9.6,
+      "n_adherence_excluded_baseline": 0,
+      "n_adherence_excluded_condition": 0,
+      "n_adherence_failures_baseline": 0,
+      "n_adherence_failures_condition": 0,
+      "n_baseline": 5,
+      "n_condition": 5,
+      "n_infrastructure_excluded_baseline": 0,
+      "n_infrastructure_excluded_condition": 0,
+      "p_value_agent_seconds": 0.9081926339890366,
+      "p_value_agent_seconds_holm": 1.0,
+      "p_value_approx": 0.19538894414979813,
+      "p_value_approx_holm": 0.5861668324493944,
+      "p_value_cost_usd": null,
+      "p_value_score_core": 0.5454243096721694,
+      "p_value_score_core_holm": 1.0,
+      "p_value_total_tokens": null,
+      "p_value_turns": null,
+      "pass_rate_baseline": 1.0,
+      "pass_rate_condition": 1.0,
+      "proof_ready": false,
+      "runner": "claude-sonnet-high",
+      "score_versions_baseline": [
+        2
+      ],
+      "score_versions_condition": [
+        2
+      ],
+      "source_base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "stability": {
+        "coefficient_of_variation_score_baseline": 0.011678519349790322,
+        "coefficient_of_variation_score_condition": 0.00578987904339499,
+        "coefficient_of_variation_total_tokens_baseline": null,
+        "coefficient_of_variation_total_tokens_condition": null,
+        "pass_rate_lift_survives_drop_one": false,
+        "saturated": true,
+        "tag": "saturated",
+        "token_win_survives_drop_one": false,
+        "tokens_p_holm": null,
+        "tokens_p_raw": null,
+        "tokens_significant_p_lt_0_05": false
+      },
+      "success_rate_baseline": 1.0,
+      "success_rate_condition": 1.0,
+      "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+      "token_accounting_source": null,
+      "token_accounting_version": 3,
+      "verdict": "saturated/no_signal",
+      "verdict_reasons": [
+        "both_conditions_passed",
+        "search_calls_dropped>=20%"
+      ]
+    },
+    {
+      "agent": "claude",
+      "baseline": "no_brain",
+      "brain_positive_gate": {
+        "requires_repetitions_per_side": 4,
+        "score_delta": 55.800000000000004,
+        "search_improvement_ratio": 0.8845265588914549,
+        "success_delta": 1.0,
+        "time_improvement_ratio": 0.7757801578368153,
+        "time_overhead_ratio": -0.7757801578368153,
+        "token_improvement_ratio": null,
+        "token_overhead_ratio": null
+      },
+      "candidate_proof_ready": true,
+      "condition": "semantic_history_brain",
+      "delivery_mode": "agent_tool",
+      "delivery_scope": "semantic_history_brain",
+      "delta": 55.800000000000004,
+      "delta_score_core": 53.199999999999996,
+      "duration_metric": "harness_agent_interval_wall_seconds_with_legacy_agent_info_fallback",
+      "env_flags": {},
+      "mean_agent_seconds_baseline": 1212.824851241603,
+      "mean_agent_seconds_condition": 271.93939671698024,
+      "mean_baseline": 38.4,
+      "mean_brain_use_baseline": 5.0,
+      "mean_brain_use_condition": 5.0,
+      "mean_condition": 94.2,
+      "mean_cost_usd_baseline": null,
+      "mean_cost_usd_condition": null,
+      "mean_direct_brain_cli_calls_baseline": 0.0,
+      "mean_direct_brain_cli_calls_condition": 24.4,
+      "mean_mcp_tool_calls_baseline": 0.0,
+      "mean_mcp_tool_calls_condition": 0.0,
+      "mean_outcome_baseline": 23.0,
+      "mean_outcome_condition": 45.0,
+      "mean_patch_focus_baseline": 3.0,
+      "mean_patch_focus_condition": 29.0,
+      "mean_runtime_efficiency_baseline": 3.0,
+      "mean_runtime_efficiency_condition": 5.6,
+      "mean_score_core_baseline": 30.4,
+      "mean_score_core_condition": 83.6,
+      "mean_search_calls_baseline": 173.2,
+      "mean_search_calls_condition": 20.0,
+      "mean_total_tokens_baseline": null,
+      "mean_total_tokens_condition": null,
+      "mean_turns_baseline": null,
+      "mean_turns_condition": null,
+      "mean_validation_discipline_baseline": 4.4,
+      "mean_validation_discipline_condition": 9.6,
+      "n_adherence_excluded_baseline": 0,
+      "n_adherence_excluded_condition": 0,
+      "n_adherence_failures_baseline": 0,
+      "n_adherence_failures_condition": 0,
+      "n_baseline": 5,
+      "n_condition": 5,
+      "n_infrastructure_excluded_baseline": 0,
+      "n_infrastructure_excluded_condition": 0,
+      "p_value_agent_seconds": 0.0009211649618091648,
+      "p_value_agent_seconds_holm": 0.003684659847236659,
+      "p_value_approx": 4.1508541388507376e-07,
+      "p_value_approx_holm": 2.4905124833104424e-06,
+      "p_value_cost_usd": null,
+      "p_value_score_core": 9.566840111485065e-07,
+      "p_value_score_core_holm": 4.783420055742532e-06,
+      "p_value_total_tokens": null,
+      "p_value_turns": null,
+      "pass_rate_baseline": 0.0,
+      "pass_rate_condition": 1.0,
+      "proof_ready": true,
+      "runner": "claude-sonnet-high",
+      "score_versions_baseline": [
+        2
+      ],
+      "score_versions_condition": [
+        2
+      ],
+      "source_base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "stability": {
+        "coefficient_of_variation_score_baseline": 0.08558164961018222,
+        "coefficient_of_variation_score_condition": 0.011628929034079959,
+        "coefficient_of_variation_total_tokens_baseline": null,
+        "coefficient_of_variation_total_tokens_condition": null,
+        "pass_rate_lift_survives_drop_one": true,
+        "saturated": false,
+        "tag": "brain_positive_stable",
+        "token_win_survives_drop_one": false,
+        "tokens_p_holm": null,
+        "tokens_p_raw": null,
+        "tokens_significant_p_lt_0_05": false
+      },
+      "success_rate_baseline": 0.0,
+      "success_rate_condition": 1.0,
+      "task_id": "entire-brain-clean-default-fact-merge-confidence",
+      "token_accounting_source": null,
+      "token_accounting_version": 3,
+      "verdict": "brain_positive",
+      "verdict_reasons": [
+        "score_or_success_improved=+55.8",
+        "time_or_tokens_improved>=20%",
+        "search_calls_dropped>=20%"
+      ]
+    }
+  ],
+  "provenance": {
+    "fingerprint": "b14c5944a1fce680f6d98a990f1c86a2ad244205d2a4a847076d6a6a6be9ee15",
+    "harnesses": [
+      {
+        "dirty": false,
+        "head_commit": "6139817c901e28c943e03df4d7b8c5f2ec48fdb3",
+        "repo_name": "entire-brain",
+        "repo_role": "benchmark_harness"
+      }
+    ],
+    "missing_record_provenance": 0,
+    "records": 20,
+    "records_with_provenance": 20,
+    "run_configs": [
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "25a3171cbc163b98f03fa4cfad88510a593c0b7b476ee96e4eaa1e5134d824f0",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "27d5834c5af056436b578a13eb1c9d61cc3bc1708477a3b5d67dca371e7ad232",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "3d817126e66fc25d92dedf06383321204796216283e3b61d940436684160166c",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "5bb6566e846628e4647ba836cd56b6bbda6d3cb415b56d4bdb56855e10b25297",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "743b968f3ea30889469629c80e6c44dc512bfc1dd670a4dea424a0bc7d5d4804",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "a3c3ad68a200a67380133e32ddb82fe5c0818c21171d78355a879af8dc49ea37",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "b857ca7644e67153c2f8b379ba6b4113a0a8a97a3c856c609b12715c53019b6d",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "bb3cabb56056788856ea049d027420345b43d268eca133f50d985f189cabb924",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "c62e7a5131ef08754284a1106a1e1e402e1f81d35edfcdd7953f041698fa85e2",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "f300b60dee32fa154851d7fcdd2230849f76154a6f0063b5ae12221cf1da27e4",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "23318421c30f7f2e779d50a4bc72848f22e7db5840847d6d917f063bf76ceb10",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "46d9f71124b10df314db00c8a8ee82bf0df901c2198049646ec4cc977983444a",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "5811c40d0b9d4f4b795c69c42ae5fb41d698f47f4f75e45c86c69ff51530a7e4",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "5986e12204759998ba413ff0a47d22e6dc34debeb4bdcf7051db53ed346f1efd",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "5dfd7add239cd2fac2dd960a8a65c9d4187e938addef9c69c1695a7c7bc19545",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "80999bfc00c5aa01ec8df401cf6815814bc22d9375f0a2586c4151f65ef19934",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "8a9895be73ca864e59c86fc30bec20fb24cb93e6402c6093f04a18ecb1110b39",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "c8c86ef1eb64aafc747344a1e6ac6d70deeed8c2668d90b36219109e29788ac5",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "dd509534f74f7b52760d78b2098b3add8548fb96ccd200e6c59a0b9114b88c10",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 0,
+        "command": "run",
+        "condition": "semantic_history_brain",
+        "fingerprint": "ff495be59d7143142b0329cd29e76a634dcbf8f08c17dd6187df4d911366e4c3",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_history_brain",
+          "repetitions": 5,
+          "runners": "claude:sonnet:high",
+          "tasks": [
+            "entire-brain-clean-default-fact-merge-confidence.json",
+            "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "high",
+          "id": "claude-sonnet-high",
+          "model": "sonnet"
+        }
+      }
+    ],
+    "schema": 1,
+    "sources": [
+      {
+        "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "base_ref": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "base_ref_source": "task.base_commit",
+        "dirty": false,
+        "head_commit": "6139817c901e28c943e03df4d7b8c5f2ec48fdb3",
+        "repo": "entire-brain",
+        "repo_path_input": "entire-brain",
+        "repo_path_name": "entire-brain",
+        "repo_path_role": "task_source"
+      }
+    ],
+    "tasks": [
+      {
+        "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "config_sha256": "577a7d33c9f15a149cad5a67c2f6d0e49b7f3fbf07dfd56a1e1705a3782af844",
+        "id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+        "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json"
+      },
+      {
+        "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "config_sha256": "5e9f521d3dbdb8a02cec6b4a8604b38de36e6a9b3dfa0432795f4fb101cf90a8",
+        "id": "entire-brain-clean-default-fact-merge-confidence",
+        "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json"
+      }
+    ]
+  },
+  "records": 20,
+  "stability_tags": {
+    "brain_positive_stable": 1,
+    "saturated": 1
+  },
+  "stats_notes": {
+    "delivery_mode_separation": "comparisons are keyed by delivery_mode so harness-delivered and agent-tool rows never share a baseline",
+    "duration_metric": "harness_agent_interval_wall_seconds; legacy records fall back to agent_info.seconds",
+    "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+    "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+    "n_pvalues_in_family": 6,
+    "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+    "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance."
+  }
+}

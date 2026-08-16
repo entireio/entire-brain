@@ -1,0 +1,719 @@
+{
+  "adherence_ok": true,
+  "agent": "claude",
+  "agent_baseline_history": {
+    "commit_count": 424,
+    "first_parent": "f0c2af27849887d955f70592e00f69aa8d0949cf",
+    "head_commit": "49bef7755f0a08e3ecaa2aa5fadb2ee0d0e6e317",
+    "mode": "isolated_filtered_source_history",
+    "orig_head_exists": false,
+    "parent_count": 2,
+    "private_path_findings": [],
+    "private_paths_filtered": true,
+    "repository_isolated": true,
+    "shared_object_store": false,
+    "source_history_available": true,
+    "source_history_parent": "3a45ff76de870230ffc2c3295cd2d3705b2c8862",
+    "visible_reflog_entries": 0,
+    "visible_refs": [],
+    "visible_remotes": []
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": false,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "commands": [
+        "grep -ril \"branch\" --include=*.go . | grep -i export",
+        "grep -rIl \"branch\" --include=\"*.go\" . 2>/dev/null | grep -i export",
+        "grep -n \"branch\" internal/cli/export.go",
+        "sed -n '1420,1500p' internal/cli/export.go",
+        "git log --follow -p -- internal/cli/export.go | grep -n \"func (d checkpointBranchDestinations) BranchesFor\" -A 15 | head -100",
+        "git log --follow -p -- internal/cli/export.go | grep -n \"^commit \\|func (d checkpointBranchDestinations) BranchesFor\"",
+        "git log --oneline -- internal/cli/export.go | head -30",
+        "git log --follow --oneline -- internal/cli/export.go | head -30",
+        "git log --follow -p -- internal/cli/export.go | awk '\n/^commit /{c=$2}\n/func \\(d checkpointBranchDestinations\\) BranchesFor/{print c\": start\"}\n'\n",
+        "git show HEAD:internal/cli/export.go | grep -n \"func (d checkpointBranchDestinations) BranchesFor\" -A 12",
+        "git log --follow -p -- internal/cli/export.go | awk '\n/^commit /{c=$0}\n/BranchesFor/{print c\" | \"$0}\n'\n",
+        "git show f0c2af27849887d955f70592e00f69aa8d0949cf --stat | head -5; echo ---; git log --oneline --all | grep f0c2af; echo ---; git show 125ab7d1d26288fed71f2306b8c6f844a19a4fad -- internal/cli/export.go | grep -n \"BranchesFor\" -B5 -A20",
+        "git log --oneline -5; echo ---; git branch -a; echo ---; git log --oneline --all | head -20",
+        "pwd; find . -maxdepth 2 -iname \"internal\" 2>/dev/null; git rev-parse --show-toplevel",
+        "git log --oneline | grep -n \"72252bf\\|f0c2af2\\|125ab7d\" ",
+        "git log --oneline | sed -n '1,55p'",
+        "git show 125ab7d1d26288fed71f2306b8c6f844a19a4fad:internal/cli/export.go | grep -n \"func (d checkpointBranchDestinations) BranchesFor\" -A 12",
+        "git log --oneline 125ab7d1d26288fed71f2306b8c6f844a19a4fad..HEAD -- internal/cli/export.go | tail -20",
+        "git merge-base --is-ancestor f0c2af27849887d955f70592e00f69aa8d0949cf 125ab7d1d26288fed71f2306b8c6f844a19a4fad && echo \"f0c2af is ancestor of 125ab7d\" || echo \"not ancestor\"\ngit merge-base --is-ancestor 125ab7d1d26288fed71f2306b8c6f844a19a4fad f0c2af27849887d955f70592e00f69aa8d0949cf && echo \"125ab7d is ancestor of f0c2af\" || echo \"not ancestor\"",
+        "git show --stat HEAD | head -5; git log -1 --format=\"%P\" HEAD",
+        "git log -1 --format=\"parents: %P\" f0c2af27849887d955f70592e00f69aa8d0949cf",
+        "git merge-base --is-ancestor 125ab7d1d26288fed71f2306b8c6f844a19a4fad 3a45ff76de870230ffc2c3295cd2d3705b2c8862 && echo \"125ab7d is ancestor of 3a45ff7 (second parent)\" || echo \"not ancestor of second parent\"\ngit merge-base --is-ancestor 125ab7d1d26288fed71f2306b8c6f844a19a4fad f0c2af27849887d955f70592e00f69aa8d0949cf && echo \"125ab7d is ancestor of f0c2af2\" || echo \"not ancestor of f0c2af2\"",
+        "go test ./internal/cli/... -run 'Branch|Export' -v 2>&1 | tail -150",
+        "go env GOCACHE; mkdir -p <redacted-host-path> && GOCACHE=<redacted-host-path> go test ./internal/cli/... -run 'Branch|Export' -v 2>&1 | tail -200",
+        "grep -n \"func Test.*Branch\" internal/cli/export_test.go",
+        "grep -n \"DefaultCheckpointIDs\\|BranchesFor\\|MergedBranch\\|merged\" internal/cli/export_test.go | head -40",
+        "GOCACHE=<redacted-host-path> go build ./... 2>&1 | tail -50",
+        "mkdir -p <redacted-host-path> && GOCACHE=<redacted-host-path> GOMODCACHE=<redacted-host-path> GOFLAGS=-mod=mod go build ./... 2>&1 | tail -80",
+        "GOCACHE=<redacted-host-path> GOMODCACHE=<redacted-host-path> go test ./internal/cli/... 2>&1 | tail -30"
+      ],
+      "direct_brain_cli_calls": 0,
+      "entire_family_tools": [],
+      "first_tool_command_tokens": null,
+      "first_tool_is_memory_search": false,
+      "first_tool_name": "Bash",
+      "forbidden_memory_artifact_access": false,
+      "forbidden_memory_artifact_probes": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 15,
+      "search_commands": [
+        "find",
+        "grep"
+      ],
+      "structured_tool_event_count": 31,
+      "test_commands": [
+        "go test"
+      ],
+      "top_level_entire_commands": [],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "claude",
+    "agent_reported_api_seconds": 169.254,
+    "attempts": [
+      {
+        "agent_reported_api_seconds": 169.254,
+        "attempt": 1,
+        "resolved_model": "claude-sonnet-5",
+        "returncode": 0,
+        "seconds": 294.0252667909954,
+        "stderr_artifact": {
+          "bytes": 0,
+          "path": "agent.attempt1.stderr",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stdout_artifact": {
+          "bytes": 329621,
+          "path": "agent.attempt1.stdout",
+          "sha256": "c140b26b8f3359f73a6331f41c6676f27eb83ca735ace9a216a6e046aaa79afb"
+        },
+        "timed_out": false,
+        "transient_failure_reason": null,
+        "usage": {
+          "accounting_rule": "total_input_includes_uncached_plus_cache_read_plus_cache_creation; total_tokens=total_input_plus_output",
+          "accounting_source": null,
+          "accounting_version": 3,
+          "billing_v2": null,
+          "cache_creation_tokens": null,
+          "cache_read_tokens": null,
+          "cost_usd": null,
+          "cross_runner_definition": "provider_total_input_processed_plus_output; compare only within the same runner, accounting_version, and accounting_source",
+          "input_tokens": null,
+          "output_tokens": null,
+          "reasoning_tokens": null,
+          "total_input_tokens": null,
+          "total_tokens": null,
+          "turns": null,
+          "usage_report": {
+            "accounting_basis": null,
+            "actual_models": [
+              "claude-haiku-4-5-20251001",
+              "claude-sonnet-5"
+            ],
+            "complete": false,
+            "error": "Claude result contains multiple model rows requiring separate frozen prices",
+            "parser": "claude_result_model_usage_v1",
+            "source_events": 1
+          }
+        }
+      }
+    ],
+    "billing_integrity": {
+      "aggregate_present": false,
+      "aggregation": "sum_mutually_exclusive_categories_across_isolated_invocations",
+      "attempt_count": 1,
+      "complete_attempts": 0,
+      "incomplete_attempts": [
+        1
+      ],
+      "passed": true,
+      "required": false,
+      "schema": "agent-brain-attempt-billing-integrity/v1"
+    },
+    "cmd": [
+      "/usr/bin/sandbox-exec",
+      "..."
+    ],
+    "execution_identity": null,
+    "isolation": {
+      "auth": "host Claude Max/OAuth auth may still be used",
+      "filesystem_read": {
+        "allowed_root_sha256": [
+          "fefaee9e457d00eee8e7fa0b778f071c33daf0a508b07490cfcfdae3f4eef1ba",
+          "b3ae53d6ec531b5d16524f21a68ba1950eef005b63c0eb105dc61e25afc3f3db",
+          "6d53dd1466b23fa8a7458c9e470156d850ebb50d35595e5737d3ae9c4a94e4a3",
+          "5d1d6dfe8294893358dfb5e75b9c76dc8f434de59694f89cf400e836b3852140",
+          "ae1efbd478e727489c48515ea3a14bf5cded46fbfff102d5c607519c0b0d905a"
+        ],
+        "backend": "macos-sandbox-exec",
+        "denied_root_sha256": [
+          "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+          "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+          "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+          "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+          "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+          "939c2d5bf125e744b27a212df36741fb1e8edfb0ad9f7e7ed9f572336d2595e6",
+          "792f2e4edd88e099ed6434cf455919e00b0ea17870cd6065c2bd1a4a57cdc068"
+        ],
+        "harness_and_source_read_write_denied": true,
+        "host_entire_executable_sha256": [
+          "fadec7d69f96bb71d9b56799e7373cc7a001b7b615f071261b1ee025c8f5c1ba",
+          "51109be0488c8eac041ca4bb641426fbfc161aebef4af40ac8ba2f30d894ec0b",
+          "995cba3821538f0110d3e94d11609e771157961e30641bddd045ee7df9bbda4f",
+          "83500acacd49b6d9456a24a8bac62b6ffa8c27855bed06d733585e15334c36ff"
+        ],
+        "host_entire_executables_denied": true,
+        "host_entire_root_sha256": [
+          "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+          "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+          "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+          "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+          "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+          "792f2e4edd88e099ed6434cf455919e00b0ea17870cd6065c2bd1a4a57cdc068"
+        ],
+        "host_entire_state_read_write_denied": true,
+        "profile_sha256": "7127468c165b971b8b4dc563d412e9b22e594b8c0db416fe122c1c9f91353c33",
+        "sandbox_executable_sha256": "e3d7a792c58a5d3783d2f7274c82d70062393830d8cb1ded713ca554a470bd2f",
+        "worktree_and_frozen_tools_allowed": true
+      },
+      "mcp": "strict empty config",
+      "session": "no-session-persistence",
+      "settings": "safe mode for non-MCP runs; host settings retained only when an explicit MCP server is required",
+      "slash_commands": "disabled"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "provider_invocation": {
+      "attestation": "retained_attempt_ledger",
+      "invocation_count": 1,
+      "reason": null,
+      "schema": "agent-brain-provider-invocation-state/v1",
+      "state": "provider_invocations_observed"
+    },
+    "resolved_model": "claude-sonnet-5",
+    "returncode": 0,
+    "runner": {
+      "agent": "claude",
+      "effort": "high",
+      "id": "claude-sonnet-high",
+      "model": "sonnet"
+    },
+    "seconds": 294.02527974999975,
+    "stderr_bytes": 0,
+    "stderr_tail": "",
+    "stdout_bytes": 329621,
+    "stdout_tail": "bility (`DefaultCheckpointIDs`) first, and only fall back to the recorded branch when the checkpoint isn't reachable from default. I restored that order. The original-source-branch info is still preserved separately via `SourceBranch` in `addSelectedSession`, so provenance isn't lost \u2014 only the grouping/folder destination changes.\\n\\n**Validation:**\\n- `go build ./...` \u2014 passed\\n- `go test ./internal/cli/...` (full package, 92.7s) \u2014 passed\\n- Targeted run of `Branch|Export` tests \u2014 all passed\\n\\nNo changes to `go.mod`/`go.sum`, no test files modified.\"}],\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":164,\"cache_read_input_tokens\":62298,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":164},\"output_tokens\":2,\"service_tier\":\"standard\",\"inference_geo\":\"not_available\"},\"diagnostics\":null,\"context_management\":null},\"parent_tool_use_id\":null,\"session_id\":\"4e38baa0-65cd-49cf-884c-3db8568ea1b2\",\"uuid\":\"ca19e1eb-720e-4e80-8ae8-b177eb3b3919\",\"timestamp\":\"2026-08-16T09:22:03.384Z\",\"request_id\":\"req_011Ce6BXYtKTpXUscuyKMpV6\"}\n{\"is_error\":false,\"duration_api_ms\":169254,\"num_turns\":32,\"stop_reason\":\"end_turn\",\"session_id\":\"4e38baa0-65cd-49cf-884c-3db8568ea1b2\",\"total_cost_usd\":0.8496842,\"usage\":{\"input_tokens\":64,\"cache_creation_input_tokens\":38661,\"cache_read_input_tokens\":1387214,\"output_tokens\":13366,\"output_tokens_details\":{\"thinking_tokens\":8818},\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":38661,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"not_available\",\"iterations\":[{\"input_tokens\":2,\"output_tokens\":416,\"cache_read_input_tokens\":62298,\"cache_creation_input_tokens\":164,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":164},\"type\":\"message\"}],\"speed\":\"standard\"},\"modelUsage\":{\"claude-haiku-4-5-20251001\":{\"inputTokens\":787,\"outputTokens\":17,\"cacheReadInputTokens\":0,\"cacheCreationInputTokens\":0,\"webSearchRequests\":0,\"costUSD\":0.000872,\"contextWindow\":200000,\"maxOutputTokens\":32000,\"canonicalModel\":\"claude-haiku-4-5\",\"provider\":\"firstParty\"},\"claude-sonnet-5\":{\"inputTokens\":64,\"outputTokens\":13366,\"cacheReadInputTokens\":1387214,\"cacheCreationInputTokens\":38661,\"webSearchRequests\":0,\"costUSD\":0.8488122,\"contextWindow\":1000000,\"maxOutputTokens\":64000,\"canonicalModel\":\"claude-sonnet-5\",\"provider\":\"firstParty\"}},\"permission_denials\":[],\"terminal_reason\":\"completed\",\"fast_mode_state\":\"off\",\"fast_mode_disabled_reason\":\"sdk_opt_in_required\",\"subtype\":\"success\",\"api_error_status\":null,\"result\":\"All tests pass.\\n\\n## Summary\\n\\nThe bug was in `checkpointBranchDestinations.BranchesFor` in `internal/cli/export.go`. It checked the checkpoint's recorded (source) branch first, only falling back to default-branch reachability if that recorded branch was empty. That meant a checkpoint originally recorded on a feature branch stayed filed under that feature-branch folder forever, even after the branch merged into the default branch and the checkpoint became reachable from default.\\n\\nBy comparing against project history (commit `125ab7d`, \\\"Export branch-scoped session logs with authors\\\"), the intended order is the reverse: check default-branch reachability (`DefaultCheckpointIDs`) first, and only fall back to the recorded branch when the checkpoint isn't reachable from default. I restored that order. The original-source-branch info is still preserved separately via `SourceBranch` in `addSelectedSession`, so provenance isn't lost \u2014 only the grouping/folder destination changes.\\n\\n**Validation:**\\n- `go build ./...` \u2014 passed\\n- `go test ./internal/cli/...` (full package, 92.7s) \u2014 passed\\n- Targeted run of `Branch|Export` tests \u2014 all passed\\n\\nNo changes to `go.mod`/`go.sum`, no test files modified.\",\"ttft_ms\":1421,\"ttft_stream_ms\":822,\"time_to_request_ms\":12,\"type\":\"result\",\"duration_ms\":293060,\"uuid\":\"6da60bbd-76ea-430f-8b0d-6e099bd466c0\"}\n",
+    "transient_retries": 0,
+    "usage": {
+      "accounting_rule": null,
+      "accounting_source": null,
+      "accounting_version": 3,
+      "billing_v2": null,
+      "cache_creation_tokens": null,
+      "cache_read_tokens": null,
+      "cost_source": null,
+      "cost_usd": null,
+      "cross_runner_definition": "provider_total_input_processed_plus_output; compare only within the same runner, accounting_version, and accounting_source",
+      "input_tokens": null,
+      "output_tokens": null,
+      "reasoning_tokens": null,
+      "total_input_tokens": null,
+      "total_tokens": null,
+      "turns": null,
+      "usage_report": {
+        "accounting_basis": "sum_per_isolated_provider_invocation_attempt_total",
+        "attempt_count": 1,
+        "attempt_parsers": [
+          "claude_result_model_usage_v1"
+        ],
+        "complete": false,
+        "complete_attempts": [],
+        "error": "one or more provider invocations lacks unambiguous usage",
+        "incomplete_attempts": [
+          1
+        ],
+        "parser": "provider_attempt_sum_v1",
+        "source_events": 1
+      }
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_patch_secret_audit": {
+    "ok": true,
+    "patterns": []
+  },
+  "agent_ran": true,
+  "agent_read_isolation": {
+    "allowed_root_sha256": [
+      "fefaee9e457d00eee8e7fa0b778f071c33daf0a508b07490cfcfdae3f4eef1ba",
+      "b3ae53d6ec531b5d16524f21a68ba1950eef005b63c0eb105dc61e25afc3f3db",
+      "6d53dd1466b23fa8a7458c9e470156d850ebb50d35595e5737d3ae9c4a94e4a3",
+      "5d1d6dfe8294893358dfb5e75b9c76dc8f434de59694f89cf400e836b3852140",
+      "ae1efbd478e727489c48515ea3a14bf5cded46fbfff102d5c607519c0b0d905a"
+    ],
+    "backend": "macos-sandbox-exec",
+    "denied_root_sha256": [
+      "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+      "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+      "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+      "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+      "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+      "939c2d5bf125e744b27a212df36741fb1e8edfb0ad9f7e7ed9f572336d2595e6",
+      "792f2e4edd88e099ed6434cf455919e00b0ea17870cd6065c2bd1a4a57cdc068"
+    ],
+    "harness_and_source_read_write_denied": true,
+    "host_entire_executable_sha256": [
+      "fadec7d69f96bb71d9b56799e7373cc7a001b7b615f071261b1ee025c8f5c1ba",
+      "51109be0488c8eac041ca4bb641426fbfc161aebef4af40ac8ba2f30d894ec0b",
+      "995cba3821538f0110d3e94d11609e771157961e30641bddd045ee7df9bbda4f",
+      "83500acacd49b6d9456a24a8bac62b6ffa8c27855bed06d733585e15334c36ff"
+    ],
+    "host_entire_executables_denied": true,
+    "host_entire_root_sha256": [
+      "52ebbe122dac3301dc56c9ac879272554c4818be235bf6cfcf7697f07ce1f02e",
+      "ed7430a29ab02d26931c91822c53ad957372748c08a313625601452310e073fa",
+      "b650023c3489904c99012b2227f83fe51d7498e41b9164057ce3ae43a516221f",
+      "ca89da4cdea258d178eed7da51307f4bd98d852f7006093afee5a72dafc1ca35",
+      "458501e1b70d3fdc8e11b392517efa62a92826a3f7778e201582a28596790a05",
+      "792f2e4edd88e099ed6434cf455919e00b0ea17870cd6065c2bd1a4a57cdc068"
+    ],
+    "host_entire_state_read_write_denied": true,
+    "profile_sha256": "7127468c165b971b8b4dc563d412e9b22e594b8c0db416fe122c1c9f91353c33",
+    "sandbox_executable_sha256": "e3d7a792c58a5d3783d2f7274c82d70062393830d8cb1ded713ca554a470bd2f",
+    "worktree_and_frozen_tools_allowed": true
+  },
+  "agent_runtime_history": {
+    "commit_count": 424,
+    "first_parent": "f0c2af27849887d955f70592e00f69aa8d0949cf",
+    "head_commit": "49bef7755f0a08e3ecaa2aa5fadb2ee0d0e6e317",
+    "mode": "isolated_filtered_source_history",
+    "orig_head_exists": false,
+    "parent_count": 2,
+    "private_path_findings": [],
+    "private_paths_filtered": true,
+    "repository_isolated": true,
+    "shared_object_store": false,
+    "source_history_available": true,
+    "source_history_parent": "3a45ff76de870230ffc2c3295cd2d3705b2c8862",
+    "visible_reflog_entries": 0,
+    "visible_refs": [],
+    "visible_remotes": []
+  },
+  "agent_secret_postflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "baseline_history_audit": {
+    "findings": [],
+    "ok": true,
+    "required": true
+  },
+  "brain_cli_condition_audit": {
+    "entire_family_tools": [],
+    "findings": [],
+    "first_tool_command_tokens": null,
+    "ok": true,
+    "required": false
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [
+    "internal/cli/export.go"
+  ],
+  "code_quality": {
+    "critical_failure": false,
+    "critical_failure_reasons": [],
+    "excluded_components": [
+      "validation_discipline",
+      "runtime_efficiency",
+      "brain_use"
+    ],
+    "rubric": "task_relative_output_outcome_patch_focus_v2",
+    "schema": "agent-brain-code-quality/v2",
+    "task_normalized_score": 0.986666666667
+  },
+  "condition": "no_brain",
+  "delivery_mode": "agent_tool",
+  "diff_stat": {
+    "bytes": 854,
+    "shortstat": "1 file changed, 5 insertions(+), 5 deletions(-)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-08-16T09:22:16.540806+00:00",
+  "git_remote_isolation": {
+    "remaining": [],
+    "removed": []
+  },
+  "go_dependency_prewarm": {
+    "ok": true,
+    "ran": true,
+    "returncode": 0,
+    "seconds": 3.149
+  },
+  "integrity_ok": true,
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": true,
+  "patch_artifact": {
+    "bytes": 854,
+    "path": "agent.patch",
+    "sha256": "57b0b068a331a7c3a1ad533c2fd520da3a5faaee3a9d9c3268c2375afcbedd91",
+    "tracked_files": [
+      "internal/cli/export.go"
+    ],
+    "untracked_files": []
+  },
+  "planned_ordinal": 8,
+  "post_brain_setup_applied": false,
+  "prompt_artifact": {
+    "bytes": 1355,
+    "path": "prompt.txt",
+    "sha256": "7d787aa6ccd4f60b4e1196fe3c62fa225631462aa43589b78322e0b794017cad"
+  },
+  "provenance": {
+    "captured_at": "2026-08-16T09:17:04.636843+00:00",
+    "fingerprint": "7a459f380f52463af68c6e2b466943c4134d8d9817a2f094c964864452ec9310",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Thomas Dohmke",
+        "available": true,
+        "commit": "6139817c901e28c943e03df4d7b8c5f2ec48fdb3",
+        "committer_date": "2026-08-16T01:40:59-07:00",
+        "parent_count": 1,
+        "parents": [
+          "4bed3a95adca5e1d4ea54911e9f988d479f560b3"
+        ],
+        "ref": "HEAD",
+        "subject": "fix(bench): flag only boundary-spanning diffs, and exempt nested Go scratch"
+      },
+      "repo_name": "entire-brain",
+      "repo_role": "benchmark_harness"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 0,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null,
+        "ENTIRE_BENCH_CAPTURE_BRIEF": null,
+        "ENTIRE_BRAIN_ACTION_CHECKLIST": null
+      },
+      "fingerprint": "bb3cabb56056788856ea049d027420345b43d268eca133f50d985f189cabb924",
+      "panel": {
+        "config_sha256": "13edfb3708b28db96bb9635a174e922e5716cad07c0f145c968aa3521d1caa67",
+        "name": "p01-clean-proof-claude",
+        "path": {
+          "name": "p01-clean-proof-claude.json",
+          "role": "panel_manifest",
+          "sha256": "729e0d60959d55eddb6eb538131def9b3ad3a896cc27d9bf186ed287a2a959d2",
+          "sha256_kind": "redacted_reference"
+        }
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 4,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,semantic_history_brain",
+        "repetitions": 5,
+        "runners": "claude:sonnet:high",
+        "tasks": [
+          "entire-brain-clean-default-fact-merge-confidence.json",
+          "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+        ]
+      },
+      "runner": {
+        "agent": "claude",
+        "effort": "high",
+        "id": "claude-sonnet-high",
+        "model": "sonnet"
+      },
+      "runtime_controls": {
+        "cache_policy": "isolated_per_cell",
+        "order_policy": "counterbalanced",
+        "planned_ordinal": 8,
+        "schedule_seed": 0,
+        "schedule_sha256": "5fac688a444097519a258fc0433c68121bc0875ce5096c16ec2650f13f459583",
+        "timing_primary": "end_to_end_user_visible_wall_seconds"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "panel-p01-clean-proof-claude-20260816T084152Z",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Thomas Dohmke",
+        "available": true,
+        "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "committer_date": "2026-06-18T10:29:30+02:00",
+        "parent_count": 1,
+        "parents": [
+          "b219090c791f0ecdea069f449b9fcfdb9758ca27"
+        ],
+        "ref": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "subject": "Add v3 plan for pattern detection."
+      },
+      "base_ref": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Thomas Dohmke",
+        "available": true,
+        "commit": "6139817c901e28c943e03df4d7b8c5f2ec48fdb3",
+        "committer_date": "2026-08-16T01:40:59-07:00",
+        "parent_count": 1,
+        "parents": [
+          "4bed3a95adca5e1d4ea54911e9f988d479f560b3"
+        ],
+        "ref": "HEAD",
+        "subject": "fix(bench): flag only boundary-spanning diffs, and exempt nested Go scratch"
+      },
+      "origin_url": "https://github.com/ashtom/entire-brain.git",
+      "repo": "entire-brain",
+      "repo_path_input": "entire-brain",
+      "repo_path_name": "entire-brain",
+      "repo_path_role": "task_source"
+    },
+    "task": {
+      "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "base_commit_source": "task.base_commit",
+      "config_sha256": "577a7d33c9f15a149cad5a67c2f6d0e49b7f3fbf07dfd56a1e1705a3782af844",
+      "id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+      "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+      "radar_include_deletions": false
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "name": "bin",
+        "role": "frozen_tool_directory"
+      },
+      "brain": {
+        "exists": true,
+        "name": "entire-brain",
+        "role": "frozen_run_tool",
+        "sha256": "b9053ec9e3c30d5eb5638e68ad159f2543765bde425e3c7bdb8305fad5c8dc2a"
+      },
+      "entire": {
+        "exists": true,
+        "name": "entire",
+        "role": "frozen_run_tool",
+        "sha256": "8f5a0bf0402b59e4d2574d801198cb5a2c404de0cc46e74038caaef8b5498f6b"
+      },
+      "graph": {
+        "exists": true,
+        "name": "entire-graph",
+        "role": "frozen_run_tool",
+        "sha256": "fd91812872d08b5d9cbf303f7182cff3c06c44d09987a0dc0ca2607564334268"
+      }
+    }
+  },
+  "remote_source_fetch_audit": {
+    "findings": [],
+    "ok": true,
+    "required": true
+  },
+  "repetition": 4,
+  "repo": "entire-brain",
+  "retrieval_query_source": "legacy",
+  "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4",
+  "runner": {
+    "agent": "claude",
+    "effort": "high",
+    "id": "claude-sonnet-high",
+    "model": "sonnet"
+  },
+  "runtime_controls": {
+    "ambient_go_cache_inherited": false,
+    "cache_paths": {
+      "GOCACHE": {
+        "path": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4/runtime-cache/go-build",
+        "path_sha256": "6ca88cfaafe401ae3800a4bad8805509735f32565ff44955bbb703697f4b5bc1"
+      },
+      "GOMODCACHE": {
+        "path": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4/runtime-cache/go-mod",
+        "path_sha256": "bf4a417b2392dca1bb110829791a5c9e97d6b5ae5b3fb45692f2162dc9ba4280"
+      },
+      "retrieval_vector_cache": {
+        "path": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4/runtime-cache/retrieval-vectors",
+        "path_sha256": "a035d8a5d6eb96d2b7687e11797cfc9aeec19287a7a2172e0e84b224c299772c"
+      },
+      "root": {
+        "path": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4/runtime-cache",
+        "path_sha256": "103ffcc5b4b3057ee494f201578382d85395af94ca5f05b99d0209b24c9a009f"
+      }
+    },
+    "cache_policy": "isolated_per_cell",
+    "timing_definitions": {
+      "agent_reported_api_seconds": "Provider/agent-CLI reported API duration when present in structured output; null otherwise.",
+      "agent_timeout_limit_seconds": "Frozen limit passed to the agent component; metadata only and never substituted for the measured end-to-end elapsed-time observation.",
+      "cell_setup_wall_seconds": "Harness monotonic wall time from cell start until the agent interval begins.",
+      "cell_total_wall_seconds": "Harness monotonic wall time for setup, agent execution, validation, and record assembly.",
+      "end_to_end_user_visible_wall_seconds": "Harness monotonic wall time immediately before harness-owned treatment retrieval/delivery (a no-op at the same logical point for no-memory) through agent CLI completion, or through the immediately observed treatment-failure / timeout-termination boundary when no final response exists. The boundary is captured before usage parsing, hashing, and artifact writes. Worktree/cache setup, secret preflight, and hidden validation are excluded.",
+      "harness_agent_interval_wall_seconds": "Harness monotonic wall time immediately around the agent CLI invocation. Confirmatory provider retries are frozen at zero; exploratory retries and backoff remain included. Setup, cache prewarm, and validation are excluded.",
+      "primary": "end_to_end_user_visible_wall_seconds",
+      "timeout_component_limit_seconds": "Exact limit of the retrieval/delivery or agent component that raised TimeoutExpired; null when no component timed out and never substituted for measured end-to-end elapsed time."
+    }
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 294.02527974999975,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": false,
+      "diff_bytes": 854,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "internal/cli/export.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 15,
+      "structured_tool_event_count": 31,
+      "total_tokens": null,
+      "unexpected_files_touched": [],
+      "validation_count": 1,
+      "validation_passed": 1
+    },
+    "outcome": 45,
+    "patch_focus": 29,
+    "runtime_efficiency": 5,
+    "total": 92,
+    "validation_discipline": 8,
+    "version": 2
+  },
+  "started_at": "2026-08-16T09:17:04.620435+00:00",
+  "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+  "task_ok": true,
+  "task_validity": {
+    "automated_disposition": "oracle_assisted",
+    "confirmatory_eligible": false,
+    "findings": [
+      {
+        "kind": "hidden_material_overlap",
+        "source": "hidden_validation_file"
+      }
+    ],
+    "note": "automated lint is triage; approved_symptom_only requires a human review-ledger entry",
+    "prompt_sha256": "c1726e8635e0001b1e1b2a2b7025e5c5c40c262023f63d6133f24c09954f81a1",
+    "schema": 1,
+    "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability"
+  },
+  "temporal_memory_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "timing": {
+    "agent_reported_api_seconds": 169.254,
+    "agent_timeout_limit_seconds": 1800.0,
+    "cell_setup_wall_seconds": 4.980516167008318,
+    "cell_total_wall_seconds": 311.9341640420025,
+    "end_to_end_user_visible_wall_seconds": 294.04773662495427,
+    "harness_agent_interval_wall_seconds": 294.02528508298565,
+    "hidden_validation_included_in_primary": false,
+    "pre_treatment_setup_included_in_primary": false,
+    "primary": "end_to_end_user_visible_wall_seconds",
+    "timeout_component_limit_seconds": null,
+    "timeout_occurred": false,
+    "timeout_stage": null,
+    "treatment_retrieval_included_in_primary": true
+  },
+  "treatment": {
+    "arm": "no_memory",
+    "confirmatory_eligible": false,
+    "query_source": "legacy"
+  },
+  "treatment_started": true,
+  "validation": {
+    "kinds": {
+      "exact": {
+        "count": 1,
+        "passed": 1
+      }
+    },
+    "ok": true,
+    "results": [
+      {
+        "command": "go test ./internal/cli -run 'TestReachableCheckpointRoutesToDefaultBranchFolder'",
+        "kind": "exact",
+        "returncode": 0,
+        "seconds": 12.826848983764648,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/ashtom/entire-brain/internal/cli\t0.697s\n"
+      }
+    ]
+  },
+  "worktree": {
+    "name": "repo",
+    "role": "agent_worktree",
+    "sha256": "bfdecd6e76cc3ec3661367780f18e5586c0b8e6b9db4402d1304f54e9556d3c1",
+    "sha256_kind": "redacted_reference"
+  }
+}

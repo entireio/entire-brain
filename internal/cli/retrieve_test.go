@@ -463,8 +463,23 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 			if tc.wantResult && len(payload.Results) == 0 {
 				t.Fatalf("expected results for %s, got none", tc.name)
 			}
-			if tc.wantResult && (!strings.Contains(out, `"excerpt"`) || !strings.Contains(out, `"text":`)) {
-				t.Fatalf("ranked retrieval must preserve text compatibility and add compact excerpts:\n%s", out)
+			if tc.wantResult && !strings.Contains(out, `"text":`) {
+				t.Fatalf("ranked retrieval must preserve text compatibility:\n%s", out)
+			}
+			// The compact excerpt appears only when it adds information over
+			// Text; short records omit the duplicate so paged output carries
+			// more of the ranking.
+			if tc.wantResult && strings.Contains(out, `"excerpt"`) {
+				var compat struct {
+					Results []compactUnifiedResult `json:"results"`
+				}
+				if err := json.Unmarshal([]byte(out), &compat); err == nil {
+					for _, result := range compat.Results {
+						if result.Excerpt != "" && result.Excerpt == strings.Join(strings.Fields(result.Text), " ") {
+							t.Fatalf("excerpt duplicates text byte for byte: %q", result.Excerpt)
+						}
+					}
+				}
 			}
 			if tc.wantLimit && len(payload.Results) != 1 {
 				t.Fatalf("number alias should limit results to 1, got %d: %+v", len(payload.Results), payload.Results)

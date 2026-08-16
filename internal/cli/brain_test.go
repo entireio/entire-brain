@@ -820,7 +820,7 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 				"content": []map[string]any{{
 					"type": "tool_result",
 					"content": strings.Join([]string{
-						"state.BaseCommit = newHead",
+						"state.BaseCommit = \"9f2c1ab\"",
 						"// Keep AttributionBaseCommit in sync to prevent stale base drift.",
 						"// Without this, a subsequent condensation would diff from the old base,",
 						"// inflating human_added with lines from unrelated prior commits.",

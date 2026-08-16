@@ -1,6 +1,6 @@
 {
   "name": "p01-clean-proof-claude",
-  "description": "Claude-runner variant of the clean replay-lab proof panel, run because the Codex gpt-5.5 workspace ran out of credits mid-proof. Same two correctness-gap candidates (durable-facts merge-confidence default; export checkpoint-branch-reachability contract), no_brain vs semantic_history_brain, four repetitions, Claude Sonnet runner. This proves brain-lift for a different agent than the codex release lane.",
+  "description": "Claude-runner variant of the clean replay-lab proof panel, run because the Codex gpt-5.5 workspace ran out of credits mid-proof. Same two correctness-gap candidates (durable-facts merge-confidence default; export checkpoint-branch-reachability contract), no_brain vs semantic_history_brain, five repetitions (one above the proof minimum of four valid rows per side: baseline agents on the memory-only task escalate to hard adherence violations, and exactly-four repetitions gave the comparison zero attrition tolerance), Claude Sonnet runner. This proves brain-lift for a different agent than the codex release lane.",
   "runners": [
     "claude:sonnet:high"
   ],
@@ -8,7 +8,7 @@
     "no_brain",
     "semantic_history_brain"
   ],
-  "repetitions": 4,
+  "repetitions": 5,
   "tasks": [
     "entire-brain-clean-default-fact-merge-confidence.json",
     "entire-brain-clean-contract-checkpoint-branch-reachability.json"

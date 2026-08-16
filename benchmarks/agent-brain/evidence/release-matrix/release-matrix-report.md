@@ -14,7 +14,7 @@
 
 | Track | Status | Claimable | Evidence | Detail |
 |---|---|---:|---|---|
-| replay-lab retained agent proof | no-claim | false | benchmarks/agent-brain/evidence/release/codex-audit-report.json | B1 clean reruns are retained and audit-clean, but no comparison survived the proof-ready gate |
+| replay-lab retained agent proof | no-claim | false | benchmarks/agent-brain/evidence/release/codex-audit-report.json | B1 retained query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift |
 | replay-lab clean correctness-axis agent lift (history channel) | proven | true | benchmarks/agent-brain/evidence/replay-lab-clean/codex-audit-report.json | history-channel correctness brain-lift: 1 proof-ready history comparison(s), brain_positive_stable (per-arm counts in the lane codex-audit-report); mcp/radar/codex scopes remain no_release_claim |
 | QMD-inspired MCP/Radar tool contract | proven | true | benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json | deterministic MCP/Radar Go test artifact |
 | distill local scheduler/backfill mechanics | proven-local | true | benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json | current-repo local command-agent distill extraction scheduling speedup |

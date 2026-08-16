@@ -17,8 +17,8 @@ harness (`GraphMark`). The standard here matches `docs/release-blockers.md` and
 | 6 | `brain_*` MCP tool contract locked | ✅ exists | schemas `additionalProperties:false`, unknown-key rejection, named-tool auditability |
 | 7 | GraphMark wired as a regression gate | ✅ done | `GraphMark` CI: self-tests + significance no-drift; floor = 28/30 languages, 1148 vs 802 |
 | 8 | Phase-1 local-only boundary frozen as a guardrail | ✅ exists | stdio MCP only; `ENTIRE_BRAIN_NO_EGRESS` / `LOCAL_ONLY` documented |
-| 9 | Release blockers B1 + R1–R4 confirmed closed on RC SHA | ⏳ verify | re-run `mise run release:readiness` on the tagged SHA; see `docs/release-blockers.md` |
-| 10 | Tagged `main` on `entire-graph` **and** `entire-brain`, aligned | ⏳ partial | `entire-graph` `v0.1.0` cut; `entire-brain` tag pending (this SHA) |
+| 9 | Release blockers B1 + R1–R4 confirmed closed on RC SHA | ✅ done | `mise run release:evidence` on the RC SHA: 0 hard integrity flags, 24/24 records with required provenance. See "GA cut — resolved" §1 and `docs/release-blockers.md` |
+| 10 | Tagged `main` on `entire-graph` **and** `entire-brain`, aligned | ✅ done | both cut `v0.1.0` on the aligned GA SHA. See "GA cut — resolved" §2 and "Provider compatibility since the GA cut" below |
 | 11 | `no_release_claim` items resolved (proof or scoped-out) | ✅ resolved | see "Claim posture" below |
 
 ## Compatibility matrix
@@ -77,6 +77,28 @@ evidence.
    CLI NDJSON-only; fallback protocol `2024-11-05` vs `2025-06-18`; max frame
    4 MiB vs 1 MiB) are cosmetic, cause no current-state breakage, and are
    deferred to the P2 unified-MCP-surface work — not a P0 blocker.
+
+## Provider compatibility since the GA cut
+
+Gate 10 pinned the aligned `v0.1.0` ↔ `v0.1.0` GA cut. `entire-graph` has since
+released `v0.2.0` (2026-07-16) and `v0.3.0` (2026-08-14) while `entire-brain`
+remains at `v0.1.0`. The tags are no longer numerically aligned; the **contract**
+still is, and that is what gate 10 protects:
+
+- `entire-graph` `v0.3.0` still advertises `SchemaVersion = "1.1"`
+  (`internal/sem/provider.go`) — the same version cut at GA, and within the
+  additive-only `1.x` major that ADR 0001 freezes.
+- The emitted `record_type` set is unchanged: `file`, `symbol`, `relation`,
+  `external`, `summary` — all of which the brain's snapshot reader already
+  handles.
+- The brain consumes `entire graph snapshot` and `entire graph doctor` only. It
+  does not call `entire graph search`, so search-path work (multi-resolution
+  prose retrieval, `--single-resolution` / `--document-resolution`) does not
+  reach the brain's ingestion path.
+
+No brain-side adaptation is required to run against `entire-graph` `v0.3.0`.
+Re-check this section on any `entire-graph` **major** bump, which by ADR 0001 is
+the only release permitted to break the reader.
 
 **P0 GA status: gates 1–11 satisfied.** The local brain (entire-graph + entire-brain
 + GraphMark) is at GA on the `v0.1.0` line.

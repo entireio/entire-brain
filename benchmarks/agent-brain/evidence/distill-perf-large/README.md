@@ -2,8 +2,8 @@
 
 Retained dry-run sizing and paired serial/parallel timed-run artifacts for
 `entire-brain distill` on a **large** session corpus (the entireio/cli brain:
-822 sessions, 838 chunks, ~1.69 GB raw transcripts). This is the large-repo
-companion to the current-repo evidence under `../distill-perf/`.
+2080 sessions, 2104 chunks). This is the large-repo companion to the
+current-repo evidence under `../distill-perf/`.
 
 Run the gate with `mise run distill:large:evidence`; regenerate the committed
 report with `mise run distill:large:evidence:update`.
@@ -12,8 +12,8 @@ report with `mise run distill:large:evidence:update`.
 
 - **Proven:** the distill extraction scheduler parallelizes a large-repo
   backfill. `--jobs 1` vs `--jobs 4` on the same fresh corpus produces identical
-  output (838 facts, 838 extraction calls, 545 reconcile calls) with a measured
-  wall-clock speedup of ~2.2x (auditor floor `min_speedup` = 1.5).
+  output (2102 facts, 2104 extraction calls, 1456 reconcile calls) with a
+  measured wall-clock speedup of ~1.82x (auditor floor `min_speedup` = 1.5).
 - **Not proven here:** hosted-model end-to-end latency or fact quality. The
   three runs use a deterministic local command agent
   (`large_command_agent.py`), not a hosted model, exactly like the current-repo

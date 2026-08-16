@@ -21,9 +21,13 @@ type compactUnifiedResult struct {
 	Heading string `json:"heading,omitempty"`
 	Line    int    `json:"line,omitempty"`
 	// Text is retained for JSON compatibility. Excerpt is the bounded locator
-	// projection newer agents may prefer before calling get/multi-get.
+	// projection newer agents may prefer before calling get/multi-get; it is
+	// omitted when it would duplicate Text byte for byte, which is the common
+	// case for short records. Duplicating both doubled every result and agents
+	// that page output through `head` lost the tail of the ranking: a decisive
+	// record at rank 6 was observed cut off by exactly this.
 	Text                 string            `json:"text"`
-	Excerpt              string            `json:"excerpt"`
+	Excerpt              string            `json:"excerpt,omitempty"`
 	Score                float64           `json:"score,omitempty"`
 	VerificationRequired bool              `json:"verification_required,omitempty"`
 	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
@@ -453,7 +457,7 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 	for i, result := range results {
 		out[i] = compactUnifiedResult{
 			Source: result.Source, ID: result.ID, Path: result.Path, Heading: result.Heading, Line: result.Line,
-			Text: result.Text, Excerpt: retrievalResultExcerpt(result.Text, query, retrievalExcerptBytes), Score: result.Score,
+			Text: result.Text, Excerpt: distinctRetrievalExcerpt(result.Text, query), Score: result.Score,
 			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
 			EndLine: result.EndLine, Branch: result.Branch, SessionID: result.SessionID,
 			Agent: result.Agent, CreatedAt: result.CreatedAt, Truncated: result.Truncated,
@@ -468,6 +472,16 @@ func compactUnifiedResults(results []unifiedResult, query string) []compactUnifi
 
 // retrievalResultExcerpt centers a compact result on the densest query-term
 // window. Ranked retrieval is a locator surface; get/multi-get own full bodies.
+// distinctRetrievalExcerpt returns the bounded excerpt only when it adds
+// information over Text; an identical projection is omitted.
+func distinctRetrievalExcerpt(text, query string) string {
+	excerpt := retrievalResultExcerpt(text, query, retrievalExcerptBytes)
+	if excerpt == strings.Join(strings.Fields(text), " ") {
+		return ""
+	}
+	return excerpt
+}
+
 func retrievalResultExcerpt(value, query string, maxBytes int) string {
 	text := strings.Join(strings.Fields(value), " ")
 	if maxBytes <= 0 || text == "" {

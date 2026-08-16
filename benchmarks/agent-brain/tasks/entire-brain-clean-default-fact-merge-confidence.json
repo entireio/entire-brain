@@ -20,6 +20,20 @@
   "setup_commands": [
     "perl -0pi -e 's/falls back to the default \\(0\\.75\\)/falls back to the default/g' docs/durable_facts_plan.md"
   ],
+  "scrub_answer_from_history": true,
+  "history_scrub_replacements": [
+    {
+      "old": "falls back to the default (0.75)",
+      "new": "falls back to the default"
+    },
+    {
+      "old": "default 0.75",
+      "new": "the default"
+    }
+  ],
+  "history_leak_patterns": [
+    "0\\.75[^0-9]*(?:confidence|threshold|gate|default)|(?:confidence|threshold|gate|default)[^0-9\\n]{0,40}0\\.75"
+  ],
   "validation": [
     "test $(rg -n 'defaultFactConfidenceThreshold = 0\\.75' internal/cli/facts_merge.go | wc -l | tr -d ' ') -eq 1",
     "go test ./internal/cli -run 'TestApplyFactActionsHighConfidenceMerge|TestApplyFactActionsLowConfidenceQueuesProposal|TestApplyFactActionsHighConfidenceSupersede'"
@@ -44,5 +58,12 @@
     "confidence needed before auto applying a merge",
     "gate that decides which fact updates apply automatically",
     "low confidence merge should not silently overwrite a fact"
+  ],
+  "binary_replacements": [
+    {
+      "path": "internal/factmerge/merge.go",
+      "old": "\tDefaultConfidenceThreshold = 0.75",
+      "new": "\tDefaultConfidenceThreshold = 0.7"
+    }
   ]
 }
