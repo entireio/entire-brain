@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	defaultExportDir        = ""
+	defaultExportDir = ""
 	// Unlimited by default: the brain's value is recovering old decisions, and a
 	// cap silently truncates exactly the history that makes it useful. 0 means
 	// all; --checkpoint-limit stays available for callers who want a bound.
