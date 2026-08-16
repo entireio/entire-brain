@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "baf1522ec812",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/distill-perf-large/README.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ba/f1522ec812/0/metadata.json",
+      "transcript": "/ba/f1522ec812/0/full.jsonl",
+      "compact_transcript": "/ba/f1522ec812/0/transcript.jsonl",
+      "content_hash": "/ba/f1522ec812/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 100,
+    "cache_creation_tokens": 55364,
+    "cache_read_tokens": 19235770,
+    "output_tokens": 32898,
+    "api_call_count": 50
+  }
+}
