@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "aa6be5e318d5",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "benchmarks/agent-brain/brief-profile-corpus-v1.json",
+    "benchmarks/agent-brain/evidence/distill-perf-large/dry-run.json",
+    "benchmarks/agent-brain/evidence/distill-perf-large/jobs-1.json",
+    "benchmarks/agent-brain/evidence/distill-perf-large/jobs-4.json",
+    "benchmarks/agent-brain/evidence/distill-perf-large/manifest.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/aa/6be5e318d5/0/metadata.json",
+      "transcript": "/aa/6be5e318d5/0/full.jsonl",
+      "compact_transcript": "/aa/6be5e318d5/0/transcript.jsonl",
+      "content_hash": "/aa/6be5e318d5/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 39,
+    "cache_creation_tokens": 15698,
+    "cache_read_tokens": 9723681,
+    "output_tokens": 7966,
+    "api_call_count": 21
+  }
+}
