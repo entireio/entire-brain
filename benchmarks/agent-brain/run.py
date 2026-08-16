@@ -3721,14 +3721,14 @@ def baseline_history_audit(
             and any(token in {"-m", "--cc", "-c", "--combined"} for token in lowered)
             and re.search(r"\bhead\b", joined)
         )
-        parent_discovery = bool(
-            (
-                re.search(r"\bgit\s+(?:show|log|rev-list)\b", joined)
-                and re.search(r"(?:--parents|--format=(?:format:)?%p|--pretty=(?:format:)?%p)", joined)
-                and re.search(r"\bhead\b", joined)
-            )
-            or re.search(r"\bgit\s+cat-file\s+-p\s+head\b", joined)
-        )
+        # Parent DISCOVERY (git log --parents, %P formats, cat-file -p HEAD) is
+        # deliberately not a finding: it reveals only commit-graph metadata that
+        # plain `git log` prints for any merge ("Merge: p1 p2"), and the audit's
+        # contract allows ordinary commit inspection. Observed live: an
+        # orientation command (`git log --oneline -5 --parents`) invalidated a
+        # baseline row that never touched boundary content. What stays hard is
+        # USING the boundary: ^2/^@ refs, merge patches, and diffs against the
+        # attested parent hash (boundary_diff / derived_boundary_diff below).
         exact_boundary_ref = False
         for token in lowered:
             for revision in re.split(r"\.{2,3}", token):
@@ -3755,7 +3755,6 @@ def baseline_history_audit(
             or parent_set_expansion
             or discarded_navigation
             or merge_patch
-            or parent_discovery
             or boundary_diff
             or derived_boundary_diff
         ):
