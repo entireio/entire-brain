@@ -293,7 +293,7 @@ func TestPathExportsExistingRepoWhenMissing(t *testing.T) {
 			stdout: "https://github.com/entireio/cli.git\n",
 		},
 		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
 		},
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
