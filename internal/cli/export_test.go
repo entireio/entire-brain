@@ -421,9 +421,9 @@ func TestDiscoverCheckpointsUnknownBackendCombinesLocalAndRoutedResults(t *testi
 	}
 }
 
-func TestListAllRoutedCheckpointsPassesExplicitUnboundedLimit(t *testing.T) {
+func TestListAllRoutedCheckpointsOmitsLimitWhenUnbounded(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[{"checkpoint_id":"01KVBJCWYA4YW6J5M9GP655HZN","is_logs_only":true}]`,
 		},
 	}}
@@ -431,7 +431,7 @@ func TestListAllRoutedCheckpointsPassesExplicitUnboundedLimit(t *testing.T) {
 	if err != nil || len(warnings) != 0 || len(checkpoints) != 1 {
 		t.Fatalf("unbounded routed list = checkpoints:%+v warnings:%v err:%v", checkpoints, warnings, err)
 	}
-	if len(runner.calls) != 1 || strings.Join(runner.calls[0].args, " ") != "checkpoint explain --json --search-all --limit 0" {
+	if len(runner.calls) != 1 || strings.Join(runner.calls[0].args, " ") != "checkpoint explain --json --search-all" {
 		t.Fatalf("unexpected routed argv: %+v", runner.calls)
 	}
 }
@@ -439,7 +439,7 @@ func TestListAllRoutedCheckpointsPassesExplicitUnboundedLimit(t *testing.T) {
 func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.T) {
 	stderr := entireCheckpointScopePrefix + `{"schema_version":1,"code":"checkpoint_scope_incomplete","complete":false,"issues":[{"code":"checkpoint_remote_enumeration_failed","count":1}]}` + "\n"
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","is_logs_only":true}]`, stderr: stderr,
 		},
 	}}
@@ -457,7 +457,7 @@ func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.
 
 func TestDiscoverCheckpointsRejectsIncompleteZeroResult(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[]`,
 			stderr: entireCheckpointScopePrefix + `{"schema_version":1,"code":"checkpoint_scope_incomplete","complete":false,"issues":[{"code":"local_checkpoint_unreadable","count":1}]}` + "\n",
 		},
@@ -2141,7 +2141,7 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		fakeCommandKey("git", "remote", "get-url", "origin"): {
 			stdout: "https://github.com/entireio/cli.git\n",
 		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
 		},
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
@@ -2215,7 +2215,7 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		fakeCommandKey("git", "remote", "get-url", "origin"): {
 			stdout: "https://github.com/entireio/cli.git\n",
 		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all", "--limit", "0"): {
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
 		},
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {

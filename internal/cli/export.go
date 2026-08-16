@@ -963,8 +963,11 @@ type routedCheckpointScopeIssue struct {
 func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, limit int, searchAll bool) ([]checkpointListEntry, []string, error) {
 	args := []string{"checkpoint", "explain", "--json"}
 	if searchAll {
-		args = append(args, "--search-all", "--limit", strconv.Itoa(limit))
-	} else if limit > 0 {
+		args = append(args, "--search-all")
+	}
+	// The external CLI rejects an explicitly passed non-positive --limit, and
+	// the unlimited default here is 0: omit the flag entirely to mean "all".
+	if limit > 0 {
 		args = append(args, "--limit", strconv.Itoa(limit))
 	}
 	stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, args...)
