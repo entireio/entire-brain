@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "28a3440533fa",
+  "strategy": "manual-commit",
+  "branch": "fix/release-evidence-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/28/a3440533fa/0/metadata.json",
+      "transcript": "/28/a3440533fa/0/full.jsonl",
+      "compact_transcript": "/28/a3440533fa/0/transcript.jsonl",
+      "content_hash": "/28/a3440533fa/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 94,
+    "cache_creation_tokens": 41874,
+    "cache_read_tokens": 15787296,
+    "output_tokens": 22091,
+    "api_call_count": 47
+  }
+}
