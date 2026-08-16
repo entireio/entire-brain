@@ -37,8 +37,12 @@
             "run_config_fingerprint": "0f97600fc5cda3a24318f6b4f88ef0dd70de3957441c1de36f2c4d4c2f0f95f6",
             "record_fingerprint": "dea379578a315770208b9388f399c604019af6fe53aa3546dc1fec60dc41eccd"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
-          "notes": [],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
@@ -85,8 +89,12 @@
             "run_config_fingerprint": "18a8c1cbbba07d9eab8ac1da1e33611d28e4511ebf6dfbf7d9f2219608846261",
             "record_fingerprint": "4e21e5d370360a255d9de946fd5fa03181d94fe46067065bb78147e351e273c4"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
-          "notes": [],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
@@ -133,8 +141,12 @@
             "run_config_fingerprint": "77c3c7db865dedc7e7679c886a0b48df0e05f243e04afe065e3f6da5a0bf67e7",
             "record_fingerprint": "7c47899bd363d4df10b9da2ce70f034ed1181252680b40826a39bf5b42652304"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
-          "notes": [],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
@@ -181,8 +193,12 @@
             "run_config_fingerprint": "c9d68dc575f3bea976052e1f8f82c6a4fb98f9c6bd5187b993ffb9c8f342c0dc",
             "record_fingerprint": "e9ab55a858d7887c145d565fa048e4465882c1cffd50a1956f33d86ae044c935"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
-          "notes": [],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
@@ -231,16 +247,19 @@
             "run_config_fingerprint": "6863262a09dd2b4e75cdf356c296ea6c8f4ae3ef0f4b48ddf245f554098d8ded",
             "record_fingerprint": "7e1c4e293d1f975823a95dfb5ec33ba17c544208ef73550f29139f107538616c"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)",
-            "B:mcp_history_partial_missing_brain_search"
+            "C:legacy_parentless_baseline"
           ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_regressions",
@@ -322,16 +341,19 @@
             "run_config_fingerprint": "77c28d9646eb1738a7ca20d3ba3835b5e37653efb17b90a4baba037e6b9cdf49",
             "record_fingerprint": "485e0c0dafff2ce133d2962dad7d978205fbb81648ee5fd56632e48ad7770350"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)",
-            "B:mcp_history_partial_missing_brain_search"
+            "C:legacy_parentless_baseline"
           ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_regressions",
@@ -413,16 +435,19 @@
             "run_config_fingerprint": "99efba13040356e21c8de1b8b8eb07532070f2666b6822d93d79a7dc5d1f052f",
             "record_fingerprint": "804339f5fbb8da01bc4ef492dd4a3a8f472a8ade8b2f475dc100c487c455b298"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)",
-            "B:mcp_history_partial_missing_brain_search"
+            "C:legacy_parentless_baseline"
           ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_regressions",
@@ -504,16 +529,19 @@
             "run_config_fingerprint": "272487bad9c11023f66441dde3c700414baf9f67179dcf35f16c13271022f841",
             "record_fingerprint": "9ab891baa0849706f15cb503ec09f617c1b638703eb0cc1cc9bb59e3275e76ce"
           },
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)",
-            "B:mcp_history_partial_missing_brain_search"
+            "C:legacy_parentless_baseline"
           ],
           "pass": true,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_regressions",
@@ -565,6 +593,9 @@
           "runner": "codex-gpt-5.4-mini-low",
           "condition": "mcp_history",
           "delivery_scope": "mcp_radar_location_only",
+          "source_base_commit": null,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "env_flags": {
             "BENCH_RADAR_LOCATION_ONLY": "1"
           },
@@ -655,13 +686,19 @@
             "run_config_fingerprint": "2e22e585d298d19905e7def5540bd44c581d56a82eab68de55efa3b578656724",
             "record_fingerprint": "bc0d93942d2d9453ab706eed4f56dd3a1a4763e2cdeb6ac644d3511ae117deab"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -701,13 +738,19 @@
             "run_config_fingerprint": "05f83957786f7cde60c48060383c1f07a7dc5e41477c5db1d6d725aa64144672",
             "record_fingerprint": "47ce134ea3cf7cb978bd50664b3dfc81e407fe12d35ca933566f2bb3b184e60e"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -747,13 +790,19 @@
             "run_config_fingerprint": "2e8e52edf5e12244400feccdba9877a29c9a0fd43d0109cfac8779b1c503bd28",
             "record_fingerprint": "df00a4f79992de1782f1c5980fde6a95a4c06768a73d14102c137d3582a25811"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -793,13 +842,19 @@
             "run_config_fingerprint": "5fd1d13937333d1fd9437242914473693fb1d837c3ff9278e668e0c82f8f7a3c",
             "record_fingerprint": "e297d6925ea39ede4b00f95e6f188e57ec9ec8a2b72e11f031d459e04fe2034d"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -839,13 +894,20 @@
             "run_config_fingerprint": "01c9a86d408417f8beb42fde39d8a262e8e0c75ca0cf55780ad1e6edffb0cc9d",
             "record_fingerprint": "c82627510ab80d11495e483ad2b6b2b7ae994e06338dfbe645bbe3bfa0ca040b"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0",
+            "brain_queries_agent_visible": false
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -885,13 +947,20 @@
             "run_config_fingerprint": "93b55e8973a8055ef80d3a618f475335fa3847d54860f3bd45af35c1c05470ee",
             "record_fingerprint": "adb32f98060f252966827cd7a138610a0a4ed074fc2d19689be538be6d5230fc"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0",
+            "brain_queries_agent_visible": false
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -931,13 +1000,20 @@
             "run_config_fingerprint": "c5bc162fd7c8b885910167618e73ca733e5265f719b56b03bdf3ceb41584174a",
             "record_fingerprint": "5cb7c493216c6939c1cc6f1fa658782b5474fb0018c570c2f4d7a869d7e8b6e6"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0",
+            "brain_queries_agent_visible": false
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -977,13 +1053,20 @@
             "run_config_fingerprint": "669d5c5fe0392114bc9ba6bdc31bfd42bcc21f85bc5c041b7dad17c84c44a9c2",
             "record_fingerprint": "52606c5a396c0ecb1b64189e0ebfa040b2788d38275794d06a0a8cf8474c114a"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+            "sha256": "ec63fceb479d397d453b004051ac8e76fee7cc2990411325b163c1893ff937c0",
+            "brain_queries_agent_visible": false
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -997,6 +1080,9 @@
           "runner": "codex-gpt-5.5-high",
           "condition": "full_brain",
           "delivery_scope": "full_brain",
+          "source_base_commit": null,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "env_flags": {},
           "verdict": "brain_negative",
           "proof_ready": false,
@@ -1011,18 +1097,18 @@
           "pass": true,
           "proof_scope": "history",
           "record_backing": {
-            "condition_records": 3,
-            "baseline_records": 4,
+            "condition_records": 0,
+            "baseline_records": 0,
             "condition_mcp_verified_records": 0,
             "condition_mcp_named_tool_verified_records": 0,
             "condition_mcp_named_tool_completed_records": 0,
-            "condition_unique_run_ids": 3,
-            "baseline_unique_run_ids": 4,
+            "condition_unique_run_ids": 0,
+            "baseline_unique_run_ids": 0,
             "condition_mcp_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_completed_unique_run_ids": 0,
-            "condition_unique_repetitions": 3,
-            "baseline_unique_repetitions": 4,
+            "condition_unique_repetitions": 0,
+            "baseline_unique_repetitions": 0,
             "condition_mcp_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_completed_unique_repetitions": 0,
@@ -1032,7 +1118,7 @@
             "condition_requires_mcp_verified": false,
             "condition_requires_mcp_named_tool_verified": false,
             "condition_records_ok": false,
-            "baseline_records_ok": true,
+            "baseline_records_ok": false,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
             "condition_mcp_named_tool_completed_ok": false,
@@ -1042,7 +1128,7 @@
         }
       ],
       "n_records": 8,
-      "n_flagged_records": 0,
+      "n_flagged_records": 8,
       "n_mcp_verified": 0,
       "n_mcp_named_tool_verified": 0,
       "n_mcp_named_tool_completed": 0,
@@ -1085,13 +1171,19 @@
             "run_config_fingerprint": "30376effd1e09a180a0b867da61795d53fcfda73cebc3b9f959c4216394cabfe",
             "record_fingerprint": "92544f8fa5f377befb3a741bd220b5eb52a3b71e3b205f4f697bc323b95b3dfd"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1131,13 +1223,19 @@
             "run_config_fingerprint": "040d65729e03fa41101aaf6cabeb80805d895e4c0ca13b5f8fae5fb0fd8985ac",
             "record_fingerprint": "cc1ef7a7a557018cd96656364d268b43e260e3f53d0ef371642dd1cb4bea16f8"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1177,13 +1275,19 @@
             "run_config_fingerprint": "27266fe2ed1c5da220bee9614895f44784c7e284672eaff69eb0631b95b2eaff",
             "record_fingerprint": "c2ef566c742df50a149bc86a86e5aaf1b1f71a3c9423fb0e7f873c588e4537fc"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1223,13 +1327,19 @@
             "run_config_fingerprint": "3375f8ad47928c059625afab696c3af42d179b06724d26a4f8c2b121a77bfbb5",
             "record_fingerprint": "253f95528b3bcf2f20ac7dcdb8ae41e7d1ecbb460b46041bbef361059982a0b5"
           },
-          "flags": [],
-          "notes": [],
-          "pass": true,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
+          "notes": [
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1254,7 +1364,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 10,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1269,15 +1379,21 @@
             "run_config_fingerprint": "fd40d72a7c313a3e186e036364194a4fc3133ddfe2215e1b86c90fc2fc128292",
             "record_fingerprint": "b6b3eec21fb7f6c65c64787c423592548b1f240cffee0733b7f35d242f4f1481"
           },
-          "flags": [],
-          "notes": [
-            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
           ],
-          "pass": true,
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_brief",
@@ -1328,7 +1444,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 14,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1343,15 +1459,21 @@
             "run_config_fingerprint": "0c22f1b54d6e311e9e88afa1f526a45390982d7b11529281b91fe179923e8923",
             "record_fingerprint": "a3e46fba3138284201c70ff64dcb01802689320c49b84159f26246feb6927cd7"
           },
-          "flags": [],
-          "notes": [
-            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
           ],
-          "pass": true,
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_brief",
@@ -1402,7 +1524,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 12,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1417,15 +1539,21 @@
             "run_config_fingerprint": "5558b08dc3aee22b20ed48f85da1af8ac8a4377a086131cab4550c588c0d58fc",
             "record_fingerprint": "f8239fa2c184c542e733fd8bb0bc8081f66751799a3051437413ee2c0dee4355"
           },
-          "flags": [],
-          "notes": [
-            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
           ],
-          "pass": true,
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_brief",
@@ -1476,7 +1604,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 8,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1491,15 +1619,21 @@
             "run_config_fingerprint": "0c6d4b5f9f33c8028a66991ece388cac3a499104f5673e46f8222501b25dd9d6",
             "record_fingerprint": "aa543abcae9e4d0f67f5ab008c1d998f6accd837dc5dbe1736de308d3e0179fb"
           },
-          "flags": [],
-          "notes": [
-            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          "token_accounting_version": null,
+          "token_accounting_source": null,
+          "flags": [
+            "H:task_config_sha256_mismatch"
           ],
-          "pass": true,
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
+            "C:legacy_parentless_baseline"
+          ],
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+            "sha256": "aa5d24910b431cf30d51f9ab29be7754d2e64c05ec86296d4e4182de4440157d",
+            "brain_queries_agent_visible": false
           },
           "server_tool_names": [
             "brain_brief",
@@ -1539,6 +1673,9 @@
           "runner": "codex-gpt-5.4-mini-medium",
           "condition": "mcp_history",
           "delivery_scope": "mcp",
+          "source_base_commit": null,
+          "token_accounting_version": null,
+          "token_accounting_source": null,
           "env_flags": {},
           "verdict": "brain_negative",
           "proof_ready": false,
@@ -1553,19 +1690,19 @@
           "pass": true,
           "proof_scope": "mcp",
           "record_backing": {
-            "condition_records": 4,
-            "baseline_records": 4,
-            "condition_mcp_verified_records": 4,
+            "condition_records": 0,
+            "baseline_records": 0,
+            "condition_mcp_verified_records": 0,
             "condition_mcp_named_tool_verified_records": 0,
             "condition_mcp_named_tool_completed_records": 0,
-            "condition_unique_run_ids": 4,
-            "baseline_unique_run_ids": 4,
-            "condition_mcp_verified_unique_run_ids": 4,
+            "condition_unique_run_ids": 0,
+            "baseline_unique_run_ids": 0,
+            "condition_mcp_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_completed_unique_run_ids": 0,
-            "condition_unique_repetitions": 4,
-            "baseline_unique_repetitions": 4,
-            "condition_mcp_verified_unique_repetitions": 4,
+            "condition_unique_repetitions": 0,
+            "baseline_unique_repetitions": 0,
+            "condition_mcp_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_completed_unique_repetitions": 0,
             "required_condition": 4,
@@ -1573,19 +1710,19 @@
             "required_delivery_scope": "mcp",
             "condition_requires_mcp_verified": true,
             "condition_requires_mcp_named_tool_verified": false,
-            "condition_records_ok": true,
-            "baseline_records_ok": true,
-            "condition_mcp_verified_ok": true,
+            "condition_records_ok": false,
+            "baseline_records_ok": false,
+            "condition_mcp_verified_ok": false,
             "condition_mcp_named_tool_verified_ok": false,
             "condition_mcp_named_tool_completed_ok": false,
             "condition_mcp_named_tool_required_ok": true,
-            "ok": true
+            "ok": false
           }
         }
       ],
       "n_records": 8,
-      "n_flagged_records": 0,
-      "n_mcp_verified": 4,
+      "n_flagged_records": 8,
+      "n_mcp_verified": 0,
       "n_mcp_named_tool_verified": 0,
       "n_mcp_named_tool_completed": 0,
       "n_provenance_ok": 8,
@@ -1596,18 +1733,20 @@
   "totals": {
     "suites": 3,
     "records": 24,
-    "hard_flags": 0,
-    "mcp_verified_records": 8,
+    "hard_flags": 16,
+    "mcp_verified_records": 4,
     "mcp_named_tool_verified_records": 4,
     "mcp_named_tool_completed_records": 4,
     "provenance_ok_records": 24,
     "proof_ready_comparisons": 0,
     "proof_ready_comparisons_by_scope": {},
     "named_tool_proof_ready_comparisons_by_scope": {},
-    "flag_kinds": {},
+    "flag_kinds": {
+      "H:task_config_sha256_mismatch": 16
+    },
     "note_kinds": {
-      "N:mcp_call_count_mismatch": 8,
-      "B:mcp_history_partial_missing_brain_search": 4
+      "C:legacy_parentless_baseline": 24,
+      "N:mcp_call_count_mismatch": 8
     }
   },
   "release_manifest": {
@@ -1626,7 +1765,9 @@
     "required_proof_scopes": [],
     "required_named_tool_proof_scopes": [],
     "claim_policy": "no_release_claim",
-    "allowed_no_claim_flag_kinds": []
+    "allowed_no_claim_flag_kinds": [
+      "H:task_config_sha256_mismatch"
+    ]
   },
   "gate_status": {
     "status": "pass",
@@ -1636,7 +1777,9 @@
       "min_suites": 3,
       "min_records": 24,
       "proof_ready_comparisons": 0,
-      "allowed_no_claim_flag_kinds": []
+      "allowed_no_claim_flag_kinds": [
+        "H:task_config_sha256_mismatch"
+      ]
     },
     "failures": []
   }
