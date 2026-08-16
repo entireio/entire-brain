@@ -13,7 +13,7 @@ report with `mise run distill:large:evidence:update`.
 - **Proven:** the distill extraction scheduler parallelizes a large-repo
   backfill. `--jobs 1` vs `--jobs 4` on the same fresh corpus produces identical
   output (2102 facts, 2104 extraction calls, 1456 reconcile calls) with a
-  measured wall-clock speedup of ~1.67x (auditor floor `min_speedup` = 1.5).
+  measured wall-clock speedup of ~1.82x (auditor floor `min_speedup` = 1.5).
 - **Not proven here:** hosted-model end-to-end latency or fact quality. The
   three runs use a deterministic local command agent
   (`large_command_agent.py`), not a hosted model, exactly like the current-repo

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-16T12:07:14.748871Z",
+  "generated_at": "2026-08-16T17:01:08.755009Z",
   "taxonomy_path": "facts/taxonomy.json",
   "branches": [
     "claude/pr49-review-fixes",
@@ -52,8 +52,8 @@
     "output_tokens": 0,
     "total_tokens": 0
   },
-  "extraction_wait_seconds": 16.240740385000006,
-  "reconcile_seconds": 5.367563324999996,
-  "write_seconds": 0.164623458,
-  "total_seconds": 23.150052084
+  "extraction_wait_seconds": 25.821232918999993,
+  "reconcile_seconds": 13.822798544,
+  "write_seconds": 0.185231,
+  "total_seconds": 44.448797583
 }

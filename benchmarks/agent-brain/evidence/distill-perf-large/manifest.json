@@ -3,8 +3,8 @@
   "target": {
     "repo": "github.com/entireio/cli",
     "repo_key": "gh/entireio/cli",
-    "source_head": "778e28c0475166df2073b2625e605cb52b09924d",
-    "brain_manifest_sha256": "sha256:9f1fe1cd8d7f687655813b2f8ca74ada8f533e0fd641b504ccecf129debf6c89",
+    "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
+    "brain_manifest_sha256": "sha256:7156602fcc33b4d19a06d0100bc08047b62968f51d9d32c7acf10a88c506e85a",
     "claim_scope": "large-repo (entireio/cli) local command-agent distill extraction scheduling speedup"
   },
   "cache_state": "force_recomputed_each_run",
@@ -12,13 +12,13 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:f308b9392b50ee36495d73b3520df2ca6567766e704fe6b42fc192add2ea1b5b",
-    "serial_run": "sha256:68e69700f8e686dbffe2ad53a1df9c92fcd218b4799704758469eb9f68982748",
-    "parallel_run": "sha256:5d04758baabb3e0a49c98b4cea6c81f6317ee0a65e581fb0ca4d9d69b63d0178"
+    "dry_run": "sha256:c22df84c4b207c20d2a35f3cc1a30296efef57851467a6fad90bcc2d86c4f4eb",
+    "serial_run": "sha256:c78d8f851e0e80add2c04b5fec92a40325de4e57a9a9baf7d995e0e90d4c61e1",
+    "parallel_run": "sha256:f0344c96633c06b4a993361e1f99afb7964705f703cbd995ab57ed71f14ce694"
   },
   "source_sha256": {
     "internal/cli/distill.go": "sha256:ff21f1af55ff4d37c487b614fde9f25fea34b8c53ed842732a05d52508fc375d",
-    "internal/cli/distill_cmd.go": "sha256:26192e4cfc2fc8f3ff03467d55963443718071e82378647fe45afe4a7a8a9612",
+    "internal/cli/distill_cmd.go": "sha256:4ab57f2745f83108525ad14b4c3291e64368823a7cfdca30fd77ba5a0ffd2406",
     "internal/cli/distill_test.go": "sha256:9bc6541fea5e81ba91ab9420f0d392b4e2dca1cd9b353d7680dd80fe336d786c",
     "internal/cli/distill_cmd_test.go": "sha256:ae798ca1de38ffe0c4fae20de2bbf18329ed32729eca6f4229a174911691e2cf",
     "benchmarks/agent-brain/audit_distill_perf.py": "sha256:6c4407791e83642db0c35c12a6e079fe4f78f8626105ca76a815fa1bc2ca560d",
@@ -83,8 +83,8 @@
   },
   "local_ollama_contract": {
     "artifact": "go-test-internal-cli-ollama-distill.jsonl",
-    "sha256": "sha256:69de0ca408a60151a12b879e2e30d0e3baec6025c7877098bc73eee163c6ad6a",
-    "source_head": "778e28c0475166df2073b2625e605cb52b09924d",
+    "sha256": "sha256:7e883ff66cbf54662d277dc62d17bd77639ee3036ba310d9075a3d97b62b659a",
+    "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
     "source_paths": [
       "internal/cli/distill.go",
       "internal/cli/distill_cmd.go",
