@@ -1,0 +1,36 @@
+{
+  "cli_version": "dev",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "372ce4e026ae",
+  "strategy": "manual-commit",
+  "branch": "p0p1/p1-new",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/factgitmeta/gitmeta/apply.go",
+    "internal/factgitmeta/gitmeta/apply_test.go",
+    "internal/factgitmeta/gitmeta/commit.go",
+    "internal/factgitmeta/gitmeta/golden_test.go",
+    "internal/factgitmeta/gitmeta/materialize.go",
+    "internal/factgitmeta/gitmeta/serialize.go",
+    "internal/factgitmeta/gitmeta/target_value_test.go",
+    "internal/factgitmeta/gitmeta/treepath.go",
+    "internal/factgitmeta/gitmeta/treepath_test.go",
+    "internal/factgitmeta/gitmeta/types.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/37/2ce4e026ae/0/metadata.json",
+      "transcript": "/37/2ce4e026ae/0/full.jsonl",
+      "compact_transcript": "/37/2ce4e026ae/0/transcript.jsonl",
+      "content_hash": "/37/2ce4e026ae/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14,
+    "cache_creation_tokens": 6315,
+    "cache_read_tokens": 5701647,
+    "output_tokens": 4125,
+    "api_call_count": 7
+  }
+}
