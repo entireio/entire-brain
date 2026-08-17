@@ -72,7 +72,13 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 	defer resp.Body.Close()
 	switch resp.StatusCode {
 	case http.StatusOK:
-	case http.StatusNotFound, http.StatusNotImplemented:
+	case http.StatusNotFound, http.StatusNotImplemented, http.StatusServiceUnavailable:
+		// 503 is "this deployment has no queue", not a transient outage to retry:
+		// entire-api answers it whenever the hosted brain is disabled, the same way its
+		// fact-set endpoints do. Treating it as unsupported degrades to the local review
+		// queue with a warning, which is right for an optional sub-feature — and the
+		// next sync re-checks, so a genuinely transient 503 costs one cycle, never a
+		// failed sync whose head-advance already succeeded.
 		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
 	default:
 		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
@@ -175,7 +181,9 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 		return out.Ref, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
 		return "", ErrConflict
-	case http.StatusNotImplemented:
+	case http.StatusNotFound, http.StatusNotImplemented, http.StatusServiceUnavailable:
+		// Same reading as the list path: no queue on this deployment, so the proposals
+		// stay local rather than failing a sync that already landed its facts.
 		return "", fmt.Errorf("%w: POST proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
 	default:
 		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
