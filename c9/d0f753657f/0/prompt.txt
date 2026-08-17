@@ -1,0 +1,74 @@
+<task-notification>
+<task-id>a4cccd3dad2898d07</task-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/a4cccd3dad2898d07.output</output-file>
+<status>completed</status>
+<summary>Agent "/code-review PR #85 high — re-review GitHub pull …" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Review complete. All 8 finder angles ran, candidates were deduplicated, and each survivor was verified (the recursion crash reproduced empirically; three multi-file candidates confirmed by dedicated verifier agents; the rest confirmed or held plausible against the code read in full). The prior round's fixes are mostly correctly implemented in isolation (duplicate-key rejection, lowercase separators, ±2^53 bound, proposal-id pinning, post-prefix min ref length all check out mechanically), but several of them — the shared-proposal ledger, the reject-prune path, and the ErrProposalQueueUnsupported discipline — have gaps that defeat their stated purpose. Cleanup findings (dead `publishRaisedProposals` helper, double canonicalization in sign/verify, doc rule 5 still saying "outside int64" while the code enforces ±2^53) were cut by the 10-finding cap in favor of correctness bugs.
+
+```json
+[
+  {
+    "file": "internal/brainwire/canonical.go",
+    "line": 157,
+    "summary": "decodeCanonicalToken/decodeCanonicalValue recurse per nesting level with no depth bound, so deeply nested input kills the process with an unrecoverable stack overflow",
+    "failure_scenario": "Canonicalize/VerifyBytes are the designated entry points for untrusted, non-Go-produced artifact bytes; feeding bytes.Repeat([]byte(\"[\"), 5_000_000) to Canonicalize was reproduced to die with 'fatal error: stack overflow' (a Go runtime fatal, not a catchable panic) — any attacker-supplied artifact crashes the verifier instead of returning an error. Needs a depth limit in the token decoder (encodeValue recurses over the same shape and is covered by the same bound)."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 112,
+    "summary": "A hosted-accepted merge/supersede is undone by the losing member's next sync: keep-both Promote re-adds the locally-still-active fact to the head and re-raises the settled conflict under a fresh proposal id",
+    "failure_scenario": "Member A's conflict (candidate X vs target Y) is accepted hosted-side, removing/superseding X in the head. A's local facts file is never reconciled to that resolution, so A's next `facts sync` runs factmerge.Promote(local, head): X is active locally, missing from the head, and is re-appended (Promote only grows the target — confirmed in internal/factmerge/admin.go:90-100), reversing the accepted consolidation and raising a new proposal whose derivation differs from the settled one, so neither the ledger filter nor PublishRaised dedup blocks it. The conflict reappears for every member on every subsequent sync."
+  },
+  {
+    "file": "internal/cli/facts_admin_cmd.go",
+    "line": 192,
+    "summary": "Local `facts review` settles a published proposal with no hosted interlock: the hosted copy stays open forever and a teammate's later apply overrides the member's resolution — the exact stale-override class pruneLocalProposalCopy was added to close, in the reverse direction",
+    "failure_scenario": "Member publishes P via sync (ledger records it), then settles P with `facts review --apply/--reject`, which rewrites only the local facts and queue. Nothing ever removes hosted P (ResolveProposal is the sole removal path, and reconcileLocalProposalQueue only prunes local state), and the local resolution never reaches the shared head (Promote skips non-active local facts and keeps head facts, so hosted P stays fully applicable — confirmed against factmerge/admin.go). A teammate later runs `facts proposals apply P` and silently overrides the member's settled decision."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 152,
+    "summary": "The anti-resurrection ledger keys by ProposalID (hashing Branch+ProposedBy) while the local queue and both prune paths identify proposals by the (action, candidate, target) triple, so a same-conflict copy with a different/empty ProposedBy bypasses the ledger and republishes a settled conflict",
+    "failure_scenario": "Sync-raised proposals carry ProposedBy=member (factsync/sync.go:94-96) but distill-produced ones never set it (factmerge/merge.go:86-92); dedupeProposals (internal/cli/reconcile.go:72) and pruneLocalProposalCopy (facts_proposals_cmd.go:312) match only their own id form. Sequence: sync raises the conflict (id_s), teammate rejects it hosted-side, reconcile drops id_s from ledger and queue; a later distill re-derives the same (action,candidate,target) with ProposedBy=\"\" → fresh id_d not in the ledger → next sync republishes the conflict the teammate settled, verbatim defeating the ledger's stated purpose (facts_sync_cmd.go:241-245)."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 150,
+    "summary": "The whole-local-queue publish egresses the member's private single-user distill/review backlog to the shared hosted queue, with empty ProposedBy breaking the per-member id derivation",
+    "failure_scenario": "distill writes its low-confidence, purely-local review proposals into the same per-branch proposals.ndjson (distill_cmd.go:811/964-966) that runFactsSync now loads and publishes wholesale (only ledger-filtered). Running `facts sync --facts-backend http` therefore ships the member's private pending-review backlog to every teammate; those entries carry ProposedBy=\"\" so their ProposalID is not member-scoped — two members' independent distills collide onto one hosted entry, contradicting the design comment at factsync/proposals.go:60-62, and hosted review shows '(unknown member)' with no attributable raiser."
+  },
+  {
+    "file": "internal/factsync/httpproposals.go",
+    "line": 76,
+    "summary": "ListProposals/PublishProposals map every 404 to ErrProposalQueueUnsupported, so real publish failures (revoked pull access, repo deleted mid-run, proxy 404) are downgraded to the sync warning path and exit 0",
+    "failure_scenario": "ErrProposalQueueUnsupported is documented as 'backend does not serve the open-proposal endpoints at all' and is the ONLY error facts sync may downgrade to a warning (facts_sync_cmd.go:173-174). The API also uses 404 for per-repo authorization; a token losing access between Sync and publish yields 404 → the facts head has advanced, the command prints 'backend has no shared review queue', exits 0, and the raised conflicts are silently visible to no one — the precise outcome the failure-discipline comment (facts_sync_cmd.go:130-134) says must fail the command. A capability probe or distinct error body check is needed to separate 'endpoint absent' from 'this repo 404s'."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 317,
+    "summary": "The shared-proposal ledger has resurrection windows: reconcileLocalProposalQueue writes the ledger before the queue (a crash between the writes marks settled proposals never-shared), and the ledger is per-checkout state so a second clone of the same member republishes settled conflicts",
+    "failure_scenario": "(a) writeSharedProposalLedger(hostedIDs) succeeds, process dies before writeFactProposals prunes the settled entry → queue=[P], ledger without P's id → next sync's !shared filter republishes the conflict the teammate resolved; writing the queue first (stale extra ledger ids are harmless) closes the window. (b) Two clones M1/M2 of the same member both hold identically-derived id1; M1 publishes and a teammate settles it; M2's proposals-shared.json never learned of id1, so M2's next sync re-adds it — hosted settlement leaves no tombstone any client can consult."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 176,
+    "summary": "When the local queue has nothing new to publish, a transient ListProposals failure hard-fails an otherwise fully successful sync, with a factually wrong error message",
+    "failure_scenario": "toPublish is empty → the code calls transport.ListProposals purely to reconcile; a transient 5xx/timeout lands in the default case and the whole command fails with 'facts head advanced to X, but sharing 0 proposal(s) to the review queue failed … they remain reviewable locally' — nothing needed sharing and the stated rationale (conflicts only this member can see) does not apply. The read-only reconciliation step should degrade to a warning or retry, not fail a sync whose head-advance and publishes all succeeded."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 234,
+    "summary": "Sync-raised cross-member conflicts are persisted into distill-owned proposals.ndjson, which a later `distill --force` flush rewrites without the prior backlog — silently deleting never-published conflicts",
+    "failure_scenario": "With the default local-gitmeta backend the raised conflicts exist ONLY in proposals.ndjson (no hosted queue). persistFactsSyncProposals appends them there; a subsequent `distill --force` deliberately drops the prior backlog on its final flush (distill_cmd.go force path writes only the current run's proposals), so the routed conflicts vanish before any human reviewed them — breaking the keep-both guarantee that a raised conflict always reaches a reviewer, with no warning."
+  },
+  {
+    "file": "internal/factsync/proposals.go",
+    "line": 355,
+    "summary": "ResolveOpen returns ErrProposalNotApplicable before considering the decision whenever the facts head is missing/empty, making the reject-prune carve-out unreachable and orphaned proposals permanently unremovable",
+    "failure_scenario": "The facts head and the proposal set are separate CAS'd blobs; if the head is deleted or emptied server-side (store reset, retention, migration) while proposals survive, every `facts proposals apply|reject` hits `!found || len(plaintext)==0` → ErrProposalNotApplicable before the Reject branch at lines 366-373 — whose own comment says removing the entry is the only way a proposal ever leaves the open set. The orphans sit in every member's list forever with no supported way to clear them."
+  }
+]
+```</result>
+<usage><subagent_tokens>130439</subagent_tokens><tool_uses>39</tool_uses><duration_ms>1225961</duration_ms></usage>
+</task-notification>

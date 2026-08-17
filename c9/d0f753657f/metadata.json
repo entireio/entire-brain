@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "c9d0f753657f",
+  "strategy": "manual-commit",
+  "branch": "pr85",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/brainwire/canonical.go",
+    "internal/cli/facts_proposals_cmd.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c9/d0f753657f/0/metadata.json",
+      "transcript": "/c9/d0f753657f/0/full.jsonl",
+      "compact_transcript": "/c9/d0f753657f/0/transcript.jsonl",
+      "content_hash": "/c9/d0f753657f/0/content_hash.txt",
+      "prompt": "/c9/d0f753657f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 20718,
+    "cache_read_tokens": 5839886,
+    "output_tokens": 11932,
+    "api_call_count": 9
+  }
+}
