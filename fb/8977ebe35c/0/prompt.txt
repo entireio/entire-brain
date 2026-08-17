@@ -1,0 +1,27 @@
+so all rbain prs merged good? only api pr pnding?
+
+---
+
+<task-notification>
+<task-id>brw4kpd1q</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/f507d58c-285f-4d11-b1d0-201f2a5e172d/tasks/brw4kpd1q.output</output-file>
+<status>completed</status>
+<summary>Background command "Tracked watcher for 84 merge" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+get updat eto dat now and give me a cleans tatus report
+
+---
+
+git emt serive was implemnted in api; that waa a poc repo
+
+---
+
+k now give list
+
+---
+
+make fully ready fro p1 ready
