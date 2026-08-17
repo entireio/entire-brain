@@ -1,0 +1,17 @@
+Show me the summary you would post
+
+---
+
+You can't talk, i.e. don't make it sounds the review comes from a human. Instead be honest that this is an agent review.
+
+---
+
+Word
+
+---
+
+What branch are you on?
+
+---
+
+Push an empty commit to wrap up the Entire session. Also make sure the Entire branch is pushed.
