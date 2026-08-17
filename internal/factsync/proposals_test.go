@@ -86,6 +86,13 @@ func TestFindProposal(t *testing.T) {
 		{name: "unambiguous prefix", ref: "prop-bbbb", want: third.ID},
 		{name: "ambiguous prefix", ref: "prop-aaaa", wantErr: ErrAmbiguousProposal},
 		{name: "too-short prefix", ref: "pro", wantErr: ErrProposalNotFound},
+		// The fixed "prop-" lead-in carries zero discriminating characters: a
+		// ref that is only the shared prefix (or barely more) must never
+		// prefix-match, or a truncated paste would settle whichever single
+		// conflict happens to be open.
+		{name: "bare shared prefix", ref: "prop", wantErr: ErrProposalNotFound},
+		{name: "shared prefix with dash", ref: "prop-", wantErr: ErrProposalNotFound},
+		{name: "under-discriminating prefix", ref: "prop-bb", wantErr: ErrProposalNotFound},
 		{name: "unknown", ref: "prop-zzzz", wantErr: ErrProposalNotFound},
 		{name: "empty", ref: "  ", wantErr: ErrProposalNotFound},
 		{name: "whitespace trimmed", ref: "  fact:c3  ", want: third.ID},

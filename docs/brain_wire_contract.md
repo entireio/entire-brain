@@ -192,6 +192,14 @@ are unknowable to an older reader, so their values pass through unchanged apart
 from key ordering, string escaping, and number syntax — which is what lets an
 older verifier still check a signature over a newer producer's artifact.
 
+This preservation holds only for values expressible in the canonical profile:
+strings, booleans, `null`, integers within ±2^53, objects, and arrays of those.
+A minor that needs a non-integer number (or an integer outside that range) in a
+signed artifact is NOT expressible under this encoding and must ship a new
+`Signature.CanonicalEncoding` identifier — the envelope pins the encoding
+precisely so such a change is a deliberate, verifiable rotation rather than a
+silent widening of the number rule.
+
 `CanonicalUnmarshal` canonicalizes and then tolerantly decodes, so the resulting
 value's `GeneratedAt` is already UTC-truncated and `CanonicalMarshal` of it
 reproduces the same bytes — except when the input carried unknown fields, which

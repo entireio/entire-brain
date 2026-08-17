@@ -304,7 +304,13 @@ func TestCanonicalNumbers(t *testing.T) {
 		{name: "zero omitted", lit: "0", want: ""},
 		{name: "negative zero normalized then omitted", lit: "-0", want: ""},
 		{name: "negative integer", lit: "-12", want: "-12"},
-		{name: "max int64", lit: "9223372036854775807", want: "9223372036854775807"},
+		// ±2^53 is the largest magnitude every IEEE-754 double-based parser
+		// represents exactly; beyond it a conforming JCS verifier re-serializes
+		// a different value and the signature silently fails cross-language.
+		{name: "max interoperable integer", lit: "9007199254740992", want: "9007199254740992"},
+		{name: "min interoperable integer", lit: "-9007199254740992", want: "-9007199254740992"},
+		{name: "beyond 2^53 rejected", lit: "9007199254740993", wantErr: true},
+		{name: "max int64 rejected", lit: "9223372036854775807", wantErr: true},
 		{name: "exponent rejected", lit: "1e2", wantErr: true},
 		{name: "fraction rejected", lit: "1.0", wantErr: true},
 		{name: "overflow rejected", lit: "9223372036854775808", wantErr: true},
@@ -493,5 +499,46 @@ func TestCanonicalKeySortIsUTF16(t *testing.T) {
 	}
 	if iAstral > iBMP {
 		t.Fatalf("keys sorted by UTF-8 bytes, not UTF-16 code units: %s", got)
+	}
+}
+
+// TestCanonicalizeRejectsDuplicateKeys proves canonical form refuses duplicated
+// object members instead of inheriting Go's last-wins decode: a signature over
+// re-canonicalized bytes must never validate transported bytes whose
+// first-occurrence values a first-wins parser would read instead.
+func TestCanonicalizeRejectsDuplicateKeys(t *testing.T) {
+	base := `{"manifest":{"repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"}}`
+	if _, err := Canonicalize([]byte(base)); err != nil {
+		t.Fatalf("baseline artifact must canonicalize: %v", err)
+	}
+	for name, doc := range map[string]string{
+		"top level": `{"manifest":{"repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"},` +
+			`"manifest":{"repo_key":"evil","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"}}`,
+		"nested known object": `{"manifest":{"repo_key":"evil","repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"}}`,
+		"unknown object": `{"manifest":{"repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"},` +
+			`"future":{"k":1,"k":2}}`,
+		"object inside array": `{"manifest":{"repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"},` +
+			`"facts":[{"branch":"main","branch":"other","content":{"digest":"sha256:aa","size":1}}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Canonicalize([]byte(doc)); err == nil {
+				t.Fatalf("duplicate member accepted: %s", doc)
+			} else if !strings.Contains(err.Error(), "duplicate object member") {
+				t.Fatalf("wrong error for duplicate member: %v", err)
+			}
+		})
+	}
+}
+
+// TestCanonicalTimeAcceptsLowercaseSeparators proves the RFC 3339 forms Go's
+// time.Parse rejects but section 5.6 permits — lowercase 't' and 'z' — verify.
+func TestCanonicalTimeAcceptsLowercaseSeparators(t *testing.T) {
+	doc := `{"manifest":{"repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-06-01t12:00:00z"}}`
+	got, err := Canonicalize([]byte(doc))
+	if err != nil {
+		t.Fatalf("lowercase RFC 3339 separators must canonicalize: %v", err)
+	}
+	if !strings.Contains(string(got), `"generated_at":"2026-06-01T12:00:00Z"`) {
+		t.Fatalf("lowercase separators not normalized: %s", got)
 	}
 }

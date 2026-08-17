@@ -590,3 +590,112 @@ func TestResolveOpenNoFactSetHead(t *testing.T) {
 		t.Fatalf("ResolveOpen with no head = %v; want ErrProposalNotApplicable", err)
 	}
 }
+
+// TestResolveOpenPinsProposalAcrossRetries proves a CAS retry cannot rebind the
+// caller's ref to a different proposal that entered the set between attempts: the
+// proposal is pinned by id after the first resolution, so the settled conflict is
+// exactly the one the reviewer saw.
+func TestResolveOpenPinsProposalAcrossRetries(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC)
+	fake := newHostedFake()
+	ts := hostedContractServer(t, fake)
+	defer ts.Close()
+	h := &HTTPServer{BaseURL: ts.URL, Token: "tok"}
+
+	factX := fact("retries use exponential backoff", []string{"api.retry.policy"}, "session-A", now)
+	factY := fact("retries use fixed 1s intervals", []string{"api.retry.policy"}, "session-B", now)
+	if _, err := Sync(ctx, h, "repo", "main", "member-A", []factmerge.Record{factX}, now); err != nil {
+		t.Fatal(err)
+	}
+	resB, err := Sync(ctx, h, "repo", "main", "member-B", []factmerge.Record{factY}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resB.Proposals) != 1 {
+		t.Fatalf("member-B raised %d proposals; want 1", len(resB.Proposals))
+	}
+	if _, err := PublishRaised(ctx, h, "repo", "main", resB.Proposals); err != nil {
+		t.Fatal(err)
+	}
+	pinned := ProposalID(resB.Proposals[0])
+
+	// Interpose between the reviewer's read and its push: the head moves (412 on
+	// the reviewer's push) AND a second proposal sharing the same candidate fact
+	// id enters the open set from another member. An unpinned retry re-resolving
+	// the raw candidate-id ref would now find two matches.
+	fake.interpose = func() {
+		fake.interpose = nil
+		competitor := fact("retry metrics are exported", []string{"api.retry.metrics"}, "session-C", now)
+		if _, err := Sync(ctx, h, "repo", "main", "member-C", []factmerge.Record{competitor}, now); err != nil {
+			t.Errorf("interposed sync: %v", err)
+		}
+		rival := resB.Proposals[0]
+		rival.ProposedBy = "member-D"
+		if _, err := PublishRaised(ctx, h, "repo", "main", []factmerge.Proposal{rival}); err != nil {
+			t.Errorf("interposed publish: %v", err)
+		}
+	}
+
+	res, err := ResolveOpen(ctx, h, "repo", "main", resB.Proposals[0].CandidateID, Accept, now)
+	if err != nil {
+		t.Fatalf("ResolveOpen under rebinding contention: %v", err)
+	}
+	if res.Attempts < 2 {
+		t.Fatalf("expected a CAS retry (Attempts>=2), got %d", res.Attempts)
+	}
+	if res.Proposal.ID != pinned {
+		t.Fatalf("retry settled %s; want the pinned %s", res.Proposal.ID, pinned)
+	}
+	if res.Remaining != 1 {
+		t.Fatalf("rival proposal should remain open; Remaining = %d", res.Remaining)
+	}
+}
+
+// TestResolveOpenRejectPrunesInapplicableProposal proves reject is also the prune
+// path: a proposal whose facts are no longer both in the head cannot be applied,
+// but rejecting it removes the otherwise-permanent entry without touching facts.
+func TestResolveOpenRejectPrunesInapplicableProposal(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC)
+	fake := newHostedFake()
+	ts := hostedContractServer(t, fake)
+	defer ts.Close()
+	h := &HTTPServer{BaseURL: ts.URL, Token: "tok"}
+
+	anchor := fact("deploys are gated on green CI", []string{"ops.deploy.gate"}, "session-A", now)
+	if _, err := Sync(ctx, h, "repo", "main", "member-A", []factmerge.Record{anchor}, now); err != nil {
+		t.Fatal(err)
+	}
+	stuck := factmerge.Proposal{
+		Action:      "merge",
+		CandidateID: "fact:vanished-candidate",
+		TargetID:    "fact:vanished-target",
+		Branch:      "main",
+		ProposedBy:  "member-B",
+	}
+	if _, err := PublishRaised(ctx, h, "repo", "main", []factmerge.Proposal{stuck}); err != nil {
+		t.Fatal(err)
+	}
+	id := ProposalID(stuck)
+
+	if _, err := ResolveOpen(ctx, h, "repo", "main", id, Accept, now); !errors.Is(err, ErrProposalNotApplicable) {
+		t.Fatalf("accepting a proposal with vanished facts = %v; want ErrProposalNotApplicable", err)
+	}
+	headBefore, before := headRecords(ctx, t, h)
+	res, err := ResolveOpen(ctx, h, "repo", "main", id, Reject, now)
+	if err != nil {
+		t.Fatalf("rejecting a proposal with vanished facts must prune it: %v", err)
+	}
+	if res.Remaining != 0 {
+		t.Fatalf("proposal not pruned; Remaining = %d", res.Remaining)
+	}
+	headAfter, after := headRecords(ctx, t, h)
+	if len(before) != len(after) || headBefore == "" || headAfter == "" {
+		t.Fatalf("prune-only reject changed the fact set: before=%d after=%d", len(before), len(after))
+	}
+	set, err := h.ListProposals(ctx, "repo", "main")
+	if err != nil || len(set.Proposals) != 0 {
+		t.Fatalf("open set not emptied: %+v, %v", set, err)
+	}
+}

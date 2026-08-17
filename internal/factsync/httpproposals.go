@@ -70,7 +70,11 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: %w", repoID, branch, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound, http.StatusNotImplemented:
+		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
+	default:
 		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
 	}
 	var out wireProposalSet
@@ -171,6 +175,8 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 		return out.Ref, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
 		return "", ErrConflict
+	case http.StatusNotFound, http.StatusNotImplemented:
+		return "", fmt.Errorf("%w: POST proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
 	default:
 		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
 	}

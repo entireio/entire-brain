@@ -38,15 +38,28 @@ var ErrProposalNotFound = errors.New("factsync: no such open proposal")
 // unrecoverable, so the reference must be disambiguated by the caller.
 var ErrAmbiguousProposal = errors.New("factsync: proposal reference is ambiguous")
 
-// minProposalRefLen is the shortest id prefix accepted as a proposal reference; a
-// 1-2 character prefix is far too collision-prone to resolve a conflict by.
+// ErrProposalQueueUnsupported is returned when the backend does not serve the
+// open-proposal endpoints at all (an entire-api that predates the queue: 404 or
+// 501 on the collection). It is the ONLY publish failure a sync may downgrade
+// to a warning — every other class (auth, exhausted CAS retries, 5xx) means a
+// queue that exists did not receive the raised conflicts.
+var ErrProposalQueueUnsupported = errors.New("factsync: backend does not serve the open-proposal queue")
+
+// minProposalRefLen is the fewest DISCRIMINATING characters (beyond the fixed
+// "prop-" prefix every derived id shares) accepted in a proposal-id prefix; a
+// 1-2 character prefix is far too collision-prone to resolve a conflict by,
+// and the shared prefix itself carries zero discriminating information.
 const minProposalRefLen = 4
+
+// proposalIDPrefix is the fixed lead-in of every derived proposal id.
+const proposalIDPrefix = "prop-"
 
 // OpenProposal is one entry of the hosted open set: the merge-core Proposal plus the
 // stable, content-derived id the transport addresses it by. factmerge.Proposal has no
 // id of its own (the on-disk single-user format keys by candidate), so the id is
-// DERIVED here rather than stored — two members that raise the same conflict produce
-// the same id, and the id never has to be persisted alongside the proposal.
+// DERIVED here rather than stored — the same member re-raising the same conflict
+// produces the same id (re-publishing is idempotent), while two members raising it
+// produce distinct ids because ProposedBy is part of the derivation.
 type OpenProposal struct {
 	ID       string             `json:"id"`
 	Proposal factmerge.Proposal `json:"proposal"`
@@ -109,7 +122,12 @@ func FindProposal(set []OpenProposal, ref string) (OpenProposal, error) {
 			matches = append(matches, p)
 		}
 	}
-	if len(matches) == 0 && len(ref) >= minProposalRefLen {
+	// Prefix matching counts only characters past the fixed "prop-" lead-in:
+	// the ref "prop" (or "prop-") satisfies any raw length minimum while
+	// discriminating between zero proposals, and would silently settle
+	// whichever single conflict happens to be open.
+	if len(matches) == 0 && strings.HasPrefix(ref, proposalIDPrefix) &&
+		len(ref) >= len(proposalIDPrefix)+minProposalRefLen {
 		for _, p := range set {
 			if strings.HasPrefix(p.ID, ref) {
 				matches = append(matches, p)
@@ -126,7 +144,8 @@ func FindProposal(set []OpenProposal, ref string) (OpenProposal, error) {
 		for _, m := range matches {
 			ids = append(ids, m.ID)
 		}
-		return OpenProposal{}, fmt.Errorf("%w: %s matches %s", ErrAmbiguousProposal, ref, strings.Join(ids, ", "))
+		return OpenProposal{}, fmt.Errorf("%w: %s matches %s — pass one full proposal id",
+			ErrAmbiguousProposal, ref, strings.Join(ids, ", "))
 	}
 }
 
@@ -206,11 +225,15 @@ type ProposalTransport interface {
 }
 
 // PublishResult reports the outcome of publishing a sync's raised proposals.
+// Proposals is the full hosted open set as of the publish (the union that was
+// pushed, or the set read when nothing new needed pushing), so a caller
+// keeping a local queue can reconcile it against the hosted truth.
 type PublishResult struct {
-	Published bool   `json:"published"`
-	Ref       string `json:"ref"`
-	Attempts  int    `json:"attempts"`
-	Open      int    `json:"open"`
+	Published bool           `json:"published"`
+	Ref       string         `json:"ref"`
+	Attempts  int            `json:"attempts"`
+	Open      int            `json:"open"`
+	Proposals []OpenProposal `json:"-"`
 }
 
 // PublishRaised makes the proposals a Sync raised visible to every member: read the
@@ -246,14 +269,14 @@ func PublishRaised(ctx context.Context, tr ProposalTransport, repoID, branch str
 		}
 		if added == 0 {
 			// Every raised conflict is already open — converged, nothing to push.
-			return PublishResult{Published: false, Ref: set.Ref, Attempts: attempt, Open: len(merged)}, nil
+			return PublishResult{Published: false, Ref: set.Ref, Attempts: attempt, Open: len(merged), Proposals: merged}, nil
 		}
 		newRef, err := tr.PublishProposals(ctx, repoID, branch, set.Ref, merged)
 		switch {
 		case err == nil:
-			return PublishResult{Published: true, Ref: newRef, Attempts: attempt, Open: len(merged)}, nil
+			return PublishResult{Published: true, Ref: newRef, Attempts: attempt, Open: len(merged), Proposals: merged}, nil
 		case errors.Is(err, ErrNoChange):
-			return PublishResult{Published: false, Ref: set.Ref, Attempts: attempt, Open: len(merged)}, nil
+			return PublishResult{Published: false, Ref: set.Ref, Attempts: attempt, Open: len(merged), Proposals: merged}, nil
 		case errors.Is(err, ErrConflict):
 			continue // another member changed the open set first — re-read and re-union
 		default:
@@ -296,14 +319,30 @@ func ResolveOpen(ctx context.Context, srv ProposalServer, repoID, branch, ref st
 	if decision != Accept && decision != Reject {
 		return ResolveOpenResult{}, errors.New("factsync: unknown review decision")
 	}
+	// The human-supplied ref is resolved to a proposal exactly once. On a CAS
+	// retry the open set has changed by definition, and a candidate-id or
+	// prefix ref could rebind to a DIFFERENT proposal that entered the set
+	// meanwhile — silently settling a conflict the reviewer never saw. After
+	// the first resolution the loop addresses the pinned id only; a pinned
+	// proposal that vanished between attempts was settled by someone else.
+	pinnedID := ""
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		set, err := srv.ListProposals(ctx, repoID, branch)
 		if err != nil {
 			return ResolveOpenResult{}, err
 		}
-		target, err := FindProposal(set.Proposals, ref)
-		if err != nil {
-			return ResolveOpenResult{}, err
+		var target OpenProposal
+		if pinnedID == "" {
+			target, err = FindProposal(set.Proposals, ref)
+			if err != nil {
+				return ResolveOpenResult{}, err
+			}
+			pinnedID = target.ID
+		} else {
+			target, err = FindProposal(set.Proposals, pinnedID)
+			if err != nil {
+				return ResolveOpenResult{}, err
+			}
 		}
 
 		headRef, plaintext, found, err := srv.Current(ctx, repoID, branch)
@@ -322,7 +361,16 @@ func ResolveOpen(ctx context.Context, srv ProposalServer, repoID, branch, ref st
 
 		resolved, err := Resolve(facts, target.Proposal, decision, now)
 		if err != nil {
-			return ResolveOpenResult{}, err
+			// A proposal whose facts are no longer both in the head cannot be
+			// APPLIED — but it can be rejected: reject changes no facts, and
+			// removing the entry is the only way such a proposal ever leaves
+			// the open set (nothing else prunes it, so it would otherwise sit
+			// in every member's list forever). Accept keeps failing loudly.
+			if decision == Reject && errors.Is(err, ErrProposalNotApplicable) {
+				resolved = facts
+			} else {
+				return ResolveOpenResult{}, err
+			}
 		}
 		remaining, _ := removeProposal(set.Proposals, target.ID)
 

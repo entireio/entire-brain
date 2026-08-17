@@ -99,9 +99,9 @@ func TestFactsSyncSharesRaisedProposals(t *testing.T) {
 	}
 }
 
-// TestFactsSyncShareFailureOnlyWarns proves a review-queue endpoint that rejects the
-// share (an entire-api predating it, say) never fails the sync: the facts already
-// landed, so the failure is a warning and the command still succeeds.
+// TestFactsSyncShareFailureOnlyWarns proves that ONLY a backend with no review
+// queue at all (an entire-api predating the endpoint: 404) is downgraded to a
+// warning — the facts already landed and the queue is a hosted add-on there.
 func TestFactsSyncShareFailureOnlyWarns(t *testing.T) {
 	f, fake, _ := newHostedProposalsFixture(t)
 	fake.mu.Lock()
@@ -119,12 +119,88 @@ func TestFactsSyncShareFailureOnlyWarns(t *testing.T) {
 
 	out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http", "--member", "member-C")
 	if err != nil {
-		t.Fatalf("facts sync must survive a share failure: %v\n%s", err, out)
+		t.Fatalf("facts sync must survive a missing review queue: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "warning: could not publish") {
-		t.Fatalf("share failure was not warned about:\n%s", out)
+	if !strings.Contains(out, "warning: backend has no shared review queue") {
+		t.Fatalf("missing queue was not warned about:\n%s", out)
 	}
 	if !strings.Contains(out, "head advanced to") {
 		t.Fatalf("sync did not report its successful advance:\n%s", out)
+	}
+}
+
+// TestFactsSyncShareHardFailureFailsTheCommand proves every OTHER publish failure
+// (here a 500) fails the sync command: the facts already advanced the shared
+// head, so a swallowed error would leave raised conflicts that only this member
+// can see — and the identical-content short-circuit means a later sync would
+// never re-raise them.
+func TestFactsSyncShareHardFailureFailsTheCommand(t *testing.T) {
+	f, fake, _ := newHostedProposalsFixture(t)
+	fake.mu.Lock()
+	fake.proposals = nil
+	fake.failPublish = 500
+	fake.mu.Unlock()
+
+	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
+	local := factRecord{
+		ID: factRecordID("deploys use a canary rollout", paths), Paths: paths,
+		Text: "deploys use a canary rollout", Branch: "main", Origin: factOriginDistilled, Status: factStatusActive,
+		Provenance: []factAnchor{{SessionID: "session-C"}}, CreatedAt: f.now, UpdatedAt: f.now,
+	}
+	f.writeFacts(t, "main", []factRecord{local})
+
+	out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http", "--member", "member-C")
+	if err == nil {
+		t.Fatalf("a real publish failure must fail the command:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "sharing") || !strings.Contains(err.Error(), "facts review") {
+		t.Fatalf("failure must say the head advanced and point at local review: %v", err)
+	}
+	queued, loadErr := loadFactProposals(f.storage.BrainDir, "main")
+	if loadErr != nil || len(queued) == 0 {
+		t.Fatalf("raised conflicts must stay in the local queue for recovery: %v, %d", loadErr, len(queued))
+	}
+}
+
+// TestFactsSyncReconcilesLocalQueueWithHostedResolutions proves the local review
+// queue converges on the hosted open set after a publish: a conflict a teammate
+// settled hosted-side stops being listed (and re-appliable) locally, while local
+// entries the hosted set still carries survive.
+func TestFactsSyncReconcilesLocalQueueWithHostedResolutions(t *testing.T) {
+	f, fake, _ := newHostedProposalsFixture(t)
+	fake.mu.Lock()
+	fake.proposals = nil
+	fake.mu.Unlock()
+
+	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
+	local := factRecord{
+		ID: factRecordID("deploys use a canary rollout", paths), Paths: paths,
+		Text: "deploys use a canary rollout", Branch: "main", Origin: factOriginDistilled, Status: factStatusActive,
+		Provenance: []factAnchor{{SessionID: "session-C"}}, CreatedAt: f.now, UpdatedAt: f.now,
+	}
+	f.writeFacts(t, "main", []factRecord{local})
+
+	if out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http", "--member", "member-C"); err != nil {
+		t.Fatalf("first sync: %v\n%s", err, out)
+	}
+	queued, err := loadFactProposals(f.storage.BrainDir, "main")
+	if err != nil || len(queued) == 0 {
+		t.Fatalf("first sync queued nothing locally: %v, %d", err, len(queued))
+	}
+
+	// A teammate settles every open proposal on the hosted queue.
+	fake.mu.Lock()
+	fake.proposals = nil
+	fake.mu.Unlock()
+
+	if out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http", "--member", "member-C"); err != nil {
+		t.Fatalf("second sync: %v\n%s", err, out)
+	}
+	after, err := loadFactProposals(f.storage.BrainDir, "main")
+	if err != nil {
+		t.Fatalf("load queue after reconcile: %v", err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("hosted-settled proposals still in the local queue: %d", len(after))
 	}
 }

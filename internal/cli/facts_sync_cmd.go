@@ -2,9 +2,12 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ashtom/entire-brain/internal/factgitmeta"
@@ -114,15 +117,65 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		return err
 	}
 
-	// Publish the conflicts this sync RAISED to the shared open-proposal queue, so
-	// other members can review them with `facts proposals`. Only backends that serve
-	// the queue (the hosted http one) can take them; the local git-meta store has no
-	// proposal set and is left untouched. A publish failure never fails the sync —
-	// the facts already landed, and an entire-api that predates the queue endpoint
-	// must not break a working sync — so it is reported as a warning.
-	pub, pubErr := publishRaisedProposals(ctx, srv, repoID, branch, res.Proposals)
-	if pubErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not publish %d raised proposal(s) to the shared review queue: %v\n", len(res.Proposals), pubErr)
+	// Publish the WHOLE local review queue — this sync's raised conflicts plus any
+	// earlier entries that never reached the shared set (a previously failed
+	// publish, or a queue populated before a hosted backend was configured) — so
+	// other members can review them with `facts proposals`. Only backends that
+	// serve the queue (the hosted http one) can take them; the local git-meta
+	// store has no proposal set and is left untouched. After a successful publish
+	// the hosted set is the source of truth, and the local queue is reconciled to
+	// it so a conflict a teammate settled hosted-side stops being re-listed (and
+	// re-appliable) here.
+	//
+	// Failure discipline: a backend that does not serve the queue at all
+	// (entire-api predating the endpoint) is a warning — the sync itself is
+	// complete and the queue is a hosted add-on. Any OTHER failure fails the
+	// command: the facts already advanced the shared head, so a swallowed
+	// publish error would leave conflicts only this member can see.
+	var pub factsync.PublishResult
+	var pubErr error
+	if transport, hasQueue := srv.(factsync.ProposalTransport); hasQueue {
+		localQueue, queueErr := loadFactProposals(storage.BrainDir, branch)
+		if queueErr != nil {
+			return fmt.Errorf("facts sync: load review queue: %w", queueErr)
+		}
+		ledger, ledgerErr := loadSharedProposalLedger(storage.BrainDir, branch)
+		if ledgerErr != nil {
+			return fmt.Errorf("facts sync: load shared-proposal ledger: %w", ledgerErr)
+		}
+		// Publish only entries that have never reached the hosted set: an
+		// already-shared entry that is absent from the hosted set was settled
+		// by another member, and re-publishing it would resurrect exactly the
+		// conflict they resolved. Reconciliation prunes it below instead.
+		toPublish := make([]factProposal, 0, len(localQueue))
+		for _, p := range localQueue {
+			if _, shared := ledger[factsync.ProposalID(p)]; !shared {
+				toPublish = append(toPublish, p)
+			}
+		}
+		if len(toPublish) > 0 {
+			pub, pubErr = factsync.PublishRaised(ctx, transport, repoID, branch, toPublish)
+		} else if set, listErr := transport.ListProposals(ctx, repoID, branch); listErr != nil {
+			pubErr = listErr
+		} else {
+			pub = factsync.PublishResult{Ref: set.Ref, Open: len(set.Proposals), Proposals: set.Proposals}
+			if pub.Proposals == nil {
+				pub.Proposals = []factsync.OpenProposal{}
+			}
+		}
+		switch {
+		case pubErr == nil:
+			if pub.Proposals != nil {
+				if err := reconcileLocalProposalQueue(storage.BrainDir, branch, pub.Proposals); err != nil {
+					return fmt.Errorf("facts sync: reconcile review queue: %w", err)
+				}
+			}
+		case errors.Is(pubErr, factsync.ErrProposalQueueUnsupported):
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: backend has no shared review queue; %d proposal(s) stay in the local queue ('facts review'): %v\n", len(localQueue), pubErr)
+		default:
+			return fmt.Errorf("facts sync: facts head advanced to %s, but sharing %d proposal(s) to the review queue failed: %w (they remain reviewable locally with 'facts review', and the next 'facts sync' republishes them)",
+				refOrNone(res.NewRef), len(toPublish), pubErr)
+		}
 	}
 
 	if syncOpts.jsonOut {
@@ -182,6 +235,92 @@ func persistFactsSyncProposals(brainDir, branch string, proposals []factProposal
 			return fmt.Errorf("facts sync: persist review queue: %w", err)
 		}
 		return nil
+	})
+}
+
+// factsSharedLedgerFileName records, per branch, the derived ids of local
+// proposals that have REACHED the hosted open set at some point. Without it a
+// settled proposal (published, then resolved by a teammate: gone from the
+// hosted set) is indistinguishable from a never-published one, and the next
+// sync would resurrect exactly the conflict the teammate settled.
+const factsSharedLedgerFileName = "proposals-shared.json"
+
+func factsSharedLedgerRelPath(branch string) string {
+	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsSharedLedgerFileName))
+}
+
+func loadSharedProposalLedger(brainDir, branch string) (map[string]struct{}, error) {
+	path := filepath.Join(brainDir, filepath.FromSlash(factsSharedLedgerRelPath(branch)))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]struct{}{}, nil
+		}
+		return nil, err
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", factsSharedLedgerRelPath(branch), err)
+	}
+	out := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out, nil
+}
+
+func writeSharedProposalLedger(brainDir, branch string, ids map[string]struct{}) error {
+	if len(ids) == 0 {
+		return removeBrainRelativeFile(brainDir, factsSharedLedgerRelPath(branch))
+	}
+	sorted := make([]string, 0, len(ids))
+	for id := range ids {
+		sorted = append(sorted, id)
+	}
+	sort.Strings(sorted)
+	data, err := json.Marshal(sorted)
+	if err != nil {
+		return err
+	}
+	return writeBrainRelativeFileAtomic(brainDir, factsSharedLedgerRelPath(branch), data, 0o600)
+}
+
+// reconcileLocalProposalQueue rewrites the local review queue after a successful
+// publish so it converges on the hosted open set: an entry the ledger says was
+// shared but the hosted set no longer carries was settled by another member and
+// is dropped; entries still hosted-open stay; entries never yet shared stay for
+// the next publish. The ledger is then rewritten to the hosted set, which by
+// definition holds every currently shared proposal.
+func reconcileLocalProposalQueue(brainDir, branch string, hosted []factsync.OpenProposal) error {
+	hostedIDs := make(map[string]struct{}, len(hosted))
+	for _, p := range hosted {
+		hostedIDs[p.ID] = struct{}{}
+	}
+	return withBrainWriteLock(brainDir, func() error {
+		ledger, err := loadSharedProposalLedger(brainDir, branch)
+		if err != nil {
+			return err
+		}
+		current, err := loadFactProposals(brainDir, branch)
+		if err != nil {
+			return err
+		}
+		next := make([]factProposal, 0, len(current))
+		for _, p := range current {
+			id := factsync.ProposalID(p)
+			_, stillOpen := hostedIDs[id]
+			_, wasShared := ledger[id]
+			if stillOpen || !wasShared {
+				next = append(next, p)
+			}
+		}
+		if err := writeSharedProposalLedger(brainDir, branch, hostedIDs); err != nil {
+			return err
+		}
+		if len(next) == len(current) {
+			return nil
+		}
+		return writeFactProposals(brainDir, branch, next)
 	})
 }
 

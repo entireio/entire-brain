@@ -253,6 +253,14 @@ func runFactsProposalsResolve(cmd *cobra.Command, opts Options, pOpts factsPropo
 	if err != nil {
 		return err
 	}
+	// The hosted set is now the settled truth; drop this member's local
+	// review-queue copy of the same conflict so `facts review`, `facts status`,
+	// and the pending-review guard stop listing a proposal a member just
+	// settled — and so a stale local apply cannot later override this
+	// resolution. Best-effort: the hosted resolution has already succeeded.
+	if pruneErr := pruneLocalProposalCopy(ctx, opts, target.branch, res.Proposal); pruneErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: resolved on the hosted queue, but the local review-queue copy was not pruned: %v\n", pruneErr)
+	}
 	if pOpts.jsonOut {
 		return writeJSON(cmd, map[string]any{
 			"branch":   target.branch,
@@ -272,6 +280,45 @@ func runFactsProposalsResolve(cmd *cobra.Command, opts Options, pOpts factsPropo
 	fmt.Fprintf(out, "  facts head: %s (%d attempt(s))\n", refOrNone(res.FactsRef), res.Attempts)
 	fmt.Fprintf(out, "  %d open proposal(s) remain\n", res.Remaining)
 	return nil
+}
+
+// pruneLocalProposalCopy removes the local review-queue copy of a proposal that
+// was just settled on the hosted queue. Outside a local repository there is no
+// local queue to prune, which is success, not an error.
+func pruneLocalProposalCopy(ctx context.Context, opts Options, branch string, settled factsync.OpenProposal) error {
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	if err != nil || !local {
+		return err
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return err
+	}
+	return withBrainWriteLock(storage.BrainDir, func() error {
+		if ledger, err := loadSharedProposalLedger(storage.BrainDir, branch); err == nil {
+			if _, shared := ledger[settled.ID]; shared {
+				delete(ledger, settled.ID)
+				if err := writeSharedProposalLedger(storage.BrainDir, branch, ledger); err != nil {
+					return err
+				}
+			}
+		}
+		queue, err := loadFactProposals(storage.BrainDir, branch)
+		if err != nil {
+			return err
+		}
+		next := make([]factProposal, 0, len(queue))
+		for _, p := range queue {
+			if factsync.ProposalID(p) == settled.ID {
+				continue
+			}
+			next = append(next, p)
+		}
+		if len(next) == len(queue) {
+			return nil
+		}
+		return writeFactProposals(storage.BrainDir, branch, next)
+	})
 }
 
 // describeProposal renders one open proposal as a single review line.

@@ -91,8 +91,15 @@ func Canonicalize(raw []byte) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 
-	var v any
-	if err := dec.Decode(&v); err != nil {
+	// Token-level decode rather than json.Decoder.Decode: Go's decoder keeps
+	// the LAST occurrence of a duplicated object member, so a signature checked
+	// over re-canonicalized bytes would validate transported bytes whose
+	// first-occurrence values a first-wins parser (common elsewhere) reads
+	// instead — a cross-parser differential in the exact layer built to prevent
+	// one. Canonical form therefore rejects duplicate members outright, as
+	// RFC 8785 pipelines conventionally do.
+	v, err := decodeCanonicalValue(dec)
+	if err != nil {
 		return nil, fmt.Errorf("brainwire: decode artifact: %w", err)
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
@@ -133,6 +140,67 @@ func CanonicalUnmarshal(raw []byte, out *BrainArtifact) error {
 // canonicalTime applies rule 4: UTC, truncated to whole seconds, literal "Z".
 func canonicalTime(t time.Time) string {
 	return t.UTC().Format(CanonicalTimeLayout)
+}
+
+// decodeCanonicalValue decodes one JSON value token-by-token, mirroring
+// json.Decoder.Decode's shapes (map[string]any, []any, string, bool,
+// json.Number, nil) but rejecting duplicate object members, which Decode
+// silently resolves last-wins.
+func decodeCanonicalValue(dec *json.Decoder) (any, error) {
+	tok, err := dec.Token()
+	if err != nil {
+		return nil, err
+	}
+	return decodeCanonicalToken(dec, tok)
+}
+
+func decodeCanonicalToken(dec *json.Decoder, tok json.Token) (any, error) {
+	delim, ok := tok.(json.Delim)
+	if !ok {
+		// string, bool, json.Number, or nil — already in decoded shape.
+		return tok, nil
+	}
+	switch delim {
+	case '{':
+		obj := map[string]any{}
+		for dec.More() {
+			keyTok, err := dec.Token()
+			if err != nil {
+				return nil, err
+			}
+			key, ok := keyTok.(string)
+			if !ok {
+				return nil, fmt.Errorf("object member name must be a string, got %v", keyTok)
+			}
+			if _, dup := obj[key]; dup {
+				return nil, fmt.Errorf("duplicate object member %q (canonical form forbids duplicate keys)", key)
+			}
+			val, err := decodeCanonicalValue(dec)
+			if err != nil {
+				return nil, err
+			}
+			obj[key] = val
+		}
+		if _, err := dec.Token(); err != nil { // consume '}'
+			return nil, err
+		}
+		return obj, nil
+	case '[':
+		arr := []any{}
+		for dec.More() {
+			el, err := decodeCanonicalValue(dec)
+			if err != nil {
+				return nil, err
+			}
+			arr = append(arr, el)
+		}
+		if _, err := dec.Token(); err != nil { // consume ']'
+			return nil, err
+		}
+		return arr, nil
+	default:
+		return nil, fmt.Errorf("unexpected delimiter %v", delim)
+	}
 }
 
 // --- field table -------------------------------------------------------------
@@ -314,7 +382,17 @@ func normalizeField(t *canonicalType, f canonicalField, raw any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("brainwire: %s must be an RFC 3339 string, got %s", where, jsonKindOf(raw))
 		}
-		ts, err := time.Parse(time.RFC3339, s)
+		// RFC 3339 section 5.6 permits lowercase 't' and 'z'; Go's time.Parse
+		// does not. Normalize exactly those two before parsing so a
+		// spec-compliant non-Go producer's timestamps verify.
+		normalized := s
+		if len(normalized) >= 11 && normalized[10] == 't' {
+			normalized = normalized[:10] + "T" + normalized[11:]
+		}
+		if strings.HasSuffix(normalized, "z") {
+			normalized = normalized[:len(normalized)-1] + "Z"
+		}
+		ts, err := time.Parse(time.RFC3339, normalized)
 		if err != nil {
 			return nil, fmt.Errorf("brainwire: %s is not RFC 3339: %w", where, err)
 		}
@@ -359,7 +437,19 @@ func normalizeField(t *canonicalType, f canonicalField, raw any) (any, error) {
 	return nil, fmt.Errorf("brainwire: %s has unknown canonical kind %d", where, f.Kind)
 }
 
-// canonicalInt applies rule 5 to a JSON number literal.
+// maxCanonicalInt bounds canonical integers to the range every IEEE-754
+// double-based JSON parser represents exactly (±2^53). A larger int64 signs
+// fine in Go but a conforming JCS/JavaScript verifier re-serializes the
+// nearest double and computes different canonical bytes — a silent
+// cross-implementation signature failure. Rejecting the value here turns that
+// into a loud error at the producer.
+const maxCanonicalInt = int64(1) << 53
+
+// canonicalInt applies rule 5 to a JSON number literal. The canonical profile
+// is deliberately integers-only: non-integer numbers are rejected rather than
+// canonicalized, and a future minor that needs them must ship a new
+// Signature.CanonicalEncoding identifier (the envelope pins the encoding for
+// exactly this kind of rotation) rather than widen this rule in place.
 func canonicalInt(lit string) (int64, error) {
 	if lit == "-0" {
 		return 0, nil
@@ -370,6 +460,9 @@ func canonicalInt(lit string) (int64, error) {
 	n, err := strconv.ParseInt(lit, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("number %q is not a 64-bit decimal integer", lit)
+	}
+	if n > maxCanonicalInt || n < -maxCanonicalInt {
+		return 0, fmt.Errorf("number %q is outside the interoperable ±2^53 canonical range", lit)
 	}
 	return n, nil
 }
