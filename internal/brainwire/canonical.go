@@ -338,7 +338,20 @@ func normalizeObject(t *canonicalType, in map[string]any) (map[string]any, error
 		}
 	}
 	// Unknown (newer-minor) fields pass through; only their encoding is
-	// canonicalized, by encodeValue.
+	// canonicalized, by encodeValue. This is deliberate and load-bearing for the
+	// additive-only 1.x contract in ADR 0001: an older verifier must be able to
+	// canonicalize and verify a NEWER producer's artifact, which it cannot do if an
+	// unrecognized key is fatal.
+	//
+	// It does not permit field smuggling, because the signature is taken over these
+	// bytes INCLUDING the unknown fields: adding one changes the signed input, and
+	// stripping one that a reader does not understand also invalidates the signature
+	// (TestVerifyBytesToleratesUnknownFields pins both directions).
+	//
+	// The consequence to know: the struct path cannot represent these fields, so
+	// CanonicalMarshal(CanonicalUnmarshal(b)) == b holds only for bytes whose keys are
+	// all known. The fixed point that matters for signing — Canonicalize being
+	// idempotent — holds either way; see the fuzz tests.
 	for k, v := range in {
 		if _, ok := known[k]; ok {
 			continue
