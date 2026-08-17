@@ -1,0 +1,19 @@
+<task-notification>
+<task-id>b8ikubz6z</task-id>
+<tool-use-id>toolu_01Nw6GjqUDwqoF19AjxZPGGN</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/f507d58c-285f-4d11-b1d0-201f2a5e172d/tasks/b8ikubz6z.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait for final CI on 85" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+give all prs- fully ready>
+
+---
+
+no give lsit fo prs pendign to be merged for fullv erfie dp1 as u fixed eveyrthign right
+
+---
+
+then udapte 242 and veified ocne merged p1 fully done
