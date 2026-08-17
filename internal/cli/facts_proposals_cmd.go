@@ -258,7 +258,7 @@ func runFactsProposalsResolve(cmd *cobra.Command, opts Options, pOpts factsPropo
 	// and the pending-review guard stop listing a proposal a member just
 	// settled — and so a stale local apply cannot later override this
 	// resolution. Best-effort: the hosted resolution has already succeeded.
-	if pruneErr := pruneLocalProposalCopy(ctx, opts, target.branch, res.Proposal); pruneErr != nil {
+	if pruneErr := pruneLocalProposalCopy(ctx, opts, target.branch, decision, res.Proposal); pruneErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: resolved on the hosted queue, but the local review-queue copy was not pruned: %v\n", pruneErr)
 	}
 	if pOpts.jsonOut {
@@ -283,9 +283,16 @@ func runFactsProposalsResolve(cmd *cobra.Command, opts Options, pOpts factsPropo
 }
 
 // pruneLocalProposalCopy removes the local review-queue copy of a proposal that
-// was just settled on the hosted queue. Outside a local repository there is no
-// local queue to prune, which is success, not an error.
-func pruneLocalProposalCopy(ctx context.Context, opts Options, branch string, settled factsync.OpenProposal) error {
+// was just settled on the hosted queue, AND mirrors the settlement into this
+// member's local facts. Outside a local repository there is no local queue to
+// prune, which is success, not an error.
+//
+// Mirroring here is what makes the member's own decision visible immediately.
+// `facts sync` reconciles settlements eventually, but without this the member who
+// just ran `facts proposals apply` would keep seeing the pre-settlement state in
+// `facts list`/recall until their next sync — their local view contradicting the
+// decision they had just made.
+func pruneLocalProposalCopy(ctx context.Context, opts Options, branch string, decision factsync.Decision, settled factsync.OpenProposal) error {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil || !local {
 		return err
@@ -301,6 +308,22 @@ func pruneLocalProposalCopy(ctx context.Context, opts Options, branch string, se
 		queue, err := loadFactProposals(storage.BrainDir, branch)
 		if err != nil {
 			return err
+		}
+		// Mirror first: a crash between the two writes then leaves the queue entry
+		// in place, and the next sync redoes the (idempotent) mirror rather than
+		// losing it.
+		facts, factsErr := loadFacts(storage.BrainDir, branch)
+		if factsErr != nil {
+			return factsErr
+		}
+		now := opts.Now().UTC()
+		if updated, changed := applySettlementLocally(facts, settled.Proposal, decision == factsync.Accept, now); changed {
+			if err := writeFacts(storage.BrainDir, branch, updated); err != nil {
+				return err
+			}
+			if err := updateFactSourceManifestLocked(storage.BrainDir, now); err != nil {
+				return err
+			}
 		}
 		next := make([]factProposal, 0, len(queue))
 		for _, p := range queue {

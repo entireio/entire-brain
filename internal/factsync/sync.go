@@ -55,6 +55,13 @@ type Result struct {
 	NewRef    string
 	Attempts  int
 	Proposals []factmerge.Proposal
+
+	// Facts is the fact set this sync settled on: the merged content when the CAS
+	// won, or the head as read when it converged with no change. The runner already
+	// computed it, so a caller needing the post-sync head (to check which proposals
+	// are still live, or to mirror settlements into local facts) can use this
+	// instead of issuing another Current — one fewer network round-trip per sync.
+	Facts []factmerge.Record
 }
 
 // Sync runs the read-merge-CAS loop: pull the head, keep-both promote local into it via
@@ -105,15 +112,15 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 			// content, and Advance rejects empty plaintext — so report converged rather
 			// than push an empty blob. (A non-empty head can never merge to empty: promote
 			// only grows the target.)
-			return Result{Published: false, NewRef: ref, Attempts: attempt, Proposals: proposals}, nil
+			return Result{Published: false, NewRef: ref, Attempts: attempt, Proposals: proposals, Facts: merged}, nil
 		}
 
 		newRef, err := srv.Advance(ctx, repoID, branch, ref, buf.Bytes())
 		switch {
 		case err == nil:
-			return Result{Published: true, NewRef: newRef, Attempts: attempt, Proposals: proposals}, nil
+			return Result{Published: true, NewRef: newRef, Attempts: attempt, Proposals: proposals, Facts: merged}, nil
 		case errors.Is(err, ErrNoChange):
-			return Result{Published: false, NewRef: ref, Attempts: attempt, Proposals: proposals}, nil
+			return Result{Published: false, NewRef: ref, Attempts: attempt, Proposals: proposals, Facts: merged}, nil
 		case errors.Is(err, ErrConflict):
 			continue // a concurrent member advanced first — re-read the newer head and re-merge
 		default:

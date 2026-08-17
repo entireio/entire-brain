@@ -262,3 +262,128 @@ func TestFactsReviewBulkSkipsSharedButSettlesPrivate(t *testing.T) {
 		t.Fatalf("shared proposal was settled locally despite the interlock: %+v", facts)
 	}
 }
+
+// TestProposalStillOpenAgainstDetectsSettlements is the cross-clone guard. The
+// shared-proposal ledger lives in one checkout, so a SECOND clone of the same member
+// starts with an empty ledger and would republish conflicts the team already settled,
+// resurrecting them for everyone. The shared head is identical for every clone, so a
+// proposal that is no longer a live conflict against it is treated as settled
+// regardless of local ledger state.
+func TestProposalStillOpenAgainstDetectsSettlements(t *testing.T) {
+	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
+	a := factRecord{ID: "fact:aaa", Paths: paths, Text: "canary", Branch: "main", Status: factStatusActive}
+	b := factRecord{ID: "fact:bbb", Paths: paths, Text: "blue-green", Branch: "main", Status: factStatusActive}
+	p := factProposal{Action: factActionSupersede, CandidateID: a.ID, TargetID: b.ID, Branch: "main", ProposedBy: "member-A"}
+
+	for _, tc := range []struct {
+		name string
+		head []factRecord
+		want bool
+	}{
+		{"both active: still a live conflict", []factRecord{a, b}, true},
+		{"candidate merged away", []factRecord{b}, false},
+		{"target gone", []factRecord{a}, false},
+		{"head empty", nil, false},
+		{
+			"target superseded by the candidate: settled as asked",
+			[]factRecord{a, {ID: b.ID, Paths: paths, Branch: "main", Status: factStatusSuperseded, SupersededBy: a.ID}},
+			false,
+		},
+		{
+			"candidate superseded by the target: settled the other way",
+			[]factRecord{{ID: a.ID, Paths: paths, Branch: "main", Status: factStatusSuperseded, SupersededBy: b.ID}, b},
+			false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := proposalStillOpenAgainst(tc.head, p); got != tc.want {
+				t.Fatalf("proposalStillOpenAgainst = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestReconcileKeepsSettledEntryWhenHeadUnavailable guards the ordering. Pruning a
+// settled entry is only safe once its settlement has been mirrored into local facts.
+// With no readable shared head there is nothing to mirror FROM, so dropping the entry
+// would leave the retired fact active locally with no record left to reconcile it
+// against — silently reintroducing the very defect the mirroring closes.
+func TestReconcileKeepsSettledEntryWhenHeadUnavailable(t *testing.T) {
+	f := newVerifyFixture(t)
+	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
+	mine := factRecord{ID: "fact:aaa", Paths: paths, Text: "canary", Branch: "main", Status: factStatusActive}
+	theirs := factRecord{ID: "fact:bbb", Paths: paths, Text: "blue-green", Branch: "main", Status: factStatusActive}
+	f.writeFacts(t, "main", []factRecord{mine, theirs})
+
+	p := factProposal{Action: factActionMerge, CandidateID: mine.ID, TargetID: theirs.ID, Branch: "main", ProposedBy: "member-C"}
+	if err := writeFactProposals(f.storage.BrainDir, "main", []factProposal{p}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSharedProposalLedger(f.storage.BrainDir, "main", map[string]struct{}{factsync.ProposalID(p): {}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Settled hosted-side (absent from the open set) but the head is unavailable.
+	if err := reconcileLocalProposalQueue(f.storage.BrainDir, "main", []factsync.OpenProposal{}, nil, f.now); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	queued, err := loadFactProposals(f.storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queued) != 1 {
+		t.Fatalf("settled entry was pruned with no head to mirror from; it can never be reconciled now: %+v", queued)
+	}
+	// And local facts must be untouched — no half-applied settlement.
+	facts, err := loadFacts(f.storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexOfFact(facts, mine.ID) < 0 {
+		t.Fatal("local fact was retired without a head to justify it")
+	}
+}
+
+// TestFactsProposalsApplyMirrorsIntoLocalFactsImmediately pins the member's own view.
+// `facts sync` reconciles settlements eventually, but the member who just ran
+// `facts proposals apply` must not keep seeing the pre-settlement state in their own
+// facts until their next sync — a local view contradicting the decision they just made.
+func TestFactsProposalsApplyMirrorsIntoLocalFactsImmediately(t *testing.T) {
+	f, _, open := newHostedProposalsFixture(t)
+
+	// The fixture's hosted head holds the pair; give this member the same two facts
+	// locally, which is the state a member who had synced would be in.
+	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})
+	target := factRecord{
+		ID: open.Proposal.TargetID, Paths: paths, Text: "deploys use blue-green cutover",
+		Branch: "main", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
+	}
+	candidate := factRecord{
+		ID: open.Proposal.CandidateID, Paths: paths, Text: "deploys use in-place rolling restart",
+		Branch: "main", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: f.now, UpdatedAt: f.now,
+	}
+	f.writeFacts(t, "main", []factRecord{target, candidate})
+
+	out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "apply", open.ID,
+		"--repo-id", "repo-01HZZ", "--branch", "main")
+	if err != nil {
+		t.Fatalf("apply: %v\n%s", err, out)
+	}
+
+	facts, err := loadFacts(f.storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's proposal is a supersede: accepting it retires the TARGET.
+	ti := indexOfFact(facts, target.ID)
+	if ti < 0 {
+		t.Fatalf("target vanished from local facts entirely: %+v", facts)
+	}
+	if facts[ti].Status != factStatusSuperseded {
+		t.Fatalf("local facts still show the pre-settlement state after apply: status=%s", facts[ti].Status)
+	}
+	if facts[ti].SupersededBy != candidate.ID {
+		t.Fatalf("supersede did not point at the winning candidate: %q", facts[ti].SupersededBy)
+	}
+}

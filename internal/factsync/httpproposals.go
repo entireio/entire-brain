@@ -184,10 +184,16 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 
 // resolveRequestBody is the POST body for a resolution.
 type resolveRequestBody struct {
-	Branch          string         `json:"branch"`
-	Decision        string         `json:"decision"`
-	FactsOldRef     string         `json:"factsOldRef"`
-	Data            []byte         `json:"data"`
+	Branch      string `json:"branch"`
+	Decision    string `json:"decision"`
+	FactsOldRef string `json:"factsOldRef"`
+	Data        []byte `json:"data"`
+	// FactsUnchanged tells the server to CAS the proposal set only and leave the
+	// fact head at factsOldRef. Sent only with decision=reject, to prune a proposal
+	// whose fact head is gone; data is then empty and must NOT be read as "empty the
+	// fact set". Omitted on every normal resolution, so an older server that ignores
+	// the field still sees exactly the previous request shape.
+	FactsUnchanged  bool           `json:"factsUnchanged,omitempty"`
 	ProposalsOldRef string         `json:"proposalsOldRef"`
 	Proposals       []OpenProposal `json:"proposals"`
 }
@@ -202,20 +208,28 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 	// Redact local-only provenance coordinates before the facts leave this member —
 	// the same guarantee Sync makes on its merged blob (see egress.go).
 	var buf bytes.Buffer
-	if err := factmerge.WriteNDJSON(&buf, SanitizeForEgress(req.Facts)); err != nil {
-		return ResolveProposalResponse{}, err
-	}
-	if buf.Len() == 0 {
-		// A resolution never empties the fact set (supersede retains the loser, reject
-		// keeps both, merge unions into the target), so an empty blob means the caller
-		// computed something wrong — and the head endpoint would 400 it anyway.
-		return ResolveProposalResponse{}, fmt.Errorf("factsync: resolve %s: refusing to push an empty fact set", req.ProposalID)
+	if !req.FactsUnchanged {
+		if err := factmerge.WriteNDJSON(&buf, SanitizeForEgress(req.Facts)); err != nil {
+			return ResolveProposalResponse{}, err
+		}
+		if buf.Len() == 0 {
+			// A resolution never empties the fact set (supersede retains the loser, reject
+			// keeps both, merge unions into the target), so an empty blob means the caller
+			// computed something wrong — and the head endpoint would 400 it anyway.
+			return ResolveProposalResponse{}, fmt.Errorf("factsync: resolve %s: refusing to push an empty fact set", req.ProposalID)
+		}
+	} else if req.Decision != Reject {
+		// factsUnchanged exists to prune an orphan; only reject leaves facts alone.
+		// Guard it here too so a future caller cannot quietly skip a fact write on an
+		// accept, which would drop the merge result while still retiring the proposal.
+		return ResolveProposalResponse{}, fmt.Errorf("factsync: resolve %s: factsUnchanged is only valid with reject", req.ProposalID)
 	}
 	body := resolveRequestBody{
 		Branch:          req.Branch,
 		Decision:        req.Decision.String(),
 		FactsOldRef:     req.FactsOldRef,
 		Data:            buf.Bytes(),
+		FactsUnchanged:  req.FactsUnchanged,
 		ProposalsOldRef: req.ProposalsOldRef,
 		Proposals:       req.Remaining,
 	}

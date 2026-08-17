@@ -202,6 +202,16 @@ type ResolveProposalRequest struct {
 	Facts           []factmerge.Record
 	ProposalsOldRef string
 	Remaining       []OpenProposal
+
+	// FactsUnchanged prunes the proposal set WITHOUT writing the fact head, and is
+	// the only way an orphaned proposal ever leaves the open set: one whose fact
+	// head is gone entirely (both facts retracted and GC'd) cannot be accepted, and
+	// rejecting it used to be impossible too — the empty-head guard fired before the
+	// reject path, and pushing an empty fact set is refused on purpose, so the entry
+	// sat in every member's list forever. Reject changes no facts, so the write it
+	// actually needs is the proposal set alone. Set only with Decision == Reject;
+	// Facts is then ignored and MUST NOT be interpreted as "empty the fact set".
+	FactsUnchanged bool
 }
 
 // ResolveProposalResponse reports where the two heads landed.
@@ -349,10 +359,43 @@ func ResolveOpen(ctx context.Context, srv ProposalServer, repoID, branch, ref st
 		if err != nil {
 			return ResolveOpenResult{}, err
 		}
-		if !found || len(plaintext) == 0 {
-			// An open proposal with no fact-set head cannot be settled: both of its
-			// facts are gone. Surface it rather than pushing an empty head.
+		headGone := !found || len(plaintext) == 0
+		if headGone && decision == Accept {
+			// Accept needs both facts to still exist; with no head there is nothing
+			// to merge into. Fail loudly rather than pushing an empty head.
 			return ResolveOpenResult{}, ErrProposalNotApplicable
+		}
+		if headGone {
+			// Reject an orphan: the fact head is gone, so the only write required is
+			// pruning the proposal set. Without this the entry is unremovable — it
+			// cannot be accepted, and the old guard blocked reject too, so it stayed
+			// in every member's open list forever.
+			remaining, _ := removeProposal(set.Proposals, target.ID)
+			resp, resolveErr := srv.ResolveProposal(ctx, ResolveProposalRequest{
+				RepoID:          repoID,
+				Branch:          branch,
+				ProposalID:      target.ID,
+				Decision:        decision,
+				FactsOldRef:     headRef,
+				FactsUnchanged:  true,
+				ProposalsOldRef: set.Ref,
+				Remaining:       remaining,
+			})
+			switch {
+			case resolveErr == nil, errors.Is(resolveErr, ErrNoChange):
+				return ResolveOpenResult{
+					Proposal:     target,
+					Decision:     decision.String(),
+					FactsRef:     headRef,
+					ProposalsRef: resp.ProposalsRef,
+					Attempts:     attempt,
+					Remaining:    len(remaining),
+				}, nil
+			case errors.Is(resolveErr, ErrConflict):
+				continue // a concurrent member moved the proposal set — re-read
+			default:
+				return ResolveOpenResult{}, resolveErr
+			}
 		}
 		facts, err := factmerge.ParseNDJSON(bytes.NewReader(plaintext))
 		if err != nil {
