@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bm5og7dyk</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/f507d58c-285f-4d11-b1d0-201f2a5e172d/tasks/bm5og7dyk.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch affected package tests" completed (exit code 0)</summary>
+</task-notification>
