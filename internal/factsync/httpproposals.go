@@ -175,7 +175,7 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 		return out.Ref, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
 		return "", ErrConflict
-	case http.StatusNotFound, http.StatusNotImplemented:
+	case http.StatusNotImplemented:
 		return "", fmt.Errorf("%w: POST proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
 	default:
 		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)

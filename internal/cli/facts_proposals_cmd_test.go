@@ -22,8 +22,12 @@ type hostedProposalsFake struct {
 	requests  int
 
 	// failPublish, when non-zero, is the status the whole-set publish endpoint
-	// returns — used to prove a share failure never fails a sync.
+	// returns — used to prove a real share failure fails the sync.
 	failPublish int
+	// failList, when non-zero, is the status the collection GET returns — an
+	// entire-api that predates the queue 404s here first, which is the ONLY
+	// shape a sync downgrades to a warning.
+	failList int
 }
 
 func (f *hostedProposalsFake) count() int {
@@ -60,6 +64,10 @@ func (f *hostedProposalsFake) handler() http.Handler {
 
 		switch {
 		case strings.HasSuffix(path, "/brain/facts/proposals") && r.Method == http.MethodGet:
+			if f.failList != 0 {
+				w.WriteHeader(f.failList)
+				return
+			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"found": len(f.proposals) > 0, "ref": "props-1", "proposals": f.proposals})

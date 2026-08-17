@@ -542,3 +542,22 @@ func TestCanonicalTimeAcceptsLowercaseSeparators(t *testing.T) {
 		t.Fatalf("lowercase separators not normalized: %s", got)
 	}
 }
+
+// TestCanonicalizeBoundsNestingDepth proves attacker-controlled nesting is an
+// error, not a runtime stack overflow: Canonicalize is an entry point for
+// untrusted bytes and must never kill the verifying process.
+func TestCanonicalizeBoundsNestingDepth(t *testing.T) {
+	deep := strings.Repeat("[", 100000) + strings.Repeat("]", 100000)
+	doc := `{"manifest":{"repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"},"future":` + deep + `}`
+	if _, err := Canonicalize([]byte(doc)); err == nil {
+		t.Fatal("pathological nesting must be rejected")
+	} else if !strings.Contains(err.Error(), "nesting deeper") {
+		t.Fatalf("wrong error for pathological nesting: %v", err)
+	}
+	// A handful of levels — beyond any real artifact but under the bound — is fine.
+	ok := `{"manifest":{"repo_key":"r","brain_schema_version":"1.0","generated_at":"2026-01-01T00:00:00Z"},"future":` +
+		strings.Repeat("[", 40) + "1" + strings.Repeat("]", 40) + `}`
+	if _, err := Canonicalize([]byte(ok)); err != nil {
+		t.Fatalf("legitimate nesting rejected: %v", err)
+	}
+}

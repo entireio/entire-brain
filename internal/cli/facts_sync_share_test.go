@@ -106,7 +106,7 @@ func TestFactsSyncShareFailureOnlyWarns(t *testing.T) {
 	f, fake, _ := newHostedProposalsFixture(t)
 	fake.mu.Lock()
 	fake.proposals = nil
-	fake.failPublish = 404
+	fake.failList = 404
 	fake.mu.Unlock()
 
 	paths := normalizeFactPaths([]string{"ops.deploy.strategy"})

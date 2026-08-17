@@ -294,15 +294,10 @@ func pruneLocalProposalCopy(ctx context.Context, opts Options, branch string, se
 	if err != nil {
 		return err
 	}
+	// The settled id deliberately STAYS in the shared-proposal ledger: the
+	// ledger records "this conflict has reached the hosted set", and keeping it
+	// suppresses a republish should an identical entry ever re-derive locally.
 	return withBrainWriteLock(storage.BrainDir, func() error {
-		if ledger, err := loadSharedProposalLedger(storage.BrainDir, branch); err == nil {
-			if _, shared := ledger[settled.ID]; shared {
-				delete(ledger, settled.ID)
-				if err := writeSharedProposalLedger(storage.BrainDir, branch, ledger); err != nil {
-					return err
-				}
-			}
-		}
 		queue, err := loadFactProposals(storage.BrainDir, branch)
 		if err != nil {
 			return err

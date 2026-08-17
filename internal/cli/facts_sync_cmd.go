@@ -143,38 +143,51 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		if ledgerErr != nil {
 			return fmt.Errorf("facts sync: load shared-proposal ledger: %w", ledgerErr)
 		}
-		// Publish only entries that have never reached the hosted set: an
-		// already-shared entry that is absent from the hosted set was settled
-		// by another member, and re-publishing it would resurrect exactly the
-		// conflict they resolved. Reconciliation prunes it below instead.
+		// Publish only entries that are member-attributed AND have never reached
+		// the hosted set. Distill's single-user review backlog shares the same
+		// local queue but carries no ProposedBy: it is this member's private
+		// pending-review state, not a cross-member conflict, and must never
+		// egress (its unattributed id derivation would also collide across
+		// members). An already-shared entry absent from the hosted set was
+		// settled by another member; re-publishing it would resurrect exactly
+		// the conflict they resolved, so reconciliation prunes it instead.
 		toPublish := make([]factProposal, 0, len(localQueue))
 		for _, p := range localQueue {
+			if strings.TrimSpace(p.ProposedBy) == "" {
+				continue
+			}
 			if _, shared := ledger[factsync.ProposalID(p)]; !shared {
 				toPublish = append(toPublish, p)
 			}
 		}
 		if len(toPublish) > 0 {
 			pub, pubErr = factsync.PublishRaised(ctx, transport, repoID, branch, toPublish)
+			switch {
+			case pubErr == nil:
+			case errors.Is(pubErr, factsync.ErrProposalQueueUnsupported):
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: backend has no shared review queue; %d proposal(s) stay in the local queue ('facts review'): %v\n", len(localQueue), pubErr)
+			default:
+				return fmt.Errorf("facts sync: facts head advanced to %s, but sharing %d proposal(s) to the review queue failed: %w (they remain reviewable locally with 'facts review', and the next 'facts sync' republishes them)",
+					refOrNone(res.NewRef), len(toPublish), pubErr)
+			}
 		} else if set, listErr := transport.ListProposals(ctx, repoID, branch); listErr != nil {
+			// Nothing needed sharing: this list exists only to reconcile the
+			// local queue, so a transient failure must not fail a sync whose
+			// head-advance fully succeeded. The next sync reconciles.
 			pubErr = listErr
+			if !errors.Is(listErr, factsync.ErrProposalQueueUnsupported) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not read the shared review queue to reconcile the local one; will retry next sync: %v\n", listErr)
+			}
 		} else {
 			pub = factsync.PublishResult{Ref: set.Ref, Open: len(set.Proposals), Proposals: set.Proposals}
 			if pub.Proposals == nil {
 				pub.Proposals = []factsync.OpenProposal{}
 			}
 		}
-		switch {
-		case pubErr == nil:
-			if pub.Proposals != nil {
-				if err := reconcileLocalProposalQueue(storage.BrainDir, branch, pub.Proposals); err != nil {
-					return fmt.Errorf("facts sync: reconcile review queue: %w", err)
-				}
+		if pubErr == nil && pub.Proposals != nil {
+			if err := reconcileLocalProposalQueue(storage.BrainDir, branch, pub.Proposals); err != nil {
+				return fmt.Errorf("facts sync: reconcile review queue: %w", err)
 			}
-		case errors.Is(pubErr, factsync.ErrProposalQueueUnsupported):
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: backend has no shared review queue; %d proposal(s) stay in the local queue ('facts review'): %v\n", len(localQueue), pubErr)
-		default:
-			return fmt.Errorf("facts sync: facts head advanced to %s, but sharing %d proposal(s) to the review queue failed: %w (they remain reviewable locally with 'facts review', and the next 'facts sync' republishes them)",
-				refOrNone(res.NewRef), len(toPublish), pubErr)
 		}
 	}
 
@@ -314,13 +327,23 @@ func reconcileLocalProposalQueue(brainDir, branch string, hosted []factsync.Open
 				next = append(next, p)
 			}
 		}
-		if err := writeSharedProposalLedger(brainDir, branch, hostedIDs); err != nil {
-			return err
+		// Queue first, ledger second: a crash between the writes then leaves a
+		// stale EXTRA ledger id (harmless — it only suppresses a republish),
+		// whereas the reverse order would mark still-queued settled proposals
+		// as never-shared and resurrect them on the next sync.
+		if len(next) != len(current) {
+			if err := writeFactProposals(brainDir, branch, next); err != nil {
+				return err
+			}
 		}
-		if len(next) == len(current) {
-			return nil
+		merged := make(map[string]struct{}, len(hostedIDs)+len(ledger))
+		for id := range hostedIDs {
+			merged[id] = struct{}{}
 		}
-		return writeFactProposals(brainDir, branch, next)
+		for id := range ledger {
+			merged[id] = struct{}{}
+		}
+		return writeSharedProposalLedger(brainDir, branch, merged)
 	})
 }
 

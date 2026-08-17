@@ -28,9 +28,11 @@ package brainwire
 //     fractional part. Sub-second input TRUNCATES (it does not error), so
 //     "...T12:00:00Z" and "...T12:00:00.123456789Z" canonicalize identically.
 //     Callers that need sub-second fidelity must not use this contract.
-//  5. Numbers: decimal integers only. No exponent, no fraction, no leading
-//     zeros, no leading `+`, no `-0` (normalized to `0`). A fractional or
-//     exponent literal is rejected rather than rounded.
+//  5. Numbers: decimal integers only, within ±2^53 (the range every IEEE-754
+//     double-based parser represents exactly). No exponent, no fraction, no
+//     leading zeros, no leading `+`, no `-0` (normalized to `0`). A fractional
+//     or exponent literal, or a magnitude beyond 2^53, is rejected rather than
+//     rounded.
 //  6. Strings: valid UTF-8, minimally escaped. Only `"`, `\` and C0 controls
 //     are escaped; C0 controls use the short forms \b \f \n \r \t where they
 //     exist and lowercase \u00xx otherwise.
@@ -98,7 +100,7 @@ func Canonicalize(raw []byte) ([]byte, error) {
 	// instead — a cross-parser differential in the exact layer built to prevent
 	// one. Canonical form therefore rejects duplicate members outright, as
 	// RFC 8785 pipelines conventionally do.
-	v, err := decodeCanonicalValue(dec)
+	v, err := decodeCanonicalValue(dec, 0)
 	if err != nil {
 		return nil, fmt.Errorf("brainwire: decode artifact: %w", err)
 	}
@@ -142,19 +144,29 @@ func canonicalTime(t time.Time) string {
 	return t.UTC().Format(CanonicalTimeLayout)
 }
 
+// maxCanonicalDepth bounds container nesting in artifact bytes. The decoder
+// (and the encoder that mirrors its shape) recurses per level, and Canonicalize
+// is an entry point for untrusted bytes: without a bound, input like a few
+// megabytes of '[' is an unrecoverable runtime stack overflow, not an error.
+// Real artifacts nest a handful of levels; 512 is beyond any legitimate use.
+const maxCanonicalDepth = 512
+
 // decodeCanonicalValue decodes one JSON value token-by-token, mirroring
 // json.Decoder.Decode's shapes (map[string]any, []any, string, bool,
 // json.Number, nil) but rejecting duplicate object members, which Decode
-// silently resolves last-wins.
-func decodeCanonicalValue(dec *json.Decoder) (any, error) {
+// silently resolves last-wins, and bounding nesting depth.
+func decodeCanonicalValue(dec *json.Decoder, depth int) (any, error) {
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
 	}
-	return decodeCanonicalToken(dec, tok)
+	return decodeCanonicalToken(dec, tok, depth)
 }
 
-func decodeCanonicalToken(dec *json.Decoder, tok json.Token) (any, error) {
+func decodeCanonicalToken(dec *json.Decoder, tok json.Token, depth int) (any, error) {
+	if depth > maxCanonicalDepth {
+		return nil, fmt.Errorf("nesting deeper than %d levels is not canonical", maxCanonicalDepth)
+	}
 	delim, ok := tok.(json.Delim)
 	if !ok {
 		// string, bool, json.Number, or nil — already in decoded shape.
@@ -175,7 +187,7 @@ func decodeCanonicalToken(dec *json.Decoder, tok json.Token) (any, error) {
 			if _, dup := obj[key]; dup {
 				return nil, fmt.Errorf("duplicate object member %q (canonical form forbids duplicate keys)", key)
 			}
-			val, err := decodeCanonicalValue(dec)
+			val, err := decodeCanonicalValue(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -188,7 +200,7 @@ func decodeCanonicalToken(dec *json.Decoder, tok json.Token) (any, error) {
 	case '[':
 		arr := []any{}
 		for dec.More() {
-			el, err := decodeCanonicalValue(dec)
+			el, err := decodeCanonicalValue(dec, depth+1)
 			if err != nil {
 				return nil, err
 			}
