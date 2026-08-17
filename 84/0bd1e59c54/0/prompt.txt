@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bdq37o906</task-id>
+<tool-use-id>toolu_01VUpM8c2o2DjzMzVfb5iiJu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-suhaan-devenv/f507d58c-285f-4d11-b1d0-201f2a5e172d/tasks/bdq37o906.output</output-file>
+<status>completed</status>
+<summary>Background command "Final full verification" completed (exit code 0)</summary>
+</task-notification>

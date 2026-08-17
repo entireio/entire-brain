@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "840bd1e59c54",
+  "strategy": "manual-commit",
+  "branch": "p0p1/p1-new",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/brain_brief_git_intent_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/84/0bd1e59c54/0/metadata.json",
+      "transcript": "/84/0bd1e59c54/0/full.jsonl",
+      "compact_transcript": "/84/0bd1e59c54/0/transcript.jsonl",
+      "content_hash": "/84/0bd1e59c54/0/content_hash.txt",
+      "prompt": "/84/0bd1e59c54/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 19637,
+    "cache_read_tokens": 16178535,
+    "output_tokens": 11568,
+    "api_call_count": 21
+  }
+}
