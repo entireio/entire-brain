@@ -1,0 +1,92 @@
+<task-notification>
+<task-id>a262cd9f49c50f43a</task-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/a262cd9f49c50f43a.output</output-file>
+<status>completed</status>
+<summary>Agent "/code-review PR #85 high — review ONLY the diff o…" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Angle C complete. Waiting on Simplification, Efficiency, and Conventions angles.</result>
+<usage><subagent_tokens>120986</subagent_tokens><tool_uses>28</tool_uses><duration_ms>624644</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a262cd9f49c50f43a</task-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/ad675120-464a-48be-b76d-d3f02d5ad7e0/tasks/a262cd9f49c50f43a.output</output-file>
+<status>completed</status>
+<summary>Agent "/code-review PR #85 high — review ONLY the diff o…" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All verification complete. Two candidates refuted (synthesized-id resolvability, duplicate-proposal-id-per-member), the rest confirmed or plausible. Final consolidated findings for PR #85, ranked most-severe first:
+
+```json
+[
+  {
+    "file": "internal/brainwire/canonical.go",
+    "line": 95,
+    "summary": "Canonicalize silently accepts duplicate JSON keys (Go decoder last-wins), so VerifyBytes declares signatures valid over transported bytes whose first-occurrence values were never signed — a cross-parser differential in the very substrate built for cross-implementation signing.",
+    "failure_scenario": "Attacker inserts a duplicate key before the genuine one in a signed artifact's transported bytes, e.g. {\"repo_key\":\"gh/evil/repo\",...,\"repo_key\":\"gh/org/repo\"}. json.Decoder keeps the last value, Canonicalize reproduces the originally signed canonical bytes, and VerifyBytes returns nil — while any first-wins JSON parser (common in other languages) or non-canonicalizing consumer of the same raw bytes reads \"gh/evil/repo\" out of a byte stream this implementation just declared signature-verified. RFC 8785 pipelines conventionally reject duplicate members; Canonicalize should error on them."
+  },
+  {
+    "file": "internal/factsync/proposals.go",
+    "line": 304,
+    "summary": "ResolveOpen re-runs FindProposal with the human-supplied ref (candidate fact id or id prefix) on every CAS retry, so after an ErrConflict the ref can rebind to a different proposal and the loop silently settles a conflict the reviewer never saw.",
+    "failure_scenario": "Reviewer runs `facts proposals apply &lt;candidate-fact-id&gt;`; attempt 1 binds proposal P1 and pushes, but a concurrent member moves a head (412 → ErrConflict). Meanwhile P1 is settled and a new proposal P2 sharing the candidate id enters the set. Attempt 2 re-resolves the same ref, now uniquely matching P2, and applies P2's supersede — an unreviewed resolution. The loop should pin target.ID after the first FindProposal instead of re-resolving the raw ref."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 117,
+    "summary": "Every raised proposal now lands in two never-reconciled queues: persistFactsSyncProposals appends it to the local proposals.ndjson (consumed by `facts review`, `facts status`, and the recall pending-review guard) while publishRaisedProposals ships it to the hosted open set — and resolving on either surface never clears the other copy.",
+    "failure_scenario": "Member A's sync raises a conflict; a teammate settles it with `facts proposals reject` (hosted queue empties). A's local copy survives — `facts review` keeps listing it and the pending-review guard keeps firing — and if A later applies the stale local supersede, the next sync promotes it into the moved hosted head, overriding the teammate's hosted reject. Nothing prunes the local file from the hosted resolution or vice versa."
+  },
+  {
+    "file": "internal/cli/facts_sync_cmd.go",
+    "line": 125,
+    "summary": "The publish-failure catch-all downgrades every error class — factsync.ErrExhausted, 401/403, 5xx — to a stderr warning with exit 0, and the loss is permanent: once the sync's facts land in the shared head, the next sync short-circuits on the identical content id (factmerge.Promote's IndexOf guard) and never re-raises the conflict, so nothing ever re-publishes it.",
+    "failure_scenario": "Under CAS contention or a transient 5xx, PublishRaised fails after the facts already advanced the head; `facts sync` exits 0, CI treats it as success, and the raised cross-member conflicts never reach the shared queue — other members never see them to review. The comment's motivation (pre-queue entire-api) justifies swallowing only a 404/unimplemented error, not ErrExhausted or auth failures."
+  },
+  {
+    "file": "internal/factsync/proposals.go",
+    "line": 325,
+    "summary": "An open proposal whose facts are no longer both in the fact-set head is permanently stuck: Resolve returns ErrProposalNotApplicable on both Accept (ApplyProposal error path) and Reject (explicit IndexOf guard) before ResolveProposal is ever called, and no CLI verb or transport path removes an open entry except a successful resolution.",
+    "failure_scenario": "A conflict's candidate is merged away out-of-band (local `facts review` merge then sync, or a session-privacy purge via purgeSessionFacts, which prunes only local state). The hosted entry now references a missing fact: every `facts proposals apply|reject` returns ErrProposalNotApplicable, ResolveOpen exits before removeProposal/ResolveProposal run, and the entry sits in every member's `facts proposals list` forever with no prune path."
+  },
+  {
+    "file": "internal/brainwire/canonical.go",
+    "line": 405,
+    "summary": "Unknown-field values pass through encodeValue, which routes every json.Number through canonicalInt and errors on any fraction or exponent — so a newer minor's non-integer field aborts canonicalization entirely, contradicting the documented guarantee that unknown fields are preserved so 'an older verifier can still check a newer producer's signature'.",
+    "failure_scenario": "A future additive minor adds an optional field like \"confidence\":0.85 (the PR's own factmerge.Proposal already carries Confidence float64 on the wire, so this is the natural shape). An older reader's VerifyBytes then fails with ErrNotCanonical instead of verifying the signature — the tolerant-reader forward-compatibility promise in docs/brain_wire_contract.md holds only for unknown fields that happen to be strings, bools, integers, objects, or arrays thereof."
+  },
+  {
+    "file": "internal/factsync/proposals.go",
+    "line": 112,
+    "summary": "minProposalRefLen=4 is satisfied by the constant 'prop' prefix every derived id shares, so the ref \"prop\" carries zero discriminating characters yet passes the guard and prefix-matches every open proposal.",
+    "failure_scenario": "A user runs `facts proposals apply prop` (truncated paste). strings.HasPrefix matches all ids; with exactly one open proposal the command silently settles it — possibly not the conflict the user meant (theirs may be on another branch or already settled). The minimum-length guard intended to block collision-prone refs is consumed entirely by the fixed \"prop-\" prefix; the minimum should be counted after the prefix."
+  },
+  {
+    "file": "internal/brainwire/canonical.go",
+    "line": 317,
+    "summary": "generated_at is parsed with Go's strict time.Parse(time.RFC3339), which rejects the lowercase 't'/'z' separators RFC 3339 section 5.6 explicitly permits, while docs/brain_wire_contract.md promises 'Input is parsed as RFC 3339, so any offset form is accepted and converted'.",
+    "failure_scenario": "A spec-compliant non-Go producer emits \"generated_at\":\"2026-06-01t12:00:00z\"; Canonicalize errors, so VerifyBytes returns ErrNotCanonical and a correctly signed artifact fails verification on the Go side (verified by probe: both lowercase forms fail time.Parse) — a cross-implementation interop gap in the layer built to close exactly that class."
+  },
+  {
+    "file": "internal/brainwire/canonical.go",
+    "line": 370,
+    "summary": "canonicalInt accepts the full int64 range, but RFC 8785 numbers are IEEE-754 doubles; integers above 2^53 produce canonical bytes a conforming JCS implementation cannot reproduce.",
+    "failure_scenario": "A ContentRef with \"size\":9007199254740993 (2^53+1) signs fine in Go, but a JS/JCS-conforming verifier parses the number as a double and re-serializes 9007199254740992, yielding different canonical bytes and a failed signature with no error pointing at the cause. The canonical profile should reject (or the doc should exclude) integers outside the ±2^53 interoperable range."
+  },
+  {
+    "file": "internal/factsync/proposals.go",
+    "line": 108,
+    "summary": "Candidate-fact-id addressing — advertised in the `facts proposals` help text and FindProposal docs — returns ErrAmbiguousProposal whenever one sync raised multiple proposals from the same candidate, which the PR's own TestFactsSyncSharesRaisedProposals shows is the common case (one local fact contradicting two hosted facts yields two proposals sharing one CandidateID).",
+    "failure_scenario": "A user follows the documented mode `facts proposals apply &lt;candidate-fact-id&gt;` after a sync that contradicted two hosted facts with one local fact; every attempt fails with 'proposal reference is ambiguous', making the advertised addressing unusable in the very scenario the sync test exercises and forcing full prop- id copies."
+  }
+]
+```
+
+Review summary: PR #85 (canonical JSON signing + cross-member proposal queue, 16 files, ~5.4k added lines) was reviewed against merge-base e85ad5dc with 8 finder angles and per-candidate verification. The brainwire crypto core is solid on the classic checks (domain separation, fail-closed algorithm/encoding pinning, key redaction, golden cross-verification with openssl); the surviving findings concentrate on canonicalization edge cases that undermine the cross-implementation guarantee (duplicate keys, non-integer unknown fields, strict RFC3339, &gt;2^53 integers) and on proposal-queue lifecycle races/losses in factsync and the CLI. Refuted along the way: synthesized-id resolvability against id-less servers (resolve is body-CAS, no server id lookup) and duplicate queue entries from per-member ProposalID (Promote's IndexOf short-circuit prevents re-raising — though the "two members produce the same id" doc comment on OpenProposal is factually wrong and worth fixing while in there). No CLAUDE.md governs the changed files, so no convention findings.</result>
+<usage><subagent_tokens>144003</subagent_tokens><tool_uses>36</tool_uses><duration_ms>931302</duration_ms></usage>
+</task-notification>
+
+---
+
+No, don't post review feedback, instead fix, commit, and review again.

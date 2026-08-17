@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "59ba2fcb7fe9",
+  "strategy": "manual-commit",
+  "branch": "pr85",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/brain_wire_contract.md",
+    "internal/brainwire/canonical.go",
+    "internal/brainwire/canonical_test.go",
+    "internal/cli/facts_proposals_cmd.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_sync_share_test.go",
+    "internal/factsync/proposals.go",
+    "internal/factsync/proposals_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/59/ba2fcb7fe9/0/metadata.json",
+      "transcript": "/59/ba2fcb7fe9/0/full.jsonl",
+      "compact_transcript": "/59/ba2fcb7fe9/0/transcript.jsonl",
+      "content_hash": "/59/ba2fcb7fe9/0/content_hash.txt",
+      "prompt": "/59/ba2fcb7fe9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 142,
+    "cache_creation_tokens": 107819,
+    "cache_read_tokens": 41117004,
+    "output_tokens": 53252,
+    "api_call_count": 71
+  }
+}
