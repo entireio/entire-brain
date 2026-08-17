@@ -1,6 +1,21 @@
-// Copied verbatim from github.com/entirehq/git-meta-service/internal/gitmeta @
-// feat/git-meta-service-integration (f3ec153) — do not edit; de-internalize
-// upstream to dedupe (follow-up).
+// Vendored git-meta exchange engine. Originally copied verbatim from
+// github.com/entirehq/git-meta-service/internal/gitmeta @
+// feat/git-meta-service-integration (f3ec153) — do not edit here.
+//
+// PROVENANCE HAS MOVED: git-meta-service was a proof of concept, and the shipping
+// implementation now lives in github.com/entirehq/entire-api internal/gitmeta. Re-vendor
+// from THERE, not from the PoC repo, whose PR was superseded rather than merged.
+//
+// The two copies have since diverged in both directions — entire-api grew path-target
+// support (PathTargetSubtree, ValidatePathTargetValue) and typed accessors, while this
+// copy carries helpers of its own and the older ValidateTargetValue name. That is inert
+// today because this engine only ever drives the BARE LOCAL store at
+// refs/meta/local/main: no remote, no push or fetch, and no ref that entire-api also
+// writes, so no record crosses between the two implementations. It stops being inert the
+// moment brain exchanges git-meta records with entire-api over a shared ref, which is
+// what makes deduplicating this the right follow-up: both are internal packages, so
+// neither can import the other and a real fix means extracting the engine into a shared
+// module.
 
 package gitmeta
 
