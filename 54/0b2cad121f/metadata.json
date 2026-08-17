@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "540b2cad121f",
+  "strategy": "manual-commit",
+  "branch": "p0p1/p1-new",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/brainwire/canonical.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/54/0b2cad121f/0/metadata.json",
+      "transcript": "/54/0b2cad121f/0/full.jsonl",
+      "compact_transcript": "/54/0b2cad121f/0/transcript.jsonl",
+      "content_hash": "/54/0b2cad121f/0/content_hash.txt",
+      "prompt": "/54/0b2cad121f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 29545,
+    "cache_read_tokens": 18314492,
+    "output_tokens": 22223,
+    "api_call_count": 23
+  }
+}
