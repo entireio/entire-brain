@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,8 +10,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ashtom/entire-brain/internal/factgitmeta"
+	"github.com/ashtom/entire-brain/internal/factmerge"
 	"github.com/ashtom/entire-brain/internal/factsync"
 
 	"github.com/spf13/cobra"
@@ -185,7 +188,21 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 			}
 		}
 		if pubErr == nil && pub.Proposals != nil {
-			if err := reconcileLocalProposalQueue(storage.BrainDir, branch, pub.Proposals); err != nil {
+			// Read the shared head back so settlements other members made can be
+			// derived from it and mirrored into local facts. A read failure only
+			// costs this sync's mirroring — the queue entry stays until it is
+			// reconciled, so the next sync retries.
+			var hostedFacts []factRecord
+			if _, plaintext, found, curErr := srv.Current(ctx, repoID, branch); curErr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not read the shared fact head to mirror settled proposals; will retry next sync: %v\n", curErr)
+			} else if found && len(plaintext) > 0 {
+				parsed, parseErr := factmerge.ParseNDJSON(bytes.NewReader(plaintext))
+				if parseErr != nil {
+					return fmt.Errorf("facts sync: parse shared fact head: %w", parseErr)
+				}
+				hostedFacts = parsed
+			}
+			if err := reconcileLocalProposalQueue(storage.BrainDir, branch, pub.Proposals, hostedFacts, opts.Now().UTC()); err != nil {
 				return fmt.Errorf("facts sync: reconcile review queue: %w", err)
 			}
 		}
@@ -304,7 +321,50 @@ func writeSharedProposalLedger(brainDir, branch string, ids map[string]struct{})
 // is dropped; entries still hosted-open stay; entries never yet shared stay for
 // the next publish. The ledger is then rewritten to the hosted set, which by
 // definition holds every currently shared proposal.
-func reconcileLocalProposalQueue(brainDir, branch string, hosted []factsync.OpenProposal) error {
+// settledHostedAsAccept reports whether the shared fact-set head shows p as
+// ACCEPTED. A settled proposal carries no decision field, so the decision is
+// derived from the effect ApplyProposal would have left on the head:
+//
+//	merge     accept removes the candidate and keeps the target
+//	supersede accept flips the target to superseded, pointing at the candidate
+//
+// Anything else (both ids still present and merely unlinked, or a fact that has
+// since moved on) reads as a reject: reject changes no fact status, so mirroring
+// it locally is limited to clearing the conflict cross-link.
+func settledHostedAsAccept(hostedFacts []factRecord, p factProposal) bool {
+	ci := indexOfFact(hostedFacts, p.CandidateID)
+	ti := indexOfFact(hostedFacts, p.TargetID)
+	if p.Action == factActionMerge {
+		return ci < 0 && ti >= 0
+	}
+	return ti >= 0 && hostedFacts[ti].Status == factStatusSuperseded && hostedFacts[ti].SupersededBy == p.CandidateID
+}
+
+// applySettlementLocally folds a settlement another member made on the shared
+// head into THIS member's local facts, using the same primitives the hosted
+// side ran so the two cannot drift.
+//
+// Without this the settlement does not stick: the losing member's local copy
+// still holds the retired fact, and the next sync's keep-both Promote re-adds it
+// and re-raises the same conflict under a fresh id — an unresolvable loop for
+// whichever member lost the merge.
+func applySettlementLocally(facts []factRecord, p factProposal, accepted bool, now time.Time) ([]factRecord, bool) {
+	if !accepted {
+		// Reject: clear the local cross-link so the pair stops reading as
+		// conflicting. Absent facts make this a no-op.
+		return rejectProposal(facts, p), true
+	}
+	updated, err := applyProposal(facts, p, now)
+	if err != nil {
+		// The local copy no longer holds both sides (already retracted, GC'd, or
+		// settled here). The hosted decision is still authoritative and already
+		// recorded; there is nothing left locally to reconcile.
+		return facts, false
+	}
+	return updated, true
+}
+
+func reconcileLocalProposalQueue(brainDir, branch string, hosted []factsync.OpenProposal, hostedFacts []factRecord, now time.Time) error {
 	hostedIDs := make(map[string]struct{}, len(hosted))
 	for _, p := range hosted {
 		hostedIDs[p.ID] = struct{}{}
@@ -319,12 +379,38 @@ func reconcileLocalProposalQueue(brainDir, branch string, hosted []factsync.Open
 			return err
 		}
 		next := make([]factProposal, 0, len(current))
+		settled := make([]factProposal, 0, len(current))
 		for _, p := range current {
 			id := factsync.ProposalID(p)
 			_, stillOpen := hostedIDs[id]
 			_, wasShared := ledger[id]
 			if stillOpen || !wasShared {
 				next = append(next, p)
+				continue
+			}
+			// Shared once, gone from the hosted set: another member settled it.
+			settled = append(settled, p)
+		}
+		// Pull each settlement into local facts BEFORE dropping the queue entry,
+		// so a crash cannot lose the only record of what still needs mirroring.
+		if len(settled) > 0 && len(hostedFacts) > 0 {
+			facts, factsErr := loadFacts(brainDir, branch)
+			if factsErr != nil {
+				return factsErr
+			}
+			changed := false
+			for _, p := range settled {
+				updated, did := applySettlementLocally(facts, p, settledHostedAsAccept(hostedFacts, p), now)
+				facts = updated
+				changed = changed || did
+			}
+			if changed {
+				if err := writeFacts(brainDir, branch, facts); err != nil {
+					return err
+				}
+				if err := updateFactSourceManifestLocked(brainDir, now); err != nil {
+					return err
+				}
 			}
 		}
 		// Queue first, ledger second: a crash between the writes then leaves a
