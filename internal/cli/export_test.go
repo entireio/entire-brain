@@ -16,7 +16,12 @@ type fakeCommandRunner struct {
 	responses           map[string]fakeCommandResponse
 	sequences           map[string][]fakeCommandResponse
 	semanticSnapshotAny *fakeCommandResponse
-	calls               []fakeCommandCall
+	// fallback answers commands no explicit response covers, so a fixture can
+	// script a WALKER (any revision range at any --max-count) instead of
+	// pre-baking the one range a caller happened to ask for last. Explicit
+	// responses still win, so a test can force a specific failure.
+	fallback func(name string, args []string) (fakeCommandResponse, bool)
+	calls    []fakeCommandCall
 }
 
 type fakeCommandResponse struct {
@@ -77,6 +82,11 @@ func (r *fakeCommandRunner) run(ctx context.Context, dir string, env map[string]
 		}
 		if key == fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD") {
 			return []byte("origin/main\n"), nil, nil
+		}
+		if r.fallback != nil {
+			if response, handled := r.fallback(name, args); handled {
+				return []byte(response.stdout), []byte(response.stderr), response.err
+			}
 		}
 		return nil, nil, errors.New("unexpected command: " + key)
 	}
@@ -1662,7 +1672,7 @@ func TestSnapshotMetadataSkipsNewerSessionWithoutTranscript(t *testing.T) {
 	}}
 
 	reader := &checkpointBlobReader{runner: runner, gitDir: "/repo/root", ref: v1RemoteRef}
-	selected, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), reader, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{}, nil)
+	selected, _, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), reader, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{}, nil)
 	if err != nil {
 		t.Fatalf("read snapshot metadata: %v", err)
 	}
@@ -1702,7 +1712,7 @@ func TestSnapshotMetadataRejectsCrossCheckpointSummaryPointers(t *testing.T) {
 		},
 	}}
 	reader := &checkpointBlobReader{runner: runner, gitDir: "/repo", ref: refA, virtualRoot: rootA}
-	_, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), reader, v1TranscriptFileName, treePaths, 0, checkpointBranchDestinations{}, nil)
+	_, _, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), reader, v1TranscriptFileName, treePaths, 0, checkpointBranchDestinations{}, nil)
 	if !errors.Is(err, errCheckpointSnapshotUnavailable) || !strings.Contains(strings.Join(warnings, "\n"), "unsafe checkpoint "+checkpointA) {
 		t.Fatalf("cross-checkpoint pointer result = warnings:%v err:%v", warnings, err)
 	}
@@ -1750,7 +1760,7 @@ func TestSnapshotMetadataSelectsLatestSessionPerBranch(t *testing.T) {
 	}}
 
 	reader := &checkpointBlobReader{runner: runner, gitDir: "/repo/root", ref: v1RemoteRef}
-	selected, _, _, err := readCheckpointSnapshotMetadata(context.Background(), reader, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{}, nil)
+	selected, _, _, _, err := readCheckpointSnapshotMetadata(context.Background(), reader, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{}, nil)
 	if err != nil {
 		t.Fatalf("read snapshot metadata: %v", err)
 	}

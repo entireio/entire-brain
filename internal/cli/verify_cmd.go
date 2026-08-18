@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -422,17 +423,112 @@ func (v *verifyContext) verifyExportedSession(anchor factAnchor, factBranch stri
 			continue
 		}
 		bySession = append(bySession, session)
-		if anchor.CheckpointID == "" || session.LatestCheckpoint == anchor.CheckpointID {
-			return session, true, verifyCheck{Name: "session", Verdict: verifyVerdictVerified, Reason: "session is present in exported sessions"}
-		}
 	}
 	if len(bySession) > 0 {
-		return bySession[0], true, verifyCheck{Name: "session", Verdict: verifyVerdictStale, Reason: fmt.Sprintf("session is now exported at checkpoint %s", bySession[0].LatestCheckpoint)}
+		// One session id can span SEVERAL exported rows — the same session
+		// exported on more than one branch — and a fact with no branch of its own
+		// keeps all of them. Which row is returned decides the transcript and the
+		// turn id every later check reads, so it may never be "whichever the
+		// manifest listed first".
+		if anchor.CheckpointID == "" {
+			return pickExportedSession(v.manifest, bySession), true, verifyCheck{Name: "session", Verdict: verifyVerdictVerified, Reason: "session is present in exported sessions"}
+		}
+		if row, ok := exportedSessionAtCheckpoint(v.manifest, bySession, anchor.CheckpointID); ok {
+			return row, true, verifyCheck{Name: "session", Verdict: verifyVerdictVerified, Reason: "session is present in exported sessions"}
+		}
+		// The anchor names a checkpoint that is not the session's latest. That
+		// is not automatically staleness: provenance sharpening deliberately
+		// anchors a fact to the checkpoint that actually changed the entity,
+		// which is usually mid-session. It is only stale if the checkpoint does
+		// not belong to this session at all.
+		//
+		// Verifying it requires knowing WHICH row owns it. With several rows and
+		// no way to tell them apart, the honest answer is the pre-sharpening one
+		// — stale — rather than an arbitrary row promoted to verified.
+		if member, owned := v.sessionCheckpoint(sessionID, anchor.CheckpointID); owned {
+			if row, ok := exportedSessionOwning(v.manifest, bySession, member); ok {
+				return row, true, verifyCheck{
+					Name:    "session",
+					Verdict: verifyVerdictVerified,
+					Reason:  fmt.Sprintf("session is present in exported sessions; anchor names its checkpoint %s", anchor.CheckpointID),
+				}
+			}
+		}
+		row := pickExportedSession(v.manifest, bySession)
+		return row, true, verifyCheck{Name: "session", Verdict: verifyVerdictStale, Reason: fmt.Sprintf("session is now exported at checkpoint %s", row.LatestCheckpoint)}
 	}
 	if factBranch != "" {
 		return exportSession{}, false, verifyCheck{Name: "session", Verdict: verifyVerdictOrphaned, Reason: fmt.Sprintf("session is missing from exported sessions on branch %s", factBranch)}
 	}
 	return exportSession{}, false, verifyCheck{Name: "session", Verdict: verifyVerdictOrphaned, Reason: "session is missing from exported sessions"}
+}
+
+// exportedSessionAtCheckpoint returns the row whose LATEST checkpoint is the
+// anchored one — the exact match, and the only one that needs no local
+// checkpoint store to justify it. Several rows sharing that checkpoint fall
+// back to the deterministic pick.
+func exportedSessionAtCheckpoint(manifest *exportManifest, rows []exportSession, checkpointID string) (exportSession, bool) {
+	var matches []exportSession
+	for _, row := range rows {
+		if row.LatestCheckpoint == checkpointID {
+			matches = append(matches, row)
+		}
+	}
+	if len(matches) == 0 {
+		return exportSession{}, false
+	}
+	return pickExportedSession(manifest, matches), true
+}
+
+// exportedSessionOwning returns the exported row a local (session, checkpoint)
+// membership record belongs to, and ok=false when that cannot be decided. The
+// membership record names the branch the checkpoint was made on, which is
+// exactly what distinguishes one row of a multi-branch session from another; if
+// it does not name one, or names one that does not select a single row, the
+// caller keeps the conservative verdict instead of guessing.
+func exportedSessionOwning(manifest *exportManifest, rows []exportSession, member sessionCheckpoint) (exportSession, bool) {
+	if len(rows) == 1 {
+		return rows[0], true
+	}
+	branch := strings.TrimSpace(member.Branch)
+	if branch == "" {
+		return exportSession{}, false
+	}
+	var matches []exportSession
+	for _, row := range rows {
+		if resolveDistillBranch(manifest, row) == branch {
+			matches = append(matches, row)
+		}
+	}
+	if len(matches) != 1 {
+		return exportSession{}, false
+	}
+	return matches[0], true
+}
+
+// pickExportedSession chooses one of several rows the manifest lists for the
+// same session id. Any total order over the rows' own contents will do; what
+// matters is that it is not the manifest's array order, which is an artifact of
+// how the export happened to be assembled.
+func pickExportedSession(manifest *exportManifest, rows []exportSession) exportSession {
+	best := rows[0]
+	bestKey := exportedSessionKey(manifest, best)
+	for _, row := range rows[1:] {
+		if key := exportedSessionKey(manifest, row); key < bestKey {
+			best, bestKey = row, key
+		}
+	}
+	return best
+}
+
+func exportedSessionKey(manifest *exportManifest, row exportSession) string {
+	return strings.Join([]string{
+		resolveDistillBranch(manifest, row),
+		row.LatestCheckpoint,
+		strconv.Itoa(row.SessionIndex),
+		row.TranscriptPath,
+		row.TurnID,
+	}, "\x00")
 }
 
 func verifyTurnID(session exportSession, turnID string) verifyCheck {
@@ -475,10 +571,25 @@ func (v *verifyContext) verifyCheckpointTranscript(anchor factAnchor, session ex
 	if err != nil {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: err.Error()}
 	}
-	if !bytes.Equal(transcript, []byte(exportedTranscript)) {
-		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictStale, Reason: "exported transcript differs from local checkpoint transcript"}
+	if bytes.Equal(transcript, []byte(exportedTranscript)) {
+		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictVerified, Reason: "exported transcript matches local checkpoint transcript"}
 	}
-	return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictVerified, Reason: "exported transcript matches local checkpoint transcript"}
+	// The export carries the session's transcript at its LATEST checkpoint. A
+	// sharpened anchor points at an earlier checkpoint of the same session,
+	// whose transcript is that same session earlier in time — a prefix, because
+	// a session's transcript only ever grows. Equality is still required for an
+	// anchor on the latest checkpoint, so nothing about the original check is
+	// relaxed; this only covers the earlier-checkpoint case the sharpener
+	// introduced.
+	if session.LatestCheckpoint != "" && anchor.CheckpointID != session.LatestCheckpoint &&
+		len(transcript) > 0 && bytes.HasPrefix([]byte(exportedTranscript), transcript) {
+		return verifyCheck{
+			Name:    "checkpoint_transcript",
+			Verdict: verifyVerdictVerified,
+			Reason:  fmt.Sprintf("local checkpoint %s transcript is a prefix of the exported session transcript", anchor.CheckpointID),
+		}
+	}
+	return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictStale, Reason: "exported transcript differs from local checkpoint transcript"}
 }
 
 func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
@@ -493,10 +604,45 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 	return v.snapshot, v.snapshotErr
 }
 
+// sessionOwnsCheckpoint reports whether the local checkpoint store attributes a
+// checkpoint to a session. It answers for EVERY checkpoint of the session, not
+// just its latest, which is what lets a sharpened anchor verify.
+func (v *verifyContext) sessionOwnsCheckpoint(sessionID, checkpointID string) bool {
+	sessionID, checkpointID = strings.TrimSpace(sessionID), strings.TrimSpace(checkpointID)
+	if sessionID == "" || checkpointID == "" {
+		return false
+	}
+	_, ok := v.sessionCheckpoint(sessionID, checkpointID)
+	return ok
+}
+
+// sessionCheckpoint returns the local (session, checkpoint) membership record.
+func (v *verifyContext) sessionCheckpoint(sessionID, checkpointID string) (sessionCheckpoint, bool) {
+	snapshot, err := v.localCheckpointSnapshot()
+	if err != nil || snapshot == nil {
+		return sessionCheckpoint{}, false
+	}
+	for _, member := range snapshot.SessionCheckpoints {
+		if member.SessionID == sessionID && member.CheckpointID == checkpointID {
+			return member, true
+		}
+	}
+	return sessionCheckpoint{}, false
+}
+
 func (v *verifyContext) snapshotSourceTranscriptPath(snapshot *checkpointSnapshot, anchor factAnchor, session exportSession) (string, string) {
 	for _, candidate := range snapshot.Selected {
 		if candidate.SessionID == anchor.SessionID && candidate.CheckpointID == anchor.CheckpointID && candidate.SourceTranscriptPath != "" {
 			return candidate.SourceTranscriptPath, candidate.SourceKey
+		}
+	}
+	// Selected holds only each session's newest checkpoint. A sharpened anchor
+	// names an earlier one, whose transcript lives at ITS own path under ITS own
+	// session index — deriving the path from the exported (latest) session's
+	// index would read the wrong blob, or none.
+	for _, member := range snapshot.SessionCheckpoints {
+		if member.SessionID == anchor.SessionID && member.CheckpointID == anchor.CheckpointID && member.TranscriptPath != "" {
+			return member.TranscriptPath, member.SourceKey
 		}
 	}
 	path := snapshotTranscriptPath(anchor.CheckpointID, session.SessionIndex, snapshot.TranscriptFileName)

@@ -583,6 +583,15 @@ func mcpToolDefinitions() []map[string]any {
 			"inputSchema": objectSchema(nil, map[string]any{"type": stringArg("type", "Filter by type: task, procedure, risk, practice, or theme (empty = all)"), "scope": stringArg("scope", "Filter by scope: repo or workspace (empty = both)"), "limit": integerArg("limit", "Maximum patterns to return")}),
 		},
 		{
+			"name":        "brain_entity_history",
+			"description": "List the checkpoints and sessions that changed a code entity (function, method, class, type), from the persisted entity index. Answers \"who/when changed X\" without re-reading history; each match carries its commits with their checkpoint and session ids. Empty until `entire brain entities backfill` has run.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{
+				"query":  stringArg("query", "Entity name, path, or full \"<path>#<kind>#<name>\" index key"),
+				"branch": branchArg(),
+				"limit":  integerArg("limit", "Maximum matching entities"),
+			}),
+		},
+		{
 			"name":        "brain_patterns_status",
 			"description": "Pattern layer freshness and counts plus the last corpus build summary (episodes, patterns, dossiers, symbol links, commits, synapses) and skill-memory (accepted/declined/updates-available).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
@@ -1033,6 +1042,17 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			target = opts.Env.RepoRoot
 		}
 		err = runPatternsStatus(ctx, cmd, opts, target, true)
+	case "brain_entity_history":
+		err = requireMCPQuery(query)
+		if err == nil {
+			target := "."
+			if opts.Env.RepoRoot != "" {
+				target = opts.Env.RepoRoot
+			}
+			// Same query path as `entities history --json`, so the agent
+			// surface and the CLI can never disagree about who changed what.
+			err = runEntitiesHistory(ctx, cmd, opts, query, branch, limit, true, target)
+		}
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)
 	}

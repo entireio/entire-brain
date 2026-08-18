@@ -1469,6 +1469,7 @@ type loadedLocalCheckpoint struct {
 	sourceKey string
 	source    checkpointSnapshotSource
 	selected  map[string]selectedSession
+	members   []sessionCheckpoint
 	createdAt time.Time
 }
 
@@ -1548,7 +1549,7 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 			if cache != nil && len(source.OIDs) > 0 {
 				cache.active = true
 			}
-			selected, _, sourceWarnings, err := readCheckpointSnapshotMetadata(ctx, reader, v1TranscriptFileName, source.TreePaths, 0, branchDestinations, nil)
+			selected, members, _, sourceWarnings, err := readCheckpointSnapshotMetadata(ctx, reader, v1TranscriptFileName, source.TreePaths, 0, branchDestinations, nil)
 			candidateWarnings = append(candidateWarnings, sourceWarnings...)
 			if err != nil {
 				candidateWarnings = append(candidateWarnings, fmt.Sprintf("checkpoint ref %s unreadable for %s: %v", source.Ref, id, err))
@@ -1577,7 +1578,15 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 				candidateWarnings = append(candidateWarnings, fmt.Sprintf("checkpoint ref %s contained no matching sessions for %s", source.Ref, id))
 				continue
 			}
-			loaded = append(loaded, loadedLocalCheckpoint{id: id, sourceKey: sourceKey, source: source, selected: selected, createdAt: createdAt})
+			kept := members[:0]
+			for _, member := range members {
+				if member.CheckpointID != id {
+					continue
+				}
+				member.SourceKey = sourceKey
+				kept = append(kept, member)
+			}
+			loaded = append(loaded, loadedLocalCheckpoint{id: id, sourceKey: sourceKey, source: source, selected: selected, members: kept, createdAt: createdAt})
 			resolved = true
 			break
 		}
@@ -1608,11 +1617,13 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 	selected := make(map[string]selectedSession)
 	sources := make(map[string]checkpointSnapshotSource, len(loaded))
 	treePaths := make(map[string]struct{})
+	var members []sessionCheckpoint
 	for _, checkpoint := range loaded {
 		sources[checkpoint.sourceKey] = checkpoint.source
 		for path := range checkpoint.source.TreePaths {
 			treePaths[path] = struct{}{}
 		}
+		members = append(members, checkpoint.members...)
 		for key, candidate := range checkpoint.selected {
 			current, exists := selected[key]
 			if !exists || shouldReplaceSession(current, candidate) {
@@ -1628,6 +1639,7 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 		TranscriptMode:        "raw",
 		TranscriptFileName:    v1TranscriptFileName,
 		Selected:              selected,
+		SessionCheckpoints:    members,
 		CheckpointCount:       len(loaded),
 		TreePaths:             treePaths,
 		Sources:               sources,
@@ -1826,7 +1838,7 @@ func loadCheckpointSnapshotFromGitDirPolicy(ctx context.Context, runner CommandR
 			cache.active = true // caching genuinely ran this pass; safe to persist
 		}
 	}
-	selected, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, reader, transcriptFileName, treePaths, limit, branchDestinations, progress)
+	selected, members, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, reader, transcriptFileName, treePaths, limit, branchDestinations, progress)
 	if err != nil {
 		return nil, append(warnings, warningLines("checkpoint ref "+ref, stderr)...), err
 	}
@@ -1835,6 +1847,9 @@ func loadCheckpointSnapshotFromGitDirPolicy(ctx context.Context, runner CommandR
 	for key, session := range selected {
 		session.SourceKey = sourceKey
 		selected[key] = session
+	}
+	for i := range members {
+		members[i].SourceKey = sourceKey
 	}
 	source := checkpointSnapshotSource{
 		GitDir:    gitDir,
@@ -1850,13 +1865,14 @@ func loadCheckpointSnapshotFromGitDirPolicy(ctx context.Context, runner CommandR
 		TranscriptMode:     mode,
 		TranscriptFileName: transcriptFileName,
 		Selected:           selected,
+		SessionCheckpoints: members,
 		CheckpointCount:    checkpointCount,
 		TreePaths:          treePaths,
 		Sources:            map[string]checkpointSnapshotSource{sourceKey: source},
 	}, warnings, nil
 }
 
-func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobReader, transcriptFileName string, treePaths map[string]struct{}, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, int, []string, error) {
+func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobReader, transcriptFileName string, treePaths map[string]struct{}, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, []sessionCheckpoint, int, []string, error) {
 	checkpointIDs := make(map[string]struct{})
 	sessionMetadataPaths := make([]string, 0)
 	rootMetadataPaths := make([]string, 0)
@@ -1900,6 +1916,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 	warnings = append(warnings, rootWarnings...)
 
 	selected := make(map[string]selectedSession)
+	var members []sessionCheckpoint
 	checkpointsWithSessionMetadata := make(map[string]struct{})
 	missingTranscriptCount := 0
 
@@ -1943,7 +1960,9 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 			deferProgress()
 			continue
 		}
-		addSnapshotSession(selected, checkpointID, sessionIndex, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations)
+		if candidate, ok := addSnapshotSession(selected, checkpointID, sessionIndex, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations); ok {
+			members = append(members, sessionCheckpointOf(candidate))
+		}
 		deferProgress()
 	}
 
@@ -1977,7 +1996,9 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s root metadata: parse metadata: %v", checkpointID, err))
 			continue
 		}
-		addSnapshotSession(selected, checkpointID, 0, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations)
+		if candidate, ok := addSnapshotSession(selected, checkpointID, 0, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations); ok {
+			members = append(members, sessionCheckpointOf(candidate))
+		}
 		reportMetadataProgress(len(selected))
 	}
 
@@ -1986,13 +2007,24 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 	}
 
 	if len(selected) == 0 {
-		return nil, limitedCheckpointCount(len(checkpointIDs), limit), warnings, fmt.Errorf("%w: checkpoint ref %s contained no readable sessions", errCheckpointSnapshotUnavailable, reader.ref)
+		return nil, nil, limitedCheckpointCount(len(checkpointIDs), limit), warnings, fmt.Errorf("%w: checkpoint ref %s contained no readable sessions", errCheckpointSnapshotUnavailable, reader.ref)
 	}
 
 	if limit > 0 && len(checkpointIDs) > limit {
 		warnings = append(warnings, fmt.Sprintf("checkpoint ref discovery capped at %d checkpoints; rerun with --checkpoint-limit <N> to inspect more", limit))
 	}
-	return selected, limitedCheckpointCount(len(checkpointIDs), limit), warnings, nil
+	return selected, members, limitedCheckpointCount(len(checkpointIDs), limit), warnings, nil
+}
+
+// sessionCheckpointOf projects a read session onto its membership record.
+func sessionCheckpointOf(candidate selectedSession) sessionCheckpoint {
+	return sessionCheckpoint{
+		CheckpointID:   candidate.CheckpointID,
+		SessionID:      candidate.SessionID,
+		SessionIndex:   candidate.SessionIndex,
+		Branch:         candidate.Branch,
+		TranscriptPath: candidate.SourceTranscriptPath,
+	}
 }
 
 func limitedCheckpointCount(count, limit int) int {
@@ -2130,12 +2162,15 @@ func (r *checkpointBlobReader) virtualizePointer(checkpointID, storedPath string
 	return "", false
 }
 
-func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath string, meta checkpointExportSession, checkpointBranch string, branchDestinations checkpointBranchDestinations) {
+// addSnapshotSession folds one read (checkpoint, session) pair into the
+// per-session selection and returns the candidate it built, so the caller can
+// also record the membership that the selection discards.
+func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath string, meta checkpointExportSession, checkpointBranch string, branchDestinations checkpointBranchDestinations) (selectedSession, bool) {
 	if meta.SessionID == "" {
-		return
+		return selectedSession{}, false
 	}
 	if meta.CheckpointID != "" && meta.CheckpointID != checkpointID {
-		return
+		return selectedSession{}, false
 	}
 
 	var createdAt time.Time
@@ -2165,6 +2200,7 @@ func addSnapshotSession(selected map[string]selectedSession, checkpointID string
 	}
 
 	addSelectedSession(selected, candidate, branchDestinations)
+	return candidate, true
 }
 
 func addSelectedSession(selected map[string]selectedSession, candidate selectedSession, branchDestinations checkpointBranchDestinations) {
@@ -3412,17 +3448,34 @@ type checkpointSessionPaths struct {
 }
 
 type checkpointSnapshot struct {
-	GitDir                string
-	TempDir               string
-	Ref                   string
-	Version               int
-	TranscriptMode        string
-	TranscriptFileName    string
-	Selected              map[string]selectedSession
+	GitDir             string
+	TempDir            string
+	Ref                string
+	Version            int
+	TranscriptMode     string
+	TranscriptFileName string
+	Selected           map[string]selectedSession
+	// SessionCheckpoints is EVERY (session, checkpoint) pair the snapshot read,
+	// including the ones Selected discarded. Selected keeps only each session's
+	// newest checkpoint, which is all an export needs; provenance sharpening
+	// anchors facts to EARLIER checkpoints of the same session, and both the
+	// entity-index join and verification have to be able to resolve those.
+	SessionCheckpoints    []sessionCheckpoint
 	CheckpointCount       int
 	TreePaths             map[string]struct{}
 	Sources               map[string]checkpointSnapshotSource
 	UnreadableCheckpoints map[string]struct{}
+}
+
+// sessionCheckpoint is one (session, checkpoint) membership record with the
+// transcript that checkpoint retained for that session.
+type sessionCheckpoint struct {
+	CheckpointID   string
+	SessionID      string
+	SessionIndex   int
+	Branch         string
+	TranscriptPath string
+	SourceKey      string
 }
 
 type checkpointSnapshotSource struct {

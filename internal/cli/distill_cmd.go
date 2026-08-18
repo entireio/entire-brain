@@ -382,6 +382,12 @@ type distillCommandOptions struct {
 	// can render a spinner/progress line. It is nil in tests and for callers
 	// that do not want progress output.
 	progress func(distillProgress)
+	// entityProvenance, when set, sharpens each new fact's anchor from the
+	// entity -> checkpoint index: the checkpoint that actually changed the
+	// entity the fact's locus names, instead of the session's LAST checkpoint.
+	// nil (the zero value, and the value in every pre-index caller) keeps the
+	// original coarse anchoring exactly.
+	entityProvenance *entityProvenanceResolver
 }
 
 // distillProgress reports how far the distillation loop has advanced. Distill
@@ -597,6 +603,10 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	distillOpts.progress = func(p distillProgress) {
 		task.Update(distillProgressLabel(p))
 	}
+	// Built once per run, before any agent call: reading the derived index is
+	// cheap and bounded, and a missing/empty index yields nil, which restores
+	// the pre-index anchoring exactly.
+	distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
 	source, err := runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
 	task.Finish(err)
 	if err != nil {
@@ -948,6 +958,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			anyAgentSuccess = true
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
+			// Sharpen provenance where the entity index can place the fact's
+			// locus; a no-op (and never an error) when the index is absent.
+			records = applyEntityProvenance(records, distillOpts.entityProvenance)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
 				maybeFlush()
