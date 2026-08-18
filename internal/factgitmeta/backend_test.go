@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
 	"github.com/ashtom/entire-brain/internal/factmerge"
 	"github.com/ashtom/entire-brain/internal/factsync"
 )
@@ -353,5 +354,98 @@ func TestBackendBlobDoesNotAccumulate(t *testing.T) {
 	}
 	if blobs != 1 {
 		t.Fatalf("want exactly 1 live blob record after 4 advances, got %d", blobs)
+	}
+}
+
+// --- MetaStore -------------------------------------------------------------
+
+// TestMetaStoreTryUpdateDoesNotWaitOnTheLock pins the non-blocking write path.
+// Update takes flock(2), which no Go context can interrupt, so a caller under a
+// deadline (the entity index's freshness tick, running inside a session-end
+// hook) must be able to give up instead of hanging for as long as whichever
+// other writer holds the store.
+func TestMetaStoreTryUpdateDoesNotWaitOnTheLock(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gitmeta.git")
+	store, err := OpenMetaStore(dir, testNow)
+	if err != nil {
+		t.Fatalf("OpenMetaStore: %v", err)
+	}
+	release, err := store.TryLock()
+	if err != nil {
+		t.Fatalf("TryLock: %v", err)
+	}
+
+	// A second acquisition must report contention, not block.
+	if _, err := store.TryLock(); !errors.Is(err, ErrLockBusy) {
+		release()
+		t.Fatalf("second TryLock = %v, want ErrLockBusy", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, updateErr := store.TryUpdate(1, func(st gitmeta.State) (gitmeta.State, error) {
+			return st.Apply(gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: "brain:test", Value: "v"}), nil
+		})
+		done <- updateErr
+	}()
+	select {
+	case updateErr := <-done:
+		if !errors.Is(updateErr, ErrLockBusy) {
+			t.Fatalf("contended TryUpdate = %v, want ErrLockBusy", updateErr)
+		}
+	case <-time.After(5 * time.Second):
+		release()
+		t.Fatal("TryUpdate blocked on a held lock")
+	}
+
+	tip, err := store.Tip()
+	if err != nil || tip != "" {
+		t.Fatalf("a refused update still wrote: tip=%q err=%v", tip, err)
+	}
+
+	// Once released, the same call succeeds.
+	release()
+	if _, err := store.TryUpdate(1, func(st gitmeta.State) (gitmeta.State, error) {
+		return st.Apply(gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: "brain:test", Value: "v"}), nil
+	}); err != nil {
+		t.Fatalf("uncontended TryUpdate: %v", err)
+	}
+	if value, ok, err := store.ReadString(projectTarget, "brain:test"); err != nil || !ok || value != "v" {
+		t.Fatalf("ReadString = (%q,%v,%v)", value, ok, err)
+	}
+}
+
+// TestMetaStoreReadStringMatchesMaterializedState pins the targeted read
+// against the full materialization it exists to avoid.
+func TestMetaStoreReadStringMatchesMaterializedState(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gitmeta.git")
+	store, err := OpenMetaStore(dir, testNow)
+	if err != nil {
+		t.Fatalf("OpenMetaStore: %v", err)
+	}
+	// Absent ref: not an error, just absent.
+	if _, ok, err := store.ReadString(projectTarget, "brain:absent"); err != nil || ok {
+		t.Fatalf("read before any write = (%v,%v)", ok, err)
+	}
+	if _, err := store.Update(2, func(st gitmeta.State) (gitmeta.State, error) {
+		st = st.Apply(gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: "brain:one", Value: "1"})
+		st = st.Apply(gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: "brain:two", Value: "2"})
+		return st, nil
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	state, err := store.State()
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+	for _, key := range []string{"brain:one", "brain:two", "brain:absent"} {
+		wantValue, wantOK := state.CurrentString(projectTarget, key)
+		gotValue, gotOK, err := store.ReadString(projectTarget, key)
+		if err != nil {
+			t.Fatalf("ReadString(%s): %v", key, err)
+		}
+		if gotOK != wantOK || gotValue != wantValue {
+			t.Fatalf("ReadString(%s) = (%q,%v), materialized (%q,%v)", key, gotValue, gotOK, wantValue, wantOK)
+		}
 	}
 }
