@@ -134,6 +134,46 @@ At this point the brain can answer from captured history, docs, semantic code
 structure, runtime traces, patterns, and any existing durable facts. It has not
 yet extracted new durable facts from retained sessions.
 
+### 3b. Or do all of it with one command: `setup`
+
+`entire brain setup` collapses the build, the fact backfill, and the freshness
+daemon into one command, with honest cost labels on each phase:
+
+```sh
+entire brain setup                     # build now, backfill in the background, install the watcher
+entire brain setup --no-backfill --no-daemon   # phase 1 only: spends nothing at all
+entire brain status                    # backfill progress + daemon health
+entire brain setup --uninstall-daemon  # stop and remove the watcher
+```
+
+| phase | blocking? | spends tokens? | bounded by |
+|---|---|---|---|
+| 1. instant core (sessions, semantic index, seed, docs, history) | yes, seconds | **no** | — |
+| 2. fact backfill (distill past sessions, newest first) | no, detached | **yes** | `--backfill-budget` (default 25 sessions per pass), the distill cache |
+| 3. watcher daemon (launchd agent / systemd user unit) | no | **yes**, per window | `--distill-every` (default 24h) per repo, the watch cursor |
+
+**This spends money, and it keeps spending.** Setup is not a one-off build: it
+installs a background service whose gated step calls an agent. Four gates bound
+it, and none of them is a quota you have to remember:
+
+- `--backfill-budget` caps the background pass. It defaults to **25 sessions**,
+  newest first — the newest sessions carry the facts you actually want. Setup
+  prints what the cap did; `--backfill-budget 0` explicitly means "the whole
+  corpus in one spend".
+- `--distill-every` (default 24h) plus each repo's persisted watch cursor allow
+  **one** gated agent run per repo per window, and survive restarts.
+- The distill cache means a session is never distilled twice, across every entry
+  point.
+- `--model` / `--effort` keep each call cheap; the daemon inherits whatever the
+  last setup was given.
+
+Re-running setup is safe and non-duplicating: it finds the existing workspace
+membership and daemon instead of creating second ones, resumes a backfill that
+is still running rather than starting a rival pass, and keeps the
+`--interval`/`--distill-every`/`--model`/`--effort` a previous run was given
+unless you pass the flag again. One machine gets exactly one watcher, shared by
+every repo you set up.
+
 ### 4. Distill durable facts
 
 Distillation is the egress-gated agent step that turns captured sessions into
@@ -158,8 +198,14 @@ refreshes are free; token-spending work is opt-in and separately gated:
 
 ```sh
 entire brain watch                                                                    # deterministic refresh only (NO tokens)
-entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort low --budget 1
+entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort low
 ```
+
+`--distill-every` plus the persisted watch cursor are the durable spend guard:
+one gated agent run per repo per window, across restarts. `--budget` is a
+different, weaker thing — it counts gated runs for the life of the **process**
+and never resets, so on a long-lived daemon `--budget 1` means one run *ever*,
+not one per window. Use it only for a bounded foreground run.
 
 The watcher keeps memory fresh in two tiers, like a brain: on every tick it
 runs the cheap **short-term** path (`entire brain refresh delta`; incremental
