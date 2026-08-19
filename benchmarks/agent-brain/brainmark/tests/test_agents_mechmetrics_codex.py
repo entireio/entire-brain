@@ -5,10 +5,22 @@ by reading the fixtures by hand, not by running the code. If the codex mapping
 changes, re-derive them by hand -- never paste in what the code now prints.
 
 MUTATION TARGET (a): break the codex locate-call mapping and these must fail.
-Two independent ways to break it are covered explicitly:
-  * dropping the `bash -lc` unwrap -> every codex shell call becomes OTHER;
+Four independent ways to break it are covered explicitly:
+  * dropping the `bash -lc` unwrap of an argv LIST -> every codex shell call
+    becomes OTHER;
+  * dropping the `bash -lc` unwrap of the STRING form codex 0.148.0 emits
+    ("/usr/bin/bash -lc '...'") -> same, on real 0.148 streams only;
+  * reading only `item.item_type` and not `item.type` -> on a 0.148 stream
+    EVERY item stops being a tool call at all;
   * dropping the item.started/item.completed dedup -> shell calls double-count
     and the pre-edit cutoff moves.
+
+The last two are the pair that shipped broken: on a real codex-0.148.0 capture
+the PRIMARY metric `locate_calls_pre_edit` read 0 in every arm, silently -- a
+misparse produces a zero, never an exception. `codex_stream_0148_shape.jsonl`
+is a 0.148-shaped stream carrying BOTH defects, and
+`Codex0148ShapeTest.test_primary_metric_is_nonzero_on_a_0148_stream` fails on
+either one alone, so neither can be reintroduced without a red suite.
 """
 
 from __future__ import annotations
@@ -49,6 +61,19 @@ HAND_LABELS = [
     # appears as a begin/end PAIR and must be counted once, and the `_end`
     # event -- which carries no command -- must not downgrade the label.
     ("codex_stream_legacy_exec.jsonl", 1, False, 2, 4, 2, 1, 1),
+    # codex_stream_0148_shape: the codex-cli 0.148.0 wire shape -- the item kind
+    # is `item.type` (NOT `item.item_type`) and `command` is the STRING
+    # "/usr/bin/bash -lc '...'" (NOT an argv list). After collapsing
+    # item.started/item.completed:
+    #   0 Bash(ls -la src)                  LOCATE
+    #   1 Bash(rg -n "parse_headers" src)   LOCATE
+    #   2 Bash(cat src/headers.py)          LOCATE
+    #   3 Bash(sed -n 1,60p src/parse.py)   other frozen, LOCATE extended
+    #   4 file_change                       EDIT  <- the cutoff
+    #   5 Bash(grep -rn TODO src)           LOCATE but past the cutoff
+    #   6 Bash(python -m pytest -q)         other
+    # reasoning/agent_message are not tool calls.
+    ("codex_stream_0148_shape.jsonl", 3, False, 4, 7, 4, 1, 4),
 ]
 
 
@@ -101,6 +126,67 @@ class CodexHandLabelTest(unittest.TestCase):
         self.assertIsNone(m["total_cost_usd"], "codex reports no provider cost")
 
 
+class Codex0148ShapeTest(unittest.TestCase):
+    """The two defects that made the PRIMARY metric read 0 on real 0.148 runs.
+
+    Neither raises when reintroduced -- a misparse yields a zero -- so each is
+    pinned by an assertion that is nonzero only when the fix is present.
+    """
+
+    FIXTURE = FIXTURES / "codex_stream_0148_shape.jsonl"
+
+    def test_primary_metric_is_nonzero_on_a_0148_stream(self):
+        """THE regression guard. 0 here is the exact silent failure that shipped."""
+        m = mechmetrics.session_metrics(self.FIXTURE)
+        self.assertEqual(m["backend"], "codex")
+        self.assertGreater(m["locate_calls_pre_edit"], 0,
+                           "codex 0.148 stream parsed to ZERO locate calls -- "
+                           "the primary metric is dead and the benchmark measures nothing")
+        self.assertGreater(m["tool_calls_total"], 0)
+        self.assertFalse(m["no_edit"], "the fixture contains a file_change")
+
+    def test_item_kind_is_read_from_item_dot_type(self):
+        """FIX 1: 0.148 renamed item.item_type -> item.type.
+
+        With only `item_type` read, _codex_classify_item returns None for every
+        item and the whole stream yields zero calls.
+        """
+        raw = self.FIXTURE.read_text(encoding="utf-8")
+        self.assertNotIn('"item_type"', raw,
+                         "the fixture must carry ONLY the 0.148 key, or it cannot "
+                         "detect a regression to item_type-only parsing")
+        calls, _ = mechmetrics.extract_tool_calls(self.FIXTURE)
+        self.assertEqual(len(calls), 7)
+        self.assertEqual([c["name"] for c in calls][:2], ["Bash", "Bash"])
+        self.assertEqual(calls[4]["name"], "FileChange")
+
+    def test_string_bash_wrapper_is_unwrapped(self):
+        """FIX 2: 0.148 reports the wrapper as a STRING, not an argv list."""
+        raw = self.FIXTURE.read_text(encoding="utf-8")
+        self.assertIn("/usr/bin/bash -lc", raw, "fixture must use the string form")
+        calls, _ = mechmetrics.extract_tool_calls(self.FIXTURE)
+        self.assertEqual(calls[0]["command"], "ls -la src")
+        self.assertEqual(calls[2]["command"], "cat src/headers.py")
+        self.assertEqual([c["kind"] for c in calls[:3]], ["locate"] * 3)
+
+    def test_legacy_msg_schema_is_not_hijacked_by_the_type_fallback(self):
+        """The `type` fallback must stay OFF for the legacy `msg` schema.
+
+        There the payload's own "type" IS the legacy type (exec_command_begin),
+        which is not a member of CODEX_SHELL_ITEMS -- reading it as the modern
+        kind would classify legacy shell calls as "not a call".
+        """
+        m = mechmetrics.session_metrics(FIXTURES / "codex_stream_legacy_exec.jsonl")
+        self.assertEqual(m["locate_calls_pre_edit"], 1)
+        self.assertEqual(m["edit_calls_total"], 1)
+
+    def test_started_and_completed_still_collapse_in_the_0148_shape(self):
+        calls, _ = mechmetrics.extract_tool_calls(self.FIXTURE)
+        ids = [c["id"] for c in calls]
+        self.assertEqual(len(ids), len(set(ids)), f"duplicated items: {ids}")
+        self.assertEqual(ids.index("it_1"), 0, "dedup must keep the ORIGINAL position")
+
+
 class EffectiveShellCommandTest(unittest.TestCase):
     def test_shell_wrappers(self):
         for argv, expected in [
@@ -108,9 +194,22 @@ class EffectiveShellCommandTest(unittest.TestCase):
             (["/bin/bash", "-lc", "grep x"], "grep x"),
             (["sh", "-c", "ls"], "ls"),
             ("cat file", "cat file"),
+            # codex 0.148.0 string form -- absolute shell path, single-quoted body.
+            ("/usr/bin/bash -lc 'grep -n hello a.txt'", "grep -n hello a.txt"),
+            ("/bin/sh -c 'ls src'", "ls src"),
+            # A bare command that merely HAS >=3 words must not be mangled.
+            ("head -40 src/widget.js", "head -40 src/widget.js"),
+            # Not a shell wrapper: first word is not a known shell.
+            ("/usr/bin/env -lc 'rg x'", "/usr/bin/env -lc 'rg x'"),
         ]:
             with self.subTest(argv=argv):
                 self.assertEqual(mechmetrics.effective_shell_command(argv), expected)
+
+    def test_unbalanced_quotes_return_the_string_unchanged(self):
+        """shlex raises on an unterminated quote; the raw command must survive."""
+        self.assertEqual(
+            mechmetrics.effective_shell_command("/usr/bin/bash -lc 'rg x"),
+            "/usr/bin/bash -lc 'rg x")
 
     def test_non_wrapper_argv_is_joined(self):
         self.assertEqual(

@@ -39,7 +39,13 @@ ends up measuring its parser.
   dedup that appended instead would silently move calls past the cutoff.
   (Same rule as run.py:7887 structured_tool_events.)
 
-  item.item_type                        -> class   synthesized name
+  ITEM KIND KEY: codex has emitted the kind under two different keys. Up to
+  0.147 it was `item.item_type`; 0.148.0 renamed it to `item.type` (the OUTER
+  event's "type" stays "item.completed"). Both are read. Reading only the old
+  key made every call classify as "not a call", which is silent -- the metric
+  reads 0 rather than raising -- so it is pinned by a 0.148-shaped fixture.
+
+  item.item_type / item.type            -> class   synthesized name
     command_execution, local_shell_call -> LOCATE if the effective shell command
                                            matches the SAME frozen allowlist
                                            above, else OTHER;  name "Bash"
@@ -51,10 +57,12 @@ ends up measuring its parser.
     error, <anything else>              -> NOT A TOOL CALL, skipped entirely
 
   EFFECTIVE SHELL COMMAND: codex reports `command` as either a string or an
-  argv list, and normally wraps it: ["bash","-lc","rg foo"]. The wrapper is
-  stripped before matching, so `bash -lc 'rg foo'` classifies as LOCATE exactly
-  as claude's Bash(rg foo) does. Without stripping, EVERY codex shell call would
-  classify as OTHER and the codex primary metric would be identically zero.
+  argv list, and normally wraps it: ["bash","-lc","rg foo"] on the older schema,
+  the STRING "/usr/bin/bash -lc 'rg foo'" on 0.148.0. BOTH forms are unwrapped
+  with the same <shell> -c/-lc rule, so `bash -lc 'rg foo'` classifies as LOCATE
+  exactly as claude's Bash(rg foo) does. Without stripping, EVERY codex shell
+  call would classify as OTHER and the codex primary metric would be
+  identically zero -- which is why the string form is pinned by a fixture.
 
   Legacy codex schema (`{"id":..,"msg":{"type":"exec_command_begin",...}}`) is
   mapped the same way: exec_command_* -> shell, patch_apply_* -> EDIT.
@@ -166,6 +174,19 @@ def effective_shell_command(command: Any) -> str | None:
     wrapper is joined back into a command line.
     """
     if isinstance(command, str):
+        # codex 0.148.0 reports the wrapper as a STRING --
+        # "/usr/bin/bash -lc 'grep -n x a.txt'" -- not as the argv list the
+        # older schema used. Returning it unchanged made LOCATE_BASH (anchored
+        # at ^) miss every locate call, so the codex primary metric read 0.
+        # Same <shell> -c/-lc rule as the argv-list branch below.
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            return command
+        if len(parts) >= 3:
+            head = pathlib.PurePath(parts[0]).name
+            if head in {"bash", "sh", "zsh", "dash"} and parts[1].startswith("-") and "c" in parts[1]:
+                return parts[2]
         return command
     if isinstance(command, list) and command:
         parts = [str(p) for p in command]
@@ -284,6 +305,17 @@ def _codex_item(event: dict) -> dict | None:
 def _codex_classify_item(item: dict) -> tuple[str, str, str | None] | None:
     """(name, kind, command) for one codex item, or None if it is not a call."""
     item_type = item.get("item_type") or item.get("itemType")
+    # codex 0.148.0 emits {"type":"item.completed","item":{"id":..,
+    # "type":"command_execution",..}} -- the item kind moved from `item_type`
+    # to `type`. Reading only `item_type` classified EVERY tool call as "not a
+    # call": 0 locate calls, 0 edits, no_edit=True for every session in every
+    # arm, i.e. the primary metric was identically 0 and the benchmark measured
+    # nothing. Guarded on `_legacy` because in the legacy `msg` schema the
+    # payload's own "type" IS the legacy type and must take the branch below.
+    if not item_type and not item.get("_legacy"):
+        candidate = item.get("type")
+        if isinstance(candidate, str):
+            item_type = candidate
     legacy_type = item.get("_legacy_type")
 
     if isinstance(legacy_type, str) and not item_type:

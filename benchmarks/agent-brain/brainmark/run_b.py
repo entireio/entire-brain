@@ -50,15 +50,38 @@ ISOLATION per session: fresh worktree at base_commit_B, netjail first on PATH,
 run.py env sanitization (run.py:5091), and -- on macOS -- run.py's deny-first
 sandbox profile (run.py:5125) re-allowing only this cell's worktree, so sibling
 results, task JSONs, and session-A artifacts are not reachable from B.
+
+WORKTREE LOCATION IS A FAIRNESS PROPERTY, not a layout preference. The cell dir
+is <results>/<pair_id>/<arm>, so a worktree at <cell>/worktree puts the ARM NAME
+in the agent's own `pwd` -- and the agent's shell output contains its cwd. A
+`no_brain` session can read the string "no_brain" out of its own working
+directory and a `full_brain` session reads "full_brain". That is an
+arm-asymmetric CUE delivered outside the prompt, which is exactly what the
+symmetry gate exists to prevent; it fails the standard test ("would this
+sentence help an arm with no memory?"). Secondarily, a worktree inside the
+results tree leaves the SIBLING arms' packet.txt/prompt.txt two directories
+above the agent's cwd -- on macOS run.py's deny-first sandbox profile hides
+them, but that profile is macOS-only and is inert everywhere else
+(read_isolation.backend == null), so the adjacency is real on Linux.
+
+`worktree_root(...)` therefore places every worktree at an OPAQUE, arm-neutral
+path -- sha256(pair|arm|rep)[:16] -- under BM_WORKTREE_ROOT (or the OS temp dir
+when that is unset), outside the results tree. Nothing else changes:
+worktree_add/remove and collect_patch all take the path as an argument. Set
+BM_WORKTREE_IN_CELL=1 to restore the old in-cell layout for debugging; it is
+recorded in meta.json as `worktree_arm_neutral: false` so a run made that way
+can never be mistaken for a clean one.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
 import sys
+import tempfile
 from typing import Any
 
 if __package__ in (None, ""):
@@ -331,6 +354,38 @@ def read_isolation(config: dict, worktree: pathlib.Path, env: dict[str, str]):
         return None, {"backend": None, "reason": f"{type(exc).__name__}: {exc}"}
 
 
+#: Set to 1 to put the worktree back inside the cell dir. DEBUG ONLY -- it
+#: reintroduces the arm-name cue and is stamped into meta.json.
+WORKTREE_IN_CELL_ENV = "BM_WORKTREE_IN_CELL"
+#: Parent dir for the opaque worktrees. Unset -> the OS temp dir.
+WORKTREE_ROOT_ENV = "BM_WORKTREE_ROOT"
+
+
+def worktree_key(pair_id: str, arm: str, rep: int | None) -> str:
+    """Opaque, stable, arm-neutral directory name for one cell's worktree.
+
+    Stable so a resumed run reuses the same path; opaque so the agent's `pwd`
+    carries no arm name, pair id, or instance id.
+    """
+    return hashlib.sha256(f"{pair_id}|{arm}|{rep}".encode("utf-8")).hexdigest()[:16]
+
+
+def worktree_root() -> pathlib.Path:
+    return pathlib.Path(os.environ.get(WORKTREE_ROOT_ENV) or tempfile.gettempdir())
+
+
+def worktree_path(cell: pathlib.Path, pair_id: str, arm: str,
+                  rep: int | None) -> tuple[pathlib.Path, bool]:
+    """(path, arm_neutral). See the FAIRNESS note in the module docstring.
+
+    The path must contain neither the arm name nor any part of the results
+    tree, or the agent can read its own arm out of `pwd`.
+    """
+    if os.environ.get(WORKTREE_IN_CELL_ENV) == "1":
+        return cell / "worktree", False
+    return worktree_root() / "bm-wt" / worktree_key(pair_id, arm, rep), True
+
+
 def run_cell(
     config: dict,
     pair: dict,
@@ -358,7 +413,7 @@ def run_cell(
     (cell / "prompt.txt").write_text(prompt, encoding="utf-8")
     (cell / "prompt_sym.sha256").write_text(symmetry_sha + "\n", encoding="utf-8")
 
-    worktree = cell / "worktree"
+    worktree, worktree_arm_neutral = worktree_path(cell, pair["pair_id"], arm, rep)
     env, env_prov = session_env(config, cell)
     profile, iso_prov = read_isolation(config, worktree, env)
     sandbox_wrapper = (
@@ -380,6 +435,8 @@ def run_cell(
         "env_sanitization": env_prov,
         "read_isolation": iso_prov,
         "stub_only": stub_only,
+        "worktree": str(worktree),
+        "worktree_arm_neutral": worktree_arm_neutral,
     }
 
     _repo.worktree_add(graphmark_root, cache, worktree, pair["b"]["base_commit"])

@@ -34,6 +34,9 @@ CLAUDE_STUB = textwrap.dedent("""\
     printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Grep","input":{"pattern":"x"}}]}}'
     printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"STUB.md"}}]}}'
     printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Edit","input":{"file_path":"STUB.md"}}]}}'
+    # Report our own cwd the way a real agent's shell output does. The fairness
+    # test reads this back: whatever lands here is readable BY THE AGENT.
+    printf '{"type":"assistant","message":{"content":[{"type":"text","text":"cwd=%s"}]}}\\n' "$PWD"
     echo "brainmark stub edit" >> STUB_EDIT.txt
     printf '%s\\n' '{"type":"result","subtype":"success","is_error":false,"num_turns":3,"duration_ms":1234,"total_cost_usd":0.01,"modelUsage":{"stub":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}'
     exit 0
@@ -87,6 +90,14 @@ class RunBDryRunTest(unittest.TestCase):
         stub.chmod(0o755)
         self._old_path = os.environ["PATH"]
         os.environ["PATH"] = f"{self.stubdir}{os.pathsep}{self._old_path}"
+
+        # Keep the opaque worktrees inside this test's tmpdir so the suite
+        # cleans up after itself. The arm-neutrality being asserted is a
+        # property of the PATH SHAPE, not of which parent dir is used.
+        self.wt_root = tmp / "wt"
+        self._old_wt_root = os.environ.get(run_b.WORKTREE_ROOT_ENV)
+        os.environ[run_b.WORKTREE_ROOT_ENV] = str(self.wt_root)
+        self._old_in_cell = os.environ.pop(run_b.WORKTREE_IN_CELL_ENV, None)
 
         self.config = json.loads((_harness.BRAINMARK_DIR / "config.json").read_text())
         self.config.update({
@@ -144,6 +155,12 @@ class RunBDryRunTest(unittest.TestCase):
 
         memsources.ARMS["mem0"] = self._real_mem0
         os.environ["PATH"] = self._old_path
+        for key, value in ((run_b.WORKTREE_ROOT_ENV, self._old_wt_root),
+                           (run_b.WORKTREE_IN_CELL_ENV, self._old_in_cell)):
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         self.tmp.cleanup()
 
     def test_full_results_layout_is_produced(self):
@@ -207,12 +224,117 @@ class RunBDryRunTest(unittest.TestCase):
                            tier="pilot", arms=ARMS)
         self.assertIn("pin mismatch", str(ctx.exception))
 
+    def test_worktree_path_leaks_neither_the_arm_name_nor_the_results_root(self):
+        """FAIRNESS. The agent's own `pwd` must not tell it which arm it is in.
+
+        A worktree at <results>/<pair_id>/<arm>/worktree puts the arm name in
+        the cwd, and the cwd appears in the agent's shell output -- an
+        arm-asymmetric cue delivered outside the prompt. It also leaves the
+        SIBLING arms' packet.txt/prompt.txt two levels above the agent.
+
+        Asserted on BOTH the recorded path and the cwd the stub actually
+        observed, because only the latter proves what the agent could read.
+        """
+        run_b.run_pair(self.config, self.pair, self.a_dir, self.out_root,
+                       tier="pilot", arms=ARMS)
+        results_root = str(self.out_root.resolve())
+
+        for arm in ARMS:
+            cell = self.out_root / self.pair["pair_id"] / arm
+            with self.subTest(arm=arm):
+                meta = json.loads((cell / "meta.json").read_text(encoding="utf-8"))
+                self.assertTrue(meta["worktree_arm_neutral"])
+
+                observed = [
+                    json.loads(line)["message"]["content"][0]["text"]
+                    for line in (cell / "stream.jsonl").read_text(
+                        encoding="utf-8").splitlines()
+                    if '"cwd=' in line
+                ]
+                self.assertEqual(len(observed), 1, "stub did not report its cwd")
+                agent_cwd = observed[0][len("cwd="):]
+
+                for where, path in (("meta", meta["worktree"]), ("agent cwd", agent_cwd)):
+                    resolved = str(pathlib.Path(path).resolve())
+                    self.assertNotIn(arm, resolved,
+                                     f"{where} leaks the ARM NAME: {resolved}")
+                    self.assertNotIn(self.pair["pair_id"], resolved,
+                                     f"{where} leaks the pair id: {resolved}")
+                    self.assertFalse(
+                        resolved.startswith(results_root),
+                        f"{where} is inside the results tree, so sibling arms' "
+                        f"packets are reachable from it: {resolved}")
+
+        # ...and the two arms must not collide on one directory.
+        paths = {
+            arm: json.loads(
+                (self.out_root / self.pair["pair_id"] / arm / "meta.json")
+                .read_text(encoding="utf-8"))["worktree"]
+            for arm in ARMS
+        }
+        self.assertEqual(len(set(paths.values())), len(ARMS), paths)
+
     def test_null_test_mode_gives_every_arm_the_sentinel(self):
         summary = run_b.run_pair(
             self.config, self.pair, self.a_dir, self.out_root, tier="pilot", arms=ARMS,
             force_empty_packet=True)
         shas = set(summary["packet_sha256"].values())
         self.assertEqual(len(shas), 1, "null test must deliver identical packets")
+
+
+class WorktreePathTest(unittest.TestCase):
+    """`worktree_path` in isolation -- no agent, no git, no results tree."""
+
+    CELL = pathlib.Path("/results/a1__then__b1/full_brain")
+
+    def setUp(self) -> None:
+        self._saved = {k: os.environ.pop(k, None)
+                       for k in (run_b.WORKTREE_ROOT_ENV, run_b.WORKTREE_IN_CELL_ENV)}
+
+    def tearDown(self) -> None:
+        for key, value in self._saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def test_default_is_arm_neutral_and_outside_the_cell(self):
+        path, neutral = run_b.worktree_path(self.CELL, "a1__then__b1", "full_brain", 0)
+        self.assertTrue(neutral)
+        text = str(path)
+        self.assertNotIn("full_brain", text)
+        self.assertNotIn("a1__then__b1", text)
+        self.assertNotIn("results", text)
+        self.assertFalse(text.startswith(str(self.CELL)))
+
+    def test_arms_get_distinct_paths_and_the_key_is_stable(self):
+        args = ("a1__then__b1", None)
+        paths = {arm: run_b.worktree_path(self.CELL, args[0], arm, args[1])[0]
+                 for arm in ("no_brain", "full_brain", "mem0")}
+        self.assertEqual(len(set(paths.values())), 3, paths)
+        # Stable across calls -- a resumed run must reuse the same directory.
+        self.assertEqual(run_b.worktree_key("p", "no_brain", 1),
+                         run_b.worktree_key("p", "no_brain", 1))
+        # ...and reps do not share one.
+        self.assertNotEqual(run_b.worktree_key("p", "no_brain", 1),
+                            run_b.worktree_key("p", "no_brain", 2))
+
+    def test_key_is_opaque_hex(self):
+        key = run_b.worktree_key("a1__then__b1", "full_brain", 0)
+        self.assertEqual(len(key), 16)
+        self.assertTrue(all(c in "0123456789abcdef" for c in key), key)
+
+    def test_root_env_is_honoured(self):
+        os.environ[run_b.WORKTREE_ROOT_ENV] = "/scratch/wt"
+        path, neutral = run_b.worktree_path(self.CELL, "p", "mem0", 0)
+        self.assertTrue(neutral)
+        self.assertTrue(str(path).startswith("/scratch/wt"), path)
+
+    def test_debug_opt_in_restores_the_in_cell_layout_and_is_flagged(self):
+        os.environ[run_b.WORKTREE_IN_CELL_ENV] = "1"
+        path, neutral = run_b.worktree_path(self.CELL, "p", "mem0", 0)
+        self.assertEqual(path, self.CELL / "worktree")
+        self.assertFalse(neutral, "an in-cell worktree must NEVER report as arm-neutral")
 
 
 if __name__ == "__main__":
