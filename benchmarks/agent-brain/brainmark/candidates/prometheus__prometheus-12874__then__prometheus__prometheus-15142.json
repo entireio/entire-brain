@@ -1,0 +1,49 @@
+{
+  "a": {
+    "base_commit": "9071913fd99fcdea9ea069b277f2be66b08e549c",
+    "created_at": "2023-09-20 12:33:44",
+    "files": [
+      "tsdb/head_append.go"
+    ],
+    "instance_id": "prometheus__prometheus-12874",
+    "language": "Go",
+    "patch_sha256": "448afd60e5fa001b10de5a1f9a7960ee0494dd0a5911e4342a38c0cdfaa61981",
+    "problem_statement_sha256": "e793e224660fe34060eb5b0fedf5c477ac2a9c666bf153c8b52c838bc339ea8c",
+    "version": "12874"
+  },
+  "ancestry_verified": true,
+  "b": {
+    "base_commit": "16bba78f1549cfd7909b61ebd7c55c822c86630b",
+    "created_at": "2024-10-10 11:22:41",
+    "files": [
+      "tsdb/head_append.go"
+    ],
+    "instance_id": "prometheus__prometheus-15142",
+    "language": "Go",
+    "patch_sha256": "0d0acc5d3f18770d7d714328685a81b7c229bc288bf068c6b2b44f3dfa5a63e8",
+    "problem_statement_sha256": "8a3d88b48aeba247b1d1f14ddad98fa89e13f3ad2dc7826105e09137cdf5d63f",
+    "version": "15142"
+  },
+  "leakage": {
+    "borderline": false,
+    "cap": 0.8,
+    "patch_body_overlap": 0.142857
+  },
+  "needs_human_review": false,
+  "pair_id": "prometheus__prometheus-12874__then__prometheus__prometheus-15142",
+  "repo": "prometheus/prometheus",
+  "schema_version": 1,
+  "score": 1.15,
+  "score_components": {
+    "file_jaccard": 1.0,
+    "symbol_overlap": 0.15
+  },
+  "shared_files": [
+    "tsdb/head_append.go"
+  ],
+  "shared_symbols": [
+    "func",
+    "int64",
+    "memseries"
+  ]
+}

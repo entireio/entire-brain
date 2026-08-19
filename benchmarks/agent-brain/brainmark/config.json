@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "_comment": "BrainMark configuration. Every value here is a PIN: changing one invalidates the seal manifest's config_sha256 and report.py will say so.",
+
+  "graphmark_root": "/Users/suhaan/devenv/graphmark/agentic-swebench",
+  "repo_cache": "/Users/suhaan/devenv/graphmark/agentic-swebench/repo-cache",
+  "task_globs": ["tasks/*.json"],
+
+  "mining": {
+    "min_shared_files": 1,
+    "leakage_overlap_max": 0.8,
+    "leakage_borderline_min": 0.6,
+    "require_ancestor": true,
+    "one_a_per_b": true,
+    "target_candidates": 40,
+    "score_weights": {"file_jaccard": 1.0, "symbol_overlap": 1.0}
+  },
+
+  "seal": {
+    "sealed_min": 30,
+    "dev_split": 10,
+    "prereg_path": "PREREGISTRATION.md"
+  },
+
+  "packet": {
+    "max_bytes": 24576,
+    "top_k": 20,
+    "min_results": 0,
+    "empty_sentinel": "(no prior-session memory available)"
+  },
+
+  "arms": ["no_brain", "full_brain", "mem0", "graphify", "cmm"],
+  "_arms_note": "full_brain is the ONLY brain arm. no_brain is the baseline. The other three are competitors over the SAME pinned session-A bytes.",
+
+  "agent": {
+    "cli": "claude",
+    "max_turns": 60,
+    "timeout_sec": 3600,
+    "session_a": {
+      "tier_pilot": "claude-sonnet-4-6",
+      "tier_full": "claude-opus-4-6"
+    },
+    "session_b": {
+      "tier_pilot": "claude-sonnet-4-6",
+      "tier_full": "claude-opus-4-6"
+    }
+  },
+
+  "concurrency": 8,
+  "seeds": {"master": 20260815},
+
+  "competitors": {
+    "mem0": {
+      "package": "mem0ai",
+      "version_pin": "0.1.118",
+      "llm": {"provider": "openai", "model": "gpt-4o-mini"},
+      "embedder": {"provider": "openai", "model": "text-embedding-3-small"}
+    },
+    "graphify": {
+      "bridge": null,
+      "source": null,
+      "python": null,
+      "_note": "null => inherit GRAPHIFY_* env, matching eg-memharness graphify_client.py defaults"
+    },
+    "cmm": {
+      "binary": null,
+      "index_mode": "full",
+      "mem_budget_mb": 4096,
+      "_note": "null => inherit CMM_BIN, matching eg-memharness cmm_client.py defaults"
+    }
+  },
+
+  "brain": {
+    "binary": "bin/entire-brain",
+    "distill": {
+      "agent": "claude-code",
+      "model": "claude-sonnet-4-6",
+      "effort": "medium"
+    },
+    "retrieval": {
+      "command": "search",
+      "limit": 20
+    }
+  },
+
+  "grading": {
+    "dataset_name": "swe-bench/SWE-bench_Multilingual",
+    "grade_tag_script": "tools/grade_tag.sh",
+    "max_workers": 2,
+    "timeout": 1800,
+    "cache_level": "env"
+  }
+}

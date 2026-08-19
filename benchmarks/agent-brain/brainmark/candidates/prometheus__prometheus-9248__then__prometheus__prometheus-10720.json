@@ -1,0 +1,78 @@
+{
+  "a": {
+    "base_commit": "1fb3c1b5980d2ae3f844b6b9ae2ad38117710aa0",
+    "created_at": "2021-08-25 00:08:41",
+    "files": [
+      "docs/querying/operators.md",
+      "promql/engine.go",
+      "promql/parser/generated_parser.y",
+      "promql/parser/generated_parser.y.go",
+      "promql/parser/lex.go",
+      "web/ui/module/codemirror-promql/src/complete/promql.terms.ts",
+      "web/ui/module/codemirror-promql/src/grammar/promql.grammar",
+      "web/ui/module/codemirror-promql/src/grammar/tokens.js",
+      "web/ui/module/codemirror-promql/src/promql.ts"
+    ],
+    "instance_id": "prometheus__prometheus-9248",
+    "language": "Go",
+    "patch_sha256": "13a2692eb89f2f089c009d7f67777dd1150300385ead4af0129fecc459135018",
+    "problem_statement_sha256": "96dfa4b80bdfbe9998edf4010471ba6da14cd70c40d6ff068808d071c9c03f67",
+    "version": "9248"
+  },
+  "ancestry_verified": true,
+  "b": {
+    "base_commit": "89de30a0b754f4eb54fb543037683f3db6cda109",
+    "created_at": "2022-05-20 10:31:28",
+    "files": [
+      "docs/querying/functions.md",
+      "promql/functions.go",
+      "promql/parser/functions.go",
+      "web/ui/module/codemirror-promql/src/complete/promql.terms.ts",
+      "web/ui/module/codemirror-promql/src/promql.ts",
+      "web/ui/module/codemirror-promql/src/types/function.ts",
+      "web/ui/module/lezer-promql/src/promql.grammar"
+    ],
+    "instance_id": "prometheus__prometheus-10720",
+    "language": "Go",
+    "patch_sha256": "9fb33541f4ff6c6e59ad94c3f70e43d0c08a1700c0a3e1aea93138996b3fea38",
+    "problem_statement_sha256": "77e8033c5a10370fe88cb103c96ec2532df5802839c0077e6764cc6b6f356d91",
+    "version": "10720"
+  },
+  "leakage": {
+    "borderline": false,
+    "cap": 0.8,
+    "patch_body_overlap": 0.044248
+  },
+  "needs_human_review": false,
+  "pair_id": "prometheus__prometheus-9248__then__prometheus__prometheus-10720",
+  "repo": "prometheus/prometheus",
+  "schema_version": 1,
+  "score": 0.338259,
+  "score_components": {
+    "file_jaccard": 0.142857,
+    "symbol_overlap": 0.195402
+  },
+  "shared_files": [
+    "web/ui/module/codemirror-promql/src/complete/promql.terms.ts",
+    "web/ui/module/codemirror-promql/src/promql.ts"
+  ],
+  "shared_symbols": [
+    "const",
+    "export",
+    "from",
+    "func",
+    "function",
+    "import",
+    "key",
+    "languagetype",
+    "map",
+    "numberliteral",
+    "parser",
+    "promqllanguage",
+    "string",
+    "the",
+    "top",
+    "value",
+    "var"
+  ]
+}

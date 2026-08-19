@@ -1,0 +1,52 @@
+{
+  "a": {
+    "base_commit": "c77e6284c199761d59467d8cc596a2f03540e72c",
+    "created_at": "2022-06-14 14:44:56",
+    "files": [
+      "hooks/src/index.js",
+      "hooks/src/internal.d.ts"
+    ],
+    "instance_id": "preactjs__preact-3567",
+    "language": "JavaScript",
+    "patch_sha256": "fea79829badebb35482b745fdd127706de06845a4d3f78ace3944bc07e1f64be",
+    "problem_statement_sha256": "b5fc52ad605f49c2d9000deb3f3bf3d1e2288f7a58292cade63904bfed12e09f",
+    "version": "3567"
+  },
+  "ancestry_verified": true,
+  "b": {
+    "base_commit": "9457b221fdacd1052ffdb385918e1bab4b10e833",
+    "created_at": "2022-08-21 05:51:04",
+    "files": [
+      "hooks/src/index.d.ts",
+      "hooks/src/index.js",
+      "hooks/src/internal.d.ts"
+    ],
+    "instance_id": "preactjs__preact-3689",
+    "language": "JavaScript",
+    "patch_sha256": "ad4edcb16e99a876b21fbcb9cd4718ebdf2341b119ec1a5487b7551cbaa8a4fa",
+    "problem_statement_sha256": "4e8adf20e93eaf44a409bb33ece5f6062e06a990a612d5a424cb457f1246db57",
+    "version": "3689"
+  },
+  "leakage": {
+    "borderline": false,
+    "cap": 0.8,
+    "patch_body_overlap": 0.1875
+  },
+  "needs_human_review": false,
+  "pair_id": "preactjs__preact-3567__then__preactjs__preact-3689",
+  "repo": "preactjs/preact",
+  "schema_version": 1,
+  "score": 0.738095,
+  "score_components": {
+    "file_jaccard": 0.666667,
+    "symbol_overlap": 0.071429
+  },
+  "shared_files": [
+    "hooks/src/index.js",
+    "hooks/src/internal.d.ts"
+  ],
+  "shared_symbols": [
+    "export",
+    "function"
+  ]
+}
