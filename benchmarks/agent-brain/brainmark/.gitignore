@@ -11,3 +11,9 @@ pools/*.json
 !pools/CLONE-LEDGER.json
 candidates/INDEX.json
 candidates/*.json
+candidates/fresh/*.json
+!candidates/fresh/SNAPSHOT.json
+!candidates/fresh/INDEX.json
+review/sheets/
+review/patches/
+review/statements/
