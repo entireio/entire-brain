@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "_comment": "Backend (agent CLI) pins for BrainMark. This file is OWNED BY THE AGENTS LAYER and is deliberately separate from ../config.json: config.json pins the experiment, backends.json pins the machine that runs it. Both are hashed into run metadata.",
+
+  "default_backend": "codex",
+  "_default_backend_note": "Plan 0.5: the codex/Azure adapter is PRIMARY. The claude adapter stays in-tree, is exercised by the stub tests, and is NOT used for v1 confirmatory runs. Backends are never pooled in a report -- the backend is a reported factor, per devenv memory 'cross-cell comparison is confounded'.",
+
+  "backends": {
+    "codex": {
+      "cli": "codex",
+      "agent": "codex",
+      "provider": "azure",
+      "azure": {
+        "env_file": "~/.azure_env",
+        "endpoint_env": "AZURE_AI_ENDPOINT",
+        "api_key_env": "AZURE_AI_API_KEY",
+        "api_version_env": "AZURE_AI_API_VERSION",
+        "default_api_version": "2024-05-01-preview",
+        "wire_api": "responses",
+        "provider_key": "azure",
+        "base_url_suffix": "/openai"
+      },
+      "models": {
+        "primary": "gpt-5.6-sol",
+        "generality": "gpt-5.6-terra",
+        "alternate": "gpt-5"
+      },
+      "reasoning_effort": "medium",
+      "sandbox": "workspace-write",
+      "extra_args": []
+    },
+    "claude": {
+      "cli": "claude",
+      "agent": "claude",
+      "provider": "anthropic",
+      "models": {
+        "primary": "claude-sonnet-4-6",
+        "generality": "claude-opus-4-6"
+      },
+      "extra_args": []
+    }
+  },
+
+  "prices": {
+    "_price_status": "UNVERIFIED_PLACEHOLDER",
+    "_price_provenance": "The Azure deployments gpt-5 / gpt-5.6-sol / gpt-5.6-terra are internal deployment names with no public rate card available to this harness. The numbers below are PLACEHOLDERS so that a usd figure exists for the resume guard and the cost column; every packet/report that prints a codex usd MUST also print price_status. Replace with the tenant's real rate card before any cost claim is published. Claude rows are copied from ../pricing.json (agent-brain's frozen table) and are real.",
+    "_units": "USD per million tokens",
+    "_convention_note": "Codex/OpenAI report cached_input_tokens as a SUBSET of input_tokens; Anthropic reports cache_read/cache_creation DISJOINT from input_tokens. compute_usd() in base.py implements both conventions explicitly -- see its docstring.",
+    "gpt-5": {"input_per_million": 1.25, "cache_read_per_million": 0.125, "output_per_million": 10.0, "status": "UNVERIFIED_PLACEHOLDER"},
+    "gpt-5.6-sol": {"input_per_million": 1.25, "cache_read_per_million": 0.125, "output_per_million": 10.0, "status": "UNVERIFIED_PLACEHOLDER"},
+    "gpt-5.6-terra": {"input_per_million": 2.5, "cache_read_per_million": 0.25, "output_per_million": 15.0, "status": "UNVERIFIED_PLACEHOLDER"},
+    "claude-sonnet-4-6": {"input_per_million": 3.0, "cache_read_per_million": 0.3, "cache_creation_per_million": 3.75, "output_per_million": 15.0, "status": "frozen_agent_brain_pricing_json"},
+    "claude-opus-4-6": {"input_per_million": 5.0, "cache_read_per_million": 0.5, "cache_creation_per_million": 6.25, "output_per_million": 25.0, "status": "frozen_agent_brain_pricing_json"}
+  }
+}

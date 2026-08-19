@@ -29,20 +29,18 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import json
 import os
 import pathlib
 import shutil
-import subprocess
 import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from brainmark import _harness, _repo  # type: ignore[no-redef]
+    from brainmark import _harness, _repo, agents  # type: ignore[no-redef]
     from brainmark.prompts import TASK_INSTRUCTIONS  # type: ignore[no-redef]
 else:
-    from . import _harness, _repo
+    from . import _harness, _repo, agents
     from .prompts import TASK_INSTRUCTIONS
 
 
@@ -56,30 +54,62 @@ def a_prompt(problem_statement: str) -> str:
     return f"{TASK_INSTRUCTIONS}\n\n--- ISSUE ---\n{problem_statement.strip()}\n"
 
 
-def build_command(config: dict, prompt: str, tier: str) -> list[str]:
-    model = config["agent"]["session_a"][f"tier_{tier}"]
-    return [
-        config["agent"]["cli"],
-        "--print",
-        "--strict-mcp-config",
-        "--mcp-config", '{"mcpServers":{}}',
-        "--disable-slash-commands",
-        "--permission-mode", "bypassPermissions",
-        "--output-format", "stream-json",
-        "--verbose",
-        "--safe-mode",
-        "--model", model,
-        "--max-turns", str(config["agent"]["max_turns"]),
-        prompt,
-    ]
+def resolve_backend(config: dict, override: str | None = None):
+    """Backend for session A. Same resolution order as run_b.resolve_backend --
+    A and B MUST run on the same backend, or the memory every arm is built from
+    was produced by a different agent than the one being measured."""
+    from .run_b import resolve_backend as _resolve  # local: avoids an import cycle
+
+    return _resolve(config, override)
 
 
-def session_env(config: dict, claude_config_dir: pathlib.Path) -> dict[str, str]:
+def resolve_model(config: dict, backend: str, tier: str, backends: dict,
+                  override: str | None = None, role: str = "primary") -> str:
+    session_a = (config.get("agent") or {}).get("session_a") or {}
+    if override:
+        return override
+    scoped = session_a.get(f"{backend}_tier_{tier}")
+    if scoped:
+        return str(scoped)
+    # Same rule as run_b.resolve_model: the plain tier key belongs to the CLI
+    # named in the config, not to whatever backend was selected at runtime.
+    cli = str((config.get("agent") or {}).get("cli") or "")
+    plain = session_a.get(f"tier_{tier}")
+    if plain and cli == backend:
+        return str(plain)
+    return agents.resolve_model(backend, role, backends)
+
+
+def build_command(config: dict, prompt: str, tier: str,
+                  adapter=None, model: str | None = None,
+                  worktree: pathlib.Path | None = None) -> list[str]:
+    """A-session argv, now produced by the backend adapter.
+
+    Session A keeps SESSION PERSISTENCE ON (unlike B): persistence is what
+    writes the native JSONL this file harvests, and that JSONL is the pinned
+    input every memory source is built from. agents/claude_adapter.py reproduces
+    the previous argv byte for byte with `session_persistence=True`.
+    """
+    if adapter is None:
+        adapter, _name, backends = resolve_backend(config)
+        model = model or resolve_model(config, adapter.name, tier, backends)
+    return adapter.build_command(
+        prompt, worktree or pathlib.Path("."), model or "",
+        max_turns=int(config["agent"]["max_turns"]),
+        session_persistence=True,
+    )
+
+
+def session_env(config: dict) -> tuple[dict[str, str], dict]:
+    """Backend-NEUTRAL env: run.py's sanitizer plus netjail.
+
+    The per-session agent home (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for
+    codex) is added by the adapter's prepare_env, which also decides where it
+    lives; harvest_native_jsonl() looks in the same place.
+    """
     env, provenance = _harness.sanitize_harness_agent_environment(dict(os.environ))
     env["PATH"] = _repo.netjail_path(pathlib.Path(config["graphmark_root"]), env.get("PATH"))
-    env["CLAUDE_CONFIG_DIR"] = str(claude_config_dir)
-    claude_config_dir.mkdir(parents=True, exist_ok=True)
-    return env, provenance  # type: ignore[return-value]
+    return env, provenance
 
 
 def harvest_native_jsonl(claude_config_dir: pathlib.Path, dest: pathlib.Path) -> dict:
@@ -107,24 +137,26 @@ def harvest_native_jsonl(claude_config_dir: pathlib.Path, dest: pathlib.Path) ->
 
 
 def run(pair: dict, config: dict, out_dir: pathlib.Path, tier: str,
-        dry_run: bool = False) -> dict:
+        dry_run: bool = False, backend: str | None = None,
+        model: str | None = None, model_role: str = "primary") -> dict:
     graphmark_root = pathlib.Path(config["graphmark_root"])
     repo = pair["repo"]
     cache = _repo.cache_dir_for(pathlib.Path(config["repo_cache"]), repo)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    adapter, backend_name, backends = resolve_backend(config, backend)
+    resolved_model = resolve_model(config, backend_name, tier, backends, model, model_role)
+
     worktree = out_dir / "worktree"
     claude_config_dir = out_dir / "claude-config"
     stream_path = out_dir / "stream.jsonl"
-    cc_out_path = out_dir / "cc_out.json"
     transcript_path = out_dir / "session_transcript.jsonl"
 
     problem = pair["a"].get("problem_statement")
     if problem is None:
         problem = load_problem_statement(config, pair["a"]["instance_id"])
     prompt = a_prompt(problem)
-    env, env_prov = session_env(config, claude_config_dir)
-    cmd = build_command(config, prompt, tier)
+    env, env_prov = session_env(config)
 
     meta: dict = {
         "pair_id": pair["pair_id"],
@@ -132,26 +164,29 @@ def run(pair: dict, config: dict, out_dir: pathlib.Path, tier: str,
         "repo": repo,
         "base_commit": pair["a"]["base_commit"],
         "tier": tier,
-        "model": config["agent"]["session_a"][f"tier_{tier}"],
+        "backend": backend_name,
+        "model": resolved_model,
         "dry_run": dry_run,
         "prompt_sha256": _harness.sha256_text(prompt),
         "env_sanitization": env_prov,
-        "cmd": cmd[:-1] + ["<PROMPT>"],
     }
 
     _repo.worktree_add(graphmark_root, cache, worktree, pair["a"]["base_commit"])
     try:
-        with stream_path.open("wb") as stream_fh, (out_dir / "cc_err.log").open("wb") as err_fh:
-            proc = subprocess.run(
-                cmd, cwd=str(worktree), env=env, stdin=subprocess.DEVNULL,
-                stdout=stream_fh, stderr=err_fh,
-                timeout=config["agent"]["timeout_sec"], check=False,
-            )
-        meta["returncode"] = proc.returncode
-        meta["result_event"] = extract_result_event(stream_path, cc_out_path)
-        meta["patch_bytes"] = _repo.collect_patch(
-            graphmark_root, cache, worktree, out_dir / "patch.diff"
+        result = adapter.run(
+            prompt=prompt, worktree=worktree, model=resolved_model,
+            timeout=config["agent"]["timeout_sec"], out_dir=out_dir, env=env,
+            patch_collector=lambda wt, out: _repo.collect_patch(
+                graphmark_root, cache, wt, out
+            ),
+            max_turns=int(config["agent"]["max_turns"]),
+            session_persistence=True,
         )
+        meta.update(result.to_meta())
+        meta["cmd"] = result.cmd
+        meta["returncode"] = result.returncode
+        meta["result_event"] = json.loads(result.out_json_path.read_text(encoding="utf-8"))
+        meta["patch_bytes"] = (result.patch or {}).get("bytes", 0)
         meta["native_jsonl"] = harvest_native_jsonl(claude_config_dir, transcript_path)
     finally:
         _repo.worktree_remove(graphmark_root, cache, worktree)
@@ -160,13 +195,19 @@ def run(pair: dict, config: dict, out_dir: pathlib.Path, tier: str,
     if meta["native_jsonl"].get("harvested"):
         meta["transcript_sha256"] = meta["native_jsonl"]["sha256"]
         meta["transcript_path"] = str(transcript_path)
+        meta["transcript_source"] = "native_agent_jsonl"
     else:
-        # Fall back to the stream we captured ourselves, and say so loudly --
-        # the two are not the same format and a report must not conflate them.
         shutil.copyfile(stream_path, transcript_path)
         meta["transcript_sha256"] = _harness.sha256_file(transcript_path)
         meta["transcript_path"] = str(transcript_path)
-        meta["transcript_fallback"] = "stream.jsonl (native JSONL not found)"
+        if backend_name == "codex":
+            # NOT a degradation: `codex exec --ephemeral` writes no session file
+            # by design, and its `--json` stdout IS the complete event record.
+            # Named distinctly so a report never conflates the two formats.
+            meta["transcript_source"] = "codex_event_stream"
+        else:
+            meta["transcript_source"] = "stream_fallback"
+            meta["transcript_fallback"] = "stream.jsonl (native JSONL not found)"
 
     (out_dir / "meta.json").write_text(_harness.pretty_json(meta), encoding="utf-8")
     return meta
@@ -211,6 +252,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default=None)
     parser.add_argument("--tier", default="pilot", choices=["pilot", "full"])
     parser.add_argument("--out", default=None)
+    parser.add_argument("--backend", default=None, choices=sorted(agents.ADAPTERS),
+                        help="agent backend; default comes from config/backends.json")
+    parser.add_argument("--model", default=None, help="explicit model, overriding the tier")
+    parser.add_argument("--model-role", default="primary",
+                        choices=["primary", "generality", "alternate"])
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan and exit; spawns no agent, spends nothing")
     args = parser.parse_args(argv)
@@ -223,20 +269,26 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         problem = load_problem_statement(config, pair["a"]["instance_id"])
+        adapter, backend_name, backends = resolve_backend(config, args.backend)
+        model = resolve_model(config, backend_name, args.tier, backends,
+                              args.model, args.model_role)
         plan = {
             "pair_id": pair["pair_id"],
             "instance_id": pair["a"]["instance_id"],
             "tier": args.tier,
-            "model": config["agent"]["session_a"][f"tier_{args.tier}"],
+            "backend": backend_name,
+            "model": model,
             "out_dir": str(out_dir),
-            "cmd": build_command(config, "<PROMPT>", args.tier),
+            "cmd": build_command(config, "<PROMPT>", args.tier,
+                                 adapter=adapter, model=model, worktree=out_dir / "worktree"),
             "prompt_sha256": _harness.sha256_text(a_prompt(problem)),
             "would_spend": True,
         }
         print(_harness.pretty_json(plan), end="")
         return 0
 
-    meta = run(pair, config, out_dir, args.tier)
+    meta = run(pair, config, out_dir, args.tier, backend=args.backend,
+               model=args.model, model_role=args.model_role)
     print(_harness.pretty_json({
         "pair_id": meta["pair_id"],
         "transcript_sha256": meta["transcript_sha256"],

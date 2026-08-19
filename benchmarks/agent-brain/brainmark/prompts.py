@@ -1,4 +1,4 @@
-"""One prompt scaffold for all five BrainMark arms, plus the symmetry gate.
+"""One prompt scaffold for all six BrainMark arms, plus the symmetry gate.
 
 THE FAIRNESS RULE (CONDITIONS.md; devenv/CLAUDE.md "Fairness"):
 tool/packet OUTPUT differences between arms are legitimate; arm-asymmetric
@@ -30,6 +30,30 @@ from __future__ import annotations
 import re
 
 from . import _harness
+
+#: THE ARM ENUMERATION. Six arms as of plan 0.4.
+#:
+#: `irrelevant` is the PLACEBO CONTROL (memsources/irrelevant.py): another
+#: pair's session-A-derived packet, same envelope, same byte budget. It is
+#: EXPLORATORY and is not a brain ablation -- nothing in the headline depends on
+#: it, and it can be dropped by removing it from this tuple and from
+#: config.json's `arms`.
+#:
+#: This tuple is the set of arms that EXIST; `config.json["arms"]` selects the
+#: subset a given run actually spawns, and the two are allowed to differ (a
+#: cheap cell may run four arms). The symmetry gate applies to whichever set is
+#: run; it is checked over the arms of one pair, not over this tuple.
+#:
+#: It is deliberately NOT in memsources.ARMS: every builder in that registry has
+#: the signature (query, transcript_bytes, ...) and can be called from the pair
+#: alone, whereas the placebo needs a DONOR pair chosen by a derangement over
+#: the whole sealed list. run_b.build_packets wires it for that reason.
+ARMS: tuple[str, ...] = (
+    "no_brain", "full_brain", "mem0", "graphify", "cmm", "irrelevant",
+)
+PLACEBO_ARM = "irrelevant"
+BASELINE_ARM = "no_brain"
+HEADLINE_ARM = "full_brain"
 
 BEGIN_TAG = "<frozen-memory-packet>"
 END_TAG = "</frozen-memory-packet>"

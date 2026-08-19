@@ -1,0 +1,10 @@
+{"id": "0", "msg": {"type": "session_configured", "session_id": "sess-legacy-1", "model": "gpt-5.6-sol"}}
+{"id": "1", "msg": {"type": "exec_command_begin", "command": ["bash", "-lc", "rg -n foo src"], "cwd": "/w"}}
+{"id": "1", "msg": {"type": "exec_command_end", "exit_code": 0, "stdout": "src/foo.py:3:foo"}}
+{"id": "2", "msg": {"type": "exec_command_begin", "command": ["bash", "-lc", "python -c 'print(1)'"], "cwd": "/w"}}
+{"id": "2", "msg": {"type": "exec_command_end", "exit_code": 0, "stdout": "1"}}
+{"id": "3", "msg": {"type": "patch_apply_begin", "auto_approved": true, "changes": {"src/foo.py": {"update": {}}}}}
+{"id": "3", "msg": {"type": "patch_apply_end", "success": true}}
+{"id": "4", "msg": {"type": "exec_command_begin", "command": ["bash", "-lc", "cat src/foo.py"], "cwd": "/w"}}
+{"id": "4", "msg": {"type": "exec_command_end", "exit_code": 0}}
+{"type": "turn.completed", "usage": {"input_tokens": 8000, "cached_input_tokens": 6000, "output_tokens": 250}}

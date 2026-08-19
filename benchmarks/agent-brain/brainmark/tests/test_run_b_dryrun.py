@@ -96,6 +96,9 @@ class RunBDryRunTest(unittest.TestCase):
             "_config_sha256": "test",
         })
         self.config["agent"]["timeout_sec"] = 120
+        # These dry-run tests stub the `claude` binary on PATH; pin the backend so the
+        # suite is independent of the machine-level default in config.json.
+        self.config["agent"]["backend"] = "claude"
 
         self.pair = {
             "pair_id": "a1__then__b1", "repo": "o/r",
