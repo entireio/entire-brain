@@ -83,7 +83,7 @@ python3 brainmark/seal.py promote
 python3 brainmark/seal.py verify
 ```
 
-Build the brain binary once (its sha256 lands in every `full_brain` packet):
+Build the CLI binary once (its sha256 lands in every `full_brain` packet):
 
 ```bash
 go build -o benchmarks/agent-brain/brainmark/bin/entire-brain ./cmd/entire-brain

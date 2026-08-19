@@ -92,9 +92,49 @@ class BuildCroissantTest(unittest.TestCase):
 
     def test_distribution_carries_the_seal_manifest_sha256s(self):
         doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
-        shas = {f["sha256"] for f in doc["distribution"]}
+        # distribution also carries the FileSet the RecordSet fields source
+        # from (cg.TASK_FILE_SET_ID) -- it has no per-file sha256, only the
+        # individual FileObjects do.
+        shas = {f["sha256"] for f in doc["distribution"] if "sha256" in f}
         self.assertIn("a" * 64, shas)
         self.assertIn("b" * 64, shas)
+
+    def test_distribution_includes_the_task_file_set_the_fields_source_from(self):
+        doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
+        file_sets = [f for f in doc["distribution"] if f.get("@type") == "cr:FileSet"]
+        self.assertEqual(len(file_sets), 1)
+        self.assertEqual(file_sets[0]["@id"], cg.TASK_FILE_SET_ID)
+        self.assertTrue(file_sets[0].get("includes"))
+
+    def test_record_set_fields_all_declare_a_source(self):
+        doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
+        fields = doc["recordSet"][0]["field"]
+        self.assertTrue(fields)
+        for field in fields:
+            source = field.get("source")
+            self.assertIsInstance(source, dict, field)
+            self.assertTrue(source.get("fileObject") or source.get("fileSet") or source.get("field"),
+                            field)
+
+    def test_file_objects_content_size_is_a_string(self):
+        doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
+        file_objects = [f for f in doc["distribution"] if f.get("@type") == "cr:FileObject"]
+        self.assertTrue(file_objects)
+        for obj in file_objects:
+            self.assertIsInstance(obj["contentSize"], str, obj)
+
+    def test_provenance_omits_unknown_hashes_instead_of_recording_null(self):
+        # An all-null (or empty) "_provenance" object sent real mlcroissant's
+        # JSON-LD expansion into unbounded recursion during manual
+        # verification -- omitting unknown hashes (and the key entirely if
+        # none are known) is the fix, not something the fallback validator
+        # alone can catch, so this is a direct regression test on the shape.
+        manifest = _fixture_manifest()
+        for key in ("miner_sha256", "config_sha256", "prereg_sha256",
+                   "mechmetrics_sha256", "vendored_metrics_sha256"):
+            manifest[key] = None
+        doc = cg.build_croissant(manifest, FIXTURE_DATASHEET)
+        self.assertNotIn("_provenance", doc)
 
     def test_responsible_ai_carries_kappa_and_disclosure(self):
         doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
@@ -140,12 +180,41 @@ class ValidateTest(unittest.TestCase):
         result = cg._structural_validate(doc)
         self.assertFalse(result["ok"])
 
+    def test_structural_validator_catches_a_field_with_no_source_or_value(self):
+        # Regression test for the exact defect real mlcroissant caught: a
+        # RecordSet field defining neither `source` nor `value`.
+        doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
+        del doc["recordSet"][0]["field"][0]["source"]
+        result = cg._structural_validate(doc)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("source" in e and "value" in e for e in result["errors"]), result["errors"])
+
+    def test_structural_validator_catches_non_string_content_size(self):
+        # Regression test for the exact defect real mlcroissant caught:
+        # `contentSize` typed as an int instead of `sc:Text`.
+        doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
+        doc["distribution"][0]["contentSize"] = 512
+        result = cg._structural_validate(doc)
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("contentSize" in e for e in result["errors"]), result["errors"])
+
     def test_validate_dispatches_to_structural_when_mlcroissant_unavailable(self):
-        # This environment does not have mlcroissant installed (checked at
-        # test-authoring time); validate() must transparently fall back.
+        # This environment may or may not have mlcroissant installed;
+        # validate() must transparently pick whichever path applies, and
+        # either way the well-formed fixture document must validate clean.
         doc = cg.build_croissant(_fixture_manifest(), FIXTURE_DATASHEET)
         result = cg.validate(doc)
         self.assertIn(result["validator"], ("structural", "mlcroissant"))
+        self.assertTrue(result["ok"], result["errors"])
+
+    def test_validate_an_early_manifest_with_no_sealed_tasks_yet(self):
+        # A manifest before any pair is sealed (`tasks: {}`, every hash
+        # unknown) must still produce a document real mlcroissant accepts --
+        # an all-null "_provenance" object previously sent its JSON-LD
+        # expansion into unbounded recursion (see
+        # test_provenance_omits_unknown_hashes_instead_of_recording_null).
+        doc = cg.build_croissant({}, "")
+        result = cg.validate(doc)
         self.assertTrue(result["ok"], result["errors"])
 
 

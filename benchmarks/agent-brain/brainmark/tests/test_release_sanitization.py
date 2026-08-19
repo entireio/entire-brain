@@ -145,6 +145,85 @@ class BuildReleaseFixtureTest(unittest.TestCase):
                 make_release.build_release(src, dst)
 
 
+class ExtendedRewriteMapFixtureTest(unittest.TestCase):
+    """Same doctrine as `BuildReleaseFixtureTest` (small controlled tree ->
+    full pipeline -> gate MUST find zero), but exercising the identifier
+    fragments the verification sweep found surviving the ORIGINAL rewrite
+    map: `brain_dir`, `ENTIRE_PLUGIN_DATA_DIR`, `entire-graph`, `agent-brain`
+    -- plus filename renaming (a source file literally named after the
+    arm), `pools/` exclusion + `FETCH_POOLS.md` generation, and the
+    manifest recording only anonymized relative paths + content hashes,
+    never the machine-local absolute src/dst roots the build ran under.
+    Offline, no network, sub-second."""
+
+    def _make_fixture(self, root: pathlib.Path) -> pathlib.Path:
+        src = root / "brainmark"
+        src.mkdir()
+        memsources = src / "memsources"
+        memsources.mkdir()
+        (memsources / "full_brain.py").write_text(
+            "import pathlib\n\n"
+            "def discover_brain_dir(binary: pathlib.Path) -> pathlib.Path:\n"
+            "    \"\"\"ENTIRE_PLUGIN_DATA_DIR must be set before this runs.\"\"\"\n"
+            "    brain_dir = binary.parent / 'data'\n"
+            "    return brain_dir\n",
+            encoding="utf-8",
+        )
+        (src / "prompts.py").write_text(
+            "TEXT = \"Do not run `entire`, `entire-graph`, or any memory/brain tool.\"\n",
+            encoding="utf-8",
+        )
+        pools = src / "pools"
+        pools.mkdir()
+        (pools / "swe_bench.json").write_text(
+            '[{"text": "fixing the entire header parser, see JetBrains forum"}]',
+            encoding="utf-8",
+        )
+        (pools / "swe_bench.meta.json").write_text(_harness.pretty_json({
+            "pool": "swe_bench", "dataset_id": "princeton-nlp/SWE-bench",
+            "revision": "deadbeef", "split": "test", "count": 1,
+        }), encoding="utf-8")
+        (src / "README.md").write_text(
+            "See benchmarks/agent-brain for the harness.\n", encoding="utf-8")
+        return src
+
+    def test_identifier_fragments_are_rewritten_and_files_renamed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = pathlib.Path(raw)
+            src = self._make_fixture(root)
+            dst = root / "release"
+            manifest = make_release.build_release(src, dst)
+            make_release.write_fetch_pools_doc(src, dst)
+
+            released_paths = {f["path"] for f in manifest["files"]}
+            # the arm-named source file ships renamed, not just its insides
+            self.assertIn("memsources/system_x.py", released_paths)
+            self.assertNotIn("memsources/full_brain.py", released_paths)
+            # pools/ is excluded entirely, but a fetch doc is generated
+            self.assertFalse(any(p.startswith("pools/") for p in released_paths))
+            self.assertTrue((dst / "release" / "FETCH_POOLS.md").is_file())
+            self.assertIn("princeton-nlp/SWE-bench",
+                          (dst / "release" / "FETCH_POOLS.md").read_text())
+
+            hits = make_release.scan_tree(dst)
+            self.assertEqual(hits, {}, hits)
+
+    def test_manifest_has_no_absolute_paths_and_has_content_hashes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = pathlib.Path(raw)
+            src = self._make_fixture(root)
+            dst = root / "release"
+            manifest = make_release.build_release(src, dst)
+
+            self.assertNotIn("src_root", manifest)
+            self.assertNotIn("dst_root", manifest)
+            manifest_text = _harness.pretty_json(manifest)
+            self.assertNotIn(str(root), manifest_text)
+            for entry in manifest["files"]:
+                self.assertIn("sha256", entry)
+                self.assertEqual(len(entry["sha256"]), 64)
+
+
 class CurrentTreeGateTest(unittest.TestCase):
     """The gate is SUPPOSED to flag this repo's own un-anonymized working
     tree -- that is the gate proving it is not a no-op. This test asserts

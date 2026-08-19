@@ -12,7 +12,7 @@ the seal, and `report.py` says so rather than silently comparing across versions
 | Go | go1.26.2 darwin/arm64 |
 | Claude Code CLI | 2.1.234 |
 | Docker | required for grading only (`swebench.harness.run_evaluation`) |
-| Platform | darwin/arm64 (`sandbox-exec` read-isolation is macOS-only; elsewhere it degrades to netjail + env sanitization and records that in `meta.json`) |
+| Platform | darwin/arm64 (`sandbox-exec` read-isolation is macOS-only; elsewhere it degrades to netjail + env sanitization and records that in `meta.json`; grading on this arch needs a manual image pre-pull — see "Known gap" below) |
 
 ## Source pins
 
@@ -105,3 +105,39 @@ python3 -m unittest discover -s brainmark/tests -t . -p "test_*.py"   # 55 tests
 python3 brainmark/mine_pairs.py                                       # deterministic
 python3 brainmark/seal.py verify                                      # after sealing
 ```
+
+## Known gap: grading on Apple Silicon (arm64)
+
+Official SWE-bench instance images are published `x86_64`-only
+(`swebench/sweb.eval.x86_64.<repo>_<n>`). The `swebench.harness.run_evaluation`
+entrypoint's own `images.pull()` call does not pass `--platform` to Docker, so
+on an arm64 host (this repo's own toolchain pin is `darwin/arm64`) it never
+resolves an architecture and the pull silently no-ops instead of fetching the
+`x86_64` image. Grading then fails per-instance with a 404 against the local
+Docker daemon:
+
+```
+Error building image pallets__flask-5014: 404 Client Error for
+http+docker://localhost/v1.54/images/swebench/sweb.eval.x86_64.pallets_1776_flask-5014:latest/json:
+Not Found ("No such image: swebench/sweb.eval.x86_64.pallets_1776_flask-5014:latest")
+```
+
+**Workaround: pull the image yourself with an explicit platform before
+grading**, then re-run — the harness reuses whatever is already cached:
+
+```bash
+docker pull --platform linux/amd64 swebench/sweb.eval.x86_64.<repo>_<n>:latest
+python3 -m swebench.harness.run_evaluation ...   # unchanged invocation
+```
+
+**Evidence**: a gold-patch smoke test on `pallets__flask-5014` errored
+(`error_instances: 1`, `resolved_instances: 0`) on the first run on this
+arm64 host; after `docker pull --platform linux/amd64
+swebench/sweb.eval.x86_64.pallets_1776_flask-5014:latest` and re-running the
+*same* command with no other change, the harness logged `Found 1 existing
+instance images. Will reuse them.` and the instance graded
+`resolved_instances: 1` (`RESOLVED`). Since real Tier 1-3 grading (§ above)
+is Docker-based and this repo's pinned toolchain is `darwin/arm64`, any
+grading run on Apple Silicon needs this manual pre-pull step per image (or a
+harness-side fix upstream) — otherwise every instance errors before grading,
+which reads as "the patch failed" rather than "the platform never resolved".
