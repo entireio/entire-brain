@@ -1,7 +1,7 @@
 # =============================================================================
 # VENDORED COPY -- DO NOT EDIT IN PLACE.
 #
-#   Source repo   : /Users/suhaan/devenv/graphmark  (graphmark)
+#   Source repo   : <local graphmark checkout>  (graphmark)
 #   Source path   : agentic-swebench/tools/metrics.py
 #   Source commit : 641c009cbe10ccac72059de0c92e339943274b67
 #   Commit date   : 2026-07-27T09:11:02-04:00

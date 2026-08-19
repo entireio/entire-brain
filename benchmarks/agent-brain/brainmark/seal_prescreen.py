@@ -155,9 +155,13 @@ def check_pool_integrity(config: dict, index: dict) -> list[dict]:
     checks: list[dict] = []
     for name, rec in sorted((index.get("pool_revisions") or {}).items()):
         data_path, _ = pool_loaders.pool_paths(config, name)
+        try:
+            display = str(data_path.relative_to(_harness.BRAINMARK_DIR))
+        except ValueError:
+            display = _harness.display_path(data_path)
         entry = {
             "pool": name,
-            "path": str(data_path),
+            "path": display,
             "revision": rec.get("revision"),
             "index_sha256": rec.get("sha256"),
             "on_disk_sha256": None,
@@ -993,7 +997,7 @@ def run(args) -> dict:
         "miner_sha256": index.get("miner_sha256"),
         "config_sha256": config["_config_sha256"],
         "candidates_index_sha256": _harness.sha256_file(candidates_dir / "INDEX.json"),
-        "candidates_dir": str(candidates_dir),
+        "candidates_dir": _harness.display_path(candidates_dir),
         "candidate_count": len(candidates),
         "pools_mined": pools or [],
         "pool_revisions": index.get("pool_revisions") or {},

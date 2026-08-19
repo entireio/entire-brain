@@ -8,6 +8,9 @@
 >
 > Reviewers read this file to answer "was the baseline given a fair chance?".
 > `report.py` may not print a competitor column whose pin block here is unresolved.
+>
+> `$EG_MEMHARNESS_ROOT` below is a placeholder for wherever you have the
+> `eg-memharness` repo checked out locally; it is not a path this repo ships or pins.
 
 ---
 
@@ -76,7 +79,7 @@ blocker, not a footnote — see **Pin resolution procedure** below.
 - **What**: the named commercial memory competitor (`mem0ai`, OSS library + server).
 - **Homepage / repo**: <https://github.com/mem0ai/mem0>
 - **Client surface to mirror**:
-  `/Users/suhaan/devenv/eg-memharness/bench/memory/benchmarks/common/` (the
+  `$EG_MEMHARNESS_ROOT/bench/memory/benchmarks/common/` (the
   duck-typed `add`/`search` shape every arm in that harness implements).
 
 ### Config (what BrainMark runs)
@@ -159,7 +162,7 @@ ingest is LLM-driven and that is a real cost difference, not a defect.
 - **What**: YC-backed code+docs knowledge-graph memory. The code-domain competitor.
 - **Repo**: <https://github.com/Graphify-Labs/graphify> · PyPI `graphifyy`
 - **Client surface to mirror**:
-  `/Users/suhaan/devenv/eg-memharness/bench/memory/benchmarks/common/graphify_client.py`
+  `$EG_MEMHARNESS_ROOT/bench/memory/benchmarks/common/graphify_client.py`
   (+ its out-of-process bridge `graphify_mem_bridge.py`).
 
 ### Published default config (what BrainMark runs)
@@ -185,8 +188,8 @@ file recorded commit `07b9143d4b90b1e1cb88dc71423f742a501efd29` for the v45 run 
 this machine:
 
 ```
-_DEFAULT_PYTHON = /home/suhaan_entire_io/memarms/venvs/graphify/bin/python
-_DEFAULT_SOURCE = /home/suhaan_entire_io/memarms/inputs/repos/graphify
+_DEFAULT_PYTHON = /home/remote-vm-user/memarms/venvs/graphify/bin/python
+_DEFAULT_SOURCE = /home/remote-vm-user/memarms/inputs/repos/graphify
 ```
 
 So, before the first Graphify packet:
@@ -211,7 +214,7 @@ config rather than by environment.
   The OSS code-memory competitor.
 - **Repo**: <https://github.com/DeusData/codebase-memory-mcp>
 - **Client surface to mirror**:
-  `/Users/suhaan/devenv/eg-memharness/bench/memory/benchmarks/common/cmm_client.py`
+  `$EG_MEMHARNESS_ROOT/bench/memory/benchmarks/common/cmm_client.py`
 
 ### Published default config (what BrainMark runs)
 
@@ -219,7 +222,7 @@ config rather than by environment.
 |---|---|---|
 | version | `v0.9.0` | upstream release |
 | build revision | `b637e3330c96cfe452da623db068c241aaa3ec01` | `graphify-parity/results/memory-native-v52/results.json:revisions.codebase_memory_mcp` (stable across the v45 and v52 runs) |
-| patch | `cmm-v0.9.0-markdown-sections`, sha256 `df139f2695152de9ee9c562b93d99c7ad57e357beb8cdd72577a2651aefa205b` | `/Users/suhaan/devenv/eg-memharness/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch` (re-hashed 2026-08-18); identical copy at `graphify-parity/patches/cmm-v0.9.0-markdown-sections.patch` |
+| patch | `cmm-v0.9.0-markdown-sections`, sha256 `df139f2695152de9ee9c562b93d99c7ad57e357beb8cdd72577a2651aefa205b` | `$EG_MEMHARNESS_ROOT/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch` (re-hashed 2026-08-18); identical copy at `graphify-parity/patches/cmm-v0.9.0-markdown-sections.patch` |
 | index mode | `full` | published |
 | retrieval | `search_graph` — BM25 over SQLite FTS5 | published |
 
@@ -251,7 +254,7 @@ State this in limitations; do not quote the prose-campaign numbers here.
 ### UNRESOLVED PIN — the compiled binary
 
 No cmm binary exists on this machine. `cmm_client.py:65` points at
-`/home/suhaan_entire_io/memarms/inputs/bin/cmm-patched/codebase-memory-mcp` (a remote
+`/home/remote-vm-user/memarms/inputs/bin/cmm-patched/codebase-memory-mcp` (a remote
 VM) and `devenv/cmm` is a dangling symlink, not a checkout. `config.json` therefore
 carries `binary: null` / `binary_sha256: null` — **deliberately null, not invented**.
 
@@ -271,9 +274,9 @@ column is marked `PIN UNRESOLVED` in the report.
 git clone https://github.com/DeusData/codebase-memory-mcp /path/to/cmm
 git -C /path/to/cmm checkout b637e3330c96cfe452da623db068c241aaa3ec01
 # 2. apply the sealed patch and verify it first
-shasum -a 256 /Users/suhaan/devenv/eg-memharness/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch
+shasum -a 256 $EG_MEMHARNESS_ROOT/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch
 #    must print df139f2695152de9ee9c562b93d99c7ad57e357beb8cdd72577a2651aefa205b
-git -C /path/to/cmm apply /Users/suhaan/devenv/eg-memharness/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch
+git -C /path/to/cmm apply $EG_MEMHARNESS_ROOT/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch
 # 3. build, then pin the artifact
 shasum -a 256 /path/to/cmm/codebase-memory-mcp
 # 4. write binary + binary_sha256 into config.json:competitors.cmm
@@ -283,7 +286,7 @@ If the remote VM is still reachable, the faster path is to hash the artifact tha
 actually produced the historical numbers:
 
 ```bash
-ssh <vm> shasum -a 256 /home/suhaan_entire_io/memarms/inputs/bin/cmm-patched/codebase-memory-mcp
+ssh <vm> shasum -a 256 /home/remote-vm-user/memarms/inputs/bin/cmm-patched/codebase-memory-mcp
 ```
 
 Record which path was used. A locally rebuilt binary is **not** guaranteed to be the

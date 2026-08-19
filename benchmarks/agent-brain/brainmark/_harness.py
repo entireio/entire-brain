@@ -17,13 +17,85 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
+import re
 import sys
 import types
+from typing import Any
 
 BRAINMARK_DIR = pathlib.Path(__file__).resolve().parent
 AGENT_BENCH_DIR = BRAINMARK_DIR.parent
 RUN_PY = AGENT_BENCH_DIR / "run.py"
+
+#: `${NAME}` in a config.json string value is expanded from the environment
+#: at load time -- see `_expand_config_env` below. Same convention (and same
+#: deliberate `${...}` not `$NAME`) as memsources/mem0_source.py's expand_env.
+_CONFIG_ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+#: Defaults for the machine-local OPERATIONAL paths config.json references by
+#: `${VAR}` -- WHERE this checkout's sibling repos happen to live on disk,
+#: never anything that changes a measured result (those stay literal pins).
+#: Home-relative so no contributor's username is ever committed; override any
+#: of these per machine by setting the env var instead of editing config.json.
+_CONFIG_ENV_DEFAULTS: dict[str, str] = {
+    "BRAINMARK_GRAPHMARK_ROOT": str(pathlib.Path.home() / "devenv" / "graphmark" / "agentic-swebench"),
+    "BRAINMARK_REPO_CACHE": str(
+        pathlib.Path.home() / "devenv" / "graphmark" / "agentic-swebench" / "repo-cache"
+    ),
+    "BRAINMARK_CMM_PATCH_PATH": str(
+        pathlib.Path.home() / "devenv" / "eg-memharness" / "bench" / "memory" / "patches"
+        / "0005-cmm-v0.9.0-markdown-sections.patch"
+    ),
+}
+
+
+def _expand_config_env_string(value: str) -> str:
+    def sub(match: "re.Match[str]") -> str:
+        name = match.group(1)
+        resolved = os.environ.get(name)
+        if resolved:
+            return resolved
+        default = _CONFIG_ENV_DEFAULTS.get(name)
+        if default is not None:
+            return default
+        raise RuntimeError(
+            f"config.json references ${{{name}}} but it is unset and has no built-in default"
+        )
+    return _CONFIG_ENV_REF.sub(sub, value)
+
+
+#: Dotted paths of the ONLY config.json keys eagerly `${VAR}`-expanded at load
+#: time -- machine-local operational paths every caller of load_config()
+#: needs resolved immediately. Deliberately NOT a blanket recursive walk over
+#: the whole config: competitors.mem0.llm.config_extra also carries `${VAR}`
+#: refs (e.g. `${AZURE_AI_ENDPOINT}`), but those are tenant secrets expanded
+#: LAZILY and separately by memsources/mem0_source.py:expand_env, only when
+#: the mem0 arm actually runs -- eagerly expanding them here would make
+#: merely loading config.json (every test, every script) require that
+#: variable to be set even when nothing touches the mem0 arm.
+_CONFIG_ENV_KEYS: tuple[tuple[str, ...], ...] = (
+    ("graphmark_root",),
+    ("repo_cache",),
+    ("competitors", "cmm", "patch", "path"),
+)
+
+
+def _expand_config_env(cfg: dict) -> dict:
+    for key_path in _CONFIG_ENV_KEYS:
+        node: Any = cfg
+        for key in key_path[:-1]:
+            if not isinstance(node, dict) or key not in node:
+                node = None
+                break
+            node = node[key]
+        if not isinstance(node, dict):
+            continue
+        leaf = key_path[-1]
+        if isinstance(node.get(leaf), str):
+            node[leaf] = _expand_config_env_string(node[leaf])
+    return cfg
+
 
 _CACHED: types.ModuleType | None = None
 
@@ -111,9 +183,13 @@ def pretty_json(value) -> str:
 
 def load_config(path: str | pathlib.Path | None = None) -> dict:
     cfg_path = pathlib.Path(path) if path else BRAINMARK_DIR / "config.json"
-    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    raw_text = cfg_path.read_text(encoding="utf-8")
+    # The pin's sha256 is over the COMMITTED (unexpanded) bytes: which sibling
+    # repo a machine points graphmark_root/repo_cache at is not part of what
+    # is being measured, so it must not perturb the config pin.
+    cfg = _expand_config_env(json.loads(raw_text))
     cfg["_config_path"] = str(cfg_path)
-    cfg["_config_sha256"] = sha256_text(cfg_path.read_text(encoding="utf-8"))
+    cfg["_config_sha256"] = sha256_text(raw_text)
     return cfg
 
 
@@ -131,3 +207,21 @@ def sha256_bytes(data: bytes) -> str:
 
 def sha256_file(path: str | pathlib.Path) -> str:
     return sha256_bytes(pathlib.Path(path).read_bytes())
+
+
+def display_path(path: str | pathlib.Path) -> str:
+    """A path safe to write into a TRACKED artifact (ledger, provenance, log).
+
+    Absolute machine-local paths bake a contributor's username into a
+    committed file the moment a script runs once and writes its output.
+    Collapse anything under the current user's home directory to a `~/...`
+    form -- publication-safe (no username survives) and still legible/useful
+    for a human reading the artifact. Paths outside the home directory (e.g.
+    already-relative paths) are returned unchanged.
+    """
+    p = pathlib.Path(path)
+    home = pathlib.Path.home()
+    try:
+        return "~/" + p.relative_to(home).as_posix()
+    except ValueError:
+        return str(path)

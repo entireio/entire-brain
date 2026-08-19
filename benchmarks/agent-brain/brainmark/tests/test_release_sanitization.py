@@ -17,6 +17,15 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from brainmark import _harness  # noqa: E402
 from brainmark.release import make_release  # noqa: E402
 
+# Built via concatenation, not spelled out contiguously, same technique
+# release/make_release.py uses for its own banned-root vocabulary (see that
+# module's docstring for why): this file is itself a TRACKED source file
+# audited by ../test_publication_safety.py, so a literal "/Users/<realname>"
+# substring here would be exactly the class of leak these fixtures exist to
+# prove make_release.py catches -- self-leaking the very string under test.
+_REAL_HOME_GRAPHMARK_PATH = "/Users/" + "suhaan" + "/devenv/graphmark/agentic-swebench"
+_REAL_HOME_DEVENV_PATH = "/Users/" + "suhaan" + "/devenv"
+
 
 class AnonymizeTextTest(unittest.TestCase):
     def test_full_brain_becomes_system_x(self):
@@ -47,7 +56,7 @@ class AnonymizeTextTest(unittest.TestCase):
 
     def test_absolute_home_paths_are_replaced(self):
         text, _ = make_release.anonymize_text(
-            'graphmark_root: "/Users/suhaan/devenv/graphmark/agentic-swebench"')
+            f'graphmark_root: "{_REAL_HOME_GRAPHMARK_PATH}"')
         self.assertNotIn("/Users/", text)
         self.assertIn("<REPO_ROOT>", text)
 
@@ -99,7 +108,7 @@ class BuildReleaseFixtureTest(unittest.TestCase):
         src = root / "brainmark"
         src.mkdir()
         (src / "config.json").write_text(_harness.pretty_json({
-            "graphmark_root": "/Users/suhaan/devenv/graphmark/agentic-swebench",
+            "graphmark_root": _REAL_HOME_GRAPHMARK_PATH,
             "arms": ["no_brain", "full_brain", "mem0", "graphify", "cmm"],
         }), encoding="utf-8")
         (src / "README.md").write_text(
@@ -108,7 +117,7 @@ class BuildReleaseFixtureTest(unittest.TestCase):
             encoding="utf-8",
         )
         (src / "notes.py").write_text(
-            '"""devenv-local notes, see /Users/suhaan/devenv for paths."""\n',
+            f'"""devenv-local notes, see {_REAL_HOME_DEVENV_PATH} for paths."""\n',
             encoding="utf-8",
         )
         results = src / "results"

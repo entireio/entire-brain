@@ -28,10 +28,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import pathlib
 from typing import Any, Callable
 
 from .base import MemoryPacket, MemorySourceError, Stopwatch, build_packet, normalize_results
+
+# Where the eg-memharness checkout lives. Overridable per machine via
+# EG_MEMHARNESS_ROOT; the default assumes the common devenv-worktree layout
+# (eg-memharness cloned as a sibling under the user's own workspace root) but
+# is never assumed to be correct -- load_memharness_client() below fails
+# loudly at prep, never silently, if nothing is found there.
+_DEFAULT_EG_MEMHARNESS_ROOT = pathlib.Path.home() / "devenv" / "eg-memharness"
 
 # Transcript roles we surface. `system` is dropped: it is harness scaffolding,
 # identical across arms, and feeding it in would just pad every store equally.
@@ -164,9 +172,10 @@ def load_memharness_client(module_name: str, class_name: str) -> Any:
     """
     import importlib.util
 
-    root = pathlib.Path(
-        "/Users/suhaan/devenv/eg-memharness/bench/memory/benchmarks/common"
+    memharness_root = pathlib.Path(
+        os.environ.get("EG_MEMHARNESS_ROOT", str(_DEFAULT_EG_MEMHARNESS_ROOT))
     )
+    root = memharness_root / "bench" / "memory" / "benchmarks" / "common"
     path = root / f"{module_name}.py"
     if not path.is_file():
         raise MemorySourceError(

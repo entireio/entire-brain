@@ -178,7 +178,7 @@ def sweep(config: dict, *, pools: list[str] | None = None,
     for repo in wanted:
         dest = mine_pairs.cache_dir_for(repo_cache, repo)
         entry = dict(entries.get(repo) or {})
-        entry["dir"] = str(dest)
+        entry["dir"] = _harness.display_path(dest)
         entry["instances"] = counts[repo]
         if counts[repo] < min_instances:
             # A single-instance repo can never form an (A, B) pair.
@@ -238,7 +238,7 @@ def sweep(config: dict, *, pools: list[str] | None = None,
 
     result = {
         "schema_version": LEDGER_VERSION,
-        "repo_cache": str(repo_cache),
+        "repo_cache": _harness.display_path(repo_cache),
         "clone_filter": str(clone_cfg.get("filter") or "blob:none"),
         "min_instances_per_repo": min_instances,
         "pools": sorted(pools or []),

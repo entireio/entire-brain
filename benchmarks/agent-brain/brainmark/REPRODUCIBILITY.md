@@ -75,8 +75,9 @@ otherwise reserves half of system RAM per process, which fails searches outright
 under concurrency 8.
 
 Competitor clients are **imported by path** from
-`/Users/suhaan/devenv/eg-memharness/bench/memory/benchmarks/common/`, not copied,
-so a fix there propagates. A missing checkout fails the arm loudly at prep.
+`$EG_MEMHARNESS_ROOT/bench/memory/benchmarks/common/` (env override; defaults to
+`~/devenv/eg-memharness`), not copied, so a fix there propagates. A missing
+checkout fails the arm loudly at prep.
 
 ## Seeds and estimator
 

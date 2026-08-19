@@ -324,10 +324,16 @@ def load_pool(config: dict, name: str) -> tuple[dict[str, dict], dict]:
     meta = {}
     if meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    try:
+        rel_path = str(data_path.relative_to(_harness.BRAINMARK_DIR))
+    except ValueError:
+        rel_path = str(data_path)
     provenance = {
         "kind": "hf_pool",
         "pool": name,
-        "path": str(data_path),
+        # Relative to the repo root, same convention as mine_pairs.py's local
+        # pool sources -- never the machine-local absolute checkout path.
+        "path": rel_path,
         "sha256": _harness.sha256_file(data_path),
         "dataset_id": doc.get("dataset_id"),
         "revision": doc.get("revision") or meta.get("revision"),

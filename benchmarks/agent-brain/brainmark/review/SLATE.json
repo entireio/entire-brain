@@ -56,7 +56,7 @@
       "tokio-rs/axum": 5
     }
   },
-  "candidates_dir": "/Users/suhaan/devenv/p0p1/brainmark/benchmarks/agent-brain/brainmark/candidates",
+  "candidates_dir": "~/devenv/p0p1/brainmark/benchmarks/agent-brain/brainmark/candidates",
   "candidates_index_sha256": "23359ef01fdf704a3e9c21489477500a94a91dd2fa5af02ca5a8924c7b12bd97",
   "composition": {
     "by_language": {
@@ -31045,7 +31045,7 @@
       "index_sha256": "992e28c108e3a2146856d94b4e31627935420244923dda4a60cd8d2880a171fb",
       "ok": true,
       "on_disk_sha256": "992e28c108e3a2146856d94b4e31627935420244923dda4a60cd8d2880a171fb",
-      "path": "/Users/suhaan/devenv/p0p1/brainmark/benchmarks/agent-brain/brainmark/pools/swe_bench.json",
+      "path": "pools/swe_bench.json",
       "pool": "swe_bench",
       "revision": "e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6"
     },
@@ -31053,7 +31053,7 @@
       "index_sha256": "352e641422bbee6cef85c4b522dd2978bedb27f6acc5e1aa2415d911d60af882",
       "ok": true,
       "on_disk_sha256": "352e641422bbee6cef85c4b522dd2978bedb27f6acc5e1aa2415d911d60af882",
-      "path": "/Users/suhaan/devenv/p0p1/brainmark/benchmarks/agent-brain/brainmark/pools/swe_bench_multilingual.json",
+      "path": "pools/swe_bench_multilingual.json",
       "pool": "swe_bench_multilingual",
       "revision": "846e647b9f33c0b51b739d005d13d85493c9af09"
     },
@@ -31061,7 +31061,7 @@
       "index_sha256": "5018900ed277df86dc72f8c04b057db3835891d33a450614cc80ddf1b9730f09",
       "ok": true,
       "on_disk_sha256": "5018900ed277df86dc72f8c04b057db3835891d33a450614cc80ddf1b9730f09",
-      "path": "/Users/suhaan/devenv/p0p1/brainmark/benchmarks/agent-brain/brainmark/pools/swe_bench_verified.json",
+      "path": "pools/swe_bench_verified.json",
       "pool": "swe_bench_verified",
       "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
     }

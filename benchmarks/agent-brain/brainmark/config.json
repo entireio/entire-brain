@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "_comment": "BrainMark configuration. Every value here is a PIN: changing one invalidates the seal manifest's config_sha256 and report.py will say so.",
-  "graphmark_root": "/Users/suhaan/devenv/graphmark/agentic-swebench",
-  "repo_cache": "/Users/suhaan/devenv/graphmark/agentic-swebench/repo-cache",
+  "_comment": "BrainMark configuration. Every value here is a PIN: changing one invalidates the seal manifest's config_sha256 and report.py will say so. Exception: `${VAR}`-style values (graphmark_root, repo_cache, cmm patch path) are machine-local OPERATIONAL paths -- WHERE this checkout's sibling repos live on disk, not anything that changes a measured result -- and are expanded from the environment at load time (see _harness.py:_expand_config_env), falling back to a documented ~/devenv-relative default. The config_sha256 pin is computed over these UNEXPANDED bytes, so pointing a different machine at a different checkout location never perturbs the pin.",
+  "graphmark_root": "${BRAINMARK_GRAPHMARK_ROOT}",
+  "repo_cache": "${BRAINMARK_REPO_CACHE}",
   "task_globs": [
     "tasks/*.json"
   ],
@@ -167,7 +167,7 @@
       "bridge": null,
       "source": null,
       "python": null,
-      "_note": "bridge/source/python null => inherit GRAPHIFY_BRIDGE / GRAPHIFY_SOURCE / GRAPHIFY_PYTHON, matching eg-memharness graphify_client.py defaults. The defaults baked into that client are REMOTE VM paths (/home/suhaan_entire_io/...) and are not valid on this machine -- they must be set before a graphify arm runs.",
+      "_note": "bridge/source/python null => inherit GRAPHIFY_BRIDGE / GRAPHIFY_SOURCE / GRAPHIFY_PYTHON, matching eg-memharness graphify_client.py defaults. The defaults baked into that client are REMOTE VM paths (/home/<remote-vm-user>/...) and are not valid on this machine -- they must be set before a graphify arm runs.",
       "_mode_note": "structural = 0-LLM extraction, the mode the parity harness sealed. `--backend <model>` semantic mode is the LLM variant and is NOT the published default."
     },
     "cmm": {
@@ -176,7 +176,7 @@
       "build_revision_source": "graphify-parity/results/memory-native-v52/results.json:revisions.codebase_memory_mcp",
       "patch": {
         "name": "cmm-v0.9.0-markdown-sections",
-        "path": "/Users/suhaan/devenv/eg-memharness/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch",
+        "path": "${BRAINMARK_CMM_PATCH_PATH}",
         "sha256": "df139f2695152de9ee9c562b93d99c7ad57e357beb8cdd72577a2651aefa205b",
         "_why": "The SHIPPED v0.9.0 binary excludes Section nodes from its BM25 result set, so on a prose/markdown corpus it indexes everything and retrieves NOTHING (a NULL ARM -- it produced 1050 byte-identical empty contexts in the v52 matrix). This one-line patch drops Section from the exclusion list and nothing else. Running the patched build is the CHARITABLE choice and is disclosed; an unpatched cmm column would be retrieval-vs-nothing, not a product comparison."
       },
