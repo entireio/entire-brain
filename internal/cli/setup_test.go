@@ -474,3 +474,43 @@ func TestSetupChildEnvCarriesPluginDirs(t *testing.T) {
 		t.Fatalf("unset dirs must not be forwarded as empty: %+v", values)
 	}
 }
+
+// TestSetupRemembersItsIdentitiesForLaterReads guards a gap a live run exposed:
+// with a custom --daemon-name, `status` and `setup --uninstall-daemon` were
+// looking for the DEFAULT daemon and reporting the real one as not installed.
+func TestSetupRemembersItsIdentitiesForLaterReads(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	opts := defaultSetupOptions()
+	opts.workspace = "custom-ws"
+	opts.daemonName = "entire-brain-watch-custom"
+
+	runSetupForTest(t, f, opts, rec)
+
+	stateDir := filepath.Dir(f.storage.HeadPath)
+	recorded := setupOptionsFromRecord(stateDir)
+	if recorded.workspace != "custom-ws" || recorded.daemonName != "entire-brain-watch-custom" {
+		t.Fatalf("setup must record the identities it used, got %+v", recorded)
+	}
+
+	// A later invocation that names neither must inherit both.
+	inherited := applySetupRecordDefaults(defaultSetupOptions(), stateDir)
+	if inherited.workspace != "custom-ws" || inherited.daemonName != "entire-brain-watch-custom" {
+		t.Fatalf("a later run must address the same daemon and workspace, got %+v", inherited)
+	}
+
+	// An explicit flag still wins over the record.
+	explicit := defaultSetupOptions()
+	explicit.daemonName = "entire-brain-watch-other"
+	if got := applySetupRecordDefaults(explicit, stateDir).daemonName; got != "entire-brain-watch-other" {
+		t.Fatalf("an explicit --daemon-name must win, got %s", got)
+	}
+}
+
+func TestSetupOptionsFromRecordFallsBackToDefaults(t *testing.T) {
+	t.Parallel()
+	got := setupOptionsFromRecord(t.TempDir())
+	if got.workspace != setupDefaultWorkspace || got.daemonName != daemonDefaultName {
+		t.Fatalf("a never-set-up repo must read as the defaults, got %+v", got)
+	}
+}

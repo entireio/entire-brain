@@ -4490,7 +4490,9 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			report.Semantic.Freshness = &freshness
 		}
 	}
-	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, defaultSetupOptions())
+	// Read the identities a previous `setup` chose, so a custom-named watcher
+	// is inspected rather than reported missing.
+	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, setupOptionsFromRecord(filepath.Dir(storage.HeadPath)))
 	report.Onboarding = &onboarding
 	return report, nil
 }

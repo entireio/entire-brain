@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -44,6 +45,10 @@ const (
 	setupBackfillStateFile     = "backfill.json"
 	setupBackfillLogFile       = "backfill.log"
 	setupBackfillStateVersion  = 1
+	// setupRecordFile remembers which workspace and daemon identity this repo
+	// was set up with, so `status` reports on the daemon that actually exists
+	// rather than on the default one it would have created.
+	setupRecordFile = "setup.json"
 	// setupDaemonBudget caps gated agent runs per daemon process. One per
 	// --distill-every window is the frugal default the docs recommend.
 	setupDaemonBudget = 1
@@ -196,6 +201,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
+	// A repo already set up under a non-default daemon name must keep pointing
+	// at THAT daemon, or `setup --uninstall-daemon` would look for one that was
+	// never installed and leave the real one running.
+	setupOpts = applySetupRecordDefaults(setupOpts, filepath.Dir(storage.HeadPath))
 	steps = resolveSetupSteps(cmd, perRepo, setupOpts, repoDir, steps)
 
 	// --json must keep stdout parseable, so the friendly per-step lines are
@@ -269,6 +278,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 
 	report.Hook = inspectSessionEndHook(repoDir)
 	reportSetupHook(progress, report.Hook)
+
+	// Remember the identities this run used so `status` inspects the daemon
+	// that exists rather than the default one it would have created.
+	if err := writeSetupRecord(filepath.Dir(storage.HeadPath), setupRecord{
+		SchemaVersion: setupBackfillStateVersion,
+		UpdatedAt:     steps.now().UTC(),
+		Workspace:     setupOpts.workspace,
+		DaemonName:    setupOpts.daemonName,
+	}); err != nil {
+		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
+	}
 
 	if setupOpts.json {
 		return writeJSON(cmd, report)
@@ -586,6 +606,58 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 		}
 	}
 	return steps
+}
+
+// setupRecord is what a previous `setup` chose for this repo. It exists so
+// later reads (status) inspect the real daemon identity instead of assuming the
+// defaults, which would report a custom-named watcher as "not installed".
+type setupRecord struct {
+	SchemaVersion int       `json:"schema_version"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	Workspace     string    `json:"workspace,omitempty"`
+	DaemonName    string    `json:"daemon_name,omitempty"`
+}
+
+// applySetupRecordDefaults carries a previous run's identities forward for any
+// option the caller left at its default, so a repo set up with a custom
+// workspace or daemon name keeps addressing the same ones.
+func applySetupRecordDefaults(setupOpts setupCommandOptions, stateDir string) setupCommandOptions {
+	recorded := setupOptionsFromRecord(stateDir)
+	if setupOpts.daemonName == daemonDefaultName {
+		setupOpts.daemonName = recorded.daemonName
+	}
+	if setupOpts.workspace == setupDefaultWorkspace {
+		setupOpts.workspace = recorded.workspace
+	}
+	return setupOpts
+}
+
+func writeSetupRecord(stateDir string, record setupRecord) error {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return err
+	}
+	return writeJSONFile(filepath.Join(stateDir, setupRecordFile), record)
+}
+
+// setupOptionsFromRecord returns the setup options a previous run used, falling
+// back to the defaults when this repo has never been set up.
+func setupOptionsFromRecord(stateDir string) setupCommandOptions {
+	opts := defaultSetupOptions()
+	data, err := os.ReadFile(filepath.Join(stateDir, setupRecordFile))
+	if err != nil {
+		return opts
+	}
+	var record setupRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return opts
+	}
+	if strings.TrimSpace(record.Workspace) != "" {
+		opts.workspace = record.Workspace
+	}
+	if strings.TrimSpace(record.DaemonName) != "" {
+		opts.daemonName = record.DaemonName
+	}
+	return opts
 }
 
 func writeSetupBackfillState(stateDir string, state setupBackfillState) error {

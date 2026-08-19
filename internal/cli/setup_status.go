@@ -172,8 +172,16 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 	}
 	fmt.Fprintln(out, line)
 	fmt.Fprintf(out, "  daemon: %s", describeDaemonState(onboarding.Daemon))
+	// The watch cursor is written only by a watcher tick, so it is real history
+	// even when no daemon is installed right now — say which it is, or "not
+	// installed; last tick 4m ago" reads as a contradiction.
 	if !onboarding.LastTickAt.IsZero() {
-		fmt.Fprintf(out, "; last tick %s ago", humanizeAge(now.Sub(onboarding.LastTickAt)))
+		age := humanizeAge(now.Sub(onboarding.LastTickAt))
+		if onboarding.Daemon.Running {
+			fmt.Fprintf(out, "; last tick %s ago", age)
+		} else {
+			fmt.Fprintf(out, " (last watcher tick %s ago)", age)
+		}
 	}
 	fmt.Fprintln(out)
 	if len(onboarding.Components) > 0 {

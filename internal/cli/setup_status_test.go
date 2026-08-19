@@ -204,3 +204,18 @@ func TestHookSettingsDeclareSessionEndIgnoresEmptyCommands(t *testing.T) {
 		t.Fatal("unparseable settings must read as not wired, never panic")
 	}
 }
+
+// TestRenderBrainOnboardingStatusDistinguishesHistoryFromHealth guards a
+// confusing line a live run produced: the watch cursor is real history even
+// after the daemon is uninstalled, so "not installed; last tick 4m ago" read as
+// a contradiction.
+func TestRenderBrainOnboardingStatusDistinguishesHistoryFromHealth(t *testing.T) {
+	t.Parallel()
+	out := &bytes.Buffer{}
+	renderBrainOnboardingStatus(out, &brainStatusOnboarding{
+		LastTickAt: setupTestNow.Add(-4 * time.Minute),
+	}, setupTestNow)
+	if !strings.Contains(out.String(), "daemon: not installed (last watcher tick 4m0s ago)") {
+		t.Fatalf("a stale tick must read as history, not health:\n%s", out.String())
+	}
+}
