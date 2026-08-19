@@ -799,13 +799,23 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// flush — a mid-run flush that skipped priors would wipe the review
 			// queue ~50 calls in, and a kill there would lose it before the
 			// rebuild produced its replacement.
+			//
+			// A force run may only drop the proposals it OWNS. The queue is shared:
+			// distill's single-user backlog carries no ProposedBy, while cross-member
+			// conflicts raised by `facts sync` are member-attributed — and distill
+			// never regenerates those, so dropping them silently deleted conflicts
+			// nobody had reviewed. Retain the attributed ones across a force rebuild.
 			var prior []factProposal
-			if !(distillOpts.force && final) {
-				if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
-					warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
-				} else {
-					prior = loadedProposals
+			if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
+				warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
+			} else if distillOpts.force && final {
+				for _, p := range loadedProposals {
+					if strings.TrimSpace(p.ProposedBy) != "" {
+						prior = append(prior, p)
+					}
 				}
+			} else {
+				prior = loadedProposals
 			}
 			merged := dedupeProposals(append(prior, proposalsByBranch[branch]...))
 			if err := writeFactProposals(brainDir, branch, merged); err != nil {
