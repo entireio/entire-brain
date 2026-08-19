@@ -505,6 +505,13 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 	if err := runRefresh(ctx, sub, perRepo, refreshOpts); err != nil {
 		return err
 	}
+	// Deterministic and token-free, like everything else in this step: index any
+	// checkpoint commits that landed since the entity index's high-water mark.
+	// Bounded and failure-silent — a missing `entire graph` provider must never
+	// fail a tick that otherwise refreshed the brain.
+	if err := refreshEntityIndexQuietly(ctx, perRepo, repoDir); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: entity index refresh skipped: %v\n", err)
+	}
 	_, warning, err := reconcileMemoryAndLaunch(ctx, perRepo, repoDir, "watch")
 	if warning != "" {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)

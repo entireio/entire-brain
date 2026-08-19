@@ -219,6 +219,9 @@ follow-ups:
 - retrieval tools such as `brain_query` and `brain_get` for facts, docs, history
 - semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
   `brain_tests` for code navigation and validation planning
+- `brain_entity_history` for "which checkpoints and sessions changed this
+  function/class", answered from the persisted entity index rather than by
+  re-reading history (build it once with `entire brain entities backfill`)
 - review, workspace, and pattern tools such as `brain_regressions`,
   `brain_workspace_graph`, `brain_workspace_review`, and `brain_patterns` when
   the task calls for them
@@ -442,6 +445,44 @@ entire brain inspect boundaries --kind tool --json
 entire brain inspect changes --json                      # read-only, diff-hunk-scoped symbol mapping
 # add --write-report only when semantic/changes/latest.json should be persisted
 ```
+
+### Trace a symbol back to the work that changed it
+
+`entities` answers "which checkpoints and sessions changed this function" from a
+persisted, git-native index instead of re-reading history. The index is built
+once per repository and then kept current by the deterministic (token-free)
+refresh that the watch loop and the `session-end` hook already run.
+
+Each indexed commit stores its semantic delta document (`schema_version` `1.0`,
+produced by `entire graph diff`) as a git-meta record on the commit, plus a
+reverse `entity -> commits` list and a rename/move alias, so a symbol's history
+survives the names it has been through. The local join of commits to checkpoints
+and sessions is derived state, pinned to the git-meta ref and rebuilt whenever
+the index moves.
+
+Coverage is tracked as a **window**, not a mark: a per-branch `floor..tip` range
+in which every first-parent commit is indexed. Freshness ticks push the tip
+forward over commits that landed since (so a tick reads only the new ones), and
+bounded `--limit` passes pull the floor backward until it reaches the root.
+
+```sh
+entire brain entities backfill                 # index history (--limit 0 for all)
+entire brain entities backfill --checkpoints-only
+entire brain entities history "ValidateToken" --json
+entire brain entities history "ValidateToken" --branch main
+entire brain entities show <commit|checkpoint-id>   # the stored delta document
+```
+
+`--checkpoints-only` is a filtered convenience pass: it indexes commits carrying
+an `Entire-Checkpoint` trailer and deliberately leaves plain commits alone, so it
+does **not** move the window. Coverage of a branch always comes from an ordinary
+pass.
+
+Distill uses the same index to sharpen fact provenance: a fact whose locus names
+an indexed entity is anchored to the checkpoint of ITS OWN session that actually
+changed that entity, rather than to the session's last checkpoint. With no index,
+no match, an ambiguous one, or a candidate from another session or branch, the
+previous anchor is kept unchanged.
 
 ### Review risk without a clean diff
 
