@@ -1,0 +1,220 @@
+package cli
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// writeOrderedDistillFixture lays down N same-branch sessions whose transcripts
+// are individually identifiable, so a distill run's visit order is observable
+// from the agent calls it makes.
+func writeOrderedDistillFixture(t *testing.T, now time.Time, ids ...string) string {
+	t.Helper()
+	brainDir := t.TempDir()
+	sessions := make([]exportSession, 0, len(ids))
+	for i, id := range ids {
+		path := filepath.Join("sessions", "main", id+".jsonl")
+		full := filepath.Join(brainDir, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("marker "+id+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, exportSession{
+			SessionID:        id,
+			Branch:           "main",
+			LatestCheckpoint: "cp-" + id,
+			TranscriptPath:   filepath.ToSlash(path),
+			// ids are given oldest-first, so each later id is more recent.
+			CreatedAt: now.Add(time.Duration(i-len(ids)) * time.Hour),
+		})
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources: &brainSources{
+			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions},
+		},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	return brainDir
+}
+
+// recordingDistillRunner returns a fake agent whose calls append the marker of
+// the session being distilled, in visit order.
+func recordingDistillRunner(visited *[]string) distillAgentRunner {
+	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		for _, line := range strings.Split(string(input), "\n") {
+			if _, marker, ok := strings.Cut(line, "marker "); ok {
+				*visited = append(*visited, strings.TrimSpace(marker))
+			}
+		}
+		return "conventions.testing\tA convention.\n", nil
+	}
+}
+
+func TestSortDistillSessionsOrdersOldestOrNewestFirst(t *testing.T) {
+	base := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	build := func() []exportSession {
+		return []exportSession{
+			{SessionID: "b", CreatedAt: base.Add(2 * time.Hour)},
+			{SessionID: "a", CreatedAt: base},
+			{SessionID: "c", CreatedAt: base.Add(4 * time.Hour)},
+		}
+	}
+	ids := func(sessions []exportSession) []string {
+		out := make([]string, 0, len(sessions))
+		for _, s := range sessions {
+			out = append(out, s.SessionID)
+		}
+		return out
+	}
+
+	oldest := build()
+	sortDistillSessions(oldest, false)
+	if got := strings.Join(ids(oldest), ","); got != "a,b,c" {
+		t.Fatalf("default order must stay oldest-first, got %s", got)
+	}
+
+	newest := build()
+	sortDistillSessions(newest, true)
+	if got := strings.Join(ids(newest), ","); got != "c,b,a" {
+		t.Fatalf("--newest-first must visit the most recent session first, got %s", got)
+	}
+}
+
+func TestSortDistillSessionsBreaksTiesDeterministically(t *testing.T) {
+	base := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	sessions := []exportSession{{SessionID: "z", CreatedAt: base}, {SessionID: "a", CreatedAt: base}}
+	sortDistillSessions(sessions, true)
+	if sessions[0].SessionID != "z" {
+		t.Fatalf("newest-first tie break must be reverse id, got %s", sessions[0].SessionID)
+	}
+	sortDistillSessions(sessions, false)
+	if sessions[0].SessionID != "a" {
+		t.Fatalf("oldest-first tie break must be ascending id, got %s", sessions[0].SessionID)
+	}
+}
+
+// TestRunDistillNewestFirstVisitsRecentSessionsFirst is the end-to-end guard on
+// the property the background backfill depends on: the most useful (most
+// recent) facts must land first, because a long backfill's early output is the
+// only output the user sees soon.
+func TestRunDistillNewestFirstVisitsRecentSessionsFirst(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
+
+	var visited []string
+	opts := distillCommandOptions{
+		agent:         "command",
+		agentCommand:  []string{"fake"},
+		run:           recordingDistillRunner(&visited),
+		maxChunkBytes: defaultDistillChunkSize,
+		timeout:       time.Minute,
+		newestFirst:   true,
+	}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if got := strings.Join(visited, ","); got != "new,mid,old" {
+		t.Fatalf("--newest-first must distill newest sessions first, visited %s", got)
+	}
+}
+
+func TestRunDistillDefaultsToOldestFirst(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
+
+	var visited []string
+	opts := distillCommandOptions{
+		agent:         "command",
+		agentCommand:  []string{"fake"},
+		run:           recordingDistillRunner(&visited),
+		maxChunkBytes: defaultDistillChunkSize,
+		timeout:       time.Minute,
+	}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if got := strings.Join(visited, ","); got != "old,mid,new" {
+		t.Fatalf("the default order must remain oldest-first, visited %s", got)
+	}
+}
+
+// TestRunDistillMaxSessionsDefersRatherThanSkips proves the backfill budget is
+// a deferral, not a loss: the capped run spends on exactly N sessions, and the
+// sessions it did not reach stay uncached so the NEXT run picks them up.
+func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
+
+	var first []string
+	opts := distillCommandOptions{
+		agent:         "command",
+		agentCommand:  []string{"fake"},
+		run:           recordingDistillRunner(&first),
+		maxChunkBytes: defaultDistillChunkSize,
+		timeout:       time.Minute,
+		newestFirst:   true,
+		maxSessions:   2,
+	}
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if got := strings.Join(first, ","); got != "new,mid" {
+		t.Fatalf("--max-sessions 2 must spend on exactly the two newest sessions, visited %s", got)
+	}
+	if !strings.Contains(strings.Join(source.Warnings, "\n"), "--max-sessions 2 reached") {
+		t.Fatalf("a budget-limited run must say so: %v", source.Warnings)
+	}
+
+	// The deferred session must be undistilled, not silently cached.
+	status := factsBackfillStatusForBrain(brainDir)
+	if status.Sessions != 3 || status.Distilled != 2 {
+		t.Fatalf("expected 2/3 sessions distilled after a capped run, got %d/%d", status.Distilled, status.Sessions)
+	}
+
+	var second []string
+	opts.run = recordingDistillRunner(&second)
+	opts.maxSessions = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("second runDistillForBrain: %v", err)
+	}
+	if got := strings.Join(second, ","); got != "old" {
+		t.Fatalf("the follow-up run must distill only the deferred session, visited %s", got)
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 3 {
+		t.Fatalf("all three sessions should be distilled after the follow-up, got %d", status.Distilled)
+	}
+}
+
+func TestBuildDistillPlanHonorsOrderAndBudget(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	plan, err := buildDistillPlan(brainDir, manifest, distillCommandOptions{newestFirst: true, maxSessions: 1}, "salt")
+	if err != nil {
+		t.Fatalf("buildDistillPlan: %v", err)
+	}
+	if len(plan.Sessions) != 3 {
+		t.Fatalf("every session belongs in the plan, got %d", len(plan.Sessions))
+	}
+	if plan.Sessions[0].Session.SessionID != "new" {
+		t.Fatalf("dry-run plan must respect --newest-first, first session was %s", plan.Sessions[0].Session.SessionID)
+	}
+	if plan.SessionsToDistill != 1 || plan.BudgetDeferredSessions != 2 {
+		t.Fatalf("expected 1 planned + 2 deferred, got %d + %d", plan.SessionsToDistill, plan.BudgetDeferredSessions)
+	}
+}
