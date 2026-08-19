@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -33,6 +35,14 @@ const (
 	daemonManagerLaunchd     = "launchd"
 	daemonManagerSystemd     = "systemd"
 	daemonManagerUnsupported = "unsupported"
+
+	// envDaemonUnitDir redirects the unit file (launchd plist / systemd user
+	// unit) somewhere other than the real service-manager directory. Tests and
+	// smoke runs set it so a run with a REAL $HOME can never write into the
+	// developer's ~/Library/LaunchAgents or ~/.config/systemd/user. Redirecting
+	// $HOME alone is not enough: a sandboxed process that still sees the real
+	// home would install a live agent.
+	envDaemonUnitDir = "ENTIRE_BRAIN_DAEMON_DIR"
 )
 
 var daemonNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
@@ -72,10 +82,14 @@ func validateDaemonName(name string) error {
 	return nil
 }
 
-// launchdLabel maps the daemon name into Apple's reverse-DNS convention while
-// keeping the two names one-to-one: entire-brain-watch <-> io.entire.brain-watch.
+// launchdLabel maps the daemon name into Apple's reverse-DNS convention. The
+// readable stem alone is NOT injective — stripping the "entire-" prefix maps
+// both "entire-watch" and "watch" onto io.entire.watch, so two differently named
+// daemons would fight over one launchd job and one plist path. The short digest
+// of the FULL name restores injectivity while keeping the label recognisable.
 func launchdLabel(name string) string {
-	return "io.entire." + strings.TrimPrefix(name, "entire-")
+	sum := sha256.Sum256([]byte(name))
+	return "io.entire." + strings.TrimPrefix(name, "entire-") + "." + hex.EncodeToString(sum[:4])
 }
 
 // systemdUnitName is the daemon name with the unit suffix; systemd unit names
@@ -83,9 +97,11 @@ func launchdLabel(name string) string {
 func systemdUnitName(name string) string { return name + ".service" }
 
 // planBrainWatchDaemon resolves the spec against a target OS and home directory.
-// goos/home/configHome are parameters, not ambient state, so both platforms'
-// artifacts are testable from one machine.
-func planBrainWatchDaemon(goos, home, configHome string, spec daemonSpec) (daemonPlan, error) {
+// goos/home/configHome/unitDir are parameters, not ambient state, so both
+// platforms' artifacts are testable from one machine. A non-empty unitDir (the
+// ENTIRE_BRAIN_DAEMON_DIR knob) replaces the service manager's directory
+// entirely, which is what keeps a sandboxed run out of a real user's LaunchAgents.
+func planBrainWatchDaemon(goos, home, configHome, unitDir string, spec daemonSpec) (daemonPlan, error) {
 	if strings.TrimSpace(spec.Name) == "" {
 		spec.Name = daemonDefaultName
 	}
@@ -95,27 +111,47 @@ func planBrainWatchDaemon(goos, home, configHome string, spec daemonSpec) (daemo
 	if strings.TrimSpace(spec.Binary) == "" {
 		return daemonPlan{}, fmt.Errorf("daemon binary path is required")
 	}
+	// A newline in any rendered value would close the line and let the rest be
+	// read as further unit directives. No escaping expresses it; refuse instead.
+	values := append([]string{spec.Binary, spec.WorkingDir, spec.LogPath}, spec.Args...)
+	for key, value := range spec.Env {
+		values = append(values, key, value)
+	}
+	for _, value := range values {
+		if !unitValueSafe(value) {
+			return daemonPlan{}, fmt.Errorf("daemon service values must not contain newlines: %q", value)
+		}
+	}
+	unitDir = strings.TrimSpace(unitDir)
 	plan := daemonPlan{OS: goos, Spec: spec}
 	switch goos {
 	case "darwin":
-		if home == "" {
+		if home == "" && unitDir == "" {
 			return daemonPlan{}, fmt.Errorf("cannot resolve home directory for the launchd agent")
 		}
 		plan.Manager = daemonManagerLaunchd
 		plan.Label = launchdLabel(spec.Name)
-		plan.UnitPath = filepath.Join(home, "Library", "LaunchAgents", plan.Label+".plist")
+		root := unitDir
+		if root == "" {
+			root = filepath.Join(home, "Library", "LaunchAgents")
+		}
+		plan.UnitPath = filepath.Join(root, plan.Label+".plist")
 		plan.Contents = renderLaunchdPlist(plan.Label, spec)
 	case "linux":
-		root := configHome
+		root := unitDir
 		if root == "" {
-			if home == "" {
-				return daemonPlan{}, fmt.Errorf("cannot resolve config directory for the systemd user unit")
+			root = configHome
+			if root == "" {
+				if home == "" {
+					return daemonPlan{}, fmt.Errorf("cannot resolve config directory for the systemd user unit")
+				}
+				root = filepath.Join(home, ".config")
 			}
-			root = filepath.Join(home, ".config")
+			root = filepath.Join(root, "systemd", "user")
 		}
 		plan.Manager = daemonManagerSystemd
 		plan.Label = systemdUnitName(spec.Name)
-		plan.UnitPath = filepath.Join(root, "systemd", "user", plan.Label)
+		plan.UnitPath = filepath.Join(root, plan.Label)
 		plan.Contents = renderSystemdUnit(spec)
 	default:
 		plan.Manager = daemonManagerUnsupported
@@ -179,10 +215,40 @@ func renderLaunchdPlist(label string, spec daemonSpec) string {
 	return b.String()
 }
 
-// systemdQuote renders a value for systemd's quoted argument syntax.
+// systemdQuote renders a value for systemd's quoted argument syntax. Use it
+// ONLY for settings systemd unquotes — the ones parsed with extract_first_word
+// (EXTRACT_UNQUOTE): ExecStart= and Environment=.
 func systemdQuote(value string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`)
-	return `"` + replacer.Replace(value) + `"`
+	return `"` + systemdEscapeSpecifiers(replacer.Replace(value)) + `"`
+}
+
+// systemdSingleValue renders a value for a setting that takes ONE value and is
+// NOT unquoted by systemd: WorkingDirectory=, StandardOutput=, StandardError=.
+//
+// Those are parsed by config_parse_working_directory / config_parse_exec_output,
+// which run unit_path_printf on the raw right-hand side and never call
+// extract_first_word — so a quoted path arrives with its quote characters still
+// in it and is then rejected by path_simplify_and_warn's absolute-path check.
+// Wrapping these in quotes does not harden them, it breaks them. Spaces need no
+// treatment at all here: the whole rest of the line is the value.
+//
+// What DOES need handling is the one transformation systemd applies to them,
+// specifier expansion: a literal % must be written %% or it is silently read as
+// a specifier (e.g. %h expands to the home directory). Newlines cannot be
+// represented in a unit value in any form and are rejected by the caller.
+func systemdSingleValue(value string) string {
+	return systemdEscapeSpecifiers(value)
+}
+
+func systemdEscapeSpecifiers(value string) string {
+	return strings.ReplaceAll(value, "%", "%%")
+}
+
+// unitValueSafe rejects the values no unit-file escaping can express. A newline
+// would end the line and turn the remainder into a forged directive.
+func unitValueSafe(value string) bool {
+	return !strings.ContainsAny(value, "\n\r")
 }
 
 func renderSystemdUnit(spec daemonSpec) string {
@@ -199,14 +265,14 @@ func renderSystemdUnit(spec daemonSpec) string {
 	}
 	fmt.Fprintf(&b, "ExecStart=%s\n", strings.Join(exec, " "))
 	if spec.WorkingDir != "" {
-		fmt.Fprintf(&b, "WorkingDirectory=%s\n", spec.WorkingDir)
+		fmt.Fprintf(&b, "WorkingDirectory=%s\n", systemdSingleValue(spec.WorkingDir))
 	}
 	for _, key := range sortedEnvKeys(spec.Env) {
 		fmt.Fprintf(&b, "Environment=%s\n", systemdQuote(key+"="+spec.Env[key]))
 	}
 	if spec.LogPath != "" {
-		fmt.Fprintf(&b, "StandardOutput=append:%s\n", spec.LogPath)
-		fmt.Fprintf(&b, "StandardError=append:%s\n", spec.LogPath)
+		fmt.Fprintf(&b, "StandardOutput=append:%s\n", systemdSingleValue(spec.LogPath))
+		fmt.Fprintf(&b, "StandardError=append:%s\n", systemdSingleValue(spec.LogPath))
 	}
 	b.WriteString("Restart=always\n")
 	b.WriteString("RestartSec=60\n")

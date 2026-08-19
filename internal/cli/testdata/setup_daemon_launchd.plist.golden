@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>io.entire.brain-watch</string>
+  <string>io.entire.brain-watch.a2d3fd66</string>
   <key>ProgramArguments</key>
   <array>
     <string>/opt/entire/bin/entire-brain</string>
@@ -15,8 +15,6 @@
     <string>--distill</string>
     <string>--distill-every</string>
     <string>24h0m0s</string>
-    <string>--budget</string>
-    <string>1</string>
     <string>--effort</string>
     <string>low</string>
   </array>
@@ -32,9 +30,9 @@
   <key>WorkingDirectory</key>
   <string>/opt/entire/bin</string>
   <key>StandardOutPath</key>
-  <string>/var/state/entire/repos/local/demo/watch.log</string>
+  <string>/var/state/entire/logs/watch.log</string>
   <key>StandardErrorPath</key>
-  <string>/var/state/entire/repos/local/demo/watch.log</string>
+  <string>/var/state/entire/logs/watch.log</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

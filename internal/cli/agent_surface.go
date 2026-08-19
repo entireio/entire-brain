@@ -4492,7 +4492,8 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	}
 	// Read the identities a previous `setup` chose, so a custom-named watcher
 	// is inspected rather than reported missing.
-	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, setupOptionsFromRecord(filepath.Dir(storage.HeadPath)))
+	recordedSetupOpts, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
+	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
 	report.Onboarding = &onboarding
 	return report, nil
 }

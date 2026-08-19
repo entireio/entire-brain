@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	workspaceDirName       = "workspaces"
-	workspaceManifestName  = "workspace.json"
-	workspaceReadmeName    = "README.md"
-	workspaceGraphName     = "graph.json"
-	workspaceSchemaVersion = 1
+	workspaceDirName          = "workspaces"
+	workspaceManifestName     = "workspace.json"
+	workspaceManifestLockName = "workspace-manifest.lock"
+	workspaceReadmeName       = "README.md"
+	workspaceGraphName        = "graph.json"
+	workspaceSchemaVersion    = 1
 )
 
 var workspaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
@@ -523,10 +524,6 @@ func newWorkspaceGetCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addOpts workspaceAddOptions, workspaceName, repoPath string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
-	if err != nil {
-		return err
-	}
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
 	if err != nil {
 		return err
@@ -539,10 +536,62 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 		return err
 	}
 	key := storage.Key
-	repo := workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir}
+	if _, err := addWorkspaceRepoLocked(opts.Env, workspaceName, workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir}); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "added %s\n", key)
+	return nil
+}
+
+// workspaceAddResult reports what the locked add actually did, so callers can
+// say "created", "added" or "already a member" without re-reading the manifest
+// and racing the very window the lock closed.
+type workspaceAddResult struct {
+	Created bool
+	Already bool
+}
+
+// addWorkspaceRepoLocked is the ONLY way a repo enters a workspace manifest.
+// Membership is a read-modify-write of a shared file, and the common case —
+// running `entire-brain setup` in two repos at once — had both readers load the
+// same manifest and both write their own single-member version back, so one
+// registration vanished with no error anywhere. The lock lives beside the
+// manifest and follows the same discipline as the brain locks: reject symlinked
+// path components first, then hold the lock across load AND write.
+func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceRepo) (workspaceAddResult, error) {
+	var result workspaceAddResult
+	if err := validateWorkspaceName(workspaceName); err != nil {
+		return result, err
+	}
+	if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
+		return result, err
+	}
+	dir, err := workspaceDir(env, workspaceName)
+	if err != nil {
+		return result, err
+	}
+	if err := rejectExistingSymlinkPathComponents(dir, brainLockDirName); err != nil {
+		return result, err
+	}
+	lock, err := acquireFileLock(filepath.Join(dir, brainLockDirName, workspaceManifestLockName), "workspace_manifest_locked", brainWriteLockTimeout)
+	if err != nil {
+		return result, err
+	}
+	defer func() { _ = lock.Close() }()
+
+	manifest, err := loadWorkspaceManifest(env, workspaceName)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return result, err
+		}
+		manifest = workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: workspaceName}
+		result.Created = true
+	}
 	replaced := false
 	for i := range manifest.Repos {
-		if manifest.Repos[i].RepoKey == key {
+		if manifest.Repos[i].RepoKey == repo.RepoKey {
+			result.Already = true
+			// Keep the freshest local path hint; the member itself is unchanged.
 			manifest.Repos[i] = repo
 			replaced = true
 			break
@@ -552,11 +601,10 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 		manifest.Repos = append(manifest.Repos, repo)
 	}
 	sortWorkspaceRepos(manifest.Repos)
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
-		return err
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		return result, err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "added %s\n", key)
-	return nil
+	return result, nil
 }
 
 func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {

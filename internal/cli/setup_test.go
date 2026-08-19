@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,13 +144,50 @@ func (r *recordedSetup) steps() setupSteps {
 	}
 }
 
-func runSetupForTest(t *testing.T, f *setupTestFixture, opts setupCommandOptions, rec *recordedSetup) string {
+// setupTestCommand builds the cobra command runSetup asks "did the user type
+// this flag?". Tests set option fields directly, so the helper marks exactly the
+// fields that differ from the defaults as typed — the same thing a user running
+// `setup --workspace custom-ws` would produce. (Whether Changed or a
+// value-vs-default comparison is the right question is settled separately by
+// TestApplySetupRecordDefaultsUsesFlagsChangedNotValues.)
+func setupTestCommand(t *testing.T, out *bytes.Buffer, opts setupCommandOptions) *cobra.Command {
 	t.Helper()
-	out := &bytes.Buffer{}
-	cmd := &cobra.Command{}
+	cmd := newSetupCommand(Options{})
 	cmd.SetContext(context.Background())
 	cmd.SetOut(out)
 	cmd.SetErr(out)
+	defaults := defaultSetupOptions()
+	typed := map[string]string{}
+	if opts.workspace != defaults.workspace {
+		typed[setupFlagWorkspace] = opts.workspace
+	}
+	if opts.daemonName != defaults.daemonName {
+		typed[setupFlagDaemonName] = opts.daemonName
+	}
+	if opts.interval != defaults.interval {
+		typed[setupFlagInterval] = opts.interval.String()
+	}
+	if opts.distillEvery != defaults.distillEvery {
+		typed[setupFlagDistillEvery] = opts.distillEvery.String()
+	}
+	if opts.model != defaults.model {
+		typed[setupFlagModel] = opts.model
+	}
+	if opts.effort != defaults.effort {
+		typed[setupFlagEffort] = opts.effort
+	}
+	for name, value := range typed {
+		if err := cmd.Flags().Set(name, value); err != nil {
+			t.Fatalf("set --%s=%q: %v", name, value, err)
+		}
+	}
+	return cmd
+}
+
+func runSetupForTest(t *testing.T, f *setupTestFixture, opts setupCommandOptions, rec *recordedSetup) string {
+	t.Helper()
+	out := &bytes.Buffer{}
+	cmd := setupTestCommand(t, out, opts)
 	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps()); err != nil {
 		t.Fatalf("runSetup: %v", err)
 	}
@@ -178,12 +217,9 @@ func TestSetupInstantPhaseRunsFirstAndReportsQueryable(t *testing.T) {
 func TestSetupFailsLoudlyWhenTheInstantPhaseFails(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantErr: context.DeadlineExceeded}
-	cmd := &cobra.Command{}
-	cmd.SetContext(context.Background())
-	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
 	opts := defaultSetupOptions()
 	opts.noDaemon = true
+	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
 
 	err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps())
 	if err == nil || !strings.Contains(err.Error(), "instant phase failed") {
@@ -447,19 +483,115 @@ func TestSetupJSONReportIsMachineReadable(t *testing.T) {
 
 // TestBrainWatchDaemonArgsStayTokenFrugal pins the daemon's cost contract: the
 // deterministic refresh runs free every tick, and the only token-spending step
-// is both interval-gated and budget-capped.
+// is interval-gated. It is a shape check only — what the flags MEAN under a
+// long-lived daemon is proved by TestDaemonBudgetSemanticsAllowOneRunPerWindow.
 func TestBrainWatchDaemonArgsStayTokenFrugal(t *testing.T) {
 	t.Parallel()
 	opts := defaultSetupOptions()
 	opts.effort = "low"
 	args := strings.Join(brainWatchDaemonArgs(opts), " ")
-	for _, want := range []string{"workspace watch default", "--distill-every 24h0m0s", "--budget 1", "--effort low"} {
+	for _, want := range []string{"workspace watch default", "--distill-every 24h0m0s", "--effort low"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("daemon argv missing %q: %s", want, args)
 		}
 	}
 	if strings.Contains(args, "--seed-agent") {
 		t.Fatalf("the daemon must never enable agent seed synthesis: %s", args)
+	}
+}
+
+// daemonWatchOptions parses the argv setup actually installs, so the semantics
+// test is driven by the real flags rather than by a hand-built option struct
+// that could drift away from them.
+func daemonWatchOptions(t *testing.T, setupOpts setupCommandOptions) watchCommandOptions {
+	t.Helper()
+	w := defaultWatchOptions()
+	cmd := &cobra.Command{Use: "watch", RunE: func(*cobra.Command, []string) error { return nil }}
+	bindWatchFlags(cmd, &w)
+	args := brainWatchDaemonArgs(setupOpts)
+	// Drop the "workspace watch <name>" verb prefix; only the flags are parsed.
+	if err := cmd.ParseFlags(args[3:]); err != nil {
+		t.Fatalf("parse daemon argv %v: %v", args, err)
+	}
+	return w
+}
+
+// TestDaemonBudgetSemanticsAllowOneRunPerWindow is the regression test for the
+// one-shot daemon. The installed watcher is a KeepAlive service that never
+// exits, and --budget counts gated agent runs for the life of the PROCESS with
+// no reset — so `--budget 1` did not mean "one run per --distill-every window",
+// it meant one run EVER, machine-wide, across every repo. A machine that
+// distilled once and then never again looked healthy in every status output.
+//
+// This simulates the real daemon: one long-lived process, one shared agentCalls
+// counter (workspaceWatchLoop's), two member repos with their own cursors,
+// across three --distill-every windows. The contract is one gated run per repo
+// per window: 6, not 1.
+func TestDaemonBudgetSemanticsAllowOneRunPerWindow(t *testing.T) {
+	t.Parallel()
+	w := daemonWatchOptions(t, defaultSetupOptions())
+	if !w.distill {
+		t.Fatal("the installed daemon must enable distill")
+	}
+
+	type repo struct {
+		cursorPath  string
+		fingerprint string
+	}
+	repos := []*repo{
+		{cursorPath: filepath.Join(t.TempDir(), "watch.json"), fingerprint: "a0"},
+		{cursorPath: filepath.Join(t.TempDir(), "watch.json"), fingerprint: "b0"},
+	}
+	// One process, one shared counter — exactly what workspaceWatchLoop keeps.
+	agentCalls := 0
+	distilled := 0
+	now := setupTestNow
+	const windows = 3
+	for window := 0; window < windows; window++ {
+		for i, r := range repos {
+			// New work landed in each repo since the last window.
+			r.fingerprint = fmt.Sprintf("repo%d-window%d", i, window)
+			steps := watchSteps{
+				now:         func() time.Time { return now },
+				fingerprint: func(context.Context) string { return r.fingerprint },
+				refresh:     func(context.Context) error { return nil },
+				seed:        func(context.Context) error { return nil },
+				distill:     func(context.Context) error { distilled++; return nil },
+			}
+			watchTick(context.Background(), io.Discard, w, r.cursorPath, steps, &agentCalls)
+		}
+		now = now.Add(w.distillEvery)
+	}
+
+	if want := windows * len(repos); distilled != want {
+		t.Fatalf("a long-lived daemon must distill once per repo per --distill-every window: got %d, want %d "+
+			"(a process-lifetime --budget makes this 1 and the daemon never spends again)", distilled, want)
+	}
+}
+
+// TestDaemonBudgetGateStillHoldsInsideAWindow is the other half: dropping
+// --budget must not make the daemon spend every tick.
+func TestDaemonBudgetGateStillHoldsInsideAWindow(t *testing.T) {
+	t.Parallel()
+	w := daemonWatchOptions(t, defaultSetupOptions())
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	agentCalls := 0
+	distilled := 0
+	now := setupTestNow
+	for tick := 0; tick < 5; tick++ {
+		fingerprint := fmt.Sprintf("changed-every-tick-%d", tick)
+		steps := watchSteps{
+			now:         func() time.Time { return now },
+			fingerprint: func(context.Context) string { return fingerprint },
+			refresh:     func(context.Context) error { return nil },
+			seed:        func(context.Context) error { return nil },
+			distill:     func(context.Context) error { distilled++; return nil },
+		}
+		watchTick(context.Background(), io.Discard, w, cursorPath, steps, &agentCalls)
+		now = now.Add(w.interval)
+	}
+	if distilled != 1 {
+		t.Fatalf("inside one --distill-every window the cursor must allow exactly one spend, got %d", distilled)
 	}
 }
 
@@ -472,6 +604,40 @@ func TestSetupChildEnvCarriesPluginDirs(t *testing.T) {
 	}
 	if _, ok := values[envPluginConfigDir]; ok {
 		t.Fatalf("unset dirs must not be forwarded as empty: %+v", values)
+	}
+}
+
+// TestSetupChildEnvMergesTheProcessEnvironment covers the half setupPluginEnv
+// cannot: the detached child needs PATH (it shells out to git and the agent
+// CLI) and the rest of the ambient environment, with the plugin dirs OVERRIDING
+// whatever the parent inherited rather than being appended alongside a stale
+// value. Go's exec resolves duplicate keys last-wins, which is what makes the
+// append order load-bearing.
+func TestSetupChildEnvMergesTheProcessEnvironment(t *testing.T) {
+	t.Setenv("ENTIRE_SETUP_CHILD_ENV_MARKER", "inherited")
+	t.Setenv(envPluginStateDir, "/stale-from-parent")
+	t.Setenv(envRepoRoot, "/stale-repo")
+
+	got := setupChildEnv(EntireEnv{PluginStateDir: "/state"}, "/repo")
+
+	// last-wins resolution, the same rule os/exec applies.
+	resolved := map[string]string{}
+	for _, entry := range got {
+		if key, value, ok := strings.Cut(entry, "="); ok {
+			resolved[key] = value
+		}
+	}
+	if resolved["ENTIRE_SETUP_CHILD_ENV_MARKER"] != "inherited" {
+		t.Fatalf("the child must inherit the process environment (PATH, HOME, ...): %+v", resolved["ENTIRE_SETUP_CHILD_ENV_MARKER"])
+	}
+	if resolved[envPluginStateDir] != "/state" {
+		t.Fatalf("the resolved plugin dir must override the inherited one, got %q", resolved[envPluginStateDir])
+	}
+	if resolved[envRepoRoot] != "/repo" {
+		t.Fatalf("the child must target the repo setup ran in, got %q", resolved[envRepoRoot])
+	}
+	if len(got) <= len(setupPluginEnv(EntireEnv{PluginStateDir: "/state"}, "/repo")) {
+		t.Fatalf("setupChildEnv must MERGE os.Environ, not replace it (%d entries)", len(got))
 	}
 }
 
@@ -488,13 +654,16 @@ func TestSetupRemembersItsIdentitiesForLaterReads(t *testing.T) {
 	runSetupForTest(t, f, opts, rec)
 
 	stateDir := filepath.Dir(f.storage.HeadPath)
-	recorded := setupOptionsFromRecord(stateDir)
+	recorded, existed := setupOptionsFromRecord(stateDir)
+	if !existed {
+		t.Fatal("setup must write a record for this repo")
+	}
 	if recorded.workspace != "custom-ws" || recorded.daemonName != "entire-brain-watch-custom" {
 		t.Fatalf("setup must record the identities it used, got %+v", recorded)
 	}
 
 	// A later invocation that names neither must inherit both.
-	inherited := applySetupRecordDefaults(defaultSetupOptions(), stateDir)
+	inherited := applySetupRecordDefaults(defaultSetupOptions(), recorded, nothingChanged)
 	if inherited.workspace != "custom-ws" || inherited.daemonName != "entire-brain-watch-custom" {
 		t.Fatalf("a later run must address the same daemon and workspace, got %+v", inherited)
 	}
@@ -502,15 +671,386 @@ func TestSetupRemembersItsIdentitiesForLaterReads(t *testing.T) {
 	// An explicit flag still wins over the record.
 	explicit := defaultSetupOptions()
 	explicit.daemonName = "entire-brain-watch-other"
-	if got := applySetupRecordDefaults(explicit, stateDir).daemonName; got != "entire-brain-watch-other" {
+	if got := applySetupRecordDefaults(explicit, recorded, changedFlags(setupFlagDaemonName)).daemonName; got != "entire-brain-watch-other" {
 		t.Fatalf("an explicit --daemon-name must win, got %s", got)
+	}
+}
+
+func nothingChanged(string) bool { return false }
+
+func changedFlags(names ...string) func(string) bool {
+	set := map[string]bool{}
+	for _, name := range names {
+		set[name] = true
+	}
+	return func(name string) bool { return set[name] }
+}
+
+// TestSetupRecordRemembersTheDaemonTuning is the second half of the identity
+// record: a repo set up with a custom interval/model/effort must keep them on a
+// bare re-run. Reverting them silently would re-render the machine-wide unit
+// with stock values and restart the daemon.
+func TestSetupRecordRemembersTheDaemonTuning(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	opts := defaultSetupOptions()
+	opts.interval = 90 * time.Second
+	opts.distillEvery = 6 * time.Hour
+	opts.model = "cheap-model"
+	opts.effort = "minimal"
+
+	runSetupForTest(t, f, opts, rec)
+
+	recorded, _ := setupOptionsFromRecord(filepath.Dir(f.storage.HeadPath))
+	inherited := applySetupRecordDefaults(defaultSetupOptions(), recorded, nothingChanged)
+	if inherited.interval != 90*time.Second || inherited.distillEvery != 6*time.Hour {
+		t.Fatalf("a bare re-run must keep the recorded cadence, got interval=%s distill-every=%s", inherited.interval, inherited.distillEvery)
+	}
+	if inherited.model != "cheap-model" || inherited.effort != "minimal" {
+		t.Fatalf("a bare re-run must keep the recorded model/effort, got %+v", inherited)
+	}
+	// And the daemon it would install is byte-identical, so nothing restarts.
+	first := strings.Join(brainWatchDaemonArgs(opts), " ")
+	if second := strings.Join(brainWatchDaemonArgs(inherited), " "); first != second {
+		t.Fatalf("a bare re-run must re-render the same unit:\n%s\n%s", first, second)
+	}
+}
+
+// TestApplySetupRecordDefaultsUsesFlagsChangedNotValues is the bug the review
+// named: deciding "did the user pass this?" by comparing against the default
+// makes an EXPLICIT default indistinguishable from silence. A user moving a
+// repo back onto the default daemon by typing --daemon-name entire-brain-watch
+// had the recorded custom name restored instead.
+func TestApplySetupRecordDefaultsUsesFlagsChangedNotValues(t *testing.T) {
+	t.Parallel()
+	recorded := defaultSetupOptions()
+	recorded.daemonName = "entire-brain-watch-custom"
+	recorded.workspace = "custom-ws"
+	recorded.interval = time.Hour
+
+	// Explicitly typing the DEFAULT value must win over the record.
+	explicit := defaultSetupOptions()
+	got := applySetupRecordDefaults(explicit, recorded, changedFlags(setupFlagDaemonName, setupFlagWorkspace, setupFlagInterval))
+	if got.daemonName != daemonDefaultName {
+		t.Fatalf("an explicit --daemon-name %s must not be overridden by the record, got %s", daemonDefaultName, got.daemonName)
+	}
+	if got.workspace != setupDefaultWorkspace {
+		t.Fatalf("an explicit --workspace %s must win, got %s", setupDefaultWorkspace, got.workspace)
+	}
+	if got.interval != defaultSetupOptions().interval {
+		t.Fatalf("an explicit --interval must win, got %s", got.interval)
+	}
+
+	// Silence still inherits.
+	silent := applySetupRecordDefaults(defaultSetupOptions(), recorded, nothingChanged)
+	if silent.daemonName != "entire-brain-watch-custom" || silent.workspace != "custom-ws" || silent.interval != time.Hour {
+		t.Fatalf("an unmentioned flag must inherit the record, got %+v", silent)
+	}
+}
+
+// TestSetupFlagChangedReadsCobra binds the real command so the flag names the
+// record keys off cannot drift away from the flags actually registered.
+func TestSetupFlagChangedReadsCobra(t *testing.T) {
+	t.Parallel()
+	cmd := newSetupCommand(Options{})
+	for _, name := range []string{setupFlagWorkspace, setupFlagDaemonName, setupFlagInterval, setupFlagDistillEvery, setupFlagModel, setupFlagEffort} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("setup must register the remembered flag %q", name)
+		}
+	}
+	if err := cmd.Flags().Parse([]string{"--effort", "low"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	changed := setupFlagChanged(cmd)
+	if !changed(setupFlagEffort) {
+		t.Fatal("a typed flag must read as changed")
+	}
+	if changed(setupFlagModel) {
+		t.Fatal("an untyped flag must read as unchanged")
+	}
+	if changed("no-such-flag") {
+		t.Fatal("an unknown flag must not panic or read as changed")
+	}
+}
+
+// TestSetupRenamingTheDaemonRetiresTheOldUnit: writing the new unit without
+// removing the old one leaves a second watcher running under a label no later
+// command can name.
+func TestSetupRenamingTheDaemonRetiresTheOldUnit(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	first := defaultSetupOptions()
+	first.daemonName = "entire-brain-watch-old"
+	runSetupForTest(t, f, first, rec)
+	if rec.uninstallCalls != 0 {
+		t.Fatalf("the first setup has nothing to retire, got %d", rec.uninstallCalls)
+	}
+
+	// rec.state is whatever install left behind, so the old unit inspects as
+	// installed — which is the condition that must trigger the retirement.
+	second := defaultSetupOptions()
+	second.daemonName = "entire-brain-watch-new"
+	out := runSetupForTest(t, f, second, rec)
+
+	if rec.uninstallCalls != 1 {
+		t.Fatalf("renaming the daemon must unload the old unit exactly once, got %d", rec.uninstallCalls)
+	}
+	if !strings.Contains(out, "previous watcher") || !strings.Contains(out, "removed") {
+		t.Fatalf("the retirement must be reported:\n%s", out)
+	}
+	if recorded, _ := setupOptionsFromRecord(filepath.Dir(f.storage.HeadPath)); recorded.daemonName != "entire-brain-watch-new" {
+		t.Fatalf("the record must move to the new daemon, got %s", recorded.daemonName)
+	}
+}
+
+// TestSetupFirstRunNeverRetiresAnotherReposDaemon is the guard on the guard: a
+// repo that has never been set up has no daemon of its own, so a first-ever
+// `setup --daemon-name mine` must not read the absent record as the default
+// name and uninstall the machine-wide watcher every other repo depends on.
+func TestSetupFirstRunNeverRetiresAnotherReposDaemon(t *testing.T) {
+	f := newSetupTestFixture(t)
+	// A default-named watcher is already installed and healthy on this machine.
+	rec := &recordedSetup{state: daemonState{Manager: daemonManagerLaunchd, Label: launchdLabel(daemonDefaultName), Installed: true, Current: true, Running: true}}
+	opts := defaultSetupOptions()
+	opts.daemonName = "entire-brain-watch-mine"
+
+	runSetupForTest(t, f, opts, rec)
+
+	if rec.uninstallCalls != 0 {
+		t.Fatalf("a first-ever setup must not uninstall anything, got %d", rec.uninstallCalls)
 	}
 }
 
 func TestSetupOptionsFromRecordFallsBackToDefaults(t *testing.T) {
 	t.Parallel()
-	got := setupOptionsFromRecord(t.TempDir())
+	got, existed := setupOptionsFromRecord(t.TempDir())
+	if existed {
+		t.Fatal("a never-set-up repo must report that it has no record")
+	}
 	if got.workspace != setupDefaultWorkspace || got.daemonName != daemonDefaultName {
 		t.Fatalf("a never-set-up repo must read as the defaults, got %+v", got)
+	}
+}
+
+// TestSetupSkipsBackfillWhileOneIsStillRunning is the re-entrancy guard: setup
+// is what an impatient user re-runs, and the backfill is the phase that takes
+// hours. Spawning a second detached pass doubles the token spend on exactly the
+// sessions the first pass is working through.
+func TestSetupSkipsBackfillWhileOneIsStillRunning(t *testing.T) {
+	f := newSetupTestFixture(t, "s1", "s2", "s3")
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+
+	runSetupForTest(t, f, opts, rec)
+	if rec.spawnCalls != 1 {
+		t.Fatalf("the first setup must start the backfill, got %d", rec.spawnCalls)
+	}
+
+	// The recorded pid must look alive for the guard to fire; use our own.
+	stateDir := filepath.Dir(f.storage.HeadPath)
+	state, ok := readSetupBackfillState(stateDir)
+	if !ok {
+		t.Fatal("the first run must record backfill state")
+	}
+	state.PID = os.Getpid()
+	if err := writeSetupBackfillState(stateDir, state); err != nil {
+		t.Fatalf("write backfill state: %v", err)
+	}
+
+	out := runSetupForTest(t, f, opts, rec)
+
+	if rec.spawnCalls != 1 {
+		t.Fatalf("a live backfill must not be duplicated, spawned %d times", rec.spawnCalls)
+	}
+	if !strings.Contains(out, "already running") {
+		t.Fatalf("the skip must report the running pass and its progress:\n%s", out)
+	}
+	if !strings.Contains(out, "0/3 sessions distilled so far") {
+		t.Fatalf("the skip must report progress, not just 'busy':\n%s", out)
+	}
+}
+
+// TestSetupRestartsTheBackfillWhenTheRecordedProcessIsDead is the flip side:
+// skip-if-running must not become skip-forever after a crash or a reboot.
+func TestSetupRestartsTheBackfillWhenTheRecordedProcessIsDead(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+
+	stateDir := filepath.Dir(f.storage.HeadPath)
+	if err := writeSetupBackfillState(stateDir, setupBackfillState{PID: 0x7FFFFFFF, StartedAt: setupTestNow}); err != nil {
+		t.Fatalf("write backfill state: %v", err)
+	}
+
+	runSetupForTest(t, f, opts, rec)
+
+	if rec.spawnCalls != 1 {
+		t.Fatalf("a dead recorded pid must not block a new backfill, spawned %d", rec.spawnCalls)
+	}
+}
+
+// TestSetupCapsTheDefaultBackfillSpend: a bare `setup` used to distill the whole
+// corpus — potentially years of sessions — with no cost line anywhere.
+func TestSetupCapsTheDefaultBackfillSpend(t *testing.T) {
+	f := newSetupTestFixture(t, "s1", "s2", "s3")
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions() // no --backfill-budget given
+	opts.noDaemon = true
+
+	out := runSetupForTest(t, f, opts, rec)
+
+	args := strings.Join(rec.spawned.Args, " ")
+	if !strings.Contains(args, fmt.Sprintf("--max-sessions %d", setupDefaultBackfillBudget)) {
+		t.Fatalf("a bare setup must cap the background spend: %s", args)
+	}
+	// Nothing was capped here (3 < 25), so no cap line should appear.
+	if strings.Contains(out, "capped at") {
+		t.Fatalf("a corpus under the cap must not claim it was capped:\n%s", out)
+	}
+}
+
+func TestSetupReportsWhatTheCapDidAndHowToLiftIt(t *testing.T) {
+	ids := make([]string, 0, setupDefaultBackfillBudget+3)
+	for i := 0; i < setupDefaultBackfillBudget+3; i++ {
+		ids = append(ids, fmt.Sprintf("s%02d", i))
+	}
+	f := newSetupTestFixture(t, ids...)
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+
+	out := runSetupForTest(t, f, opts, rec)
+
+	if !strings.Contains(out, fmt.Sprintf("capped at %d of %d pending session(s)", setupDefaultBackfillBudget, len(ids))) {
+		t.Fatalf("the cap must say what it did:\n%s", out)
+	}
+	if !strings.Contains(out, "--backfill-budget 0") {
+		t.Fatalf("the cap must say how to lift it:\n%s", out)
+	}
+}
+
+// TestSetupBackfillBudgetZeroIsExplicitlyUnlimited keeps the escape hatch: 0 now
+// means "I really do want the whole corpus", not "no opinion".
+func TestSetupBackfillBudgetZeroIsExplicitlyUnlimited(t *testing.T) {
+	f := newSetupTestFixture(t, "s1", "s2")
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+	opts.backfillBudget = 0
+
+	runSetupForTest(t, f, opts, rec)
+
+	if args := strings.Join(rec.spawned.Args, " "); strings.Contains(args, "--max-sessions") {
+		t.Fatalf("--backfill-budget 0 must not cap the pass: %s", args)
+	}
+}
+
+// TestBrainWatchDaemonPlanIsRepoIndependent is the daemon-churn guard: the unit
+// is machine-wide, so nothing in it may vary with which repo ran setup. A
+// per-repo log path made every new repo's setup see Contents != Current and
+// unload/reload the running watcher.
+func TestBrainWatchDaemonPlanIsRepoIndependent(t *testing.T) {
+	first := newSetupTestFixture(t)
+	firstPlan, err := brainWatchDaemonPlan(first.opts, defaultSetupOptions())
+	if err != nil {
+		t.Fatalf("first plan: %v", err)
+	}
+	// A second repo in the SAME plugin store — the ordinary case of setting up
+	// another project on one machine.
+	secondRepo := t.TempDir()
+	secondOpts := first.opts
+	secondOpts.Env.RepoRoot = secondRepo
+	secondPlan, err := brainWatchDaemonPlan(secondOpts, defaultSetupOptions())
+	if err != nil {
+		t.Fatalf("second plan: %v", err)
+	}
+
+	if firstPlan.Contents != secondPlan.Contents {
+		t.Fatalf("the machine-wide unit must not depend on the repo that ran setup:\n--- first ---\n%s\n--- second ---\n%s",
+			firstPlan.Contents, secondPlan.Contents)
+	}
+	if firstPlan.UnitPath != secondPlan.UnitPath || firstPlan.Label != secondPlan.Label {
+		t.Fatalf("both repos must address one daemon: %s/%s vs %s/%s",
+			firstPlan.Label, firstPlan.UnitPath, secondPlan.Label, secondPlan.UnitPath)
+	}
+	if strings.Contains(firstPlan.Contents, first.repoDir) {
+		t.Fatalf("the unit must not name the repo that installed it:\n%s", firstPlan.Contents)
+	}
+}
+
+// TestSetupSecondRepoDoesNotRestartTheDaemon is the same property one level up,
+// through runSetup itself: setting up a second repo must leave the running
+// watcher strictly alone.
+func TestSetupSecondRepoDoesNotRestartTheDaemon(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	opts := defaultSetupOptions()
+
+	runSetupForTest(t, f, opts, rec)
+	if rec.installCalls != 1 {
+		t.Fatalf("the first repo installs the watcher, got %d", rec.installCalls)
+	}
+
+	// A second repo, same machine, same plugin store, same daemon.
+	secondRepo := t.TempDir()
+	secondFixture := *f
+	secondFixture.repoDir = secondRepo
+	// inspect must answer from the REAL plan comparison, so re-derive the state
+	// the same way inspectDaemon would: installed + current + running.
+	plan, err := brainWatchDaemonPlan(f.opts, opts)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	rec.state = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Installed: true, Current: true, Running: true}
+
+	out := runSetupForTest(t, &secondFixture, opts, rec)
+
+	if rec.installCalls != 1 {
+		t.Fatalf("a second repo must not reinstall the machine-wide watcher, installs = %d", rec.installCalls)
+	}
+	if !strings.Contains(out, "background watcher already running") {
+		t.Fatalf("the second repo should find the running watcher:\n%s", out)
+	}
+}
+
+// TestDaemonUnitPathHonorsTheEnvOverride: a sandboxed run with a REAL $HOME must
+// still be unable to write into the developer's LaunchAgents / systemd user dir.
+func TestDaemonUnitPathHonorsTheEnvOverride(t *testing.T) {
+	sandbox := t.TempDir()
+	for _, tc := range []struct{ goos, home string }{
+		{"darwin", "/Users/real"},
+		{"linux", "/home/real"},
+	} {
+		plan, err := planBrainWatchDaemon(tc.goos, tc.home, "/real/.config", sandbox, fixedDaemonSpec())
+		if err != nil {
+			t.Fatalf("%s plan: %v", tc.goos, err)
+		}
+		if filepath.Dir(plan.UnitPath) != sandbox {
+			t.Fatalf("%s: %s must be redirected into %s, got %s", tc.goos, envDaemonUnitDir, sandbox, plan.UnitPath)
+		}
+		if strings.Contains(plan.UnitPath, tc.home) {
+			t.Fatalf("%s: a real home must never appear in a redirected unit path: %s", tc.goos, plan.UnitPath)
+		}
+	}
+}
+
+// TestBrainWatchDaemonPlanReadsTheEnvOverride proves the knob is actually wired
+// into the path setup takes, not just into planBrainWatchDaemon's signature.
+func TestBrainWatchDaemonPlanReadsTheEnvOverride(t *testing.T) {
+	f := newSetupTestFixture(t)
+	sandbox := t.TempDir()
+	t.Setenv(envDaemonUnitDir, sandbox)
+
+	plan, err := brainWatchDaemonPlan(f.opts, defaultSetupOptions())
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if !plan.supported() {
+		t.Skipf("no service manager on %s", plan.OS)
+	}
+	if filepath.Dir(plan.UnitPath) != sandbox {
+		t.Fatalf("%s must redirect the unit into %s, got %s", envDaemonUnitDir, sandbox, plan.UnitPath)
 	}
 }

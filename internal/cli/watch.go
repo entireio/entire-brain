@@ -41,7 +41,11 @@ type watchCommandOptions struct {
 	seedAgent        string
 	model            string
 	effort           string
-	budget           int // cap on gated agent runs this process (distill + seed; each spends tokens); 0 = unlimited; resets on restart
+	// budget caps gated agent runs for the life of THIS PROCESS (distill + seed;
+	// each spends tokens); 0 = unlimited. It is not window-scoped and never
+	// resets while the process lives, which makes it the wrong guard for a
+	// supervised daemon — see brainWatchDaemonArgs, which deliberately omits it.
+	budget int
 }
 
 // watchCursor persists across restarts so the daemon never re-refreshes unchanged state and never
@@ -111,7 +115,7 @@ func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
 	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
-	cmd.Flags().IntVar(&w.budget, "budget", 0, "Cap on gated agent runs this process (distill + seed; each spends tokens); 0 = unlimited. Counts reset on restart — the durable guard against re-spend is --distill-every + the cursor.")
+	cmd.Flags().IntVar(&w.budget, "budget", 0, "Cap on gated agent runs for the LIFE OF THIS PROCESS (distill + seed); 0 = unlimited. It never resets, so on a long-lived daemon --budget 1 means one run EVER, not one per window — the durable per-window guard is --distill-every + the persisted cursor. Use it only for a bounded foreground run.")
 }
 
 func newWatchCommand(opts Options) *cobra.Command {

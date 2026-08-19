@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -193,16 +194,81 @@ func TestInspectSessionEndHookDetectsRepoSettings(t *testing.T) {
 	if !state.Installed || state.Source != settings {
 		t.Fatalf("expected the repo settings file to be reported: %+v", state)
 	}
+	if state.Command != "entire hooks claude-code session-end" {
+		t.Fatalf("the matched command must be reported: %+v", state)
+	}
 }
 
-func TestHookSettingsDeclareSessionEndIgnoresEmptyCommands(t *testing.T) {
+// TestInspectSessionEndHookRejectsAnotherToolsHook is the guard for the bug the
+// review found: ANY non-empty SessionEnd command satisfied the check, so setup
+// told the user distill-on-session-end was live when the wired hook belonged to
+// an unrelated tool and would never call us.
+func TestInspectSessionEndHookRejectsAnotherToolsHook(t *testing.T) {
+	repoDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	settings := filepath.Join(repoDir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settings), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	foreign := `{"hooks":{"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"some-other-tool report --session-end"}]}]}}`
+	if err := os.WriteFile(settings, []byte(foreign), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if state := inspectSessionEndHook(repoDir); state.Installed {
+		t.Fatalf("another tool's SessionEnd hook must not read as ours: %+v", state)
+	}
+}
+
+// TestEntireSessionEndHookCommandMatchesOurSpellings pins the literal guard both
+// ways: every way our own hook is spelled must match, and near-misses must not.
+func TestEntireSessionEndHookCommandMatchesOurSpellings(t *testing.T) {
 	t.Parallel()
-	if hookSettingsDeclareSessionEnd([]byte(`{"hooks":{"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"   "}]}]}}`)) {
+	settings := func(command string) []byte {
+		return []byte(`{"hooks":{"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":` +
+			mustJSONString(command) + `}]}]}}`)
+	}
+	ours := []string{
+		"entire hooks claude-code session-end",
+		"/usr/local/bin/entire hooks claude-code session-end",
+		"\"/opt/my tools/entire\" hooks claude-code session-end",
+		"entire-brain hook session-end",
+		"sh -c 'entire hooks claude-code session-end'",
+	}
+	for _, command := range ours {
+		got, ok := entireSessionEndHookCommand(settings(command))
+		if !ok || got != command {
+			t.Fatalf("our own hook must match: %q (ok=%v got=%q)", command, ok, got)
+		}
+	}
+	theirs := []string{
+		"some-other-tool report --session-end",
+		"entirely-different --hook",   // substring of "entire" is not the binary
+		"my-entire-wrapper hook send", // neither is a longer basename
+		"entire enable",               // our binary, but not a hook invocation
+	}
+	for _, command := range theirs {
+		if _, ok := entireSessionEndHookCommand(settings(command)); ok {
+			t.Fatalf("must not claim another tool's hook: %q", command)
+		}
+	}
+}
+
+func TestEntireSessionEndHookCommandIgnoresEmptyCommands(t *testing.T) {
+	t.Parallel()
+	if _, ok := entireSessionEndHookCommand([]byte(`{"hooks":{"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"   "}]}]}}`)); ok {
 		t.Fatal("an entry with no command is not a wired hook")
 	}
-	if hookSettingsDeclareSessionEnd([]byte(`not json`)) {
+	if _, ok := entireSessionEndHookCommand([]byte(`not json`)); ok {
 		t.Fatal("unparseable settings must read as not wired, never panic")
 	}
+}
+
+func mustJSONString(value string) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }
 
 // TestRenderBrainOnboardingStatusDistinguishesHistoryFromHealth guards a

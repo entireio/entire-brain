@@ -27,12 +27,14 @@ import (
 //     runs every tick with seed agent "none". When it returns, the brain is
 //     queryable.
 //  2. BACKFILL (detached, spends tokens): distill over past sessions, NEWEST
-//     FIRST so the most useful facts land first, on the cheap model/effort, with
-//     a session budget and the persisted distill cache so a re-run never
-//     re-spends. It is detached, so the prompt comes back immediately.
+//     FIRST so the most useful facts land first, on the cheap model/effort,
+//     capped at --backfill-budget sessions per pass, with the persisted distill
+//     cache so a re-run never re-spends. It is detached, so the prompt comes
+//     back immediately.
 //  3. DAEMON (installed once, machine-wide): the repo joins a workspace and a
 //     single `workspace watch` service keeps every member fresh. Deterministic
-//     refresh is free; the agent step stays gated by --distill-every + --budget.
+//     refresh is free; the agent step stays gated by --distill-every and the
+//     per-repo watch cursor.
 //
 // Every phase is idempotent. Running setup twice must produce the same machine,
 // not two daemons and two workspace entries.
@@ -49,9 +51,18 @@ const (
 	// was set up with, so `status` reports on the daemon that actually exists
 	// rather than on the default one it would have created.
 	setupRecordFile = "setup.json"
-	// setupDaemonBudget caps gated agent runs per daemon process. One per
-	// --distill-every window is the frugal default the docs recommend.
-	setupDaemonBudget = 1
+	// setupDefaultBackfillBudget caps how many sessions a bare `entire-brain
+	// setup` distills in its FIRST background pass. An uncapped default meant
+	// one unadorned command could spend the whole corpus — years of sessions —
+	// before anyone saw a cost line. 25 newest sessions is enough to make the
+	// facts layer useful immediately; the rest arrive on later runs (or all at
+	// once with the explicit --backfill-budget 0).
+	setupDefaultBackfillBudget = 25
+	// setupDaemonLogFile is machine-level ON PURPOSE. A per-repo path inside a
+	// machine-wide unit made the rendered plist repo-dependent, so every new
+	// repo's setup saw Contents != Current and unloaded/reloaded the running
+	// daemon — restart ping-pong plus false "not current" status.
+	setupDaemonLogFile = "watch.log"
 )
 
 type setupCommandOptions struct {
@@ -72,12 +83,13 @@ type setupCommandOptions struct {
 func defaultSetupOptions() setupCommandOptions {
 	watch := defaultWatchOptions()
 	return setupCommandOptions{
-		workspace:    setupDefaultWorkspace,
-		daemonName:   daemonDefaultName,
-		agent:        "auto",
-		effort:       setupBackfillDefaultEffort,
-		interval:     watch.interval,
-		distillEvery: watch.distillEvery,
+		workspace:      setupDefaultWorkspace,
+		daemonName:     daemonDefaultName,
+		agent:          "auto",
+		effort:         setupBackfillDefaultEffort,
+		backfillBudget: setupDefaultBackfillBudget,
+		interval:       watch.interval,
+		distillEvery:   watch.distillEvery,
 	}
 }
 
@@ -164,8 +176,19 @@ that way. It runs three phases:
                watcher service (launchd on macOS, a systemd user unit on Linux)
                so freshness never depends on remembering to run anything.
 
+TOKEN SPEND: phases 2 and 3 call an agent. This is the first release in which
+the watcher's --distill step and the session-end hook's distill actually run
+(both were dead before), so setup is a real, recurring cost, bounded by four
+gates: --backfill-budget sessions per background pass, one gated agent run per
+--distill-every per repo, the persisted distill cache (a session is never
+distilled twice), and the cheap --model/--effort. Passing --no-backfill with
+--no-daemon spends nothing at all, and "entire-brain status" reports what the
+backfill has done so far and whether the watcher is alive.
+
 Re-running setup is safe: it detects the existing workspace membership and
-daemon instead of duplicating them.`,
+daemon instead of duplicating them, resumes rather than restarts a backfill
+that is still running, and keeps whatever --interval/--distill-every/--model/
+--effort the previous run was given unless you pass the flag again.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSetup(cmd.Context(), cmd, opts, setupOpts, agentSurfaceTarget(opts, args), setupSteps{})
@@ -178,7 +201,7 @@ daemon instead of duplicating them.`,
 	cmd.Flags().StringVar(&setupOpts.agent, "agent", setupOpts.agent, "Agent for the background backfill: auto, none, codex, claude-code")
 	cmd.Flags().StringVar(&setupOpts.model, "model", "", "Cheap/fast model for the background backfill (recommended)")
 	cmd.Flags().StringVar(&setupOpts.effort, "effort", setupOpts.effort, "Reasoning effort for the background backfill")
-	cmd.Flags().IntVar(&setupOpts.backfillBudget, "backfill-budget", 0, "Cap sessions the background backfill distills in one pass (0 = the whole corpus, newest first)")
+	cmd.Flags().IntVar(&setupOpts.backfillBudget, "backfill-budget", setupOpts.backfillBudget, "Cap sessions the background backfill distills in one pass, newest first (0 = explicitly unlimited: the WHOLE corpus in one spend)")
 	cmd.Flags().DurationVar(&setupOpts.interval, "interval", setupOpts.interval, "Daemon poll interval")
 	cmd.Flags().DurationVar(&setupOpts.distillEvery, "distill-every", setupOpts.distillEvery, "Minimum interval between the daemon's gated agent runs")
 	cmd.Flags().StringVar(&setupOpts.daemonName, "daemon-name", setupOpts.daemonName, "Service identity (launchd label / systemd unit stem); override to avoid clobbering an existing daemon")
@@ -201,10 +224,13 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
+	stateDir := filepath.Dir(storage.HeadPath)
 	// A repo already set up under a non-default daemon name must keep pointing
 	// at THAT daemon, or `setup --uninstall-daemon` would look for one that was
-	// never installed and leave the real one running.
-	setupOpts = applySetupRecordDefaults(setupOpts, filepath.Dir(storage.HeadPath))
+	// never installed and leave the real one running. Same for the tuning flags:
+	// a re-run that does not name them must not silently revert them.
+	previous, setUpBefore := setupOptionsFromRecord(stateDir)
+	setupOpts = applySetupRecordDefaults(setupOpts, previous, setupFlagChanged(cmd))
 	steps = resolveSetupSteps(cmd, perRepo, setupOpts, repoDir, steps)
 
 	// --json must keep stdout parseable, so the friendly per-step lines are
@@ -223,7 +249,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		BrainPath:     storage.BrainDir,
 	}
 
-	plan, planErr := brainWatchDaemonPlan(perRepo, setupOpts, storage)
+	plan, planErr := brainWatchDaemonPlan(perRepo, setupOpts)
 	if planErr != nil {
 		report.Warnings = append(report.Warnings, "daemon plan unavailable: "+planErr.Error())
 	}
@@ -232,6 +258,13 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// backfill, or register anything.
 	if setupOpts.uninstallDaemon {
 		return runSetupUninstall(ctx, cmd, setupOpts, steps, plan, planErr, report)
+	}
+
+	// Renaming the daemon must MOVE it, not fork it: without this the old
+	// launchd job / systemd unit keeps running under its old label forever,
+	// invisible to every later `status` and `--uninstall-daemon`.
+	if detail := retireRenamedDaemon(ctx, perRepo, setupOpts, previous, setUpBefore, steps, planErr); detail != "" {
+		progress.Skip(detail)
 	}
 
 	// Phase 1 — INSTANT. Everything after this point is optional; the brain is
@@ -279,13 +312,19 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	report.Hook = inspectSessionEndHook(repoDir)
 	reportSetupHook(progress, report.Hook)
 
-	// Remember the identities this run used so `status` inspects the daemon
-	// that exists rather than the default one it would have created.
-	if err := writeSetupRecord(filepath.Dir(storage.HeadPath), setupRecord{
+	// Remember the identities AND the tuning this run used, so `status` inspects
+	// the daemon that exists rather than the default one it would have created,
+	// and so a later bare `setup` re-installs the same daemon rather than one
+	// reverted to stock intervals and models.
+	if err := writeSetupRecord(stateDir, setupRecord{
 		SchemaVersion: setupBackfillStateVersion,
 		UpdatedAt:     steps.now().UTC(),
 		Workspace:     setupOpts.workspace,
 		DaemonName:    setupOpts.daemonName,
+		Interval:      setupOpts.interval.String(),
+		DistillEvery:  setupOpts.distillEvery.String(),
+		Model:         strings.TrimSpace(setupOpts.model),
+		Effort:        strings.TrimSpace(setupOpts.effort),
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
 	}
@@ -365,6 +404,20 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		progress.Skip(fmt.Sprintf("fact backfill: already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions))
 		return setupPhase{State: "skipped", Detail: "all sessions already distilled"}
 	}
+	// Re-entrancy: `setup` is the command people re-run when they are impatient,
+	// and the backfill is the phase that takes hours. Without this check a second
+	// setup spawns a SECOND detached distill over the same pending sessions —
+	// double token spend on the very corpus the first pass is working through.
+	stateDir := filepath.Dir(storage.HeadPath)
+	if previous, ok := readSetupBackfillState(stateDir); ok && processAlive(previous.PID) {
+		detail := fmt.Sprintf("already running (pid %d, started %s, %d/%d sessions distilled so far)",
+			previous.PID, previous.StartedAt.Format(time.RFC3339), report.Facts.Distilled, report.Facts.Sessions)
+		progress.Skip("fact backfill: " + detail)
+		if previous.LogPath != "" {
+			progress.Skip("fact backfill log: " + previous.LogPath)
+		}
+		return setupPhase{State: "skipped", Detail: detail}
+	}
 	agent := strings.TrimSpace(setupOpts.agent)
 	if agent == "" || agent == "auto" {
 		agent = steps.detectAgent(ctx)
@@ -373,7 +426,6 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		progress.Skip("fact backfill: no agent CLI on PATH (install codex or claude, then re-run `entire-brain setup`)")
 		return setupPhase{State: "skipped", Detail: "no agent CLI available"}
 	}
-	stateDir := filepath.Dir(storage.HeadPath)
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
 		progress.Skip("fact backfill: could not resolve this executable's path")
@@ -400,10 +452,22 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		report.Warnings = append(report.Warnings, "backfill state not recorded: "+err.Error())
 	}
 	task := progress.Begin("fact backfill")
+	queued := state.Sessions
+	if setupOpts.backfillBudget > 0 && queued > setupOpts.backfillBudget {
+		queued = setupOpts.backfillBudget
+	}
 	task.Update(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, agent %s (pid %d)",
-		state.Sessions, agent, pid))
+		queued, agent, pid))
 	task.Finish(nil)
-	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d session(s) queued", pid, state.Sessions)}
+	// Say what the cap did and how to lift it. A silent cap is as surprising as
+	// a silent uncapped spend: the user is left believing the whole corpus was
+	// distilled when only the newest slice was.
+	if setupOpts.backfillBudget > 0 && state.Sessions > setupOpts.backfillBudget {
+		progress.Skip(fmt.Sprintf(
+			"fact backfill capped at %d of %d pending session(s) this pass (--backfill-budget); re-run `entire-brain setup` for the next batch, or `--backfill-budget 0` to distill the whole corpus in one spend",
+			setupOpts.backfillBudget, state.Sessions))
+	}
+	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions)}
 }
 
 // setupBackfillPlanFor builds the detached distill argv. --newest-first is the
@@ -462,7 +526,13 @@ func setupPluginEnv(env EntireEnv, repoDir string) map[string]string {
 // brainWatchDaemonPlan describes the ONE machine-wide watcher. It watches the
 // workspace, not this repo, so a second `setup` in a second repo adds a member
 // rather than a second daemon.
-func brainWatchDaemonPlan(opts Options, setupOpts setupCommandOptions, storage repoStorage) (daemonPlan, error) {
+//
+// Nothing in the rendered unit may depend on which repo ran setup. The log path
+// used to: it pointed inside the calling repo's state directory, so setting up a
+// second repo produced different bytes for the same machine-wide job, which
+// inspectDaemon correctly read as drift and "repaired" by unloading and
+// reloading the running daemon — every single time.
+func brainWatchDaemonPlan(opts Options, setupOpts setupCommandOptions) (daemonPlan, error) {
 	binary, err := os.Executable()
 	if err != nil {
 		return daemonPlan{}, fmt.Errorf("resolve executable: %w", err)
@@ -471,27 +541,38 @@ func brainWatchDaemonPlan(opts Options, setupOpts setupCommandOptions, storage r
 	if err != nil {
 		return daemonPlan{}, fmt.Errorf("resolve home directory: %w", err)
 	}
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return daemonPlan{}, fmt.Errorf("resolve plugin state dir: %w", err)
+	}
 	spec := daemonSpec{
 		Name:       setupOpts.daemonName,
 		Binary:     binary,
 		Args:       brainWatchDaemonArgs(setupOpts),
 		WorkingDir: filepath.Dir(binary),
-		LogPath:    filepath.Join(filepath.Dir(storage.HeadPath), "watch.log"),
+		LogPath:    filepath.Join(dirs.State, "logs", setupDaemonLogFile),
 		Env:        daemonEnv(opts.Env),
 	}
-	return planBrainWatchDaemon(runtime.GOOS, home, os.Getenv(xdgConfigHome), spec)
+	return planBrainWatchDaemon(runtime.GOOS, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
 }
 
 // brainWatchDaemonArgs are the token-frugal watcher flags: the deterministic
 // refresh runs free on every tick; distill is enabled but gated by
-// --distill-every and hard-capped by --budget, on the cheap model/effort.
+// --distill-every and the per-repo watch cursor, on the cheap model/effort.
+//
+// --budget is deliberately NOT passed. It counts gated agent runs for the life
+// of the PROCESS and never resets, and this daemon is a KeepAlive service that
+// is meant to run for months — so `--budget 1` did not mean "one run per window",
+// it meant one run EVER, machine-wide, across every repo in the workspace. The
+// durable, self-resetting guard is the pair watch.go documents: --distill-every
+// plus each repo's persisted cursor, which survives restarts and bounds spend
+// per repo per window without ever latching off.
 func brainWatchDaemonArgs(setupOpts setupCommandOptions) []string {
 	args := []string{
 		"workspace", "watch", setupOpts.workspace,
 		"--interval", setupOpts.interval.String(),
 		"--distill",
 		"--distill-every", setupOpts.distillEvery.String(),
-		"--budget", fmt.Sprint(setupDaemonBudget),
 	}
 	if model := strings.TrimSpace(setupOpts.model); model != "" {
 		args = append(args, "--model", model)
@@ -525,33 +606,18 @@ func daemonEnv(env EntireEnv) map[string]string {
 // registerRepoInWorkspace makes the repo a member of the workspace the daemon
 // watches, creating the workspace on first use. Idempotent: an existing member
 // is reported as already-registered and the manifest is not rewritten.
-func registerRepoInWorkspace(ctx context.Context, cmd *cobra.Command, opts Options, name, repoDir, repoKey string) (setupWorkspaceState, error) {
+// The whole read-modify-write runs under the workspace manifest lock, because
+// two `setup` runs in two repos at the same time is the ordinary case on a
+// developer machine, and an unlocked last-writer-wins rewrite silently drops one
+// of the two registrations.
+func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, name, repoDir, repoKey string) (setupWorkspaceState, error) {
 	state := setupWorkspaceState{Name: name, RepoKey: repoKey}
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	result, err := addWorkspaceRepoLocked(opts.Env, name, workspaceRepo{RepoKey: repoKey, LocalPathHint: repoDir})
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return state, err
-		}
-		manifest = workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: name}
-		if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
-			return state, err
-		}
-		state.Created = true
-	}
-	for _, repo := range manifest.Repos {
-		if repo.RepoKey == repoKey {
-			state.Already = true
-			state.Registered = true
-			return state, nil
-		}
-	}
-	quiet := &cobra.Command{}
-	quiet.SetContext(ctx)
-	quiet.SetOut(io.Discard)
-	quiet.SetErr(io.Discard)
-	if err := runWorkspaceAdd(ctx, quiet, opts, workspaceAddOptions{}, name, repoDir); err != nil {
 		return state, err
 	}
+	state.Created = result.Created
+	state.Already = result.Already
 	state.Registered = true
 	return state, nil
 }
@@ -616,20 +682,101 @@ type setupRecord struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 	Workspace     string    `json:"workspace,omitempty"`
 	DaemonName    string    `json:"daemon_name,omitempty"`
+	// The daemon's tuning is part of its identity too: a re-run that does not
+	// mention these must re-render the SAME unit, not one reverted to stock.
+	Interval     string `json:"interval,omitempty"`
+	DistillEvery string `json:"distill_every,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Effort       string `json:"effort,omitempty"`
 }
 
-// applySetupRecordDefaults carries a previous run's identities forward for any
-// option the caller left at its default, so a repo set up with a custom
-// workspace or daemon name keeps addressing the same ones.
-func applySetupRecordDefaults(setupOpts setupCommandOptions, stateDir string) setupCommandOptions {
-	recorded := setupOptionsFromRecord(stateDir)
-	if setupOpts.daemonName == daemonDefaultName {
+// setupFlagNames maps each remembered option to its flag, so "was this passed?"
+// is asked of cobra rather than inferred.
+const (
+	setupFlagWorkspace    = "workspace"
+	setupFlagDaemonName   = "daemon-name"
+	setupFlagInterval     = "interval"
+	setupFlagDistillEvery = "distill-every"
+	setupFlagModel        = "model"
+	setupFlagEffort       = "effort"
+)
+
+// setupFlagChanged reports which flags the user actually typed. Comparing a
+// value against its default cannot answer that: `--daemon-name entire-brain-watch`
+// and `--interval 5m` are indistinguishable from not passing them, so a repo set
+// up with a custom daemon could never be moved back to the default one, and
+// explicitly re-affirming a default silently restored the recorded value
+// instead. cmd may be nil in tests that drive runSetup directly; then nothing
+// was typed.
+func setupFlagChanged(cmd *cobra.Command) func(string) bool {
+	if cmd == nil {
+		return func(string) bool { return false }
+	}
+	flags := cmd.Flags()
+	return func(name string) bool {
+		if flags.Lookup(name) == nil {
+			return false
+		}
+		return flags.Changed(name)
+	}
+}
+
+// applySetupRecordDefaults carries a previous run's identities and tuning
+// forward for every option the caller did NOT pass, so a repo set up with a
+// custom workspace, daemon name, interval, model or effort keeps them on a bare
+// re-run instead of silently reverting to stock and rewriting the unit.
+func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupCommandOptions, changed func(string) bool) setupCommandOptions {
+	if changed == nil {
+		changed = func(string) bool { return false }
+	}
+	if !changed(setupFlagDaemonName) {
 		setupOpts.daemonName = recorded.daemonName
 	}
-	if setupOpts.workspace == setupDefaultWorkspace {
+	if !changed(setupFlagWorkspace) {
 		setupOpts.workspace = recorded.workspace
 	}
+	if !changed(setupFlagInterval) && recorded.interval > 0 {
+		setupOpts.interval = recorded.interval
+	}
+	if !changed(setupFlagDistillEvery) && recorded.distillEvery > 0 {
+		setupOpts.distillEvery = recorded.distillEvery
+	}
+	if !changed(setupFlagModel) && strings.TrimSpace(recorded.model) != "" {
+		setupOpts.model = recorded.model
+	}
+	if !changed(setupFlagEffort) && strings.TrimSpace(recorded.effort) != "" {
+		setupOpts.effort = recorded.effort
+	}
 	return setupOpts
+}
+
+// retireRenamedDaemon unloads the daemon a previous run installed when THIS run
+// names a different one. Writing the new unit without removing the old one
+// leaves two watchers running: the old label is not in any later plan, so
+// `status` cannot see it and `--uninstall-daemon` cannot remove it. It would
+// keep ticking (and spending) until the machine was rebuilt.
+func retireRenamedDaemon(ctx context.Context, opts Options, setupOpts, previous setupCommandOptions, setUpBefore bool, steps setupSteps, planErr error) string {
+	old := strings.TrimSpace(previous.daemonName)
+	// Only a repo THIS machine actually set up before can have a daemon to
+	// retire. Without that check, a first-ever `setup --daemon-name mine` in one
+	// repo would read the absent record as the default name and uninstall the
+	// machine-wide default watcher that every other repo depends on.
+	if !setUpBefore || planErr != nil || old == "" || old == setupOpts.daemonName || setupOpts.noDaemon {
+		return ""
+	}
+	retired := setupOpts
+	retired.daemonName = old
+	oldPlan, err := brainWatchDaemonPlan(opts, retired)
+	if err != nil {
+		return fmt.Sprintf("previous watcher %q could not be planned for removal: %v", old, err)
+	}
+	if state := steps.inspect(ctx, oldPlan); !state.Installed {
+		return ""
+	}
+	if err := steps.uninstall(ctx, oldPlan); err != nil {
+		return fmt.Sprintf("previous watcher %s not removed: %v", oldPlan.Label, err)
+	}
+	return fmt.Sprintf("previous watcher %s removed (renamed to %s)", oldPlan.Label, setupOpts.daemonName)
 }
 
 func writeSetupRecord(stateDir string, record setupRecord) error {
@@ -640,16 +787,19 @@ func writeSetupRecord(stateDir string, record setupRecord) error {
 }
 
 // setupOptionsFromRecord returns the setup options a previous run used, falling
-// back to the defaults when this repo has never been set up.
-func setupOptionsFromRecord(stateDir string) setupCommandOptions {
+// back to the defaults when this repo has never been set up. The bool says
+// which of the two it is — "never set up" and "set up with the defaults" are
+// indistinguishable in the values but mean opposite things to anything that
+// acts on a previous daemon.
+func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool) {
 	opts := defaultSetupOptions()
 	data, err := os.ReadFile(filepath.Join(stateDir, setupRecordFile))
 	if err != nil {
-		return opts
+		return opts, false
 	}
 	var record setupRecord
 	if err := json.Unmarshal(data, &record); err != nil {
-		return opts
+		return opts, false
 	}
 	if strings.TrimSpace(record.Workspace) != "" {
 		opts.workspace = record.Workspace
@@ -657,7 +807,19 @@ func setupOptionsFromRecord(stateDir string) setupCommandOptions {
 	if strings.TrimSpace(record.DaemonName) != "" {
 		opts.daemonName = record.DaemonName
 	}
-	return opts
+	if d, err := time.ParseDuration(strings.TrimSpace(record.Interval)); err == nil && d > 0 {
+		opts.interval = d
+	}
+	if d, err := time.ParseDuration(strings.TrimSpace(record.DistillEvery)); err == nil && d > 0 {
+		opts.distillEvery = d
+	}
+	if strings.TrimSpace(record.Model) != "" {
+		opts.model = record.Model
+	}
+	if strings.TrimSpace(record.Effort) != "" {
+		opts.effort = record.Effort
+	}
+	return opts, true
 }
 
 func writeSetupBackfillState(stateDir string, state setupBackfillState) error {
@@ -672,11 +834,16 @@ func roundedSeconds(seconds float64) string {
 }
 
 func reportSetupHook(progress *refreshProgress, hook setupHookState) {
-	if hook.Installed {
+	switch {
+	case hook.Installed && !hook.EntireCLI:
+		progress.Skip(fmt.Sprintf("session-end hook wired (%s) but `%s` is not on PATH — sessions will NOT distill until the Entire CLI is installed", hook.Source, entireBinaryName))
+	case hook.Installed:
 		progress.Skip(fmt.Sprintf("session-end hook already wired (%s)", hook.Source))
-		return
+	case !hook.EntireCLI:
+		progress.Skip(fmt.Sprintf("session-end hook not wired and `%s` is not on PATH — install the Entire CLI, then run `entire enable` in this repo", entireBinaryName))
+	default:
+		progress.Skip("session-end hook not wired — run `entire enable` in this repo so each session distills as it ends (SPENDS TOKENS per session)")
 	}
-	progress.Skip("session-end hook not wired — run `entire enable` in this repo so each session distills as it ends")
 }
 
 func printSetupSummary(out io.Writer, report setupReport) {

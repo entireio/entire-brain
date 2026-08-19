@@ -6,11 +6,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
+
+// entireBinaryName is the Entire CLI that owns the session lifecycle hooks. The
+// brain never installs them itself (see setupHookState) but it must be able to
+// tell whether the hook it found is ours and whether the binary it names exists.
+const entireBinaryName = "entire"
 
 // setup_status.go answers the question setup creates: "it said the backfill is
 // running in the background — is it, and how far has it got?"
@@ -122,7 +129,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 	if cursor := loadWatchCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
 		onboarding.LastTickAt = cursor.LastRefreshAt
 	}
-	if plan, err := brainWatchDaemonPlan(opts, setupOpts, storage); err == nil {
+	if plan, err := brainWatchDaemonPlan(opts, setupOpts); err == nil {
 		onboarding.Daemon = inspectDaemon(ctx, opts.Runner, plan)
 	} else {
 		onboarding.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: err.Error()}
@@ -216,6 +223,13 @@ type setupHookState struct {
 	Installed bool   `json:"installed"`
 	Source    string `json:"source,omitempty"`
 	Detail    string `json:"detail,omitempty"`
+	// Command is the matched hook command, so a report can show WHICH hook was
+	// accepted rather than asking the reader to trust a bare boolean.
+	Command string `json:"command,omitempty"`
+	// EntireCLI reports whether `entire` is actually on PATH. A wired hook that
+	// invokes a binary this machine does not have is worse than no hook: it
+	// looks healthy in status and silently distills nothing.
+	EntireCLI bool `json:"entire_cli_on_path"`
 }
 
 // sessionEndHookSettingsFiles are the Claude Code settings files that can carry
@@ -235,23 +249,39 @@ func sessionEndHookSettingsFiles(repoDir string) []string {
 // without changing it. A missing or unreadable settings file is simply "not
 // wired" — this is a report, never a failure.
 func inspectSessionEndHook(repoDir string) setupHookState {
+	_, lookErr := exec.LookPath(entireBinaryName)
+	onPath := lookErr == nil
 	for _, path := range sessionEndHookSettingsFiles(repoDir) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		if hookSettingsDeclareSessionEnd(data) {
-			return setupHookState{Installed: true, Source: path}
+		if command, ok := entireSessionEndHookCommand(data); ok {
+			state := setupHookState{Installed: true, Source: path, Command: command, EntireCLI: onPath}
+			if !onPath {
+				state.Detail = "hook is wired but `" + entireBinaryName + "` is not on PATH; sessions will not distill"
+			}
+			return state
 		}
 	}
-	return setupHookState{Detail: "no SessionEnd hook found in .claude settings"}
+	state := setupHookState{Detail: "no Entire SessionEnd hook found in .claude settings", EntireCLI: onPath}
+	if !onPath {
+		state.Detail += "; `" + entireBinaryName + "` is not on PATH either"
+	}
+	return state
 }
 
-// hookSettingsDeclareSessionEnd looks for a SessionEnd hook entry. The value
-// shape is the host's, not ours, so the check stays structural (the key exists
-// and carries at least one command) rather than matching an exact command
-// string that the Entire CLI is free to change.
-func hookSettingsDeclareSessionEnd(data []byte) bool {
+// entireSessionEndHookCommand looks for a SessionEnd hook entry that runs OUR
+// hook, and returns its command.
+//
+// Any non-empty command used to satisfy this check, which made the report a
+// coin flip: a repo whose SessionEnd hook belongs to some unrelated tool was
+// reported as "session-end hook already wired", so setup told the user the
+// distill-on-session-end path was live when nothing would ever call it. The
+// value shape is still the host's, so the match stays deliberately loose about
+// everything except the one thing that matters — the command invokes the Entire
+// CLI and its hook verb.
+func entireSessionEndHookCommand(data []byte) (string, bool) {
 	var settings struct {
 		Hooks map[string][]struct {
 			Hooks []struct {
@@ -261,7 +291,7 @@ func hookSettingsDeclareSessionEnd(data []byte) bool {
 		} `json:"hooks"`
 	}
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return false
+		return "", false
 	}
 	names := make([]string, 0, len(settings.Hooks))
 	for name := range settings.Hooks {
@@ -274,10 +304,32 @@ func hookSettingsDeclareSessionEnd(data []byte) bool {
 		}
 		for _, matcher := range settings.Hooks[name] {
 			for _, hook := range matcher.Hooks {
-				if strings.TrimSpace(hook.Command) != "" {
-					return true
+				command := strings.TrimSpace(hook.Command)
+				if command != "" && commandInvokesEntireHook(command) {
+					return command, true
 				}
 			}
+		}
+	}
+	return "", false
+}
+
+// commandInvokesEntireHook recognises the Entire CLI's hook invocation without
+// pinning the exact argv, which the CLI is free to change. It must reject
+// another tool's hook (the bug) while accepting ours however it is spelled:
+// bare `entire`, an absolute path, or wrapped in a shell line.
+func commandInvokesEntireHook(command string) bool {
+	lowered := strings.ToLower(command)
+	if !strings.Contains(lowered, "hook") {
+		return false
+	}
+	for _, field := range strings.FieldsFunc(lowered, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '"' || r == '\'' || r == ';' || r == '|' || r == '&' || r == '(' || r == ')'
+	}) {
+		base := path.Base(filepath.ToSlash(field))
+		base = strings.TrimSuffix(base, ".exe")
+		if base == entireBinaryName || base == "entire-brain" {
+			return true
 		}
 	}
 	return false
