@@ -150,6 +150,11 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 				timeout:             defaultDistillTimeout,
 				maxChunkBytes:       defaultDistillChunkSize,
 				confidenceThreshold: defaultFactConfidenceThreshold,
+				// Constructed in Go, so the flag defaults never applied: without
+				// this the hook's distill was rejected outright by runDistill's
+				// concurrency guard, and the "closing the write loop" step
+				// silently never ran.
+				concurrency: defaultDistillConcurrency,
 			}
 			if err := runDistill(cmd.Context(), sub, opts, distillOpts, repoDir); err != nil {
 				// No agent on PATH, session not exported yet, etc.: report on

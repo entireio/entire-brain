@@ -566,6 +566,12 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		maxChunkBytes:       defaultDistillChunkSize,
 		confidenceThreshold: defaultFactConfidenceThreshold,
 		jobs:                jobs,
+		// concurrency is what the distill pipeline (and runDistill's guard)
+		// actually reads; --jobs is only its compatibility alias. Leaving it at
+		// the zero value made every gated distill the watcher ever attempted
+		// fail with "--concurrency must be greater than 0" before making a
+		// single agent call.
+		concurrency: jobs,
 	}
 }
 

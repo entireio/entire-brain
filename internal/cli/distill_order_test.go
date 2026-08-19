@@ -218,3 +218,22 @@ func TestBuildDistillPlanHonorsOrderAndBudget(t *testing.T) {
 		t.Fatalf("expected 1 planned + 2 deferred, got %d + %d", plan.SessionsToDistill, plan.BudgetDeferredSessions)
 	}
 }
+
+// TestInProcessDistillOptionsPassTheConcurrencyGuard is a regression guard on a
+// bug a live run found: runDistill rejects concurrency <= 0, but the two
+// in-process callers (the watcher's gated distill step and `hook session-end`)
+// build their options in Go, where the cobra flag defaults never apply. Both
+// therefore failed before making a single agent call — the watcher's entire
+// token-spending path and the session-end write loop were dead.
+func TestInProcessDistillOptionsPassTheConcurrencyGuard(t *testing.T) {
+	t.Parallel()
+	w := defaultWatchOptions()
+	if got := watchDistillOptions(w); got.concurrency <= 0 {
+		t.Fatalf("watch's distill options must set concurrency, got %d", got.concurrency)
+	}
+	// A caller that raises --jobs must raise the pool the pipeline actually reads.
+	w.distillJobs = 4
+	if got := watchDistillOptions(w); got.concurrency != 4 {
+		t.Fatalf("--jobs must drive the distill pool, got concurrency %d", got.concurrency)
+	}
+}
