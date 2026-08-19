@@ -477,6 +477,16 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 // The coordinator owns projection publication, retries, and crash recovery;
 // watch only nudges it. Agent seed synthesis remains a separate gated step.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
+	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, nil)
+}
+
+// watchDeterministicRefreshComponents is the same free path with an optional
+// per-component reporter. With a reporter the refresh is BEST-EFFORT: every
+// component is attempted and its outcome reported (err == nil means built)
+// instead of the first failure aborting the build. `setup` uses it so a single
+// broken source degrades the brain rather than killing first-run onboarding;
+// callers that pass nil keep the strict all-or-nothing behaviour.
+func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, component func(name string, err error)) error {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
 	refreshOpts := refreshCommandOptions{
@@ -502,6 +512,7 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 			agentMaxInputBytes: defaultAgentMaxInput,
 		},
 	}
+	refreshOpts.component = component
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())
@@ -512,13 +523,25 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 	// Deterministic and token-free, like everything else in this step: index any
 	// checkpoint commits that landed since the entity index's high-water mark.
 	// Bounded and failure-silent — a missing `entire graph` provider must never
-	// fail a tick that otherwise refreshed the brain.
-	if err := refreshEntityIndexQuietly(ctx, perRepo, repoDir); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: entity index refresh skipped: %v\n", err)
+	// fail a tick that otherwise refreshed the brain. Under a reporter it is one
+	// more degradable component, so `setup --json`, `status` and `doctor` can
+	// name it instead of losing the reason to a discarded stderr line; with no
+	// reporter the strict watch path keeps its warning and carries on exactly as
+	// before.
+	entityErr := refreshEntityIndexQuietly(ctx, perRepo, repoDir)
+	switch {
+	case component != nil:
+		component(brainComponentEntities, entityErr)
+	case entityErr != nil:
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: entity index refresh skipped: %v\n", entityErr)
 	}
 	_, warning, err := reconcileMemoryAndLaunch(ctx, perRepo, repoDir, "watch")
 	if warning != "" {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
+	}
+	if component != nil {
+		component(brainComponentMemory, err)
+		return nil
 	}
 	return err
 }

@@ -20,6 +20,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
 - `entire brain distill` gained `--newest-first` and `--max-sessions`, so a
   bounded pass can prioritise the sessions whose facts are most likely to
   matter.
+- The entity index refresh is one of the components the instant phase reports,
+  so `setup` names it alongside sessions, seed, docs and the semantic index and
+  `doctor` can print why it failed — instead of the reason going to a stderr
+  line that a `--json` run discards.
 
 ### Changed — token spend
 

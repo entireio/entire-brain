@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +88,48 @@ func TestBuildBrainOnboardingStatusReportsBackfillAndDaemon(t *testing.T) {
 	}
 	if strings.Join(built, ",") != "sessions" {
 		t.Fatalf("only the sessions source exists in this fixture, got %v", onboarding.Components)
+	}
+}
+
+// TestInstantPhaseComponentsSeparateFailedFromMissing is requirement and bug in
+// one: a component the last setup could not build must read "failed", with a
+// reason, and not hide behind "missing" (never attempted) or "built" (the stale
+// snapshot file the brain actually refuses).
+func TestInstantPhaseComponentsSeparateFailedFromMissing(t *testing.T) {
+	t.Parallel()
+	failure := newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError))
+	record := setupInstantRecord{
+		UpdatedAt:  setupTestNow,
+		Components: []setupComponent{newSetupComponent(brainComponentSessions, nil), failure},
+	}
+	manifest := &exportManifest{Sources: &brainSources{
+		Sessions: &sessionSourceManifest{GeneratedAt: setupTestNow},
+		// The stale snapshot the skew leaves behind: present on disk, rejected
+		// on every read, written BEFORE the failure was recorded.
+		Semantic: &semanticSourceManifest{GeneratedAt: setupTestNow.Add(-time.Hour)},
+	}}
+
+	components := instantPhaseComponents(manifest, record)
+
+	if state := statusComponentState(components, brainComponentSemantic); state != "failed" {
+		t.Fatalf("a component that failed must not read %q", state)
+	}
+	if state := statusComponentState(components, brainComponentSessions); state != "built" {
+		t.Fatalf("sessions built, got %q", state)
+	}
+	if state := statusComponentState(components, brainComponentSeed); state != "missing" {
+		t.Fatalf("a component nobody attempted is missing, not failed, got %q", state)
+	}
+	for _, component := range components {
+		if component.Name == brainComponentSemantic && !strings.Contains(component.Detail, "repo key mismatch") {
+			t.Fatalf("the failed component must carry its reason: %+v", component)
+		}
+	}
+	// Self-healing: a source rebuilt AFTER the recorded failure reads built
+	// again, so a stale record can never pin a healthy brain as broken.
+	manifest.Sources.Semantic.GeneratedAt = setupTestNow.Add(time.Hour)
+	if state := statusComponentState(instantPhaseComponents(manifest, record), brainComponentSemantic); state != "built" {
+		t.Fatalf("a source rebuilt since the failure must read built, got %q", state)
 	}
 }
 

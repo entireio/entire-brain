@@ -48,10 +48,15 @@ func (f factsBackfillStatus) Pending() int {
 }
 
 // brainStatusComponent is one instant-phase source and whether it is built.
+// "failed" is deliberately distinct from "missing": a source that was never
+// attempted and one whose build blew up need opposite reactions from the
+// reader, and reporting both as missing is how a broken semantic index looked
+// like an empty one.
 type brainStatusComponent struct {
 	Name   string `json:"name"`
-	State  string `json:"state"` // built | missing
+	State  string `json:"state"` // built | failed | missing
 	Detail string `json:"detail,omitempty"`
+	Hint   string `json:"hint,omitempty"`
 }
 
 // brainStatusOnboarding is the `setup` progress projection: how far the fact
@@ -134,29 +139,72 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 	} else {
 		onboarding.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: err.Error()}
 	}
-	onboarding.Components = instantPhaseComponents(manifest)
+	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir))
 	return onboarding
 }
 
 // instantPhaseComponents reports which of the instant phase's deterministic
 // sources actually exist, in build order, so a partial setup is visible rather
 // than inferred from a missing query result.
-func instantPhaseComponents(manifest *exportManifest) []brainStatusComponent {
+//
+// The last setup's per-component record is layered on top: a component it could
+// not build reads "failed", not "missing", and it wins over a source file that
+// is merely PRESENT — the repo-key skew that motivated this leaves a stale
+// snapshot on disk that the brain then refuses, so presence alone would report
+// a component as built while every query against it failed. The record loses
+// only to a source rebuilt since (generated at or after the record), which is
+// how the line goes back to "built" without anyone clearing state by hand.
+func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord) []brainStatusComponent {
+	failures := map[string]setupComponent{}
+	for _, component := range record.Components {
+		if component.failed() {
+			failures[component.Name] = component
+		}
+	}
 	present := map[string]bool{}
+	generated := map[string]time.Time{}
 	if manifest != nil && manifest.Sources != nil {
-		present["sessions"] = manifest.Sources.Sessions != nil
-		present["seed"] = manifest.Sources.Seed != nil
-		present["docs"] = manifest.Sources.Docs != nil
-		present["semantic"] = manifest.Sources.Semantic != nil
-		present["history"] = manifest.Sources.History != nil
+		sources := manifest.Sources
+		present["sessions"] = sources.Sessions != nil
+		present["seed"] = sources.Seed != nil
+		present["docs"] = sources.Docs != nil
+		present["semantic"] = sources.Semantic != nil
+		present["history"] = sources.History != nil
+		if sources.Sessions != nil {
+			generated["sessions"] = sources.Sessions.GeneratedAt
+		}
+		if sources.Seed != nil {
+			generated["seed"] = sources.Seed.GeneratedAt
+		}
+		if sources.Docs != nil {
+			generated["docs"] = sources.Docs.GeneratedAt
+		}
+		if sources.Semantic != nil {
+			generated["semantic"] = sources.Semantic.GeneratedAt
+		}
+		if sources.History != nil {
+			generated["history"] = sources.History.GeneratedAt
+		}
 	}
 	components := make([]brainStatusComponent, 0, 5)
 	for _, name := range []string{"sessions", "seed", "docs", "semantic", "history"} {
-		state := "missing"
-		if present[name] {
-			state = "built"
+		failure, hasFailure := failures[name]
+		if hasFailure && present[name] && !generated[name].Before(record.UpdatedAt) {
+			hasFailure = false
 		}
-		components = append(components, brainStatusComponent{Name: name, State: state})
+		switch {
+		case hasFailure:
+			components = append(components, brainStatusComponent{
+				Name:   name,
+				State:  "failed",
+				Detail: failure.Detail,
+				Hint:   failure.Hint,
+			})
+		case present[name]:
+			components = append(components, brainStatusComponent{Name: name, State: "built"})
+		default:
+			components = append(components, brainStatusComponent{Name: name, State: "missing"})
+		}
 	}
 	return components
 }
@@ -193,10 +241,17 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 	fmt.Fprintln(out)
 	if len(onboarding.Components) > 0 {
 		parts := make([]string, 0, len(onboarding.Components))
+		failed := false
 		for _, component := range onboarding.Components {
 			parts = append(parts, component.Name+"="+component.State)
+			failed = failed || component.State == "failed"
 		}
 		fmt.Fprintf(out, "  instant: %s\n", strings.Join(parts, " "))
+		// A failed component is only useful if the reader can get at the reason,
+		// and the reason is one command away rather than in this line.
+		if failed {
+			fmt.Fprintln(out, "    a component failed — run `entire-brain doctor` for the reason")
+		}
 	}
 }
 

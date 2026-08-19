@@ -63,7 +63,167 @@ const (
 	// repo's setup saw Contents != Current and unloaded/reloaded the running
 	// daemon — restart ping-pong plus false "not current" status.
 	setupDaemonLogFile = "watch.log"
+	// setupInstantRecordFile remembers the last instant phase's per-component
+	// outcome so `status` can say semantic=failed instead of semantic=missing
+	// and `doctor` can print WHY without rebuilding anything.
+	setupInstantRecordFile = "instant.json"
 )
+
+// brainComponent* are the instant phase's component ids. They are the same
+// vocabulary `status` prints on its instant line, so a component reported as
+// failed by setup is the component the reader then finds as failed there.
+const (
+	brainComponentSessions       = "sessions"
+	brainComponentSeed           = "seed"
+	brainComponentDocs           = "docs"
+	brainComponentSemantic       = "semantic"
+	brainComponentHistory        = "history"
+	brainComponentHistoryVectors = "history-vectors"
+	brainComponentBranches       = "branches"
+	brainComponentFacts          = "facts"
+	brainComponentPatterns       = "patterns"
+	brainComponentMemory         = "memory"
+	brainComponentEntities       = "entities"
+)
+
+// setupComponentLabels name each component the way the setup lines say it.
+var setupComponentLabels = map[string]string{
+	brainComponentSessions:       "session export",
+	brainComponentSeed:           "seed baseline",
+	brainComponentDocs:           "doc index",
+	brainComponentSemantic:       "semantic index",
+	brainComponentHistory:        "history index",
+	brainComponentHistoryVectors: "history vectors",
+	brainComponentBranches:       "branch overlays",
+	brainComponentFacts:          "fact reclassification",
+	brainComponentPatterns:       "pattern layer",
+	brainComponentMemory:         "memory coordinator",
+	brainComponentEntities:       "entity index",
+}
+
+// setupRepoKeyMismatchHint is the actionable half of the one known
+// key-derivation skew: the installed Entire CLI and the brain can derive
+// DIFFERENT repo keys for a repo with no git remote, so a snapshot written
+// under one key is rejected under the other. The error text alone
+// ("semantic snapshot repo_key %q does not match current repo %q") tells the
+// reader nothing they can act on, and this is the first thing a brand-new local
+// repo hits.
+const setupRepoKeyMismatchHint = "this repo has no git remote; add one (git remote add origin ...) or upgrade the entire CLI so both derive the same key"
+
+// setupComponent is one instant-phase component and how it ended.
+type setupComponent struct {
+	Name   string `json:"name"`
+	State  string `json:"state"` // ok | failed
+	Detail string `json:"detail,omitempty"`
+	Hint   string `json:"hint,omitempty"`
+}
+
+func (c setupComponent) failed() bool { return c.State == "failed" }
+
+func setupComponentLabel(name string) string {
+	if label, ok := setupComponentLabels[name]; ok {
+		return label
+	}
+	return name
+}
+
+// newSetupComponent turns one stage outcome into a reportable component,
+// attaching the hint for the failure modes whose error text is not actionable
+// on its own.
+func newSetupComponent(name string, err error) setupComponent {
+	if err == nil {
+		return setupComponent{Name: name, State: "ok"}
+	}
+	component := setupComponent{Name: name, State: "failed", Detail: strings.TrimSpace(err.Error())}
+	if setupIsRepoKeyMismatch(component.Detail) {
+		component.Hint = setupRepoKeyMismatchHint
+		component.Detail = "repo key mismatch: " + component.Detail
+	}
+	return component
+}
+
+func setupIsRepoKeyMismatch(detail string) bool {
+	return strings.Contains(detail, "repo_key") && strings.Contains(detail, "does not match current repo")
+}
+
+// partitionSetupComponents splits the phase's outcome into what built and what
+// failed, in report order.
+func partitionSetupComponents(components []setupComponent) (built, failed []setupComponent) {
+	for _, component := range components {
+		if component.failed() {
+			failed = append(failed, component)
+			continue
+		}
+		built = append(built, component)
+	}
+	return built, failed
+}
+
+func setupComponentNames(components []setupComponent) []string {
+	names := make([]string, 0, len(components))
+	for _, component := range components {
+		names = append(names, component.Name)
+	}
+	return names
+}
+
+// setupComponentSummary is the phase line's "what built, what failed" clause.
+// A phase that reports nothing (an injected instant step, an older build) gets
+// an empty clause rather than a misleading "built nothing".
+func setupComponentSummary(built, failed []setupComponent) string {
+	parts := make([]string, 0, 2)
+	if len(built) > 0 {
+		parts = append(parts, "built "+strings.Join(setupComponentNames(built), ", "))
+	}
+	if len(failed) > 0 {
+		parts = append(parts, "FAILED "+strings.Join(setupComponentNames(failed), ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// setupComponentFailureLine is the one line a degraded component gets: what
+// failed, why, that setup is continuing anyway, and where the detail lives.
+func setupComponentFailureLine(component setupComponent) string {
+	detail := strings.TrimSpace(component.Detail)
+	if detail == "" {
+		detail = "no detail reported"
+	}
+	return fmt.Sprintf("%s failed (%s) — continuing; run 'entire-brain doctor' for detail",
+		setupComponentLabel(component.Name), detail)
+}
+
+// reportSetupComponentFailures prints one line per degraded component (plus its
+// hint) and returns. It must never abort: losing the workspace, the daemon and
+// the status output because one source could not be built is the failure this
+// whole path exists to prevent.
+func reportSetupComponentFailures(out io.Writer, failed []setupComponent) {
+	for _, component := range failed {
+		fmt.Fprintf(out, "setup: %s\n", setupComponentFailureLine(component))
+		if hint := strings.TrimSpace(component.Hint); hint != "" {
+			fmt.Fprintf(out, "setup: hint: %s\n", hint)
+		}
+	}
+}
+
+// setupInstantFailureReasons collects every reason the phase produced nothing
+// usable, so the non-zero exit says WHAT failed rather than only that setup did.
+func setupInstantFailureReasons(fatal error, failed []setupComponent) string {
+	reasons := make([]string, 0, len(failed)+1)
+	if fatal != nil {
+		reasons = append(reasons, strings.TrimSpace(fatal.Error()))
+	}
+	for _, component := range failed {
+		reason := setupComponentLabel(component.Name) + ": " + strings.TrimSpace(component.Detail)
+		if hint := strings.TrimSpace(component.Hint); hint != "" {
+			reason += " (" + hint + ")"
+		}
+		reasons = append(reasons, reason)
+	}
+	if len(reasons) == 0 {
+		return "no component reported an outcome"
+	}
+	return strings.Join(reasons, "; ")
+}
 
 type setupCommandOptions struct {
 	workspace       string
@@ -98,8 +258,12 @@ func defaultSetupOptions() setupCommandOptions {
 // without running a real refresh, spawning a real process, or touching a real
 // service manager.
 type setupSteps struct {
-	now           func() time.Time
-	instant       func(context.Context) error
+	now func() time.Time
+	// instant returns one entry per component it attempted. The error is
+	// reserved for a phase that could not run AT ALL (no brain directory, no
+	// resolvable output path); a component that failed on its own comes back as
+	// a failed component with the rest still built.
+	instant       func(context.Context) ([]setupComponent, error)
 	detectAgent   func(context.Context) string
 	spawnBackfill func(context.Context, setupBackfillPlan) (int, error)
 	inspect       func(context.Context, daemonPlan) daemonState
@@ -117,9 +281,12 @@ type setupBackfillPlan struct {
 }
 
 type setupPhase struct {
-	State   string  `json:"state"` // ok | skipped | failed
+	State   string  `json:"state"` // ok | degraded | skipped | failed
 	Detail  string  `json:"detail,omitempty"`
 	Seconds float64 `json:"seconds,omitempty"`
+	// Components is the instant phase's per-component outcome. "degraded" means
+	// the brain is queryable but at least one of these failed.
+	Components []setupComponent `json:"components,omitempty"`
 }
 
 type setupWorkspaceState struct {
@@ -184,6 +351,15 @@ gates: --backfill-budget sessions per background pass, one gated agent run per
 distilled twice), and the cheap --model/--effort. Passing --no-backfill with
 --no-daemon spends nothing at all, and "entire-brain status" reports what the
 backfill has done so far and whether the watcher is alive.
+
+EXIT CODE: setup exits 0 whenever the brain is queryable — that is, whenever at
+least one instant-phase component built. A component that fails (a semantic
+index whose snapshot carries a different repo key, say) is reported as one line,
+skipped, and the remaining components, the backfill, the workspace registration
+and the daemon install all still run; "entire-brain status" then shows that
+component as failed and "entire-brain doctor" prints the reason. setup exits
+non-zero only when nothing usable exists: the brain directory cannot be built,
+or every component failed.
 
 Re-running setup is safe: it detects the existing workspace membership and
 daemon instead of duplicating them, resumes rather than restarts a backfill
@@ -267,18 +443,53 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		progress.Skip(detail)
 	}
 
-	// Phase 1 — INSTANT. Everything after this point is optional; the brain is
-	// usable as soon as this returns.
+	// Phase 1 — INSTANT. Per-component BEST-EFFORT: a component that fails is
+	// reported as one line and the phase carries on, because first-run
+	// onboarding must not die on one broken source. Losing the workspace, the
+	// daemon and the status output because a stale semantic snapshot carried
+	// another CLI's repo key is a worse outcome, by far, than a brain with four
+	// sources instead of five.
 	instantTask := progress.Begin("instant core (deterministic, no agent tokens)")
 	instantStarted := time.Now()
-	if err := steps.instant(ctx); err != nil {
-		instantTask.Finish(err)
-		report.Instant = setupPhase{State: "failed", Detail: err.Error(), Seconds: time.Since(instantStarted).Seconds()}
-		return fmt.Errorf("instant phase failed: %w", err)
+	components, instantErr := steps.instant(ctx)
+	seconds := time.Since(instantStarted).Seconds()
+	built, failed := partitionSetupComponents(components)
+	// Persist the outcome BEFORE deciding whether to continue: `status` and
+	// `doctor` must be able to name the failed component either way, and the
+	// hard-fail path is exactly where the reason is needed most.
+	if err := writeSetupInstantRecord(stateDir, steps.now().UTC(), components); err != nil {
+		report.Warnings = append(report.Warnings, "instant component record not saved: "+err.Error())
 	}
-	report.Instant = setupPhase{State: "ok", Seconds: time.Since(instantStarted).Seconds()}
-	instantTask.Update(fmt.Sprintf("instant core ready in %s — the brain is queryable now", roundedSeconds(report.Instant.Seconds)))
+	report.Instant = setupPhase{Seconds: seconds, Components: components}
+	// Hard-fail ONLY when nothing usable came out: the phase could not run at
+	// all (unwritable brain directory, unresolvable repo) or every component it
+	// attempted failed. Anything less is a degraded brain, which is still a
+	// brain, and setup keeps going. A phase that reports no components at all
+	// and no error built fine — that is the pre-component contract, and reading
+	// it as "everything failed" would fail every such caller.
+	if instantErr != nil || (len(failed) > 0 && len(built) == 0) {
+		reasons := setupInstantFailureReasons(instantErr, failed)
+		instantTask.Finish(fmt.Errorf("%s", reasons))
+		report.Instant.State = "failed"
+		report.Instant.Detail = reasons
+		if instantErr != nil {
+			return fmt.Errorf("instant phase failed, the brain is not usable: %w", instantErr)
+		}
+		return fmt.Errorf("instant phase failed, every component failed: %s", reasons)
+	}
+	report.Instant.State = "ok"
+	if len(failed) > 0 {
+		report.Instant.State = "degraded"
+		report.Instant.Detail = setupInstantFailureReasons(nil, failed)
+	}
+	summary := setupComponentSummary(built, failed)
+	if summary != "" {
+		summary += "; "
+	}
+	instantTask.Update(fmt.Sprintf("instant core ready in %s — %sthe brain is queryable now",
+		roundedSeconds(seconds), summary))
 	instantTask.Finish(nil)
+	reportSetupComponentFailures(progressOut, failed)
 
 	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 
@@ -632,9 +843,11 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 		}
 	}
 	if steps.instant == nil {
-		steps.instant = func(ctx context.Context) error {
+		steps.instant = func(ctx context.Context) ([]setupComponent, error) {
 			// Exactly the free path `watch` runs: sessions + semantic + seed +
-			// docs + history reconciliation with seed agent "none".
+			// docs + history reconciliation with seed agent "none" — but in
+			// best-effort mode, so each component reports its own outcome and one
+			// failure does not abort the build.
 			sub := &cobra.Command{}
 			sub.SetContext(ctx)
 			sub.SetOut(cmd.OutOrStdout())
@@ -643,7 +856,11 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 				sub.SetOut(io.Discard)
 				sub.SetErr(io.Discard)
 			}
-			return watchDeterministicRefresh(ctx, sub, opts, repoDir)
+			var components []setupComponent
+			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, func(name string, err error) {
+				components = append(components, newSetupComponent(name, err))
+			})
+			return components, err
 		}
 	}
 	if steps.detectAgent == nil {
@@ -822,6 +1039,53 @@ func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool) {
 	return opts, true
 }
 
+// setupInstantRecord is the last instant phase's per-component outcome, kept
+// beside the other per-repo setup state. Without it a failed component is
+// indistinguishable from one that was never built: `status` would print
+// semantic=missing for a semantic index that failed loudly ten seconds ago, and
+// the reason would exist nowhere at all once the terminal scrolled.
+type setupInstantRecord struct {
+	SchemaVersion int              `json:"schema_version"`
+	UpdatedAt     time.Time        `json:"updated_at"`
+	Components    []setupComponent `json:"components,omitempty"`
+}
+
+// writeSetupInstantRecord persists the phase outcome. A phase that reported
+// nothing (an injected step, an older build) leaves the previous record alone
+// rather than erasing a real failure with an empty one.
+func writeSetupInstantRecord(stateDir string, now time.Time, components []setupComponent) error {
+	if len(components) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return err
+	}
+	return writeJSONFile(filepath.Join(stateDir, setupInstantRecordFile), setupInstantRecord{
+		SchemaVersion: setupBackfillStateVersion,
+		UpdatedAt:     now,
+		Components:    components,
+	})
+}
+
+func readSetupInstantRecord(stateDir string) setupInstantRecord {
+	data, err := os.ReadFile(filepath.Join(stateDir, setupInstantRecordFile))
+	if err != nil {
+		return setupInstantRecord{}
+	}
+	var record setupInstantRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return setupInstantRecord{}
+	}
+	return record
+}
+
+// failedSetupComponents is what `doctor` prints: the components the last setup
+// could not build, with the reason and the hint.
+func failedSetupComponents(stateDir string) []setupComponent {
+	_, failed := partitionSetupComponents(readSetupInstantRecord(stateDir).Components)
+	return failed
+}
+
 func writeSetupBackfillState(stateDir string, state setupBackfillState) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
@@ -850,6 +1114,15 @@ func printSetupSummary(out io.Writer, report setupReport) {
 	fmt.Fprintln(out, "\nBrain ready")
 	fmt.Fprintf(out, "  repo:  %s (key %s)\n", report.Repo, report.RepoKey)
 	fmt.Fprintf(out, "  brain: %s\n", report.BrainPath)
+	if built, failed := partitionSetupComponents(report.Instant.Components); len(report.Instant.Components) > 0 {
+		fmt.Fprintf(out, "  instant: %s\n", setupComponentSummary(built, failed))
+		for _, component := range failed {
+			fmt.Fprintf(out, "    %s: %s\n", setupComponentLabel(component.Name), component.Detail)
+			if hint := strings.TrimSpace(component.Hint); hint != "" {
+				fmt.Fprintf(out, "      hint: %s\n", hint)
+			}
+		}
+	}
 	fmt.Fprintf(out, "  facts: %d/%d sessions distilled\n", report.Facts.Distilled, report.Facts.Sessions)
 	switch report.Backfill.State {
 	case "ok":

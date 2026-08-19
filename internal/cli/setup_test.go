@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -112,13 +113,19 @@ type recordedSetup struct {
 	spawned        setupBackfillPlan
 	agent          string
 	state          daemonState
-	instantErr     error
+	// instantErr is the PHASE-fatal error: the instant phase could not run at
+	// all. A component that failed on its own belongs in instantComponents.
+	instantErr        error
+	instantComponents []setupComponent
 }
 
 func (r *recordedSetup) steps() setupSteps {
 	return setupSteps{
-		now:     func() time.Time { return setupTestNow },
-		instant: func(context.Context) error { r.instantCalls++; return r.instantErr },
+		now: func() time.Time { return setupTestNow },
+		instant: func(context.Context) ([]setupComponent, error) {
+			r.instantCalls++
+			return r.instantComponents, r.instantErr
+		},
 		detectAgent: func(context.Context) string {
 			if r.agent == "" {
 				return "none"
@@ -229,6 +236,205 @@ func TestSetupFailsLoudlyWhenTheInstantPhaseFails(t *testing.T) {
 	if rec.spawnCalls != 0 || rec.installCalls != 0 {
 		t.Fatalf("no backfill or daemon work may follow a failed instant phase: %+v", rec)
 	}
+}
+
+// setupSemanticMismatchError is the reproduced defect verbatim: the installed
+// Entire CLI and the brain derive different repo keys for a repo with no git
+// remote, so the semantic snapshot the brain holds is rejected as another
+// repo's.
+const setupSemanticMismatchError = `semantic snapshot repo_key "local/repo" does not match current repo "local/repo-6f1c2a"`
+
+// TestSetupContinuesWhenTheSemanticComponentFails drives the REAL instant phase
+// over a fake runner whose semantic step fails with the repo-key skew. Before
+// this, that one component aborted runSetup: no workspace, no daemon, no
+// status, on a brain whose other four sources built perfectly. Setup must
+// report it, keep going, and exit 0.
+func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
+	f, runner := newSetupRefreshFixture(t)
+	runner.responses[fakeCommandKey("entire", "graph", "snapshot", "--repo", f.repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{
+		err: errors.New(setupSemanticMismatchError),
+	}
+	rec := &recordedSetup{}
+	steps := rec.steps()
+	steps.instant = nil // the real, best-effort instant phase
+	opts := defaultSetupOptions()
+	opts.noBackfill = true
+	out := &bytes.Buffer{}
+	cmd := setupTestCommand(t, out, opts)
+
+	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, steps); err != nil {
+		t.Fatalf("one failed component must not fail setup: %v\n%s", err, out)
+	}
+
+	for _, want := range []string{
+		"semantic index failed",
+		"repo key mismatch",
+		"— continuing; run 'entire-brain doctor' for detail",
+		setupRepoKeyMismatchHint,
+		"the brain is queryable now",
+		"FAILED semantic",
+		"Brain ready",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("setup output missing %q:\n%s", want, out)
+		}
+	}
+	// The phase summary must say what BUILT as well as what failed.
+	if !strings.Contains(out.String(), "built ") {
+		t.Fatalf("the phase summary must name the components that built:\n%s", out)
+	}
+	// Every later phase still ran.
+	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	if err != nil {
+		t.Fatalf("a degraded component must not cost the repo its workspace: %v", err)
+	}
+	if len(manifest.Repos) != 1 || manifest.Repos[0].RepoKey != f.storage.Key {
+		t.Fatalf("workspace registration did not happen: %+v", manifest.Repos)
+	}
+	if rec.installCalls != 1 {
+		t.Fatalf("the daemon must still be installed after a degraded component, installs = %d", rec.installCalls)
+	}
+	// The reason survives the terminal: status says failed, doctor has the why.
+	stateDir := filepath.Dir(f.storage.HeadPath)
+	failed := failedSetupComponents(stateDir)
+	if len(failed) != 1 || failed[0].Name != brainComponentSemantic {
+		t.Fatalf("the failed component must be recorded for doctor: %+v", failed)
+	}
+	brainManifest, _ := loadBrainManifest(f.storage.BrainDir)
+	components := instantPhaseComponents(brainManifest, readSetupInstantRecord(stateDir))
+	if state := statusComponentState(components, brainComponentSemantic); state != "failed" {
+		t.Fatalf("status must show semantic=failed, got %q: %+v", state, components)
+	}
+	if state := statusComponentState(components, brainComponentSeed); state != "built" {
+		t.Fatalf("the components that built must still read built, seed = %q", state)
+	}
+	// The entity index reports through the same reporter as every other
+	// deterministic source, so its outcome is recorded for `doctor` instead of
+	// vanishing into a stderr line a --json run discards. Like memory, branches
+	// and patterns it is not one of the five manifest-backed sources `status`
+	// lists, so the instant record is where it must show up.
+	entities, found := setupComponent{}, false
+	for _, component := range readSetupInstantRecord(stateDir).Components {
+		if component.Name == brainComponentEntities {
+			entities, found = component, true
+		}
+	}
+	if !found || entities.State != "ok" {
+		t.Fatalf("the entity index must report through the component reporter, got %+v (found=%v)", entities, found)
+	}
+}
+
+// TestSetupFailsWhenEveryInstantComponentFails is the other half of the rule:
+// best-effort is not "never fail". A phase that produced nothing usable exits
+// non-zero, with every reason it collected.
+func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{instantComponents: []setupComponent{
+		newSetupComponent(brainComponentSessions, errors.New("export unavailable")),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError)),
+	}}
+	opts := defaultSetupOptions()
+	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
+
+	err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps())
+	if err == nil {
+		t.Fatal("a phase in which every component failed must exit non-zero")
+	}
+	for _, want := range []string{"instant phase failed", "export unavailable", "repo key mismatch"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the error must collect every reason, missing %q: %v", want, err)
+		}
+	}
+	if rec.spawnCalls != 0 || rec.installCalls != 0 {
+		t.Fatalf("nothing may follow an instant phase that built nothing: %+v", rec)
+	}
+}
+
+// TestSetupIsStillDegradedNotFailedWithASingleSurvivor pins the boundary: one
+// built component is enough to keep going.
+func TestSetupIsStillDegradedNotFailedWithASingleSurvivor(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{instantComponents: []setupComponent{
+		newSetupComponent(brainComponentSeed, nil),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError)),
+	}}
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+
+	out := runSetupForTest(t, f, opts, rec)
+
+	if !strings.Contains(out, "built seed; FAILED semantic") {
+		t.Fatalf("the phase line must name both halves:\n%s", out)
+	}
+}
+
+func statusComponentState(components []brainStatusComponent, name string) string {
+	for _, component := range components {
+		if component.Name == name {
+			return component.State
+		}
+	}
+	return ""
+}
+
+// newSetupRefreshFixture is a setup fixture wired to the real refresh path: a
+// seeded repo, a fake command runner that answers every git/entire call the
+// deterministic build makes, and a stubbed memory worker launch.
+// setupFixtureEntityHead is the branch tip the entity index resolves to in the
+// setup fixture. Nothing is indexed above it, which is the steady state on a
+// repo whose entity index is already current.
+const setupFixtureEntityHead = "e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9"
+
+// addSetupEntityIndexFixture answers the entity index's deterministic git walk
+// with "already current, nothing new to index". The entity index is a component
+// of the SAME free refresh tick as sessions/seed/semantic, so a fixture that
+// models that tick has to answer for it too — otherwise the component fails on
+// an unmodelled command and the degradation test can no longer tell a real
+// failure apart from a gap in the fixture.
+func addSetupEntityIndexFixture(runner *fakeCommandRunner) {
+	runner.responses[fakeCommandKey("git", "rev-parse", "--verify", "main^{commit}")] = fakeCommandResponse{
+		stdout: setupFixtureEntityHead + "\n",
+	}
+	previous := runner.fallback
+	runner.fallback = func(name string, args []string) (fakeCommandResponse, bool) {
+		if name == "git" && len(args) > 0 {
+			switch {
+			// The builder picks its own range and bound, so answer the shape
+			// rather than one pre-baked argv: no commits to count, none to walk.
+			case args[0] == "rev-list" && len(args) > 2 && args[1] == "--count" && args[2] == "--first-parent":
+				return fakeCommandResponse{stdout: "0\n"}, true
+			case args[0] == "log" && len(args) > 1 && args[1] == "--first-parent":
+				return fakeCommandResponse{}, true
+			}
+		}
+		if previous != nil {
+			return previous(name, args)
+		}
+		return fakeCommandResponse{}, false
+	}
+}
+
+func newSetupRefreshFixture(t *testing.T) (*setupTestFixture, *fakeCommandRunner) {
+	t.Helper()
+	repoDir := seedFixtureRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	env := semanticTestEnv(t, repoDir)
+	runner := seedFixtureRunner(repoDir)
+	addRefreshSemanticFixture(runner, repoDir)
+	addSetupEntityIndexFixture(runner)
+	runner.responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: "[]\n"}
+	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
+	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
+	previousLaunch := memoryWorkerLaunch
+	memoryWorkerLaunch = func(string) error { return nil }
+	t.Cleanup(func() { memoryWorkerLaunch = previousLaunch })
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return setupTestNow }}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("repoStoragePaths: %v", err)
+	}
+	return &setupTestFixture{repoDir: repoDir, home: home, env: env, runner: runner, opts: opts, storage: storage}, runner
 }
 
 // TestSetupBackfillIsDetachedNewestFirstAndCheap pins the backfill contract:

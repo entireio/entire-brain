@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
@@ -70,6 +71,22 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 	}
 	if env.RepoRoot != "" && opts.Runner != nil {
 		report.Checks, report.Memory = brainDoctorReadOnlyReport(cmd.Context(), opts, env.RepoRoot)
+		// Whatever the last `setup` could not build. setup keeps going on a
+		// component failure and points here for the reason, so the reason has to
+		// actually be here.
+		if storage, serr := repoStoragePaths(cmd.Context(), opts.Runner, env, env.RepoRoot); serr == nil {
+			for _, component := range failedSetupComponents(filepath.Dir(storage.HeadPath)) {
+				detail := component.Detail
+				if hint := component.Hint; hint != "" {
+					detail += "; " + hint
+				}
+				report.Checks = append(report.Checks, doctorCheckResult{
+					Name:   "setup " + setupComponentLabel(component.Name),
+					State:  "error",
+					Detail: detail,
+				})
+			}
+		}
 		if semReport, semErr := semanticStaleReport(cmd.Context(), opts, env.RepoRoot); semErr != nil {
 			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: "warn", Detail: "unavailable: " + semErr.Error()})
 		} else {
