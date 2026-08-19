@@ -79,28 +79,66 @@ blocker, not a footnote — see **Pin resolution procedure** below.
   `/Users/suhaan/devenv/eg-memharness/bench/memory/benchmarks/common/` (the
   duck-typed `add`/`search` shape every arm in that harness implements).
 
-### Published default config (what BrainMark runs)
+### Config (what BrainMark runs)
 
 | setting | value | source |
 |---|---|---|
 | package | `mem0ai` | published |
 | version pin | `0.1.118` | `config.json:competitors.mem0.version_pin` |
 | commit pin | `4debc58a83377b18be81ae1e5969a300736b2fac` | `eg-memharness/bench/memory/UPSTREAM.md:102` |
-| extraction LLM | `openai/gpt-4o-mini` | mem0's own default |
-| embedder | `openai/text-embedding-3-small` | mem0's code default — **unconfirmed pin, see below** |
+| extraction LLM | `openai/gpt-5.6-sol` via `<AZURE_AI_ENDPOINT>/openai/v1` | **FORCED deviation**, see below |
+| embedder | `huggingface/sentence-transformers/all-MiniLM-L6-v2` (384 dims) | **FORCED deviation**, see below |
+| vector store | `qdrant`, in-memory, `embedding_model_dims: 384` | mem0 default, width follows the embedder |
 | retrieval | `search(query, top_k=<mem0 default>)`, then our shared byte cap | published |
 
-### Deliberate deviation, disclosed
+### Forced deviations from mem0's published defaults
 
-The eg-memharness prose campaign drove mem0's extractor with `azure_ai/gpt-5.6-terra`
-(`eg-memharness/bench/memory/README.md:33`), a much stronger model than mem0's own
-default. BrainMark **keeps mem0's published default** (`gpt-4o-mini`). That is the
-config a mem0 user gets out of the box, so it is the honest baseline. Upgrading the
-extractor would be a tuning act and would consume mem0's single permitted pass — and
-it would have to be matched by an equivalent upgrade elsewhere under rule 2.
+Both deviations below are **forced by availability, not chosen for score**. Neither
+consumes mem0's single permitted tuning pass, because neither was selected by
+looking at a result: the published defaults simply **do not run** on the Azure AI
+Foundry resource BrainMark's v1 cells execute against. Both are echoed into every
+mem0 packet's provenance, so a reader can see them without reading this file.
 
-If a reviewer asks for the stronger-extractor variant, run it as a **dev-split
-tuning pass** and log it; do not silently swap it into the confirmatory cell.
+**1. Extraction LLM — `openai/gpt-4o-mini` → `gpt-5.6-sol`.**
+Probed 2026-08-19: `gpt-4o-mini`, `gpt-4o`, `gpt-5-mini` and `gpt-4.1-mini` all
+return `DeploymentNotFound` on this resource; only `gpt-5`, `gpt-5.6-sol` and
+`gpt-5.6-terra` exist. mem0 is therefore given **`gpt-5.6-sol` — the same model the
+measured agent itself runs on**, which is a *stronger* extractor than mem0's own
+default. The deviation is **charitable to mem0**: it cannot depress the competitor's
+score, so it cannot manufacture our headline. It is disclosed rather than silently
+swapped. Pinned at `config.json:competitors.mem0._llm_forced_deviation`.
+
+**2. Embedder — `openai/text-embedding-3-small` → local MiniLM-384.**
+This resource exposes **no embedding deployment at all**: `text-embedding-3-small`,
+`-3-large` and `ada-002` all return `unknown_model` (probed 2026-08-19). The
+alternative to a local embedder is an arm that cannot embed, therefore retrieves
+nothing, therefore scores zero — and scoring an infrastructure failure as *"memory
+did not help"* is the easiest way to fake this benchmark's headline. A local
+`sentence-transformers/all-MiniLM-L6-v2` (384 dims) is used so the mem0 arm runs at
+full strength, with the vector store's `embedding_model_dims` matched to it. Pinned
+at `config.json:competitors.mem0._embedder_forced_deviation`.
+
+Note the direction of both: they make the competitor *stronger or whole*, never
+weaker. A forced deviation that had degraded mem0 would not be acceptable here — it
+would have to block the run instead.
+
+**Superseded.** BrainMark previously kept mem0's published `gpt-4o-mini` and recorded
+the eg-memharness `azure_ai/gpt-5.6-terra` extractor
+(`eg-memharness/bench/memory/README.md:33`) as a deviation deliberately *not* taken.
+That position is no longer available: the published defaults are not deployable on
+this resource. If BrainMark is ever run against a resource where they are, restore
+them — the published default remains the honest baseline wherever it can be run, and
+these rows come straight back out of `config.json`.
+
+### How a non-default provider config is expressed
+
+`config.json:competitors.mem0.{llm,embedder}.config_extra` is a passthrough dict
+merged into mem0's own provider config beside the model name (an endpoint, an
+embedding width), and `vector_store` is passed through whole
+(`memsources/mem0_source.py:provider_block`). `${VAR}` inside a `config_extra` string
+is expanded from the environment, so the tenant endpoint is named by reference and
+never committed; an unset variable is a **hard error**, never an empty string, so the
+arm can never silently fall back to public OpenAI.
 
 ### Version-pin procedure
 
@@ -254,23 +292,27 @@ build and the historical numbers are not comparable byte-for-byte.
 
 ### mem0 embedder
 
-`text-embedding-3-small` is mem0's **code default**, inferred from upstream at the
-pinned commit; no eg-memharness launcher ever set an override
-(`grep -n EMBEDDER /Users/suhaan/devenv/eg-memharness/bench/memory/run_locomo.sh`
-finds nothing). That makes it *evidence*, not *proof*. Resolve it by observation:
+**Resolved by force, not by observation.** `text-embedding-3-small` was mem0's
+inferred **code default**; it is moot here because the Azure resource exposes no
+embedding deployment at all, so BrainMark pins a local MiniLM-384 embedder (see
+*Forced deviations* above). What must still be checked at run time is that the
+configured pins are the ones that actually loaded:
 
 ```bash
 python3 - <<'PY'
-from mem0 import Memory
-m = Memory()                     # default config, pinned version
-print(m.config.embedder.provider, m.config.embedder.config.model)
-print(m.config.llm.provider,      m.config.llm.config.model)
+from brainmark.memsources.mem0_source import Mem0Client
+import json, pathlib
+pins = json.loads(pathlib.Path("brainmark/config.json").read_text())["competitors"]["mem0"]
+print(json.dumps(Mem0Client(pins).mem0_config(), indent=2))   # what mem0 is handed
 PY
 ```
 
-Write the observed values into `config.json:competitors.mem0.embedder` and drop the
-`_embedder_note`. The same two lines must be emitted into every mem0 packet's
-provenance at run time, so the report proves what ran rather than what was configured.
+`memsources/mem0_source.py:observed_provenance` emits the installed
+`mem0.__version__` (with a `mem0_version_matches_pin` flag), the resolved
+llm/embedder/vector_store and `top_k` into every mem0 packet, so the report proves
+what ran rather than what was configured. A version that disagrees with
+`version_pin` is **reported, not corrected** — reconciling it is the reviewer's job
+and the mismatch must stay visible.
 
 ### Graphify commit
 
@@ -291,6 +333,12 @@ moved commits between our own v45 and v52 runs.
 Empty. No competitor has been tuned. Any row added here must predate the
 confirmatory run.
 
+mem0's two **forced deviations** (see *Forced deviations from mem0's published
+defaults*) are deliberately NOT rows here. A tuning pass is a change selected by
+looking at a result; those two were selected by a `DeploymentNotFound` and an
+`unknown_model`, both dated and probed before any paid session, and both move mem0
+*up*. They are disclosed as deviations, not logged as tuning.
+
 | date | competitor | what changed | why | dev-split effect | who |
 |---|---|---|---|---|---|
 | — | — | — | — | — | — |
@@ -301,6 +349,6 @@ confirmatory run.
 
 | competitor | version/commit | patch | embedder / LLM | binary sha256 | status |
 |---|---|---|---|---|---|
-| mem0 | `4debc58a` (v0.1.118) | n/a | default (**unconfirmed**) | n/a (pip) | **PARTIAL** — resolve embedder by observation |
+| mem0 | `4debc58a` (v0.1.118) | n/a | `gpt-5.6-sol` / MiniLM-384 — **FORCED deviations, disclosed** | n/a (pip) | **RESOLVED** — pins explicit; verify observed version at run time |
 | Graphify | `9f25a3aa` (v8) | n/a | none (0-LLM structural) | n/a (source) | **RESOLVED** — enforce at run time |
 | cmm | v0.9.0 @ `b637e333` | `df139f26…` ✅ verified | none (0-LLM) | **null** | **PARTIAL** — build or hash the binary |

@@ -12,6 +12,16 @@ not care whether A succeeds -- a failed-but-exploratory session is still a real
 prior session, and filtering on A's success would select for pairs where the
 answer was easy, biasing every arm at once.
 
+TRANSCRIPT CANONICALIZATION (codex backend). codex's `--json` stdout is its own
+ThreadEvent schema, which NEITHER entire-brain's distill NOR BrainMark's
+competitor ingest can parse -- left raw, the full_brain arm silently distills
+ZERO facts and the mem0 arm raises "produced no messages". The stream is
+therefore translated ONCE, here, into the claude stream-JSONL shape both
+consumers already read, and the pin moves onto the translated bytes. This is an
+input normalization applied before any arm exists, so every arm receives
+byte-identical input; the raw stream is kept and hashed beside the canonical one
+so the translation is auditable and reversible. See transcript_canon.py.
+
 Isolation:
   * dedicated CLAUDE_CONFIG_DIR per pair, so the native JSONL is harvestable and
     cannot mix with the operator's real sessions;
@@ -37,10 +47,10 @@ import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from brainmark import _harness, _repo, agents  # type: ignore[no-redef]
+    from brainmark import _harness, _repo, agents, transcript_canon  # type: ignore[no-redef]
     from brainmark.prompts import TASK_INSTRUCTIONS  # type: ignore[no-redef]
 else:
-    from . import _harness, _repo, agents
+    from . import _harness, _repo, agents, transcript_canon
     from .prompts import TASK_INSTRUCTIONS
 
 
@@ -136,6 +146,39 @@ def harvest_native_jsonl(claude_config_dir: pathlib.Path, dest: pathlib.Path) ->
     }
 
 
+def canonicalize_codex_transcript(
+    out_dir: pathlib.Path,
+    transcript_path: pathlib.Path,
+    worktree: pathlib.Path,
+    prompt: str,
+) -> dict:
+    """Re-pin session A onto the CANONICAL translation of its codex stream.
+
+    Returns the meta.json fields to merge. The raw codex stream is kept beside
+    the canonical file and both are hashed, so the translation is auditable and
+    reversible; `transcript_path`/`transcript_sha256` -- the pin everything
+    downstream consumes -- move to the canonical bytes, because those are what
+    every arm must actually read.
+
+    A's prompt is prepended as the opening user turn: without it the corpus is
+    a set of answers with the question missing, which is a worse corpus for
+    EVERY arm equally.
+    """
+    provenance = transcript_canon.canonicalize(
+        out_dir=out_dir,
+        raw_bytes=pathlib.Path(transcript_path).read_bytes(),
+        canonical_path=pathlib.Path(out_dir) / transcript_canon.CANONICAL_NAME,
+        worktree=worktree,
+        a_prompt=prompt,
+    )
+    return {
+        "transcript_canonicalized": provenance,
+        "transcript_path": provenance["canonical_path"],
+        "transcript_sha256": provenance["canonical_sha256"],
+        "transcript_source": transcript_canon.TRANSLATED_SOURCE,
+    }
+
+
 def run(pair: dict, config: dict, out_dir: pathlib.Path, tier: str,
         dry_run: bool = False, backend: str | None = None,
         model: str | None = None, model_role: str = "primary") -> dict:
@@ -205,6 +248,13 @@ def run(pair: dict, config: dict, out_dir: pathlib.Path, tier: str,
             # by design, and its `--json` stdout IS the complete event record.
             # Named distinctly so a report never conflates the two formats.
             meta["transcript_source"] = "codex_event_stream"
+            # ...but that record is codex's ThreadEvent schema, which NEITHER
+            # entire-brain's distill NOR brainmark's competitor ingest parses:
+            # left raw, one arm silently learns nothing and the other crashes.
+            # Translate ONCE, here, before any arm exists, so every arm is
+            # handed byte-identical canonical input. See transcript_canon.
+            meta.update(canonicalize_codex_transcript(
+                out_dir, transcript_path, worktree, prompt))
         else:
             meta["transcript_source"] = "stream_fallback"
             meta["transcript_fallback"] = "stream.jsonl (native JSONL not found)"

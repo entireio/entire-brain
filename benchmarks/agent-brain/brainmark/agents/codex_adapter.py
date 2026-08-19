@@ -17,10 +17,20 @@ AZURE_AI_API_KEY / AZURE_AI_API_VERSION; real process env wins over the file),
 and is passed to codex as a custom model provider:
 
     model_provider="azure"
-    model_providers.azure.base_url  = <AZURE_AI_ENDPOINT>/openai
+    model_providers.azure.base_url  = <AZURE_AI_ENDPOINT><base_url_suffix>
     model_providers.azure.env_key   = "AZURE_AI_API_KEY"
     model_providers.azure.query_params = {"api-version"=<AZURE_AI_API_VERSION>}
     model_providers.azure.wire_api  = "responses"
+
+The URL SHAPE is a property of the resource, not of codex, and both halves of it
+live in backends.json. An Azure AI **Foundry** resource -- what v1 runs on --
+serves the OpenAI-compatible surface at `<endpoint>/openai/v1` and returns 404
+for the deployment-scoped `<endpoint>/openai/...?api-version=...` shape, so it
+pins `base_url_suffix: "/openai/v1"` and `send_api_version: false`. A classic
+Azure OpenAI resource wants `/openai` plus the api-version query and leaves
+`send_api_version` at its default (true). `send_api_version` suppresses the
+query_params block outright, so a stray AZURE_AI_API_VERSION in the operator's
+env or ~/.azure_env cannot silently put the 404 back.
 
 `--ignore-user-config` means the operator's ~/.codex/config.toml can never
 change what a measured session does; every knob that matters is on the command
@@ -105,6 +115,14 @@ class CodexAdapter(AgentAdapter):
             merged.get(cfg.get("api_version_env") or "AZURE_AI_API_VERSION", "").strip()
             or str(cfg.get("default_api_version") or "")
         )
+        # Azure AI FOUNDRY resources serve the OpenAI-compatible surface at
+        # <endpoint>/openai/v1 and 404 the deployment-scoped
+        # <endpoint>/openai/...?api-version=... shape. `send_api_version: false`
+        # suppresses the query_params block for such a resource. It is an
+        # explicit opt-out rather than an empty default on purpose: a stray
+        # AZURE_AI_API_VERSION in the process env or ~/.azure_env would
+        # otherwise silently reintroduce the 404.
+        send_api_version = bool(cfg.get("send_api_version", True))
         if not endpoint or not api_key:
             raise AgentBackendError(
                 "codex/azure backend is not configured: need "
@@ -117,6 +135,7 @@ class CodexAdapter(AgentAdapter):
         if suffix and not base.endswith(suffix):
             base += suffix
         return {"base_url": base, "api_key": api_key, "api_version": api_version,
+                "send_api_version": send_api_version,
                 "api_key_env": cfg.get("api_key_env") or "AZURE_AI_API_KEY",
                 "provider_key": cfg.get("provider_key") or "azure",
                 "wire_api": cfg.get("wire_api") or "responses"}
@@ -130,7 +149,7 @@ class CodexAdapter(AgentAdapter):
             "--config", f"model_providers.{key}.env_key={toml_quote(azure['api_key_env'])}",
             "--config", f"model_providers.{key}.wire_api={toml_quote(azure['wire_api'])}",
         ]
-        if azure.get("api_version"):
+        if azure.get("api_version") and azure.get("send_api_version", True):
             # Inline TOML table with a QUOTED key: `api-version` contains a dash
             # and is not a bare key.
             args += ["--config",
@@ -179,13 +198,14 @@ class CodexAdapter(AgentAdapter):
         # provider credential is re-injected here and only here.
         env[azure["api_key_env"]] = azure["api_key"]
         env.setdefault("AZURE_AI_ENDPOINT", azure["base_url"])
-        if azure.get("api_version"):
+        if azure.get("api_version") and azure.get("send_api_version", True):
             env.setdefault("AZURE_AI_API_VERSION", azure["api_version"])
         provenance = {
             "backend": "codex",
             "CODEX_HOME": str(codex_home),
             "azure_base_url": azure["base_url"],
             "azure_api_version": azure.get("api_version"),
+            "azure_api_version_sent": bool(azure.get("send_api_version", True)),
             "azure_wire_api": azure["wire_api"],
             **redact_env(env, [azure["api_key_env"]]),
         }

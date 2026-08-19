@@ -15,6 +15,14 @@ Pipeline (each step pinned; the paid step is clearly marked):
      flow that would need a live agent session.
   3. `entire-brain distill <repo>` -- PAID (invokes a model). Pinned agent/model/
      effort from config. Skipped when dry_run=True.
+     When the pinned distill agent is `codex`, a PATH shim is installed first --
+     see agents/codex_provider_shim.py. distill runs `codex exec
+     --ignore-user-config` with no provider config of its own, so without the
+     shim it would authenticate against public OpenAI instead of the Azure
+     deployment this run is pinned to, silently and successfully. The shim
+     injects the provider ONLY when the caller supplied none, so it never
+     touches a measured BrainMark session, and its sha256 is recorded in the
+     packet's prep provenance.
   4. `entire-brain refresh history <repo>` -- free, local.
   5. ONE frozen `entire-brain search "<B problem statement>" --json --limit N`.
      `search` is used rather than `brief` because only search emits the
@@ -66,6 +74,32 @@ def _json_stdout(proc: subprocess.CompletedProcess, what: str) -> dict:
         return json.loads(out[start:])
     except json.JSONDecodeError as exc:
         raise MemorySourceError(f"{what} produced non-JSON: {exc} :: {out[start:start+300]}") from exc
+
+
+def install_distill_provider_shim(
+    data_root: pathlib.Path,
+    distill_pin: dict[str, Any],
+    env: dict[str, str],
+) -> tuple[dict[str, str], dict[str, Any] | None]:
+    """Give distill's `codex` the pinned provider. See codex_provider_shim.
+
+    Returns (env, provenance). provenance is None -- and env is untouched --
+    when the pinned distill agent is not codex, so no other backend pays for
+    this. Configuration comes from backends.json via the SAME
+    `CodexAdapter.azure_settings()` the measured sessions use, so the shim
+    cannot drift away from what the run is pinned to.
+    """
+    if str(distill_pin.get("agent") or "") != "codex":
+        return env, None
+
+    from .. import agents
+    from ..agents import codex_provider_shim
+
+    adapter = agents.get_adapter("codex")
+    azure = adapter.azure_settings(dict(env))  # type: ignore[attr-defined]
+    return codex_provider_shim.install(
+        pathlib.Path(data_root) / "codex-shim", azure, env
+    )
 
 
 def brain_env(data_root: pathlib.Path, base_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -213,11 +247,23 @@ def build(
             ]
         if dry_run and not agent_command:
             distill_cmd.append("--dry-run")
-        proc = _run(distill_cmd, env, timeout=3600)
+
+        # The shim is for the REAL agent path only: `--agent command` already
+        # names the binary to run, so there is nothing to inject into and the
+        # offline tests must not need a codex on PATH.
+        shim_prov: dict[str, Any] | None = None
+        distill_env = env
+        if not agent_command:
+            distill_env, shim_prov = install_distill_provider_shim(
+                pathlib.Path(data_root), distill_pin, env
+            )
+
+        proc = _run(distill_cmd, distill_env, timeout=3600)
         steps.append({
             "step": "distill",
             "cmd": distill_cmd,
             "paid": not (dry_run or bool(agent_command)),
+            "provider_shim": shim_prov,
             "report": _json_stdout(proc, "distill"),
         })
 

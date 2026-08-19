@@ -15,10 +15,12 @@
         "endpoint_env": "AZURE_AI_ENDPOINT",
         "api_key_env": "AZURE_AI_API_KEY",
         "api_version_env": "AZURE_AI_API_VERSION",
-        "default_api_version": "2024-05-01-preview",
+        "default_api_version": "",
+        "send_api_version": false,
+        "_azure_url_shape_note": "This is an Azure AI FOUNDRY resource, which serves the OpenAI-compatible surface under <endpoint>/openai/v1 and REJECTS the older deployment-scoped shape. Probed 2026-08-19 against entirehq-2598-resource.services.ai.azure.com: <endpoint>/openai/responses?api-version=2024-05-01-preview -> 404 Resource not found; <endpoint>/openai/v1/responses with NO api-version -> 200 OK. `send_api_version: false` therefore suppresses the query_params block ENTIRELY -- it is not merely an empty default, because a stray AZURE_AI_API_VERSION in the operator's env or ~/.azure_env would otherwise reintroduce the 404. Only the URL shape changes; provider, wire_api and env_key are untouched.",
         "wire_api": "responses",
         "provider_key": "azure",
-        "base_url_suffix": "/openai"
+        "base_url_suffix": "/openai/v1"
       },
       "models": {
         "primary": "gpt-5.6-sol",

@@ -132,14 +132,32 @@
       "commit_pin_source": "eg-memharness/bench/memory/UPSTREAM.md:102",
       "llm": {
         "provider": "openai",
-        "model": "gpt-4o-mini"
+        "model": "gpt-5.6-sol",
+        "config_extra": {
+          "openai_base_url": "${AZURE_AI_ENDPOINT}/openai/v1"
+        }
       },
+      "_llm_published_default": "openai/gpt-4o-mini",
+      "_llm_forced_deviation": "FORCED, NOT A TUNING PASS. mem0's published default openai/gpt-4o-mini is NOT DEPLOYED on the Azure AI Foundry resource BrainMark runs against (probed 2026-08-19: gpt-4o-mini, gpt-4o, gpt-5-mini and gpt-4.1-mini all return DeploymentNotFound; only gpt-5, gpt-5.6-sol and gpt-5.6-terra exist). mem0 is therefore given gpt-5.6-sol -- the SAME model the measured agent runs on, i.e. a STRONGER extractor than its own default. The deviation is CHARITABLE to mem0 and is disclosed rather than silently swapped. See COMPETITORS.md 'Forced deviations'.",
       "embedder": {
-        "provider": "openai",
-        "model": "text-embedding-3-small"
+        "provider": "huggingface",
+        "model": "sentence-transformers/all-MiniLM-L6-v2",
+        "config_extra": {
+          "embedding_dims": 384
+        }
       },
-      "_embedder_note": "UNCONFIRMED PIN: this is mem0's own code default, not an observed setting -- no override appears in any eg-memharness launcher. It must be echoed into the packet provenance at run time and reconciled there. See COMPETITORS.md 'pin resolution'.",
-      "_llm_note": "The eg-memharness prose runs drove mem0's extractor with azure_ai/gpt-5.6-terra (eg-memharness/bench/memory/README.md:33). BrainMark keeps mem0's PUBLISHED default (gpt-4o-mini) instead; deviating to a stronger extractor is a tuning choice and would need the dev-split tuning-pass log."
+      "_embedder_published_default": "openai/text-embedding-3-small",
+      "_embedder_forced_deviation": "FORCED, NOT A TUNING PASS. mem0's default openai/text-embedding-3-small is unavailable: the Azure resource exposes NO embedding deployment at all (text-embedding-3-small, -3-large and ada-002 all return unknown_model; probed 2026-08-19). A local sentence-transformers embedder is used so the mem0 arm runs AT FULL STRENGTH instead of degrading to a null arm -- an arm that cannot embed retrieves nothing, and scoring that as 'memory did not help' is the easiest way to fake this benchmark's headline.",
+      "vector_store": {
+        "provider": "qdrant",
+        "config": {
+          "embedding_model_dims": 384,
+          "on_disk": false
+        }
+      },
+      "_vector_store_note": "mem0's own default store, in-memory, fresh per pair (a new Memory object per packet build), with dims matched to the forced embedder. Not a deviation in kind -- only the width follows the embedder.",
+      "_provenance_note": "Every mem0 packet echoes the OBSERVED mem0.__version__ plus the resolved llm/embedder/vector_store and top_k (memsources/mem0_source.py:observed_provenance), so a report proves what ran rather than what was configured.",
+      "_prior_deviation_note": "SUPERSEDED. BrainMark previously kept mem0's published gpt-4o-mini default and recorded the eg-memharness azure_ai/gpt-5.6-terra extractor as a deviation NOT taken. That choice is no longer available: the published defaults are not deployable on this resource. The deviations above are forced by availability, not chosen for score."
     },
     "graphify": {
       "commit_pin": "9f25a3aaa1050913c2d8a1b9f0b0f0ed18296abd",

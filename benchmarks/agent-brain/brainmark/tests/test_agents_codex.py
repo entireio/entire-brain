@@ -106,11 +106,48 @@ class AzureWiringTest(unittest.TestCase):
     def test_endpoint_gets_the_openai_suffix_once(self):
         azure = self.adapter.azure_settings(self.env)
         self.assertEqual(azure["base_url"],
-                         "https://example-resource.openai.azure.com/openai")
+                         "https://example-resource.openai.azure.com/openai/v1")
         already = dict(self.env,
-                       AZURE_AI_ENDPOINT="https://x.openai.azure.com/openai")
+                       AZURE_AI_ENDPOINT="https://x.openai.azure.com/openai/v1")
         self.assertEqual(self.adapter.azure_settings(already)["base_url"],
-                         "https://x.openai.azure.com/openai")
+                         "https://x.openai.azure.com/openai/v1")
+
+    def test_foundry_url_shape_has_no_api_version_query(self):
+        """REGRESSION PIN (probed 2026-08-19): the shipped shape 404s.
+
+        `<endpoint>/openai/responses?api-version=2024-05-01-preview` returns 404
+        Resource not found on the Azure AI Foundry resource v1 runs on;
+        `<endpoint>/openai/v1/responses` with no api-version returns 200. Both
+        halves are pinned here, and the api-version half is pinned WITH the env
+        var set -- suppression must survive a stray AZURE_AI_API_VERSION, which
+        is exactly how the 404 would come back.
+        """
+        spec = agents.load_backends()["backends"]["codex"]["azure"]
+        self.assertEqual(spec["base_url_suffix"], "/openai/v1")
+        self.assertFalse(spec["send_api_version"])
+
+        self.assertEqual(self.env["AZURE_AI_API_VERSION"], "2025-04-01-preview")
+        cmd = self.adapter.build_command(
+            "PROMPT", pathlib.Path("/w"), "gpt-5.6-sol", env=self.env)
+        joined = " ".join(cmd)
+        self.assertNotIn("query_params", joined)
+        self.assertNotIn("api-version", joined)
+        self.assertIn(
+            'model_providers.azure.base_url='
+            '"https://example-resource.openai.azure.com/openai/v1"', joined)
+
+    def test_send_api_version_true_still_emits_the_query(self):
+        """A classic (non-Foundry) Azure OpenAI resource keeps the old shape."""
+        spec = dict(self.spec)
+        spec["azure"] = dict(spec["azure"], base_url_suffix="/openai",
+                             send_api_version=True)
+        cmd = CodexAdapter(spec, {}).build_command(
+            "PROMPT", pathlib.Path("/w"), "gpt-5.6-sol", env=self.env)
+        joined = " ".join(cmd)
+        self.assertIn('{"api-version"="2025-04-01-preview"}', joined)
+        self.assertIn(
+            'model_providers.azure.base_url='
+            '"https://example-resource.openai.azure.com/openai"', joined)
 
     def test_missing_credentials_fail_loudly(self):
         for drop in ("AZURE_AI_ENDPOINT", "AZURE_AI_API_KEY"):
@@ -134,13 +171,13 @@ class AzureWiringTest(unittest.TestCase):
 
             from_file = adapter.azure_settings({})
             self.assertEqual(from_file["base_url"],
-                             "https://from-file.openai.azure.com/openai")
+                             "https://from-file.openai.azure.com/openai/v1")
             self.assertEqual(from_file["api_key"], "file-key")
 
             overridden = adapter.azure_settings(
                 {"AZURE_AI_ENDPOINT": "https://from-env.openai.azure.com"})
             self.assertEqual(overridden["base_url"],
-                             "https://from-env.openai.azure.com/openai")
+                             "https://from-env.openai.azure.com/openai/v1")
             self.assertEqual(overridden["api_key"], "file-key")
 
     def test_command_carries_the_azure_provider_and_no_mcp(self):
@@ -151,10 +188,10 @@ class AzureWiringTest(unittest.TestCase):
         joined = " ".join(cmd)
         self.assertIn('model_provider="azure"', joined)
         self.assertIn(
-            'model_providers.azure.base_url="https://example-resource.openai.azure.com/openai"',
+            'model_providers.azure.base_url='
+            '"https://example-resource.openai.azure.com/openai/v1"',
             joined)
         self.assertIn('model_providers.azure.env_key="AZURE_AI_API_KEY"', joined)
-        self.assertIn('{"api-version"="2025-04-01-preview"}', joined)
         self.assertIn("--ignore-user-config", cmd)
         self.assertIn("--json", cmd)
         self.assertIn("gpt-5.6-sol", cmd)

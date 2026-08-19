@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
@@ -151,6 +153,91 @@ class ImportGuardTest(unittest.TestCase):
             self.skipTest("mem0ai is installed; the absent-package path cannot be exercised")
         with self.assertRaises(msbase.MemorySourceError):
             mem0_source.Mem0Client({"version_pin": "0.1.118"})._make_client()
+
+
+class Mem0ForcedDeviationTest(unittest.TestCase):
+    """mem0's pins deviate from its published defaults, FORCED by availability.
+
+    The deviations are legitimate only while they are (a) disclosed and (b)
+    charitable to mem0. Both properties are pinned here, and so is the
+    passthrough mechanism that expresses them, because a config that silently
+    stopped reaching the pinned endpoint would send the arm to public OpenAI.
+    """
+
+    def setUp(self) -> None:
+        self.pins = json.loads(
+            (_harness.BRAINMARK_DIR / "config.json").read_text(encoding="utf-8")
+        )["competitors"]["mem0"]
+
+    def test_every_deviation_from_a_published_default_is_documented(self):
+        for key in ("llm", "embedder"):
+            with self.subTest(setting=key):
+                published = self.pins[f"_{key}_published_default"]
+                configured = f"{self.pins[key]['provider']}/{self.pins[key]['model']}"
+                self.assertNotEqual(published, configured, "no deviation to document")
+                note = self.pins[f"_{key}_forced_deviation"]
+                self.assertIn("FORCED", note)
+                self.assertIn("NOT A TUNING PASS", note)
+                self.assertIn("2026-08-19", note, "a forced deviation needs its probe date")
+
+        text = (_harness.BRAINMARK_DIR / "COMPETITORS.md").read_text(encoding="utf-8")
+        self.assertIn("Forced deviations from mem0's published defaults", text)
+        for token in ("gpt-5.6-sol", "all-MiniLM-L6-v2", "DeploymentNotFound",
+                      "unknown_model"):
+            self.assertIn(token, text, f"COMPETITORS.md does not disclose {token}")
+
+    def test_the_forced_extractor_is_the_agents_own_model(self):
+        """Charity check: mem0 gets the SAME model the measured agent runs on.
+
+        A deviation that handed mem0 something weaker than its default could
+        manufacture our headline; this one cannot.
+        """
+        from brainmark import agents
+
+        self.assertEqual(self.pins["llm"]["model"],
+                         agents.resolve_model("codex", "primary"))
+
+    def test_config_extra_and_vector_store_reach_mem0(self):
+        from brainmark.memsources import mem0_source
+
+        with mock.patch.dict(os.environ, {"AZURE_AI_ENDPOINT": "https://x.example.com/"}):
+            config = mem0_source.Mem0Client(self.pins).mem0_config()
+
+        self.assertEqual(config["llm"]["config"]["model"], "gpt-5.6-sol")
+        # ${VAR} expanded, and the trailing slash of the endpoint not doubled.
+        self.assertEqual(config["llm"]["config"]["openai_base_url"],
+                         "https://x.example.com/openai/v1")
+        self.assertEqual(config["embedder"]["provider"], "huggingface")
+        self.assertEqual(config["embedder"]["config"]["embedding_dims"], 384)
+        # The store's width must follow the embedder or retrieval silently fails.
+        self.assertEqual(config["vector_store"]["config"]["embedding_model_dims"],
+                         config["embedder"]["config"]["embedding_dims"])
+
+    def test_an_unset_endpoint_is_a_hard_error_not_a_fallback(self):
+        """Never degrade to public OpenAI: that is a different service."""
+        from brainmark.memsources import mem0_source
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(msbase.MemorySourceError) as ctx:
+                mem0_source.Mem0Client(self.pins).mem0_config()
+        self.assertIn("AZURE_AI_ENDPOINT", str(ctx.exception))
+
+    def test_packet_provenance_records_the_observed_version_and_deviations(self):
+        from brainmark.memsources import mem0_source
+
+        observed = mem0_source.observed_provenance(self.pins, top_k=25)
+        self.assertEqual(observed["mem0_version_pin"], self.pins["version_pin"])
+        self.assertIn("mem0_version", observed)
+        self.assertIsInstance(observed["mem0_version_matches_pin"], bool)
+        self.assertEqual(observed["top_k"], 25)
+        self.assertEqual(observed["forced_deviations"],
+                         ["_embedder_forced_deviation", "_llm_forced_deviation"])
+
+    def test_no_pins_still_means_mem0s_own_defaults(self):
+        """An empty pin set must hand mem0 an EMPTY config, not a half-built one."""
+        from brainmark.memsources import mem0_source
+
+        self.assertEqual(mem0_source.Mem0Client({}).mem0_config(), {})
 
 
 if __name__ == "__main__":
