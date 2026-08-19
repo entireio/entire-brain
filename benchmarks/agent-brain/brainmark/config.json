@@ -1,11 +1,78 @@
 {
   "schema_version": 1,
   "_comment": "BrainMark configuration. Every value here is a PIN: changing one invalidates the seal manifest's config_sha256 and report.py will say so.",
-
   "graphmark_root": "/Users/suhaan/devenv/graphmark/agentic-swebench",
   "repo_cache": "/Users/suhaan/devenv/graphmark/agentic-swebench/repo-cache",
-  "task_globs": ["tasks/*.json"],
-
+  "task_globs": [
+    "tasks/*.json"
+  ],
+  "pools": {
+    "_comment": "HF SWE-bench pools for the FULL-POOL miner (plan 0.1). Downloaded once by pool_loaders.py into cache_dir as normalized JSON; every later step reads that cache offline. `revision` is the HF commit sha the pool is pinned to -- null means 'resolve at download time and record it', never 'whatever is current at mine time'. Merge order is (priority, name), so flag order cannot move a result. Sizes checked 2026-08-18 via datasets-server: SWE-bench 120.1 MB / 21527 rows, _Verified 2.1 MB / 500, _Multilingual 1.9 MB / 300, _Multimodal 1.9 MB / 612 -- 126 MB total, far under the 10 GB download ceiling.",
+    "cache_dir": "pools",
+    "registry": {
+      "swe_bench_verified": {
+        "hf_id": "princeton-nlp/SWE-bench_Verified",
+        "split": "test",
+        "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+        "priority": 0,
+        "enabled": true
+      },
+      "swe_bench_multilingual": {
+        "hf_id": "SWE-bench/SWE-bench_Multilingual",
+        "split": "test",
+        "revision": "846e647b9f33c0b51b739d005d13d85493c9af09",
+        "priority": 1,
+        "enabled": true,
+        "_license": "mit (declared on the HF card)"
+      },
+      "swe_bench": {
+        "hf_id": "princeton-nlp/SWE-bench",
+        "split": "test",
+        "revision": "e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6",
+        "priority": 2,
+        "enabled": true
+      },
+      "swe_bench_multimodal": {
+        "hf_id": "princeton-nlp/SWE-bench_Multimodal",
+        "split": "test",
+        "revision": "aa2db68940196b6b59ae3f577faa0c25157bdd50",
+        "priority": 3,
+        "enabled": false,
+        "_disabled_reason": "LICENSE UNVERIFIED: the HF card declares no license (cardData.license is null, checked 2026-08-18). Plan 0.10 requires a per-pool license audit before inclusion and NeurIPS D&B desk-checks it. Flip to true only after the audit clears."
+      }
+    }
+  },
+  "clone": {
+    "_comment": "repo-cache filling (plan 0.1). Partial clones: the ancestry gate needs the commit graph, not file history. Never full-clone -- disk is shared.",
+    "min_instances_per_repo": 2,
+    "filter": "blob:none",
+    "host": "https://github.com/",
+    "timeout_sec": 1800,
+    "ledger": "pools/CLONE-LEDGER.json"
+  },
+  "fresh": {
+    "_comment": "Fresh post-cutoff ROBUSTNESS split (plan 0.2/0.3). Analyzed separately, NEVER pooled with the main candidates. SNAPSHOT.json is the determinism boundary: the first run freezes the PR list, every later run reads it.",
+    "training_cutoff": "2026-01-01",
+    "max_prs_per_repo": 25,
+    "max_files_per_pr": 60,
+    "require_linked_issue": true,
+    "require_test_delta": true,
+    "gh_timeout_sec": 120,
+    "out_dir": "candidates/fresh",
+    "test_path_patterns": [
+      "(^|/)tests?/",
+      "(^|/)spec/",
+      "(^|/)__tests__/",
+      "(^|/)testing/",
+      "(^|/)test_[^/]+\\.py$",
+      "[^/]+_test\\.(py|go|rb|cc|cpp|c|rs|java|ts|js)$",
+      "[^/]+\\.test\\.(js|jsx|ts|tsx)$",
+      "[^/]+\\.spec\\.(js|jsx|ts|tsx)$",
+      "[^/]+_spec\\.rb$",
+      "[^/]+Test\\.(java|php|cs)$",
+      "[^/]+Tests\\.(java|php|cs)$"
+    ]
+  },
   "mining": {
     "min_shared_files": 1,
     "leakage_overlap_max": 0.8,
@@ -13,25 +80,31 @@
     "require_ancestor": true,
     "one_a_per_b": true,
     "target_candidates": 40,
-    "score_weights": {"file_jaccard": 1.0, "symbol_overlap": 1.0}
+    "score_weights": {
+      "file_jaccard": 1.0,
+      "symbol_overlap": 1.0
+    }
   },
-
   "seal": {
     "sealed_min": 30,
     "dev_split": 10,
     "prereg_path": "PREREGISTRATION.md"
   },
-
   "packet": {
     "max_bytes": 24576,
     "top_k": 20,
     "min_results": 0,
     "empty_sentinel": "(no prior-session memory available)"
   },
-
-  "arms": ["no_brain", "full_brain", "mem0", "graphify", "cmm"],
+  "arms": [
+    "no_brain",
+    "full_brain",
+    "mem0",
+    "graphify",
+    "cmm",
+    "irrelevant"
+  ],
   "_arms_note": "full_brain is the ONLY brain arm. no_brain is the baseline. The other three are competitors over the SAME pinned session-A bytes.",
-
   "agent": {
     "cli": "claude",
     "max_turns": 60,
@@ -43,33 +116,59 @@
     "session_b": {
       "tier_pilot": "claude-sonnet-4-6",
       "tier_full": "claude-opus-4-6"
-    }
+    },
+    "backend": "codex"
   },
-
   "concurrency": 8,
-  "seeds": {"master": 20260815},
-
+  "seeds": {
+    "master": 20260815
+  },
   "competitors": {
+    "_comment": "Baseline dignity (plan 0.9). Every competitor runs its PUBLISHED DEFAULT config; exactly one tuning pass is permitted, on the dev split only, and it must be logged in COMPETITORS.md. Pins below were resolved from the eg-memharness / graphify-parity v52 run provenance and independently re-verified 2026-08-18 -- see COMPETITORS.md for the source of every value and the procedure for the ones still unresolved.",
     "mem0": {
       "package": "mem0ai",
       "version_pin": "0.1.118",
-      "llm": {"provider": "openai", "model": "gpt-4o-mini"},
-      "embedder": {"provider": "openai", "model": "text-embedding-3-small"}
+      "commit_pin": "4debc58a83377b18be81ae1e5969a300736b2fac",
+      "commit_pin_source": "eg-memharness/bench/memory/UPSTREAM.md:102",
+      "llm": {
+        "provider": "openai",
+        "model": "gpt-4o-mini"
+      },
+      "embedder": {
+        "provider": "openai",
+        "model": "text-embedding-3-small"
+      },
+      "_embedder_note": "UNCONFIRMED PIN: this is mem0's own code default, not an observed setting -- no override appears in any eg-memharness launcher. It must be echoed into the packet provenance at run time and reconciled there. See COMPETITORS.md 'pin resolution'.",
+      "_llm_note": "The eg-memharness prose runs drove mem0's extractor with azure_ai/gpt-5.6-terra (eg-memharness/bench/memory/README.md:33). BrainMark keeps mem0's PUBLISHED default (gpt-4o-mini) instead; deviating to a stronger extractor is a tuning choice and would need the dev-split tuning-pass log."
     },
     "graphify": {
+      "commit_pin": "9f25a3aaa1050913c2d8a1b9f0b0f0ed18296abd",
+      "commit_pin_source": "graphify-parity/results/memory-native-v52/results.json:revisions.graphify (public v8)",
+      "package": "graphifyy",
+      "mode": "structural",
       "bridge": null,
       "source": null,
       "python": null,
-      "_note": "null => inherit GRAPHIFY_* env, matching eg-memharness graphify_client.py defaults"
+      "_note": "bridge/source/python null => inherit GRAPHIFY_BRIDGE / GRAPHIFY_SOURCE / GRAPHIFY_PYTHON, matching eg-memharness graphify_client.py defaults. The defaults baked into that client are REMOTE VM paths (/home/suhaan_entire_io/...) and are not valid on this machine -- they must be set before a graphify arm runs.",
+      "_mode_note": "structural = 0-LLM extraction, the mode the parity harness sealed. `--backend <model>` semantic mode is the LLM variant and is NOT the published default."
     },
     "cmm": {
+      "version_pin": "0.9.0",
+      "build_revision": "b637e3330c96cfe452da623db068c241aaa3ec01",
+      "build_revision_source": "graphify-parity/results/memory-native-v52/results.json:revisions.codebase_memory_mcp",
+      "patch": {
+        "name": "cmm-v0.9.0-markdown-sections",
+        "path": "/Users/suhaan/devenv/eg-memharness/bench/memory/patches/0005-cmm-v0.9.0-markdown-sections.patch",
+        "sha256": "df139f2695152de9ee9c562b93d99c7ad57e357beb8cdd72577a2651aefa205b",
+        "_why": "The SHIPPED v0.9.0 binary excludes Section nodes from its BM25 result set, so on a prose/markdown corpus it indexes everything and retrieves NOTHING (a NULL ARM -- it produced 1050 byte-identical empty contexts in the v52 matrix). This one-line patch drops Section from the exclusion list and nothing else. Running the patched build is the CHARITABLE choice and is disclosed; an unpatched cmm column would be retrieval-vs-nothing, not a product comparison."
+      },
       "binary": null,
+      "binary_sha256": null,
+      "_binary_note": "UNRESOLVED PIN: no compiled cmm artifact exists on this machine (cmm_client.py:65 points at a remote VM path; devenv/cmm is a dangling symlink). null => inherit CMM_BIN. The binary sha256 MUST be recorded into packet provenance at first run -- see COMPETITORS.md 'pin resolution'.",
       "index_mode": "full",
-      "mem_budget_mb": 4096,
-      "_note": "null => inherit CMM_BIN, matching eg-memharness cmm_client.py defaults"
+      "mem_budget_mb": 4096
     }
   },
-
   "brain": {
     "binary": "bin/entire-brain",
     "distill": {
@@ -82,12 +181,15 @@
       "limit": 20
     }
   },
-
   "grading": {
     "dataset_name": "swe-bench/SWE-bench_Multilingual",
     "grade_tag_script": "tools/grade_tag.sh",
     "max_workers": 2,
     "timeout": 1800,
     "cache_level": "env"
+  },
+  "session_b": {
+    "codex_tier_pilot": "gpt-5.6-sol",
+    "codex_tier_full": "gpt-5.6-sol"
   }
 }

@@ -7,3 +7,7 @@ results/
 REVIEW.json
 __pycache__/
 *.pyc
+pools/*.json
+!pools/CLONE-LEDGER.json
+candidates/INDEX.json
+candidates/*.json

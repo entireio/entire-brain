@@ -22,12 +22,23 @@ Score = w_files * Jaccard(files) + w_symbols * Jaccard(hunk-header symbols).
 
 DETERMINISM CONTRACT: byte-identical output across runs on identical inputs.
 Nothing wallclock-derived, PID-derived, hash-seed-derived, or filesystem-order-
-derived may reach the output. Tests enforce this by running the miner twice.
+derived may reach the output. Tests enforce this by running the miner twice,
+in local-JSON mode and in pool mode.
+
+INSTANCE SOURCES
+  * local task JSONs -- `graphmark_root/tasks/*.json`, always loaded.
+  * HF pools -- `--pool NAME`, read from the offline cache written by
+    `pool_loaders.py` (SWE-bench / _Verified / _Multilingual). Pools are merged
+    in (priority, name) order, local JSONs first, first definition of an
+    instance_id wins, so neither flag order nor filesystem order can move a
+    result. Each pool's HF revision sha lands in `candidates/INDEX.json`.
 
 Usage:
     python3 mine_pairs.py                       # mine into ./candidates
     python3 mine_pairs.py --out DIR --config C
     python3 mine_pairs.py --summary-only        # counts, write nothing
+    python3 mine_pairs.py --pool swe_bench_verified --pool swe_bench_multilingual
+    python3 mine_pairs.py --all-pools           # every enabled pool in config
 """
 
 from __future__ import annotations
@@ -42,9 +53,9 @@ import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from brainmark import _harness  # type: ignore[no-redef]
+    from brainmark import _harness, pool_loaders  # type: ignore[no-redef]
 else:
-    from . import _harness
+    from . import _harness, pool_loaders
 
 MINER_VERSION = 1
 
@@ -227,25 +238,72 @@ REJECT_REASONS = (
 )
 
 
-def mine(config: dict, oracle: AncestryOracle | None = None, _diagnostic: bool = False) -> dict:
-    """Mine candidates.
+def load_all_instances(
+    config: dict, pools: list[str] | None = None
+) -> tuple[dict[str, dict], list[dict]]:
+    """Local task JSONs first, then the requested cached HF pools.
+
+    First-wins dedup with a fixed source order: the hand-curated graphmark task
+    JSONs outrank a bulk HF dump of the same instance_id, and the merge cannot
+    depend on the order the `--pool` flags were typed.
+    """
+    graphmark_root = pathlib.Path(config["graphmark_root"])
+    pool, sources = load_instances(graphmark_root, config["task_globs"])
+    if not pools:
+        return pool, sources
+    hf_pool, hf_sources = pool_loaders.load_pools(config, pools)
+    counted: dict[str, int] = {}
+    for iid in sorted(hf_pool):
+        if iid in pool:
+            continue
+        inst = hf_pool[iid]
+        pool[iid] = inst
+        name = str(inst.get("pool") or "")
+        counted[name] = counted.get(name, 0) + 1
+    merged_sources = list(sources)
+    for prov in hf_sources:
+        prov = dict(prov)
+        # `instances_new` from load_pools is new-within-the-pool-merge; recount
+        # against the local JSONs so the index says what each pool actually added.
+        prov["instances_new"] = counted.get(str(prov.get("pool")), 0)
+        merged_sources.append(prov)
+    return pool, merged_sources
+
+
+def mine(config: dict, oracle: AncestryOracle | None = None, _diagnostic: bool = False,
+         pools: list[str] | None = None) -> dict:
+    """Mine candidates from the local task JSONs plus any cached HF pools.
 
     `_diagnostic=True` re-runs the pipeline treating UNVERIFIABLE ancestry as a
     provisional pass, to answer the operational question "how many candidates
     would exist if the repo cache were complete?". Its output is a PLANNING
     number only: it is reported, never emitted as candidates, and never sealed.
     """
-    graphmark_root = pathlib.Path(config["graphmark_root"])
     repo_cache = pathlib.Path(config["repo_cache"])
+    pool, sources = load_all_instances(config, pools)
+    oracle = oracle if oracle is not None else AncestryOracle(repo_cache)
+    result = mine_pool(pool, config, oracle, _diagnostic=_diagnostic)
+    result["sources"] = sources
+    result["pools"] = pool_loaders.sort_pools(config, pools) if pools else []
+    result["pool_revisions"] = pool_loaders.pool_revisions(sources)
+    return result
+
+
+def mine_pool(pool: dict[str, dict], config: dict, oracle: AncestryOracle,
+              _diagnostic: bool = False,
+              b_filter=None) -> dict:
+    """The gates. Shared verbatim with `mine_fresh.py` -- never re-implemented.
+
+    `b_filter(instance) -> bool` restricts which instances may serve as the B
+    side. The fresh-split miner uses it to require that B is a post-cutoff PR
+    while still allowing A to come from the historical pool.
+    """
     mining = config["mining"]
     weights = mining["score_weights"]
     min_shared = int(mining["min_shared_files"])
     leak_max = float(mining["leakage_overlap_max"])
     leak_borderline = float(mining["leakage_borderline_min"])
     require_ancestor = bool(mining["require_ancestor"])
-
-    pool, sources = load_instances(graphmark_root, config["task_globs"])
-    oracle = oracle if oracle is not None else AncestryOracle(repo_cache)
 
     by_repo: dict[str, list[dict]] = collections.defaultdict(list)
     for inst in pool.values():
@@ -286,6 +344,8 @@ def mine(config: dict, oracle: AncestryOracle | None = None, _diagnostic: bool =
 
         for bi in range(len(instances)):
             inst_b = instances[bi]
+            if b_filter is not None and not b_filter(inst_b):
+                continue
             b_id = str(inst_b["instance_id"])
             for ai in range(bi):
                 inst_a = instances[ai]
@@ -376,7 +436,9 @@ def mine(config: dict, oracle: AncestryOracle | None = None, _diagnostic: bool =
             "one_a_per_b": bool(mining["one_a_per_b"]),
             "score_weights": weights,
         },
-        "sources": sources,
+        "sources": [],
+        "pools": [],
+        "pool_revisions": {},
         "pool_size": len(pool),
         "per_repo": per_repo,
         "rejects": {reason: rejects.get(reason, 0) for reason in REJECT_REASONS},
@@ -411,9 +473,21 @@ def _better(cand: dict, prev: dict) -> bool:
 # --------------------------------------------------------------------------
 
 
-def write_candidates(result: dict, out_dir: pathlib.Path) -> list[pathlib.Path]:
+def write_candidates(result: dict, out_dir: pathlib.Path,
+                     preserve: tuple[str, ...] = ()) -> list[pathlib.Path]:
+    """Rewrite `out_dir` from scratch, minus `preserve`.
+
+    Clearing the directory is what stops a candidate that a later, stricter gate
+    would reject from surviving as a stale file. `preserve` exists for the one
+    file that is INPUT rather than output -- the fresh miner's pinned
+    `SNAPSHOT.json`, which lives beside its candidates and must not be deleted
+    by the run that reads it. Subdirectories are never touched.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
+    keep = set(preserve)
     for stale in sorted(out_dir.glob("*.json")):
+        if stale.name in keep:
+            continue
         stale.unlink()
     written: list[pathlib.Path] = []
     for cand in result["candidates"]:
@@ -435,6 +509,12 @@ def write_candidates(result: dict, out_dir: pathlib.Path) -> list[pathlib.Path]:
 def format_summary(result: dict, target: int, diagnostic: dict | None = None) -> str:
     lines = ["BrainMark pair miner", "=" * 68]
     lines.append(f"instance pool: {result['pool_size']}")
+    for source in result.get("sources") or []:
+        if source.get("kind") == "hf_pool":
+            lines.append(
+                f"  pool {str(source.get('pool')):<24} {source.get('instances_in_file'):>6} rows "
+                f"(+{source.get('instances_new')} new)  rev={source.get('revision')}"
+            )
     lines.append("")
     lines.append(f"{'repo':<34} {'inst':>5} {'shared':>7} {'anc':>5} {'leak':>5} {'CAND':>5}  cached")
     lines.append("-" * 78)
@@ -497,11 +577,24 @@ def main(argv: list[str] | None = None) -> int:
         "--no-diagnostic", action="store_true",
         help="skip the 'if the repo cache were complete' planning count",
     )
+    parser.add_argument(
+        "--pool", action="append", default=None,
+        help="also mine this cached HF pool (repeatable); see pool_loaders.py",
+    )
+    parser.add_argument(
+        "--all-pools", action="store_true",
+        help="mine every pool marked enabled in config.pools.registry",
+    )
     args = parser.parse_args(argv)
 
     config = _harness.load_config(args.config)
-    result = mine(config)
-    diagnostic = None if args.no_diagnostic else mine(config, _diagnostic=True)
+    pools = list(args.pool or [])
+    if args.all_pools:
+        pools = sorted(set(pools) | set(pool_loaders.enabled_pools(config)))
+    pools = pools or None
+
+    result = mine(config, pools=pools)
+    diagnostic = None if args.no_diagnostic else mine(config, _diagnostic=True, pools=pools)
 
     if not args.summary_only:
         out_dir = pathlib.Path(args.out) if args.out else _harness.BRAINMARK_DIR / "candidates"
