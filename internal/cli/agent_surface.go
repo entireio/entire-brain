@@ -73,10 +73,15 @@ type brainStatusReport struct {
 	Facts       *brainStatusFacts     `json:"facts,omitempty"`
 	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
 	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
-	Memory      map[string]any        `json:"memory,omitempty"`
-	Live        brainLiveState        `json:"live"`
-	Issues      []memoryHealthIssue   `json:"issues,omitempty"`
-	Warnings    []string              `json:"warnings,omitempty"`
+	// Onboarding is the `setup` progress projection: fact-backfill counters,
+	// background watcher health, and instant-phase component freshness. It
+	// answers "is the thing setup started still working?" on the surface people
+	// already read; doctor remains the deep environment check.
+	Onboarding *brainStatusOnboarding `json:"onboarding,omitempty"`
+	Memory     map[string]any         `json:"memory,omitempty"`
+	Live       brainLiveState         `json:"live"`
+	Issues     []memoryHealthIssue    `json:"issues,omitempty"`
+	Warnings   []string               `json:"warnings,omitempty"`
 	// Manifest is for in-process consumers (brief, overview, regressions). It is
 	// deliberately not part of the JSON contract: it duplicates the structured
 	// sections above and its session list scales with brain size.
@@ -1194,6 +1199,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 		}
 	}
+	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt)
 	if s := report.Semantic; s != nil {
 		fmt.Fprintln(out, "\nSemantic")
 		if p := s.Provider; p != nil && p.Name != "" {
@@ -4484,6 +4490,8 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			report.Semantic.Freshness = &freshness
 		}
 	}
+	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, defaultSetupOptions())
+	report.Onboarding = &onboarding
 	return report, nil
 }
 
