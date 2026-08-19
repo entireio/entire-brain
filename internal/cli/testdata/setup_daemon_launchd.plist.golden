@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.entire.brain-watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/entire/bin/entire-brain</string>
+    <string>workspace</string>
+    <string>watch</string>
+    <string>default</string>
+    <string>--interval</string>
+    <string>5m0s</string>
+    <string>--distill</string>
+    <string>--distill-every</string>
+    <string>24h0m0s</string>
+    <string>--budget</string>
+    <string>1</string>
+    <string>--effort</string>
+    <string>low</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ENTIRE_PLUGIN_DATA_DIR</key>
+    <string>/var/data/entire</string>
+    <key>ENTIRE_PLUGIN_STATE_DIR</key>
+    <string>/var/state/entire</string>
+    <key>PATH</key>
+    <string>/usr/bin:/bin</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>/opt/entire/bin</string>
+  <key>StandardOutPath</key>
+  <string>/var/state/entire/repos/local/demo/watch.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/state/entire/repos/local/demo/watch.log</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+</dict>
+</plist>
