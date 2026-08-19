@@ -87,6 +87,32 @@ func TestPlanBrainWatchDaemonHonorsXDGConfigHome(t *testing.T) {
 	}
 }
 
+// TestPlannedUnitPathsBelongToTheTargetOS is the regression guard for the
+// windows CI failure these goldens hit: the plan describes a launchd/systemd
+// host, so every separator in it belongs to the TARGET OS, not to the machine
+// doing the rendering. Building the path with filepath.Join made a darwin plan
+// come out as "\Users\demo\Library\LaunchAgents\..." on a windows runner —
+// correct for nothing, and invisible on any developer's mac.
+func TestPlannedUnitPathsBelongToTheTargetOS(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ goos, home, configHome, want string }{
+		{"darwin", "/Users/demo", "", "/Users/demo/Library/LaunchAgents/io.entire.brain-watch.a2d3fd66.plist"},
+		{"linux", "/home/demo", "", "/home/demo/.config/systemd/user/entire-brain-watch.service"},
+		{"linux", "/home/demo", "/xdg/config", "/xdg/config/systemd/user/entire-brain-watch.service"},
+	} {
+		plan, err := planBrainWatchDaemon(tc.goos, tc.home, tc.configHome, "", fixedDaemonSpec())
+		if err != nil {
+			t.Fatalf("%s plan: %v", tc.goos, err)
+		}
+		if plan.UnitPath != tc.want {
+			t.Fatalf("%s: unit path must be a target-OS path, want %q got %q", tc.goos, tc.want, plan.UnitPath)
+		}
+		if strings.ContainsRune(plan.UnitPath, '\\') {
+			t.Fatalf("%s: a POSIX unit path must never carry a host separator: %q", tc.goos, plan.UnitPath)
+		}
+	}
+}
+
 func TestPlanBrainWatchDaemonUnsupportedOS(t *testing.T) {
 	t.Parallel()
 	plan, err := planBrainWatchDaemon("plan9", "/home/demo", "", "", fixedDaemonSpec())

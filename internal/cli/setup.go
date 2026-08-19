@@ -266,9 +266,17 @@ type setupSteps struct {
 	instant       func(context.Context) ([]setupComponent, error)
 	detectAgent   func(context.Context) string
 	spawnBackfill func(context.Context, setupBackfillPlan) (int, error)
-	inspect       func(context.Context, daemonPlan) daemonState
-	install       func(context.Context, daemonPlan) error
-	uninstall     func(context.Context, daemonPlan) error
+	// plan resolves the daemon artifact for a set of options. It is a step, not
+	// a direct call, for the same reason planBrainWatchDaemon takes goos as an
+	// argument: the install/idempotence/retirement logic above it is
+	// OS-independent given a supported plan, so injecting the plan lets those
+	// properties be tested from ANY host — including a windows runner, where the
+	// real plan is deliberately unsupported and would otherwise make every one of
+	// those tests vacuous (they failed instead: installs == 0).
+	plan      func(setupCommandOptions) (daemonPlan, error)
+	inspect   func(context.Context, daemonPlan) daemonState
+	install   func(context.Context, daemonPlan) error
+	uninstall func(context.Context, daemonPlan) error
 }
 
 // setupBackfillPlan is the detached distill invocation.
@@ -425,7 +433,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		BrainPath:     storage.BrainDir,
 	}
 
-	plan, planErr := brainWatchDaemonPlan(perRepo, setupOpts)
+	plan, planErr := steps.plan(setupOpts)
 	if planErr != nil {
 		report.Warnings = append(report.Warnings, "daemon plan unavailable: "+planErr.Error())
 	}
@@ -439,7 +447,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// Renaming the daemon must MOVE it, not fork it: without this the old
 	// launchd job / systemd unit keeps running under its old label forever,
 	// invisible to every later `status` and `--uninstall-daemon`.
-	if detail := retireRenamedDaemon(ctx, perRepo, setupOpts, previous, setUpBefore, steps, planErr); detail != "" {
+	if detail := retireRenamedDaemon(ctx, setupOpts, previous, setUpBefore, steps, planErr); detail != "" {
 		progress.Skip(detail)
 	}
 
@@ -568,10 +576,17 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, setupOpts setupC
 	return nil
 }
 
+// runSetupDaemon installs the one machine-wide watcher. On an OS with no
+// service manager this file plans for — windows today — it is a DOCUMENTED
+// no-op: setup says so in one line, keeps its exit code, and everything the
+// deterministic phases built stays usable. Pretending to install a launchd
+// agent on windows, or failing setup because the platform has no launchd, would
+// both be worse than saying plainly that freshness there is manual for now.
 func runSetupDaemon(ctx context.Context, progress *refreshProgress, steps setupSteps, plan daemonPlan, report *setupReport) daemonState {
 	if !plan.supported() {
-		progress.Skip(fmt.Sprintf("background watcher: unsupported on %s (run `entire-brain workspace watch %s` yourself)", plan.OS, report.Workspace.Name))
-		return daemonState{Manager: daemonManagerUnsupported, Detail: "unsupported OS: " + plan.OS}
+		// progress.Skip appends "skipped", so the label must not say it twice.
+		progress.Skip(fmt.Sprintf("background watcher: not supported on %s yet (run `entire-brain workspace watch %s` yourself to keep the brain fresh)", plan.OS, report.Workspace.Name))
+		return daemonState{Manager: daemonManagerUnsupported, Detail: "not supported on " + plan.OS + " yet"}
 	}
 	before := steps.inspect(ctx, plan)
 	// Idempotence: an installed, byte-identical, running unit is left strictly
@@ -744,6 +759,15 @@ func setupPluginEnv(env EntireEnv, repoDir string) map[string]string {
 // inspectDaemon correctly read as drift and "repaired" by unloading and
 // reloading the running daemon — every single time.
 func brainWatchDaemonPlan(opts Options, setupOpts setupCommandOptions) (daemonPlan, error) {
+	return brainWatchDaemonPlanFor(runtime.GOOS, opts, setupOpts)
+}
+
+// brainWatchDaemonPlanFor is brainWatchDaemonPlan with the target OS as an
+// argument. runtime.GOOS is read in exactly one place (above) so that the whole
+// plan — spec, label, unit path, rendered contents — can be built for darwin or
+// linux from any host, which is what makes the daemon behaviour testable on a
+// windows runner instead of silently untested there.
+func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOptions) (daemonPlan, error) {
 	binary, err := os.Executable()
 	if err != nil {
 		return daemonPlan{}, fmt.Errorf("resolve executable: %w", err)
@@ -764,7 +788,7 @@ func brainWatchDaemonPlan(opts Options, setupOpts setupCommandOptions) (daemonPl
 		LogPath:    filepath.Join(dirs.State, "logs", setupDaemonLogFile),
 		Env:        daemonEnv(opts.Env),
 	}
-	return planBrainWatchDaemon(runtime.GOOS, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
+	return planBrainWatchDaemon(goos, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
 }
 
 // brainWatchDaemonArgs are the token-frugal watcher flags: the deterministic
@@ -873,6 +897,11 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			return spawnDetached(plan)
 		}
 	}
+	if steps.plan == nil {
+		steps.plan = func(so setupCommandOptions) (daemonPlan, error) {
+			return brainWatchDaemonPlan(opts, so)
+		}
+	}
 	if steps.inspect == nil {
 		steps.inspect = func(ctx context.Context, plan daemonPlan) daemonState {
 			return inspectDaemon(ctx, opts.Runner, plan)
@@ -972,7 +1001,7 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 // leaves two watchers running: the old label is not in any later plan, so
 // `status` cannot see it and `--uninstall-daemon` cannot remove it. It would
 // keep ticking (and spending) until the machine was rebuilt.
-func retireRenamedDaemon(ctx context.Context, opts Options, setupOpts, previous setupCommandOptions, setUpBefore bool, steps setupSteps, planErr error) string {
+func retireRenamedDaemon(ctx context.Context, setupOpts, previous setupCommandOptions, setUpBefore bool, steps setupSteps, planErr error) string {
 	old := strings.TrimSpace(previous.daemonName)
 	// Only a repo THIS machine actually set up before can have a daemon to
 	// retire. Without that check, a first-ever `setup --daemon-name mine` in one
@@ -983,9 +1012,14 @@ func retireRenamedDaemon(ctx context.Context, opts Options, setupOpts, previous 
 	}
 	retired := setupOpts
 	retired.daemonName = old
-	oldPlan, err := brainWatchDaemonPlan(opts, retired)
+	oldPlan, err := steps.plan(retired)
 	if err != nil {
 		return fmt.Sprintf("previous watcher %q could not be planned for removal: %v", old, err)
+	}
+	// An OS with no service manager never installed the old daemon either, so
+	// there is nothing to retire and nothing worth saying about it.
+	if !oldPlan.supported() {
+		return ""
 	}
 	if state := steps.inspect(ctx, oldPlan); !state.Installed {
 		return ""

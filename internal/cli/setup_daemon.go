@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -46,6 +47,24 @@ const (
 )
 
 var daemonNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+// daemonPathJoin joins path segments for the TARGET operating system, which is
+// always a POSIX one here: launchd (darwin) and systemd (linux) are the only
+// service managers this file plans for. It is deliberately path.Join — always
+// "/" — and never filepath.Join, whose separator is a property of the HOST.
+//
+// filepath.Join on a Windows host rendered a darwin plan as
+// `\Users\demo\Library\LaunchAgents\io.entire...plist`: a path no mac would
+// accept, and the reason the darwin/linux golden tests failed on windows CI
+// while passing everywhere else. Taking goos as an argument only makes the plan
+// portable if every path decision downstream of it is keyed to that argument
+// too.
+//
+// A host-shaped root (a Windows t.TempDir(), or the ENTIRE_BRAIN_DAEMON_DIR
+// sandbox) keeps whatever separators it arrived with; only the segments this
+// function appends use "/", which every Windows file API accepts, so writing
+// the unit still works when a test plans a darwin daemon on a windows box.
+func daemonPathJoin(elem ...string) string { return path.Join(elem...) }
 
 // daemonSpec is the full description of the watcher service: which binary to
 // run, with which arguments and environment. The environment matters more than
@@ -133,9 +152,9 @@ func planBrainWatchDaemon(goos, home, configHome, unitDir string, spec daemonSpe
 		plan.Label = launchdLabel(spec.Name)
 		root := unitDir
 		if root == "" {
-			root = filepath.Join(home, "Library", "LaunchAgents")
+			root = daemonPathJoin(home, "Library", "LaunchAgents")
 		}
-		plan.UnitPath = filepath.Join(root, plan.Label+".plist")
+		plan.UnitPath = daemonPathJoin(root, plan.Label+".plist")
 		plan.Contents = renderLaunchdPlist(plan.Label, spec)
 	case "linux":
 		root := unitDir
@@ -145,13 +164,13 @@ func planBrainWatchDaemon(goos, home, configHome, unitDir string, spec daemonSpe
 				if home == "" {
 					return daemonPlan{}, fmt.Errorf("cannot resolve config directory for the systemd user unit")
 				}
-				root = filepath.Join(home, ".config")
+				root = daemonPathJoin(home, ".config")
 			}
-			root = filepath.Join(root, "systemd", "user")
+			root = daemonPathJoin(root, "systemd", "user")
 		}
 		plan.Manager = daemonManagerSystemd
 		plan.Label = systemdUnitName(spec.Name)
-		plan.UnitPath = filepath.Join(root, plan.Label)
+		plan.UnitPath = daemonPathJoin(root, plan.Label)
 		plan.Contents = renderSystemdUnit(spec)
 	default:
 		plan.Manager = daemonManagerUnsupported
@@ -302,7 +321,9 @@ type daemonState struct {
 func inspectDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) daemonState {
 	state := daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath}
 	if !plan.supported() {
-		state.Detail = "no supported service manager for " + plan.OS
+		// Same wording setup's skip line uses, so `status` and `setup` describe
+		// one platform fact the same way instead of two apparent conditions.
+		state.Detail = "not supported on " + plan.OS + " yet (no launchd or systemd)"
 		return state
 	}
 	data, err := os.ReadFile(plan.UnitPath)

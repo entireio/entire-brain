@@ -30,11 +30,31 @@ type setupTestFixture struct {
 	storage repoStorage
 }
 
+// isolateDaemonEnv severs every path this package can take to a REAL service
+// manager. Redirecting HOME is not enough on its own:
+//
+//   - os.UserHomeDir reads USERPROFILE on windows, not HOME, so a windows run
+//     would plan against the developer's actual profile directory;
+//   - ENTIRE_BRAIN_DAEMON_DIR overrides the unit directory outright, and a
+//     developer who has one exported (a smoke run, a demo install) made these
+//     tests read that live daemon — TestBuildBrainOnboardingStatusReportsBackfillAndDaemon
+//     failed locally with "no daemon was installed in this fixture" while
+//     passing in CI, because in CI nobody had one.
+//
+// Pointing the knob at a temp directory makes the fixture's answer to "is a
+// daemon installed?" a property of the fixture, not of the machine.
+func isolateDaemonEnv(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv(envDaemonUnitDir, filepath.Join(t.TempDir(), "daemon"))
+}
+
 func newSetupTestFixture(t *testing.T, sessionIDs ...string) *setupTestFixture {
 	t.Helper()
 	repoDir := t.TempDir()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	isolateDaemonEnv(t, home)
 	env := semanticTestEnv(t, repoDir)
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return setupTestNow }}
@@ -117,11 +137,28 @@ type recordedSetup struct {
 	// all. A component that failed on its own belongs in instantComponents.
 	instantErr        error
 	instantComponents []setupComponent
+	// targetOS is the OS the injected daemon plan is built for; empty means
+	// darwin. The install/idempotence/retirement properties these tests assert
+	// are OS-independent GIVEN a supported plan, so pinning the target keeps
+	// them meaningful on every host — including the windows runner, where the
+	// real plan is unsupported by design and used to turn all of them into
+	// "installs = 0" failures.
+	targetOS string
 }
 
-func (r *recordedSetup) steps() setupSteps {
+func (r *recordedSetup) plannedOS() string {
+	if r.targetOS == "" {
+		return "darwin"
+	}
+	return r.targetOS
+}
+
+func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 	return setupSteps{
 		now: func() time.Time { return setupTestNow },
+		plan: func(setupOpts setupCommandOptions) (daemonPlan, error) {
+			return brainWatchDaemonPlanFor(r.plannedOS(), f.opts, setupOpts)
+		},
 		instant: func(context.Context) ([]setupComponent, error) {
 			r.instantCalls++
 			return r.instantComponents, r.instantErr
@@ -195,7 +232,7 @@ func runSetupForTest(t *testing.T, f *setupTestFixture, opts setupCommandOptions
 	t.Helper()
 	out := &bytes.Buffer{}
 	cmd := setupTestCommand(t, out, opts)
-	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps()); err != nil {
+	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
 		t.Fatalf("runSetup: %v", err)
 	}
 	return out.String()
@@ -228,7 +265,7 @@ func TestSetupFailsLoudlyWhenTheInstantPhaseFails(t *testing.T) {
 	opts.noDaemon = true
 	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
 
-	err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps())
+	err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f))
 	if err == nil || !strings.Contains(err.Error(), "instant phase failed") {
 		t.Fatalf("a failed core build must fail setup, got %v", err)
 	}
@@ -255,7 +292,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 		err: errors.New(setupSemanticMismatchError),
 	}
 	rec := &recordedSetup{}
-	steps := rec.steps()
+	steps := rec.steps(f)
 	steps.instant = nil // the real, best-effort instant phase
 	opts := defaultSetupOptions()
 	opts.noBackfill = true
@@ -336,7 +373,7 @@ func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
 	opts := defaultSetupOptions()
 	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
 
-	err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps())
+	err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f))
 	if err == nil {
 		t.Fatal("a phase in which every component failed must exit non-zero")
 	}
@@ -418,7 +455,7 @@ func newSetupRefreshFixture(t *testing.T) (*setupTestFixture, *fakeCommandRunner
 	t.Helper()
 	repoDir := seedFixtureRepo(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	isolateDaemonEnv(t, home)
 	env := semanticTestEnv(t, repoDir)
 	runner := seedFixtureRunner(repoDir)
 	addRefreshSemanticFixture(runner, repoDir)
@@ -620,6 +657,70 @@ func TestSetupReinstallsADriftedDaemon(t *testing.T) {
 	}
 	if !strings.Contains(out, "background watcher updated") {
 		t.Fatalf("expected the update wording:\n%s", out)
+	}
+}
+
+// TestSetupSkipsTheDaemonOnAnOSWithNoServiceManager pins the windows contract.
+// There is no launchd and no systemd there, so setup must SAY so in one line and
+// carry on — not fail, and not pretend to have installed something. The plan is
+// injected for "windows" rather than read from the host, so this holds on every
+// runner (it is the only interesting case a mac or linux box cannot reach).
+func TestSetupSkipsTheDaemonOnAnOSWithNoServiceManager(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{targetOS: "windows"}
+	opts := defaultSetupOptions()
+	opts.json = false
+
+	out := runSetupForTest(t, f, opts, rec)
+
+	if rec.installCalls != 0 || rec.uninstallCalls != 0 {
+		t.Fatalf("an OS with no service manager must not install or uninstall anything: %+v", rec)
+	}
+	if !strings.Contains(out, "background watcher: not supported on windows yet") {
+		t.Fatalf("the skip must name the platform in one plain line:\n%s", out)
+	}
+	if !strings.Contains(out, "skipped") {
+		t.Fatalf("the line must read as a skip, not as a step that ran:\n%s", out)
+	}
+	if !strings.Contains(out, "entire-brain workspace watch") {
+		t.Fatalf("the skip must say how to keep the brain fresh by hand:\n%s", out)
+	}
+	// One line, not two: the phase must not also announce a failure or a warning.
+	if strings.Count(out, "background watcher") != 1 {
+		t.Fatalf("the unsupported daemon must cost exactly one line:\n%s", out)
+	}
+	// Everything the supported phases do still happens.
+	if rec.instantCalls != 1 {
+		t.Fatalf("the instant phase must still run, got %d", rec.instantCalls)
+	}
+	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	if err != nil {
+		t.Fatalf("workspace registration must still happen: %v", err)
+	}
+	if len(manifest.Repos) != 1 {
+		t.Fatalf("the repo must still join the workspace: %+v", manifest.Repos)
+	}
+}
+
+// TestSetupReportsTheUnsupportedDaemonInJSON: whatever the terminal says, the
+// machine-readable report must not claim an install either.
+func TestSetupReportsTheUnsupportedDaemonInJSON(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{targetOS: "windows"}
+	opts := defaultSetupOptions()
+	opts.json = true
+
+	out := runSetupForTest(t, f, opts, rec)
+
+	var report setupReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("--json must emit only the report: %v\n%s", err, out)
+	}
+	if report.Daemon.Manager != daemonManagerUnsupported || report.Daemon.Installed {
+		t.Fatalf("the report must say unsupported and not installed: %+v", report.Daemon)
+	}
+	if !strings.Contains(report.Daemon.Detail, "windows") {
+		t.Fatalf("the detail must name the OS: %+v", report.Daemon)
 	}
 }
 
@@ -1159,7 +1260,10 @@ func TestSetupBackfillBudgetZeroIsExplicitlyUnlimited(t *testing.T) {
 // unload/reload the running watcher.
 func TestBrainWatchDaemonPlanIsRepoIndependent(t *testing.T) {
 	first := newSetupTestFixture(t)
-	firstPlan, err := brainWatchDaemonPlan(first.opts, defaultSetupOptions())
+	// Planned for a named OS, not the host's: on windows the real plan is
+	// unsupported and carries no contents at all, so a host-keyed comparison
+	// would compare two empty plans and pass without testing anything.
+	firstPlan, err := brainWatchDaemonPlanFor("darwin", first.opts, defaultSetupOptions())
 	if err != nil {
 		t.Fatalf("first plan: %v", err)
 	}
@@ -1168,7 +1272,7 @@ func TestBrainWatchDaemonPlanIsRepoIndependent(t *testing.T) {
 	secondRepo := t.TempDir()
 	secondOpts := first.opts
 	secondOpts.Env.RepoRoot = secondRepo
-	secondPlan, err := brainWatchDaemonPlan(secondOpts, defaultSetupOptions())
+	secondPlan, err := brainWatchDaemonPlanFor("darwin", secondOpts, defaultSetupOptions())
 	if err != nil {
 		t.Fatalf("second plan: %v", err)
 	}
@@ -1205,7 +1309,7 @@ func TestSetupSecondRepoDoesNotRestartTheDaemon(t *testing.T) {
 	secondFixture.repoDir = secondRepo
 	// inspect must answer from the REAL plan comparison, so re-derive the state
 	// the same way inspectDaemon would: installed + current + running.
-	plan, err := brainWatchDaemonPlan(f.opts, opts)
+	plan, err := brainWatchDaemonPlanFor(rec.plannedOS(), f.opts, opts)
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
@@ -1249,12 +1353,13 @@ func TestBrainWatchDaemonPlanReadsTheEnvOverride(t *testing.T) {
 	sandbox := t.TempDir()
 	t.Setenv(envDaemonUnitDir, sandbox)
 
-	plan, err := brainWatchDaemonPlan(f.opts, defaultSetupOptions())
+	// Planned for a named OS so the guard is exercised on every host: skipping
+	// it where the host has no service manager would leave the sandbox knob —
+	// the thing standing between a test run and a real LaunchAgents write —
+	// untested on exactly the platform whose CI is most likely to be ignored.
+	plan, err := brainWatchDaemonPlanFor("darwin", f.opts, defaultSetupOptions())
 	if err != nil {
 		t.Fatalf("plan: %v", err)
-	}
-	if !plan.supported() {
-		t.Skipf("no service manager on %s", plan.OS)
 	}
 	if filepath.Dir(plan.UnitPath) != sandbox {
 		t.Fatalf("%s must redirect the unit into %s, got %s", envDaemonUnitDir, sandbox, plan.UnitPath)
