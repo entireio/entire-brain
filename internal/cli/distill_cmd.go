@@ -651,14 +651,35 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	distillOpts.progress = func(p distillProgress) {
 		task.Update(distillProgressLabel(p))
 	}
-	// Built once per run, before any agent call: reading the derived index is
-	// cheap and bounded, and a missing/empty index yields nil, which restores
-	// the pre-index anchoring exactly.
-	distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
-	source, err := runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
+	// One pass at a time per brain. Every in-process caller funnels through here
+	// — the detached `setup` backfill child, the watcher's gated distill step,
+	// the session-end hook, and a human running `distill` — so this is the one
+	// place that can stop two of them spending tokens on the same sessions.
+	var source *factSourceManifest
+	skipped := false
+	err = withDistillPassLock(storage.BrainDir, func() {
+		skipped = true
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"distill: another distill pass already holds %s for this brain; skipping so the same sessions are not distilled twice\n",
+			filepath.Join(storage.BrainDir, brainLockDirName, brainDistillLockName))
+	}, func() error {
+		// Built once per run, before any agent call: reading the derived index
+		// is cheap and bounded, and a missing/empty index yields nil, which
+		// restores the pre-index anchoring exactly. Built INSIDE the pass lock
+		// so a run that skips never pays for it and a run that proceeds reads
+		// the index as of the moment it actually owns the pass — the session-end
+		// hook refreshes that index just before calling in.
+		distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
+		var runErr error
+		source, runErr = runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
+		return runErr
+	})
 	task.Finish(err)
 	if err != nil {
 		return err
+	}
+	if skipped {
+		return nil
 	}
 	if distillOpts.json {
 		data, err := json.MarshalIndent(source, "", "  ")
