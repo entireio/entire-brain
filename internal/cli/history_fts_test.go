@@ -115,6 +115,67 @@ func TestHistoryFTSDirectPathDoesNotLoadJSON(t *testing.T) {
 	}
 }
 
+func TestHistoryFTSPreservesReplacementScopedDuplicateIDs(t *testing.T) {
+	sharedID := conversationIDPrefix + "shared-turn"
+	index := historyIndex{
+		GeneratedAt: time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC),
+		Records: []historyRecord{
+			{ID: sharedID, Kind: conversationKind, Branch: "main", SessionID: "session-1", Path: "sessions/main/first.jsonl", Line: 10, Summary: "Alpha conversation covers the shared retrieval marker."},
+			{ID: sharedID, Kind: conversationKind, Branch: "feature", SessionID: "session-1", Path: "sessions/feature/second.jsonl", Line: 20, Summary: "Beta conversation covers the shared retrieval marker."},
+		},
+	}
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+
+	got, used, err := rankHistoryViaFreshFTSCutoff(brainDir, source, conversationKind, "shared retrieval marker", 10, 0)
+	if err != nil || !used {
+		t.Fatalf("direct duplicate-ID ranking: used=%v err=%v", used, err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("replacement-scoped duplicate IDs were collapsed or rejected: %+v", got)
+	}
+	orders := map[int]bool{}
+	branches := map[string]bool{}
+	for _, match := range got {
+		if match.Record.ID != sharedID {
+			t.Fatalf("unexpected hydrated ID: %+v", match)
+		}
+		orders[match.Order] = true
+		branches[match.Record.Branch] = true
+	}
+	if !orders[0] || !orders[1] || !branches["main"] || !branches["feature"] {
+		t.Fatalf("physical row identity was not preserved: orders=%v branches=%v", orders, branches)
+	}
+
+	db, err := openHistoryFTSIfFresh(brainDir, index)
+	if err != nil || db == nil {
+		t.Fatalf("open duplicate-ID store: db=%v err=%v", db, err)
+	}
+	defer db.Close()
+	var rows, distinctIDs int
+	if err := db.QueryRow(`SELECT count(*), count(DISTINCT id) FROM history_records`).Scan(&rows, &distinctIDs); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 || distinctIDs != 1 {
+		t.Fatalf("payload rows=%d distinct IDs=%d, want 2 physical rows sharing 1 ID", rows, distinctIDs)
+	}
+}
+
+func TestHistoryFTSExhaustiveQueryUsesPayloadMetadata(t *testing.T) {
+	brainDir := t.TempDir()
+	index := historyIndex{Records: []historyRecord{
+		{ID: conversationIDPrefix + "one-term", Kind: conversationKind, Path: "sessions/main/one.jsonl", Line: 1, Summary: "alpha only"},
+		{ID: conversationIDPrefix + "both-terms", Kind: conversationKind, Path: "sessions/main/both.jsonl", Line: 1, Summary: "alpha and beta"},
+	}}
+
+	got, state, ok, scanned := rankHistoryViaFTSExhaustiveFiltered(brainDir, index, conversationKind, "alpha beta", 10, nil)
+	if !ok || state != historyExhaustiveRankComplete || scanned == 0 {
+		t.Fatalf("direct exhaustive FTS unavailable: ok=%v state=%v scanned=%d", ok, state, scanned)
+	}
+	if len(got) != 1 || got[0].Record.ID != conversationIDPrefix+"both-terms" {
+		t.Fatalf("direct exhaustive FTS matches = %+v", got)
+	}
+}
+
 func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

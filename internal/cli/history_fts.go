@@ -264,7 +264,7 @@ func buildHistoryFTSIdentity(db *sql.DB, index historyIndex, identity historyFTS
 		`CREATE TABLE history_records(
 			fts_rowid INTEGER PRIMARY KEY,
 			rec_order INTEGER NOT NULL UNIQUE,
-			id TEXT NOT NULL UNIQUE,
+			id TEXT NOT NULL,
 			kind TEXT NOT NULL,
 			branch TEXT NOT NULL,
 			path TEXT NOT NULL,
@@ -581,7 +581,6 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 	out := make([]scoredHistoryRecord, 0, limit)
 	seen := map[string]struct{}{}
 	seenOrders := map[int]struct{}{}
-	seenIDs := map[string]struct{}{}
 	var topScore float64
 	valid := true
 	for rows.Next() {
@@ -602,12 +601,7 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 			valid = false
 			break
 		}
-		if _, duplicate := seenIDs[rec.ID]; duplicate {
-			valid = false
-			break
-		}
 		seenOrders[order] = struct{}{}
-		seenIDs[rec.ID] = struct{}{}
 		if termsJSON != "null" {
 			if err := json.Unmarshal([]byte(termsJSON), &rec.Terms); err != nil {
 				valid = false
@@ -909,23 +903,11 @@ func rankHistoryViaFTSExhaustiveFiltered(brainDir string, index historyIndex, ki
 
 	args := []any{expr}
 	var sb strings.Builder
-	sb.WriteString(`SELECT CAST(rec_order AS INTEGER), bm25(history_fts) FROM history_fts WHERE history_fts MATCH ?`)
-	if allowed := historyInspectKinds(kind); len(allowed) > 0 {
-		kinds := make([]string, 0, len(allowed))
-		for k := range allowed {
-			kinds = append(kinds, k)
-		}
-		sort.Strings(kinds)
-		placeholders := make([]string, len(kinds))
-		for i, k := range kinds {
-			placeholders[i] = "?"
-			args = append(args, k)
-		}
-		sb.WriteString(" AND kind IN (" + strings.Join(placeholders, ",") + ")")
-	} else {
-		sb.WriteString(" AND kind NOT IN ('request', '" + conversationKind + "')")
-	}
-	sb.WriteString(" ORDER BY bm25(history_fts), CAST(rec_order AS INTEGER)")
+	sb.WriteString(`SELECT r.rec_order, bm25(history_fts)
+		FROM history_fts JOIN history_records r ON r.fts_rowid = history_fts.rowid
+		WHERE history_fts MATCH ?`)
+	appendHistoryFTSKindFilter(&sb, &args, kind, "r.kind")
+	sb.WriteString(" ORDER BY bm25(history_fts), r.rec_order")
 
 	rows, err := db.Query(sb.String(), args...)
 	if err != nil {
