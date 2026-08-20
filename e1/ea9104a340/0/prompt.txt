@@ -1,0 +1,44 @@
+Pull from my main, build the latest revision and install it with the Entire CLI.
+
+---
+
+Ok, now give me instructions on how to initialize the brain on the ~/Projects/entire.io repo. Make sure to include all steps.
+
+---
+
+Step 4 fails::
+➜  entire.io git:(main)   brain_manifest_tmp="$(mktemp "$brain_dir/.manifest.repair.XXXXXX")"
+
+  jq 'del(.sources.seed.history_coverage.checkpointed_unexported_commits)' \
+    "$brain_dir/manifest.json" > "$brain_manifest_tmp"
+
+  jq -e '
+    (.schema_version == 3) and
+    (.sources.seed.history_coverage
+      | has("checkpointed_unexported_commits")
+      | not)
+  ' "$brain_manifest_tmp" >/dev/null
+
+  chmod 600 "$brain_manifest_tmp"
+  mv "$brain_manifest_tmp" "$brain_dir/manifest.json"
+mktemp: mkstemp failed on /.manifest.repair.zBv8q1: Read-only file system
+zsh: no such file or directory:
+jq: error: Could not open file : No such file or directory
+chmod: : No such file or directory
+mv: rename  to /manifest.json: No such file or directory
+
+---
+
+Just do that yourself
+
+---
+
+Keep going
+
+---
+
+How to fix the BM25 issue?
+
+---
+
+Make it so

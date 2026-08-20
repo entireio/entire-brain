@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "e1ea9104a340",
+  "strategy": "manual-commit",
+  "branch": "fix/history-fts-duplicate-ids",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "internal/cli/history_fts.go",
+    "internal/cli/history_fts_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e1/ea9104a340/0/metadata.json",
+      "transcript": "/e1/ea9104a340/0/full.jsonl",
+      "compact_transcript": "/e1/ea9104a340/0/transcript.jsonl",
+      "content_hash": "/e1/ea9104a340/0/content_hash.txt",
+      "prompt": "/e1/ea9104a340/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1395218,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 79071744,
+    "output_tokens": 147678,
+    "api_call_count": 836
+  }
+}
