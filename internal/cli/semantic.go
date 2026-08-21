@@ -2537,11 +2537,29 @@ func semanticWarningsContainCode(warnings []semanticWarning, code string) bool {
 	return false
 }
 
-// semanticParseErrorCode marks files where the tree-sitter parse produced error
-// nodes but symbols were still extracted (error-tolerant parse). A small number
-// of these is expected for any real codebase — newer language syntax the bundled
-// grammar version predates — and does not make the indexed facts unsafe to use.
-const semanticParseErrorCode = "E_PARSE_ERROR"
+const (
+	// semanticParseErrorCode marks files where the tree-sitter parse produced error
+	// nodes but symbols were still extracted (error-tolerant parse). A small number
+	// of these is expected for any real codebase — newer language syntax the bundled
+	// grammar version predates — and does not make the indexed facts unsafe to use.
+	semanticParseErrorCode = "E_PARSE_ERROR"
+
+	// These codes mirror entire-graph's intentional-skip contract. The provider
+	// emits a file record and preserves the partial failure for visibility, but
+	// excludes the record from its completeness-failure count because parsing was
+	// deliberately skipped by policy rather than attempted and failed.
+	semanticFileTooLargeCode = "E_FILE_TOO_LARGE"
+	semanticMinifiedCode     = "E_MINIFIED"
+)
+
+func semanticIntentionalSkipCode(code string) bool {
+	switch code {
+	case semanticFileTooLargeCode, semanticMinifiedCode:
+		return true
+	default:
+		return false
+	}
+}
 
 // semanticParseErrorTolerance is the fraction of indexed files that may carry
 // only benign parse errors before the brain is reported as degraded. Below this
@@ -2550,24 +2568,48 @@ const semanticParseErrorCode = "E_PARSE_ERROR"
 // volume is high enough to suspect a grammar/provider problem worth surfacing.
 const semanticParseErrorTolerance = 0.10
 
-// semanticCompletenessAxis classifies partial provider failures. Failures that
-// are exclusively benign parse errors and stay under the tolerance fraction keep
-// the axis ok; anything else (a non-parse failure code, an uncountable file set,
-// or too many parse errors) degrades the brain.
+// semanticCompletenessAxis classifies partial provider failures. Intentional
+// provider policy skips remain recorded but do not count against completeness.
+// Of the remaining failures, exclusively benign parse errors under the tolerance
+// fraction keep the axis ok; anything else (a non-parse failure code, an
+// uncountable file set, or too many parse errors) degrades the brain.
 func semanticCompletenessAxis(source *semanticSourceManifest) staleAxis {
 	failures := len(source.PartialFailures)
+	completenessFailures := 0
 	parseErrors := 0
+	intentionalSkips := 0
 	for _, failure := range source.PartialFailures {
+		if semanticIntentionalSkipCode(failure.Code) {
+			intentionalSkips++
+			continue
+		}
+		completenessFailures++
 		if failure.Code == semanticParseErrorCode {
 			parseErrors++
 		}
 	}
-	if parseErrors == failures && source.Files > 0 {
-		fraction := float64(failures) / float64(source.Files)
-		if fraction < semanticParseErrorTolerance {
-			return staleAxis{State: "ok", Detail: fmt.Sprintf("%d/%d files had tolerated parse errors", failures, source.Files)}
+	if failures > 0 && source.Files <= 0 {
+		return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
+	}
+	if intentionalSkips > 0 && source.Files > 0 {
+		unparsedFiles := min(intentionalSkips, source.Files)
+		parsedFiles := source.Files - unparsedFiles
+		if parsedFiles < unparsedFiles {
+			return staleAxis{State: "unsafe", Detail: fmt.Sprintf("%d/%d files were intentionally skipped by semantic provider", unparsedFiles, source.Files)}
 		}
-		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", failures, fraction*100)}
+		if parsedFiles > 0 && source.Symbols == 0 {
+			return staleAxis{State: "degraded", Detail: "semantic provider emitted zero symbols for parsed files"}
+		}
+	}
+	if completenessFailures == 0 {
+		return staleAxis{State: "ok"}
+	}
+	if parseErrors == completenessFailures && source.Files > 0 {
+		fraction := float64(parseErrors) / float64(source.Files)
+		if fraction < semanticParseErrorTolerance {
+			return staleAxis{State: "ok", Detail: fmt.Sprintf("%d/%d files had tolerated parse errors", parseErrors, source.Files)}
+		}
+		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", parseErrors, fraction*100)}
 	}
 	return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
 }
