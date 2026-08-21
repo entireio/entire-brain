@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -37,6 +38,11 @@ func checkJSONContract(t *testing.T, name string, value any) {
 	if err != nil {
 		t.Fatalf("read golden %s: %v", path, err)
 	}
+	// .gitattributes pins these to eol=lf, but normalize anyway: a checkout that
+	// predates the pin (or a Windows editor re-save) can still hand us CRLF, and
+	// writeJSON's encoder (json.MarshalIndent) only ever emits LF. Without this,
+	// the contract check fails on checkout mechanics instead of on JSON content.
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	if err := json.Unmarshal(data, value); err != nil {
 		t.Fatalf("golden %s does not fit the report struct (a field was renamed or removed): %v", path, err)
 	}
