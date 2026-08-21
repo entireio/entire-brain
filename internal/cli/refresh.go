@@ -173,6 +173,11 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if !refreshOpts.skipSessions {
 		exportTask := progress.Begin("export sessions")
 		exportOpts.progress = func(p exportProgress) {
+			// The bar is fed from the SAME numbers the label prints, so the two
+			// can never disagree; refreshExportProgressCounts picks whichever
+			// pair the exporter is currently counting (items, else checkpoints).
+			done, total := refreshExportProgressCounts(p)
+			exportTask.SetProgress(done, total)
 			exportTask.Update(refreshExportProgressLabel(p))
 		}
 		exportErr = runExport(ctx, exportCmd, opts, exportOpts)
@@ -274,6 +279,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			if total <= 0 {
 				return
 			}
+			historyTask.SetProgress(done, total)
 			historyTask.Update(fmt.Sprintf("history index: %d/%d %s scanned", done, total, pluralUnit("session", total)))
 		}
 		historySource, err := writeBrainHistoryIndexAndSourceContext(ctx, brainDir, opts.Now().UTC(), historyProgress)
@@ -396,7 +402,20 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				semanticProgress := func(phase string) {
 					semanticTask.Update("semantic index: " + phase)
 				}
-				if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
+				// The provider does not announce how many files it is about to
+				// emit, so the bar is scaled by the PREVIOUS generation's file
+				// count. That is an estimate and is treated as one: a repo that
+				// grew simply pins the bar at full for the tail of the run, and
+				// a first-ever index (no previous count) gets an honest
+				// indeterminate spinner instead of a fabricated fraction.
+				expectedFiles := 0
+				if previous := existingSemanticSource(manifest); previous != nil {
+					expectedFiles = previous.Files
+				}
+				semanticCounts := func(files, _, _ int) {
+					semanticTask.SetProgress(files, expectedFiles)
+				}
+				if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress, progressCounts: semanticCounts}, repoDir); err != nil {
 					semanticTask.Finish(err)
 					if stage(brainComponentSemantic, err) {
 						return err
@@ -465,7 +484,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			stage(brainComponentPatterns, nil)
 		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
+	printAroundLiveLine(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
 		statusCmd := &cobra.Command{Use: "status"}
 		statusCmd.SetOut(cmd.OutOrStdout())
@@ -511,6 +530,19 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 		return false
 	}
 	return historyTranscriptFilesFingerprint(files) == history.TranscriptsFingerprint
+}
+
+// refreshExportProgressCounts reports the pair the exporter is currently
+// counting: its own unit when it has one, checkpoints otherwise, and (0, 0) —
+// indeterminate — when it has neither.
+func refreshExportProgressCounts(p exportProgress) (int, int) {
+	if p.Total > 0 {
+		return p.Current, p.Total
+	}
+	if p.TotalCheckpoints > 0 {
+		return p.CurrentCheckpoint, p.TotalCheckpoints
+	}
+	return 0, 0
 }
 
 func refreshExportProgressLabel(p exportProgress) string {

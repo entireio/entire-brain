@@ -649,7 +649,11 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	progress := newProgress(cmd.ErrOrStderr(), "distill")
 	task := progress.Begin("distill sessions")
 	distillOpts.progress = func(p distillProgress) {
-		task.Update(distillProgressLabel(p))
+		// Event, not Update: each callback is ONE session finished, and a
+		// detached backfill's log is the only place that per-session heartbeat
+		// exists. Update coalesces labels that differ only in counters — right
+		// for a repaint, fatal for a completion event.
+		task.Event(distillProgressLabel(p))
 	}
 	// One pass at a time per brain. Every in-process caller funnels through here
 	// — the detached `setup` backfill child, the watcher's gated distill step,

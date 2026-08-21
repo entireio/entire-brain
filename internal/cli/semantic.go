@@ -285,6 +285,10 @@ type semanticIndexOptions struct {
 	// (verifying provider, snapshotting, building store, …) so long-running
 	// indexing reports something more useful than a static spinner.
 	progress func(phase string)
+	// progressCounts reports the running file/symbol/relation tallies while the
+	// provider streams, so the caller can render a determinate bar. Optional:
+	// nil simply means an indeterminate spinner.
+	progressCounts func(files, symbols, relations int)
 	// containRoot, when set, requires the resolved repository directory to stay
 	// inside it. The MCP server sets this to the bound repo root so an untrusted
 	// client cannot index a directory outside it — checked against the *resolved*
