@@ -63,16 +63,52 @@ func openLocalRepo(gitDir string) (*localRepo, error) {
 // read→write TOCTOU. The OS lock is released automatically if the process dies,
 // so a crash never leaves a stale lock.
 func (r *localRepo) lock() (func(), error) {
-	f, err := os.OpenFile(filepath.Join(r.gitDir, lockFileName), os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := r.openLockFile()
 	if err != nil {
-		return nil, fmt.Errorf("factgitmeta: open lockfile: %w", err)
+		return nil, err
 	}
 	if err := lockFile(f); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("factgitmeta: acquire lock: %w", err)
 	}
+	return releaseFunc(f), nil
+}
+
+// tryLock is lock() without the wait: ok=false means another writer holds the
+// lock right now. A best-effort background pass (the entity index's freshness
+// tick) uses it so contention costs a skipped pass instead of an unbounded,
+// context-deaf block inside flock(2) — a Go context cannot interrupt that
+// syscall, so a blocking acquire would outlive the caller's own deadline.
+func (r *localRepo) tryLock() (func(), bool, error) {
+	f, err := r.openLockFile()
+	if err != nil {
+		return nil, false, err
+	}
+	locked, err := tryLockFile(f)
+	if err != nil {
+		_ = f.Close()
+		return nil, false, fmt.Errorf("factgitmeta: acquire lock: %w", err)
+	}
+	if !locked {
+		_ = f.Close()
+		return nil, false, nil
+	}
+	return releaseFunc(f), true, nil
+}
+
+func (r *localRepo) openLockFile() (*os.File, error) {
+	f, err := os.OpenFile(filepath.Join(r.gitDir, lockFileName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("factgitmeta: open lockfile: %w", err)
+	}
+	return f, nil
+}
+
+// releaseFunc closes the descriptor as well as unlocking: the flock is held per
+// OPEN FILE DESCRIPTION, so a leaked descriptor keeps the lock alive.
+func releaseFunc(f *os.File) func() {
 	return func() {
 		_ = unlockFile(f)
 		_ = f.Close()
-	}, nil
+	}
 }

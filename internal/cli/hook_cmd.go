@@ -129,6 +129,15 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "session-end: %s\n", warning)
 				}
 			}
+			// Deterministic, token-free and bounded: index the commits the
+			// session just produced so "which checkpoint changed this symbol"
+			// is answerable immediately. It runs AFTER the durable lifecycle
+			// hint (that must never wait on a slow provider) and independently
+			// of the export result, since it reads git, not transcripts. Never
+			// fails the hook.
+			if entityErr := refreshEntityIndexQuietly(cmd.Context(), perRepo, repoDir); entityErr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: entity index refresh skipped: %v\n", entityErr)
+			}
 			if deltaErr != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: incremental export failed: %v\n", deltaErr)
 				return nil

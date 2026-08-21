@@ -263,6 +263,9 @@ Then the agent should make only targeted follow-up calls:
   history
 - semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
   `brain_tests` for code navigation and validation planning
+- `brain_entity_history` for "which checkpoints and sessions changed this
+  function/class", answered from the persisted entity index rather than by
+  re-reading history (build it once with `entire brain entities backfill`)
 - review, workspace, and pattern tools such as `brain_regressions`,
   `brain_workspace_graph`, `brain_workspace_review`, and `brain_patterns` when
   the task calls for them

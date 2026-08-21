@@ -108,6 +108,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("explore", newVsearchCommand(opts))
 	addGrouped("explore", newGetCommand(opts))
 	addGrouped("explore", newMultiGetCommand(opts))
+	addGrouped("explore", newEntitiesCommand(opts))
 	addGrouped("explore", newBrainShowCommand(opts))
 	addGrouped("explore", newDashCommand(opts))
 	addGrouped("explore", newVizCommand(opts))

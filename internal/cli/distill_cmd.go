@@ -382,6 +382,12 @@ type distillCommandOptions struct {
 	// can render a spinner/progress line. It is nil in tests and for callers
 	// that do not want progress output.
 	progress func(distillProgress)
+	// entityProvenance, when set, sharpens each new fact's anchor from the
+	// entity -> checkpoint index: the checkpoint that actually changed the
+	// entity the fact's locus names, instead of the session's LAST checkpoint.
+	// nil (the zero value, and the value in every pre-index caller) keeps the
+	// original coarse anchoring exactly.
+	entityProvenance *entityProvenanceResolver
 }
 
 // distillProgress reports how far the distillation loop has advanced. Distill
@@ -597,6 +603,10 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	distillOpts.progress = func(p distillProgress) {
 		task.Update(distillProgressLabel(p))
 	}
+	// Built once per run, before any agent call: reading the derived index is
+	// cheap and bounded, and a missing/empty index yields nil, which restores
+	// the pre-index anchoring exactly.
+	distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
 	source, err := runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
 	task.Finish(err)
 	if err != nil {
@@ -799,13 +809,23 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// flush — a mid-run flush that skipped priors would wipe the review
 			// queue ~50 calls in, and a kill there would lose it before the
 			// rebuild produced its replacement.
+			//
+			// A force run may only drop the proposals it OWNS. The queue is shared:
+			// distill's single-user backlog carries no ProposedBy, while cross-member
+			// conflicts raised by `facts sync` are member-attributed — and distill
+			// never regenerates those, so dropping them silently deleted conflicts
+			// nobody had reviewed. Retain the attributed ones across a force rebuild.
 			var prior []factProposal
-			if !(distillOpts.force && final) {
-				if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
-					warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
-				} else {
-					prior = loadedProposals
+			if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
+				warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
+			} else if distillOpts.force && final {
+				for _, p := range loadedProposals {
+					if strings.TrimSpace(p.ProposedBy) != "" {
+						prior = append(prior, p)
+					}
 				}
+			} else {
+				prior = loadedProposals
 			}
 			merged := dedupeProposals(append(prior, proposalsByBranch[branch]...))
 			if err := writeFactProposals(brainDir, branch, merged); err != nil {
@@ -938,6 +958,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			anyAgentSuccess = true
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
+			// Sharpen provenance where the entity index can place the fact's
+			// locus; a no-op (and never an error) when the index is absent.
+			records = applyEntityProvenance(records, distillOpts.entityProvenance)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
 				maybeFlush()

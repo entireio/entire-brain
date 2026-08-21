@@ -107,6 +107,228 @@ func (f verifyFixture) addLocalCheckpoint(t *testing.T, checkpointID, sessionID,
 	f.runner.responses[fakeCommandKey("git", "cat-file", "-p", v1MainRef+":"+transcriptPath)] = fakeCommandResponse{stdout: transcript}
 }
 
+// localCheckpointFixture is one checkpoint of a session in the local store.
+type localCheckpointFixture struct {
+	checkpointID string
+	sessionID    string
+	turnID       string
+	createdAt    string
+	transcript   string
+	// branch is the branch the checkpoint was made on; empty means "main". It is
+	// what distinguishes one exported row of a multi-branch session from another.
+	branch string
+}
+
+// addLocalCheckpoints scripts a local checkpoint store holding SEVERAL
+// checkpoints, so a fact anchored to a mid-session one has something to resolve
+// against. addLocalCheckpoint is the single-checkpoint case.
+func (f verifyFixture) addLocalCheckpoints(t *testing.T, checkpoints []localCheckpointFixture) {
+	t.Helper()
+	var paths []string
+	for _, checkpoint := range checkpoints {
+		dir := checkpointPath(checkpoint.checkpointID)
+		root := dir + "/metadata.json"
+		session := dir + "/0/metadata.json"
+		transcript := dir + "/0/" + v1TranscriptFileName
+		branch := checkpoint.branch
+		if branch == "" {
+			branch = "main"
+		}
+		paths = append(paths, root, session, transcript)
+		f.runner.responses[fakeCommandKey("git", "cat-file", "-p", v1MainRef+":"+root)] = fakeCommandResponse{
+			stdout: `{"branch":"` + branch + `","sessions":[{"metadata":"` + session + `","transcript":"` + transcript + `"}]}`,
+		}
+		f.runner.responses[fakeCommandKey("git", "cat-file", "-p", v1MainRef+":"+session)] = fakeCommandResponse{
+			stdout: `{"checkpoint_id":"` + checkpoint.checkpointID + `","session_id":"` + checkpoint.sessionID +
+				`","branch":"` + branch + `","turn_id":"` + checkpoint.turnID + `","created_at":"` + checkpoint.createdAt + `"}`,
+		}
+		f.runner.responses[fakeCommandKey("git", "cat-file", "-p", v1MainRef+":"+transcript)] = fakeCommandResponse{stdout: checkpoint.transcript}
+	}
+	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{
+		stdout: strings.Join(paths, "\n") + "\n",
+	}
+}
+
+// TestVerifySharpenedAnchorOnAnEarlierCheckpointVerifies is the regression the
+// provenance sharpener introduced: verification asserted that an anchor names
+// its session's LATEST checkpoint, which is precisely what sharpening stops
+// being true. Every sharpened fact then read back as stale even though its
+// anchor was more accurate than the one that verified.
+func TestVerifySharpenedAnchorOnAnEarlierCheckpointVerifies(t *testing.T) {
+	f := newVerifyFixture(t)
+	const (
+		earlyID = "aaa111aaa111"
+		lateID  = "bbb222bbb222"
+	)
+	const transcriptRel = "sessions/main/session.jsonl"
+	early := `{"type":"user_message","message":"first turn"}` + "\n"
+	full := early + `{"type":"user_message","message":"second turn"}` + "\n"
+
+	f.writeBrainFile(t, transcriptRel, full)
+	f.writeSessions(t, []exportSession{{
+		SessionID:        "sess1",
+		Branch:           "main",
+		LatestCheckpoint: lateID,
+		SessionIndex:     0,
+		CreatedAt:        f.now,
+		TurnID:           "turn2",
+		TranscriptPath:   transcriptRel,
+	}})
+	f.addLocalCheckpoints(t, []localCheckpointFixture{
+		{checkpointID: earlyID, sessionID: "sess1", turnID: "turn1", createdAt: "2026-06-09T11:00:00Z", transcript: early},
+		{checkpointID: lateID, sessionID: "sess1", turnID: "turn2", createdAt: "2026-06-09T12:00:00Z", transcript: full},
+	})
+
+	// The sharpened anchor: an EARLIER checkpoint of the same session.
+	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:sharpened", "Provenance points at the checkpoint that changed the entity.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+		SessionID: "sess1", CheckpointID: earlyID, Transcript: transcriptRel, Line: 1,
+	}})})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "fact:sharpened", "--json")
+	if err != nil {
+		t.Fatalf("verify sharpened fact: %v\n%s", err, out)
+	}
+	report := parseVerifyReport(t, out)
+	if report.Results[0].Verdict != verifyVerdictVerified {
+		t.Fatalf("a sharpened anchor did not verify: %+v", report.Results[0])
+	}
+	for _, check := range report.Results[0].Anchors[0].Checks {
+		if check.Verdict != verifyVerdictVerified {
+			t.Fatalf("check %s = %s (%s)", check.Name, check.Verdict, check.Reason)
+		}
+	}
+}
+
+// TestVerifySpanningSessionRowsResolveDeterministically covers the case an
+// unbranched fact reaches: one session id spanning SEVERAL exported rows. The
+// row that is returned decides the transcript and the turn id every later check
+// reads, and accepting a mid-session checkpoint turned that row from a stale
+// tag into a VERIFIED answer — so picking whichever row the manifest happened
+// to list first became a correctness question, not a cosmetic one.
+func TestVerifySpanningSessionRowsResolveDeterministically(t *testing.T) {
+	const (
+		mainEarly = "aaa111aaa111"
+		mainLate  = "bbb222bbb222"
+		relLate   = "ccc333ccc333"
+	)
+	transcript := `{"type":"user_message","message":"turn"}` + "\n"
+	mainRow := exportSession{
+		SessionID: "sess1", Branch: "main", LatestCheckpoint: mainLate, SessionIndex: 0,
+		TurnID: "turn-main", TranscriptPath: "sessions/main/s.jsonl",
+	}
+	releaseRow := exportSession{
+		SessionID: "sess1", Branch: "release", LatestCheckpoint: relLate, SessionIndex: 0,
+		TurnID: "turn-release", TranscriptPath: "sessions/release/s.jsonl",
+	}
+	// Two rows on the SAME branch: the local membership record cannot tell them
+	// apart, so nothing may be promoted to verified off one of them.
+	twinRow := mainRow
+	twinRow.LatestCheckpoint = "ddd444ddd444"
+	twinRow.TranscriptPath = "sessions/main/twin.jsonl"
+	twinRow.TurnID = "turn-twin"
+
+	anchor := factAnchor{SessionID: "sess1", CheckpointID: mainEarly}
+
+	cases := []struct {
+		name        string
+		rows        []exportSession
+		wantVerdict string
+		wantRow     exportSession
+	}{
+		{
+			name:        "the branch of the anchored checkpoint selects its row",
+			rows:        []exportSession{mainRow, releaseRow},
+			wantVerdict: verifyVerdictVerified,
+			wantRow:     mainRow,
+		},
+		{
+			name:        "two indistinguishable rows keep the conservative verdict",
+			rows:        []exportSession{mainRow, twinRow},
+			wantVerdict: verifyVerdictStale,
+			wantRow:     mainRow, // deterministic pick: same branch, smaller latest checkpoint
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Both manifest orderings must answer identically: the array order of
+			// an export is an assembly artifact, not evidence.
+			for _, reversed := range []bool{false, true} {
+				f := newVerifyFixture(t)
+				rows := append([]exportSession(nil), tc.rows...)
+				if reversed {
+					rows[0], rows[1] = rows[1], rows[0]
+				}
+				f.addLocalCheckpoints(t, []localCheckpointFixture{
+					{checkpointID: mainEarly, sessionID: "sess1", branch: "main", turnID: "turn-main", createdAt: "2026-06-09T11:00:00Z", transcript: transcript},
+					{checkpointID: mainLate, sessionID: "sess1", branch: "main", turnID: "turn-main", createdAt: "2026-06-09T12:00:00Z", transcript: transcript},
+					{checkpointID: relLate, sessionID: "sess1", branch: "release", turnID: "turn-release", createdAt: "2026-06-09T13:00:00Z", transcript: transcript},
+				})
+				v := &verifyContext{
+					ctx:      context.Background(),
+					opts:     f.opts,
+					repoDir:  f.repoDir,
+					brainDir: f.brainDir,
+					branch:   "main",
+					manifest: &exportManifest{
+						DefaultBranch: "main",
+						Sources:       &brainSources{Sessions: &sessionSourceManifest{Sessions: rows}},
+					},
+				}
+				// factBranch is empty: the fact carries no branch of its own, which
+				// is the only way both rows survive the filter.
+				got, found, check := v.verifyExportedSession(anchor, "")
+				if !found {
+					t.Fatalf("reversed=%v: session not found: %+v", reversed, check)
+				}
+				if check.Verdict != tc.wantVerdict {
+					t.Fatalf("reversed=%v: verdict = %s (%s), want %s", reversed, check.Verdict, check.Reason, tc.wantVerdict)
+				}
+				if got.TranscriptPath != tc.wantRow.TranscriptPath || got.TurnID != tc.wantRow.TurnID {
+					t.Fatalf("reversed=%v: row = %+v, want %+v", reversed, got, tc.wantRow)
+				}
+			}
+		})
+	}
+}
+
+// TestVerifyAnchorOnAForeignCheckpointIsStale is the other half: accepting a
+// non-latest checkpoint must not become accepting ANY checkpoint. One that the
+// session does not own is still stale.
+func TestVerifyAnchorOnAForeignCheckpointIsStale(t *testing.T) {
+	f := newVerifyFixture(t)
+	const (
+		foreignID = "ccc333ccc333"
+		lateID    = "bbb222bbb222"
+	)
+	const transcriptRel = "sessions/main/session.jsonl"
+	transcript := `{"type":"user_message","message":"only turn"}` + "\n"
+
+	f.writeBrainFile(t, transcriptRel, transcript)
+	f.writeSessions(t, []exportSession{{
+		SessionID:        "sess1",
+		Branch:           "main",
+		LatestCheckpoint: lateID,
+		SessionIndex:     0,
+		CreatedAt:        f.now,
+		TranscriptPath:   transcriptRel,
+	}})
+	f.addLocalCheckpoints(t, []localCheckpointFixture{
+		{checkpointID: lateID, sessionID: "sess1", createdAt: "2026-06-09T12:00:00Z", transcript: transcript},
+		{checkpointID: foreignID, sessionID: "sess2", createdAt: "2026-06-09T13:00:00Z", transcript: transcript},
+	})
+	f.writeFacts(t, "main", []factRecord{verifyFactFixture("fact:foreign", "This anchor names another session's checkpoint.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+		SessionID: "sess1", CheckpointID: foreignID, Transcript: transcriptRel, Line: 1,
+	}})})
+
+	cmd := NewRootCommand(f.opts)
+	out, _ := execute(t, cmd, "verify", "fact:foreign", "--json")
+	report := parseVerifyReport(t, out)
+	if got := findVerifyCheck(report.Results[0].Anchors[0].Checks, "session"); got.Verdict != verifyVerdictStale {
+		t.Fatalf("session check = %+v, want stale", got)
+	}
+}
+
 func verifyFactFixture(id, text, branch, origin, status string, now time.Time, anchors []factAnchor) factRecord {
 	paths := normalizeFactPaths([]string{"architecture.boundaries.rationale"})
 	if id == "" {
