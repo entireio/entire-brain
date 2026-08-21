@@ -306,7 +306,9 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	for _, want := range []string{
 		"semantic index failed",
 		"repo key mismatch",
-		"— continuing; run 'entire-brain doctor' for detail",
+		// The dash is ASCII here on purpose: the test buffer is not a terminal,
+		// so the renderer resolves to the plain, locale-independent glyph set.
+		"-- continuing; run 'entire-brain doctor' for detail",
 		setupRepoKeyMismatchHint,
 		"the brain is queryable now",
 		"FAILED semantic",

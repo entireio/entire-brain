@@ -9,9 +9,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ashtom/entire-brain/internal/tui"
 )
 
 // setup.go is the one-command onboarding path. Before it there were three
@@ -183,24 +186,27 @@ func setupComponentSummary(built, failed []setupComponent) string {
 
 // setupComponentFailureLine is the one line a degraded component gets: what
 // failed, why, that setup is continuing anyway, and where the detail lives.
-func setupComponentFailureLine(component setupComponent) string {
+// dash is passed in rather than written inline because an em dash is a
+// non-ASCII glyph and this line is printed to a terminal whose locale may not
+// be able to draw one.
+func setupComponentFailureLine(component setupComponent, dash string) string {
 	detail := strings.TrimSpace(component.Detail)
 	if detail == "" {
 		detail = "no detail reported"
 	}
-	return fmt.Sprintf("%s failed (%s) — continuing; run 'entire-brain doctor' for detail",
-		setupComponentLabel(component.Name), detail)
+	return fmt.Sprintf("%s failed (%s) %s continuing; run 'entire-brain doctor' for detail",
+		setupComponentLabel(component.Name), detail, dash)
 }
 
 // reportSetupComponentFailures prints one line per degraded component (plus its
 // hint) and returns. It must never abort: losing the workspace, the daemon and
 // the status output because one source could not be built is the failure this
 // whole path exists to prevent.
-func reportSetupComponentFailures(out io.Writer, failed []setupComponent) {
+func reportSetupComponentFailures(progress *refreshProgress, failed []setupComponent) {
 	for _, component := range failed {
-		fmt.Fprintf(out, "setup: %s\n", setupComponentFailureLine(component))
+		progress.NotePhase(setupComponentFailureLine(component, progress.dash()), tui.PhaseFailed)
 		if hint := strings.TrimSpace(component.Hint); hint != "" {
-			fmt.Fprintf(out, "setup: hint: %s\n", hint)
+			progress.NotePhase("hint: "+hint, tui.PhaseSkipped)
 		}
 	}
 }
@@ -263,9 +269,13 @@ type setupSteps struct {
 	// reserved for a phase that could not run AT ALL (no brain directory, no
 	// resolvable output path); a component that failed on its own comes back as
 	// a failed component with the rest still built.
-	instant       func(context.Context) ([]setupComponent, error)
-	detectAgent   func(context.Context) string
-	spawnBackfill func(context.Context, setupBackfillPlan) (int, error)
+	instant func(context.Context) ([]setupComponent, error)
+	// observeComponent is notified as each instant-phase component lands, so the
+	// progress line can tick components off live instead of revealing all of
+	// them at once when the phase returns.
+	observeComponent *setupComponentObserver
+	detectAgent      func(context.Context) string
+	spawnBackfill    func(context.Context, setupBackfillPlan) (int, error)
 	// plan resolves the daemon artifact for a set of options. It is a step, not
 	// a direct call, for the same reason planBrainWatchDaemon takes goos as an
 	// argument: the install/idempotence/retirement logic above it is
@@ -415,6 +425,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// a re-run that does not name them must not silently revert them.
 	previous, setUpBefore := setupOptionsFromRecord(stateDir)
 	setupOpts = applySetupRecordDefaults(setupOpts, previous, setupFlagChanged(cmd))
+	if steps.observeComponent == nil {
+		steps.observeComponent = &setupComponentObserver{}
+	}
 	steps = resolveSetupSteps(cmd, perRepo, setupOpts, repoDir, steps)
 
 	// --json must keep stdout parseable, so the friendly per-step lines are
@@ -424,6 +437,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		progressOut = io.Discard
 	}
 	progress := newProgress(progressOut, "setup")
+	timings := &setupTimings{}
 
 	report := setupReport{
 		SchemaVersion: 1,
@@ -457,10 +471,26 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// daemon and the status output because a stale semantic snapshot carried
 	// another CLI's repo key is a worse outcome, by far, than a brain with four
 	// sources instead of five.
-	instantTask := progress.Begin("instant core (deterministic, no agent tokens)")
+	instantTask := progress.BeginPhase("instant core (deterministic, no agent tokens)", tui.PhaseInstant)
+	// Tick each component off as it lands. The marks accumulate on the live
+	// line, so a twenty-second phase shows five components already built rather
+	// than a spinner that reveals everything at the end.
+	var liveMarks []tui.Mark
+	var liveMarksMu sync.Mutex
+	steps.observeComponent.bind(func(component setupComponent) {
+		liveMarksMu.Lock()
+		liveMarks = append(liveMarks, setupComponentMark(component.State))
+		marks := append([]tui.Mark(nil), liveMarks...)
+		liveMarksMu.Unlock()
+		instantTask.SetMarks(marks)
+		instantTask.Update("instant core: " + setupComponentLabel(component.Name))
+	})
 	instantStarted := time.Now()
 	components, instantErr := steps.instant(ctx)
-	seconds := time.Since(instantStarted).Seconds()
+	elapsed := time.Since(instantStarted)
+	timings.record("instant", elapsed)
+	steps.observeComponent.bind(nil)
+	seconds := elapsed.Seconds()
 	built, failed := partitionSetupComponents(components)
 	// Persist the outcome BEFORE deciding whether to continue: `status` and
 	// `doctor` must be able to name the failed component either way, and the
@@ -494,39 +524,46 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if summary != "" {
 		summary += "; "
 	}
-	instantTask.Update(fmt.Sprintf("instant core ready in %s — %sthe brain is queryable now",
-		roundedSeconds(seconds), summary))
+	instantTask.Update(fmt.Sprintf("instant core ready in %s %s %sthe brain is queryable now",
+		roundedSeconds(seconds), progress.dash(), summary))
 	instantTask.Finish(nil)
-	reportSetupComponentFailures(progressOut, failed)
+	reportSetupComponentFailures(progress, failed)
 
 	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 
 	// Phase 2 — BACKFILL (detached, spends tokens).
-	report.Backfill = runSetupBackfill(ctx, progress, perRepo, setupOpts, steps, storage, repoDir, &report)
+	backfillStarted := time.Now()
+	report.Backfill = runSetupBackfill(ctx, progress.withPhase(tui.PhaseBackfill), perRepo, setupOpts, steps, storage, repoDir, &report)
+	timings.record("backfill", time.Since(backfillStarted))
 
 	// Phase 3 — DAEMON (workspace registration + one machine-wide watcher).
+	daemonProgress := progress.withPhase(tui.PhaseDaemon)
+	workspaceStarted := time.Now()
 	report.Workspace, err = registerRepoInWorkspace(ctx, cmd, perRepo, setupOpts.workspace, repoDir, storage.Key)
 	if err != nil {
 		report.Warnings = append(report.Warnings, "workspace registration failed: "+err.Error())
-		progress.Skip("workspace registration: " + err.Error())
+		daemonProgress.Skip("workspace registration: " + err.Error())
 	} else if report.Workspace.Already {
-		progress.Skip(fmt.Sprintf("workspace %q already has this repo", report.Workspace.Name))
+		daemonProgress.Skip(fmt.Sprintf("workspace %q already has this repo", report.Workspace.Name))
 	} else {
-		task := progress.Begin("workspace registration")
+		task := daemonProgress.BeginPhase("workspace registration", tui.PhaseDaemon)
 		task.Update(fmt.Sprintf("workspace %q now tracks %s", report.Workspace.Name, report.Workspace.RepoKey))
 		task.Finish(nil)
 	}
+	timings.record("workspace", time.Since(workspaceStarted))
 
+	daemonStarted := time.Now()
 	switch {
 	case setupOpts.noDaemon:
-		progress.Skip("background watcher (--no-daemon)")
+		daemonProgress.Skip("background watcher (--no-daemon)")
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: --no-daemon"}
 	case planErr != nil:
-		progress.Skip("background watcher: " + planErr.Error())
+		daemonProgress.Skip("background watcher: " + planErr.Error())
 		report.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: planErr.Error()}
 	default:
-		report.Daemon = runSetupDaemon(ctx, progress, steps, plan, &report)
+		report.Daemon = runSetupDaemon(ctx, daemonProgress, steps, plan, &report)
 	}
+	timings.record("daemon", time.Since(daemonStarted))
 
 	report.Hook = inspectSessionEndHook(repoDir)
 	reportSetupHook(progress, report.Hook)
@@ -551,7 +588,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if setupOpts.json {
 		return writeJSON(cmd, report)
 	}
-	printSetupSummary(cmd.OutOrStdout(), report)
+	renderSetupSummary(cmd.OutOrStdout(), tui.NewRenderer(cmd.OutOrStdout()), report, timings)
 	return nil
 }
 
@@ -623,7 +660,7 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		return setupPhase{State: "skipped", Detail: "--no-backfill"}
 	}
 	if report.Facts.Sessions == 0 {
-		progress.Skip("fact backfill: no captured sessions yet — it will start once sessions land")
+		progress.Skip("fact backfill: no captured sessions yet " + progress.dash() + " it will start once sessions land")
 		return setupPhase{State: "skipped", Detail: "no captured sessions"}
 	}
 	if report.Facts.Pending() == 0 {
@@ -882,7 +919,9 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			}
 			var components []setupComponent
 			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, func(name string, err error) {
-				components = append(components, newSetupComponent(name, err))
+				component := newSetupComponent(name, err)
+				components = append(components, component)
+				steps.observeComponent.notify(component)
 			})
 			return components, err
 		}
@@ -1132,49 +1171,17 @@ func roundedSeconds(seconds float64) string {
 }
 
 func reportSetupHook(progress *refreshProgress, hook setupHookState) {
+	dash := progress.dash()
 	switch {
 	case hook.Installed && !hook.EntireCLI:
-		progress.Skip(fmt.Sprintf("session-end hook wired (%s) but `%s` is not on PATH — sessions will NOT distill until the Entire CLI is installed", hook.Source, entireBinaryName))
+		progress.Skip(fmt.Sprintf("session-end hook wired (%s) but `%s` is not on PATH %s sessions will NOT distill until the Entire CLI is installed", hook.Source, entireBinaryName, dash))
 	case hook.Installed:
 		progress.Skip(fmt.Sprintf("session-end hook already wired (%s)", hook.Source))
 	case !hook.EntireCLI:
-		progress.Skip(fmt.Sprintf("session-end hook not wired and `%s` is not on PATH — install the Entire CLI, then run `entire enable` in this repo", entireBinaryName))
+		progress.Skip(fmt.Sprintf("session-end hook not wired and `%s` is not on PATH %s install the Entire CLI, then run `entire enable` in this repo", entireBinaryName, dash))
 	default:
-		progress.Skip("session-end hook not wired — run `entire enable` in this repo so each session distills as it ends (SPENDS TOKENS per session)")
+		progress.Skip("session-end hook not wired " + dash + " run `entire enable` in this repo so each session distills as it ends (SPENDS TOKENS per session)")
 	}
-}
-
-func printSetupSummary(out io.Writer, report setupReport) {
-	fmt.Fprintln(out, "\nBrain ready")
-	fmt.Fprintf(out, "  repo:  %s (key %s)\n", report.Repo, report.RepoKey)
-	fmt.Fprintf(out, "  brain: %s\n", report.BrainPath)
-	if built, failed := partitionSetupComponents(report.Instant.Components); len(report.Instant.Components) > 0 {
-		fmt.Fprintf(out, "  instant: %s\n", setupComponentSummary(built, failed))
-		for _, component := range failed {
-			fmt.Fprintf(out, "    %s: %s\n", setupComponentLabel(component.Name), component.Detail)
-			if hint := strings.TrimSpace(component.Hint); hint != "" {
-				fmt.Fprintf(out, "      hint: %s\n", hint)
-			}
-		}
-	}
-	fmt.Fprintf(out, "  facts: %d/%d sessions distilled\n", report.Facts.Distilled, report.Facts.Sessions)
-	switch report.Backfill.State {
-	case "ok":
-		fmt.Fprintf(out, "  backfill: running in the background (%s)\n", report.Backfill.Detail)
-	case "skipped":
-		fmt.Fprintf(out, "  backfill: skipped (%s)\n", report.Backfill.Detail)
-	case "failed":
-		fmt.Fprintf(out, "  backfill: failed (%s)\n", report.Backfill.Detail)
-	}
-	fmt.Fprintf(out, "  daemon: %s\n", describeDaemonState(report.Daemon))
-	fmt.Fprintf(out, "  workspace: %s\n", report.Workspace.Name)
-	for _, warning := range report.Warnings {
-		fmt.Fprintf(out, "  warning: %s\n", warning)
-	}
-	fmt.Fprintln(out, "\nNext")
-	fmt.Fprintln(out, "  entire-brain overview        what this project is")
-	fmt.Fprintln(out, "  entire-brain brief \"<task>\"   task-shaped context")
-	fmt.Fprintln(out, "  entire-brain status          backfill progress and daemon health")
 }
 
 func describeDaemonState(state daemonState) string {

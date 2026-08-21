@@ -21,6 +21,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ashtom/entire-brain/internal/tui"
 )
 
 const (
@@ -40,6 +42,9 @@ type agentStatusOptions struct {
 	json    bool
 	details bool
 	compact bool
+	// verbose selects the FULL text report. It changes rendering only: the data
+	// gathered, and therefore --json, is identical either way.
+	verbose bool
 	failOn  string
 }
 
@@ -366,6 +371,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, and changed-symbol records")
+	cmd.Flags().BoolVar(&statusOpts.verbose, "verbose", false, "Print the full report (coverage, freshness axes, blind spots, live state) instead of the short summary")
 	cmd.Flags().StringVar(&statusOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
 }
@@ -1064,7 +1070,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 			return err
 		}
 	} else {
-		renderBrainStatusText(cmd, report)
+		renderBrainStatusText(cmd, report, statusOpts.verbose)
 	}
 	if err := semanticAuditFailureForReport(brainStatusFreshnessSeverity(report), len(brainStatusBlindSpots(report)), failOn); err != nil {
 		return renderedCommandError{err: err}
@@ -1179,8 +1185,18 @@ func brainStatusBlindSpots(report brainStatusReport) []brainBlindSpot {
 	return report.Semantic.BlindSpots
 }
 
-func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
+func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose bool) {
 	out := cmd.OutOrStdout()
+	render := tui.NewRenderer(out)
+	if !verbose {
+		renderBrainStatusShort(out, render, report)
+		return
+	}
+	// Everything below is the full report. Blind spots and semantic partial
+	// failures describe the SAME records from two angles, so they are collapsed
+	// into groups once and the second section prints only what the first did
+	// not already cover — the old report printed all forty-four files twice.
+	var reportedSpots map[string]bool
 	fmt.Fprintln(out, "Brain")
 	fmt.Fprintf(out, "  path: %s\n", report.Brain.Path)
 	fmt.Fprintf(out, "  repo: %s (key %s)\n", report.Repo.Root, report.Repo.Key)
@@ -1217,11 +1233,24 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 			if len(c.RelationTypes) > 0 {
 				fmt.Fprintf(out, "  relation types: %s\n", semanticAuditCountSummary(c.RelationTypes))
 			}
-			for _, warning := range c.WarningDetails {
-				fmt.Fprintf(out, "  warning: %s\n", semanticAuditWarningSummary(warning))
-			}
-			for _, failure := range c.PartialFailureDetails {
-				fmt.Fprintf(out, "  partial failure: %s\n", semanticAuditWarningSummary(failure))
+			reportedSpots = map[string]bool{}
+			for _, section := range []struct {
+				label    string
+				warnings []semanticWarning
+			}{
+				{label: "warning", warnings: c.WarningDetails},
+				{label: "partial failure", warnings: c.PartialFailureDetails},
+			} {
+				spots := blindSpotsFromWarnings(section.warnings)
+				for _, spot := range spots {
+					reportedSpots[blindSpotKey(spot)] = true
+				}
+				groups := groupStatusBlindSpots(spots)
+				if len(groups) == 0 {
+					continue
+				}
+				fmt.Fprintf(out, "  %s:\n", section.label+"s")
+				renderStatusBlindSpotGroups(out, render, "    ", groups, true)
 			}
 		}
 		if f := s.Freshness; f != nil {
@@ -1244,20 +1273,17 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
 		// also fills blind spots — so its presence distinguishes "checked, none
 		// found" from "not checked".
 		if s.Coverage != nil {
-			if len(s.BlindSpots) == 0 {
+			switch {
+			case len(s.BlindSpots) == 0:
 				fmt.Fprintln(out, "  blind spots: none")
-			} else {
+			default:
 				fmt.Fprintf(out, "  blind spots: %d\n", len(s.BlindSpots))
-				for _, spot := range s.BlindSpots {
-					fmt.Fprintf(out, "    %s", valueOrUnset(spot.Path))
-					if spot.Code != "" {
-						fmt.Fprintf(out, " [%s]", spot.Code)
-					}
-					if strings.TrimSpace(spot.Detail) != "" {
-						fmt.Fprintf(out, " %s", spot.Detail)
-					}
-					fmt.Fprintln(out)
+				fresh := subtractBlindSpots(s.BlindSpots, reportedSpots)
+				if len(fresh) == 0 {
+					fmt.Fprintf(out, "    %s\n", render.Dim("all of them are the semantic warnings listed above"))
+					break
 				}
+				renderStatusBlindSpotGroups(out, render, "    ", groupStatusBlindSpots(fresh), true)
 			}
 		}
 	}

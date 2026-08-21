@@ -205,7 +205,7 @@ func TestBrainStatusTextIncludesOnboardingSection(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(out)
 	cmd.SetErr(out)
-	renderBrainStatusText(cmd, report)
+	renderBrainStatusText(cmd, report, true)
 	if !strings.Contains(out.String(), "facts: 1/2 sessions distilled") {
 		t.Fatalf("status text must show backfill progress:\n%s", out.String())
 	}

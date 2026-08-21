@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -84,6 +85,20 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool) error {
 					Name:   "setup " + setupComponentLabel(component.Name),
 					State:  "error",
 					Detail: detail,
+				})
+			}
+		}
+		// The full blind-spot list lives HERE. `status` collapses forty-four
+		// per-file warnings into one line and tells the reader to run doctor for
+		// the detail, so the detail has to actually exist somewhere — and doctor
+		// is the right somewhere: it is the command you run when you have decided
+		// to care.
+		if spots, spotErr := brainBlindSpotsForRepo(cmd.Context(), opts, env.RepoRoot); spotErr == nil {
+			for _, group := range groupStatusBlindSpots(spots) {
+				report.Checks = append(report.Checks, doctorCheckResult{
+					Name:   "semantic blind spots",
+					State:  "warn",
+					Detail: group.Summary() + ": " + strings.Join(group.Paths, ", "),
 				})
 			}
 		}

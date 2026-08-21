@@ -24,6 +24,41 @@ All notable changes to `entire-brain` are recorded here. The format follows
   so `setup` names it alongside sessions, seed, docs and the semantic index and
   `doctor` can print why it failed — instead of the reason going to a stderr
   line that a `--json` run discards.
+- `setup` renders progress: one in-place line per phase carrying a spinner, a
+  colour-ramped bar where a real count exists (checkpoint export, history
+  index, semantic files) and a per-component tick row, phase-coded colours
+  (instant, backfill, daemon, done, skipped, failed), and a closing summary
+  block with per-phase timings. All of it is gated on the destination stream —
+  a pipe, a CI log, a hook and `--json` get plain, byte-stable, ASCII lines
+  with no escape sequences, `NO_COLOR` is honoured, and a terminal whose locale
+  is not UTF-8 gets an ASCII glyph set.
+- `entire brain status --verbose` prints the full report (coverage histograms,
+  freshness axes, blind spots, live state). The default report is now short.
+- `entire brain doctor` lists the semantic blind spots in full, grouped by
+  reason, which is where the short `status` now points for the detail.
+
+### Fixed
+
+- `setup` printed every phase line twice — once bare from the progress update
+  and once with a " done" suffix from the same task finishing. A task now emits
+  exactly one line per distinct phase, and the final label is printed once.
+- `setup` and the refresh it calls painted competing in-place lines on the same
+  terminal row from two different streams, so neither erased the other and a
+  long line wrapped into a visible duplicate. In-place rendering is now owned
+  by one process-wide line: only the innermost task paints, and every live line
+  is truncated to the terminal width so it can never wrap.
+- The semantic phase's progress flooded and flickered: its label changes on
+  every few hundred records and neither the repaint nor the plain-mode line was
+  rate limited. Repaints are capped at 10/s and plain-mode labels that differ
+  only in their counters are coalesced.
+- Stray replacement glyphs ("□") on terminals whose locale is not UTF-8: the
+  spinner, marks, bars, em dashes and separators are gated on the locale, with
+  an ASCII fallback.
+- `entire brain status` printed the same skipped files twice — once as semantic
+  partial failures and again as blind spots — one line each, which on a repo
+  that vendors JSON corpora meant 88 lines of the same fact. Repeated warnings
+  are collapsed to one line per reason, obvious data files are grouped as "N
+  data files skipped", and no record is listed twice across sections.
 
 ### Changed — token spend
 

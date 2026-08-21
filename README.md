@@ -310,6 +310,13 @@ entire brain inspect tests "<symbol-or-id>" --json
 entire brain inspect regressions "<task or invariant>" --location-only --json
 ```
 
+`status` without `--json` prints a SHORT human report: the brain's identity,
+the onboarding block (fact-backfill progress, watcher health, instant-phase
+components) and a one-line health verdict. `status --verbose` prints the full
+text report — coverage histograms, freshness axes, blind spots, live state —
+with repeated warnings collapsed to one line per reason; `entire brain doctor`
+lists the skipped files in full. `status --json` is unchanged by either flag.
+
 `status --json` preserves the full status contract. Check
 `semantic.freshness.severity` before graph inspection and
 `retrieval.freshness.severity` before query/get. A semantic-only
