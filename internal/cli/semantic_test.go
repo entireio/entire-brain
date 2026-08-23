@@ -3120,6 +3120,40 @@ func TestSemanticOnlyBrainReadmeDescribesSemanticIndex(t *testing.T) {
 	}
 }
 
+func TestWriteBrainSemanticSourcePreservesOtherManifestLeaves(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	facts := &factSourceManifest{GeneratedAt: now, TaxonomyPath: factsTaxonomyPath, Facts: 3, Distilled: 3}
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		RepoKey:       "gh/example/repo",
+		GeneratedAt:   now,
+		Sources:       &brainSources{Facts: facts},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	semantic := &semanticSourceManifest{
+		GeneratedAt:   now.Add(time.Minute),
+		Provider:      "entire-graph",
+		SchemaVersion: "1.0",
+		SnapshotPath:  "semantic/snapshots/current/snapshot.ndjson",
+		Symbols:       7,
+	}
+	if err := writeBrainSemanticSource(brainDir, "gh/example/repo", semantic); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.Symbols != 7 {
+		t.Fatalf("semantic source was not published: %+v", manifest.Sources)
+	}
+	if manifest.Sources.Facts == nil || manifest.Sources.Facts.Facts != 3 || manifest.Sources.Facts.Distilled != 3 {
+		t.Fatalf("semantic publication erased facts source: %+v", manifest.Sources)
+	}
+}
+
 func TestBundleExportDoesNotTruncateExistingOutputWhenSemanticMissing(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

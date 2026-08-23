@@ -76,8 +76,8 @@ func withBrainWriteLock(brainDir string, fn func() error) error {
 }
 
 // acquireBrainPrivacySideEffectLock serializes irreversible provider egress
-// with privacy-policy mutations without blocking ordinary projections,
-// retrievals, or cancellation requests for the duration of a provider call.
+// with privacy-policy mutations and canonical transcript publication. Other
+// projections, retrievals, and cancellation requests remain independent.
 // Any operation needing both locks must acquire this lock before write.lock.
 func acquireBrainPrivacySideEffectLock(brainDir string) (func(), error) {
 	return acquireBrainPrivacySideEffectLockTimeout(brainDir, brainWriteLockTimeout)
@@ -287,21 +287,42 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		if _, err := loadBrainManifest(outputDir); err != nil {
 			return err
 		}
-		normalizeBrainManifest(&manifest)
-		manifest.SchemaVersion = brainManifestSchemaVersion
-		data, err := json.MarshalIndent(manifest, "", "  ")
-		if err != nil {
-			return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
-		}
-		data = append(data, '\n')
-		if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
-			return fmt.Errorf("write %s: %w", exportManifestFileName, err)
-		}
-		if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
-			return fmt.Errorf("write brain readme: %w", err)
-		}
-		return nil
+		return writeBrainManifestAndReadmeManifestLocked(outputDir, manifest)
 	})
+}
+
+// updateBrainManifestAndReadme holds the manifest-leaf lock across load,
+// mutation, and replacement. Long-running producers use it to patch only the
+// source they own without erasing a semantic/session/seed update committed
+// after their initial snapshot.
+func updateBrainManifestAndReadme(outputDir string, update func(*exportManifest) error) error {
+	return withBrainManifestWriteLock(outputDir, func() error {
+		manifest, err := loadBrainManifest(outputDir)
+		if err != nil {
+			return err
+		}
+		if err := update(manifest); err != nil {
+			return err
+		}
+		return writeBrainManifestAndReadmeManifestLocked(outputDir, *manifest)
+	})
+}
+
+func writeBrainManifestAndReadmeManifestLocked(outputDir string, manifest exportManifest) error {
+	normalizeBrainManifest(&manifest)
+	manifest.SchemaVersion = brainManifestSchemaVersion
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+	}
+	data = append(data, '\n')
+	if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
+	}
+	if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
+		return fmt.Errorf("write brain readme: %w", err)
+	}
+	return nil
 }
 
 func cleanBrainRelativePath(rel string) (string, error) {

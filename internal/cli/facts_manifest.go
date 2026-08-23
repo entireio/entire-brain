@@ -3,6 +3,8 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -33,6 +35,59 @@ func loadAllFactBranches(brainDir string) (map[string][]factRecord, error) {
 		}
 	}
 	return byBranch, nil
+}
+
+// inventoryFactProposalBranches scans every branch directory for proposal
+// records. Proposal-only branches are otherwise invisible to
+// loadAllFactBranches because their facts.ndjson is empty or absent. Legacy
+// files whose rows have no canonical physical branch owner are returned by
+// relative path so an unscoped force rebuild can clean them in place.
+func inventoryFactProposalBranches(brainDir string) (map[string][]factProposal, []string, error) {
+	root := filepath.Join(brainDir, factsDirName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string][]factProposal{}, nil, nil
+		}
+		return nil, nil, err
+	}
+	byBranch := map[string][]factProposal{}
+	var legacyRels []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		rel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsProposalsFileName))
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, nil, err
+		}
+		proposals, err := parseFactProposals(data, rel)
+		if err != nil {
+			return nil, nil, err
+		}
+		owner := ""
+		canonical := len(proposals) > 0
+		for _, proposal := range proposals {
+			branch := strings.TrimSpace(proposal.Branch)
+			if branch == "" || (owner != "" && owner != branch) {
+				canonical = false
+				break
+			}
+			owner = branch
+		}
+		if canonical && factsProposalsRelPath(owner) == rel {
+			byBranch[owner] = append(byBranch[owner], proposals...)
+			continue
+		}
+		legacyRels = append(legacyRels, rel)
+	}
+	sort.Strings(legacyRels)
+	return byBranch, legacyRels, nil
 }
 
 // countFactProposals totals the pending proposals across the given branches.
@@ -129,6 +184,7 @@ func preserveFactDistillEvidence(source, previous *factSourceManifest) {
 	source.CacheHits = previous.CacheHits
 	source.FailedChunks = previous.FailedChunks
 	source.PreprocessedBytes = previous.PreprocessedBytes
+	source.CandidateBytes = previous.CandidateBytes
 	source.ExtractionWaitSeconds = previous.ExtractionWaitSeconds
 	source.ReconcileSeconds = previous.ReconcileSeconds
 	source.WriteSeconds = previous.WriteSeconds
@@ -138,6 +194,7 @@ func preserveFactDistillEvidence(source, previous *factSourceManifest) {
 	source.Agent = previous.Agent
 	source.Model = previous.Model
 	source.Effort = previous.Effort
+	source.Pipeline = previous.Pipeline
 	source.Branch = previous.Branch
 	source.Force = previous.Force
 	source.Jobs = previous.Jobs

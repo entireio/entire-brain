@@ -54,6 +54,25 @@ func knownTops(tops ...string) func(string) bool {
 	}
 }
 
+func TestUnionAnchorsKeepsLegacyAndCandidateOwnershipDistinct(t *testing.T) {
+	legacy := Anchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 7}
+	candidate := legacy
+	candidate.EndLine = 7
+	candidate.DistillTurnID = "turn-v1:abc"
+	got := UnionAnchors([]Anchor{legacy}, []Anchor{candidate})
+	if len(got) != 2 || got[0].DistillTurnID != "" || got[1].DistillTurnID != candidate.DistillTurnID {
+		t.Fatalf("pipeline-specific provenance ownership collapsed: %+v", got)
+	}
+}
+
+func TestUnionAnchorsDoesNotRewriteLegacyPointAnchor(t *testing.T) {
+	legacy := Anchor{SessionID: "s1", CheckpointID: "cp1", Transcript: "sessions/main/s1.jsonl", Line: 7}
+	got := UnionAnchors([]Anchor{legacy}, []Anchor{legacy})
+	if len(got) != 1 || got[0].EndLine != 0 || got[0].DistillTurnID != "" {
+		t.Fatalf("legacy point provenance changed during union: %+v", got)
+	}
+}
+
 const testRetention = 30 * 24 * time.Hour
 
 func TestRecordIDStableAcrossPathOrder(t *testing.T) {

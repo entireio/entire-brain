@@ -11,12 +11,20 @@ import "regexp"
 // false negative is worse than an occasional over-redaction.
 
 var (
-	rePrivateKey = regexp.MustCompile(`(?s)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----`)
-	reJWT        = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)
-	reGitHubTok  = regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{20,}`)
-	reBearer     = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/=-]{10,}`)
+	rePrivateKey             = regexp.MustCompile(`(?s)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----`)
+	reUnterminatedPrivateKey = regexp.MustCompile(`(?s)-----BEGIN [^-]*PRIVATE KEY-----.*`)
+	reJWT                    = regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)
+	reGitHubTok              = regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{20,}`)
+	reGitHubFineGrainedTok   = regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{20,}`)
+	reOpenAITok              = regexp.MustCompile(`\bsk-(?:proj-|svcacct-|ant-[A-Za-z0-9_-]*?)?[A-Za-z0-9_-]{16,}`)
+	reAWSKeyID               = regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`)
+	reSlackTok               = regexp.MustCompile(`\bxox[baprs]-[A-Za-z0-9-]{10,}`)
+	reGitLabTok              = regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}`)
+	reNPMTok                 = regexp.MustCompile(`\bnpm_[A-Za-z0-9]{20,}`)
+	reStripeTok              = regexp.MustCompile(`\b(?:sk|rk)_live_[A-Za-z0-9]{16,}`)
+	reBearer                 = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/=-]{10,}`)
 	// Secret-looking env assignment: NAME containing TOKEN/SECRET/KEY/PASSWORD = value.
-	reSecretEnv = regexp.MustCompile(`(?i)\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)[A-Za-z0-9_]*)\s*[=:]\s*["']?[^\s"']{6,}`)
+	reSecretEnv = regexp.MustCompile(`(?i)\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)[A-Za-z0-9_]*)\s*[=:]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s"']{6,})`)
 	// Absolute home paths: keep the path shape, drop the username. Two cases.
 	//
 	// Canonical home roots are unambiguous home directories wherever they appear —
@@ -42,8 +50,16 @@ func redactText(s string) string {
 		return s
 	}
 	s = rePrivateKey.ReplaceAllString(s, "[REDACTED PRIVATE KEY]")
+	s = reUnterminatedPrivateKey.ReplaceAllString(s, "[REDACTED PRIVATE KEY]")
 	s = reJWT.ReplaceAllString(s, "[REDACTED JWT]")
 	s = reGitHubTok.ReplaceAllString(s, "[REDACTED TOKEN]")
+	s = reGitHubFineGrainedTok.ReplaceAllString(s, "[REDACTED TOKEN]")
+	s = reOpenAITok.ReplaceAllString(s, "[REDACTED TOKEN]")
+	s = reAWSKeyID.ReplaceAllString(s, "[REDACTED TOKEN]")
+	s = reSlackTok.ReplaceAllString(s, "[REDACTED TOKEN]")
+	s = reGitLabTok.ReplaceAllString(s, "[REDACTED TOKEN]")
+	s = reNPMTok.ReplaceAllString(s, "[REDACTED TOKEN]")
+	s = reStripeTok.ReplaceAllString(s, "[REDACTED TOKEN]")
 	s = reBearer.ReplaceAllString(s, "Bearer [REDACTED]")
 	s = reSecretEnv.ReplaceAllStringFunc(s, func(m string) string {
 		sub := reSecretEnv.FindStringSubmatch(m)

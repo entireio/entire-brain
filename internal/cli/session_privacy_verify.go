@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -96,13 +95,43 @@ func loadDistillCacheForPrivacy(brainDir string) (distillCache, error) {
 		return empty, err
 	}
 	var cache distillCache
-	if err := json.Unmarshal(data, &cache); err != nil || cache.Sessions == nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cache); err != nil || cache.Sessions == nil {
+		return empty, fmt.Errorf("%s: decode %s", memoryErrStateCorrupt, distillCachePath)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return empty, fmt.Errorf("%s: decode %s", memoryErrStateCorrupt, distillCachePath)
 	}
 	if cache.Version != distillCacheVersion {
 		return empty, fmt.Errorf("%s: unsupported %s schema version %d", memoryErrUnsupportedVersion, distillCachePath, cache.Version)
 	}
+	for _, fingerprint := range cache.Sessions {
+		if !validDistillCacheFingerprint(fingerprint) {
+			return empty, fmt.Errorf("%s: invalid fingerprint in %s", memoryErrStateCorrupt, distillCachePath)
+		}
+	}
+	// This cache is written canonically by saveDistillCache. Comparing compact
+	// bytes with the decoded canonical form rejects duplicate keys and hidden
+	// opaque payloads that ordinary encoding/json unmarshalling would discard.
+	var compact bytes.Buffer
+	canonical, marshalErr := json.Marshal(cache)
+	if compactErr := json.Compact(&compact, data); marshalErr != nil || compactErr != nil || !bytes.Equal(compact.Bytes(), canonical) {
+		return empty, fmt.Errorf("%s: noncanonical %s", memoryErrStateCorrupt, distillCachePath)
+	}
 	return cache, nil
+}
+
+func validDistillCacheFingerprint(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, char := range value[len("sha256:"):] {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func validatePrivacyJSONLines(brainDir, rel string) error {
@@ -540,6 +569,11 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	add := func(sessionID, artifact, detail string) {
 		report.Findings = append(report.Findings, privacyVerifyFinding{SessionID: sessionID, Artifact: artifact, Detail: detail})
 	}
+	if manifest.Sources != nil && manifest.Sources.Facts != nil && len(manifest.Sources.Facts.Warnings) > 0 {
+		for id := range stones.Excluded {
+			add(id, "fact_manifest_warnings", "fact distillation warnings are unattributable text-bearing run metadata; privacy cleanup must clear them")
+		}
+	}
 
 	// Resolve each tombstoned session's durable cleanup scope. The transaction
 	// retains canonical refs and transcript artifacts captured before mutation,
@@ -685,10 +719,21 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		return report, err
 	}
 	for key := range distill.Sessions {
-		for id := range stones.Excluded {
-			if strings.HasSuffix(key, "/"+url.PathEscape(id)) {
-				add(id, "distill_cache", key)
+		// A pre-upgrade cache key was the bare session ID. Check that exact
+		// representation before interpreting slash-separated modern keys: a
+		// legacy session ID may itself contain '/'.
+		if owner := strings.TrimSpace(key); owner != "" {
+			if _, excluded := stones.Excluded[owner]; excluded {
+				add(owner, "distill_cache", key)
+				continue
 			}
+		}
+		owner, ok := distillCacheKeySessionID(key)
+		if !ok {
+			return report, fmt.Errorf("%s: malformed distill cache key %q", memoryErrStateCorrupt, key)
+		}
+		if _, excluded := stones.Excluded[owner]; excluded {
+			add(owner, "distill_cache", key)
 		}
 	}
 	// Derived binary stores: exclude and purge delete every store in
@@ -730,6 +775,9 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		presentArtifacts[rel] = true
 		switch {
+		case isCandidateAtomicTempArtifactRel(rel):
+			add(newestID, "candidate_atomic_staging", rel+" is an unpublished content-bearing atomic-write orphan; privacy cleanup must remove it")
+			continue
 		case rel == patternCorpusPublicationMarkerPath:
 			add(newestID, "pattern_corpus_publication", rel+" records an interrupted publication; privacy cleanup must remove the classified marker and candidate")
 			continue

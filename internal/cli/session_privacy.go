@@ -82,13 +82,43 @@ func readPrivacyArtifact(brainDir, rel, label string, maxBytes int64) ([]byte, b
 	return data, true, nil
 }
 
-func readPrivacyDirectory(brainDir, rel, label string) ([]os.DirEntry, bool, error) {
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
-	if err != nil {
-		return nil, false, fmt.Errorf("%s: %s has an unsafe path %q: %w", memoryErrStateUnsafe, label, rel, err)
+// inspectPrivacyArtifactOpened validates a known regular leaf through an
+// opened descriptor without reading its payload. It is for disposable stores
+// whose size must be reported but whose opaque bytes may be arbitrarily large
+// and are about to be replaced wholesale.
+func inspectPrivacyArtifactOpened(brainDir, rel, label string) (os.FileInfo, bool, error) {
+	_, present, err := privacyArtifactInfo(brainDir, rel, label)
+	if err != nil || !present {
+		return nil, present, err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+	clean, _ := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+	path := filepath.Join(brainDir, clean)
+	f, err := privacyOpen(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	if err != nil {
+		return nil, true, fmt.Errorf("%s: open %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
+	}
+	defer f.Close()
+	if err := rejectOpenFileAlias(path, f, label); err != nil {
+		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return nil, true, fmt.Errorf("%s: stat opened %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
+	}
+	return info, true, nil
+}
+
+func readPrivacyDirectory(brainDir, rel, label string) ([]os.DirEntry, bool, error) {
+	clean := "."
+	var err error
+	if trimmed := filepath.ToSlash(strings.TrimSpace(rel)); trimmed != "" && trimmed != "." {
+		clean, err = cleanBrainRelativePath(trimmed)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: %s has an unsafe path %q: %w", memoryErrStateUnsafe, label, rel, err)
+		}
+		if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+			return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+		}
 	}
 	info, err := privacyLstat(filepath.Join(brainDir, clean))
 	if err != nil {
@@ -878,6 +908,10 @@ type sessionPurgePlan struct {
 	// skill-memory.ndjson is deliberately NOT here: it holds user curation
 	// decisions (ids/status/counters, no transcript content), not derivation.
 	DerivedStores []purgeArtifact `json:"derived_stores"`
+	// DistillCacheReset reports the disposable cache that cleanup rewrites
+	// wholesale. Per-session ownership is intentionally ambiguous for legacy
+	// keys, so clearing the entire cache is the fail-closed privacy behavior.
+	DistillCacheReset *purgeArtifact `json:"distill_cache_reset,omitempty"`
 	// WorkMetadata is content-free lifecycle/job state tied to this raw
 	// session. Privacy cleanup removes it immediately rather than retaining
 	// operational evidence about a session the user excluded or purged.
@@ -963,6 +997,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		}
 		for _, artifact := range plan.DerivedStores {
 			fmt.Fprintf(out, "  derived store %s (%d bytes, rebuilds from surviving truth)\n", artifact.Path, artifact.Bytes)
+		}
+		if plan.DistillCacheReset != nil {
+			fmt.Fprintf(out, "  distill cache %s (%d bytes, reset wholesale)\n", plan.DistillCacheReset.Path, plan.DistillCacheReset.Bytes)
 		}
 		for _, artifact := range plan.WorkMetadata {
 			fmt.Fprintf(out, "  memory work metadata %s (%d bytes)\n", artifact.Path, artifact.Bytes)
@@ -1117,7 +1154,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 				}
 			}
 			switch {
-			case matched > 0 && remaining == 0:
+			case matched > 0 && remaining == 0 && fact.Origin != factOriginAuthored:
 				plan.FactsDeleted++
 			case matched > 0:
 				plan.FactAnchorsStripped += matched
@@ -1146,6 +1183,13 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		if present {
 			plan.DerivedStores = append(plan.DerivedStores, purgeArtifact{Path: rel, Bytes: info.Size()})
 		}
+	}
+	cacheInfo, cachePresent, cacheErr := inspectPrivacyArtifactOpened(brainDir, distillCachePath, "distill cache")
+	if cacheErr != nil {
+		return plan, cacheErr
+	}
+	if cachePresent {
+		plan.DistillCacheReset = &purgeArtifact{Path: distillCachePath, Bytes: cacheInfo.Size()}
 	}
 	// Durable memory hints/jobs are intentionally content-free, but they still
 	// retain the identity and lifecycle of this session. Include their exact
@@ -1249,6 +1293,26 @@ func privacyDerivedStoreRels() []string {
 // reports and cleanup delete exactly the same artifact set, orphans included.
 func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	rels := privacyDerivedStoreRels()
+	rootEntries, _, err := readPrivacyDirectory(brainDir, ".", "brain root")
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range rootEntries {
+		if !isCandidateAtomicTempArtifactRel(entry.Name()) {
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("%s: brain root atomic staging is a symlink: %s", memoryErrStateUnsafe, entry.Name())
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return nil, fmt.Errorf("%s: inspect brain root atomic staging %s: %w", memoryErrStateCorrupt, entry.Name(), infoErr)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("%s: brain root atomic staging is nonregular: %s", memoryErrStateUnsafe, entry.Name())
+		}
+		rels = append(rels, entry.Name())
+	}
 	publication, _, publicationPresent, err := loadPatternCorpusPublicationForPrivacy(brainDir)
 	if err != nil {
 		return nil, err
@@ -1377,7 +1441,33 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 				if !branchInfo.Mode().IsRegular() {
 					return nil, fmt.Errorf("%s: facts inventory contains a nonregular entry: %s", memoryErrStateUnsafe, branchEntry.Name())
 				}
+				rel := filepath.ToSlash(filepath.Join(factsDirName, branchEntry.Name()))
+				if isCandidateAtomicTempArtifactRel(rel) {
+					rels = append(rels, rel)
+				}
 				continue
+			}
+			branchRel := filepath.ToSlash(filepath.Join(factsDirName, branchEntry.Name()))
+			branchArtifacts, branchPresent, readErr := readPrivacyDirectory(brainDir, branchRel, "fact branch directory")
+			if readErr != nil {
+				return nil, readErr
+			}
+			if branchPresent {
+				for _, artifact := range branchArtifacts {
+					if artifact.Type()&os.ModeSymlink != 0 {
+						return nil, fmt.Errorf("%s: fact branch inventory contains a symlink: %s/%s", memoryErrStateUnsafe, branchRel, artifact.Name())
+					}
+					info, infoErr := artifact.Info()
+					if infoErr != nil {
+						return nil, fmt.Errorf("%s: inspect fact branch artifact %s/%s: %w", memoryErrStateCorrupt, branchRel, artifact.Name(), infoErr)
+					}
+					if info.Mode().IsRegular() {
+						rel := filepath.ToSlash(filepath.Join(branchRel, artifact.Name()))
+						if isCandidateAtomicTempArtifactRel(rel) {
+							rels = append(rels, rel)
+						}
+					}
+				}
 			}
 			embedRel := filepath.ToSlash(filepath.Join(factsDirName, branchEntry.Name(), embedStoreDirName))
 			embedEntries, embedPresent, readErr := readPrivacyDirectory(brainDir, embedRel, "fact embedding directory")
@@ -1425,6 +1515,36 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	}
 	sort.Strings(withSiblings)
 	return withSiblings, nil
+}
+
+func isCandidateAtomicTempArtifactRel(rel string) bool {
+	if rel != filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel))) {
+		return false
+	}
+	parts := strings.Split(rel, "/")
+	switch {
+	case len(parts) == 1:
+		return isAtomicTempLeafForBase(parts[0], exportManifestFileName)
+	case len(parts) == 2 && parts[0] == factsDirName:
+		return isAtomicTempLeafForBase(parts[1], distillCacheFileName)
+	case len(parts) == 3 && parts[0] == factsDirName && parts[1] != "":
+		return isAtomicTempLeafForBase(parts[2], factsFileName) || isAtomicTempLeafForBase(parts[2], factsProposalsFileName)
+	default:
+		return false
+	}
+}
+
+func isAtomicTempLeafForBase(name, base string) bool {
+	suffix, ok := strings.CutPrefix(name, "."+base+".tmp-")
+	if !ok || suffix == "" {
+		return false
+	}
+	for _, r := range suffix {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 type privacyEpisodeLine struct {
@@ -1490,8 +1610,10 @@ func filterEpisodesFile(brainDir, sessionID string, transcriptRels map[string]bo
 }
 
 // purgeSessionFacts applies the fact rules: strip purged-session anchors,
-// physically delete facts left with no provenance, and prune proposals that
-// reference a deleted fact. Returns (deleted, strippedAnchors).
+// physically delete distilled facts left with no provenance, preserve an
+// independently authored fact even when a later distill added the purged
+// anchor, and prune proposals that reference a deleted fact. Returns
+// (deleted, strippedAnchors).
 func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]bool) (int, int, error) {
 	byBranch, err := loadAllFactBranchesForPrivacy(brainDir)
 	if err != nil {
@@ -1512,7 +1634,7 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 				}
 				remaining = append(remaining, anchor)
 			}
-			if stripped > 0 && len(remaining) == 0 {
+			if stripped > 0 && len(remaining) == 0 && fact.Origin != factOriginAuthored {
 				deletedIDs[fact.ID] = true
 				deletedTotal++
 				changed = true
@@ -1553,40 +1675,20 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 	return deletedTotal, strippedTotal, nil
 }
 
-// purgeDistillCacheEntries drops the purged session's distill-cache entries
-// (fingerprint hashes keyed by branch/session; no content, but a purged
-// session must not look "already distilled" if it is ever re-included).
-// A failed write propagates.
+// purgeDistillCacheEntries drops the disposable distill cache wholesale. Bare
+// pre-upgrade keys cannot be distinguished from hypothetical slash-bearing
+// session IDs, and retaining an ambiguous performance hint is never worth a
+// false-clean privacy result. A failed write propagates.
 func purgeDistillCacheEntries(brainDir, sessionID string) error {
-	// Read with the SAME checked loader post-cleanup verification uses. The
-	// legacy loadDistillCache swallows every read/parse/version failure and
-	// returns an empty cache, so a version-mismatched or unreadable file made
-	// this purge silently do nothing and then fail moments later inside
-	// verifySessionPrivacy, after the tombstone and all deletions were already
-	// committed. Because verify enumerates every tombstoned session, that left
-	// the brain in a state where all later exclude/purge/retention runs failed
-	// too, blaming verification rather than the stale cache. Every other loader
-	// in this cleanup path was converted to the checked form; this one was
-	// missed.
-	cache, err := loadDistillCacheForPrivacy(brainDir)
-	if err != nil {
+	// The cache is disposable and its entries are not authoritative. Classify
+	// and bound the leaf without interpreting its payload, then overwrite any
+	// present cache canonically. This also clears malformed, forward-version,
+	// duplicate-key, or otherwise opaque bytes that verification must reject.
+	_, present, err := inspectPrivacyArtifactOpened(brainDir, distillCachePath, "distill cache")
+	if err != nil || !present {
 		return err
 	}
-	if len(cache.Sessions) == 0 {
-		return nil
-	}
-	suffix := "/" + url.PathEscape(sessionID)
-	changed := false
-	for key := range cache.Sessions {
-		if strings.HasSuffix(key, suffix) {
-			delete(cache.Sessions, key)
-			changed = true
-		}
-	}
-	if !changed {
-		return nil
-	}
-	return saveDistillCache(brainDir, cache)
+	return saveDistillCache(brainDir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{}})
 }
 
 // --- durable privacy transaction record ---
@@ -1732,6 +1834,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		Artifacts:   append(append(append([]purgeArtifact(nil), plan.Transcripts...), plan.DerivedStores...), plan.WorkMetadata...),
 		SessionRefs: append([]string(nil), plan.SessionRefs...),
 	}
+	if plan.DistillCacheReset != nil {
+		tx.Artifacts = append(tx.Artifacts, *plan.DistillCacheReset)
+	}
 	if txErr := writePrivacyTransaction(brainDir, tx, now); txErr != nil {
 		return txErr
 	}
@@ -1833,6 +1938,14 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		return err
 	}
 	if _, err := writeBrainHistoryIndexAndSourceLocked(brainDir, now, nil); err != nil {
+		return err
+	}
+	if err := updateBrainManifestAndReadme(brainDir, func(current *exportManifest) error {
+		if current.Sources != nil && current.Sources.Facts != nil {
+			current.Sources.Facts.Warnings = nil
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	// Success is published only after verification passes: the same

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -503,14 +504,10 @@ func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
 	}
 }
 
-// TestDistillCachePurgeUsesTheCheckedLoader locks loader symmetry inside one
-// cleanup. The purge read the distill cache with the legacy loader, which
-// swallows every read/parse/version failure and returns an empty cache, while
-// post-cleanup verification read the SAME file with the checked loader and hard
-// errored. The purge therefore silently did nothing and the operation failed
-// moments later, after the tombstone and all deletions were committed, leaving
-// every later exclude/purge/retention on that brain failing too.
-func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
+// TestDistillCachePurgeClearsForwardOpaqueState locks the cache's disposable
+// privacy contract: cleanup bounds/classifies the leaf, then overwrites it
+// canonically instead of retaining bytes it cannot attribute to a session.
+func TestDistillCachePurgeClearsForwardOpaqueState(t *testing.T) {
 	brainDir := t.TempDir()
 	full := filepath.Join(brainDir, filepath.FromSlash(distillCachePath))
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
@@ -527,12 +524,15 @@ func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
 	if legacy := loadDistillCache(brainDir); len(legacy.Sessions) != 0 {
 		t.Fatalf("fixture invalid: the legacy loader was expected to read this as empty: %+v", legacy)
 	}
-	err = purgeDistillCacheEntries(brainDir, "sess")
-	if err == nil {
-		t.Fatal("an unreadable distill cache must fail the purge, not be silently skipped")
+	if err := purgeDistillCacheEntries(brainDir, "sess"); err != nil {
+		t.Fatalf("purge forward disposable cache: %v", err)
 	}
-	if code := memoryErrorCode(err); code != memoryErrUnsupportedVersion {
-		t.Fatalf("purge error = %v (code %q), want the unsupported-version taxonomy code", err, code)
+	cache, err := loadDistillCacheForPrivacy(brainDir)
+	if err != nil || len(cache.Sessions) != 0 {
+		t.Fatalf("purged cache = %+v, %v", cache, err)
+	}
+	if got, err := os.ReadFile(full); err != nil || bytes.Contains(got, []byte("digest")) {
+		t.Fatalf("forward cache payload survived purge: %q, %v", got, err)
 	}
 }
 

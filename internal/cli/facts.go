@@ -46,9 +46,11 @@ type factSourceManifest struct {
 	CacheHits         int                       `json:"cache_hits,omitempty"`
 	FailedChunks      int                       `json:"failed_chunks,omitempty"`
 	PreprocessedBytes int64                     `json:"preprocessed_bytes,omitempty"`
+	CandidateBytes    int64                     `json:"candidate_bytes,omitempty"`
 	Agent             string                    `json:"agent,omitempty"`
 	Model             string                    `json:"model,omitempty"`
 	Effort            string                    `json:"effort,omitempty"`
+	Pipeline          string                    `json:"pipeline,omitempty"`
 	Branch            string                    `json:"branch,omitempty"`
 	Force             bool                      `json:"force,omitempty"`
 	Jobs              int                       `json:"jobs,omitempty"`

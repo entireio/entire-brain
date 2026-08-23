@@ -30,6 +30,10 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 		}
 		return nil, err
 	}
+	return parseFactProposals(data, factsProposalsRelPath(branch))
+}
+
+func parseFactProposals(data []byte, displayPath string) ([]factProposal, error) {
 	var proposals []factProposal
 	for i, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -38,7 +42,7 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 		}
 		var p factProposal
 		if err := json.Unmarshal([]byte(line), &p); err != nil {
-			return nil, fmt.Errorf("parse %s line %d: %w", factsProposalsRelPath(branch), i+1, err)
+			return nil, fmt.Errorf("parse %s line %d: %w", displayPath, i+1, err)
 		}
 		proposals = append(proposals, p)
 	}
@@ -49,9 +53,17 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 // (action, candidate, target) and sorted for a stable file. An empty set
 // removes the file so a fully-resolved branch leaves no stale queue.
 func writeFactProposals(brainDir, branch string, proposals []factProposal) error {
+	canonical := append([]factProposal(nil), proposals...)
+	for i := range canonical {
+		canonical[i].Branch = branch
+	}
+	return writeFactProposalsAtRel(brainDir, factsProposalsRelPath(branch), canonical)
+}
+
+func writeFactProposalsAtRel(brainDir, rel string, proposals []factProposal) error {
 	deduped := dedupeProposals(proposals)
 	if len(deduped) == 0 {
-		return removeBrainRelativeFile(brainDir, factsProposalsRelPath(branch))
+		return removeBrainRelativeFile(brainDir, rel)
 	}
 	var buf strings.Builder
 	for _, p := range deduped {
@@ -62,7 +74,28 @@ func writeFactProposals(brainDir, branch string, proposals []factProposal) error
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
-	return writeBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, rel, []byte(buf.String()), 0o600)
+}
+
+// clearDistillOwnedLegacyProposalStore cleans a pre-branch-ownership proposal
+// file in place. Member-attributed sync proposals survive because distillation
+// does not own or regenerate them.
+func clearDistillOwnedLegacyProposalStore(brainDir, rel string) error {
+	data, present, err := readMemoryStateFile(brainDir, rel, "legacy fact proposal store", defaultMaxReadBytes)
+	if err != nil || !present {
+		return err
+	}
+	proposals, err := parseFactProposals(data, rel)
+	if err != nil {
+		return err
+	}
+	kept := proposals[:0]
+	for _, proposal := range proposals {
+		if strings.TrimSpace(proposal.ProposedBy) != "" {
+			kept = append(kept, proposal)
+		}
+	}
+	return writeFactProposalsAtRel(brainDir, rel, kept)
 }
 
 func dedupeProposals(proposals []factProposal) []factProposal {
@@ -298,6 +331,77 @@ func candidatePathSet(candidates []factRecord) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+// newDistilledFactActions is the candidate pipeline's conservative settlement
+// boundary. Every extracted record is applied as new; factmerge.Upsert still
+// collapses exact content IDs and unions provenance, but no fuzzy relationship
+// can silently merge or supersede an unrelated fact. Later candidate-pipeline
+// versions may enqueue evidence-backed ambiguous pairs for review, but automatic
+// supersession must never be inferred from taxonomy overlap alone.
+func newDistilledFactActions(candidates []factRecord) []factAction {
+	actions := make([]factAction, len(candidates))
+	for i, candidate := range candidates {
+		actions[i] = factAction{Kind: factActionNew, Confidence: 1, Candidate: candidate}
+	}
+	return actions
+}
+
+// removeRelocatedDistillAnchors replaces the entire prior materialization for
+// the same stable candidate trigger before fresh records are applied. This
+// removes stale line anchors after transcript layout shifts and stale facts
+// after a crash/retry produces different wording. Facts corroborated by another
+// trigger/session retain those independent anchors; a distilled fact that loses
+// its final anchor is dropped.
+func removeRelocatedDistillAnchors(records []factRecord, source factAnchor) ([]factRecord, bool) {
+	if source.SessionID == "" || source.DistillTurnID == "" {
+		return records, false
+	}
+	out := records[:0]
+	changed := false
+	for index := range records {
+		originalAnchors := len(records[index].Provenance)
+		kept := records[index].Provenance[:0]
+		for _, anchor := range records[index].Provenance {
+			if anchor.SessionID != source.SessionID || anchor.DistillTurnID != source.DistillTurnID {
+				kept = append(kept, anchor)
+			} else {
+				changed = true
+			}
+		}
+		records[index].Provenance = kept
+		if originalAnchors > 0 && len(kept) == 0 && records[index].Origin == factOriginDistilled {
+			continue
+		}
+		out = append(out, records[index])
+	}
+	return out, changed
+}
+
+func removeMissingDistillTurnAnchors(records []factRecord, source factAnchor, current map[string]bool) ([]factRecord, bool) {
+	if source.SessionID == "" {
+		return records, false
+	}
+	out := records[:0]
+	changed := false
+	for index := range records {
+		originalAnchors := len(records[index].Provenance)
+		kept := records[index].Provenance[:0]
+		for _, anchor := range records[index].Provenance {
+			stale := anchor.SessionID == source.SessionID && anchor.DistillTurnID != "" && !current[anchor.DistillTurnID]
+			if stale {
+				changed = true
+				continue
+			}
+			kept = append(kept, anchor)
+		}
+		records[index].Provenance = kept
+		if originalAnchors > 0 && len(kept) == 0 && records[index].Origin == factOriginDistilled {
+			continue
+		}
+		out = append(out, records[index])
+	}
+	return out, changed
 }
 
 // reconcileChunkCandidates resolves a chunk's candidates against the current

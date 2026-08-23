@@ -1,7 +1,6 @@
 package factmerge
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -53,26 +52,37 @@ func Upsert(records []Record, incoming Record) []Record {
 // preserving order. Anchors are compared on their identifying fields so the
 // same source turn is never recorded twice.
 func UnionAnchors(a, b []Anchor) []Anchor {
-	seen := make(map[string]struct{}, len(a)+len(b))
-	key := func(anchor Anchor) string {
-		return strings.Join([]string{anchor.SessionID, anchor.Commit, anchor.CheckpointID, anchor.TurnID, anchor.Transcript, fmt.Sprint(anchor.Line)}, "\x00")
-	}
 	out := make([]Anchor, 0, len(a)+len(b))
-	for _, anchor := range a {
-		k := key(anchor)
-		if _, ok := seen[k]; ok {
-			continue
+	appendAnchor := func(anchor Anchor) {
+		for index := range out {
+			existing := &out[index]
+			existingEnd, anchorEnd := existing.EndLine, anchor.EndLine
+			if existingEnd == 0 {
+				existingEnd = existing.Line
+			}
+			if anchorEnd == 0 {
+				anchorEnd = anchor.Line
+			}
+			samePhysical := existing.SessionID == anchor.SessionID && existing.Commit == anchor.Commit &&
+				existing.CheckpointID == anchor.CheckpointID && existing.TurnID == anchor.TurnID &&
+				existing.Transcript == anchor.Transcript && existing.Line == anchor.Line && existingEnd == anchorEnd &&
+				existing.DistillTurnID == anchor.DistillTurnID
+			if !samePhysical {
+				continue
+			}
+			if existing.EndLine == 0 && anchor.EndLine != 0 {
+				existing.EndLine = anchorEnd
+			}
+			existing.Verified = existing.Verified || anchor.Verified
+			return
 		}
-		seen[k] = struct{}{}
 		out = append(out, anchor)
+	}
+	for _, anchor := range a {
+		appendAnchor(anchor)
 	}
 	for _, anchor := range b {
-		k := key(anchor)
-		if _, ok := seen[k]; ok {
-			continue
-		}
-		seen[k] = struct{}{}
-		out = append(out, anchor)
+		appendAnchor(anchor)
 	}
 	return out
 }

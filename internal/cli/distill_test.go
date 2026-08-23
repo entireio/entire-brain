@@ -28,6 +28,52 @@ func TestRenderDistillPromptSubstitutesTaxonomy(t *testing.T) {
 	}
 }
 
+func TestRenderDistillPromptForPipelinePreservesLegacyAndExtendsCandidates(t *testing.T) {
+	taxonomy := defaultFactTaxonomy(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC))
+	base, err := renderDistillPrompt(taxonomy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := renderDistillPromptForPipeline(taxonomy, distillPipelineLegacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := renderDistillPromptForPipeline(taxonomy, distillPipelineCandidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy != base {
+		t.Fatal("legacy pipeline changed the established prompt bytes")
+	}
+	if !strings.HasPrefix(candidate, base) || !strings.Contains(candidate, "Candidate-card authority contract") {
+		t.Fatal("candidate pipeline did not append its authority contract")
+	}
+	if candidate == legacy {
+		t.Fatal("candidate and legacy prompts must have distinct cache identities")
+	}
+}
+
+func TestCandidateDistillOutputProtocolRequiresExplicitCompletion(t *testing.T) {
+	validFact := "convention\tworkflow.testing.rules\tAlways run race tests."
+	for _, tc := range []struct {
+		output string
+		valid  bool
+	}{
+		{output: "NO_FACTS", valid: true},
+		{output: "  NO_FACTS\n", valid: true},
+		{output: validFact, valid: true},
+		{output: "", valid: false},
+		{output: "   \n", valid: false},
+		{output: "No facts", valid: false},
+		{output: "Here are facts:\n" + validFact, valid: false},
+		{output: "NO_FACTS\n" + validFact, valid: false},
+	} {
+		if got := candidateDistillOutputIsProtocolComplete(tc.output); got != tc.valid {
+			t.Errorf("candidate protocol validity for %q = %v, want %v", tc.output, got, tc.valid)
+		}
+	}
+}
+
 func TestRenderDistillPromptStripsFrontmatter(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	prompt, err := renderDistillPrompt(defaultFactTaxonomy(now))

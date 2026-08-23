@@ -29,6 +29,15 @@ func TestCanonicalTranscriptReadEnforcesBoundAndReturnsNoBytes(t *testing.T) {
 	}
 }
 
+func TestCanonicalTranscriptReadSupportsCandidateSpecificBound(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	brainDir := writeSingleSessionFixture(t, now, "0123456789")
+	data, err := readCanonicalHistoryTranscriptBounded(context.Background(), brainDir, "sessions/main/s1.jsonl", 8)
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") || data != nil {
+		t.Fatalf("candidate-specific bounded read = %q, %v", data, err)
+	}
+}
+
 func TestUnsafeTranscriptNeverInvokesDistillProvider(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, "0123456789")

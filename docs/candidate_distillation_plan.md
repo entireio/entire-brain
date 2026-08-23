@@ -1,0 +1,1224 @@
+# Candidate-First Distillation Plan
+
+Status: initial opt-in implementation complete and verified (2026-08-23).
+
+The first implementation slice on `feat/candidate-first-distillation` adds the
+opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
+direct-user candidate cards, one card per extraction call, conservative exact
+upserts with no reconciliation-agent call, separate rollback-safe session-cache
+keys, dry-run accounting, redaction, and privacy-linearized egress/publication.
+Legacy remains the default. Per-candidate persistent extraction caching,
+cross-session packing, repository-evidence corroboration, and default rollout
+remain later phases; they require the evaluation and privacy gates below.
+
+The opt-in slice keeps each complete redacted authoritative trigger turn. It
+shrinks adjacent context first and refuses preflight when the trigger itself
+cannot fit `--max-chunk-bytes`; it never silently truncates a later rule or
+qualifier from the same turn. A small number of normal sessions contain
+cue-bearing pasted documents far above the default 48 KiB limit, so
+cue-span/paragraph splitting is required before this pipeline is corpus-general.
+
+The final real-corpus dry-run of this slice against `entire-graph` (2026-08-23)
+completed without an unsupported-dialect fallback. The legacy path sees 154
+exports; candidate mode deterministically coalesces same-branch re-exports to
+152 current session views covering 697,289,133 raw bytes. It reduced 33,663,145
+legacy-preprocessed bytes to 1,415,420 rendered candidate bytes (a 95.8 percent
+reduction) and removed all
+reconciliation calls. The intentionally unbatched attribution contract produced
+368 extraction calls versus 731 legacy extraction calls (or up to 1,462
+extraction-plus-reconciliation calls). This is evidence that deterministic
+filtering works, not that the latency goal is met: candidate-id-framed packing
+remains necessary before a 30-60-call claim.
+
+Same-branch re-exports are coalesced only inside the active branch/session
+selection. A later timestamp wins; at an equal timestamp, one normalized turn
+stream must be a strict extension of the other or candidate preflight refuses
+the ambiguous views. Checkpoint ids are never treated as chronological.
+
+This plan replaces full-conversation fact extraction with a candidate-first
+pipeline. The deterministic path reads retained sessions, normalizes their
+visible turns, identifies small evidence-backed candidate windows, and sends
+only those windows to the selected fact agent. Fact quality, taxonomy,
+branch-scoping, provenance, review, and recall remain durable-facts contracts;
+the unit of model work and cache invalidation changes from a whole session to a
+content-addressed candidate.
+
+The intended steady state is:
+
+```text
+canonical session
+  -> typed visible turns                    deterministic, local
+  -> authority-aware candidate cards        deterministic, local
+  -> compact candidate packs                deterministic, local
+  -> durable-fact quality/classification    fact agent, candidate text only
+  -> conservative reconciliation            deterministic, local
+  -> branch fact store + provenance          deterministic, local
+```
+
+The raw transcript remains the retained source of truth. Candidate cards and
+facts are derived views. Nothing in this plan permits deleting or replacing
+canonical Entire session capture.
+
+## Why This Work Is Needed
+
+The current pipeline already removes tool calls, tool output, reasoning, and
+session metadata before distillation. That was a large and necessary reduction,
+but every remaining user and assistant line is still sent to a fact agent in
+fixed-size chunks. A transcript with one durable decision and megabytes of
+ordinary discussion therefore pays to classify all of that discussion. A
+candidate-bearing chunk may then cause a second agent call to reconcile its
+facts against existing facts sharing a taxonomy path.
+
+The current preprocessor also removes role information. The extraction agent
+cannot distinguish a human standing rule from an assistant's tentative review
+finding, a pasted response from another agent, or a slash-command expansion
+injected as a user message. That is both a cost problem and a fact-authority
+problem.
+
+### Measured `entire-graph` baseline
+
+The following measurements were taken against the local `entire-graph` brain
+on 2026-08-22. They are a design baseline, not a release performance claim.
+
+| Measure | Observed value |
+| --- | ---: |
+| Exported sessions | 154 |
+| Distinct session ids | 127 |
+| Raw transcript bytes | 706,098,307 |
+| Current preprocessed bytes | 33,663,145 |
+| Extraction calls at the default 48 KiB chunk size | 731 |
+| Total call upper bound at 48 KiB, including reconcile | 1,462 |
+| Uncached chunks at the measured 64 KiB Ollama configuration | 580 |
+| Scheduled extraction calls at 64 KiB | 579 |
+| Total scheduled-call upper bound at 64 KiB | 1,158 |
+| Sessions cached under that exact configuration | 1 of 154 |
+
+The latest measured one-session run sent 13,054 preprocessed bytes. It made one
+extraction call and one reconcile call, reported 7,179 provider tokens, and took
+121.96 seconds: 93.61 seconds extracting and 27.89 seconds reconciling.
+
+The corpus also demonstrates two kinds of reusable work:
+
+- The 154 exports contain 146 exact transcript contents. The eight redundant
+  copies account for 115,491,190 raw bytes, or 16.4 percent of the corpus.
+- Twelve repeated session ids cover 39 exports. Many are not exact duplicates;
+  they are later or branch-specific views of an evolving session. A turn-level
+  cache can reuse their unchanged prefixes even when a whole-file digest cannot.
+
+The existing deterministic history projection gives a useful feasibility
+bound for candidate generation:
+
+| Projection | Source loci / exchanges | Bytes | Session paths |
+| --- | ---: | ---: | ---: |
+| Decision or learning summaries | 1,351 loci | 725,339 | 91 |
+| Role-aware exchanges containing those loci | 856 exchanges | 1,660,135 | 98 |
+| Same exchange set, excluding `agent_review` assistant claims | 815 exchanges | 1,576,942 | 57 normal-session paths |
+
+The 725 KiB summary set is 97.8 percent smaller than the 33.66 MiB current
+preprocessed input. The 1.66 MiB exchange projection is 95.1 percent smaller.
+Candidate packets will include more context than those bounded projections, so
+these figures are an opportunity bound, not the promised token reduction.
+
+### Quality findings from the live fact store
+
+The live corpus had 29 active facts from eight source sessions. Twenty were
+classified as gotchas. Manual inspection found failure modes that a
+candidate-first design must make into regression fixtures:
+
+- review findings were promoted as durable project truth before acceptance or
+  implementation;
+- a slash-command-expanded reviewer instruction became a supposed user
+  preference about review format;
+- task-local review scope became a standing workflow convention;
+- near-duplicate `--no-network` facts remained active under different wording;
+- an unrelated symbol-id/repository-key candidate superseded a `--no-network`
+  fact because both shared the broad `constraints.invariants.general` path.
+
+These examples show that taxonomy-path overlap is not a safe semantic subject
+key and that assistant text cannot inherit human authority merely because it is
+visible conversation text.
+
+## Goals
+
+- Avoid sending conversation text that has no deterministic durable-fact
+  signal to an agent.
+- Preserve at least 98 percent candidate recall for explicit user standing
+  rules, preferences, and closed negatives, and at least 95 percent candidate
+  recall across all human-labeled durable facts before the agent runs.
+- Preserve the existing silent quality gate: most candidate cards should still
+  produce no fact.
+- Keep facts source-backed, branch-aware, content-addressed, locally
+  inspectable, and re-derivable from retained sessions.
+- Preserve exact source ranges and improve provenance from a chunk-start line
+  to the turn or trigger span that earned the candidate.
+- Make no-op refreshes and session appends proportional to new turns, not to the
+  size of the accumulated session.
+- Remove routine agent-based reconciliation. Exact duplicates and safe obvious
+  paraphrases should merge deterministically; uncertain relationships should
+  remain visible for review.
+- Keep deterministic stages usable with `--agent none` for planning,
+  observability, and cache preparation. Fact extraction remains agent-gated.
+- Reduce input tokens by 85-95 percent and total agent calls by at least 90
+  percent on the measured `entire-graph` corpus without a material durable-fact
+  recall regression.
+
+## Non-Goals
+
+- Do not turn regex matches directly into durable facts. Deterministic triggers
+  admit candidates; the existing durable-fact quality and classification gate
+  still decides whether a fact deserves storage.
+- Do not summarize every session with an agent as a replacement for chunking.
+  An unconditional session-summary call has the same wrong default at a smaller
+  scale: it still spends on sessions with no durable fact.
+- Do not treat assistant review findings, plans, or status reports as human
+  assertions.
+- Do not infer contradictions from taxonomy path alone.
+- Do not auto-supersede an existing fact merely because a classifier reports a
+  high confidence score.
+- Do not store a second plaintext transcript archive in candidate caches.
+- Do not make embeddings, hosted providers, or network access mandatory.
+- Do not change authored-fact semantics, fact ids, taxonomy path syntax, recall
+  ranking, or the canonical session-capture format in the first implementation.
+- Do not delete legacy distilled facts during an experimental or shadow run.
+
+## Existing Contracts To Preserve
+
+Implementation must build on the current distill and conversation seams rather
+than creating a parallel transcript parser.
+
+| Contract | Existing seam | Requirement |
+| --- | --- | --- |
+| Canonical safe reads | `readCanonicalHistoryTranscript` and distill preflight | Complete-or-refused input validation still occurs before egress or publication. |
+| Visible conversation parsing | `internal/cli/conversation.go` | Reuse its dialect routing, wrapper filtering, visible-assistant allow-list, exact exchange ranges, and source digest. |
+| Document transcripts | `parseDocumentConversation` | Preserve line anchors and parity with JSONL dialects. |
+| Privacy lifecycle | session tombstones, exclude/include/purge | Excluded or purged sessions cannot produce candidates, cache hits, facts, or published metadata. |
+| Quality gate | `templates/entire-brain-distill.md` | Silence remains the default and the six fact kinds remain unchanged. |
+| Fact identity | `factmerge.RecordID` and `factmerge.Upsert` | Existing normalized text + sorted-path ids and provenance union remain valid. |
+| Branch scoping | resolved session branch and branch fact stores | Candidate extraction may be shared, but materialized facts remain branch-scoped. |
+| Deterministic chronology | current session/chunk consumer order | Parallel model work must still apply results in session/turn order. |
+| Cache-on-success | current session cache | A failed pack is not marked extracted; successful empty output is cacheable. |
+| Authored facts | `origin=authored` | Force or migration work never deletes or rewrites authored facts. |
+| Agent safety | current Codex, Claude Code, command, and loopback Ollama runners | Candidate packs use the same runner, timeout, no-egress, redirect, output-bound, and usage-accounting rules. |
+
+The current history classifier can seed trigger vocabulary, but its records are
+not themselves durable-fact candidates. History deliberately favors retrieval
+recall and can label the same assistant line as decision, learning,
+architecture, and validation. Candidate generation needs a stricter authority
+and evidence contract.
+
+## Pipeline Data Model
+
+The new internal records are derived and versioned independently. Names below
+are illustrative Go types; JSON names are the on-disk contract where a stage is
+persisted.
+
+### Typed turn
+
+```go
+type distillTurn struct {
+    ID            string
+    SessionID     string
+    TurnOrdinal   int
+    PromptID      string
+    Role          string // user | assistant | summary
+    Origin        string // direct_user | slash_args | assistant_narrative | compaction | injected
+    Authority     string // human | assistant_claim | context_only | rejected
+    Text          string
+    StartLine     int
+    EndLine       int
+    SourceDigest  string
+    ContentDigest string
+    ToolNames     []string
+}
+```
+
+`Text` exists in memory only. Persisted turn state contains ids, ranges, source
+identity, and content digests, not plaintext turn bodies.
+
+The turn id must be stable across transcript relocation and a branch replay.
+Prefer a source-provided turn or prompt id. Otherwise derive it from session id,
+role, prompt id when present, normalized visible text, and the turn's stable
+ordinal. Transcript path, branch, checkpoint, model, and agent configuration
+must not be part of turn content identity.
+
+### Candidate card
+
+```json
+{
+  "id": "candidate:...",
+  "version": 1,
+  "session_id": "...",
+  "turn_ids": ["turn:..."],
+  "authority": "human",
+  "trigger_classes": ["standing_rule", "preference"],
+  "score": 9,
+  "anchor": {
+    "transcript": "sessions/main/...jsonl",
+    "line": 418,
+    "end_line": 424,
+    "turn_id": "..."
+  },
+  "evidence": {
+    "user_acceptance": true,
+    "checkpoint_success": true,
+    "same_locus_commit": false,
+    "validation": false,
+    "independent_recurrence": 0,
+    "session_kind": "normal"
+  },
+  "locus_hints": ["internal/sem/provider.go", "repoKey"]
+}
+```
+
+The in-memory card also holds a role-tagged window. The persisted candidate
+index does not. Its id is a digest of candidate-rule version, trigger class,
+authority, ordered turn-content digests, trigger-span digest, and deterministic
+evidence features. It does not include branch, transcript path, checkpoint,
+agent, model, effort, taxonomy, or confidence threshold.
+
+### Extraction result
+
+An extraction result is keyed by candidate-pack member rather than only by the
+pack. It records one of:
+
+- `empty`: the quality gate emitted no fact for this candidate;
+- `facts`: validated fact output lines plus the candidate id they cite;
+- `failed`: never persisted as a cache hit.
+
+Caching individual member results means a retry or a later packing policy does
+not repeat successful candidates merely because their neighbors changed.
+
+## Stage 1: Typed Conversation Normalization
+
+Normalization must be deterministic, role-preserving, and shared across dry
+run and real execution.
+
+### Dialect routing
+
+Reuse the conversation parser's supported dialects:
+
+- Codex `event_msg` and `response_item` records;
+- Claude Code `user` and `assistant` records;
+- pi `message` records;
+- document-form transcripts handled by `parseDocumentConversation`.
+
+Only visible user and assistant narrative is eligible text. Thinking,
+redacted-thinking, tool calls, tool output, patches, command output, API error
+envelopes, permission records, hook messages, and session metadata do not enter
+candidate text.
+
+Tool names, validation outcomes, files touched, and checkpoint results may be
+represented as bounded structured evidence. They must not be copied wholesale
+into the role window.
+
+### Canonical user turns
+
+The normalizer must distinguish actual human language from messages encoded
+with a user role by an agent harness.
+
+- Continue filtering environment envelopes, system reminders, local-command
+  caveats, tool-result pseudo-user messages, Stop-hook feedback, and
+  session-hook announcements.
+- Correlate records with the same `prompt_id`. Claude slash commands commonly
+  produce both a command envelope and an expanded skill prompt. Keep the
+  command's human arguments and suppress the generated skill body.
+- Parse the human portion of `<command-args>` when it exists. Do not retain
+  `<command-message>`, `<command-name>`, or the installed command template as a
+  user assertion.
+- Mark compaction or continuation summaries as `context_only`. They may support
+  a later claim, but text inside them is not a fresh human preference.
+- Mark pasted agent responses and quoted historical material as
+  `context_only` when the wrapper or record metadata proves that origin. When
+  origin is ambiguous, retain the turn as a low-authority candidate input and
+  let the quality gate reject it; do not assign human authority by default.
+- Deduplicate dialect-level repeats of the same logical turn before trigger
+  scanning.
+
+### Canonical assistant turns
+
+Assistant narrative is always an `assistant_claim`, never a repository fact by
+itself. Preserve the request/response relationship and collect the following
+bounded metadata:
+
+- preceding substantive user turn;
+- next substantive user turn, when present;
+- whether the response is final narrative or intermediate commentary;
+- session kind, especially `agent_review`;
+- touched files and latest checkpoint from the session manifest;
+- deterministic episode reinforcement and history validation signals.
+
+### Exact anchors
+
+Each normalized turn retains its source start and end line. Trigger spans retain
+the narrowest source line that contains the trigger when the transcript format
+provides one. A produced fact cites that span's first line and source turn id,
+not the first line of an arbitrary size chunk.
+
+If a transcript dialect cannot prove a complete turn range, the candidate is
+marked range-incomplete. It can still be considered, but verification and
+observability must report the degraded anchor.
+
+## Stage 2: Deterministic Candidate Generation
+
+Candidate generation is a high-recall admission filter. A match means "worth
+asking the quality gate," not "write a fact."
+
+### Trigger classes
+
+Triggers should be token-aware and boundary-aware rather than raw substring
+matches. Each class has positive cues, negative cues, and authority priors.
+
+| Class | Representative cues | Default authority |
+| --- | --- | --- |
+| Standing rule | `from now on`, `going forward`, `always`, `never`, `whenever`, `every time`, `make sure` | high for direct human text |
+| Preference | `I prefer`, `we prefer`, `use X over Y`, `I want`, durable corrective feedback | high for direct human text |
+| Resolved decision | `decided`, `chose`, `agreed`, `instead of`, `rationale`, `tradeoff`, choice plus `because` | medium; requires resolution evidence for assistant text |
+| Invariant | `must`, `must not`, `cannot`, `source of truth`, `invariant`, `contract requires` | medium; imperative task instructions score lower |
+| Closed negative | `tried`, `rejected`, `rolled back`, `did not work`, `no effect`, `within noise`, `dead end`, `revisit only` | high only when failure evidence and revisit condition are present |
+| Gotcha or discovery | `root cause`, `turns out`, `only when`, `unless`, `otherwise`, `silent`, `hang`, `race`, `stale` | medium; assistant claims require corroboration |
+| Explicit revision | `not X; use Y`, `ignore the previous rule`, `we no longer`, `replace X with Y` | high for direct human text; carries a subject key |
+
+Broad words such as `must`, `should`, `because`, `failed`, and `fixed` are not
+sufficient alone. They are common in one-off tasks, generated command prompts,
+and implementation status. Score them with role, origin, grammatical context,
+resolution, and corroboration.
+
+### Negative admission signals
+
+Hard reject text proven to be:
+
+- a system, developer, skill, hook, environment, or tool-result injection;
+- hidden reasoning or a raw tool result;
+- a duplicated dialect representation of an already normalized turn;
+- an API error or empty response;
+- a tombstoned or excluded session.
+
+Lower, but do not necessarily hard reject, candidates that are:
+
+- generic implementation status (`implemented`, `fixed`, `tests pass`) with no
+  rationale or non-obvious constraint;
+- a one-off task scope or deadline;
+- an assistant plan that has not executed;
+- a review finding that has not been accepted or fixed;
+- copied historical or compaction context;
+- an exact or near-exact statement already present in current code, docs, or a
+  commit message.
+
+The final item preserves the existing "not already known" quality contract. In
+the first phase, only exact/high-coverage deterministic matches may suppress a
+candidate. Fuzzy code/doc/git matching is advisory evidence until its false
+negative rate is measured.
+
+### Candidate scoring
+
+Use an inspectable integer score. Do not hide admission behind a learned model.
+An initial rubric should include:
+
+| Signal | Suggested weight |
+| --- | ---: |
+| Direct human standing-rule or preference phrase | +6 |
+| Direct human explicit revision | +6 |
+| Complete closed negative: attempt, evidence, revisit condition | +5 |
+| User explicitly accepts the immediately preceding proposal | +4 |
+| Assistant decision/discovery with same-locus successful checkpoint | +3 |
+| Assistant claim with matching validation evidence | +2 |
+| Independent recurrence in another session | +2 |
+| Session final narrative | +1 |
+| `agent_review` assistant claim without later acceptance/fix | -8 |
+| Generated/injected origin | hard reject |
+| Implementation status without rationale | -4 |
+| Task-local scope or temporary state | -4 |
+| Exact current code/docs/git restatement | -5 or suppress |
+
+The threshold and weights are versioned candidate rules, not user-facing fact
+confidence. Dry run reports the score and reason histogram. Evaluation, not the
+round numbers above, sets the shipped threshold.
+
+### Role-aware windows
+
+Build the smallest window that lets the quality gate judge resolution and
+authority:
+
+- For a user trigger, include that user turn and its following assistant
+  response.
+- For an assistant trigger, include the preceding user request, the triggering
+  assistant span, and the next user acceptance, correction, or rejection.
+- For an explicit user acceptance, include the immediately preceding assistant
+  proposal and the acceptance turn.
+- For a closed negative, include the result/evidence sentence and a bounded
+  adjacent span carrying the attempted approach and revisit condition.
+- Merge overlapping cards from the same exchange or adjacent turn pair.
+
+Each rendered turn begins with an explicit role and anchor, for example:
+
+```text
+CANDIDATE candidate:abc123
+AUTHORITY human
+EVIDENCE user_acceptance, checkpoint_success
+[USER session:... turn:12 line:418]
+Going forward, keep JSON output on stdout and progress on stderr.
+[ASSISTANT session:... turn:12 line:419]
+Understood. The command will preserve that split.
+END CANDIDATE
+```
+
+Default card size is 4 KiB with a hard maximum of 8 KiB. If necessary, retain
+the trigger span, acceptance/correction, and structured evidence before generic
+adjacent prose. Never split one card across packs.
+
+## Candidate Authority And Corroboration
+
+Authority and truth are separate. A human can authoritatively express a
+preference, but a human statement about current code can still be stale. An
+assistant can accurately discover a gotcha, but the claim needs evidence before
+it becomes durable memory.
+
+### Human assertions
+
+Direct human standing rules, preferences, and explicit revisions receive the
+highest authority prior. They still pass the durable-fact quality gate for
+self-containment, repository relevance, durability, and duplication.
+
+Imperatives in a task request do not automatically become conventions. "Run
+the Windows tests for this patch" is task-local. "Always run the Windows tests
+before release" is a standing rule. Candidate features must expose that
+distinction to the agent.
+
+### Assistant claims
+
+An assistant claim is eligible only when at least one corroboration route is
+present:
+
+1. The next human turn explicitly accepts, corrects, or restates it.
+2. The session produces a successful checkpoint or attributed commit touching
+   the same file or symbol locus.
+3. A deterministic validation record supports the same claim or locus.
+4. The same normalized claim recurs in an independent session with different
+   provenance.
+5. A later human turn cites the claim as established context.
+
+Corroboration admits the card; it does not prove the final wording. The fact
+agent must still avoid claims already obvious from current code, docs, or git.
+
+`agent_review` is a special trust boundary. Its findings are hypotheses by
+default. A review claim can become eligible only after a later accepted fix,
+human confirmation, or matching committed change. The original review remains
+provenance, but review prose alone cannot create an active gotcha.
+
+### Deterministic evidence envelope
+
+Candidate generation may attach a compact evidence envelope assembled from
+existing local sources:
+
+- session manifest: session kind, agent, branch, checkpoint, files touched;
+- episode layer: intent and reinforcement (`success`, `corrected`, `neutral`);
+- history projection: bounded decision and validation summaries;
+- checkpoint/commit join: attributed subject/body excerpts and changed files;
+- current docs/code/git: exact-known or possible-known markers;
+- existing fact store: exact id, subject/locus neighbors, and prior status.
+
+Evidence is capped per candidate and rendered as structured fields, not as a
+second transcript. Commit bodies and summaries are corroboration or
+known-source evidence; their existence alone does not earn a fact.
+
+## Stage 3: Candidate Packing And Fact Extraction
+
+The existing distill prompt remains the source of the durable-fact gate and
+taxonomy instructions. It needs an additive candidate-card contract:
+
+- input contains one or more delimited cards with stable ids;
+- every output line begins with the candidate id it came from;
+- a candidate may emit zero to the existing per-source fact cap;
+- facts may cite only candidate ids present in the pack;
+- every member emits either fact lines or an explicit no-facts sentinel; blank
+  output is a protocol failure, never implicit success.
+
+The parser strips the candidate id before passing the current
+`kind<TAB>path<TAB>fact` fields to fact construction. Unknown, repeated, or
+missing candidate ids are warnings and do not create facts.
+
+### Pack construction
+
+- Sort cards by session creation time, session id, and source turn.
+- Pack 8-32 cards while keeping rendered input at or below 16-32 KiB.
+- Keep a session's adjacent cards together when capacity allows, but permit
+  cross-session packing because every card carries complete identity.
+- Never mix repositories in one pack.
+- Do not add existing facts to every extraction pack. Existing-fact comparison
+  belongs to deterministic reconciliation after extraction.
+- Dispatch packs concurrently under the existing `--concurrency` limit.
+- Consume and apply member results in canonical chronological order regardless
+  of completion order.
+
+### Failure isolation
+
+A provider or parser failure for a pack is not a success for any member.
+Retry once by bisecting the pack so one malformed or oversized card cannot
+starve its neighbors. Preserve the existing fast abort for repeated provider
+misconfiguration.
+
+Successful empty output is persisted for each candidate member. Successful
+facts are also persisted per candidate member. This makes repacking,
+concurrency changes, and an appended neighbor free on the next run.
+
+### Expected call shape
+
+The simplest MVP may use one pack per candidate-bearing session. On the
+measured corpus, the decision/learning-derived normal-session bound is 57
+extraction calls instead of 579 at 64 KiB, about 90 percent fewer. Cross-session
+packing should reduce that further to approximately 30-60 extraction calls.
+
+The candidate pipeline makes no routine reconcile calls. Against the current
+upper bound of 1,158 extraction-plus-reconcile calls, 30-60 total calls is a
+94.8-97.4 percent reduction. These figures must be remeasured with the final
+trigger rules and card context before becoming a product claim.
+
+## Stage 4: Stage-Separated Content-Addressed Cache
+
+The current cache answers one coarse question: "was this whole session
+distilled under this exact prompt, reconcile prompt, threshold, agent, model,
+effort, branch, checkpoint, and preprocessed content?" Candidate-first cache
+state separates independent invalidation domains.
+
+### Cache layers
+
+| Layer | Key includes | Key excludes | Cached value |
+| --- | --- | --- | --- |
+| Normalization | normalizer version, session id, source digest/turn content digests | path, branch, checkpoint, model | line ranges, stable turn ids/digests, append cursor; no text |
+| Candidate generation | candidate-rule version, authority, trigger class, ordered turn digests, evidence-feature digest | path, branch, checkpoint, taxonomy, model, effort | candidate id, anchors, score/reasons, card input digest; no card text |
+| Redacted extraction | candidate-card digest after redaction, extraction-prompt version, taxonomy digest, agent command identity, model, effort | branch, transcript path, confidence threshold, packing policy | empty or parsed fact lines per candidate |
+| Reconciliation | reconciliation-rule version, candidate fact ids, active-neighbor identity | model, effort, packing policy | deterministic action or proposal identity |
+| Materialization | extraction result id, branch, provenance identity, fact-store generation | model, card layout | application receipt |
+
+Changing a model or prompt may invalidate compact extraction results. It must
+not invalidate normalization or candidate discovery. Changing the confidence
+threshold only replays deterministic application. Moving a transcript path or
+replaying one session onto another branch only updates provenance or branch
+materialization.
+
+### Append behavior
+
+For an append-only transcript:
+
+1. Revalidate canonical source identity and the last persisted complete-turn
+   boundary.
+2. Parse from that boundary, including one prior turn so a new acceptance can
+   complete the previous assistant candidate.
+3. Preserve unchanged turn and candidate ids.
+4. Extract only newly admitted or boundary-changed cards.
+5. Materialize only new branch/provenance receipts.
+
+If the source changed before the saved boundary, fall back to digest comparison
+of all typed turns. Recompute only cards whose ordered turn-digest set changed.
+Whole-session reprocessing remains the safe fallback for an unsupported or
+malformed dialect, never a silent partial read.
+
+### Persistence and interruption
+
+Persist stage state under a versioned directory:
+
+```text
+facts/
+  distill-cache.json                 # legacy v1, unchanged
+  distill-v2/
+    state.json                       # schema and rule versions
+    sessions.ndjson                  # source identity, turn digests, cursors
+    candidates.ndjson                # content-free candidate metadata
+    extractions.ndjson               # per-candidate empty/fact results
+    applications.ndjson              # branch/provenance receipts
+```
+
+All files use existing brain-relative safe readers, `0600` writes, atomic
+replacement, and the brain write lock. Compact or shard them if measured size
+requires it; do not introduce one file per candidate.
+
+The pipeline may prepare and call agents outside the global write lock, as it
+does today. Periodic flushes persist only complete stage records. On resume,
+content-derived ids make reapplication idempotent.
+
+## Stage 5: Conservative Deterministic Reconciliation
+
+The candidate pipeline removes the default reconcile-agent call. It uses a
+precision-first deterministic ladder.
+
+### Step 1: Exact identity
+
+If candidate text and normalized paths produce an existing fact id, union its
+provenance through `factmerge.Upsert`. This is the existing safe path.
+
+### Step 2: Safe paraphrase block
+
+Only compare different ids when they share a semantic subject block:
+
+- same fact kind;
+- at least one strong locus or identifier token in common; and
+- compatible top-level taxonomy categories.
+
+A taxonomy path alone is not a block key. Broad paths such as
+`constraints.invariants.general` routinely contain unrelated subjects.
+
+Within the block, deterministic normalization may merge only obvious
+paraphrases at a deliberately high threshold, for example:
+
+- normalized punctuation/whitespace/code quoting;
+- identical polarity;
+- identical normalized subject identifiers;
+- token-shingle or weighted-Jaccard similarity above a measured threshold;
+- no distinct numeric, flag, path, or quoted-value conflict.
+
+The earlier fact text remains canonical and provenance is unioned. Every
+automatic paraphrase merge reports its rule and score.
+
+### Step 3: Supersession
+
+The MVP performs no automatic supersession across different fact ids. It keeps
+both facts active, cross-links them, and queues a proposal.
+
+A later phase may auto-supersede only when all of the following hold:
+
+- the newer source has direct human authority or an accepted assistant claim;
+- an explicit revision marker identifies replacement or reversal;
+- old and new facts have the same normalized subject key and strong locus;
+- source chronology is unambiguous;
+- polarity/value analysis identifies the exact changed predicate;
+- the rule has 100 percent precision on the retained supersession gold set.
+
+Any uncertainty produces a proposal, never a destructive status change. One
+wrong auto-supersede disables the rule until reviewed.
+
+### Step 4: New fact
+
+If no exact or safe paraphrase relationship exists, add the candidate as new.
+Distinct facts are preferable to silently collapsing unrelated knowledge.
+
+### Review behavior
+
+Proposal dedup remains `(action, candidate, target)`. Repeated evidence can add
+provenance without creating repeated proposals. The review surface should show
+the deterministic subject block, similarity features, authority, and source
+chronology so a human can resolve it without rereading whole sessions.
+
+## Branches, Checkpoints, And Provenance
+
+Extraction content is branch-independent; fact materialization is not.
+
+- One candidate extracted from an identical session turn can be reused across
+  branch exports.
+- Each branch application creates or unions the provenance appropriate to that
+  branch's session/checkpoint view.
+- The fact record keeps the resolved branch used by the current fact store.
+- Branch- and session-limited distill runs carry untouched cache and fact state
+  through exactly as the current pipeline does.
+- Entity provenance may still sharpen the candidate's checkpoint to the
+  checkpoint that changed its code locus.
+- A checkpoint change with identical candidate content updates provenance; it
+  does not repeat extraction.
+
+Chronological application order remains source session creation time, then turn
+ordinal, then candidate id. A force rebuild and an incremental build must
+produce the same fact/proposal state for the same candidate and fact inputs.
+
+## Storage And Privacy
+
+Candidate-first distillation reduces egress but does not weaken privacy
+requirements.
+
+### No second transcript store
+
+- Typed turn bodies and rendered role windows live in memory only.
+- Persist content digests, ids, anchors, scores, reason codes, and parsed fact
+  output, not raw candidate cards.
+- Extraction cache fact text is equivalent in sensitivity to the durable fact
+  store and receives the same permissions and lifecycle treatment.
+- Logs, progress output, and manifests contain counts and candidate ids, never
+  candidate excerpts.
+
+### Egress
+
+- Candidate packs pass through the same redaction path used for current
+  transcript chunks before an external agent sees them.
+- Redaction version and redacted-card digest participate in the extraction key.
+- Global no-egress/local-only policy, loopback-only Ollama enforcement, Codex
+  and Claude tool disabling, timeouts, and output limits remain unchanged.
+- Dry run and candidate planning make no agent or network call.
+
+### Exclude, tombstone, and purge
+
+Before planning or cache lookup, filter tombstoned sessions. A cache hit is
+derived output from that session and therefore cannot bypass exclusion.
+
+`privacy purge` removes:
+
+- normalized session state for the purged source;
+- candidate metadata and extraction results whose only provenance is purged;
+- application receipts for the purged session;
+- distilled facts or provenance anchors under the existing purge rules;
+- related FTS/vector state under existing lifecycle behavior.
+
+Candidate entries with additional non-purged provenance may survive only after
+their source union is recomputed without the purged anchor. A content digest is
+still derived session state and must be removed even though it is not plaintext.
+
+Bundles and publish output exclude all `distill-v2` caches by default. Durable
+facts follow their existing bundle policy; transcripts and candidate windows do
+not enter bundles.
+
+### Canonical-read safety
+
+Keep complete-or-refused preflight before provider calls or any incremental
+publication. Incremental cursor optimization may reduce parsing work only after
+descriptor-rooted source identity and the saved boundary are revalidated.
+
+## CLI And Manifest Contract
+
+Rollout uses an explicit pipeline selector:
+
+```text
+entire brain distill --pipeline legacy
+entire brain distill --pipeline candidates
+entire brain distill --pipeline candidates --dry-run --json
+```
+
+During experimentation, `legacy` remains the default. After all gates pass,
+`candidate` becomes the default and `legacy` remains a compatibility/debugging
+escape hatch for at least one release cycle.
+
+The dry-run JSON contract gains additive fields:
+
+```json
+{
+  "pipeline": "candidates",
+  "normalizer_version": 1,
+  "candidate_rules_version": 1,
+  "sessions": 154,
+  "unique_session_contents": 146,
+  "turns": 3077,
+  "candidate_cards": 856,
+  "candidate_sessions": 98,
+  "candidate_bytes": 1660135,
+  "packs": 57,
+  "cache": {
+    "normalization_hits": 0,
+    "candidate_hits": 0,
+    "extraction_hits": 0,
+    "application_hits": 0
+  },
+  "authority": {
+    "human": 12,
+    "assistant_corroborated": 803,
+    "assistant_suppressed": 41
+  },
+  "drop_reasons": {
+    "injected": 120,
+    "review_unaccepted": 41,
+    "below_score": 900
+  },
+  "estimated_extraction_calls": 57,
+  "estimated_reconcile_calls": 0
+}
+```
+
+Field values above illustrate the target contract. Legacy fields remain present
+where their meaning survives. The initial candidate implementation does not run
+the allocation-heavy legacy preprocessor merely to compute a comparison metric:
+it reports `preprocessed_bytes: 0`,
+`preprocessed_bytes_available: false`, and the independently measured
+`candidate_bytes`. Run a separate legacy dry-run for the legacy-preprocessed
+baseline. Candidate bytes must never be relabeled as `preprocessed_bytes`.
+
+A future separately versioned distill-run source gains additive fields:
+
+- `pipeline`;
+- normalizer, candidate-rule, extraction-prompt, and reconciliation versions;
+- typed-turn, candidate-card, candidate-session, candidate-byte, and pack
+  counts;
+- stage cache hits and misses;
+- candidate authority and drop-reason histograms;
+- exact/paraphrase merges, supersession proposals, and automatic
+  supersessions;
+- per-stage wall time and existing provider token usage.
+
+Once that leaf exists, `facts status --json` reports the latest pipeline and
+whether candidate cache state is current, stale, partially reusable, or
+corrupt. Human-readable progress should show sessions scanned, candidate cards
+admitted, packs completed, facts found, and cache hits without printing
+excerpts.
+
+## Migration And Compatibility
+
+### Fact store
+
+Existing fact records require no schema migration. Candidate extraction still
+produces the existing six kinds, taxonomy paths, branch, origin, status,
+confidence, locus, and provenance. Exact ids continue to collapse with existing
+facts.
+
+An opt-in candidate run is additive:
+
+- preserve authored facts;
+- preserve existing legacy-distilled facts;
+- exact candidate matches union provenance;
+- uncertain duplicates or contradictions queue proposals;
+- do not retract legacy facts merely because no v2 candidate regenerated them.
+
+Only an explicit `--force --pipeline candidates` may rebuild the distilled
+layer solely from candidate inputs. It must display that scope in dry run and
+preserve authored facts and attributed cross-member proposals exactly as the
+current force path does. An unscoped candidate force also inventories orphaned
+fact and proposal-only branches. Historical branchless or mismatched proposal
+stores are cleaned by physical identity; member-attributed proposals survive.
+A branch- or session-scoped force never expands into unrelated orphan stores.
+
+### Cache
+
+Keep `facts/distill-cache.json` for the legacy pipeline. Do not rewrite v1
+entries into v2 keys: the two caches prove different work. The first v2 run
+builds typed and candidate metadata locally, then reuses existing facts through
+normal fact identity.
+
+A corrupt or unsupported v2 cache falls back to deterministic reconstruction.
+It never causes legacy cache deletion or fact-store truncation. New v2 schema
+versions may lazily migrate content-free metadata only when the old key formula
+is exactly reproducible; otherwise rebuild the affected stage.
+
+### Flags
+
+Preserve current `--branch`, `--session`, `--force`, `--agent`, `--model`,
+`--effort`, `--confidence`, `--concurrency`/`--jobs`, timeout, dry-run, and JSON
+semantics.
+
+- `--max-chunk-bytes` remains a legacy option. Candidate mode exposes an
+  additive pack-byte limit only if measurement shows the default cannot be
+  fixed safely.
+- `--force` invalidates all v2 stages in selected scope and rebuilds distilled
+  facts, while authored facts survive.
+- A future stage-specific repair command may invalidate normalize, candidate,
+  extract, or apply independently. It is not required for the MVP CLI.
+- Changing `--confidence` replays application without agent calls.
+- Changing model or effort invalidates extraction results only.
+
+### Rollback
+
+Before candidate mode becomes default, a user can select `--pipeline legacy`
+without deleting candidate cache state. The schema-v3 manifest is decoded
+strictly by released binaries, so the initial slice does not persist
+candidate-only fields there; command and dry-run output carry those metrics. A
+later durable metrics leaf must be separately versioned before it is added. No
+migration step rewrites canonical sessions.
+
+## Observability And Cost Accounting
+
+Every run, including dry run, must make the funnel inspectable:
+
+```text
+raw sessions
+  -> safe parsed sessions
+  -> visible typed turns
+  -> triggered turns
+  -> admitted candidate cards
+  -> packed candidates
+  -> extraction outputs
+  -> exact/paraphrase/new/proposal actions
+  -> active facts
+```
+
+Required counters:
+
+- sessions selected, skipped, tombstoned, duplicated, append-resumed, and fully
+  rescanned;
+- raw, current-preprocessed, visible-turn, candidate-card, redacted-pack, and
+  provider input bytes;
+- turns by role, origin, and authority;
+- trigger hits and admitted cards by class;
+- hard rejects and below-threshold cards by reason;
+- assistant claims corroborated, suppressed, and review-gated;
+- packs planned, succeeded, split, retried, failed, and empty;
+- cache hit/miss counts and bytes avoided for every stage;
+- extraction calls, token usage, wait time, and facts emitted;
+- exact merges, deterministic paraphrase merges, new facts, proposals,
+  automatic supersessions, and rejected actions;
+- persistence time, total time, and interruption recovery point.
+
+Warnings remain bounded by the existing warning cap. A candidate id, rule id,
+anchor, and reason code are sufficient diagnostics; plaintext excerpts are not.
+
+Provider token accounting remains provider-reported and keeps completeness
+metadata. Estimated tokens in dry run must be labeled estimates. Release
+performance evidence retains the repository identity, pipeline version, model,
+prompt/taxonomy digests, cache state, and claim scope.
+
+## Evaluation Design And Admission Gates
+
+No speed result can compensate for silently missing durable knowledge. Evaluate
+candidate generation separately from agent extraction so a model cannot hide a
+bad deterministic filter.
+
+### Gold corpus
+
+Build exact-span labels across:
+
+- the largest multi-chunk sessions;
+- ordinary one-chunk sessions;
+- direct human preferences and standing rules;
+- resolved architectural decisions;
+- closed negatives with evidence and revisit conditions;
+- assistant discoveries later accepted or implemented;
+- rejected, corrected, and unresolved assistant claims;
+- `agent_review` sessions;
+- duplicate and continued sessions across branches;
+- Codex, Claude Code, pi, and document-form dialect fixtures;
+- sessions expected to produce no facts.
+
+Audit all current `entire-graph` facts as an initial regression set. Include the
+false reviewer preference, task-local review conventions, duplicate
+`--no-network` claims, and unrelated repoKey supersession as explicit
+should-not-emit or should-not-reconcile cases.
+
+Labels record:
+
+- should emit or should remain silent;
+- exact supporting source span;
+- authority and required corroboration;
+- canonical fact text or acceptable semantic variants;
+- kind, path, and locus expectations;
+- whether the fact is already available in code/docs/git;
+- expected relationship to existing facts.
+
+Use at least two reviewers for ambiguous durable/known/resolved labels and
+retain disagreements rather than silently forcing consensus.
+
+### Candidate-generation gates
+
+- At least 98 percent span recall for explicit human standing rules,
+  preferences, explicit revisions, and closed negatives.
+- At least 95 percent span recall across all gold durable facts.
+- 100 percent rejection of proven system/developer/tool/hook/skill injections.
+- No direct-human turn may be reclassified as generated solely because it uses
+  imperative language.
+- Candidate output and ids are byte-for-byte deterministic across repeated
+  runs.
+- A stratified random audit of at least 500 filtered-out exchanges finds no
+  critical missed standing rule or closed negative. Any miss updates the gold
+  set and blocks default rollout until addressed.
+
+Because lexical cues can miss implicit decisions, retain a sampled shadow lane:
+for a fixed, deterministic fraction of below-threshold turns, run the legacy
+quality gate offline during evaluation. Review any fact it emits that candidate
+mode missed. This sampling lane is evaluation-only and budgeted; it is not a
+steady-state hidden cost.
+
+### Fact-quality gates
+
+Run paired legacy and candidate extraction with the same prompt, taxonomy,
+model, effort, and source cutoff. Repeat provider runs at least three times when
+the provider is nondeterministic.
+
+Measure:
+
+- durable-fact precision and recall;
+- source faithfulness and exact-anchor correctness;
+- human-authority and corroboration correctness;
+- resolved-versus-in-flight accuracy;
+- known-from-code/docs/git exclusion;
+- kind, path, and locus accuracy;
+- active duplicate rate;
+- merge and supersession precision;
+- facts emitted per 1,000 input tokens.
+
+Required gates:
+
+- Candidate mode is non-inferior to legacy fact recall within a predeclared
+  two-percentage-point margin and has higher or equal durable precision.
+- Every emitted fact is supported by its cited candidate span.
+- Automatic exact merges have 100 percent identity correctness.
+- Deterministic paraphrase merge precision is at least 99 percent on labeled
+  pairs; otherwise ship exact-only.
+- Automatic supersession precision is 100 percent. The MVP reaches this
+  trivially by queuing all different-id supersessions.
+- Review-origin hypotheses never become active solely from review prose.
+
+### Retrieval gates
+
+Run the existing facts evaluation arms on the resulting stores. Compare useful
+facts per 1,000 tokens, precision, recall, and answer support. Candidate mode
+must not claim a retrieval win unless proof-labeled paired evaluation supports
+it under the existing release evidence policy.
+
+At minimum:
+
+- no significant useful-per-1k regression;
+- no more than a two-percentage-point absolute recall loss against legacy
+  facts;
+- regression tasks for every current live-corpus quality failure;
+- source-session baselines retained so fewer facts cannot be mistaken for
+  better retrieval merely because output is shorter.
+
+### Operational gates
+
+On the measured `entire-graph` corpus, target:
+
+- at least 80 percent fewer extraction calls than 64 KiB legacy mode;
+- at least 90 percent fewer total agent calls than the extraction-plus-reconcile
+  upper bound;
+- at least 85 percent fewer provider input tokens;
+- no reconcile-agent calls in candidate mode;
+- a no-op rerun makes zero provider calls;
+- appending a no-candidate turn makes zero provider calls;
+- appending one isolated candidate makes at most one provider pack call;
+- transcript relocation and branch replay make zero extraction calls;
+- a confidence-threshold change makes zero provider calls;
+- model/prompt/taxonomy changes reprocess candidate cards, not full transcripts;
+- interruption loses no more than the configured completed-pack flush window.
+
+Retain exact duplicate, continued-session, model-change, prompt-change,
+taxonomy-change, branch-filter, session-filter, force, tombstone, purge, and
+corrupt-cache scenarios as integration tests.
+
+## Rollout Plan
+
+### Phase 0: Measurement-only candidate planner
+
+- Add typed normalization and candidate planning behind candidate-mode dry run.
+- Emit the full funnel and projected packs without making an agent call or
+  writing v2 cache/facts.
+- Reproduce the measured `entire-graph` baseline in a retained, auditable
+  artifact.
+- Build the span-labeled gold and negative-audit sets.
+
+Exit gate: canonical read safety and dry-run determinism pass; candidate recall
+meets the pre-agent gates on fixtures and the first gold slice.
+
+### Phase 1: Typed turns and content-addressed discovery cache
+
+- Factor reusable visible-turn normalization from `conversation.go` without
+  changing conversation retrieval behavior.
+- Implement prompt-id/slash-command collapse and authority/origin tags.
+- Persist content-free turn and candidate state.
+- Implement append-boundary reuse and purge integration.
+
+Likely files:
+
+- new `internal/cli/distill_candidates.go`;
+- new `internal/cli/distill_cache_v2.go`;
+- focused additions to `internal/cli/conversation.go` only where parsing must be
+  shared;
+- privacy lifecycle integration and tests.
+
+Exit gate: no plaintext card cache, no privacy regression, exact duplicate and
+continued-session reuse proven.
+
+### Phase 2: Candidate-pack extraction, shadow only
+
+- Add candidate-id input/output framing to a new prompt version.
+- Add deterministic pack construction, member-level results, split retry, and
+  usage accounting.
+- Run candidate extraction in shadow against selected sessions; do not mutate
+  the active fact store.
+- Compare outputs with legacy extraction and human labels.
+
+Exit gate: candidate and fact-quality gates pass on the full labeled corpus;
+token/call accounting is complete.
+
+### Phase 3: Conservative reconciliation and opt-in writes
+
+- Enable `--pipeline candidates` fact writes.
+- Ship exact-only reconciliation first; queue all different-id relationship
+  proposals.
+- Add safe paraphrase merging only after its pairwise precision gate passes.
+- Preserve legacy facts on incremental candidate runs.
+
+Exit gate: all live-corpus bad-reconcile fixtures pass, force/incremental parity
+holds, and no wrong automatic supersession is observed.
+
+### Phase 4: Session-end incremental candidate distill
+
+- Route the existing single-session hook through candidate discovery.
+- Parse only the append boundary and new turns.
+- Share extraction results across repeated branch exports.
+- Keep watch budget, interval, and no-egress policy unchanged.
+
+Exit gate: no-candidate session end is zero-call and one-candidate session end is
+at most one pack call under normal cache state.
+
+### Phase 5: Default rollout
+
+- Retain candidate dry-run and paired release evidence on a small, medium, and
+  large corpus.
+- Make candidate mode the default only after all quality, retrieval,
+  operational, privacy, and migration gates pass.
+- Keep `--pipeline legacy` for at least one release cycle and document rollback.
+- Do not describe distillation as fast, cheaper, or recall-preserving beyond the
+  exact retained evidence scope.
+
+## Implementation Order And Test Map
+
+1. Extract a typed visible-turn iterator with parity tests against existing
+   conversation exchanges.
+2. Add origin/authority classification and command-expansion regression
+   fixtures.
+3. Implement deterministic trigger scoring and role windows.
+4. Add candidate planning JSON and measured-corpus benchmark tooling.
+5. Add v2 content-addressed cache and append/purge tests.
+6. Version the extraction prompt and parser with candidate ids.
+7. Add deterministic packing, member cache, split retry, and concurrency tests.
+8. Add exact-only reconciliation and application receipts.
+9. Add optional safe paraphrase rules behind precision fixtures.
+10. Wire opt-in CLI, manifest/status fields, watch/session-end path, and release
+    evidence.
+
+Required test families:
+
+- dialect parity and exact line anchors;
+- slash-command, prompt-id, wrapper, compaction, pasted-agent, and hook
+  authority;
+- candidate trigger positive/negative tables;
+- overlapping-window coalescing and card bounds;
+- content-address stability across path, branch, checkpoint, packing, and
+  concurrency changes;
+- invalidation isolation for rules, prompt, taxonomy, model, effort, and
+  confidence;
+- append-boundary, mid-file mutation, and malformed-transcript fallback;
+- cache-on-success, empty-result caching, split retry, crash/resume, and corrupt
+  cache;
+- exact dedup, unrelated same-path facts, polarity/value conflicts,
+  paraphrase proposals, and force/incremental parity;
+- tombstone/exclude/purge, bundle exclusion, file permissions, symlink/path
+  traversal, and no-egress behavior;
+- dry-run/manifest JSON compatibility and bounded warning output;
+- retained `entire-graph` cost and quality regression fixtures.
+
+## Decisions Locked By This Plan
+
+- Candidate generation is deterministic and model-free.
+- Fact extraction remains agent-gated and silent by default.
+- Human and assistant text carry different authority.
+- Review findings are hypotheses until accepted or implemented.
+- Candidate identity and extraction identity are separate cache layers.
+- Candidate text is not persisted as a second transcript corpus.
+- Branch materialization does not force re-extraction.
+- Taxonomy path alone never defines a reconciliation subject.
+- The MVP makes no automatic different-id supersession.
+- Legacy mode remains available until candidate mode has retained quality and
+  operational evidence.
+
+## Open Questions To Resolve With Evidence
+
+- Which implicit-decision forms lack reliable lexical cues, and what sampled
+  shadow rate is needed to estimate their miss rate?
+- Does one pack per candidate-bearing session outperform cross-session packing
+  after prompt-prefix caching and provider latency are included?
+- What deterministic known-from-code/docs/git threshold suppresses obvious
+  restatements without hiding rationale?
+- Can a safe paraphrase rule clear 99 percent precision across repositories, or
+  should v1 remain exact-only indefinitely?
+- Which source-provided turn ids are stable across every supported exporter,
+  and where must normalized-content fallback identity remain explicit?
+- How much adjacent context is needed for closed negatives and human acceptance
+  without erasing the measured token reduction?
+- Should candidate extraction results be shared across repositories when text
+  is identical? The initial answer is no: repository context and taxonomy are
+  part of extraction semantics even when a sentence matches.
+
+These questions do not block Phase 0. They block progressively broader
+automation and the default switch, and each has an explicit measurement point
+in the rollout above.

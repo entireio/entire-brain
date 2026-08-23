@@ -13,9 +13,13 @@ import (
 )
 
 func tombstonePrivacyFixture(t *testing.T, brainDir string) {
+	tombstonePrivacyFixtureSession(t, brainDir, "secret-sess")
+}
+
+func tombstonePrivacyFixtureSession(t *testing.T, brainDir, sessionID string) {
 	t.Helper()
 	stones := loadSessionTombstones(brainDir)
-	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
+	stones.Excluded[sessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
 	if err := saveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +179,43 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 	}
 	if len(facts) != 1 || facts[0].ID != multi.ID || len(facts[0].Provenance) != 1 || facts[0].Provenance[0].SessionID != "clean-sess" {
 		t.Fatalf("surviving corroborated fact = %+v", facts)
+	}
+}
+
+func TestPurgeSessionFactsPreservesAuthoredFactAfterDistillAnchor(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Now().UTC()
+	transcript := "sessions/main/20260802T000000Z_secret.jsonl"
+	authored := factRecord{
+		ID:   factRecordID("Always preserve authored knowledge.", []string{"workflow.testing.rules"}),
+		Text: "Always preserve authored knowledge.", Paths: []string{"workflow.testing.rules"},
+		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		CreatedAt: now, UpdatedAt: now,
+		Provenance: []factAnchor{{SessionID: "secret-sess", Transcript: transcript, Line: 1, DistillTurnID: "turn-1"}},
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{authored}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.FactsDeleted != 0 || plan.FactAnchorsStripped != 1 {
+		t.Fatalf("authored purge plan = deleted %d stripped %d, want 0/1", plan.FactsDeleted, plan.FactAnchorsStripped)
+	}
+	deleted, stripped, err := purgeSessionFacts(brainDir, "secret-sess", map[string]bool{transcript: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 0 || stripped != 1 {
+		t.Fatalf("authored purge accounting = deleted %d stripped %d, want 0/1", deleted, stripped)
+	}
+	facts, err := loadFacts(brainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 1 || facts[0].Origin != factOriginAuthored || len(facts[0].Provenance) != 0 {
+		t.Fatalf("purge deleted or retained derived provenance on authored fact: %+v", facts)
 	}
 }
 
@@ -380,6 +421,247 @@ func TestPrivacyFactVectorInventoryHandlesGlobMetacharacters(t *testing.T) {
 	if !found {
 		t.Fatalf("literal metacharacter branch vector omitted: %v", artifacts)
 	}
+}
+
+func TestDistillCacheKeySessionIDRecognizesAllSupportedNamespaces(t *testing.T) {
+	for _, tc := range []struct {
+		key  string
+		want string
+		ok   bool
+	}{
+		{key: "legacy-session", want: "legacy-session", ok: true},
+		{key: distillSessionCacheKey("main", "slash/session"), want: "slash/session", ok: true},
+		{key: distillSessionCacheKeyForPipeline(distillPipelineCandidates, "main", " spaced "), want: "spaced", ok: true},
+		{key: "pipeline:unknown/main/session", ok: false},
+		{key: "too/many/path/components", ok: false},
+	} {
+		got, ok := distillCacheKeySessionID(tc.key)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("distillCacheKeySessionID(%q) = (%q,%v), want (%q,%v)", tc.key, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestPurgeDropsWholeDistillCacheAndVerifyRejectsMalformedKeys(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	cache := distillCache{Version: distillCacheVersion, Sessions: map[string]string{
+		"secret-sess": "sha256:" + strings.Repeat("a", 64),
+		distillSessionCacheKey("main", "other-session"):                                     "sha256:" + strings.Repeat("b", 64),
+		distillSessionCacheKeyForPipeline(distillPipelineCandidates, "main", "secret-sess"): "sha256:" + strings.Repeat("c", 64),
+	}}
+	if err := saveDistillCache(brainDir, cache); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DistillCacheReset == nil || plan.DistillCacheReset.Path != distillCachePath || plan.DistillCacheReset.Bytes <= 0 {
+		t.Fatalf("purge plan did not disclose whole-cache reset: %+v", plan.DistillCacheReset)
+	}
+	if err := purgeDistillCacheEntries(brainDir, "secret-sess"); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadDistillCache(brainDir); len(got.Sessions) != 0 {
+		t.Fatalf("privacy purge retained ambiguous cache hints: %+v", got.Sessions)
+	}
+
+	tombstonePrivacyFixture(t, brainDir)
+	if err := saveDistillCache(brainDir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{"bad/key/shape/extra": "sha256:" + strings.Repeat("d", 64)}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		t.Fatalf("privacy verify accepted malformed cache ownership: %v", err)
+	}
+}
+
+func TestPurgeClearsOversizedOpaqueDistillCacheWithoutReadingIt(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	cachePath := filepath.Join(brainDir, filepath.FromSlash(distillCachePath))
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(cachePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxManifestBytes + 1); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.DistillCacheReset == nil || plan.DistillCacheReset.Bytes != maxManifestBytes+1 {
+		t.Fatalf("oversized cache was not inventoried exactly: %+v", plan.DistillCacheReset)
+	}
+	if err := purgeDistillCacheEntries(brainDir, "secret-sess"); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := loadDistillCacheForPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cache.Sessions) != 0 {
+		t.Fatalf("oversized opaque cache survived purge: %+v", cache.Sessions)
+	}
+	info, err := os.Stat(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() >= maxManifestBytes {
+		t.Fatalf("purged cache remains oversized: %d bytes", info.Size())
+	}
+}
+
+func TestPrivacyDistillCacheRejectsAndPurgesOpaqueBytes(t *testing.T) {
+	for name, raw := range map[string]string{
+		"unknown field":       `{"version":1,"sessions":{},"candidate_payload":"CANARY"}`,
+		"duplicate sessions":  `{"version":1,"sessions":{"secret-sess":"CANARY"},"sessions":{}}`,
+		"invalid fingerprint": `{"version":1,"sessions":{"main/safe":"CANARY_SECRET_FROM_PURGED_SESSION"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			brainDir := writePrivacyFixture(t)
+			tombstonePrivacyFixture(t, brainDir)
+			if err := writeBrainRelativeFileAtomic(brainDir, distillCachePath, []byte(raw+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+				t.Fatalf("privacy verify accepted opaque cache bytes: %v", err)
+			}
+			if err := purgeDistillCacheEntries(brainDir, "secret-sess"); err != nil {
+				t.Fatal(err)
+			}
+			cache, err := loadDistillCacheForPrivacy(brainDir)
+			if err != nil || len(cache.Sessions) != 0 {
+				t.Fatalf("purged cache = %+v, %v", cache, err)
+			}
+			data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(distillCachePath)))
+			if err != nil || strings.Contains(string(data), "CANARY") {
+				t.Fatalf("opaque cache bytes survived purge: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestPrivacyVerifyRecognizesSlashBearingLegacyDistillCacheKey(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	tombstonePrivacyFixtureSession(t, brainDir, "legacy/session")
+	if err := saveDistillCache(brainDir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{
+		"legacy/session": "sha256:" + strings.Repeat("e", 64),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, finding := range report.Findings {
+		if finding.SessionID == "legacy/session" && finding.Artifact == "distill_cache" && finding.Detail == "legacy/session" {
+			found = true
+			break
+		}
+	}
+	if report.Clean || !found {
+		t.Fatalf("privacy verify missed slash-bearing legacy cache owner: %+v", report)
+	}
+}
+
+func TestPrivacyOwnsAtomicFactWriteOrphans(t *testing.T) {
+	writeOrphans := func(t *testing.T, brainDir string) []string {
+		t.Helper()
+		rels := []string{
+			".manifest.json.tmp-54321",
+			"facts/.distill-cache.json.tmp-12345",
+			"facts/main/.facts.ndjson.tmp-AbC123",
+			"facts/main/.proposals.ndjson.tmp-98765",
+		}
+		for _, rel := range rels {
+			path := filepath.Join(brainDir, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("candidate-derived secret\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return rels
+	}
+
+	t.Run("purge inventory removes orphans", func(t *testing.T) {
+		brainDir := writePrivacyFixture(t)
+		rels := writeOrphans(t, brainDir)
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		if manifest.Sources.Facts == nil {
+			manifest.Sources.Facts = &factSourceManifest{}
+		}
+		manifest.Sources.Facts.Warnings = []string{"candidate excerpt for secret-sess"}
+		if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+		if err != nil {
+			t.Fatal(err)
+		}
+		planned := map[string]bool{}
+		for _, artifact := range plan.DerivedStores {
+			planned[artifact.Path] = true
+		}
+		for _, rel := range rels {
+			if !planned[rel] {
+				t.Fatalf("purge plan omitted atomic orphan %s: %+v", rel, plan.DerivedStores)
+			}
+		}
+		if err := executeSessionPurge(brainDir, "secret-sess", plan, time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		for _, rel := range rels {
+			if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+				t.Fatalf("atomic orphan survived purge %s: %v", rel, err)
+			}
+		}
+		manifest, err = loadBrainManifest(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if manifest.Sources != nil && manifest.Sources.Facts != nil && len(manifest.Sources.Facts.Warnings) != 0 {
+			t.Fatalf("privacy purge retained fact warning excerpts: %+v", manifest.Sources.Facts.Warnings)
+		}
+	})
+
+	t.Run("verify never blesses post-tombstone orphan", func(t *testing.T) {
+		brainDir := writePrivacyFixture(t)
+		tombstonePrivacyFixture(t, brainDir)
+		rels := writeOrphans(t, brainDir)
+		report, err := verifySessionPrivacy(brainDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := map[string]bool{}
+		for _, finding := range report.Findings {
+			if finding.Artifact == "candidate_atomic_staging" {
+				rel, _, _ := strings.Cut(finding.Detail, " is an unpublished")
+				found[rel] = true
+			}
+		}
+		for _, rel := range rels {
+			if !found[rel] {
+				t.Fatalf("privacy verify missed atomic orphan %s: %+v", rel, report.Findings)
+			}
+		}
+	})
 }
 
 func TestPrivacyVerifyRejectsCurrentCorruptSQLiteStore(t *testing.T) {

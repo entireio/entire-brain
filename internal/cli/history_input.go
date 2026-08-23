@@ -532,6 +532,14 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 // bytes retained in memory, checks cancellation while reading, and withholds
 // all bytes unless the mandatory finish revalidation succeeds.
 func readCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) ([]byte, error) {
+	return readCanonicalHistoryTranscriptBounded(ctx, brainDir, rel, maxDocumentTranscriptBytes)
+}
+
+// readCanonicalHistoryTranscriptBounded is the same descriptor-bound contract
+// with a caller-specific retention limit. Candidate distillation uses its
+// tighter admission bound here so an oversized transcript is refused before a
+// 256 MiB allocation and byte-to-string copy.
+func readCanonicalHistoryTranscriptBounded(ctx context.Context, brainDir, rel string, maxBytes int64) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -539,7 +547,7 @@ func readCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 	if err != nil {
 		return nil, err
 	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "canonical transcript "+filepath.ToSlash(rel))
+	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxBytes, "canonical transcript "+filepath.ToSlash(rel))
 	finishErr := finish()
 	if readErr != nil || finishErr != nil {
 		combined := errors.Join(readErr, finishErr)

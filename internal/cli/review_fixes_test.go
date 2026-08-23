@@ -52,9 +52,17 @@ func TestPatternsCommandHasNoFormSubcommand(t *testing.T) {
 func TestRedactText(t *testing.T) {
 	cases := []struct{ in, mustNotContain, mustContain string }{
 		{"export GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789", "ghp_abcdefghijklmnopqrstuvwxyz0123456789", "[REDACTED"},
+		{"GitHub github_pat_11AA22BB33CC44DD55EE66FF77", "github_pat_11AA22BB33CC44DD55EE66FF77", "[REDACTED TOKEN]"},
 		{"Authorization: Bearer abcdef1234567890XYZ", "abcdef1234567890XYZ", "[REDACTED]"},
 		{"token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123_-x", "eyJhbGciOiJIUzI1NiJ9", "[REDACTED JWT]"},
 		{"API_KEY=supersecretvalue123", "supersecretvalue123", "[REDACTED]"},
+		{`PASSWORD="correct horse battery staple"`, "correct horse battery staple", "PASSWORD=[REDACTED]"},
+		{"OpenAI sk-proj-abcdefghijklmnopqrstuvwxyz012345", "sk-proj-abcdefghijklmnopqrstuvwxyz012345", "[REDACTED TOKEN]"},
+		{"AWS AKIAABCDEFGHIJKLMNOP", "AKIAABCDEFGHIJKLMNOP", "[REDACTED TOKEN]"},
+		{"Slack xoxb-1234567890-abcdefghijklmnop", "xoxb-1234567890-abcdefghijklmnop", "[REDACTED TOKEN]"},
+		{"GitLab glpat-abcdefghijklmnopqrstuvwxyz", "glpat-abcdefghijklmnopqrstuvwxyz", "[REDACTED TOKEN]"},
+		{"npm npm_abcdefghijklmnopqrstuvwxyz", "npm_abcdefghijklmnopqrstuvwxyz", "[REDACTED TOKEN]"},
+		{"Stripe sk_live_abcdefghijklmnopqrstuvwxyz", "sk_live_abcdefghijklmnopqrstuvwxyz", "[REDACTED TOKEN]"},
 		{"ran in /Users/alice/Projects/secret/app", "/Users/alice", "/Users/[redacted]"},
 		// macOS is case-insensitive by default (and may be case-sensitive); a
 		// lowercase /users/ home path is the same dir and must redact too.
@@ -76,6 +84,7 @@ func TestRedactText(t *testing.T) {
 		{"gh api repos/x/contents/platform/users/components/Grid.tsx", "", "platform/users/components"},
 		{"rg users/me/checkpoints api/src", "", "users/me/checkpoints"},
 		{"-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----", "MIIabc", "[REDACTED PRIVATE KEY]"},
+		{"-----BEGIN OPENSSH PRIVATE KEY-----\ntruncated secret payload", "truncated secret payload", "[REDACTED PRIVATE KEY]"},
 	}
 	for _, c := range cases {
 		got := redactText(c.in)

@@ -318,6 +318,7 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 		CacheHits:             9,
 		FailedChunks:          3,
 		PreprocessedBytes:     123456,
+		Pipeline:              distillPipelineCandidates,
 		ExtractionWaitSeconds: 1.25,
 		ReconcileSeconds:      0.5,
 		WriteSeconds:          0.125,
@@ -341,6 +342,7 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 	if source.ChunksScanned != prior.ChunksScanned || source.ChunksDistilled != prior.ChunksDistilled ||
 		source.CacheHits != prior.CacheHits || source.FailedChunks != prior.FailedChunks ||
 		source.PreprocessedBytes != prior.PreprocessedBytes ||
+		source.Pipeline != prior.Pipeline ||
 		source.ExtractionWaitSeconds != prior.ExtractionWaitSeconds ||
 		source.ReconcileSeconds != prior.ReconcileSeconds ||
 		source.WriteSeconds != prior.WriteSeconds {

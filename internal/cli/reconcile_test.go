@@ -44,6 +44,22 @@ func TestParseReconcileActions(t *testing.T) {
 	}
 }
 
+func TestNewDistilledFactActionsNeverInferRelationship(t *testing.T) {
+	candidates := []factRecord{
+		{ID: "fact:one", Paths: []string{"constraints.invariants.general"}, Text: "Use --no-network."},
+		{ID: "fact:two", Paths: []string{"constraints.invariants.general"}, Text: "Symbol IDs include the repository key."},
+	}
+	actions := newDistilledFactActions(candidates)
+	if len(actions) != len(candidates) {
+		t.Fatalf("actions = %d, want %d", len(actions), len(candidates))
+	}
+	for i, action := range actions {
+		if action.Kind != factActionNew || action.TargetID != "" || action.Confidence != 1 || action.Candidate.ID != candidates[i].ID {
+			t.Errorf("action %d inferred a relationship: %+v", i, action)
+		}
+	}
+}
+
 func TestParseReconcileActionsDegradesToNew(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	candidates := []factRecord{

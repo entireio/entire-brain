@@ -27,7 +27,7 @@ type Record struct {
 	Origin       string    `json:"origin"` // "distilled" | "authored"
 	Status       string    `json:"status"` // "active" | "superseded" | "retracted"
 	Confidence   string    `json:"confidence,omitempty"`
-	Provenance   []Anchor  `json:"provenance"` // >=1; retained source/authored anchors
+	Provenance   []Anchor  `json:"provenance"` // retained source anchors; authored facts may have none
 	RelatedIDs   []string  `json:"related_ids,omitempty"`
 	SupersededBy string    `json:"superseded_by,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -39,11 +39,13 @@ type Record struct {
 // retained signed-source metadata; `verify` is read-only and reports local
 // verdicts without mutating this bit.
 type Anchor struct {
-	SessionID    string `json:"session_id"`
-	Commit       string `json:"commit,omitempty"`
-	CheckpointID string `json:"checkpoint_id,omitempty"`
-	TurnID       string `json:"turn_id,omitempty"`    // Phase B
-	Transcript   string `json:"transcript,omitempty"` // brain-relative path
-	Line         int    `json:"line,omitempty"`       // turn offset in transcript
-	Verified     bool   `json:"verified,omitempty"`   // retained signed-source metadata
+	SessionID     string `json:"session_id"`
+	Commit        string `json:"commit,omitempty"`
+	CheckpointID  string `json:"checkpoint_id,omitempty"`
+	TurnID        string `json:"turn_id,omitempty"`         // Phase B
+	DistillTurnID string `json:"distill_turn_id,omitempty"` // stable candidate trigger identity
+	Transcript    string `json:"transcript,omitempty"`      // brain-relative path
+	Line          int    `json:"line,omitempty"`            // first evidence line in transcript
+	EndLine       int    `json:"end_line,omitempty"`        // last evidence line when a decision spans turns
+	Verified      bool   `json:"verified,omitempty"`        // retained signed-source metadata
 }

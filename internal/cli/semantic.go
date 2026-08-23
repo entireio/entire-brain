@@ -814,22 +814,23 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 			return err
 		}
 		defer unlock()
-		manifest, err := loadBrainManifest(storage.BrainDir)
-		if err != nil {
+		if _, err := loadBrainManifest(storage.BrainDir); err != nil {
 			return err
 		}
-		if manifest.Sources == nil {
-			manifest.Sources = &brainSources{}
-		}
-		manifest.Sources.Semantic = nil
-		applySessionSourceAliases(manifest)
 		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
 			return err
 		}
 		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
 			return fmt.Errorf("remove semantic artifacts: %w", err)
 		}
-		if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
+		if err := updateBrainManifestAndReadme(storage.BrainDir, func(current *exportManifest) error {
+			if current.Sources == nil {
+				current.Sources = &brainSources{}
+			}
+			current.Sources.Semantic = nil
+			applySessionSourceAliases(current)
+			return nil
+		}); err != nil {
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "reset semantic brain: %s\n", storage.BrainDir)
@@ -907,19 +908,17 @@ type semanticBuildMetrics struct {
 }
 
 func writeBrainSemanticSource(outputDir, repoKey string, semantic *semanticSourceManifest) error {
-	manifest, err := loadBrainManifest(outputDir)
-	if err != nil {
-		return err
-	}
-	if manifest.Sources == nil {
-		manifest.Sources = &brainSources{}
-	}
-	manifest.SchemaVersion = brainManifestSchemaVersion
-	manifest.RepoKey = repoKey
-	manifest.GeneratedAt = semantic.GeneratedAt
-	manifest.Sources.Semantic = semantic
-	applySessionSourceAliases(manifest)
-	return writeBrainManifestAndReadme(outputDir, *manifest)
+	return updateBrainManifestAndReadme(outputDir, func(current *exportManifest) error {
+		if current.Sources == nil {
+			current.Sources = &brainSources{}
+		}
+		current.SchemaVersion = brainManifestSchemaVersion
+		current.RepoKey = repoKey
+		current.GeneratedAt = semantic.GeneratedAt
+		current.Sources.Semantic = semantic
+		applySessionSourceAliases(current)
+		return nil
+	})
 }
 
 func acquireSemanticIndexLock(brainDir string) (func(), error) {

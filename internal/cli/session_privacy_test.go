@@ -419,17 +419,15 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 		t.Fatalf("episode filtering wrong: %s", episodesData)
 	}
 
-	// Skill memory (user curation) survives; distill cache keeps only the
-	// clean session.
+	// Skill memory (user curation) survives. The distill cache is a disposable
+	// performance hint and is cleared wholesale because legacy bare keys can be
+	// ambiguous with slash-bearing session IDs.
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); err != nil {
 		t.Fatalf("skill memory must survive purge: %v", err)
 	}
 	cacheAfter := loadDistillCache(brainDir)
-	if _, gone := cacheAfter.Sessions["main/secret-sess"]; gone {
-		t.Fatal("purged session must leave the distill cache")
-	}
-	if _, kept := cacheAfter.Sessions["main/clean-sess"]; !kept {
-		t.Fatal("clean session's distill cache entry must survive")
+	if len(cacheAfter.Sessions) != 0 {
+		t.Fatalf("privacy purge retained distill cache hints: %+v", cacheAfter.Sessions)
 	}
 }
 
@@ -525,7 +523,7 @@ func TestPrivacyVerifyDetectsViolationsAndCleanState(t *testing.T) {
 	if cache.Sessions == nil {
 		cache.Sessions = map[string]string{}
 	}
-	cache.Sessions["main/secret-sess"] = "sha256:leftover"
+	cache.Sessions["main/secret-sess"] = "sha256:" + strings.Repeat("f", 64)
 	saveDistillCache(brainDir, cache)
 	reexported := filepath.Join(brainDir, "sessions", "main", "20260802T000000Z_secret.jsonl")
 	if err := os.WriteFile(reexported, []byte("{}\n"), 0o600); err != nil {

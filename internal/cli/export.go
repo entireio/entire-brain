@@ -275,9 +275,11 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		// brain), while every other lock user times out at 10s: holding the
 		// lock across it failed a concurrent distill's FINAL flush, killing an
 		// hours-long run at its last step. Transcript files are per-session
-		// and atomically replaced, and concurrent exports of one brain are
-		// already unsupported, so the unlocked window mutates nothing another
-		// writer reads mid-flight (a concurrent distill touches facts/* only).
+		// and atomically replaced. The privacy side-effect lock below spans the
+		// unlocked transcript phase plus final publication: candidate distillation
+		// holds the same lock while its immutable transcript snapshot is sent to a
+		// provider and anchored into facts, so export cannot replace/sweep those
+		// source files underneath that run. Lock order remains privacy -> write.
 		if err := withBrainWriteLock(outputDir, func() error {
 			var err error
 			outputDir, err = prepareExportDir(outputDir, true)
@@ -288,6 +290,11 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}); err != nil {
 			return err
 		}
+		privacyUnlock, err := acquireBrainPrivacySideEffectLock(outputDir)
+		if err != nil {
+			return err
+		}
+		defer privacyUnlock()
 		var transcriptWarnings []string
 		transcriptsComplete := true
 		if snapshot != nil {
