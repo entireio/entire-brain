@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "1c35c7b2f81e",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-phase2",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill.go",
+    "internal/cli/distill_cache_v2.go",
+    "internal/cli/distill_cache_v2_test.go",
+    "internal/cli/distill_candidates.go",
+    "internal/cli/distill_candidates_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_packing_v2.go",
+    "internal/cli/distill_packing_v2_test.go",
+    "internal/cli/distill_protocol_v2.go",
+    "internal/cli/distill_protocol_v2_test.go",
+    "internal/cli/distill_shadow_v2.go",
+    "internal/cli/distill_shadow_v2_test.go",
+    "internal/cli/distill_test.go",
+    "internal/cli/facts.go",
+    "internal/cli/publish_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_hardening_test.go",
+    "internal/cli/session_privacy_verify.go",
+    "templates/entire-brain-distill-candidate-v2.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1c/35c7b2f81e/0/metadata.json",
+      "transcript": "/1c/35c7b2f81e/0/full.jsonl",
+      "compact_transcript": "/1c/35c7b2f81e/0/transcript.jsonl",
+      "content_hash": "/1c/35c7b2f81e/0/content_hash.txt",
+      "prompt": "/1c/35c7b2f81e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5947066,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 339492864,
+    "output_tokens": 730198,
+    "api_call_count": 2866
+  }
+}

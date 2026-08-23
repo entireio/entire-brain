@@ -1,0 +1,148 @@
+Pull from my main, build the latest revision and install it with the Entire CLI.
+
+---
+
+Ok, now give me instructions on how to initialize the brain on the ~/Projects/entire.io repo. Make sure to include all steps.
+
+---
+
+Step 4 fails::
+➜  entire.io git:(main)   brain_manifest_tmp="$(mktemp "$brain_dir/.manifest.repair.XXXXXX")"
+
+  jq 'del(.sources.seed.history_coverage.checkpointed_unexported_commits)' \
+    "$brain_dir/manifest.json" > "$brain_manifest_tmp"
+
+  jq -e '
+    (.schema_version == 3) and
+    (.sources.seed.history_coverage
+      | has("checkpointed_unexported_commits")
+      | not)
+  ' "$brain_manifest_tmp" >/dev/null
+
+  chmod 600 "$brain_manifest_tmp"
+  mv "$brain_manifest_tmp" "$brain_dir/manifest.json"
+mktemp: mkstemp failed on /.manifest.repair.zBv8q1: Read-only file system
+zsh: no such file or directory:
+jq: error: Could not open file : No such file or directory
+chmod: : No such file or directory
+mv: rename  to /manifest.json: No such file or directory
+
+---
+
+Just do that yourself
+
+---
+
+Keep going
+
+---
+
+How to fix the BM25 issue?
+
+---
+
+Make it so
+
+---
+
+Start a new branch with the fix in entire-brain and open a PR
+
+---
+
+Ok, back to entire.io. How I keep the brain up-to-date?
+
+---
+
+How do we fix the “degraded” status?
+
+---
+
+Ignoring the files is the wrong solution. Why can't brain/graph parse those files?
+
+---
+
+Makes sense. How big are the changes in entire-graph?
+
+---
+
+Can you do the entire-brain changes first?
+
+---
+
+Push and open a PR
+
+---
+
+What's left from the plan?
+
+---
+
+While we wait for the PR, run the full brain initialization in ~/Projects/entire-graph
+
+---
+
+Never use "--agent none". What did you do above for entire.io?
+
+---
+
+Why? Your instructions showed --agent codex or am I blind?
+
+---
+
+Ok, run the full synthesis now. Use Codex with the Spark model.
+
+---
+
+To be clear, for both entire.io and entire-graph in parallel. Don't waste more time.
+
+---
+
+How does entire.io retained all 6,260 existing facts if we never ran the agent against it?
+
+---
+
+So this whole Spark run only extracted 28 facts for Entire Graph?
+
+---
+
+Something is wrong. How is the fact distillation processing the session logs? What part of the log is it reviewing with the agent?
+
+---
+
+"226,024 raw bytes to 8,754 bytes—3.9%—before Spark" is good, because it means you are not wasting tokens on tool calls and shit. The question then is, how did you run down the Spark credits that fast?
+
+---
+
+Is OpenCode supported for distillation?
+
+---
+
+Ok, run it with ollama for entire-graph then.
+
+---
+
+This takes way too long, entire-graph isn't even that big of a project. We need a better pipeline for this. Come up with ideas.
+
+---
+
+Start a new branch, put this plan into the docs folder (figure out the right filename), then move to implementation.
+
+---
+
+What will unblock the phase 2 work?
+
+---
+
+Got it. Is the work until here pushed?
+
+---
+
+commit/push then
+
+---
+
+Ready to start the phase 2 work?
+
+---
+
+Go for it. Use sub agents on Terra/Luna and make sure to judge each phase for performance, quality, and progress against the plan. Avoid getting into any local optimization loops that hinder progress.
