@@ -19,7 +19,7 @@ import (
 // A change that can alter turn/card IDs or the bytes sent to the extraction
 // agent must bump this value.
 const (
-	distillCandidateSchemaVersion = 1
+	distillCandidateSchemaVersion = 2
 	// Candidate calls deliberately use one bounded card each. This keeps the
 	// existing six-fact output cap and one-anchor parser meaningful until a
 	// future candidate-ID-framed output protocol can attribute multi-card packs.
@@ -90,6 +90,11 @@ type distillNormalizedTranscriptV1 struct {
 	Overflow      bool                      `json:"overflow,omitempty"`
 	Source        distillCandidateSourceV1  `json:"source"`
 	Turns         []distillNormalizedTurnV1 `json:"turns"`
+	// Repository evidence is bounded metadata from the canonical session
+	// manifest. It is never copied wholesale into provider input.
+	CheckpointSuccess bool     `json:"-"`
+	FilesTouched      []string `json:"-"`
+	AgentReview       bool     `json:"-"`
 }
 
 type distillCandidateCueV1 string
@@ -124,7 +129,13 @@ type distillCandidateCardV1 struct {
 	StartLine     int                         `json:"start_line"`
 	EndLine       int                         `json:"end_line"`
 	Triggers      []distillCandidateTriggerV1 `json:"triggers"`
+	Evidence      distillCandidateEvidenceV1  `json:"evidence,omitempty"`
 	Turns         []distillNormalizedTurnV1   `json:"turns"`
+}
+
+type distillCandidateEvidenceV1 struct {
+	CheckpointSuccess bool `json:"checkpoint_success,omitempty"`
+	SameLocus         bool `json:"same_locus,omitempty"`
 }
 
 // distillCandidateAnchorV1 survives packing so orchestration does not have to
@@ -182,8 +193,23 @@ func normalizeDistillTranscriptV1(session exportSession, resolvedBranch, content
 		Branch:           branch,
 		Transcript:       filepath.ToSlash(transcript),
 	}
+	evidence := distillNormalizedTranscriptV1{
+		SchemaVersion:     distillCandidateSchemaVersion,
+		Source:            source,
+		CheckpointSuccess: distillCandidateCheckpointSucceededV1(session),
+		FilesTouched:      normalizeDistillCandidateFilesTouchedV1(session.FilesTouched),
+		AgentReview:       distillCandidateSessionIsAgentReviewV1(session),
+	}
+	// Candidate IDs must survive transcript relocation. A missing logical
+	// session identity cannot meet that contract, so fail closed instead of
+	// silently deriving durable/cache identity from a mutable path.
+	if sessionID == "" {
+		evidence.Unsupported = true
+		return evidence
+	}
 	if len(content) > distillCandidateMaxRawBytes {
-		return distillNormalizedTranscriptV1{SchemaVersion: distillCandidateSchemaVersion, Source: source, Overflow: true}
+		evidence.Overflow = true
+		return evidence
 	}
 	directUserAllowed := distillCandidateSessionHasDirectUserAuthorityV1(session)
 
@@ -302,14 +328,11 @@ func normalizeDistillTranscriptV1(session exportSession, resolvedBranch, content
 		})
 	}
 
-	return distillNormalizedTranscriptV1{
-		SchemaVersion: distillCandidateSchemaVersion,
-		Recognized:    recognized,
-		Unsupported:   unsupported,
-		Overflow:      overflow,
-		Source:        source,
-		Turns:         turns,
-	}
+	evidence.Recognized = recognized
+	evidence.Unsupported = unsupported
+	evidence.Overflow = overflow
+	evidence.Turns = turns
+	return evidence
 }
 
 func distillCandidateTurnFromJSONV1(obj map[string]any, line int, directUserAllowed bool) (rawDistillTurnV1, bool) {
@@ -431,8 +454,43 @@ func distillCandidateTurnFromJSONV1(obj map[string]any, line int, directUserAllo
 }
 
 func distillCandidateSessionHasDirectUserAuthorityV1(session exportSession) bool {
+	return !session.IsTask && strings.TrimSpace(session.ToolUseID) == "" && !distillCandidateSessionIsAgentReviewV1(session)
+}
+
+func distillCandidateSessionIsAgentReviewV1(session exportSession) bool {
 	kind := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(session.Kind), "-", "_"))
-	return !session.IsTask && strings.TrimSpace(session.ToolUseID) == "" && kind != "agent_review"
+	return kind == "agent_review"
+}
+
+func distillCandidateCheckpointSucceededV1(session exportSession) bool {
+	if session.Summary == nil || strings.TrimSpace(session.LatestCheckpoint) == "" {
+		return false
+	}
+	outcome := strings.ToLower(strings.TrimSpace(session.Summary.Outcome))
+	switch outcome {
+	case "success", "succeeded", "shipped", "completed", "passed":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeDistillCandidateFilesTouchedV1(files []string) []string {
+	seen := make(map[string]struct{}, len(files))
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		file = filepath.ToSlash(strings.TrimSpace(file))
+		if file == "" || len(file) > distillCandidateMaxSourceFieldBytes {
+			continue
+		}
+		if _, duplicate := seen[file]; duplicate {
+			continue
+		}
+		seen[file] = struct{}{}
+		out = append(out, file)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func distillCandidateRecordIsSidechainV1(obj map[string]any) bool {
@@ -943,10 +1001,14 @@ var distillCandidateQuestionV1 = regexp.MustCompile(`(?i)^(?:should|must|can|cou
 var distillCandidateStrongQuestionDirectiveV1 = regexp.MustCompile(`(?i)\b(?:always|never|make sure|from now on|going forward|whenever|every time)\b`)
 var distillCandidateAdjacentAcceptanceV1 = regexp.MustCompile(`(?i)^(?:yes|correct|that works|go ahead|do that)[.!]?\s*$`)
 var distillCandidateOneOffWantV1 = regexp.MustCompile(`(?i)\bi want\s+(?:you\s+)?to\b`)
+var distillCandidateOneOffMutationDirectiveV1 = regexp.MustCompile(`(?i)\b(?:do not|don't)\s+(?:change|modify|edit|write|touch|create|delete|remove|commit|push)\s+(?:(?:any|the|these|those)\s+)?(?:files?|code|repository|repo|branch|commits?)\b`)
 
 func distillCandidateCuesV1(text string) []distillCandidateCueV1 {
 	trimmed := strings.TrimSpace(text)
 	if distillCandidateQuestionV1.MatchString(trimmed) && !distillCandidateStrongQuestionDirectiveV1.MatchString(trimmed) {
+		return nil
+	}
+	if distillCandidateOneOffMutationDirectiveV1.MatchString(trimmed) && !distillCandidateStrongQuestionDirectiveV1.MatchString(trimmed) {
 		return nil
 	}
 	var cues []distillCandidateCueV1
@@ -960,6 +1022,55 @@ func distillCandidateCuesV1(text string) []distillCandidateCueV1 {
 		}
 	}
 	return cues
+}
+
+func distillCandidateAssistantCuesV1(text string) []distillCandidateCueV1 {
+	all := distillCandidateCuesV1(text)
+	out := make([]distillCandidateCueV1, 0, len(all))
+	for _, cue := range all {
+		switch cue {
+		case distillCandidateCueDecisionV1, distillCandidateCueClosedNegativeV1, distillCandidateCueInvariantV1, distillCandidateCueGotchaV1:
+			out = append(out, cue)
+		}
+	}
+	return out
+}
+
+func distillCandidateAssistantSameLocusV1(text string, files []string) bool {
+	normalizedText := filepath.ToSlash(text)
+	for _, file := range files {
+		if distillCandidateContainsPathV1(normalizedText, file) {
+			return true
+		}
+	}
+	return false
+}
+
+func distillCandidateContainsPathV1(text, path string) bool {
+	path = filepath.ToSlash(strings.TrimSpace(path))
+	if path == "" {
+		return false
+	}
+	for offset := 0; offset <= len(text)-len(path); {
+		index := strings.Index(text[offset:], path)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		end := start + len(path)
+		leftOK := start == 0 || !distillCandidatePathByteV1(text[start-1])
+		rightOK := end == len(text) || !distillCandidatePathByteV1(text[end])
+		if leftOK && rightOK {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func distillCandidatePathByteV1(value byte) bool {
+	return value == '/' || value == '\\' || value == '.' || value == '-' || value == '_' ||
+		(value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9')
 }
 
 // selectDistillCandidateCardsV1 creates one bounded context card per
@@ -978,23 +1089,62 @@ func selectDistillCandidateCardsV1(transcript distillNormalizedTranscriptV1) []d
 // always supplies the per-session admission cap.
 func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscriptV1, limit int) ([]distillCandidateCardV1, bool) {
 	type triggerAt struct {
-		index int
-		cues  []distillCandidateCueV1
+		index    int
+		cues     []distillCandidateCueV1
+		evidence distillCandidateEvidenceV1
 	}
 	var triggers []triggerAt
 	for index, turn := range transcript.Turns {
-		if turn.Role != distillTranscriptRoleUserV1 || !turn.DirectUser {
+		var trigger triggerAt
+		switch turn.Role {
+		case distillTranscriptRoleUserV1:
+			if !turn.DirectUser {
+				continue
+			}
+			cues := distillCandidateCuesV1(turn.Text)
+			if len(cues) == 0 && index > 0 && transcript.Turns[index-1].Role == distillTranscriptRoleAssistantV1 && distillCandidateAdjacentAcceptanceV1.MatchString(strings.TrimSpace(turn.Text)) {
+				cues = []distillCandidateCueV1{distillCandidateCueAcceptanceV1}
+			}
+			if len(cues) == 0 {
+				continue
+			}
+			trigger = triggerAt{index: index, cues: cues}
+		case distillTranscriptRoleAssistantV1:
+			if transcript.AgentReview || !transcript.CheckpointSuccess {
+				continue
+			}
+			cues := distillCandidateAssistantCuesV1(turn.Text)
+			if len(cues) == 0 || !distillCandidateAssistantSameLocusV1(turn.Text, transcript.FilesTouched) {
+				continue
+			}
+			// Prefer a direct-user card whenever the adjacent human text already
+			// carries the authority or explicitly resolves this claim.
+			if index > 0 && transcript.Turns[index-1].Role == distillTranscriptRoleUserV1 && transcript.Turns[index-1].DirectUser && len(distillCandidateCuesV1(transcript.Turns[index-1].Text)) > 0 {
+				continue
+			}
+			if index+1 < len(transcript.Turns) && transcript.Turns[index+1].Role == distillTranscriptRoleUserV1 && transcript.Turns[index+1].DirectUser {
+				nextCues := distillCandidateCuesV1(transcript.Turns[index+1].Text)
+				if len(nextCues) == 0 && distillCandidateAdjacentAcceptanceV1.MatchString(strings.TrimSpace(transcript.Turns[index+1].Text)) {
+					nextCues = []distillCandidateCueV1{distillCandidateCueAcceptanceV1}
+				}
+				if distillCandidateCueSliceContainsV1(nextCues, distillCandidateCueAcceptanceV1) || distillCandidateCueSliceContainsV1(nextCues, distillCandidateCueCorrectionV1) {
+					continue
+				}
+			}
+			trigger = triggerAt{
+				index: index,
+				cues:  cues,
+				evidence: distillCandidateEvidenceV1{
+					CheckpointSuccess: true,
+					SameLocus:         true,
+				},
+			}
+		default:
 			continue
 		}
-		cues := distillCandidateCuesV1(turn.Text)
-		if len(cues) == 0 && index > 0 && transcript.Turns[index-1].Role == distillTranscriptRoleAssistantV1 && distillCandidateAdjacentAcceptanceV1.MatchString(strings.TrimSpace(turn.Text)) {
-			cues = []distillCandidateCueV1{distillCandidateCueAcceptanceV1}
-		}
-		if len(cues) > 0 {
-			triggers = append(triggers, triggerAt{index: index, cues: cues})
-			if limit > 0 && len(triggers) > limit {
-				return nil, true
-			}
+		triggers = append(triggers, trigger)
+		if limit > 0 && len(triggers) > limit {
+			return nil, true
 		}
 	}
 	if len(triggers) == 0 {
@@ -1004,11 +1154,21 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 	cards := make([]distillCandidateCardV1, 0, len(triggers))
 	for _, trigger := range triggers {
 		start, end := trigger.index, trigger.index
-		if trigger.index > 0 && transcript.Turns[trigger.index-1].Role == distillTranscriptRoleAssistantV1 {
-			start--
-		}
-		if trigger.index+1 < len(transcript.Turns) && transcript.Turns[trigger.index+1].Role == distillTranscriptRoleAssistantV1 {
-			end++
+		triggerRole := transcript.Turns[trigger.index].Role
+		if triggerRole == distillTranscriptRoleUserV1 {
+			if trigger.index > 0 && transcript.Turns[trigger.index-1].Role == distillTranscriptRoleAssistantV1 {
+				start--
+			}
+			if trigger.index+1 < len(transcript.Turns) && transcript.Turns[trigger.index+1].Role == distillTranscriptRoleAssistantV1 {
+				end++
+			}
+		} else {
+			if trigger.index > 0 && transcript.Turns[trigger.index-1].Role == distillTranscriptRoleUserV1 {
+				start--
+			}
+			if trigger.index+1 < len(transcript.Turns) && transcript.Turns[trigger.index+1].Role == distillTranscriptRoleUserV1 {
+				end++
+			}
 		}
 		turns := append([]distillNormalizedTurnV1(nil), transcript.Turns[start:end+1]...)
 		acceptance := distillCandidateCueSliceContainsV1(trigger.cues, distillCandidateCueAcceptanceV1)
@@ -1031,10 +1191,11 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 		}
 		triggerTurn := transcript.Turns[trigger.index]
 		cardTriggers := []distillCandidateTriggerV1{{
-			TurnID:        triggerTurn.ID,
-			Role:          triggerTurn.Role,
-			Cues:          append([]distillCandidateCueV1(nil), trigger.cues...),
-			Authoritative: true,
+			TurnID:                triggerTurn.ID,
+			Role:                  triggerTurn.Role,
+			Cues:                  append([]distillCandidateCueV1(nil), trigger.cues...),
+			Authoritative:         triggerTurn.Role == distillTranscriptRoleUserV1,
+			CorroborationEligible: triggerTurn.Role == distillTranscriptRoleAssistantV1,
 		}}
 		startLine, endLine := turns[0].StartLine, turns[0].EndLine
 		idParts := []string{distillCandidateSourceIdentityV1(transcript.Source)}
@@ -1049,6 +1210,12 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 				idParts = append(idParts, string(cue))
 			}
 		}
+		if trigger.evidence.CheckpointSuccess {
+			idParts = append(idParts, "checkpoint_success")
+		}
+		if trigger.evidence.SameLocus {
+			idParts = append(idParts, "same_locus")
+		}
 		cards = append(cards, distillCandidateCardV1{
 			SchemaVersion: distillCandidateSchemaVersion,
 			ID:            distillCandidateStableIDV1("candidate-v1:", idParts...),
@@ -1056,6 +1223,7 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 			StartLine:     startLine,
 			EndLine:       endLine,
 			Triggers:      cardTriggers,
+			Evidence:      trigger.evidence,
 			Turns:         turns,
 		})
 	}
@@ -1120,6 +1288,7 @@ type renderedDistillCandidateHeaderV1 struct {
 	SchemaVersion int                         `json:"schema_version"`
 	CandidateID   string                      `json:"candidate_id"`
 	Triggers      []distillCandidateTriggerV1 `json:"triggers"`
+	Evidence      distillCandidateEvidenceV1  `json:"evidence,omitempty"`
 }
 
 type renderedDistillCandidateTurnV1 struct {
@@ -1139,13 +1308,18 @@ func renderDistillCandidateCardV1(card distillCandidateCardV1) string {
 		SchemaVersion: distillCandidateSchemaVersion,
 		CandidateID:   card.ID,
 		Triggers:      card.Triggers,
+		Evidence:      card.Evidence,
 	})
 	b.Write(header)
 	b.WriteByte('\n')
 	for index, turn := range card.Turns {
-		authority := "direct_user"
-		if turn.Role == distillTranscriptRoleUserV1 && !turn.DirectUser {
-			authority = "untrusted_user_context"
+		authority := "context_only"
+		if turn.Role == distillTranscriptRoleUserV1 {
+			if distillCandidateTurnIsTriggerV1(card, turn.ID) && turn.DirectUser {
+				authority = "direct_user"
+			} else if !turn.DirectUser {
+				authority = "untrusted_user_context"
+			}
 		}
 		acceptanceScope := ""
 		if turn.Role == distillTranscriptRoleAssistantV1 {

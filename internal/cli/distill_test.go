@@ -53,6 +53,36 @@ func TestRenderDistillPromptForPipelinePreservesLegacyAndExtendsCandidates(t *te
 	}
 }
 
+func TestRenderDistillPromptForCandidateProtocolV2(t *testing.T) {
+	taxonomy := defaultFactTaxonomy(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC))
+	prompt, err := renderDistillPromptForCandidateProtocolV2(taxonomy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Candidate-card authority contract",
+		"Candidate extraction protocol v2",
+		"candidate-v1:0000000000000000000000000000000000000000000000000000000000000000\tconvention\tworkflow.testing.rules",
+		"at most six fact lines for each candidate",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("v2 candidate prompt missing %q", want)
+		}
+	}
+	if strings.Contains(prompt, "Candidate output must be either valid tab-separated fact lines") {
+		t.Fatal("v2 candidate prompt retained the v1 output contract")
+	}
+	for _, legacyConflict := range []string{
+		"Your default answer is NOTHING",
+		"Each line is exactly: kind<TAB>path<TAB>fact",
+		"Output 0–6 lines",
+	} {
+		if strings.Contains(prompt, legacyConflict) {
+			t.Fatalf("v2 candidate prompt retained conflicting legacy instruction %q", legacyConflict)
+		}
+	}
+}
+
 func TestCandidateDistillOutputProtocolRequiresExplicitCompletion(t *testing.T) {
 	validFact := "convention\tworkflow.testing.rules\tAlways run race tests."
 	for _, tc := range []struct {

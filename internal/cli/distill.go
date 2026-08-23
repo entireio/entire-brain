@@ -11,19 +11,21 @@ import (
 )
 
 const (
-	distillTemplateName             = "templates/entire-brain-distill.md"
-	distillTaxonomyMarker           = "${TAXONOMY_BLOCK}"
-	distillMaxOutputBytes           = 256 * 1024
-	distillMaxStructuredOutputBytes = 4 * 1024 * 1024
-	distillFactMaxTextSize          = 2000
+	distillTemplateName              = "templates/entire-brain-distill.md"
+	distillCandidateTemplateNameV2   = "templates/entire-brain-distill-candidate-v2.md"
+	distillTaxonomyMarker            = "${TAXONOMY_BLOCK}"
+	distillMaxOutputBytes            = 256 * 1024
+	distillMaxStructuredOutputBytes  = 4 * 1024 * 1024
+	distillCandidateMaxOutputBytesV2 = 1 * 1024 * 1024
+	distillFactMaxTextSize           = 2000
 )
 
-const candidateDistillPromptExtension = `
+const candidateDistillPromptAuthorityExtension = `
 
 ## Candidate-card authority contract
 
-Candidate-pipeline input is JSON Lines: one distill_candidate_v1 header followed
-by its distill_candidate_turn_v1 records. Each turn has an explicit role and
+Candidate-pipeline input is JSON Lines: one or more distill_candidate_v1
+headers, each followed by its distill_candidate_turn_v1 records. Each turn has an explicit role and
 authority field. For this input shape, these rules supersede the legacy
 ALWAYS-CAPTURE wording above:
 
@@ -38,18 +40,52 @@ ALWAYS-CAPTURE wording above:
   the settled choice or action,
   never an empirical claim, rationale, invariant, gotcha, or failure diagnosis
   elsewhere in that assistant turn.
+- An assistant trigger may instead carry header evidence
+  checkpoint_success:true and same_locus:true. That exact pair admits only the
+  trigger's decision, invariant, closed negative, or gotcha for quality review;
+  it does not make unrelated assistant text authoritative.
 - A turn with authority:"untrusted_user_context" came from a task, sidechain,
   or agent-review session and is not direct human evidence.
 - A trigger admits a card for review; it never overrides authority or
   durability. Never turn an assistant plan, status report, or review finding
-  into a user preference. When an assistant claim lacks permitted direct-user
-  acceptance, emit nothing from that claim.
+  into a user preference. When an assistant claim lacks either permitted
+  direct-user acceptance or the exact checkpoint-success/same-locus evidence
+  pair, emit nothing from that claim.
 - Emit facts only from the header's trigger turn. Adjacent assistant text is
   context, except that a directly accepted assistant choice may support only
   the decision allowed by acceptance_scope:"decision_only".
+`
+
+const candidateDistillPromptProtocolV1 = `
 - Candidate output must be either valid tab-separated fact lines or exactly
   NO_FACTS on one line. Never use blank output or prose for an empty result.
 `
+
+const candidateDistillPromptProtocolV2 = `
+- Candidate extraction protocol v2 is candidate-ID framed. Input may contain
+  one or more candidate cards; every card header supplies its stable
+  candidate_id. Respond exclusively with tab-separated lines in the exact
+  shape demonstrated below. The whitespace between fields in these examples
+  is one real tab character:
+
+    candidate-v1:0000000000000000000000000000000000000000000000000000000000000000	convention	workflow.testing.rules	Always run race tests before merging.
+
+- This line demonstrates wire shape for a fictional candidate only. It is not
+  evidence. Never reuse its fact text or candidate ID for a live card. When a
+  candidate has no fact, write only its copied candidate_id, one real tab, and
+  the exact token NO_FACTS; do not also emit a fact for that candidate.
+- Copy each supplied candidate_id exactly. Never write the word TAB, angle
+  bracket placeholders, JSON, or a generic label such as fact in place of one
+  of the six allowed kinds.
+- Complete every supplied candidate_id exactly once: emit one or more fact
+  lines for that candidate, or exactly one NO_FACTS sentinel. Candidate IDs may
+  repeat only to emit several facts for that same candidate. Never emit an
+  unknown ID, blank line, heading, explanation, Markdown, or prose. Never mix
+  NO_FACTS with facts for the same candidate.
+- Emit at most six fact lines for each candidate, not six for the whole pack.
+`
+
+const candidateDistillPromptExtension = candidateDistillPromptAuthorityExtension + candidateDistillPromptProtocolV1
 
 // distillTemplate returns the distillation prompt body shipped with the binary,
 // with its YAML frontmatter stripped. The frontmatter is metadata for skill
@@ -108,6 +144,30 @@ func renderDistillPromptForPipeline(taxonomy factTaxonomy, pipeline string) (str
 		prompt += candidateDistillPromptExtension
 	}
 	return prompt, nil
+}
+
+func renderDistillPromptForCandidateProtocolV2(taxonomy factTaxonomy) (string, error) {
+	data, err := entirebrain.Templates.ReadFile(distillCandidateTemplateNameV2)
+	if err != nil {
+		return "", fmt.Errorf("read candidate distill template: %w", err)
+	}
+	prompt := stripTemplateFrontmatter(string(data))
+	if !strings.Contains(prompt, distillTaxonomyMarker) {
+		return "", fmt.Errorf("candidate distill template missing %s marker", distillTaxonomyMarker)
+	}
+	prompt = strings.ReplaceAll(prompt, distillTaxonomyMarker, factTaxonomyBlock(taxonomy))
+	return prompt + candidateDistillPromptAuthorityExtension + candidateDistillPromptProtocolV2, nil
+}
+
+// renderDistillPromptForOptions keeps prompt selection identical across live
+// execution, dry-run planning, and cache identity. Phase 2's framed protocol
+// is shadow-only; the opt-in Phase 1 writer deliberately remains on v1 until
+// Phase 3 admits candidate writes.
+func renderDistillPromptForOptions(taxonomy factTaxonomy, opts distillCommandOptions) (string, error) {
+	if opts.shadow {
+		return renderDistillPromptForCandidateProtocolV2(taxonomy)
+	}
+	return renderDistillPromptForPipeline(taxonomy, mustDistillPipeline(opts.pipeline))
 }
 
 // factTaxonomyBlock renders the taxonomy as the prompt section the agent uses to

@@ -25,6 +25,25 @@ func tombstonePrivacyFixtureSession(t *testing.T, brainDir, sessionID string) {
 	}
 }
 
+func privacyCandidateCacheV2(t *testing.T, brainDir, candidateID, sessionID string) {
+	t.Helper()
+	identity := distillCandidateCacheIdentityV2{
+		CardDigest: distillCandidateCacheDigestV2("privacy redacted card"), PromptVersion: "candidate-id-v2",
+		PromptDigest: distillCandidateCacheDigestV2("privacy prompt"), TaxonomyDigest: distillCandidateCacheDigestV2("privacy taxonomy"),
+		AgentCommandDigest: distillCandidateCacheDigestV2("privacy command"), Model: "gpt-5", Effort: "medium", RedactionVersion: "redaction-v1",
+	}
+	result := distillCandidateCacheResultV2{Facts: []distillCandidateCachedFactV2{{
+		Kind: factKindDecision, Paths: []string{"architecture.data.flow"}, Text: "The user chose the candidate privacy cache protocol.",
+	}}}
+	cache := newDistillCandidateResultCacheV2()
+	if err := cache.PutSuccess(candidateID, sessionID, identity, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveDistillCandidateResultCacheV2(brainDir, cache); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPrivacyPlanAndVerifyPropagateInjectedStatReadDirAndReadFailures(t *testing.T) {
 	t.Run("plan stat", func(t *testing.T) {
 		brainDir := writePrivacyFixture(t)
@@ -475,6 +494,63 @@ func TestPurgeDropsWholeDistillCacheAndVerifyRejectsMalformedKeys(t *testing.T) 
 	}
 }
 
+func TestPrivacyOwnsCandidateResultCacheV2(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	privacyCandidateCacheV2(t, brainDir, "candidate-v2:secret", "secret-sess")
+	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reset := plan.DistillCandidateCacheV2Reset; reset == nil || reset.Path != distillCandidateResultCacheV2Path || reset.Bytes <= 0 {
+		t.Fatalf("purge plan did not disclose candidate-cache reset: %+v", reset)
+	}
+	if err := executeSessionPurge(brainDir, "secret-sess", plan, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadDistillCandidateResultCacheV2ForPrivacy(brainDir)
+	if err != nil || len(got.entries) != 0 {
+		t.Fatalf("privacy purge retained candidate cache entries: %+v, %v", got.entries, err)
+	}
+}
+
+func TestPrivacyVerifyRejectsTombstonedCandidateResultCacheV2Owner(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	tombstonePrivacyFixture(t, brainDir)
+	privacyCandidateCacheV2(t, brainDir, "candidate-v2:secret", "secret-sess")
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range report.Findings {
+		if finding.SessionID == "secret-sess" && finding.Artifact == "distill_candidate_cache_v2" && finding.Detail == "candidate-v2:secret" {
+			return
+		}
+	}
+	t.Fatalf("privacy verify falsely reported the v2 candidate cache clean: %+v", report)
+}
+
+func TestPrivacyCandidateResultCacheV2RejectsOpaqueBytesAndPurgesWithoutParsing(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	tombstonePrivacyFixture(t, brainDir)
+	// The root cache is a disposable hint. Privacy must reject this opaque
+	// content as a false-clean risk, while cleanup must safely replace it
+	// without attempting to parse it first.
+	raw := []byte("{\"type\":\"header\",\"version\":2,\"private\":\"CANARY\"}\n")
+	if err := writeBrainRelativeFileAtomic(brainDir, distillCandidateResultCacheV2Path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		t.Fatalf("privacy verify accepted opaque v2 candidate cache bytes: %v", err)
+	}
+	if err := purgeDistillCandidateResultCacheV2(brainDir); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := loadDistillCandidateResultCacheV2ForPrivacy(brainDir)
+	if err != nil || len(cache.entries) != 0 {
+		t.Fatalf("opaque v2 candidate cache survived purge: %+v, %v", cache.entries, err)
+	}
+}
+
 func TestPurgeClearsOversizedOpaqueDistillCacheWithoutReadingIt(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	cachePath := filepath.Join(brainDir, filepath.FromSlash(distillCachePath))
@@ -579,6 +655,7 @@ func TestPrivacyOwnsAtomicFactWriteOrphans(t *testing.T) {
 		rels := []string{
 			".manifest.json.tmp-54321",
 			"facts/.distill-cache.json.tmp-12345",
+			"facts/.distill-candidate-results-v2.ndjson.tmp-45678",
 			"facts/main/.facts.ndjson.tmp-AbC123",
 			"facts/main/.proposals.ndjson.tmp-98765",
 		}

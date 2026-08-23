@@ -1,15 +1,26 @@
 # Candidate-First Distillation Plan
 
-Status: initial opt-in implementation complete and verified (2026-08-23).
+Status: Phase 2 shadow implementation complete; full quality exit gate pending
+(2026-08-23).
 
 The first implementation slice on `feat/candidate-first-distillation` adds the
 opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
 direct-user candidate cards, one card per extraction call, conservative exact
 upserts with no reconciliation-agent call, separate rollback-safe session-cache
 keys, dry-run accounting, redaction, and privacy-linearized egress/publication.
-Legacy remains the default. Per-candidate persistent extraction caching,
-cross-session packing, repository-evidence corroboration, and default rollout
-remain later phases; they require the evaluation and privacy gates below.
+Legacy remains the default.
+
+The Phase 2 branch adds candidate-id-framed multi-card output, deterministic
+cross-session packing under a fixed 32 KiB/32-member policy, a bounded
+success-only member cache, one-level failure bisection, provider usage
+accounting, and `--shadow` execution that leaves active facts, proposals,
+taxonomy, the legacy cache, and the manifest unchanged. Exclude/purge resets the
+derived member cache; privacy verification, atomic-temp cleanup, and publish
+bundle exclusion cover the new artifact. Assistant claims gain one deliberately
+narrow repository-evidence route: an allowlisted successful checkpoint outcome
+plus an exact full-path mention from that session's touched-file list. Review
+sessions, status-only claims, basename matches, and unverified checkpoints do
+not qualify.
 
 The opt-in slice keeps each complete redacted authoritative trigger turn. It
 shrinks adjacent context first and refuses preflight when the trigger itself
@@ -18,7 +29,7 @@ qualifier from the same turn. A small number of normal sessions contain
 cue-bearing pasted documents far above the default 48 KiB limit, so
 cue-span/paragraph splitting is required before this pipeline is corpus-general.
 
-The final real-corpus dry-run of this slice against `entire-graph` (2026-08-23)
+The final Phase 1 real-corpus dry-run against `entire-graph` (2026-08-23)
 completed without an unsupported-dialect fallback. The legacy path sees 154
 exports; candidate mode deterministically coalesces same-branch re-exports to
 152 current session views covering 697,289,133 raw bytes. It reduced 33,663,145
@@ -28,7 +39,46 @@ reconciliation calls. The intentionally unbatched attribution contract produced
 368 extraction calls versus 731 legacy extraction calls (or up to 1,462
 extraction-plus-reconciliation calls). This is evidence that deterministic
 filtering works, not that the latency goal is met: candidate-id-framed packing
-remains necessary before a 30-60-call claim.
+remained necessary before a 30-60-call claim.
+
+### Phase 2 evidence (2026-08-23)
+
+Using the fixed policy without corpus-specific tuning, the current
+`entire-graph` shadow dry run reports 152 current session views, 367 admitted
+cards, 231 unique members after replay collapse, and 29 packs. Candidate input
+is 1,417,956 bytes versus 33,663,145 legacy-preprocessed bytes (95.8 percent
+less). The uncached extraction projection is 29 calls versus 731 legacy
+extraction calls (96.0 percent less), or 29 versus the 1,462 legacy
+extraction-plus-reconciliation ceiling (98.0 percent less). One cached member
+currently leaves the scheduled count at 29 because the remaining members still
+fill the same number of byte-bounded packs.
+
+The retained command for that projection is:
+
+```text
+cd /path/to/entire-graph
+entire brain distill --dry-run --pipeline candidates --shadow \
+  --agent ollama --model entire-brain-distill:qwen2.5-7b
+```
+
+A real local-model smoke on branch `docs/chicago-style` exposed two issues that
+fake-provider tests did not: the legacy output instructions conflicted with the
+framed protocol, and the model appended a redundant `NO_FACTS` after a valid
+fact. Phase 2 now uses a dedicated non-conflicting prompt and accepts only that
+content-free trailing sentinel form (a leading sentinel followed by facts still
+fails closed). The final run admitted one source-backed Chicago-style rule,
+completed one packed call in 10.66 seconds, reported 2,497 input and 150 output
+tokens, and produced one faithful shadow fact. The immediate rerun was a
+zero-call member-cache hit in 37 milliseconds. A task-local “do not change any
+files or code” request found during the same audit is now deterministically
+suppressed rather than promoted as a standing rule.
+
+This passes the implementation, isolation, fixed-policy call-count, and small
+real-provider protocol checks. It does **not** pass Phase 2's full exit gate:
+one manually inspected fact is not a labeled corpus. Promotion beyond shadow
+still requires the human-labeled span recall/precision audit, filtered-out
+negative sample, repeated paired legacy/candidate provider runs, source-anchor
+faithfulness review, and observed provider token/latency totals described below.
 
 Same-branch re-exports are coalesced only inside the active branch/session
 selection. A later timestamp wins; at an equal timestamp, one normalized turn

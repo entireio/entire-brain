@@ -96,6 +96,12 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 	writePublishFile(t,
 		filepath.Join(brainDir, filepath.FromSlash(factsRel)),
 		[]byte("{\"branch\":\"main\",\"text\":\"the repo uses go\"}\n"))
+	// Candidate extraction results are local performance state, never a hosted
+	// support/publish artifact. Keep a canary here so the bundle contract stays
+	// explicit if facts-root collection changes in the future.
+	writePublishFile(t,
+		filepath.Join(brainDir, filepath.FromSlash(distillCandidateResultCacheV2Path)),
+		[]byte("{\"type\":\"header\",\"version\":2}\n{\"private\":\"CANDIDATE_CACHE_CANARY\"}\n"))
 }
 
 func writePublishFile(t *testing.T, path string, data []byte) {
@@ -315,6 +321,9 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	// Facts: keyed by branch.
 	if facts := byKind[brainKindFacts]; len(facts) != 1 || facts[0].Ref != "main" {
 		t.Fatalf("facts artifacts = %+v, want one ref \"main\"", facts)
+	}
+	if strings.Contains(string(captured.rawBodie[0]), "CANDIDATE_CACHE_CANARY") {
+		t.Fatal("publish bundle included local candidate-result cache")
 	}
 
 	if !strings.Contains(out, "published") || !strings.Contains(out, "gh/example/repo") {

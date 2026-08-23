@@ -434,6 +434,17 @@ func TestCandidateCardsDoNotCrossAttributeAdjacentUserRules(t *testing.T) {
 	}
 }
 
+func TestCandidateOneOffNoMutationRequestIsNotAStandingRule(t *testing.T) {
+	transcript := `{"type":"event_msg","payload":{"type":"user_message","message":"Return a list of video topics; do not change any files or code."}}`
+	if cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateTestSession(), "main", transcript)); len(cards) != 0 {
+		t.Fatalf("one-off no-mutation task became a durable rule: %+v", cards)
+	}
+	standing := `{"type":"event_msg","payload":{"type":"user_message","message":"Going forward, do not change generated files."}}`
+	if cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateTestSession(), "main", standing)); len(cards) != 1 {
+		t.Fatalf("standing no-mutation rule was lost: %+v", cards)
+	}
+}
+
 func TestCandidateAcceptancePreservesAssistantConclusionAndScopesConfirmation(t *testing.T) {
 	longPrefix := strings.Repeat("background analysis without a durable conclusion. ", 100)
 	transcript := strings.Join([]string{
@@ -469,6 +480,73 @@ func TestCandidateAcceptancePreservesAssistantConclusionAndScopesConfirmation(t 
 	confirmedRendered := renderDistillCandidateCardV1(cards[0])
 	if !strings.Contains(confirmedRendered, `"acceptance_scope":"decision_only"`) || strings.Contains(confirmedRendered, `"corroborated":true`) {
 		t.Fatalf("confirmation over-promoted a whole assistant turn: %s", confirmedRendered)
+	}
+}
+
+func TestCandidateAssistantClaimRequiresSuccessfulSameFileCheckpoint(t *testing.T) {
+	session := candidateTestSession()
+	session.Summary = &checkpointSummary{Outcome: "shipped"}
+	session.FilesTouched = []string{"internal/store/cache.go"}
+	transcript := strings.Join([]string{
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Please investigate the cache failure."}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","message":"The root cause in internal/store/cache.go is a stale descriptor after rotation."}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"What should we inspect next?"}}`,
+	}, "\n")
+
+	cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(session, "main", transcript))
+	if len(cards) != 1 {
+		t.Fatalf("assistant evidence cards = %d, want 1: %+v", len(cards), cards)
+	}
+	trigger := cards[0].Triggers[0]
+	if trigger.Role != distillTranscriptRoleAssistantV1 || trigger.Authoritative || !trigger.CorroborationEligible {
+		t.Fatalf("assistant trigger authority = %+v", trigger)
+	}
+	if !cards[0].Evidence.CheckpointSuccess || !cards[0].Evidence.SameLocus {
+		t.Fatalf("assistant evidence = %+v", cards[0].Evidence)
+	}
+	rendered := renderDistillCandidateCardV1(cards[0])
+	if !strings.Contains(rendered, `"checkpoint_success":true`) || !strings.Contains(rendered, `"same_locus":true`) || !strings.Contains(rendered, `"authority":"assistant_claim"`) {
+		t.Fatalf("assistant evidence was not rendered: %s", rendered)
+	}
+	if strings.Count(rendered, `"authority":"direct_user"`) != 0 || strings.Count(rendered, `"authority":"context_only"`) != 2 {
+		t.Fatalf("adjacent user context inherited authority: %s", rendered)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*exportSession)
+		text   string
+	}{
+		{"unknown outcome", func(s *exportSession) { s.Summary.Outcome = "in_progress" }, transcript},
+		{"no full path", func(s *exportSession) {}, strings.ReplaceAll(transcript, "internal/store/cache.go", "the cache")},
+		{"basename only", func(s *exportSession) {}, strings.ReplaceAll(transcript, "internal/store/cache.go", "cache.go")},
+		{"agent review", func(s *exportSession) { s.Kind = "agent_review" }, transcript},
+		{"status only", func(s *exportSession) {}, strings.ReplaceAll(transcript, "The root cause in internal/store/cache.go is a stale descriptor after rotation.", "Fixed internal/store/cache.go.")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			candidateSession := session
+			candidateSession.Summary = &checkpointSummary{Outcome: session.Summary.Outcome}
+			tc.mutate(&candidateSession)
+			if got := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateSession, "main", tc.text)); len(got) != 0 {
+				t.Fatalf("unsafe assistant card admitted: %+v", got)
+			}
+		})
+	}
+	statusWithRationale := strings.ReplaceAll(transcript,
+		"The root cause in internal/store/cache.go is a stale descriptor after rotation.",
+		"Fixed internal/store/cache.go after confirming the root cause: a stale descriptor survives rotation.")
+	if got := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(session, "main", statusWithRationale)); len(got) != 1 {
+		t.Fatalf("status prefix suppressed a durable same-file gotcha: %+v", got)
+	}
+}
+
+func TestCandidateMissingSessionIdentityFailsClosed(t *testing.T) {
+	session := candidateTestSession()
+	session.SessionID = ""
+	normalized := normalizeDistillTranscriptV1(session, "main", `{"type":"event_msg","payload":{"type":"user_message","message":"Always test migrations."}}`)
+	if !normalized.Unsupported || len(normalized.Turns) != 0 {
+		t.Fatalf("missing session identity was accepted: %+v", normalized)
 	}
 }
 

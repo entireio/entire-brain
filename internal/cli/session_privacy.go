@@ -912,6 +912,11 @@ type sessionPurgePlan struct {
 	// wholesale. Per-session ownership is intentionally ambiguous for legacy
 	// keys, so clearing the entire cache is the fail-closed privacy behavior.
 	DistillCacheReset *purgeArtifact `json:"distill_cache_reset,omitempty"`
+	// DistillCandidateCacheV2Reset reports the candidate-result cache that
+	// cleanup rewrites wholesale. Although its records carry an explicit source
+	// session ID, it is a performance hint containing derived text; retaining
+	// any part of it after an exclusion is not worth a selective-pruning bug.
+	DistillCandidateCacheV2Reset *purgeArtifact `json:"distill_candidate_cache_v2_reset,omitempty"`
 	// WorkMetadata is content-free lifecycle/job state tied to this raw
 	// session. Privacy cleanup removes it immediately rather than retaining
 	// operational evidence about a session the user excluded or purged.
@@ -1000,6 +1005,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		}
 		if plan.DistillCacheReset != nil {
 			fmt.Fprintf(out, "  distill cache %s (%d bytes, reset wholesale)\n", plan.DistillCacheReset.Path, plan.DistillCacheReset.Bytes)
+		}
+		if plan.DistillCandidateCacheV2Reset != nil {
+			fmt.Fprintf(out, "  distill candidate cache %s (%d bytes, reset wholesale)\n", plan.DistillCandidateCacheV2Reset.Path, plan.DistillCandidateCacheV2Reset.Bytes)
 		}
 		for _, artifact := range plan.WorkMetadata {
 			fmt.Fprintf(out, "  memory work metadata %s (%d bytes)\n", artifact.Path, artifact.Bytes)
@@ -1190,6 +1198,13 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	}
 	if cachePresent {
 		plan.DistillCacheReset = &purgeArtifact{Path: distillCachePath, Bytes: cacheInfo.Size()}
+	}
+	candidateCacheInfo, candidateCachePresent, candidateCacheErr := inspectPrivacyArtifactOpened(brainDir, distillCandidateResultCacheV2Path, "distill candidate result cache")
+	if candidateCacheErr != nil {
+		return plan, candidateCacheErr
+	}
+	if candidateCachePresent {
+		plan.DistillCandidateCacheV2Reset = &purgeArtifact{Path: distillCandidateResultCacheV2Path, Bytes: candidateCacheInfo.Size()}
 	}
 	// Durable memory hints/jobs are intentionally content-free, but they still
 	// retain the identity and lifecycle of this session. Include their exact
@@ -1526,7 +1541,8 @@ func isCandidateAtomicTempArtifactRel(rel string) bool {
 	case len(parts) == 1:
 		return isAtomicTempLeafForBase(parts[0], exportManifestFileName)
 	case len(parts) == 2 && parts[0] == factsDirName:
-		return isAtomicTempLeafForBase(parts[1], distillCacheFileName)
+		return isAtomicTempLeafForBase(parts[1], distillCacheFileName) ||
+			isAtomicTempLeafForBase(parts[1], filepath.Base(distillCandidateResultCacheV2Path))
 	case len(parts) == 3 && parts[0] == factsDirName && parts[1] != "":
 		return isAtomicTempLeafForBase(parts[2], factsFileName) || isAtomicTempLeafForBase(parts[2], factsProposalsFileName)
 	default:
@@ -1691,6 +1707,18 @@ func purgeDistillCacheEntries(brainDir, sessionID string) error {
 	return saveDistillCache(brainDir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{}})
 }
 
+// purgeDistillCandidateResultCacheV2 drops the candidate-result cache
+// wholesale. It deliberately only classifies and descriptor-checks the leaf
+// before replacing it: malformed, oversized, or newer opaque bytes must not
+// survive a privacy operation just because they cannot be safely parsed.
+func purgeDistillCandidateResultCacheV2(brainDir string) error {
+	_, present, err := inspectPrivacyArtifactOpened(brainDir, distillCandidateResultCacheV2Path, "distill candidate result cache")
+	if err != nil || !present {
+		return err
+	}
+	return saveDistillCandidateResultCacheV2(brainDir, newDistillCandidateResultCacheV2())
+}
+
 // --- durable privacy transaction record ---
 //
 // Every exclude/purge/retention cleanup writes a content-free, versioned
@@ -1837,6 +1865,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if plan.DistillCacheReset != nil {
 		tx.Artifacts = append(tx.Artifacts, *plan.DistillCacheReset)
 	}
+	if plan.DistillCandidateCacheV2Reset != nil {
+		tx.Artifacts = append(tx.Artifacts, *plan.DistillCandidateCacheV2Reset)
+	}
 	if txErr := writePrivacyTransaction(brainDir, tx, now); txErr != nil {
 		return txErr
 	}
@@ -1907,6 +1938,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		return err
 	}
 	if err := purgeDistillCacheEntries(brainDir, sessionID); err != nil {
+		return err
+	}
+	if err := purgeDistillCandidateResultCacheV2(brainDir); err != nil {
 		return err
 	}
 	cleanupManifest, manifestErr := loadBrainManifest(brainDir)

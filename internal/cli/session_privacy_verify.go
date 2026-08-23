@@ -122,6 +122,23 @@ func loadDistillCacheForPrivacy(brainDir string) (distillCache, error) {
 	return cache, nil
 }
 
+// loadDistillCandidateResultCacheV2ForPrivacy uses the same bounded,
+// descriptor-checked read path as every other privacy truth. The normal cache
+// loader intentionally treats a bad cache as a miss; privacy verification
+// cannot do that, because a malformed cache may still retain excluded content.
+func loadDistillCandidateResultCacheV2ForPrivacy(brainDir string) (distillCandidateResultCacheV2, error) {
+	empty := newDistillCandidateResultCacheV2()
+	data, present, err := readPrivacyArtifact(brainDir, distillCandidateResultCacheV2Path, "distill candidate result cache", distillCandidateResultCacheV2MaxBytes)
+	if err != nil || !present {
+		return empty, err
+	}
+	cache, err := parseDistillCandidateResultCacheV2(data)
+	if err != nil {
+		return empty, fmt.Errorf("%s: decode %s: %w", memoryErrStateCorrupt, distillCandidateResultCacheV2Path, err)
+	}
+	return cache, nil
+}
+
 func validDistillCacheFingerprint(value string) bool {
 	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
 		return false
@@ -734,6 +751,20 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		if _, excluded := stones.Excluded[owner]; excluded {
 			add(owner, "distill_cache", key)
+		}
+	}
+	// Candidate-result cache entries retain a source session owner and compact
+	// derived fact text. The parser validates both the bounded NDJSON framing and
+	// the owner digest, so a remaining tombstoned owner is a real violation, not
+	// merely an unverifiable hint.
+	candidateCache, err := loadDistillCandidateResultCacheV2ForPrivacy(brainDir)
+	if err != nil {
+		return report, err
+	}
+	for candidateID, entry := range candidateCache.entries {
+		owner := strings.TrimSpace(entry.SourceSessionID)
+		if _, excluded := stones.Excluded[owner]; excluded {
+			add(owner, "distill_candidate_cache_v2", candidateID)
 		}
 	}
 	// Derived binary stores: exclude and purge delete every store in
