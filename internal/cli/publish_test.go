@@ -102,6 +102,11 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 	writePublishFile(t,
 		filepath.Join(brainDir, filepath.FromSlash(distillCandidateResultCacheV2Path)),
 		[]byte("{\"type\":\"header\",\"version\":2}\n{\"private\":\"CANDIDATE_CACHE_CANARY\"}\n"))
+	// Application receipts are disposable local state under facts/distill-v2,
+	// never a hosted fact artifact.
+	writePublishFile(t,
+		filepath.Join(brainDir, filepath.FromSlash(distillApplicationReceiptsV2Path)),
+		[]byte("APPLICATION_RECEIPT_CANARY\n"))
 }
 
 func writePublishFile(t *testing.T, path string, data []byte) {
@@ -260,6 +265,9 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	var decoded wirePublishBody
 	if err := json.Unmarshal(captured.rawBodie[0], &decoded); err != nil {
 		t.Fatalf("decode captured body: %v", err)
+	}
+	if strings.Contains(string(captured.rawBodie[0]), "APPLICATION_RECEIPT_CANARY") || strings.Contains(string(captured.rawBodie[0]), "CANDIDATE_CACHE_CANARY") {
+		t.Fatal("publish bundle included disposable distill-v2 state")
 	}
 
 	byKind := map[string][]wirePublishArtifact{}

@@ -1,7 +1,7 @@
 # Candidate-First Distillation Plan
 
-Status: Phase 2 shadow implementation complete; full quality exit gate pending
-(2026-08-23).
+Status: Phase 3A exact-write implementation complete; full Phase 2 quality and
+Phase 3 relationship/parity exit gates pending (2026-08-23).
 
 The first implementation slice on `feat/candidate-first-distillation` adds the
 opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
@@ -22,18 +22,38 @@ plus an exact full-path mention from that session's touched-file list. Review
 sessions, status-only claims, basename matches, and unverified checkpoints do
 not qualify.
 
+The Phase 3A branch routes opt-in non-shadow candidate runs through that same
+framed, packed, member-cached extraction path. It materializes only exact fact
+identities, preserves authored and legacy provenance, and records bounded,
+content-free application receipts for branch/session/candidate ownership.
+Successful `NO_FACTS`, relocation, removal, force, and crash retry remove only
+the v2-owned application slot. Distinct owned/shared anchor markers preserve
+anchorless legacy exact matches while still making facts-before-receipt crash
+recovery deterministic. Exclude/purge resets receipts wholesale;
+privacy verification, atomic-temp cleanup, and publish exclusion cover the new
+artifact. Different fact ids remain separate with no automatic merge or
+supersession.
+
+Phase 3A deliberately does not create a different-id relationship proposal.
+The current proposal schema represents an executable merge or supersede
+recommendation, not a neutral relationship, and taxonomy-path overlap is not a
+safe subject detector. Adding such proposals without a new evidence-bearing
+shape would reintroduce the false-reconciliation failure this pipeline is
+designed to prevent. That work remains a later Phase 3 gate rather than being
+simulated by unsafe proposals here.
+
 The opt-in slice keeps each complete redacted authoritative trigger turn. It
 shrinks adjacent context first and refuses preflight when the trigger itself
-cannot fit `--max-chunk-bytes`; it never silently truncates a later rule or
-qualifier from the same turn. A small number of normal sessions contain
-cue-bearing pasted documents far above the default 48 KiB limit, so
+cannot fit the fixed 32 KiB candidate-v2 member/pack policy; it never silently
+truncates a later rule or qualifier from the same turn. A small number of
+normal sessions contain cue-bearing pasted documents far above that limit, so
 cue-span/paragraph splitting is required before this pipeline is corpus-general.
 
 The final Phase 1 real-corpus dry-run against `entire-graph` (2026-08-23)
 completed without an unsupported-dialect fallback. The legacy path sees 154
 exports; candidate mode deterministically coalesces same-branch re-exports to
 152 current session views covering 697,289,133 raw bytes. It reduced 33,663,145
-legacy-preprocessed bytes to 1,415,420 rendered candidate bytes (a 95.8 percent
+legacy-preprocessed bytes to 1,417,956 rendered candidate bytes (a 95.8 percent
 reduction) and removed all
 reconciliation calls. The intentionally unbatched attribution contract produced
 368 extraction calls versus 731 legacy extraction calls (or up to 1,462
@@ -84,6 +104,33 @@ Same-branch re-exports are coalesced only inside the active branch/session
 selection. A later timestamp wins; at an equal timestamp, one normalized turn
 stream must be a strict extension of the other or candidate preflight refuses
 the ambiguous views. Checkpoint ids are never treated as chronological.
+
+### Phase 3A evidence (2026-08-23)
+
+Current-source dry runs against the retained `entire-graph` Brain show exact
+planning parity between `--pipeline candidates` write mode and `--shadow`:
+after removing only `generated_at` and the intentional `shadow` flag, their
+JSON reports are byte-identical. Both report 152 current session views,
+697,289,133 raw bytes, 367 admitted cards, 231 unique members, 1,417,956
+candidate bytes, one member-cache hit, 230 misses, 29 scheduled packs/calls,
+and zero reconciliation calls. The cache-matched legacy control reports 154
+exports, 33,663,145 preprocessed bytes, 730 scheduled extraction calls, and a
+1,460-call extraction-plus-reconciliation ceiling.
+
+On that retained cache state, Phase 3A therefore plans 95.8 percent fewer input
+bytes, 96.0 percent fewer extraction calls, and 98.0 percent fewer calls than
+the legacy extraction-plus-reconciliation ceiling. These are deterministic
+dry-run measurements, not hosted-provider latency or quality claims. Focused
+integration tests additionally prove one packed call for two candidates, a
+zero-provider-call byte-stable no-op replay, a zero-call mechanics-only anchor
+relocation, exact legacy-provenance preservation, `NO_FACTS` retraction, and
+facts-before-receipt crash convergence.
+
+Phase 3A is not the full Phase 3 exit. The human-labeled Phase 2 recall and
+precision audit, repeated paired provider runs, filtered-negative audit,
+different-id relationship design, full force/incremental canonical parity,
+and live-corpus bad-reconciliation fixtures remain required before promotion
+or any default change.
 
 This plan replaces full-conversation fact extraction with a candidate-first
 pipeline. The deterministic path reads retained sessions, normalizes their
@@ -1172,8 +1219,10 @@ token/call accounting is complete.
 ### Phase 3: Conservative reconciliation and opt-in writes
 
 - Enable `--pipeline candidates` fact writes.
-- Ship exact-only reconciliation first; queue all different-id relationship
-  proposals.
+- Phase 3A ships exact-only reconciliation first and keeps all different ids
+  separate. It does not overload merge/supersede proposals as neutral links.
+- Design an evidence-bearing neutral relationship proposal and safe subject
+  block before enabling different-id proposals in a later Phase 3 slice.
 - Add safe paraphrase merging only after its pairwise precision gate passes.
 - Preserve legacy facts on incremental candidate runs.
 

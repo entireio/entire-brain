@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // writeDistillFixture lays down a brain dir with a session manifest and two
@@ -51,6 +53,34 @@ func writeDistillFixture(t *testing.T, now time.Time) string {
 		t.Fatal(err)
 	}
 	return brainDir
+}
+
+func TestPrintCandidateDryRunShowsV2PackingInWriteMode(t *testing.T) {
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	printDistillDryRunReport(cmd, distillDryRunReport{
+		Pipeline:                      distillPipelineCandidates,
+		CandidateMembers:              7,
+		CandidatePacks:                2,
+		CandidatePacksIfUncached:      3,
+		CandidateCacheHits:            1,
+		CandidateCacheMisses:          6,
+		Branches:                      []distillDryRunBranch{},
+		LargestSessions:               []distillDryRunSession{},
+		PreprocessedBytesAvailable:    false,
+		ReconcileAgentCallsUpperBound: 0,
+	})
+	text := out.String()
+	for _, want := range []string{
+		"candidate members: 7 unique",
+		"candidate packs: 2 scheduled, 3 if uncached",
+		"candidate member cache: 1 hits, 6 misses",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("write-mode candidate dry-run omitted %q:\n%s", want, text)
+		}
+	}
 }
 
 // writeSingleSessionFixture lays down a brain dir with a session manifest and
@@ -1665,7 +1695,7 @@ func TestDistillPipelineValidationAndCacheSaltCompatibility(t *testing.T) {
 	}
 }
 
-func TestCandidatePipelinePreservesLegacyRollbackCacheUnlessForced(t *testing.T) {
+func TestCandidatePipelineV2PreservesLegacySessionCacheIncludingForce(t *testing.T) {
 	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, `{"type":"event_msg","payload":{"type":"user_message","message":"Always keep migrations reversible."}}`)
 	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) { return "NO_FACTS", nil }
@@ -1675,14 +1705,22 @@ func TestCandidatePipelinePreservesLegacyRollbackCacheUnlessForced(t *testing.T)
 	}
 	candidate := base
 	candidate.pipeline = distillPipelineCandidates
+	candidate.run = func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		ids := candidateIDsFromPackedInputV2(t, input)
+		lines := make([]string, len(ids))
+		for index, id := range ids {
+			lines[index] = id + "\tNO_FACTS"
+		}
+		return strings.Join(lines, "\n"), nil
+	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, candidate, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	cache := loadDistillCache(brainDir)
 	legacyKey := distillSessionCacheKey("main", "s1")
 	candidateKey := distillSessionCacheKeyForPipeline(distillPipelineCandidates, "main", "s1")
-	if cache.Sessions[legacyKey] == "" || cache.Sessions[candidateKey] == "" {
-		t.Fatalf("normal candidate run did not preserve both cache namespaces: %+v", cache.Sessions)
+	if cache.Sessions[legacyKey] == "" || cache.Sessions[candidateKey] != "" {
+		t.Fatalf("candidate v2 did not preserve the legacy-only session cache: %+v", cache.Sessions)
 	}
 
 	candidate.force = true
@@ -1690,8 +1728,8 @@ func TestCandidatePipelinePreservesLegacyRollbackCacheUnlessForced(t *testing.T)
 		t.Fatal(err)
 	}
 	cache = loadDistillCache(brainDir)
-	if cache.Sessions[legacyKey] != "" || cache.Sessions[candidateKey] == "" {
-		t.Fatalf("forced rebuild retained stale rollback fingerprints: %+v", cache.Sessions)
+	if cache.Sessions[legacyKey] == "" || cache.Sessions[candidateKey] != "" {
+		t.Fatalf("candidate v2 force changed the legacy session cache: %+v", cache.Sessions)
 	}
 }
 
@@ -1726,17 +1764,23 @@ func TestCandidatePipelineCoalescesSameBranchSessionReexports(t *testing.T) {
 		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
 		run: func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
 			calls++
-			if bytes.Contains(input, []byte("race tests")) {
-				return "convention\tpreferences.coding.style\tRace tests must never be skipped.\n", nil
+			ids := candidateIDsFromPackedInputV2(t, input)
+			lines := make([]string, len(ids))
+			for index, id := range ids {
+				text := "Migrations must remain reversible."
+				if index == len(ids)-1 {
+					text = "Race tests must never be skipped."
+				}
+				lines[index] = id + "\tconvention\tpreferences.coding.style\t" + text
 			}
-			return "convention\tpreferences.coding.style\tMigrations must remain reversible.\n", nil
+			return strings.Join(lines, "\n"), nil
 		},
 	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 {
-		t.Fatalf("initial candidate calls = %d, want 2 from only the newest export", calls)
+	if calls != 1 {
+		t.Fatalf("initial candidate calls = %d, want one packed call from only the newest export", calls)
 	}
 	facts, err := loadFacts(brainDir, "main")
 	if err != nil || len(facts) != 2 {
@@ -1831,9 +1875,9 @@ func TestCandidateScopedRunIgnoresDivergentTiedViewsOutsideSelection(t *testing.
 	opts := distillCommandOptions{
 		agent: "command", agentCommand: []string{"fake"}, pipeline: distillPipelineCandidates, branch: "main",
 		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
-		run: func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+		run: func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
 			calls++
-			return "NO_FACTS", nil
+			return candidateIDsFromPackedInputV2(t, input)[0] + "\tNO_FACTS", nil
 		},
 	}
 	if report, err := buildDistillDryRunReport(brainDir, opts, now); err != nil || report.Sessions != 1 {
@@ -1869,7 +1913,7 @@ func TestCandidatePipelineCacheNamespaceDoesNotClaimLegacyBranchName(t *testing.
 	}
 }
 
-func TestCandidateBranchScopedForceInvalidatesOnlySelectedBranchCaches(t *testing.T) {
+func TestCandidateBranchScopedForceLeavesLegacySessionCachesUntouched(t *testing.T) {
 	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
 	manifest, err := loadBrainManifest(brainDir)
@@ -1902,26 +1946,26 @@ func TestCandidateBranchScopedForceInvalidatesOnlySelectedBranchCaches(t *testin
 	opts := distillCommandOptions{
 		agent: "command", agentCommand: []string{"fake"}, pipeline: distillPipelineCandidates,
 		branch: "feature", force: true, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
-		run: func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+		run: func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
 			cache := loadDistillCache(brainDir)
 			checkedUpfront = cache.Sessions[mainLegacy] != "" && cache.Sessions[mainCandidate] != "" &&
-				cache.Sessions[featureLegacy] == "" && cache.Sessions[featureCandidate] == "" && cache.Sessions["s1"] == ""
-			return "NO_FACTS", nil
+				cache.Sessions[featureLegacy] != "" && cache.Sessions[featureCandidate] != "" && cache.Sessions["s1"] != ""
+			return candidateIDsFromPackedInputV2(t, input)[0] + "\tNO_FACTS", nil
 		},
 	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if !checkedUpfront {
-		t.Fatal("scoped force did not durably invalidate only the selected branch before provider work")
+		t.Fatal("candidate v2 force changed the legacy session cache before provider work")
 	}
 	cache := loadDistillCache(brainDir)
-	if cache.Sessions[mainLegacy] == "" || cache.Sessions[mainCandidate] == "" || cache.Sessions[featureLegacy] != "" || cache.Sessions[featureCandidate] == "" || cache.Sessions["s1"] != "" {
+	if cache.Sessions[mainLegacy] == "" || cache.Sessions[mainCandidate] == "" || cache.Sessions[featureLegacy] == "" || cache.Sessions[featureCandidate] == "" || cache.Sessions["s1"] == "" {
 		t.Fatalf("scoped force cache result = %+v", cache.Sessions)
 	}
 }
 
-func TestCandidateForceIncludesOrphanFactAndProposalOnlyBranches(t *testing.T) {
+func TestCandidateForceRebuildsOnlyV2ApplicationsAndPreservesLegacyStores(t *testing.T) {
 	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, `{"type":"event_msg","payload":{"type":"user_message","message":"Always keep migrations reversible."}}`)
 	paths := normalizeFactPaths([]string{"workflow.testing.rules"})
@@ -1967,40 +2011,39 @@ func TestCandidateForceIncludesOrphanFactAndProposalOnlyBranches(t *testing.T) {
 	opts := distillCommandOptions{
 		agent: "command", agentCommand: []string{"fake"}, pipeline: distillPipelineCandidates,
 		force: true, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
-		run: func(context.Context, string, []string, []byte, time.Duration) (string, error) { return "NO_FACTS", nil },
+		run: func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+			return candidateIDsFromPackedInputV2(t, input)[0] + "\tNO_FACTS", nil
+		},
 	}
 	report, err := buildDistillDryRunReport(brainDir, opts, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.ExistingDistilledFactsAtRisk != 1 {
-		t.Fatalf("dry-run facts at risk = %d, want 1", report.ExistingDistilledFactsAtRisk)
+	if report.ExistingDistilledFactsAtRisk != 0 || report.RebuildScope != "candidate_v2_materializations_on_selected_branches" {
+		t.Fatalf("dry-run v2 rebuild scope = %+v", report)
 	}
 	seenBranches := map[string]bool{}
 	for _, branch := range report.Branches {
 		seenBranches[branch.Branch] = true
 	}
-	if !seenBranches[orphanFact.Branch] || !seenBranches[proposalBranch] {
-		t.Fatalf("dry-run force scope omitted orphan stores: %+v", report.Branches)
-	}
-	if !slices.ContainsFunc(report.Warnings, func(warning string) bool { return strings.Contains(warning, "2 legacy proposal stores") }) {
-		t.Fatalf("dry-run did not disclose legacy proposal cleanup: %+v", report.Warnings)
+	if seenBranches[orphanFact.Branch] || seenBranches[proposalBranch] {
+		t.Fatalf("candidate v2 force unexpectedly claimed legacy orphan stores: %+v", report.Branches)
 	}
 
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if facts, err := loadFacts(brainDir, orphanFact.Branch); err != nil || len(facts) != 0 {
-		t.Fatalf("orphan distilled facts survived force: %+v, %v", facts, err)
+	if facts, err := loadFacts(brainDir, orphanFact.Branch); err != nil || len(facts) != 1 {
+		t.Fatalf("candidate v2 force changed legacy orphan facts: %+v, %v", facts, err)
 	}
-	if proposals, err := loadFactProposals(brainDir, proposalBranch); err != nil || len(proposals) != 0 {
-		t.Fatalf("proposal-only branch survived force: %+v, %v", proposals, err)
+	if proposals, err := loadFactProposals(brainDir, proposalBranch); err != nil || len(proposals) != 1 {
+		t.Fatalf("candidate v2 force changed proposal-only branch: %+v, %v", proposals, err)
 	}
-	if proposals, err := loadFactProposals(brainDir, legacyBranch); err != nil || len(proposals) != 1 || proposals[0].ProposedBy != "member-b" {
-		t.Fatalf("legacy proposal cleanup did not retain only attributed work: %+v, %v", proposals, err)
+	if proposals, err := loadFactProposals(brainDir, legacyBranch); err != nil || len(proposals) != 2 {
+		t.Fatalf("candidate v2 force changed legacy proposal backlog: %+v, %v", proposals, err)
 	}
-	if proposals, err := loadFactProposals(brainDir, mismatchBranch); err != nil || len(proposals) != 0 {
-		t.Fatalf("mismatched legacy proposal store survived force: %+v, %v", proposals, err)
+	if proposals, err := loadFactProposals(brainDir, mismatchBranch); err != nil || len(proposals) != 1 {
+		t.Fatalf("candidate v2 force changed mismatched legacy proposal store: %+v, %v", proposals, err)
 	}
 }
 
@@ -2022,11 +2065,16 @@ func TestCandidateEmptyReprocessDoesNotDeleteLegacyOwnedFact(t *testing.T) {
 	candidate := legacy
 	candidate.pipeline = distillPipelineCandidates
 	candidate.model = "candidate-fact"
+	candidate.run = func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		return candidateIDsFromPackedInputV2(t, input)[0] + "\tconvention\tpreferences.coding.style\tMigrations must remain reversible.", nil
+	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, candidate, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	candidate.model = "candidate-empty"
-	candidate.run = func(context.Context, string, []string, []byte, time.Duration) (string, error) { return "NO_FACTS", nil }
+	candidate.run = func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		return candidateIDsFromPackedInputV2(t, input)[0] + "\tNO_FACTS", nil
+	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, candidate, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -2062,7 +2110,7 @@ func TestCandidatePipelineSkipsModelReconciliation(t *testing.T) {
 		if !bytes.Contains(input, []byte(`"type":"distill_candidate_v1"`)) || !bytes.Contains(input, []byte(`"role":"user"`)) {
 			t.Fatalf("candidate runner received legacy/untyped input: %s", input)
 		}
-		return "convention\tpreferences.coding.style\tMigrations must remain reversible.\n", nil
+		return candidateIDsFromPackedInputV2(t, input)[0] + "\tconvention\tpreferences.coding.style\tMigrations must remain reversible.", nil
 	}
 	opts := distillCommandOptions{
 		agent: "command", agentCommand: []string{"fake"}, run: run,
@@ -2115,9 +2163,9 @@ func TestCandidatePipelineSkipsModelReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("candidate dry-run: %v", err)
 	}
-	if report.Pipeline != distillPipelineCandidates || report.CandidateCards != 1 ||
-		report.ExtractionAgentCalls != 1 || report.ReconcileAgentCallsUpperBound != 0 || report.EstimatedAgentCallsUpperBound != 1 {
-		t.Fatalf("candidate dry-run did not predict one extraction and no reconciliation: %+v", report)
+	if report.Pipeline != distillPipelineCandidates || report.CandidateCards != 1 || report.CandidateCacheHits != 1 ||
+		report.ExtractionAgentCalls != 0 || report.ReconcileAgentCallsUpperBound != 0 || report.EstimatedAgentCallsUpperBound != 0 {
+		t.Fatalf("candidate dry-run did not predict cached relocation and no reconciliation: %+v", report)
 	}
 	if report.CandidateBytes <= 0 || report.PreprocessedBytes != 0 || report.PreprocessedBytesAvailable {
 		t.Fatalf("candidate dry-run byte accounting is wrong: %+v", report)
@@ -2127,7 +2175,7 @@ func TestCandidatePipelineSkipsModelReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second candidate run: %v", err)
 	}
-	if providerCalls != 2 || second.ExtractionCalls != 1 || second.ReconcileCalls != 0 {
+	if providerCalls != 1 || second.ExtractionCalls != 0 || second.ReconcileCalls != 0 {
 		t.Fatalf("candidate extraction/reconciliation accounting is wrong: provider=%d source=%+v", providerCalls, second)
 	}
 	facts, err := loadFacts(brainDir, "main")
@@ -2145,11 +2193,12 @@ func TestCandidatePipelineSkipsModelReconciliation(t *testing.T) {
 func TestCandidatePipelineBlankPreservesAndSentinelClearsMaterialization(t *testing.T) {
 	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, `{"type":"event_msg","payload":{"type":"user_message","message":"Always keep migrations reversible."}}`)
-	output := "convention\tpreferences.coding.style\tMigrations must remain reversible.\n"
 	opts := distillCommandOptions{
 		agent: "command", agentCommand: []string{"fake"}, pipeline: distillPipelineCandidates,
 		model: "first", maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
-		run: func(context.Context, string, []string, []byte, time.Duration) (string, error) { return output, nil },
+		run: func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+			return candidateIDsFromPackedInputV2(t, input)[0] + "\tconvention\tpreferences.coding.style\tMigrations must remain reversible.", nil
+		},
 	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
@@ -2168,7 +2217,9 @@ func TestCandidatePipelineBlankPreservesAndSentinelClearsMaterialization(t *test
 
 	empty := opts
 	empty.model = "explicit-empty"
-	empty.run = func(context.Context, string, []string, []byte, time.Duration) (string, error) { return "NO_FACTS", nil }
+	empty.run = func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		return candidateIDsFromPackedInputV2(t, input)[0] + "\tNO_FACTS", nil
+	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, empty, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -2178,7 +2229,7 @@ func TestCandidatePipelineBlankPreservesAndSentinelClearsMaterialization(t *test
 	}
 }
 
-func TestCandidatePipelineRefusesToClobberConcurrentFactAdminWrite(t *testing.T) {
+func TestCandidatePipelineLoadsFreshFactsAfterConcurrentFactAdminWrite(t *testing.T) {
 	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	transcript := strings.Join([]string{
 		`{"type":"event_msg","payload":{"type":"user_message","message":"Always keep migrations reversible."}}`,
@@ -2187,9 +2238,9 @@ func TestCandidatePipelineRefusesToClobberConcurrentFactAdminWrite(t *testing.T)
 	}, "\n")
 	brainDir := writeSingleSessionFixture(t, now, transcript)
 	calls := 0
-	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+	run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
 		calls++
-		if calls == 2 {
+		if calls == 1 {
 			err := withBrainWriteLock(brainDir, func() error {
 				facts, err := loadFacts(brainDir, "main")
 				if err != nil {
@@ -2206,14 +2257,19 @@ func TestCandidatePipelineRefusesToClobberConcurrentFactAdminWrite(t *testing.T)
 				t.Fatal(err)
 			}
 		}
-		return fmt.Sprintf("convention\tpreferences.coding.style\tCandidate fact %d.\n", calls), nil
+		ids := candidateIDsFromPackedInputV2(t, input)
+		lines := make([]string, len(ids))
+		for index, id := range ids {
+			lines[index] = fmt.Sprintf("%s\tconvention\tpreferences.coding.style\tCandidate fact %d.", id, index+1)
+		}
+		return strings.Join(lines, "\n"), nil
 	}
 	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, distillCommandOptions{
 		agent: "command", agentCommand: []string{"fake"}, pipeline: distillPipelineCandidates,
 		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, flushEvery: 1, run: run,
 	}, now)
-	if err == nil || !errors.Is(err, errDistillFactStoreChanged) {
-		t.Fatalf("concurrent fact change was not detected: %v", err)
+	if err != nil {
+		t.Fatalf("candidate v2 did not merge against fresh fact state: %v", err)
 	}
 	facts, loadErr := loadFacts(brainDir, "main")
 	if loadErr != nil {
@@ -2226,7 +2282,7 @@ func TestCandidatePipelineRefusesToClobberConcurrentFactAdminWrite(t *testing.T)
 		}
 	}
 	if !foundAuthored {
-		t.Fatalf("candidate flush clobbered concurrent authored fact: %+v", facts)
+		t.Fatalf("candidate apply clobbered concurrent authored fact: %+v", facts)
 	}
 }
 

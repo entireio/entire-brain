@@ -160,14 +160,13 @@ func renderDistillPromptForCandidateProtocolV2(taxonomy factTaxonomy) (string, e
 }
 
 // renderDistillPromptForOptions keeps prompt selection identical across live
-// execution, dry-run planning, and cache identity. Phase 2's framed protocol
-// is shadow-only; the opt-in Phase 1 writer deliberately remains on v1 until
-// Phase 3 admits candidate writes.
+// execution, dry-run planning, and cache identity. Candidate mode always uses
+// the framed v2 protocol; --shadow controls materialization, not extraction.
 func renderDistillPromptForOptions(taxonomy factTaxonomy, opts distillCommandOptions) (string, error) {
-	if opts.shadow {
+	if mustDistillPipeline(opts.pipeline) == distillPipelineCandidates {
 		return renderDistillPromptForCandidateProtocolV2(taxonomy)
 	}
-	return renderDistillPromptForPipeline(taxonomy, mustDistillPipeline(opts.pipeline))
+	return renderDistillPromptForPipeline(taxonomy, distillPipelineLegacy)
 }
 
 // factTaxonomyBlock renders the taxonomy as the prompt section the agent uses to

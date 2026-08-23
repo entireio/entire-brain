@@ -17,7 +17,7 @@ const (
 
 // distillCandidateShadowMemberV2 joins one redacted provider member to the
 // extraction identity and session ownership that intentionally stay outside
-// the provider payload. Shadow mode never materializes this into active facts.
+// the provider payload. Materialization, when requested, is a separate step.
 type distillCandidateShadowMemberV2 struct {
 	PackMember      distillCandidatePackMemberV2
 	SourceSessionID string
@@ -38,10 +38,10 @@ type distillCandidatePackPrefetchV2 struct {
 	Launched *atomic.Int64
 }
 
-// runDistillCandidateShadowV2 is Phase 2's deliberately isolated execution
-// path. It may update only the v2 member-result cache. Active facts, proposals,
-// the legacy session cache, taxonomy, manifest, and README are never written.
-func runDistillCandidateShadowV2(
+// runDistillCandidateExtractionV2 is the shared Phase 2/3 extraction path. It
+// may update only the v2 member-result cache; callers decide whether the
+// protocol-valid results are merely observed or materialized afterward.
+func runDistillCandidateExtractionV2(
 	ctx context.Context,
 	repoDir, brainDir string,
 	args []string,
@@ -114,13 +114,15 @@ func runDistillCandidateShadowV2(
 	shadowFacts := 0
 	emptyResults := 0
 	for _, member := range ordered {
-		if cached, ok := cache.LookupSuccess(member.PackMember.CandidateID, member.Identity); ok {
-			cacheHits++
-			shadowFacts += len(cached.Facts)
-			if cached.Empty {
-				emptyResults++
+		if !opts.force {
+			if cached, ok := cache.LookupSuccess(member.PackMember.CandidateID, member.Identity); ok {
+				cacheHits++
+				shadowFacts += len(cached.Facts)
+				if cached.Empty {
+					emptyResults++
+				}
+				continue
 			}
-			continue
 		}
 		misses = append(misses, member.PackMember)
 	}
@@ -180,6 +182,7 @@ func runDistillCandidateShadowV2(
 	packCompleted := 0
 	failedCalls := 0
 	splitCalls := 0
+	unresolvedMembers := 0
 	anyProviderSuccess := false
 	for index, pack := range packs {
 		var attempt distillCandidatePackAttemptV2
@@ -204,8 +207,9 @@ func runDistillCandidateShadowV2(
 			}
 
 			failedCalls++
-			warnings = append(warnings, fmt.Sprintf("candidate pack %d failed and was isolated without publishing active facts", index+1))
+			warnings = append(warnings, fmt.Sprintf("candidate pack %d failed and was isolated before materialization", index+1))
 			if len(pack.Members) == 1 {
+				unresolvedMembers++
 				if !anyProviderSuccess && failedCalls >= distillAgentAbortThreshold {
 					_ = flushCache(true)
 					return fmt.Errorf("candidate shadow aborted after %d provider/protocol failures with no valid response", failedCalls)
@@ -223,6 +227,7 @@ func runDistillCandidateShadowV2(
 				if childAttempt.Err != nil {
 					failedCalls++
 					resolved = false
+					unresolvedMembers += len(child.Members)
 					warnings = append(warnings, fmt.Sprintf("candidate pack %d split %d failed; its members remain uncached", index+1, childIndex+1))
 					if !anyProviderSuccess && failedCalls >= distillAgentAbortThreshold {
 						_ = flushCache(true)
@@ -252,6 +257,9 @@ func runDistillCandidateShadowV2(
 	if err := flushCache(true); err != nil {
 		return nil, err
 	}
+	if !opts.shadow && unresolvedMembers > 0 {
+		return nil, fmt.Errorf("candidate extraction left %d member(s) unresolved; protocol-valid neighbors were cached but active facts were not changed", unresolvedMembers)
+	}
 
 	totalCalls := int(prefetch.Launched.Load()) + splitCalls
 	source := &factSourceManifest{
@@ -276,6 +284,7 @@ func runDistillCandidateShadowV2(
 		Effort:                strings.TrimSpace(opts.effort),
 		Pipeline:              distillPipelineCandidates,
 		Branch:                strings.TrimSpace(opts.branch),
+		Force:                 opts.force,
 		Jobs:                  distillRequestedJobs(opts),
 		ExtractionJobsCap:     distillEffectiveExtractionJobs(len(packs), opts),
 		MaxChunkBytes:         distillCandidatePackMaxRenderedBytesV2,
@@ -285,8 +294,10 @@ func runDistillCandidateShadowV2(
 		ExtractionWaitSeconds: time.Since(providerStarted).Seconds(),
 		TotalSeconds:          time.Since(runStarted).Seconds(),
 		Warnings:              capWarnings(warnings, maxDistillWarnings),
-		Shadow:                true,
-		ShadowFacts:           shadowFacts,
+		Shadow:                opts.shadow,
+	}
+	if opts.shadow {
+		source.ShadowFacts = shadowFacts
 	}
 	return source, nil
 }

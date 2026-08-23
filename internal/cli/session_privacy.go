@@ -917,6 +917,11 @@ type sessionPurgePlan struct {
 	// session ID, it is a performance hint containing derived text; retaining
 	// any part of it after an exclusion is not worth a selective-pruning bug.
 	DistillCandidateCacheV2Reset *purgeArtifact `json:"distill_candidate_cache_v2_reset,omitempty"`
+	// DistillApplicationReceiptsV2Reset reports the disposable branch/application
+	// receipt artifact. Receipts are reset wholesale because facts/provenance
+	// anchors are already purged by session and selective ownership repair is
+	// not a privacy-safe operation.
+	DistillApplicationReceiptsV2Reset *purgeArtifact `json:"distill_application_receipts_v2_reset,omitempty"`
 	// WorkMetadata is content-free lifecycle/job state tied to this raw
 	// session. Privacy cleanup removes it immediately rather than retaining
 	// operational evidence about a session the user excluded or purged.
@@ -1009,6 +1014,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		if plan.DistillCandidateCacheV2Reset != nil {
 			fmt.Fprintf(out, "  distill candidate cache %s (%d bytes, reset wholesale)\n", plan.DistillCandidateCacheV2Reset.Path, plan.DistillCandidateCacheV2Reset.Bytes)
 		}
+		if plan.DistillApplicationReceiptsV2Reset != nil {
+			fmt.Fprintf(out, "  distill application receipts %s (%d bytes, reset wholesale)\n", plan.DistillApplicationReceiptsV2Reset.Path, plan.DistillApplicationReceiptsV2Reset.Bytes)
+		}
 		for _, artifact := range plan.WorkMetadata {
 			fmt.Fprintf(out, "  memory work metadata %s (%d bytes)\n", artifact.Path, artifact.Bytes)
 		}
@@ -1091,6 +1099,21 @@ func factAnchorMatchesSession(anchor factAnchor, sessionID string, transcriptRel
 	return rel != "" && transcriptRels[rel]
 }
 
+// removedFactAnchorsOwnFact reports whether removing these anchors also
+// removes an ownership source for the fact. A shared candidate-v2 anchor only
+// records an exact match against a fact that already existed, so stripping it
+// must not delete an otherwise anchorless legacy fact. Owned v2 anchors and all
+// older anchor forms remain authoritative deletion evidence.
+func removedFactAnchorsOwnFact(anchors []factAnchor) bool {
+	for _, anchor := range anchors {
+		_, owned, applicationAnchor := distillCandidateApplicationAnchorDetailsV2(anchor.DistillTurnID)
+		if !applicationAnchor || owned {
+			return true
+		}
+	}
+	return false
+}
+
 func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error) {
 	plan := sessionPurgePlan{SessionID: sessionID}
 	manifest, err := loadBrainManifest(brainDir)
@@ -1154,15 +1177,17 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	for _, facts := range byBranch {
 		for _, fact := range facts {
 			matched, remaining := 0, 0
+			matchedAnchors := make([]factAnchor, 0, len(fact.Provenance))
 			for _, anchor := range fact.Provenance {
 				if factAnchorMatchesSession(anchor, sessionID, transcriptRels) {
 					matched++
+					matchedAnchors = append(matchedAnchors, anchor)
 				} else {
 					remaining++
 				}
 			}
 			switch {
-			case matched > 0 && remaining == 0 && fact.Origin != factOriginAuthored:
+			case matched > 0 && remaining == 0 && fact.Origin != factOriginAuthored && removedFactAnchorsOwnFact(matchedAnchors):
 				plan.FactsDeleted++
 			case matched > 0:
 				plan.FactAnchorsStripped += matched
@@ -1205,6 +1230,13 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	}
 	if candidateCachePresent {
 		plan.DistillCandidateCacheV2Reset = &purgeArtifact{Path: distillCandidateResultCacheV2Path, Bytes: candidateCacheInfo.Size()}
+	}
+	receiptInfo, receiptPresent, receiptErr := inspectPrivacyArtifactOpened(brainDir, distillApplicationReceiptsV2Path, "distill application receipts")
+	if receiptErr != nil {
+		return plan, receiptErr
+	}
+	if receiptPresent {
+		plan.DistillApplicationReceiptsV2Reset = &purgeArtifact{Path: distillApplicationReceiptsV2Path, Bytes: receiptInfo.Size()}
 	}
 	// Durable memory hints/jobs are intentionally content-free, but they still
 	// retain the identity and lifecycle of this session. Include their exact
@@ -1544,7 +1576,8 @@ func isCandidateAtomicTempArtifactRel(rel string) bool {
 		return isAtomicTempLeafForBase(parts[1], distillCacheFileName) ||
 			isAtomicTempLeafForBase(parts[1], filepath.Base(distillCandidateResultCacheV2Path))
 	case len(parts) == 3 && parts[0] == factsDirName && parts[1] != "":
-		return isAtomicTempLeafForBase(parts[2], factsFileName) || isAtomicTempLeafForBase(parts[2], factsProposalsFileName)
+		return isAtomicTempLeafForBase(parts[2], factsFileName) || isAtomicTempLeafForBase(parts[2], factsProposalsFileName) ||
+			(parts[1] == "distill-v2" && isAtomicTempLeafForBase(parts[2], filepath.Base(distillApplicationReceiptsV2Path)))
 	default:
 		return false
 	}
@@ -1642,15 +1675,17 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 		kept := make([]factRecord, 0, len(facts))
 		for _, fact := range facts {
 			remaining := fact.Provenance[:0:0]
+			removed := make([]factAnchor, 0, len(fact.Provenance))
 			stripped := 0
 			for _, anchor := range fact.Provenance {
 				if factAnchorMatchesSession(anchor, sessionID, transcriptRels) {
 					stripped++
+					removed = append(removed, anchor)
 					continue
 				}
 				remaining = append(remaining, anchor)
 			}
-			if stripped > 0 && len(remaining) == 0 && fact.Origin != factOriginAuthored {
+			if stripped > 0 && len(remaining) == 0 && fact.Origin != factOriginAuthored && removedFactAnchorsOwnFact(removed) {
 				deletedIDs[fact.ID] = true
 				deletedTotal++
 				changed = true
@@ -1717,6 +1752,18 @@ func purgeDistillCandidateResultCacheV2(brainDir string) error {
 		return err
 	}
 	return saveDistillCandidateResultCacheV2(brainDir, newDistillCandidateResultCacheV2())
+}
+
+// purgeDistillApplicationReceiptsV2 resets disposable application receipts
+// wholesale. It intentionally does not parse the payload: malformed,
+// forward-version, opaque, or oversized regular bytes must not survive a
+// privacy operation merely because they cannot be attributed safely.
+func purgeDistillApplicationReceiptsV2(brainDir string) error {
+	_, present, err := inspectPrivacyArtifactOpened(brainDir, distillApplicationReceiptsV2Path, "distill application receipts")
+	if err != nil || !present {
+		return err
+	}
+	return saveDistillApplicationReceiptStoreV2(brainDir, newDistillApplicationReceiptStoreV2())
 }
 
 // --- durable privacy transaction record ---
@@ -1868,6 +1915,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if plan.DistillCandidateCacheV2Reset != nil {
 		tx.Artifacts = append(tx.Artifacts, *plan.DistillCandidateCacheV2Reset)
 	}
+	if plan.DistillApplicationReceiptsV2Reset != nil {
+		tx.Artifacts = append(tx.Artifacts, *plan.DistillApplicationReceiptsV2Reset)
+	}
 	if txErr := writePrivacyTransaction(brainDir, tx, now); txErr != nil {
 		return txErr
 	}
@@ -1941,6 +1991,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		return err
 	}
 	if err := purgeDistillCandidateResultCacheV2(brainDir); err != nil {
+		return err
+	}
+	if err := purgeDistillApplicationReceiptsV2(brainDir); err != nil {
 		return err
 	}
 	cleanupManifest, manifestErr := loadBrainManifest(brainDir)

@@ -139,6 +139,23 @@ func loadDistillCandidateResultCacheV2ForPrivacy(brainDir string) (distillCandid
 	return cache, nil
 }
 
+// loadDistillApplicationReceiptStoreV2ForPrivacy uses the bounded,
+// descriptor-safe privacy reader and the strict receipt parser. Unlike the
+// normal disposable-state loader, privacy verification must fail closed on a
+// corrupt, opaque, forward-version, or oversized artifact.
+func loadDistillApplicationReceiptStoreV2ForPrivacy(brainDir string) (distillApplicationReceiptStoreV2, error) {
+	empty := newDistillApplicationReceiptStoreV2()
+	data, present, err := readPrivacyArtifact(brainDir, distillApplicationReceiptsV2Path, "distill application receipts", distillApplicationReceiptsV2MaxBytes)
+	if err != nil || !present {
+		return empty, err
+	}
+	store, err := parseDistillApplicationReceiptStoreV2(data)
+	if err != nil {
+		return empty, fmt.Errorf("%s: decode %s: %w", memoryErrStateCorrupt, distillApplicationReceiptsV2Path, err)
+	}
+	return store, nil
+}
+
 func validDistillCacheFingerprint(value string) bool {
 	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
 		return false
@@ -575,6 +592,13 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
+	// Receipt state is privacy-sensitive derived state even when no tombstone
+	// currently exists. Parse it before the empty-policy fast path so an opaque
+	// or oversize artifact can never make verification claim a false clean state.
+	applicationReceipts, err := loadDistillApplicationReceiptStoreV2ForPrivacy(brainDir)
+	if err != nil {
+		return report, err
+	}
 	if len(stones.Excluded) == 0 {
 		report.Clean = true
 		return report, nil
@@ -765,6 +789,12 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		owner := strings.TrimSpace(entry.SourceSessionID)
 		if _, excluded := stones.Excluded[owner]; excluded {
 			add(owner, "distill_candidate_cache_v2", candidateID)
+		}
+	}
+	for slotID, receipt := range applicationReceipts.entries {
+		owner := strings.TrimSpace(receipt.Identity.SourceSessionID)
+		if _, excluded := stones.Excluded[owner]; excluded {
+			add(owner, "distill_application_receipts_v2", slotID)
 		}
 	}
 	// Derived binary stores: exclude and purge delete every store in
