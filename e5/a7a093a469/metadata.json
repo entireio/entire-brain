@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "e5a7a093a469",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-phase3",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill.go",
+    "internal/cli/distill_applications_v2.go",
+    "internal/cli/distill_applications_v2_test.go",
+    "internal/cli/distill_apply_runner_v2.go",
+    "internal/cli/distill_apply_runner_v2_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go",
+    "internal/cli/distill_materialize_v2.go",
+    "internal/cli/distill_materialize_v2_test.go",
+    "internal/cli/distill_shadow_v2.go",
+    "internal/cli/publish_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_receipts_test.go",
+    "internal/cli/session_privacy_verify.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e5/a7a093a469/0/metadata.json",
+      "transcript": "/e5/a7a093a469/0/full.jsonl",
+      "compact_transcript": "/e5/a7a093a469/0/transcript.jsonl",
+      "content_hash": "/e5/a7a093a469/0/content_hash.txt",
+      "prompt": "/e5/a7a093a469/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6412175,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 374395648,
+    "output_tokens": 814574,
+    "api_call_count": 3110
+  }
+}

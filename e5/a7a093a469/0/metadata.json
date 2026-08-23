@@ -1,0 +1,62 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "e5a7a093a469",
+  "session_id": "01a0200a-63d8-7b21-adef-c3850aecebf7",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-23T18:26:54.816845Z",
+  "branch": "feat/candidate-distillation-phase3",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill.go",
+    "internal/cli/distill_applications_v2.go",
+    "internal/cli/distill_applications_v2_test.go",
+    "internal/cli/distill_apply_runner_v2.go",
+    "internal/cli/distill_apply_runner_v2_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go",
+    "internal/cli/distill_materialize_v2.go",
+    "internal/cli/distill_materialize_v2_test.go",
+    "internal/cli/distill_shadow_v2.go",
+    "internal/cli/publish_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_receipts_test.go",
+    "internal/cli/session_privacy_verify.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "eb8fb696a116",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 6412175,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 374395648,
+    "output_tokens": 814574,
+    "api_call_count": 3110
+  },
+  "session_metrics": {
+    "turn_count": 28
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-23T18:26:53.152035Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 2433,
+    "human_modified": 149,
+    "human_removed": 0,
+    "total_committed": 2433,
+    "total_lines_changed": 2582,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
