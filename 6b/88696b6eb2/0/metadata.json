@@ -1,0 +1,96 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "6b88696b6eb2",
+  "session_id": "01a0200a-63d8-7b21-adef-c3850aecebf7",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-23T14:56:50.253511Z",
+  "branch": "feat/candidate-first-distillation",
+  "checkpoints_count": 14,
+  "save_step_count": 4,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/brain.go",
+    "internal/cli/canonical_transcript_ingestion_test.go",
+    "internal/cli/distill.go",
+    "internal/cli/distill_candidates.go",
+    "internal/cli/distill_candidates_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go",
+    "internal/cli/distill_test.go",
+    "internal/cli/export.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_manifest.go",
+    "internal/cli/facts_test.go",
+    "internal/cli/history_input.go",
+    "internal/cli/reconcile.go",
+    "internal/cli/reconcile_test.go",
+    "internal/cli/redaction.go",
+    "internal/cli/review_fixes_test.go",
+    "internal/cli/review_regressions_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_hardening_test.go",
+    "internal/cli/session_privacy_test.go",
+    "internal/cli/session_privacy_verify.go",
+    "internal/factmerge/dedup.go",
+    "internal/factmerge/factmerge_test.go",
+    "internal/factmerge/record.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "1a3ea4e322ab",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 5432402,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 295589888,
+    "output_tokens": 625936,
+    "api_call_count": 2586
+  },
+  "session_metrics": {
+    "turn_count": 26
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-23T14:56:48.856903Z",
+    "agent_lines": 6176,
+    "agent_removed": 356,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 6176,
+    "total_lines_changed": 6532,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6163,
+      "agent_lines_removed": 301
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6163,
+      "agent_lines_removed": 301
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 6163,
+      "agent_lines_removed": 301
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.10.1-nightly.202608130635.9862b0dd6.0.20260813151813-ec5593200a1c",
+  "checkpoint_id": "6b88696b6eb2",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-first-distillation",
+  "checkpoints_count": 14,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/brain.go",
+    "internal/cli/canonical_transcript_ingestion_test.go",
+    "internal/cli/distill.go",
+    "internal/cli/distill_candidates.go",
+    "internal/cli/distill_candidates_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go",
+    "internal/cli/distill_test.go",
+    "internal/cli/export.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_manifest.go",
+    "internal/cli/facts_test.go",
+    "internal/cli/history_input.go",
+    "internal/cli/reconcile.go",
+    "internal/cli/reconcile_test.go",
+    "internal/cli/redaction.go",
+    "internal/cli/review_fixes_test.go",
+    "internal/cli/review_regressions_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_hardening_test.go",
+    "internal/cli/session_privacy_test.go",
+    "internal/cli/session_privacy_verify.go",
+    "internal/factmerge/dedup.go",
+    "internal/factmerge/factmerge_test.go",
+    "internal/factmerge/record.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6b/88696b6eb2/0/metadata.json",
+      "transcript": "/6b/88696b6eb2/0/full.jsonl",
+      "compact_transcript": "/6b/88696b6eb2/0/transcript.jsonl",
+      "content_hash": "/6b/88696b6eb2/0/content_hash.txt",
+      "prompt": "/6b/88696b6eb2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5432402,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 295589888,
+    "output_tokens": 625936,
+    "api_call_count": 2586
+  }
+}
