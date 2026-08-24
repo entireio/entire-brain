@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -29,6 +30,98 @@ func TestFileLockContentionAndReacquire(t *testing.T) {
 	}
 	if err := reacquired.Close(); err != nil {
 		t.Fatalf("unlock reacquired: %v", err)
+	}
+	key, err := fileLockKey(lockPath)
+	if err != nil {
+		t.Fatalf("lock key: %v", err)
+	}
+	processFileLocks.Lock()
+	_, retained := processFileLocks.locks[key]
+	processFileLocks.Unlock()
+	if retained {
+		t.Fatal("released and timed-out lock retained a process-local lock entry")
+	}
+}
+
+func TestFileLockSerializesSameProcessSharedMemory(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "locks", "write.lock")
+	firstAcquired := make(chan struct{})
+	secondAcquired := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var shared int
+	var wait sync.WaitGroup
+
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		lock, err := acquireFileLock(lockPath, "brain_locked", time.Second)
+		if err != nil {
+			t.Errorf("first acquire: %v", err)
+			return
+		}
+		defer func() {
+			if err := lock.Close(); err != nil {
+				t.Errorf("first release: %v", err)
+			}
+		}()
+		close(firstAcquired)
+		<-releaseFirst
+		shared++
+	}()
+
+	wait.Add(1)
+	go func() {
+		defer wait.Done()
+		<-firstAcquired
+		lock, err := acquireFileLock(lockPath, "brain_locked", time.Second)
+		if err != nil {
+			t.Errorf("second acquire: %v", err)
+			return
+		}
+		defer func() {
+			if err := lock.Close(); err != nil {
+				t.Errorf("second release: %v", err)
+			}
+		}()
+		close(secondAcquired)
+		shared++
+	}()
+
+	select {
+	case <-secondAcquired:
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseFirst)
+	wait.Wait()
+	if shared != 2 {
+		t.Fatalf("shared critical-section updates = %d, want 2", shared)
+	}
+}
+
+func TestFileLockSerializesParentDirectoryAliases(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "real")
+	aliasDir := filepath.Join(dir, "alias")
+	if err := os.MkdirAll(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	realPath := filepath.Join(realDir, "locks", "write.lock")
+	aliasPath := filepath.Join(aliasDir, "locks", "write.lock")
+	lock, err := acquireFileLock(realPath, "brain_locked", time.Second)
+	if err != nil {
+		t.Fatalf("acquire through real path: %v", err)
+	}
+	defer func() {
+		if err := lock.Close(); err != nil {
+			t.Errorf("release real path lock: %v", err)
+		}
+	}()
+	if _, err := acquireFileLock(aliasPath, "brain_locked", 25*time.Millisecond); err == nil ||
+		!errors.Is(err, errFileLockTimeout) {
+		t.Fatalf("alias contention err = %v", err)
 	}
 }
 
