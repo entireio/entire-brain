@@ -31,12 +31,12 @@ func TestFileLockContentionAndReacquire(t *testing.T) {
 	if err := reacquired.Close(); err != nil {
 		t.Fatalf("unlock reacquired: %v", err)
 	}
-	key, err := fileLockKey(lockPath)
+	parent, basename, err := fileLockIdentity(lockPath)
 	if err != nil {
-		t.Fatalf("lock key: %v", err)
+		t.Fatalf("lock identity: %v", err)
 	}
 	processFileLocks.Lock()
-	_, retained := processFileLocks.locks[key]
+	retained := processFileLocks.find(parent, basename) != nil
 	processFileLocks.Unlock()
 	if retained {
 		t.Fatal("released and timed-out lock retained a process-local lock entry")
@@ -46,6 +46,7 @@ func TestFileLockContentionAndReacquire(t *testing.T) {
 func TestFileLockSerializesSameProcessSharedMemory(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "locks", "write.lock")
 	firstAcquired := make(chan struct{})
+	firstDone := make(chan struct{})
 	secondAcquired := make(chan struct{})
 	releaseFirst := make(chan struct{})
 	var shared int
@@ -54,6 +55,7 @@ func TestFileLockSerializesSameProcessSharedMemory(t *testing.T) {
 	wait.Add(1)
 	go func() {
 		defer wait.Done()
+		defer close(firstDone)
 		lock, err := acquireFileLock(lockPath, "brain_locked", time.Second)
 		if err != nil {
 			t.Errorf("first acquire: %v", err)
@@ -72,7 +74,11 @@ func TestFileLockSerializesSameProcessSharedMemory(t *testing.T) {
 	wait.Add(1)
 	go func() {
 		defer wait.Done()
-		<-firstAcquired
+		select {
+		case <-firstAcquired:
+		case <-firstDone:
+			return
+		}
 		lock, err := acquireFileLock(lockPath, "brain_locked", time.Second)
 		if err != nil {
 			t.Errorf("second acquire: %v", err)
@@ -87,12 +93,18 @@ func TestFileLockSerializesSameProcessSharedMemory(t *testing.T) {
 		shared++
 	}()
 
+	earlySecond := false
 	select {
 	case <-secondAcquired:
+		earlySecond = true
+	case <-firstDone:
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(releaseFirst)
 	wait.Wait()
+	if earlySecond {
+		t.Fatal("second lock acquired before the first lock was released")
+	}
 	if shared != 2 {
 		t.Fatalf("shared critical-section updates = %d, want 2", shared)
 	}
@@ -110,6 +122,20 @@ func TestFileLockSerializesParentDirectoryAliases(t *testing.T) {
 	}
 	realPath := filepath.Join(realDir, "locks", "write.lock")
 	aliasPath := filepath.Join(aliasDir, "locks", "write.lock")
+	if err := os.MkdirAll(filepath.Dir(realPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realParent, realBasename, err := fileLockIdentity(realPath)
+	if err != nil {
+		t.Fatalf("real lock identity: %v", err)
+	}
+	aliasParent, aliasBasename, err := fileLockIdentity(aliasPath)
+	if err != nil {
+		t.Fatalf("alias lock identity: %v", err)
+	}
+	if realBasename != aliasBasename || !os.SameFile(realParent, aliasParent) {
+		t.Fatal("lock path aliases must have the same parent identity and basename")
+	}
 	lock, err := acquireFileLock(realPath, "brain_locked", time.Second)
 	if err != nil {
 		t.Fatalf("acquire through real path: %v", err)
