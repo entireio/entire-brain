@@ -1,0 +1,62 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "70cc6792fb44",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-phase3b",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill.go",
+    "internal/cli/distill_apply_runner_v2.go",
+    "internal/cli/distill_candidate_admission_gold_test.go",
+    "internal/cli/distill_candidates.go",
+    "internal/cli/distill_candidates_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go",
+    "internal/cli/distill_packing_v2.go",
+    "internal/cli/distill_packing_v2_test.go",
+    "internal/cli/distill_phase3_live_quality_test.go",
+    "internal/cli/distill_phase3_operational_gate_test.go",
+    "internal/cli/distill_phase3b_parity_test.go",
+    "internal/cli/distill_protocol_v2.go",
+    "internal/cli/distill_protocol_v2_test.go",
+    "internal/cli/distill_relationships_apply_v2_test.go",
+    "internal/cli/distill_relationships_v2.go",
+    "internal/cli/distill_relationships_v2_test.go",
+    "internal/cli/distill_shadow_v2.go",
+    "internal/cli/distill_shadow_v2_test.go",
+    "internal/cli/distill_test.go",
+    "internal/cli/fact_relationships_v2.go",
+    "internal/cli/fact_relationships_v2_test.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_relationships_cmd_v2.go",
+    "internal/cli/facts_relationships_cmd_v2_test.go",
+    "internal/cli/publish.go",
+    "internal/cli/publish_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_relationships_v2_test.go",
+    "internal/cli/session_privacy_test.go",
+    "internal/cli/session_privacy_verify.go",
+    "internal/cli/testdata/distill_candidate_admission_gold_v1.json",
+    "internal/factmerge/relationship.go",
+    "internal/factmerge/relationship_test.go",
+    "templates/entire-brain-distill-candidate-v2.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/70/cc6792fb44/0/metadata.json",
+      "transcript": "/70/cc6792fb44/0/full.jsonl",
+      "compact_transcript": "/70/cc6792fb44/0/transcript.jsonl",
+      "content_hash": "/70/cc6792fb44/0/content_hash.txt",
+      "prompt": "/70/cc6792fb44/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9168678,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 685538304,
+    "output_tokens": 1098162,
+    "api_call_count": 4976
+  }
+}
