@@ -130,6 +130,59 @@ func TestRepoStorageKeyTreatsEntireProxyAsOriginEquivalent(t *testing.T) {
 	}
 }
 
+func TestRepoStorageKeyRejectsHostlessEntireProxy(t *testing.T) {
+	key, ok, err := repoKeyFromRemote(t.TempDir(), "entire://:443/gh/owner/repo")
+	if err != nil || ok || key != "" {
+		t.Fatalf("repoKeyFromRemote() = %q, %v, %v; want \"\", false, nil", key, ok, err)
+	}
+}
+
+func TestRepoStorageKeyTreatsMalformedEntireProxyAsLocal(t *testing.T) {
+	repoDir := t.TempDir()
+	configDir := t.TempDir()
+	want := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	for _, remote := range []string{
+		"entire://cluster.example/gh/owner",
+		"entire://cluster.example/gh",
+	} {
+		runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: remote + "\n"},
+		}}
+		key, err := repoStorageKey(context.Background(), runner, configDir, repoDir)
+		if err != nil {
+			t.Fatalf("repo storage key for %q: %v", remote, err)
+		}
+		if key != want {
+			t.Fatalf("repo storage key for %q = %q, want local fallback %q", remote, key, want)
+		}
+	}
+
+	cfg, err := config.Load(configDir)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(cfg.DomainSlugs) != 0 {
+		t.Fatalf("malformed Entire proxy created domain slugs: %#v", cfg.DomainSlugs)
+	}
+}
+
+func TestRepoStoragePathsRejectsEntireProxyWorkspacesNamespace(t *testing.T) {
+	base := t.TempDir()
+	env := EntireEnv{
+		PluginConfigDir: filepath.Join(base, "config"),
+		PluginDataDir:   filepath.Join(base, "data"),
+		PluginStateDir:  filepath.Join(base, "state"),
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: "entire://cluster.example/workspaces/acme/api\n"},
+	}}
+
+	_, err := repoStoragePaths(context.Background(), runner, env, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), `repo key uses the reserved "workspaces" segment: workspaces/acme/api`) {
+		t.Fatalf("repo storage paths error = %v", err)
+	}
+}
+
 func TestRepoStorageKeyStoresUnknownDomainSlug(t *testing.T) {
 	configDir := t.TempDir()
 
