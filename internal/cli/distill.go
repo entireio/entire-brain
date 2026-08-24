@@ -77,12 +77,27 @@ const candidateDistillPromptProtocolV2 = `
 - Copy each supplied candidate_id exactly. Never write the word TAB, angle
   bracket placeholders, JSON, or a generic label such as fact in place of one
   of the six allowed kinds.
-- Complete every supplied candidate_id exactly once: emit one or more fact
+- Every fact line has exactly three real tab characters: after candidate_id,
+  after kind, and after path. In particular, the path-to-fact boundary must be
+  a real tab, never a space.
+- Unless a runner-specific rule below explicitly permits conservative
+  omission, complete every supplied candidate_id exactly once: emit one or more fact
   lines for that candidate, or exactly one NO_FACTS sentinel. Candidate IDs may
   repeat only to emit several facts for that same candidate. Never emit an
   unknown ID, blank line, heading, explanation, Markdown, or prose. Never mix
   NO_FACTS with facts for the same candidate.
 - Emit at most six fact lines for each candidate, not six for the whole pack.
+`
+
+const candidateDistillPromptOllamaV2 = `
+
+## Ollama conservative-empty rule
+
+For this local Ollama request, omit a candidate_id entirely when it has no
+durable fact. Do not emit a NO_FACTS line for an empty candidate. The caller
+treats every omitted expected candidate as conservative NO_FACTS after Ollama
+reports a normal stop. Fact-bearing lines must still use an exact supplied ID
+and the strict tab-separated format above. Never omit an ID that has a fact.
 `
 
 const candidateDistillPromptExtension = candidateDistillPromptAuthorityExtension + candidateDistillPromptProtocolV1
@@ -164,7 +179,14 @@ func renderDistillPromptForCandidateProtocolV2(taxonomy factTaxonomy) (string, e
 // the framed v2 protocol; --shadow controls materialization, not extraction.
 func renderDistillPromptForOptions(taxonomy factTaxonomy, opts distillCommandOptions) (string, error) {
 	if mustDistillPipeline(opts.pipeline) == distillPipelineCandidates {
-		return renderDistillPromptForCandidateProtocolV2(taxonomy)
+		prompt, err := renderDistillPromptForCandidateProtocolV2(taxonomy)
+		if err != nil {
+			return "", err
+		}
+		if strings.EqualFold(strings.TrimSpace(opts.agent), "ollama") {
+			prompt += candidateDistillPromptOllamaV2
+		}
+		return prompt, nil
 	}
 	return renderDistillPromptForPipeline(taxonomy, distillPipelineLegacy)
 }

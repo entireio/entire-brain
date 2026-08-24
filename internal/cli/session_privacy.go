@@ -922,6 +922,10 @@ type sessionPurgePlan struct {
 	// anchors are already purged by session and selective ownership repair is
 	// not a privacy-safe operation.
 	DistillApplicationReceiptsV2Reset *purgeArtifact `json:"distill_application_receipts_v2_reset,omitempty"`
+	// DistillRelationshipStoreV2Reset reports the local-only relationship
+	// observations. They carry compact source-session ownership and are reset
+	// wholesale because selective pruning is not a privacy-safe operation.
+	DistillRelationshipStoreV2Reset *purgeArtifact `json:"distill_relationship_store_v2_reset,omitempty"`
 	// WorkMetadata is content-free lifecycle/job state tied to this raw
 	// session. Privacy cleanup removes it immediately rather than retaining
 	// operational evidence about a session the user excluded or purged.
@@ -1016,6 +1020,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		}
 		if plan.DistillApplicationReceiptsV2Reset != nil {
 			fmt.Fprintf(out, "  distill application receipts %s (%d bytes, reset wholesale)\n", plan.DistillApplicationReceiptsV2Reset.Path, plan.DistillApplicationReceiptsV2Reset.Bytes)
+		}
+		if plan.DistillRelationshipStoreV2Reset != nil {
+			fmt.Fprintf(out, "  distill relationship store %s (%d bytes, reset wholesale)\n", plan.DistillRelationshipStoreV2Reset.Path, plan.DistillRelationshipStoreV2Reset.Bytes)
 		}
 		for _, artifact := range plan.WorkMetadata {
 			fmt.Fprintf(out, "  memory work metadata %s (%d bytes)\n", artifact.Path, artifact.Bytes)
@@ -1114,6 +1121,24 @@ func removedFactAnchorsOwnFact(anchors []factAnchor) bool {
 	return false
 }
 
+// priorPrivacyTranscriptArtifact recognizes only an exact, canonical exported
+// transcript path from a durable privacy transaction. Transactions record a
+// mixed inventory, so retries must never treat a non-transcript artifact as
+// deletion authority. Canonicality is required here (rather than merely
+// cleaning the path) so an untrusted transaction cannot widen the retry's
+// deletion scope through a traversal or alias.
+func priorPrivacyTranscriptArtifact(artifact purgeArtifact) (purgeArtifact, bool, error) {
+	rel := filepath.ToSlash(artifact.Path)
+	if !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
+		return purgeArtifact{}, false, nil
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil || filepath.ToSlash(clean) != rel {
+		return purgeArtifact{}, false, fmt.Errorf("%s: invalid prior privacy transcript artifact %q", memoryErrStateCorrupt, artifact.Path)
+	}
+	return purgeArtifact{Path: rel, Bytes: artifact.Bytes}, true, nil
+}
+
 func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error) {
 	plan := sessionPurgePlan{SessionID: sessionID}
 	manifest, err := loadBrainManifest(brainDir)
@@ -1131,25 +1156,55 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		}
 	}
 	transcriptRels := map[string]bool{}
+	addTranscript := func(rel string, priorBytes int64) error {
+		if transcriptRels[rel] {
+			return nil
+		}
+		transcriptRels[rel] = true
+		artifact := purgeArtifact{Path: rel, Bytes: priorBytes}
+		info, present, statErr := privacyArtifactInfo(brainDir, rel, "session transcript")
+		if statErr != nil {
+			return statErr
+		}
+		if present {
+			artifact.Bytes = info.Size()
+		}
+		plan.Transcripts = append(plan.Transcripts, artifact)
+		return nil
+	}
 	if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		for _, session := range manifest.Sources.Sessions.Sessions {
 			if strings.TrimSpace(session.SessionID) != sessionID {
 				continue
 			}
 			rel := normalizePrivacyTranscriptPath(session.TranscriptPath)
-			if rel == "" || transcriptRels[rel] {
+			if rel == "" {
 				continue
 			}
-			transcriptRels[rel] = true
-			artifact := purgeArtifact{Path: rel}
-			info, present, statErr := privacyArtifactInfo(brainDir, rel, "session transcript")
-			if statErr != nil {
-				return plan, statErr
+			if err := addTranscript(rel, 0); err != nil {
+				return plan, err
 			}
-			if present {
-				artifact.Bytes = info.Size()
+		}
+	}
+	// A tombstone-first purge crash can leave the durable transaction as the
+	// only surviving authority for a transcript: a later refresh may remove
+	// that session from the manifest before the retry runs. Exclude operations
+	// intentionally keep their transcript, so only a prior purge can restore
+	// transcript deletion scope. Rehydrate only its exact canonical sessions/
+	// artifacts; the remaining mixed transaction inventory is deliberately not
+	// deletion scope.
+	if priorPresent && priorTx.Operation == "purge" {
+		for _, artifact := range priorTx.Artifacts {
+			transcript, isTranscript, transcriptErr := priorPrivacyTranscriptArtifact(artifact)
+			if transcriptErr != nil {
+				return plan, transcriptErr
 			}
-			plan.Transcripts = append(plan.Transcripts, artifact)
+			if !isTranscript {
+				continue
+			}
+			if err := addTranscript(transcript.Path, transcript.Bytes); err != nil {
+				return plan, err
+			}
 		}
 	}
 	sort.Slice(plan.Transcripts, func(i, j int) bool { return plan.Transcripts[i].Path < plan.Transcripts[j].Path })
@@ -1237,6 +1292,13 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	}
 	if receiptPresent {
 		plan.DistillApplicationReceiptsV2Reset = &purgeArtifact{Path: distillApplicationReceiptsV2Path, Bytes: receiptInfo.Size()}
+	}
+	relationshipInfo, relationshipPresent, relationshipErr := inspectPrivacyArtifactOpened(brainDir, distillRelationshipStoreV2Path, "distill relationship store")
+	if relationshipErr != nil {
+		return plan, relationshipErr
+	}
+	if relationshipPresent {
+		plan.DistillRelationshipStoreV2Reset = &purgeArtifact{Path: distillRelationshipStoreV2Path, Bytes: relationshipInfo.Size()}
 	}
 	// Durable memory hints/jobs are intentionally content-free, but they still
 	// retain the identity and lifecycle of this session. Include their exact
@@ -1577,7 +1639,8 @@ func isCandidateAtomicTempArtifactRel(rel string) bool {
 			isAtomicTempLeafForBase(parts[1], filepath.Base(distillCandidateResultCacheV2Path))
 	case len(parts) == 3 && parts[0] == factsDirName && parts[1] != "":
 		return isAtomicTempLeafForBase(parts[2], factsFileName) || isAtomicTempLeafForBase(parts[2], factsProposalsFileName) ||
-			(parts[1] == "distill-v2" && isAtomicTempLeafForBase(parts[2], filepath.Base(distillApplicationReceiptsV2Path)))
+			(parts[1] == "distill-v2" && (isAtomicTempLeafForBase(parts[2], filepath.Base(distillApplicationReceiptsV2Path)) ||
+				isAtomicTempLeafForBase(parts[2], filepath.Base(distillRelationshipStoreV2Path))))
 	default:
 		return false
 	}
@@ -1766,6 +1829,18 @@ func purgeDistillApplicationReceiptsV2(brainDir string) error {
 	return saveDistillApplicationReceiptStoreV2(brainDir, newDistillApplicationReceiptStoreV2())
 }
 
+// purgeDistillRelationshipStoreV2 resets the local-only relationship
+// observations wholesale. Only the descriptor and bounded path are inspected;
+// malformed, forward-version, opaque, or oversized bytes are disposable state
+// and must not survive an exclude/purge operation.
+func purgeDistillRelationshipStoreV2(brainDir string) error {
+	_, present, err := inspectPrivacyArtifactOpened(brainDir, distillRelationshipStoreV2Path, "distill relationship store")
+	if err != nil || !present {
+		return err
+	}
+	return saveDistillRelationshipStoreV2(brainDir, newDistillRelationshipStoreV2())
+}
+
 // --- durable privacy transaction record ---
 //
 // Every exclude/purge/retention cleanup writes a content-free, versioned
@@ -1881,6 +1956,11 @@ func executeSessionPurge(brainDir, sessionID string, plan sessionPurgePlan, now 
 // removed. Production leaves it as a no-op.
 var beforeSessionAbstractPrivacyCleanup = func() error { return nil }
 
+// beforeSessionTranscriptPrivacyCleanup is a deterministic crash/failure seam
+// after the tombstone and durable transaction exist but before a purge removes
+// transcript artifacts. Production leaves it as a no-op.
+var beforeSessionTranscriptPrivacyCleanup = func() error { return nil }
+
 // executeSessionCleanup is the shared exclude/purge executor: tombstone,
 // transcript deletion (purge only), derived-store deletion, fact/episode/
 // cache filtering, then the rebuild. Every deletion error propagates;
@@ -1918,6 +1998,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if plan.DistillApplicationReceiptsV2Reset != nil {
 		tx.Artifacts = append(tx.Artifacts, *plan.DistillApplicationReceiptsV2Reset)
 	}
+	if plan.DistillRelationshipStoreV2Reset != nil {
+		tx.Artifacts = append(tx.Artifacts, *plan.DistillRelationshipStoreV2Reset)
+	}
 	if txErr := writePrivacyTransaction(brainDir, tx, now); txErr != nil {
 		return txErr
 	}
@@ -1947,6 +2030,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		return err
 	}
 	if err := advance(privacyStateRebuilding); err != nil {
+		return err
+	}
+	if err := beforeSessionTranscriptPrivacyCleanup(); err != nil {
 		return err
 	}
 	// Remove a supported marker first, with a fresh classification and exact
@@ -1994,6 +2080,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		return err
 	}
 	if err := purgeDistillApplicationReceiptsV2(brainDir); err != nil {
+		return err
+	}
+	if err := purgeDistillRelationshipStoreV2(brainDir); err != nil {
 		return err
 	}
 	cleanupManifest, manifestErr := loadBrainManifest(brainDir)

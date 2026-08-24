@@ -156,6 +156,24 @@ func loadDistillApplicationReceiptStoreV2ForPrivacy(brainDir string) (distillApp
 	return store, nil
 }
 
+// loadDistillRelationshipStoreV2ForPrivacy is the strict privacy path for
+// local-only relationship observations. Normal relationship reads may treat a
+// missing store as empty, but privacy verification must fail closed on
+// malformed, forward-version, opaque, or oversized bytes because owners carry
+// source-session identity.
+func loadDistillRelationshipStoreV2ForPrivacy(brainDir string) (distillRelationshipStoreV2, error) {
+	empty := newDistillRelationshipStoreV2()
+	data, present, err := readPrivacyArtifact(brainDir, distillRelationshipStoreV2Path, "distill relationship store", distillRelationshipStoreV2MaxBytes)
+	if err != nil || !present {
+		return empty, err
+	}
+	store, err := parseDistillRelationshipStoreV2(data)
+	if err != nil {
+		return empty, fmt.Errorf("%s: decode %s: %w", memoryErrStateCorrupt, distillRelationshipStoreV2Path, err)
+	}
+	return store, nil
+}
+
 func validDistillCacheFingerprint(value string) bool {
 	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
 		return false
@@ -599,6 +617,10 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
+	relationships, err := loadDistillRelationshipStoreV2ForPrivacy(brainDir)
+	if err != nil {
+		return report, err
+	}
 	if len(stones.Excluded) == 0 {
 		report.Clean = true
 		return report, nil
@@ -795,6 +817,13 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		owner := strings.TrimSpace(receipt.Identity.SourceSessionID)
 		if _, excluded := stones.Excluded[owner]; excluded {
 			add(owner, "distill_application_receipts_v2", slotID)
+		}
+	}
+	for relationshipID, relationship := range relationships.entries {
+		for _, owner := range relationship.Owners {
+			if _, excluded := stones.Excluded[strings.TrimSpace(owner.SourceSessionID)]; excluded {
+				add(owner.SourceSessionID, "distill_relationship_store_v2", relationshipID)
+			}
 		}
 	}
 	// Derived binary stores: exclude and purge delete every store in

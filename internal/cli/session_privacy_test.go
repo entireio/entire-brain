@@ -933,6 +933,100 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	assertCanaryAbsent(t, brainDir)
 }
 
+// TestPurgeRetryRehydratesTranscriptAfterTombstoneCrashAndManifestRefresh
+// covers the crash window after a purge transaction and tombstone are durable
+// but before the transcript unlink. A later refresh can drop the session from
+// the manifest, so the retry must recover the exact transcript path from its
+// content-free transaction rather than silently leaving the local copy behind.
+func TestPurgeRetryRehydratesTranscriptAfterTombstoneCrashAndManifestRefresh(t *testing.T) {
+	brainDir := writePrivacyFixture(t)
+	now := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	const secretRel = "sessions/main/20260802T000000Z_secret.jsonl"
+
+	originalHook := beforeSessionTranscriptPrivacyCleanup
+	beforeSessionTranscriptPrivacyCleanup = func() error {
+		return errors.New("injected crash before transcript cleanup")
+	}
+	t.Cleanup(func() { beforeSessionTranscriptPrivacyCleanup = originalHook })
+
+	firstPlan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executeSessionPurge(brainDir, "secret-sess", firstPlan, now); err == nil {
+		t.Fatal("injected tombstone-first crash must fail the purge")
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(secretRel))); err != nil {
+		t.Fatalf("crash before transcript cleanup removed transcript: %v", err)
+	}
+	tx, present, err := loadPrivacyTransactionChecked(brainDir, "secret-sess")
+	if err != nil || !present {
+		t.Fatalf("durable transaction: present=%t err=%v", present, err)
+	}
+	foundTranscript := false
+	for _, artifact := range tx.Artifacts {
+		if artifact.Path == secretRel {
+			foundTranscript = true
+		}
+	}
+	if !foundTranscript {
+		t.Fatalf("transaction did not retain transcript artifact: %+v", tx.Artifacts)
+	}
+
+	// Simulate a refresh that no longer advertises the session while the crash
+	// survivor is still present on disk.
+	if err := withBrainWriteLock(brainDir, func() error {
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return err
+		}
+		kept := manifest.Sources.Sessions.Sessions[:0]
+		for _, session := range manifest.Sources.Sessions.Sessions {
+			if session.SessionID != "secret-sess" {
+				kept = append(kept, session)
+			}
+		}
+		manifest.Sources.Sessions.Sessions = kept
+		if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+			return err
+		}
+		_, err = writeBrainHistoryIndexAndSourceLocked(brainDir, now.Add(time.Minute), nil)
+		return err
+	}); err != nil {
+		t.Fatalf("refresh after crash: %v", err)
+	}
+
+	retryPlan, err := buildSessionPurgePlan(brainDir, "secret-sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retryPlan.Transcripts) != 1 || retryPlan.Transcripts[0].Path != secretRel {
+		t.Fatalf("retry transcript scope = %+v, want retained %s", retryPlan.Transcripts, secretRel)
+	}
+	beforeSessionTranscriptPrivacyCleanup = func() error { return nil }
+	if err := executeSessionPurge(brainDir, "secret-sess", retryPlan, now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("retry purge: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(secretRel))); !os.IsNotExist(err) {
+		t.Fatalf("retry left transcript behind: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, "sessions/main/20260801T000000Z_clean.jsonl")); err != nil {
+		t.Fatalf("retry deleted unrelated transcript: %v", err)
+	}
+	if report, err := verifySessionPrivacy(brainDir); err != nil || !report.Clean {
+		t.Fatalf("post-retry privacy verification: clean=%t findings=%+v err=%v", report.Clean, report.Findings, err)
+	}
+}
+
+func TestPriorPrivacyTranscriptArtifactRejectsTraversal(t *testing.T) {
+	if _, _, err := priorPrivacyTranscriptArtifact(purgeArtifact{Path: "sessions/../../outside.jsonl"}); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		t.Fatalf("unsafe prior transcript artifact error = %v", err)
+	}
+	if _, transcript, err := priorPrivacyTranscriptArtifact(purgeArtifact{Path: "history/index.json"}); err != nil || transcript {
+		t.Fatalf("non-transcript artifact = transcript=%t err=%v", transcript, err)
+	}
+}
+
 // TestVerifyFlagsDirtyFTSStoreByContent proves the store-content refinement: a BM25
 // store still holding rows for an excluded transcript is flagged by content
 // inspection even when its mtime looks fresh.

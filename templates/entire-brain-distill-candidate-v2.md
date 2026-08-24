@@ -20,7 +20,11 @@ Good candidates include standing workflow rules, durable preferences, resolved
 choices with rationale, hard invariants, non-obvious gotchas, and closed
 negative results that say what failed, why, and when to revisit. Reject routine
 Q&A, one-off task instructions, implementation status, tool mechanics, plans,
-unresolved discussion, obvious code facts, and generic acknowledgements.
+unresolved discussion, obvious code facts, and generic acknowledgements. In
+particular, a request headed "Implement this plan" (or an equivalent plan/spec
+request) is one-off task context: emit NO_FACTS. Never turn its
+requested bug fixes, acceptance criteria, or verification steps into invariants or
+closed-negatives.
 
 Each fact has exactly one kind:
 

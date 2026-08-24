@@ -2458,6 +2458,46 @@ func TestExecOllamaDistillAgentUsesLoopbackGenerateAPI(t *testing.T) {
 	}
 }
 
+func TestExecOllamaDistillAgentCarriesCandidateOutputBudgetAndRejectsLengthStop(t *testing.T) {
+	var got struct {
+		Options struct {
+			NumPredict int `json:"num_predict"`
+		} `json:"options"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		// This is the observed raw Ollama contract when the model's 512-token
+		// Modelfile ceiling cuts off a multi-member framed result.
+		fmt.Fprint(w, `{"response":"candidate-a\tconvention\tworkflow.testing.rules\tRun race tests.\n","done":true,"done_reason":"length","prompt_eval_count":123,"eval_count":512}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL)
+
+	ctx := withDistillOllamaNumPredict(context.Background(), distillCandidateOllamaNumPredictV2(8))
+	_, err := execOllamaDistillAgent(ctx, t.TempDir(), []string{"ollama", "test-model", "system prompt"}, []byte("packed candidate cards"), time.Second)
+	if err == nil || !strings.Contains(err.Error(), "truncated at its generation limit") {
+		t.Fatalf("runner error = %v, want length-stop refusal", err)
+	}
+	if got.Options.NumPredict != 2048 {
+		t.Fatalf("candidate Ollama num_predict = %d, want 2048", got.Options.NumPredict)
+	}
+}
+
+func TestExecOllamaDistillAgentPreservesLegacyLengthStopBehavior(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"response":"project.tooling.stack\tUses Go.\n","done":true,"done_reason":"length"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL)
+
+	out, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "test-model", "system prompt"}, []byte("legacy chunk"), time.Second)
+	if err != nil || out != "project.tooling.stack\tUses Go.\n" {
+		t.Fatalf("legacy length-stop result = %q, %v", out, err)
+	}
+}
+
 func TestExecOllamaDistillAgentIgnoresProxyTransport(t *testing.T) {
 	var proxyCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

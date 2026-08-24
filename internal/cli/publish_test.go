@@ -107,6 +107,12 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 	writePublishFile(t,
 		filepath.Join(brainDir, filepath.FromSlash(distillApplicationReceiptsV2Path)),
 		[]byte("APPLICATION_RECEIPT_CANARY\n"))
+	// Local-only relationship observations are disposable privacy state, never
+	// a hosted fact artifact. Keep a canary so facts-root collection cannot
+	// accidentally bundle the adjacent distill-v2 store.
+	writePublishFile(t,
+		filepath.Join(brainDir, filepath.FromSlash(distillRelationshipStoreV2Path)),
+		[]byte("RELATIONSHIP_STORE_CANARY\n"))
 }
 
 func writePublishFile(t *testing.T, path string, data []byte) {
@@ -205,6 +211,137 @@ func TestPublishRefusesUnderNoEgress(t *testing.T) {
 	}
 }
 
+// TestPublishRefusesDirtyPrivacyState proves the hosted path applies the same
+// fail-closed derived-state gate as local pattern reads, before it constructs
+// or sends a bundle.
+func TestPublishRefusesDirtyPrivacyState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("publish endpoint must not be called with dirty privacy state; got %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	brainDir := publishBrainDir(dataDir)
+	writePublishBrainFixture(t, brainDir)
+	// The publish fixture's disposable-state canaries are intentionally opaque
+	// to the strict privacy verifier; remove them so this test isolates the
+	// dirty derived-store decision.
+	for _, rel := range []string{distillCandidateResultCacheV2Path, distillApplicationReceiptsV2Path, distillRelationshipStoreV2Path} {
+		if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	staleStore := filepath.Join(brainDir, filepath.FromSlash(patternsTasksPath))
+	writePublishFile(t, staleStore, []byte("{\"task\":\"old\"}\n"))
+	stones := emptySessionTombstones()
+	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
+	if err := saveSessionTombstones(brainDir, stones); err != nil {
+		t.Fatal(err)
+	}
+	// Make the ordering unambiguous even on filesystems with coarse mtime
+	// resolution: a stale derived store must predate the tombstone.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(staleStore, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+	t.Setenv("ENTIRE_API_URL", server.URL)
+	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
+	t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
+
+	cmd := newPublishCmd(t, repoDir, dataDir, newPublishFixtureRunner())
+	_, err := execute(t, cmd, "publish")
+	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
+		t.Fatalf("dirty privacy publish error = %v, want %s", err, memoryErrPrivacyDirty)
+	}
+}
+
+// TestPublishHoldsPrivacyAndWriteLocksThroughEgress proves neither a privacy
+// tombstone cleanup nor an ordinary fact/brain writer can interleave while the
+// hosted request is in flight. This makes the preflight check and first egress
+// byte a single privacy and state-consistency linearization boundary.
+func TestPublishHoldsPrivacyAndWriteLocksThroughEgress(t *testing.T) {
+	requestStarted := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-releaseRequest
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"published","stored":[]}`)
+	}))
+	defer server.Close()
+
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	brainDir := publishBrainDir(dataDir)
+	writePublishBrainFixture(t, brainDir)
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+	t.Setenv("ENTIRE_API_URL", server.URL)
+	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
+	t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
+
+	cmd := newPublishCmd(t, repoDir, dataDir, newPublishFixtureRunner())
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"publish"})
+	publishDone := make(chan error, 1)
+	go func() { publishDone <- cmd.Execute() }()
+	<-requestStarted
+
+	tombstoneAttempted := make(chan struct{})
+	tombstoneDone := make(chan error, 1)
+	go func() {
+		close(tombstoneAttempted)
+		tombstoneDone <- withBrainPrivacySideEffectLock(brainDir, func() error {
+			return withBrainWriteLock(brainDir, func() error {
+				stones := emptySessionTombstones()
+				stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "race"}
+				return saveSessionTombstones(brainDir, stones)
+			})
+		})
+	}()
+	<-tombstoneAttempted
+
+	writerAttempted := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		close(writerAttempted)
+		writerDone <- withBrainWriteLock(brainDir, func() error {
+			return os.WriteFile(filepath.Join(brainDir, "facts", "publish-race-canary"), []byte("writer"), 0o600)
+		})
+	}()
+	<-writerAttempted
+
+	assertBlocked := func(name string, done <-chan error) {
+		t.Helper()
+		select {
+		case err := <-done:
+			t.Fatalf("%s interleaved during hosted egress: %v", name, err)
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	assertBlocked("tombstone cleanup", tombstoneDone)
+	assertBlocked("Brain writer", writerDone)
+
+	close(releaseRequest)
+	if err := <-publishDone; err != nil {
+		t.Fatalf("publish failed: %v", err)
+	}
+	if err := <-tombstoneDone; err != nil {
+		t.Fatalf("tombstone after publish failed: %v", err)
+	}
+	if err := <-writerDone; err != nil {
+		t.Fatalf("Brain writer after publish failed: %v", err)
+	}
+}
+
 // TestPublishSendsBundleWhenOptedIn verifies the request path, auth header, and
 // JSON body (kinds, refs, sha256: digests, base64 data) against a capturing
 // httptest server.
@@ -266,7 +403,7 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	if err := json.Unmarshal(captured.rawBodie[0], &decoded); err != nil {
 		t.Fatalf("decode captured body: %v", err)
 	}
-	if strings.Contains(string(captured.rawBodie[0]), "APPLICATION_RECEIPT_CANARY") || strings.Contains(string(captured.rawBodie[0]), "CANDIDATE_CACHE_CANARY") {
+	if strings.Contains(string(captured.rawBodie[0]), "APPLICATION_RECEIPT_CANARY") || strings.Contains(string(captured.rawBodie[0]), "CANDIDATE_CACHE_CANARY") || strings.Contains(string(captured.rawBodie[0]), "RELATIONSHIP_STORE_CANARY") {
 		t.Fatal("publish bundle included disposable distill-v2 state")
 	}
 

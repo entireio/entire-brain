@@ -13,6 +13,15 @@ import (
 const (
 	distillCandidatePromptVersionV2    = "candidate-extraction-v2"
 	distillCandidateRedactionVersionV2 = "redaction-v1"
+
+	// The local entire-brain distillation model defaults to num_predict=512.
+	// That is sufficient for a single legacy chunk but can cut off a valid
+	// candidate-ID-framed pack before every member has a completion. The budget
+	// scales with the number of independently attributable members and remains
+	// bounded below the local model's context window.
+	distillCandidateOllamaNumPredictFloorV2     = 1024
+	distillCandidateOllamaNumPredictPerMemberV2 = 256
+	distillCandidateOllamaNumPredictCeilingV2   = 8192
 )
 
 // distillCandidateShadowMemberV2 joins one redacted provider member to the
@@ -126,7 +135,7 @@ func runDistillCandidateExtractionV2(
 		}
 		misses = append(misses, member.PackMember)
 	}
-	packs, err := packDistillCandidateMembersV2(misses)
+	packs, err := packDistillCandidateMembersForOptionsV2(misses, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -383,6 +392,9 @@ func runDistillCandidatePackAttemptV2(ctx context.Context, repoDir string, args 
 		}
 	}()
 	ctx = withDistillDecodedOutputLimit(ctx, distillCandidateMaxOutputBytesV2)
+	if len(args) > 0 && args[0] == "ollama" {
+		ctx = withDistillOllamaNumPredict(ctx, distillCandidateOllamaNumPredictV2(len(pack.Members)))
+	}
 	out, err := opts.run(ctx, repoDir, args, []byte(pack.ProviderInput), opts.timeout)
 	if err != nil {
 		return distillCandidatePackAttemptV2{Err: err}
@@ -391,19 +403,56 @@ func runDistillCandidatePackAttemptV2(ctx context.Context, repoDir string, args 
 	for index := range pack.Members {
 		expected[index] = pack.Members[index].CandidateID
 	}
-	results, err := parseDistillCandidateMemberResultsV2(expected, out)
+	var results []distillCandidateMemberResultV2
+	if len(args) > 0 && args[0] == "ollama" {
+		results, err = parseDistillCandidateMemberResultsOllamaV2(expected, out)
+	} else {
+		results, err = parseDistillCandidateMemberResultsV2(expected, out)
+	}
 	if err != nil {
+		if len(args) > 0 && args[0] == "ollama" && len(expected) == 1 {
+			// The transport has already proved a normal, non-length-limited stop.
+			// If the local model still cannot frame a singleton response, there is
+			// no safe fact to attribute. Settle that isolated member as NO_FACTS
+			// instead of retrying it forever; multi-member failures must still be
+			// split so a malformed neighbor cannot erase valid output.
+			return distillCandidatePackAttemptV2{Results: []distillCandidateMemberResultV2{{
+				CandidateID: expected[0],
+				NoFacts:     true,
+			}}}
+		}
 		return distillCandidatePackAttemptV2{Err: err}
 	}
 	// Taxonomy/redaction validation is part of the atomic pack protocol. A
 	// syntactically framed response with one semantically invalid member must be
 	// isolated before any neighbor is cached.
-	for _, result := range results {
+	for index, result := range results {
 		if _, err := canonicalDistillCandidateCacheResultV2(result, taxonomy); err != nil {
+			if len(args) > 0 && args[0] == "ollama" {
+				// A syntactically attributable local-model line may still invent an
+				// unknown taxonomy path or redact down to no usable text. Discard that
+				// member conservatively instead of failing its protocol-valid neighbor.
+				results[index] = distillCandidateMemberResultV2{CandidateID: result.CandidateID, NoFacts: true}
+				continue
+			}
 			return distillCandidatePackAttemptV2{Err: err}
 		}
 	}
 	return distillCandidatePackAttemptV2{Results: results}
+}
+
+func distillCandidateOllamaNumPredictV2(members int) int {
+	if members < 1 {
+		return distillCandidateOllamaNumPredictFloorV2
+	}
+	numPredict := members * distillCandidateOllamaNumPredictPerMemberV2
+	if numPredict < distillCandidateOllamaNumPredictFloorV2 {
+		return distillCandidateOllamaNumPredictFloorV2
+	}
+	if numPredict > distillCandidateOllamaNumPredictCeilingV2 {
+		return distillCandidateOllamaNumPredictCeilingV2
+	}
+	return numPredict
 }
 
 func startDistillCandidatePackPrefetchV2(ctx context.Context, repoDir string, args []string, packs []distillCandidatePackV2, taxonomy factTaxonomy, opts distillCommandOptions) distillCandidatePackPrefetchV2 {

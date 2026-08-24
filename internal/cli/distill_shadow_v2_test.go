@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -179,12 +180,60 @@ func TestCandidatePackAttemptV2UsesProtocolOutputBudget(t *testing.T) {
 			if got := distillDecodedOutputLimit(ctx); got != distillCandidateMaxOutputBytesV2 {
 				t.Fatalf("candidate decoded-output limit = %d, want %d", got, distillCandidateMaxOutputBytesV2)
 			}
+			if got := distillOllamaNumPredict(ctx); got != distillCandidateOllamaNumPredictV2(1) {
+				t.Fatalf("candidate Ollama num_predict = %d, want %d", got, distillCandidateOllamaNumPredictV2(1))
+			}
 			return member.CandidateID + "\tNO_FACTS", nil
 		},
 	}
-	attempt := runDistillCandidatePackAttemptV2(context.Background(), t.TempDir(), []string{"fake"}, pack, defaultFactTaxonomy(time.Now()), opts)
+	attempt := runDistillCandidatePackAttemptV2(context.Background(), t.TempDir(), []string{"ollama", "test-model", "prompt"}, pack, defaultFactTaxonomy(time.Now()), opts)
 	if attempt.Err != nil || len(attempt.Results) != 1 || !attempt.Results[0].NoFacts {
 		t.Fatalf("candidate output-budget attempt = %+v", attempt)
+	}
+}
+
+func TestCandidatePackAttemptV2SettlesNormallyStoppedMalformedOllamaSingletonAsEmpty(t *testing.T) {
+	member := distillCandidatePackMemberV2{
+		CandidateID:  "candidate-v1:" + strings.Repeat("b", 64),
+		RenderedCard: "card\n",
+		Anchor:       distillCandidateAnchorV1{CandidateID: "candidate-v1:" + strings.Repeat("b", 64)},
+	}
+	pack := distillCandidatePackFromMembersV2([]distillCandidatePackMemberV2{member})
+	opts := distillCommandOptions{
+		timeout: time.Minute,
+		run: func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+			return "unframed local-model prose", nil
+		},
+	}
+	attempt := runDistillCandidatePackAttemptV2(context.Background(), t.TempDir(), []string{"ollama", "test-model", "prompt"}, pack, defaultFactTaxonomy(time.Now()), opts)
+	if attempt.Err != nil || len(attempt.Results) != 1 || attempt.Results[0].CandidateID != member.CandidateID || !attempt.Results[0].NoFacts {
+		t.Fatalf("malformed normally stopped singleton attempt = %+v", attempt)
+	}
+
+	opts.run = func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+		return "", errors.New("ollama response truncated at its generation limit")
+	}
+	attempt = runDistillCandidatePackAttemptV2(context.Background(), t.TempDir(), []string{"ollama", "test-model", "prompt"}, pack, defaultFactTaxonomy(time.Now()), opts)
+	if attempt.Err == nil {
+		t.Fatal("transport failure was incorrectly settled as an empty candidate")
+	}
+}
+
+func TestDistillCandidateOllamaNumPredictV2ScalesAndCaps(t *testing.T) {
+	for _, tc := range []struct {
+		members int
+		want    int
+	}{
+		{members: 0, want: 1024},
+		{members: 1, want: 1024},
+		{members: 4, want: 1024},
+		{members: 8, want: 2048},
+		{members: 32, want: 8192},
+		{members: 100, want: 8192},
+	} {
+		if got := distillCandidateOllamaNumPredictV2(tc.members); got != tc.want {
+			t.Errorf("members=%d num_predict=%d, want %d", tc.members, got, tc.want)
+		}
 	}
 }
 

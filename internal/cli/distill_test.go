@@ -64,6 +64,8 @@ func TestRenderDistillPromptForCandidateProtocolV2(t *testing.T) {
 		"Candidate extraction protocol v2",
 		"candidate-v1:0000000000000000000000000000000000000000000000000000000000000000\tconvention\tworkflow.testing.rules",
 		"at most six fact lines for each candidate",
+		"Every fact line has exactly three real tab characters",
+		"requested bug fixes, acceptance criteria, or verification steps",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("v2 candidate prompt missing %q", want)
@@ -80,6 +82,24 @@ func TestRenderDistillPromptForCandidateProtocolV2(t *testing.T) {
 		if strings.Contains(prompt, legacyConflict) {
 			t.Fatalf("v2 candidate prompt retained conflicting legacy instruction %q", legacyConflict)
 		}
+	}
+}
+
+func TestRenderDistillPromptForOptionsAddsOnlyOllamaEmptyRule(t *testing.T) {
+	taxonomy := defaultFactTaxonomy(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC))
+	ollama, err := renderDistillPromptForOptions(taxonomy, distillCommandOptions{pipeline: distillPipelineCandidates, agent: "ollama"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ollama, "Ollama conservative-empty rule") {
+		t.Fatal("Ollama candidate prompt missing conservative-empty rule")
+	}
+	codex, err := renderDistillPromptForOptions(taxonomy, distillCommandOptions{pipeline: distillPipelineCandidates, agent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(codex, "Ollama conservative-empty rule") {
+		t.Fatal("non-Ollama prompt inherited local compatibility semantics")
 	}
 }
 

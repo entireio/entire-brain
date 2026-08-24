@@ -445,6 +445,69 @@ func TestCandidateOneOffNoMutationRequestIsNotAStandingRule(t *testing.T) {
 	}
 }
 
+func TestCandidateOneOffImplementationPlanIsNotAdmitted(t *testing.T) {
+	// Sanitized shape of the live false positive: task-local requirements and
+	// verification details may contain invariant/closed-negative cue words, but
+	// an "Implement this plan" header makes the entire turn one-off work.
+	plan := strings.Join([]string{
+		"Implement this plan:",
+		"",
+		"## Scope",
+		"Fix the task-local parser behavior without changing unrelated packages.",
+		strings.Repeat("- task-local implementation detail\n", 900), // mirrors a large pasted implementation plan
+		"",
+		"## Acceptance criteria",
+		"- [ ] The requested bug fix must pass its focused test.",
+		"- [ ] Do not publish partial output.",
+		"",
+		"## Verification",
+		"Run the focused test and the race test before reporting completion.",
+	}, "\n")
+	transcript := fmt.Sprintf(`{"type":"event_msg","payload":{"type":"user_message","message":%q}}`, plan)
+	normalized := normalizeDistillTranscriptV1(candidateTestSession(), "main", transcript)
+	if normalized.Unsupported || len(normalized.Turns) != 1 {
+		t.Fatalf("sanitized plan did not normalize as one direct user turn: %+v", normalized)
+	}
+	if cards := selectDistillCandidateCardsV1(normalized); len(cards) != 0 {
+		t.Fatalf("one-off implementation plan became candidate cards: %+v", cards)
+	}
+
+	standing := `{"type":"event_msg","payload":{"type":"user_message","message":"Always run the focused and race tests before merging."}}`
+	if cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateTestSession(), "main", standing)); len(cards) != 1 {
+		t.Fatalf("explicit standing rule was lost: %+v", cards)
+	}
+}
+
+func TestCandidateOneOffTaskBriefsAreNotAdmitted(t *testing.T) {
+	for _, text := range []string{
+		"Task for Codex: fix the provider. Make sure go test ./... passes.",
+		"Task for Codex in `../entire-sem`: fix provider compatibility; snapshot must not use the network.",
+		"Task C — Reduce spurious calls. The output must be deterministic.",
+		"# Fix: SQL grammar cannot parse migrations. Acceptance criteria: tests must pass.",
+		"Create a new branch to implement the docs. Make sure everything is reviewed.",
+		"Fix only the selected review findings. Do not rewrite unrelated code.",
+		"Now also add an --include-file option that must override ignores.",
+		"Now retry indexing and make sure all SQL symbols are queryable.",
+		"Yes, keep going. Only stop if you have a question.",
+	} {
+		transcript := fmt.Sprintf(`{"type":"event_msg","payload":{"type":"user_message","message":%q}}`, text)
+		if cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateTestSession(), "main", transcript)); len(cards) != 0 {
+			t.Errorf("one-off task brief became candidate cards for %q: %+v", text, cards)
+		}
+	}
+
+	for _, text := range []string{
+		"Always run go test ./... before merging.",
+		"No, use PostgreSQL instead of SQLite going forward.",
+		"The provider contract must remain local-only.",
+	} {
+		transcript := fmt.Sprintf(`{"type":"event_msg","payload":{"type":"user_message","message":%q}}`, text)
+		if cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateTestSession(), "main", transcript)); len(cards) != 1 {
+			t.Errorf("standing rule was lost for %q: %+v", text, cards)
+		}
+	}
+}
+
 func TestCandidateAcceptancePreservesAssistantConclusionAndScopesConfirmation(t *testing.T) {
 	longPrefix := strings.Repeat("background analysis without a durable conclusion. ", 100)
 	transcript := strings.Join([]string{

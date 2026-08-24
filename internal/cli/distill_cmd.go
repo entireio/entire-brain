@@ -68,7 +68,13 @@ func distillFactRecordsDigest(records []factRecord) string {
 	if len(records) == 0 {
 		return "empty"
 	}
-	data, err := json.Marshal(records)
+	// Persistence sorts facts before writing them. Hash the same canonical order
+	// without mutating the caller so an application receipt survives the first
+	// write/reload boundary instead of turning a byte-identical no-op into a
+	// second materialization.
+	canonical := append([]factRecord(nil), records...)
+	sortFactRecords(canonical)
+	data, err := json.Marshal(canonical)
 	if err != nil {
 		return "marshal-error:" + err.Error()
 	}
@@ -1481,11 +1487,11 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 			candidateCacheMisses++
 			misses = append(misses, member)
 		}
-		allPacks, packErr := packDistillCandidateMembersV2(plan.CandidatePackMembersV2)
+		allPacks, packErr := packDistillCandidateMembersForOptionsV2(plan.CandidatePackMembersV2, distillOpts)
 		if packErr != nil {
 			return distillDryRunReport{}, packErr
 		}
-		packs, packErr := packDistillCandidateMembersV2(misses)
+		packs, packErr := packDistillCandidateMembersForOptionsV2(misses, distillOpts)
 		if packErr != nil {
 			return distillDryRunReport{}, packErr
 		}
@@ -2860,6 +2866,12 @@ func defaultDistillAgentRunner(agent string) distillAgentRunner {
 
 type distillDecodedOutputLimitKey struct{}
 
+// distillOllamaNumPredictKey carries a protocol-specific generation ceiling to
+// the local Ollama runner. The model's Modelfile default is intentionally not
+// treated as a wire guarantee: framed candidate packs must be able to complete
+// every member before their output reaches the parser.
+type distillOllamaNumPredictKey struct{}
+
 func withDistillDecodedOutputLimit(ctx context.Context, limit int) context.Context {
 	if limit <= 0 {
 		return ctx
@@ -2874,6 +2886,22 @@ func distillDecodedOutputLimit(ctx context.Context) int {
 		}
 	}
 	return distillMaxOutputBytes
+}
+
+func withDistillOllamaNumPredict(ctx context.Context, numPredict int) context.Context {
+	if numPredict <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, distillOllamaNumPredictKey{}, numPredict)
+}
+
+func distillOllamaNumPredict(ctx context.Context) int {
+	if ctx != nil {
+		if numPredict, ok := ctx.Value(distillOllamaNumPredictKey{}).(int); ok && numPredict > 0 {
+			return numPredict
+		}
+	}
+	return 0
 }
 
 func execDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -2990,12 +3018,17 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	if !isLoopbackHTTPURL(u) {
 		return "", fmt.Errorf("distill: ollama url must be loopback-only: %s", endpoint)
 	}
-	body, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"model":  model,
 		"system": args[2],
 		"prompt": string(input),
 		"stream": false,
-	})
+	}
+	numPredict := distillOllamaNumPredict(ctx)
+	if numPredict > 0 {
+		payload["options"] = map[string]int{"num_predict": numPredict}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
@@ -3048,6 +3081,7 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	var parsed struct {
 		Response        string `json:"response"`
 		Error           string `json:"error"`
+		DoneReason      string `json:"done_reason"`
 		PromptEvalCount *int64 `json:"prompt_eval_count"`
 		EvalCount       *int64 `json:"eval_count"`
 	}
@@ -3073,6 +3107,14 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	recordDistillProviderUsage(ctx, usage)
 	if parsed.Error != "" {
 		return "", fmt.Errorf("ollama error: %s", parsed.Error)
+	}
+	if parsed.DoneReason == "length" && numPredict > 0 {
+		// A length-limited response is structurally indistinguishable from a
+		// complete response until a protocol parser notices missing members.
+		// Refuse it for the framed protocol so it retains its no-partial-
+		// publication boundary. Legacy callers intentionally retain their
+		// established output behavior and do not set this protocol context.
+		return "", errors.New("ollama response truncated at its generation limit")
 	}
 	return parsed.Response, nil
 }

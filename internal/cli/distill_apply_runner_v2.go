@@ -146,6 +146,18 @@ func runDistillCandidateApplyV2(
 		if err != nil {
 			return err
 		}
+		relationships, relationshipStoreErr := loadDistillRelationshipStoreV2(brainDir)
+		relationshipStoreRebuilt := relationshipStoreErr != nil
+		if relationshipStoreRebuilt {
+			// This store is disposable advisory state. A stricter relationship
+			// policy or interrupted write must not block primary fact application;
+			// rebuild every branch with current v2 anchors from durable facts.
+			relationships = newDistillRelationshipStoreV2()
+		}
+		relationshipsBefore, err := marshalDistillRelationshipStoreV2(relationships)
+		if err != nil {
+			return err
+		}
 		branches := make(map[string][]factRecord)
 		beforeDigests := make(map[string]string)
 		loadBranch := func(branch string) ([]factRecord, error) {
@@ -159,6 +171,19 @@ func runDistillCandidateApplyV2(
 			branches[branch] = facts
 			beforeDigests[branch] = distillFactRecordsDigest(facts)
 			return facts, nil
+		}
+		if relationshipStoreRebuilt {
+			allBranches, err := loadAllFactBranches(brainDir)
+			if err != nil {
+				return err
+			}
+			for branch, facts := range allBranches {
+				if !hasDistillApplicationAnchorsV2(facts) {
+					continue
+				}
+				branches[branch] = facts
+				beforeDigests[branch] = distillFactRecordsDigest(facts)
+			}
 		}
 
 		// A normal incremental run reconciles only sessions present in the frozen
@@ -174,6 +199,9 @@ func runDistillCandidateApplyV2(
 				}
 				for _, receipt := range receipts.entries {
 					selectedBranches[receipt.Identity.Branch] = struct{}{}
+				}
+				for _, relationship := range relationships.entries {
+					selectedBranches[relationship.Branch] = struct{}{}
 				}
 				allBranches, err := loadAllFactBranches(brainDir)
 				if err != nil {
@@ -274,6 +302,38 @@ func runDistillCandidateApplyV2(
 			branchNames = append(branchNames, branch)
 		}
 		sort.Strings(branchNames)
+		// Remove every branch in this rebuild set before assigning the shared
+		// capacity budget. Otherwise the first sorted branch would reserve space
+		// for stale rows from later rebuilt branches, making a force/clean result
+		// depend on the prior advisory store rather than current facts.
+		rebuildingBranches := make(map[string]struct{}, len(branchNames))
+		for _, branch := range branchNames {
+			rebuildingBranches[branch] = struct{}{}
+		}
+		for id, relationship := range relationships.entries {
+			if _, rebuilding := rebuildingBranches[relationship.Branch]; rebuilding {
+				delete(relationships.entries, id)
+			}
+		}
+		relationshipBuildStats := distillRelationshipBuildStatsV2{}
+		for _, branch := range branchNames {
+			budget, err := distillRelationshipBuildBudgetForReplacementV2(relationships, branch)
+			if err != nil {
+				return fmt.Errorf("budget neutral relationships for %s: %w", branch, err)
+			}
+			proposals, stats, err := buildDistillRelationshipsForBranchWithBudgetV2(branches[branch], budget)
+			if err != nil {
+				return fmt.Errorf("build neutral relationships for %s: %w", branch, err)
+			}
+			relationshipBuildStats.add(stats)
+			if err := replaceDistillRelationshipBranchV2(&relationships, branch, proposals); err != nil {
+				return err
+			}
+		}
+		relationshipsAfter, err := marshalDistillRelationshipStoreV2(relationships)
+		if err != nil {
+			return err
+		}
 		for _, branch := range branchNames {
 			finalDigest := distillFactRecordsDigest(branches[branch])
 			finalGeneration := distillCandidateCacheDigestV2(finalDigest)
@@ -296,6 +356,11 @@ func runDistillCandidateApplyV2(
 		if err := saveDistillApplicationReceiptStoreV2(brainDir, receipts); err != nil {
 			return err
 		}
+		if string(relationshipsAfter) != string(relationshipsBefore) {
+			if err := saveDistillRelationshipStoreV2(brainDir, relationships); err != nil {
+				return err
+			}
+		}
 		if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
 			return err
 		}
@@ -309,8 +374,21 @@ func runDistillCandidateApplyV2(
 			allBranchNames = append(allBranchNames, branch)
 		}
 		totalProposals := countFactProposals(brainDir, allBranchNames)
-		source = summarizeFactSource(now, allBranches, extraction.ChunksScanned, extraction.ChunksDistilled, totalProposals, extraction.Warnings)
+		warnings := append([]string(nil), extraction.Warnings...)
+		if relationshipStoreRebuilt {
+			warnings = append(warnings, "neutral relationship store was unreadable and rebuilt from current candidate-owned facts")
+		}
+		if relationshipBuildStats.SkippedBlocks > 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"neutral relationship discovery skipped %d bounded subject block(s)",
+				relationshipBuildStats.SkippedBlocks,
+			))
+		}
+		source = summarizeFactSource(now, allBranches, extraction.ChunksScanned, extraction.ChunksDistilled, totalProposals, capWarnings(warnings, maxDistillWarnings))
 		copyDistillCandidateRunMetricsV2(source, extraction)
+		source.Warnings = capWarnings(warnings, maxDistillWarnings)
+		source.CandidateRelationships = len(relationships.entries)
+		source.CandidateRelationshipBlocksSkipped = relationshipBuildStats.SkippedBlocks
 		source.WriteSeconds = time.Since(writeStarted).Seconds()
 		source.TotalSeconds = extraction.TotalSeconds + source.WriteSeconds
 		return updateBrainManifestAndReadme(brainDir, func(currentManifest *exportManifest) error {
@@ -552,6 +630,8 @@ func copyDistillCandidateRunMetricsV2(target, source *factSourceManifest) {
 	target.CandidateCacheMisses = source.CandidateCacheMisses
 	target.CandidateSplitCalls = source.CandidateSplitCalls
 	target.CandidateEmptyResults = source.CandidateEmptyResults
+	target.CandidateRelationships = source.CandidateRelationships
+	target.CandidateRelationshipBlocksSkipped = source.CandidateRelationshipBlocksSkipped
 	target.Agent = source.Agent
 	target.Model = source.Model
 	target.Effort = source.Effort
@@ -580,6 +660,8 @@ func factSourceForManifestV3(source *factSourceManifest) factSourceManifest {
 	persisted.CandidateCacheMisses = 0
 	persisted.CandidateSplitCalls = 0
 	persisted.CandidateEmptyResults = 0
+	persisted.CandidateRelationships = 0
+	persisted.CandidateRelationshipBlocksSkipped = 0
 	persisted.Pipeline = ""
 	persisted.Shadow = false
 	persisted.ShadowFacts = 0

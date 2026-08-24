@@ -1,7 +1,8 @@
 # Candidate-First Distillation Plan
 
-Status: Phase 3A exact-write implementation complete; full Phase 2 quality and
-Phase 3 relationship/parity exit gates pending (2026-08-23).
+Status: Phase 3 conservative-write exit gate complete. The full Phase 2
+human-labeled fact-quality/retrieval gate remains pending and blocks default
+promotion (2026-08-23).
 
 The first implementation slice on `feat/candidate-first-distillation` adds the
 opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
@@ -11,8 +12,8 @@ keys, dry-run accounting, redaction, and privacy-linearized egress/publication.
 Legacy remains the default.
 
 The Phase 2 branch adds candidate-id-framed multi-card output, deterministic
-cross-session packing under a fixed 32 KiB/32-member policy, a bounded
-success-only member cache, one-level failure bisection, provider usage
+cross-session packing under a fixed 32 KiB/32-member provider-neutral policy,
+a bounded success-only member cache, one-level failure bisection, provider usage
 accounting, and `--shadow` execution that leaves active facts, proposals,
 taxonomy, the legacy cache, and the manifest unchanged. Exclude/purge resets the
 derived member cache; privacy verification, atomic-temp cleanup, and publish
@@ -34,13 +35,37 @@ privacy verification, atomic-temp cleanup, and publish exclusion cover the new
 artifact. Different fact ids remain separate with no automatic merge or
 supersession.
 
-Phase 3A deliberately does not create a different-id relationship proposal.
-The current proposal schema represents an executable merge or supersede
-recommendation, not a neutral relationship, and taxonomy-path overlap is not a
-safe subject detector. Adding such proposals without a new evidence-bearing
-shape would reintroduce the false-reconciliation failure this pipeline is
-designed to prevent. That work remains a later Phase 3 gate rather than being
-simulated by unsafe proposals here.
+Phase 3B adds that evidence-bearing shape without changing reconciliation. A
+different-id pair may produce a local `possible_same_subject` observation only
+when both active facts have the same branch, kind, taxonomy top-level, and an
+exact shared strong code locus. Bare normalized loci require matching
+backticked, CamelCase, snake_case, qualified, or path evidence in the fact
+text; ordinary words and flags are rejected. At least one fact must carry a
+current candidate-v2 application owner. The state lives separately at
+`facts/distill-v2/relationships.ndjson` and is exposed only through the
+read-only `facts relationships list` command. It has no action, confidence,
+status, apply/reject operation, fact crosslink, factsync transport, or hosted
+publication path. Executable merge/supersede proposals remain unchanged and
+unused by candidate mode.
+
+Real local-model acceptance showed that Qwen 2.5 7B does not reliably complete
+larger framed packs even at temperature zero. The Ollama adapter therefore caps
+candidate packs at two members while other providers retain the 32-member
+ceiling. A normally stopped malformed Ollama singleton settles conservatively
+as `NO_FACTS`; length-truncated transport output is still rejected. Invalid or
+unattributable text is never persisted as a fact.
+
+Relationship discovery is advisory and cannot make primary fact application
+fail merely because a subject is broad. It indexes exact subject blocks, sorts
+them deterministically, and admits a block only when its complete pair set fits
+the remaining 4,096-entry and 4 MiB store budgets. A 91-member block (4,095
+pairs) is admissible; a 92-member block (4,186 pairs) is skipped before pair
+enumeration. Byte- or capacity-limited blocks are likewise skipped whole,
+as are blocks whose pair evidence would exceed the 128-owner record bound.
+They are never truncated, and the command result plus local listing report the
+skipped block count. Byte accounting advances only with the newly admitted
+block rather than rescanning the accumulated store. This is a bounded
+inspection foundation, not evidence that different-id facts should merge.
 
 The opt-in slice keeps each complete redacted authoritative trigger turn. It
 shrinks adjacent context first and refuses preflight when the trigger itself
@@ -63,15 +88,14 @@ remained necessary before a 30-60-call claim.
 
 ### Phase 2 evidence (2026-08-23)
 
-Using the fixed policy without corpus-specific tuning, the current
-`entire-graph` shadow dry run reports 152 current session views, 367 admitted
-cards, 231 unique members after replay collapse, and 29 packs. Candidate input
-is 1,417,956 bytes versus 33,663,145 legacy-preprocessed bytes (95.8 percent
-less). The uncached extraction projection is 29 calls versus 731 legacy
-extraction calls (96.0 percent less), or 29 versus the 1,462 legacy
-extraction-plus-reconciliation ceiling (98.0 percent less). One cached member
-currently leaves the scheduled count at 29 because the remaining members still
-fill the same number of byte-bounded packs.
+Using the final authority filter, the current `entire-graph` dry run reports
+152 current session views, 355 admitted cards, 221 unique members after replay
+collapse, and 1,357,663 candidate bytes versus 33,663,145
+legacy-preprocessed bytes (95.97 percent less). The provider-neutral 32-member
+packer remains the Phase 2 protocol ceiling. The proven local Ollama policy
+plans 111 two-member packs when cold: 84.8 percent fewer extraction calls than
+the 731-call legacy baseline, or 92.4 percent fewer calls than the 1,462-call
+legacy extraction-plus-reconciliation ceiling.
 
 The retained command for that projection is:
 
@@ -107,8 +131,9 @@ the ambiguous views. Checkpoint ids are never treated as chronological.
 
 ### Phase 3A evidence (2026-08-23)
 
-Current-source dry runs against the retained `entire-graph` Brain show exact
-planning parity between `--pipeline candidates` write mode and `--shadow`:
+At the Phase 3A checkpoint, source dry runs against the retained
+`entire-graph` Brain showed exact planning parity between
+`--pipeline candidates` write mode and `--shadow`:
 after removing only `generated_at` and the intentional `shadow` flag, their
 JSON reports are byte-identical. Both report 152 current session views,
 697,289,133 raw bytes, 367 admitted cards, 231 unique members, 1,417,956
@@ -126,11 +151,87 @@ zero-provider-call byte-stable no-op replay, a zero-call mechanics-only anchor
 relocation, exact legacy-provenance preservation, `NO_FACTS` retraction, and
 facts-before-receipt crash convergence.
 
-Phase 3A is not the full Phase 3 exit. The human-labeled Phase 2 recall and
-precision audit, repeated paired provider runs, filtered-negative audit,
-different-id relationship design, full force/incremental canonical parity,
-and live-corpus bad-reconciliation fixtures remain required before promotion
-or any default change.
+Phase 3A's synthetic evidence was necessary but not sufficient for the Phase 3
+exit. The final live-corpus and controlled-result acceptance is recorded below.
+The human-labeled Phase 2 recall and precision audit, repeated paired provider
+runs, filtered-negative audit, and retrieval evaluation remain required before
+promotion or any default change.
+
+### Phase 3B evidence (2026-08-23)
+
+The first Phase 3B slice adds a 20-case sanitized admission fixture spanning
+Codex, Claude, Pi, and OpenCode positive and negative authority shapes. It
+locks deterministic candidate IDs, trigger anchors, role boundaries,
+checkpoint corroboration, accepted decisions, injected mechanics, task/review
+sessions, and one-off-request suppression. This is a regression fixture, not
+the full human-labeled Phase 2 corpus gate.
+
+Synthetic bad-reconciliation coverage retains the two known failure shapes:
+`--no-network` and repository-key/symbol-ID facts may share a taxonomy path but
+remain distinct, with neither an executable proposal nor a neutral
+relationship. Exact-write replay is byte-stable, force output matches a clean
+rebuild, `NO_FACTS` removes only its v2-owned fact, and sorting the fact-store
+generation digest to match durable fact order fixed a receipt miss found by
+this parity gate. A separate crash-window regression clears relationship state
+after facts and receipts commit, then proves an unchanged retry rebuilds it
+with zero provider calls.
+
+The bounded runtime regression materializes 92 same-subject candidates, keeps
+all 92 facts, skips the entire 4,186-pair advisory block with a counted warning,
+and produces identical normalized facts and bounded relationship state on a
+force replay. Relationship state is reset wholesale by exclude/purge, checked
+fail-closed by privacy verification, covered by atomic-temp cleanup, and
+excluded from publish bundles. These tests establish the local-only neutral
+foundation; they do not satisfy the live-corpus or pairwise-precision exit
+gates.
+
+### Phase 3 exit evidence (2026-08-23)
+
+The final acceptance used the retained 152-view `entire-graph` corpus and local
+`entire-brain-distill:qwen2.5-7b` model at temperature zero. A cold force run
+processed 355 cards / 221 unique members in 111 parent packs plus 16 bounded
+split calls. Eight malformed or length-limited parents were isolated before
+materialization. The run completed all 111 packs in 127 actual provider calls,
+with 524,125 input tokens, 36,417 output tokens, zero reconcile calls, and zero
+executable proposals. Against the retained legacy baseline, that is 82.63
+percent fewer extraction calls and 91.31 percent fewer calls than the legacy
+extraction-plus-reconciliation ceiling. Candidate bytes are 95.97 percent
+below legacy-preprocessed bytes. The immediate replay used 221 member-cache
+hits, made zero provider calls, and left every file under `facts/` byte-stable.
+
+Two independent local-model extractions produced 419 versus 356 total facts.
+That variance is an observed Phase 2 provider-quality failure, not evidence of
+Phase 3 parity, and it remains a release/default blocker. Phase 3 application
+parity was therefore tested with the exact same 221 protocol-valid member
+results on a clean force store and a clean incremental store. After removing
+only timestamps and the intentionally generation-derived receipt ids, both
+stores had identical 356 facts and all 355 application receipts; relationship
+state was byte-identical with five observations. A subsequent replay was again
+zero-call and byte-stable.
+
+All 30 pre-existing live facts retained their text, paths, kind, locus, origin,
+status, confidence, supersession, and related-id fields. Candidate-owned facts
+had zero status, supersession, or related-id mutations. The one pre-existing
+superseded fact remained the only superseded fact, and executable proposals
+remained empty. Sanitized regressions retain the historical `--no-network`
+versus repository-key/symbol-ID corruption cases.
+
+Every live neutral relationship was joined back to its fact pair for manual
+inspection. One false observation used the generic product token `entire` to
+connect unrelated graph-index and semantic-snapshot gotchas; the strong-locus
+policy now rejects that token and retains the exact pair as a regression. The
+remaining seven observations across the two provider runs were narrow
+same-subject pairs (hook event mappings, graph-plugin release steps, and
+`internal/sem` boundaries). None altered facts or entered the executable
+proposal path. Relationship stores invalidated by a stricter policy now rebuild
+from current v2-owned facts with zero provider calls instead of blocking fact
+application; privacy verification remains fail-closed.
+
+These results satisfy the Phase 3 exit gate: the retained bad-reconciliation
+fixtures pass, force/incremental lifecycle parity holds for identical extracted
+results, and no wrong automatic supersession is observed. They do not satisfy
+Phase 2's fact-quality, repeated-provider, filtered-negative, or retrieval
+gates, so candidate mode remains opt-in and legacy remains the default.
 
 This plan replaces full-conversation fact extraction with a candidate-first
 pipeline. The deterministic path reads retained sessions, normalizes their
@@ -1221,13 +1322,17 @@ token/call accounting is complete.
 - Enable `--pipeline candidates` fact writes.
 - Phase 3A ships exact-only reconciliation first and keeps all different ids
   separate. It does not overload merge/supersede proposals as neutral links.
-- Design an evidence-bearing neutral relationship proposal and safe subject
-  block before enabling different-id proposals in a later Phase 3 slice.
+- Keep the Phase 3B evidence-bearing neutral relationship store local,
+  list-only, capacity-bounded, and separate from executable proposals.
+- Validate neutral relationship precision and lifecycle parity on the labeled
+  and live corpora before considering any downstream consumer.
 - Add safe paraphrase merging only after its pairwise precision gate passes.
 - Preserve legacy facts on incremental candidate runs.
 
-Exit gate: all live-corpus bad-reconcile fixtures pass, force/incremental parity
-holds, and no wrong automatic supersession is observed.
+Exit gate (met 2026-08-23): all live-corpus bad-reconcile fixtures pass,
+force/incremental lifecycle parity holds for identical extraction results, and
+no wrong automatic supersession is observed. Provider-output repeatability is
+tracked separately by the still-open Phase 2 quality gate.
 
 ### Phase 4: Session-end incremental candidate distill
 

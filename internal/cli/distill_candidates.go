@@ -1003,12 +1003,29 @@ var distillCandidateAdjacentAcceptanceV1 = regexp.MustCompile(`(?i)^(?:yes|corre
 var distillCandidateOneOffWantV1 = regexp.MustCompile(`(?i)\bi want\s+(?:you\s+)?to\b`)
 var distillCandidateOneOffMutationDirectiveV1 = regexp.MustCompile(`(?i)\b(?:do not|don't)\s+(?:change|modify|edit|write|touch|create|delete|remove|commit|push)\s+(?:(?:any|the|these|those)\s+)?(?:files?|code|repository|repo|branch|commits?)\b`)
 
+// An imperative plan/spec header scopes the rest of its turn to a one-off
+// implementation request. Such a turn often contains words like "must",
+// "invariant", acceptance criteria, and verification commands, but those are
+// task requirements rather than durable repository knowledge.
+var distillCandidateOneOffPlanSpecRequestV1 = regexp.MustCompile(`(?i)^\s*(?:please\s+)?(?:implement|execute|apply|carry out|complete)\s+(?:this|the following|the attached)\s+(?:plan|spec(?:ification)?|request)\s*[:.]`)
+
+// Task briefs and continuation commands are another high-precision one-off
+// shape. They commonly contain "must", "make sure", acceptance criteria, and
+// pasted review prose, but those words govern the current implementation task;
+// they are not standing repository memory. Keep the prefix list deliberately
+// narrow so an ordinary human rule or correction still reaches the quality
+// gate.
+var distillCandidateOneOffTaskBriefV1 = regexp.MustCompile(`(?i)^\s*(?:#{1,6}\s*)?(?:task(?:(?:\s+for\s+[a-z0-9_-]+(?:\s+in\s+[^:\n]+)?)|\s+[a-z])?\s*(?::|[-—])|fix\s*:|create\s+a\s+new\s+branch\s+to\b|fix\s+only\s+the\s+selected\s+review\s+findings\b|now\s+(?:also\s+)?(?:add|retry|implement|fix|run|test|verify|continue)\b|yes[,!.]?\s+keep\s+going\b)`)
+
 func distillCandidateCuesV1(text string) []distillCandidateCueV1 {
 	trimmed := strings.TrimSpace(text)
 	if distillCandidateQuestionV1.MatchString(trimmed) && !distillCandidateStrongQuestionDirectiveV1.MatchString(trimmed) {
 		return nil
 	}
 	if distillCandidateOneOffMutationDirectiveV1.MatchString(trimmed) && !distillCandidateStrongQuestionDirectiveV1.MatchString(trimmed) {
+		return nil
+	}
+	if distillCandidateOneOffPlanSpecRequestV1.MatchString(trimmed) || distillCandidateOneOffTaskBriefV1.MatchString(trimmed) {
 		return nil
 	}
 	var cues []distillCandidateCueV1

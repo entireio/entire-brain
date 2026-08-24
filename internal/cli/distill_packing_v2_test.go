@@ -37,6 +37,27 @@ func TestPackDistillCandidateMembersV2MemberLimit(t *testing.T) {
 	}
 }
 
+func TestPackDistillCandidateMembersV2OllamaMemberLimit(t *testing.T) {
+	members := make([]distillCandidatePackMemberV2, 9)
+	for index := range members {
+		members[index] = packMemberV2("ollama-candidate-"+benchmarkCardIDV2(index), "x")
+	}
+	packs, err := packDistillCandidateMembersForOptionsV2(members, distillCommandOptions{agent: "ollama"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := []int{len(packs[0].Members), len(packs[1].Members), len(packs[2].Members), len(packs[3].Members), len(packs[4].Members)}; !reflect.DeepEqual(got, []int{2, 2, 2, 2, 1}) {
+		t.Fatalf("Ollama member limits = %v, want [2 2 2 2 1]", got)
+	}
+	generic, err := packDistillCandidateMembersForOptionsV2(members, distillCommandOptions{agent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(generic) != 1 || len(generic[0].Members) != len(members) {
+		t.Fatalf("generic provider unexpectedly inherited Ollama limit: %+v", generic)
+	}
+}
+
 func TestPackDistillCandidateMembersV2RejectsInvalidMembers(t *testing.T) {
 	valid := packMemberV2("candidate-a", "card")
 	tooLarge := packMemberV2("candidate-b", strings.Repeat("x", distillCandidatePackMaxRenderedBytesV2+1))

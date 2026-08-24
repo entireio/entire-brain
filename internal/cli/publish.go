@@ -194,19 +194,33 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 		return fmt.Errorf("publish: no brain found for this repo; run 'entire brain refresh' first")
 	}
 
-	body, repoKey, err := buildPublishBundle(ctx, opts, storage, repoDir)
-	if err != nil {
-		return fmt.Errorf("publish: %w", err)
-	}
+	// Hosted egress takes the established privacy -> write lock order. The
+	// privacy lock linearizes tombstone cleanup, while write.lock also excludes
+	// every fact/brain writer. Hold both from the fail-closed derived-state check
+	// through bundle construction, HTTP egress, response capture, and user-facing
+	// result publication: no writer can make the checked bundle stale after its
+	// validation but before the first irreversible byte leaves the process.
+	return withBrainPrivacySideEffectLock(storage.BrainDir, func() error {
+		return withBrainWriteLock(storage.BrainDir, func() error {
+			if err := requirePrivacyDerivedRead(storage.BrainDir); err != nil {
+				return err
+			}
 
-	result, err := postBrainArtifacts(ctx, baseURL, repoID, token, body)
-	if err != nil {
-		return err
-	}
+			body, repoKey, err := buildPublishBundle(ctx, opts, storage, repoDir)
+			if err != nil {
+				return fmt.Errorf("publish: %w", err)
+			}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "published %d artifact(s) for %s to %s\n",
-		len(result.Stored), repoKey, strings.TrimRight(baseURL, "/"))
-	return nil
+			result, err := postBrainArtifacts(ctx, baseURL, repoID, token, body)
+			if err != nil {
+				return err
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "published %d artifact(s) for %s to %s\n",
+				len(result.Stored), repoKey, strings.TrimRight(baseURL, "/"))
+			return nil
+		})
+	})
 }
 
 // publishFlagOrEnv returns the trimmed flag value when set, else the trimmed

@@ -10,6 +10,11 @@ const (
 	// caller's model/chunk setting. It bounds one complete provider request.
 	distillCandidatePackMaxRenderedBytesV2 = 32 << 10
 	distillCandidatePackMaxMembersV2       = 32
+	// The retained local Qwen model reliably completes the strict member
+	// protocol only when every card remains inside this small attention set.
+	// Two members still clears the operational call-reduction gate on the
+	// measured corpus; larger hosted-model packs retain the generic bound.
+	distillCandidateOllamaPackMaxMembersV2 = 2
 )
 
 // distillCandidatePackMemberV2 is one already-rendered, redacted candidate
@@ -41,8 +46,23 @@ type distillCandidatePackV2 struct {
 // rewrites cards, so callers can safely rely on candidate IDs and byte-exact
 // provider input.
 func packDistillCandidateMembersV2(members []distillCandidatePackMemberV2) ([]distillCandidatePackV2, error) {
+	return packDistillCandidateMembersWithLimitV2(members, distillCandidatePackMaxMembersV2)
+}
+
+func packDistillCandidateMembersForOptionsV2(members []distillCandidatePackMemberV2, opts distillCommandOptions) ([]distillCandidatePackV2, error) {
+	maxMembers := distillCandidatePackMaxMembersV2
+	if strings.EqualFold(strings.TrimSpace(opts.agent), "ollama") {
+		maxMembers = distillCandidateOllamaPackMaxMembersV2
+	}
+	return packDistillCandidateMembersWithLimitV2(members, maxMembers)
+}
+
+func packDistillCandidateMembersWithLimitV2(members []distillCandidatePackMemberV2, maxMembers int) ([]distillCandidatePackV2, error) {
 	if len(members) == 0 {
 		return nil, nil
+	}
+	if maxMembers < 1 || maxMembers > distillCandidatePackMaxMembersV2 {
+		return nil, fmt.Errorf("candidate pack v2 invalid member limit %d", maxMembers)
 	}
 
 	seen := make(map[string]struct{}, len(members))
@@ -70,7 +90,7 @@ func packDistillCandidateMembersV2(members []distillCandidatePackMemberV2) ([]di
 
 	for _, member := range members {
 		cardBytes := len(member.RenderedCard)
-		if len(current.Members) == distillCandidatePackMaxMembersV2 ||
+		if len(current.Members) == maxMembers ||
 			currentBytes > distillCandidatePackMaxRenderedBytesV2-cardBytes {
 			emit()
 		}
