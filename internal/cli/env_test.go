@@ -98,6 +98,38 @@ func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
 	}
 }
 
+func TestRepoStorageKeyUsesCanonicalEntireProxyPath(t *testing.T) {
+	configDir := t.TempDir()
+	tests := map[string]string{
+		"entire://cluster.example/gh/entirehq/entire-api": "gh/entirehq/entire-api",
+		"entire://cluster.example/et/project/repo":        "et/project/repo",
+		"entire://cluster.example/gt/owner/repo":          "gt/owner/repo",
+	}
+	for remote, want := range tests {
+		got, ok, err := repoKeyFromRemote(configDir, remote)
+		if err != nil || !ok || got != want {
+			t.Fatalf("repoKeyFromRemote(%q) = %q, %v, %v; want %q, true, nil", remote, got, ok, err, want)
+		}
+	}
+
+	cfg, err := config.Load(configDir)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(cfg.DomainSlugs) != 0 {
+		t.Fatalf("Entire proxy created domain slugs: %#v", cfg.DomainSlugs)
+	}
+}
+
+func TestRepoStorageKeyTreatsEntireProxyAsOriginEquivalent(t *testing.T) {
+	configDir := t.TempDir()
+	originKey, originOK, originErr := repoKeyFromRemote(configDir, "https://github.com/entirehq/entire-api.git")
+	proxyKey, proxyOK, proxyErr := repoKeyFromRemote(configDir, "entire://cluster.example/gh/entirehq/entire-api")
+	if originErr != nil || proxyErr != nil || !originOK || !proxyOK || proxyKey != originKey {
+		t.Fatalf("proxy key = %q, %v, %v; origin key = %q, %v, %v", proxyKey, proxyOK, proxyErr, originKey, originOK, originErr)
+	}
+}
+
 func TestRepoStorageKeyStoresUnknownDomainSlug(t *testing.T) {
 	configDir := t.TempDir()
 

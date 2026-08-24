@@ -395,6 +395,14 @@ func canonicalExistingLocalRepoDir(repoDir string) (string, error) {
 }
 
 func repoKeyFromRemote(configDir, remote string) (string, bool, error) {
+	remote = strings.TrimSpace(remote)
+	if parsed, err := url.Parse(remote); err == nil && strings.EqualFold(parsed.Scheme, "entire") && parsed.Host != "" {
+		components := normalizeRepoPath(parsed.Path)
+		if len(components) >= 3 {
+			return strings.Join(components, "/"), true, nil
+		}
+	}
+
 	host, repoPath, ok := parseRepoRemote(remote)
 	if !ok {
 		return "", false, nil
