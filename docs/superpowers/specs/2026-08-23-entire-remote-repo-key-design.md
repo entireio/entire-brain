@@ -7,7 +7,7 @@ Brain derives its persistent repository key from the Git remote named `origin`. 
 An Entire proxy remote already carries that canonical key in its path:
 
 ```text
-entire://aws-ap-southeast-2.entire.io/gh/entirehq/entire-api
+entire://cluster.example/gh/entirehq/entire-api
 ```
 
 Brain currently treats the cluster hostname as an ordinary unknown Git host, assigns it a local domain slug, and produces `gjk/gh/entirehq/entire-api`. The Graph provider recognizes the proxy path and emits `gh/entirehq/entire-api`. Semantic ingestion correctly rejects the resulting identity mismatch.
