@@ -1,0 +1,84 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "8bf686df82a6",
+  "session_id": "01a0200a-63d8-7b21-adef-c3850aecebf7",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-26T12:00:51.250733Z",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 5,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill_quality_bundle_v1.go",
+    "internal/cli/distill_quality_bundle_v1_test.go",
+    "internal/cli/distill_quality_judge_cmd_v1.go",
+    "internal/cli/distill_quality_judge_cmd_v1_test.go",
+    "internal/cli/distill_quality_judge_parallel_v1.go",
+    "internal/cli/distill_quality_judge_parallel_v1_test.go",
+    "internal/cli/distill_quality_judge_runner_v1.go",
+    "internal/cli/distill_quality_judge_runner_v1_test.go",
+    "internal/cli/distill_quality_panel_v1.go",
+    "internal/cli/distill_quality_panel_v1_test.go",
+    "internal/cli/distill_quality_report_v1.go",
+    "internal/cli/distill_quality_report_v1_test.go",
+    "internal/cli/distill_quality_run_io_v1.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_distill_quality_cmd_v1.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "30b3c00db5d4",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 11677920,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 859677952,
+    "output_tokens": 1322256,
+    "api_call_count": 6197
+  },
+  "session_metrics": {
+    "turn_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-26T12:00:45.632412Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 8677,
+    "human_modified": 6,
+    "human_removed": 0,
+    "total_committed": 8677,
+    "total_lines_changed": 8683,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 4319,
+      "user_lines_removed": 3,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/candidate_distillation_plan.md": 35,
+        "internal/cli/distill_quality_bundle_v1.go": 470,
+        "internal/cli/distill_quality_bundle_v1_test.go": 114,
+        "internal/cli/distill_quality_judge_cmd_v1.go": 309,
+        "internal/cli/distill_quality_judge_cmd_v1_test.go": 176,
+        "internal/cli/distill_quality_judge_parallel_v1.go": 163,
+        "internal/cli/distill_quality_judge_parallel_v1_test.go": 210,
+        "internal/cli/distill_quality_judge_runner_v1.go": 542,
+        "internal/cli/distill_quality_judge_runner_v1_test.go": 161,
+        "internal/cli/distill_quality_panel_v1.go": 730,
+        "internal/cli/distill_quality_panel_v1_test.go": 98,
+        "internal/cli/distill_quality_report_v1.go": 289,
+        "internal/cli/distill_quality_report_v1_test.go": 114,
+        "internal/cli/distill_quality_run_io_v1.go": 322,
+        "internal/cli/facts_admin_cmd.go": 1,
+        "internal/cli/facts_distill_quality_cmd_v1.go": 585
+      },
+      "user_removed_per_file": {
+        "docs/candidate_distillation_plan.md": 3
+      }
+    }
+  ]
+}

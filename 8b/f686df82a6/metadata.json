@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "8bf686df82a6",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill_quality_bundle_v1.go",
+    "internal/cli/distill_quality_bundle_v1_test.go",
+    "internal/cli/distill_quality_judge_cmd_v1.go",
+    "internal/cli/distill_quality_judge_cmd_v1_test.go",
+    "internal/cli/distill_quality_judge_parallel_v1.go",
+    "internal/cli/distill_quality_judge_parallel_v1_test.go",
+    "internal/cli/distill_quality_judge_runner_v1.go",
+    "internal/cli/distill_quality_judge_runner_v1_test.go",
+    "internal/cli/distill_quality_panel_v1.go",
+    "internal/cli/distill_quality_panel_v1_test.go",
+    "internal/cli/distill_quality_report_v1.go",
+    "internal/cli/distill_quality_report_v1_test.go",
+    "internal/cli/distill_quality_run_io_v1.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_distill_quality_cmd_v1.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8b/f686df82a6/0/metadata.json",
+      "transcript": "/8b/f686df82a6/0/full.jsonl",
+      "compact_transcript": "/8b/f686df82a6/0/transcript.jsonl",
+      "content_hash": "/8b/f686df82a6/0/content_hash.txt",
+      "prompt": "/8b/f686df82a6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 11677920,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 859677952,
+    "output_tokens": 1322256,
+    "api_call_count": 6197
+  }
+}
