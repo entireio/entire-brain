@@ -1,8 +1,9 @@
 # Candidate-First Distillation Plan
 
-Status: Phase 3 conservative-write exit gate complete. The full Phase 2
-human-labeled fact-quality/retrieval gate remains pending and blocks default
-promotion (2026-08-23).
+Status: Phase 3 conservative-write exit gate complete. Phase 2 has a sealed
+advisory multi-model pre-adjudication package ready for human review; human
+labels, paired fact-quality runs, and retrieval gates remain pending and block
+default promotion (2026-08-26).
 
 The first implementation slice on `feat/candidate-first-distillation` adds the
 opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
@@ -123,6 +124,82 @@ one manually inspected fact is not a labeled corpus. Promotion beyond shadow
 still requires the human-labeled span recall/precision audit, filtered-out
 negative sample, repeated paired legacy/candidate provider runs, source-anchor
 faithfulness review, and observed provider token/latency totals described below.
+
+#### Sealed advisory panel before human adjudication (2026-08-25)
+
+The next Phase 2 slice adds a reproducible pre-adjudication workflow, not an
+automated proof label. `facts distill-quality prepare` seals one redacted local
+run containing every unique admitted candidate card plus a deterministic,
+stratified sample of 500 filtered exchanges. The retained `entire-graph` run
+contains 152 current session views, 219 admitted packets, 500 filtered packets,
+and 719 total packets. Its manifest pins the evaluator and target revisions,
+dirty-state bit, corpus and packet digests, rubric/prompt digest, redaction
+version, item counts, and a separately protected private source-map digest.
+Public judge packets contain redacted evidence and opaque ids only; source
+paths, branches, session ids, checkpoints, cache keys, credentials, and human
+expectations are not sent to judges.
+
+`facts distill-quality judge` submits that identical sealed packet set to
+Copilot, Cursor, and Claude independently. It blinds every judge to the other
+verdicts and to eventual human labels, validates exact packet and payload
+digests on return, and records every dimension score and bounded rationale.
+Provider work uses deterministic batches, one schema/transport retry, bounded
+parallelism, atomic parent-owned persistence, and an explicit one-time recovery
+lane for terminal invalid batches. Missing or malformed provider output becomes
+an `invalid` advisory verdict; it is never converted into a negative label.
+
+`facts distill-quality report` produces an attention-first human review sheet,
+the raw per-judge score aggregation, and a blank adjudication template. Every
+model score and rationale remains visible to the human. Model consensus is
+advisory only: it cannot populate proof labels, pass a Phase 2 gate, or replace
+the required human review. Final human decisions are the sole input to the
+candidate-admission metrics, and the paired legacy/candidate extraction and
+retrieval gates still follow that adjudication.
+
+The completed sealed run is
+`quality-run-v1:33808625a097f0e5ab411a5cddb92c337257a7b4c62c7fad7c53852dee919868`.
+It binds target revision `6e9ef28b8ca0f148c259b30eabb5076de896b836`,
+evaluator base revision `55d432eba74e8437a65284513c470b0658f36136`
+with an explicit modified-worktree bit, packet digest
+`sha256:ee410013b6f4bf973b28af61ebeb2aca85f452be059e0bbdacd470b8d5e7fd8a`,
+corpus digest
+`sha256:f935941697ec1f8b485c1fb68d6c3151c352f26e364d4d445d26567a0be94bd3`,
+bundle digest
+`sha256:db9eee649f97ef742d77d0edcb6e4ecca62dd8e84645dba16b12460b58e8040e`,
+and rubric/prompt digest
+`sha256:00448fdb651aed162f484e94936bcb23db186704b801c507853e065d919e9690`.
+The sealed artifacts, rather than a mutable branch name, are the evaluated
+input contract.
+
+The advisory result totals are shown as `pass / concern / critical`:
+
+| Judge | Coverage | Admission | Authority | Safety |
+| --- | ---: | ---: | ---: | ---: |
+| Copilot `gpt-5.4` | 719 complete | 549 / 12 / 158 | 462 / 217 / 40 | 571 / 3 / 145 |
+| Cursor `composer-2.5` | 719 complete | 565 / 13 / 141 | 635 / 45 / 39 | 627 / 57 / 35 |
+| Claude `claude-haiku-4-5` | 687 complete, 32 invalid | 576 / 24 / 87 | 552 / 111 / 24 | 620 / 27 / 40 |
+
+The human report flags 221 packets with at least one critical advisory score,
+456 with judge disagreement, and 32 with an invalid Claude verdict. Split by
+the deterministic candidate decision, that is 190 of 219 admitted packets and
+31 of 500 filtered packets with at least one critical signal; 196 admitted and
+260 filtered packets have disagreement. These are attention-routing counts,
+not error rates, because no human proof labels exist yet. The adjudication
+template contains 719 null decisions and null labels by construction.
+
+Provider execution retained all call attempts. Copilot used 34 calls (29
+complete, five schema failures, three retry attempts, and eight one-time
+recovery calls) and did not expose token usage. Cursor used 28 calls (23
+complete and five schema failures) and reported 1,248,315 input plus 434,581
+output tokens. Claude used 158 calls (83 complete, 11 schema failures, and 64
+transport failures), including 40 recovery calls; the bounded recovery lane
+recovered 224 of 256 primary invalids and left 32 explicit invalid verdicts.
+Claude reported 1,806 input plus 1,454,994 output tokens, but its CLI's cached
+input accounting is not a complete prompt-volume measure. Summed provider-call
+durations are 3,701,209 ms, 4,476,095 ms, and 27,475,944 ms respectively;
+Claude used bounded concurrency during the primary pass, so that sum is not
+wall-clock duration. A Claude Sonnet 5 diagnostic exceeded the ten-minute
+single-call ceiling and was excluded before the sealed Claude Haiku run.
 
 Same-branch re-exports are coalesced only inside the active branch/session
 selection. A later timestamp wins; at an equal timestamp, one normalized turn
