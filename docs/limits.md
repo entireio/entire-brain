@@ -84,8 +84,9 @@ read at `max+1` bytes via `io.LimitReader` and error if the source exceeds `max`
 - The MCP surface is scoped to the repository the server was bound to
   (`ENTIRE_REPO_ROOT`): `brain_delete_project` refuses a foreign `repo_key`,
   `brain_list_projects` returns only the bound project, and
-  `brain_workspace_graph`/`_regressions`/`_review` refuse a workspace containing
-  repos outside that root — each unless the operator sets
+  `brain_workspace_graph`/`_regressions`/`_review` refuse a workspace the bound
+  repository is not a member of, or one whose repos live outside the bound
+  repository's parent directory — each unless the operator sets
   `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`. This closes the confused-deputy path where
   an agent working in repo A irreversibly erases repo B's brain, or enumerates
   every other project on the machine. The plain `entire brain ...` CLI keeps its

@@ -185,14 +185,27 @@ func TestMCPListProjectsHonorsCrossRepoGate(t *testing.T) {
 // A workspace names repos the bound server was never given; acting on it walks
 // straight out of the bound root.
 func TestMCPWorkspaceToolsRefuseReposOutsideBoundRoot(t *testing.T) {
-	repoDir := t.TempDir()
+	// The bound repo IS a member here, so this isolates the locality rule from
+	// the membership rule. The foreign repo sits under its own parent, which is
+	// what "outside the bound root" means now that sibling checkouts under a
+	// common parent are in scope.
+	parent := t.TempDir()
+	repoDir := filepath.Join(parent, "bound")
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	opts, env := mcpScopeTestOptions(t, repoDir)
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
+	boundKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	writeWorkspaceBrainRepoAt(t, env, boundKey, repoDir, session, "pkg/review_context.go", "package x\n")
 	foreignRepo, foreignKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n")
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "outside",
-		Repos:         []workspaceRepo{{RepoKey: foreignKey, Name: "foreign", LocalPathHint: foreignRepo}},
+		Repos: []workspaceRepo{
+			{RepoKey: boundKey, Name: "bound", LocalPathHint: repoDir},
+			{RepoKey: foreignKey, Name: "foreign", LocalPathHint: foreignRepo},
+		},
 	}
 	if err := writeWorkspaceManifest(env, manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
