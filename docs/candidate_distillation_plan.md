@@ -148,13 +148,34 @@ parallelism, atomic parent-owned persistence, and an explicit one-time recovery
 lane for terminal invalid batches. Missing or malformed provider output becomes
 an `invalid` advisory verdict; it is never converted into a negative label.
 
-`facts distill-quality report` produces an attention-first human review sheet,
-the raw per-judge score aggregation, and a blank adjudication template. Every
-model score and rationale remains visible to the human. Model consensus is
-advisory only: it cannot populate proof labels, pass a Phase 2 gate, or replace
-the required human review. Final human decisions are the sole input to the
-candidate-admission metrics, and the paired legacy/candidate extraction and
-retrieval gates still follow that adjudication.
+`facts distill-quality report` produces a concise `human-review.md` start page,
+the complete `human-review-audit.md` evidence archive, raw per-judge score
+aggregation, and a blank compatibility template. The audit Markdown is
+deliberately exhaustive and is **not** the human review interface.
+Human adjudication uses a bounded, resumable queue instead:
+
+```sh
+entire brain facts distill-quality adjudicate \
+  --bundle <quality-run-directory> \
+  --adjudicator <reviewer-id>
+```
+
+The default session is a deterministic 20-item calibration batch balanced
+across invalid, admitted-critical, filtered-critical, disagreement, and clean
+items. It presents one redacted packet at a time, including the complete
+Copilot, Cursor, and Claude scores and rationales; `v` reveals full evidence.
+Each explicit human answer is validated, bound to the immutable packet and
+advisory digests, written atomically to a private per-reviewer JSONL file, and
+skipped on resume. `--queue critical|invalid|disagreement|clean|all` and
+`--limit 1..100` provide later bounded sessions without turning the 719-packet
+archive into one reading task. No panel consensus becomes a default or bulk
+acceptance.
+
+Every model score and rationale remains advisory only: it cannot populate
+proof labels, pass a Phase 2 gate, or replace the required human review. Final
+human decisions are the sole input to the candidate-admission metrics, and the
+paired legacy/candidate extraction and retrieval gates still follow that
+adjudication.
 
 The completed sealed run is
 `quality-run-v1:33808625a097f0e5ab411a5cddb92c337257a7b4c62c7fad7c53852dee919868`.

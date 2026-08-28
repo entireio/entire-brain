@@ -30,9 +30,21 @@ func TestRenderDistillQualityHumanReviewV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Attention first", "claude", "critical", "Keep write operations explicit.", "sessions/main/local-1.jsonl", "local-session-1"} {
+	for _, want := range []string{"Human Review", "do **not** need to read", "distill-quality adjudicate", "20-item calibration", distillQualityAuditArchiveFileV1} {
 		if !strings.Contains(string(review), want) {
 			t.Fatalf("review missing %q:\n%s", want, review)
+		}
+	}
+	if strings.Contains(string(review), "sessions/main/local-1.jsonl") || strings.Count(string(review), "\n") > 40 {
+		t.Fatalf("human start page is not concise:\n%s", review)
+	}
+	audit, err := os.ReadFile(result.AuditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Audit Archive", "Attention first", "claude", "critical", "Keep write operations explicit.", "sessions/main/local-1.jsonl", "local-session-1"} {
+		if !strings.Contains(string(audit), want) {
+			t.Fatalf("audit missing %q", want)
 		}
 	}
 	template, err := os.ReadFile(result.TemplatePath)
@@ -42,7 +54,7 @@ func TestRenderDistillQualityHumanReviewV1(t *testing.T) {
 	if !strings.Contains(string(template), `"decision":null`) || !strings.Contains(string(template), `"admission":null`) {
 		t.Fatalf("template must be blank: %s", template)
 	}
-	for _, path := range []string{result.ReviewPath, result.AggregatePath, result.TemplatePath} {
+	for _, path := range []string{result.ReviewPath, result.AuditPath, result.AggregatePath, result.TemplatePath} {
 		info, statErr := os.Stat(path)
 		if statErr != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("artifact mode %s = %v, %v", path, info, statErr)

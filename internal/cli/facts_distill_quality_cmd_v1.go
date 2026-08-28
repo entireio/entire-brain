@@ -29,7 +29,9 @@ const (
 	distillQualityPanelDirV1          = "panel"
 	distillQualityAggregatesFileV1    = "aggregates.jsonl"
 	distillQualityHumanReviewFileV1   = "human-review.md"
+	distillQualityAuditArchiveFileV1  = "human-review-audit.md"
 	distillQualityHumanTemplateFileV1 = "human-adjudication-template.jsonl"
+	distillQualityHumanDirV1          = "human"
 	distillQualityAdmissionPromptIDV1 = "phase2-admission-panel"
 	distillQualityAdmissionPromptV1   = "v1"
 )
@@ -123,6 +125,7 @@ type distillQualityReportResultV1 struct {
 	Invalid       int    `json:"invalid"`
 	MissingJudges int    `json:"missing_judges"`
 	ReviewPath    string `json:"review_path"`
+	AuditPath     string `json:"audit_path"`
 	AggregatePath string `json:"aggregate_path"`
 	TemplatePath  string `json:"template_path"`
 	ProofLabels   bool   `json:"proof_labels"`
@@ -150,6 +153,7 @@ func newFactsDistillQualityCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsDistillQualityPrepareCommand(opts))
 	cmd.AddCommand(newFactsDistillQualityJudgeCommand(opts))
 	cmd.AddCommand(newFactsDistillQualityReportCommand(opts))
+	cmd.AddCommand(newFactsDistillQualityAdjudicateCommand(opts))
 	return cmd
 }
 
@@ -228,7 +232,7 @@ func newFactsDistillQualityReportCommand(opts Options) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "report",
-		Short: "Aggregate advisory scores into the human adjudication packet",
+		Short: "Render the complete advisory audit archive",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := renderDistillQualityHumanReviewV1(bundleDir)
@@ -238,7 +242,7 @@ func newFactsDistillQualityReportCommand(opts Options) *cobra.Command {
 			if jsonOut {
 				return writeJSON(cmd, result)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "rendered %d items for human adjudication at %s (%d critical, %d disagreements, %d invalid, %d missing-judge items)\n", result.Packets, result.ReviewPath, result.Critical, result.Disagreement, result.Invalid, result.MissingJudges)
+			fmt.Fprintf(cmd.OutOrStdout(), "rendered the human start page at %s and the complete %d-item audit archive at %s (%d critical, %d disagreements, %d invalid, %d missing-judge items)\nStart a resumable 20-item calibration batch with:\n  entire brain facts distill-quality adjudicate --bundle %q --adjudicator <your-id>\n", result.ReviewPath, result.Packets, result.AuditPath, result.Critical, result.Disagreement, result.Invalid, result.MissingJudges, bundleDir)
 			return nil
 		},
 	}

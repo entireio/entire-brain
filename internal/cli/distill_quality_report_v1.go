@@ -81,7 +81,8 @@ func renderDistillQualityHumanReviewV1(bundleDir string) (distillQualityReportRe
 	if err != nil {
 		return distillQualityReportResultV1{}, err
 	}
-	review := reportRenderDistillQualityMarkdownV1(manifest, packets, aggregates, sources)
+	review := reportRenderDistillQualityStartV1(manifest, result)
+	audit := reportRenderDistillQualityMarkdownV1(manifest, packets, aggregates, sources)
 	for _, output := range []struct {
 		path string
 		data []byte
@@ -89,15 +90,31 @@ func renderDistillQualityHumanReviewV1(bundleDir string) (distillQualityReportRe
 		{filepath.Join(root, distillQualityAggregatesFileV1), aggregateBytes},
 		{filepath.Join(root, distillQualityHumanTemplateFileV1), templateBytes},
 		{filepath.Join(root, distillQualityHumanReviewFileV1), []byte(review)},
+		{filepath.Join(root, distillQualityAuditArchiveFileV1), []byte(audit)},
 	} {
 		if err := reportWriteDistillQualityArtifactV1(output.path, output.data); err != nil {
 			return distillQualityReportResultV1{}, err
 		}
 	}
 	result.ReviewPath = filepath.Join(root, distillQualityHumanReviewFileV1)
+	result.AuditPath = filepath.Join(root, distillQualityAuditArchiveFileV1)
 	result.AggregatePath = filepath.Join(root, distillQualityAggregatesFileV1)
 	result.TemplatePath = filepath.Join(root, distillQualityHumanTemplateFileV1)
 	return result, nil
+}
+
+func reportRenderDistillQualityStartV1(manifest distillQualityRunManifestV1, result distillQualityReportResultV1) string {
+	var out strings.Builder
+	out.WriteString("# Phase 2 Distillation Quality: Human Review\n\n")
+	out.WriteString("You do **not** need to read the complete audit archive. Review one item at a time with:\n\n")
+	out.WriteString("```sh\n")
+	out.WriteString("entire brain facts distill-quality adjudicate \\\n  --bundle <this-directory> \\\n  --adjudicator <your-id>\n")
+	out.WriteString("```\n\n")
+	out.WriteString("The default is a balanced 20-item calibration batch. Each item shows the redacted evidence, candidate decision, and every Copilot, Cursor, and Claude score and rationale. Answer `y`, `n`, or `u`; use `v` for complete evidence, `s` to skip, and `q` to stop. Every completed answer is saved immediately, and the same command resumes without repeating it.\n\n")
+	fmt.Fprintf(&out, "Run `%s` contains %d packets: %d critical, %d with judge disagreement, %d with invalid judge output, and %d with missing judges. These are attention-routing counts, not human error labels.\n\n", manifest.RunID, result.Packets, result.Critical, result.Disagreement, result.Invalid, result.MissingJudges)
+	out.WriteString("After calibration, continue in bounded sessions with `--queue critical|invalid|disagreement|clean|all --limit 1..100`. Model consensus never supplies a default decision.\n\n")
+	out.WriteString("The exhaustive evidence trail is in [`human-review-audit.md`](human-review-audit.md). It exists for audit and spot-checking; it is not a linear review task.\n")
+	return out.String()
 }
 
 func reportDistillQualityJudgeFileExistsV1(root string, judge distillQualityJudgeV1) bool {
@@ -163,7 +180,8 @@ func reportRenderDistillQualityMarkdownV1(manifest distillQualityRunManifestV1, 
 		return reportDistillQualityAttentionRankV1(left) < reportDistillQualityAttentionRankV1(right)
 	})
 	var out strings.Builder
-	out.WriteString("# Phase 2 Distillation Quality: Human Review\n\n")
+	out.WriteString("# Phase 2 Distillation Quality: Audit Archive\n\n")
+	out.WriteString("> **Audit archive — do not review this file linearly.** Use the resumable one-item-at-a-time reviewer instead:\n>\n> `entire brain facts distill-quality adjudicate --bundle <this-directory> --adjudicator <your-id>`\n>\n> It starts with a balanced 20-item calibration batch, saves every answer immediately, and resumes without repeating completed items. This document remains the complete immutable evidence trail.\n\n")
 	fmt.Fprintf(&out, "Run `%s` · %d packets · advisory only; no proof labels have been assigned.\n\n", manifest.RunID, len(packets))
 	critical, disagreement, invalid, missing := 0, 0, 0, 0
 	for _, aggregate := range aggregates {
