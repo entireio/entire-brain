@@ -696,7 +696,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section (default 3; raise only when the compact packet is insufficient)")
+	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
