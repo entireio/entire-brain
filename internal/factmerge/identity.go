@@ -83,15 +83,46 @@ var ErrIdentityMismatch = errors.New("factmerge: record id does not match its co
 // one, with the victim's own anchors unioned onto it. The forged text is what
 // subsequently feeds every member's agent prompt, cited as the victim's work.
 //
-// The id commits to normalized text and the normalized path set (see RecordID),
-// so a record that passes cannot have had its statement rewritten without also
-// changing its id — at which point it no longer collides with anything.
+// What the check does and does not cover, precisely:
+//
+//   - Text is covered up to NormalizeText, which lowercases and collapses
+//     whitespace runs. Two statements that differ only in case or spacing share
+//     an id by construction, so this stops a rewritten STATEMENT, not a
+//     re-cased one. A fact whose meaning turns on case (an identifier, a
+//     constant) is therefore still substitutable; closing that would require
+//     changing RecordID and re-keying every stored fact.
+//   - Paths are covered, and are additionally required to be stored in their
+//     normalized form. Hashing NormalizePaths(r.Paths) alone would let a record
+//     verify while carrying extra or differently-spelled paths — the ones the
+//     listing, recall and same-path conflict detection actually read — because
+//     normalization drops and truncates them before hashing.
+//   - Every field OUTSIDE the id is untouched by this check: Status,
+//     SupersededBy, Kind, Locus, Confidence, RelatedIDs, Branch and Provenance.
+//     A peer can still republish a byte-identical statement marked superseded,
+//     or attach an anchor naming a session it never saw. Those need their own
+//     authentication (a signed record), which this milestone does not have.
 func VerifyIdentity(r Record) error {
-	want := RecordID(r.Text, NormalizePaths(r.Paths))
+	normalized := NormalizePaths(r.Paths)
+	if !equalPathSets(r.Paths, normalized) {
+		return fmt.Errorf("%w: record %s stores paths %v, which normalize to %v", ErrIdentityMismatch, r.ID, r.Paths, normalized)
+	}
+	want := RecordID(r.Text, normalized)
 	if r.ID != want {
 		return fmt.Errorf("%w: record claims %s but its content hashes to %s", ErrIdentityMismatch, r.ID, want)
 	}
 	return nil
+}
+
+func equalPathSets(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // VerifyIdentities applies VerifyIdentity to every record, failing on the first

@@ -82,6 +82,13 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 	// head — no member's local filesystem path leaks cross-member (opaque ids are kept,
 	// so provenance still unions). Copies; the caller's local facts are not mutated.
 	local = SanitizeForEgress(local)
+	// Verify this member's own facts BEFORE publishing them. The head check below
+	// fails closed, so one malformed record reaching the shared head would break
+	// every other member's sync — a failure the member that produced it should
+	// take, and take here, rather than exporting it.
+	if err := factmerge.VerifyIdentities(local); err != nil {
+		return Result{}, fmt.Errorf("factsync: local fact set for %s/%s is not publishable: %w", repoID, branch, err)
+	}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ref, plaintext, found, err := srv.Current(ctx, repoID, branch)
 		if err != nil {

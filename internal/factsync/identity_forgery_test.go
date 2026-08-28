@@ -57,16 +57,16 @@ func TestSyncRejectsHeadFactWhoseIDDoesNotMatchItsContent(t *testing.T) {
 	}
 }
 
-// TestSyncRejectsHeadFactWithForgedProvenanceAnchor covers the provenance half of the
-// same trust gap: a fact minted by the attacker that claims it was derived from a
-// session and commit it never came from. Anchors are unioned, never checked, so once
-// the record is in the head every member's `inspect blame` attributes the attacker's
-// statement to the victim's real session.
+// TestSyncRejectsForgedStatementCarryingForgedProvenance covers the combination the
+// identity check does close: a REWRITTEN statement published under someone else's id
+// and dressed with anchors naming the victim's session and commit. The rewrite is what
+// fails — the id commits to the text — and the fabricated anchors go with it.
 //
-// The identity check is what closes it: the attacker cannot both keep a content-derived
-// id (which commits to text+paths) and have the record survive with text that does not
-// hash to it, so forging provenance onto someone else's fact id fails at parse.
-func TestSyncRejectsHeadFactWithForgedProvenanceAnchor(t *testing.T) {
+// It deliberately does NOT claim provenance is authenticated. Anchors sit outside the
+// id, so a peer republishing a byte-identical statement can still attach an anchor for
+// a session it never saw. Authenticating provenance needs a signed record, which this
+// milestone does not have; see VerifyIdentity's contract.
+func TestSyncRejectsForgedStatementCarryingForgedProvenance(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
@@ -89,7 +89,7 @@ func TestSyncRejectsHeadFactWithForgedProvenanceAnchor(t *testing.T) {
 	srv := &fakeServer{ref: contentRef(head.Bytes()), blob: head.Bytes(), found: true}
 
 	if _, err := Sync(ctx, srv, "repo-1", "main", "member-victim", []factmerge.Record{victim}, now); err == nil {
-		t.Fatalf("Sync accepted a head record carrying a forged provenance anchor under a mismatched id")
+		t.Fatalf("Sync accepted a rewritten statement published under the victim's id")
 	}
 }
 
@@ -119,5 +119,53 @@ func TestSyncAcceptsGenuineHead(t *testing.T) {
 	}
 	if got := len(res.Facts[0].Provenance); got != 2 {
 		t.Fatalf("provenance anchors = %d, want 2 (union)", got)
+	}
+}
+
+// TestSyncRejectsHeadFactWithUnnormalizedPaths pins the second half of the identity
+// contract. Hashing NormalizePaths(Paths) alone would let a record verify while
+// STORING paths the hash never saw — normalization drops invalid entries and truncates
+// past MaxPaths — and those stored paths are what listing, recall and same-path
+// conflict detection read.
+func TestSyncRejectsHeadFactWithUnnormalizedPaths(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	text := "the deploy gate is enforced in CI"
+	kept := []string{"architecture.boundaries.rationale"}
+	smuggled := factmerge.Record{
+		// The id derives from the normalized (truncated) path set...
+		ID:    factmerge.RecordID(text, factmerge.NormalizePaths(kept)),
+		Paths: append(append([]string(nil), kept...), "security.secrets.handling", "NOT A PATH"),
+		Text:  text, Branch: "main", Origin: "distilled",
+		Status:     factmerge.StatusActive,
+		Provenance: []factmerge.Anchor{{SessionID: "session-attacker"}},
+		CreatedAt:  now, UpdatedAt: now,
+	}
+
+	var head bytes.Buffer
+	if err := factmerge.WriteNDJSON(&head, []factmerge.Record{smuggled}); err != nil {
+		t.Fatalf("seed head: %v", err)
+	}
+	srv := &fakeServer{ref: contentRef(head.Bytes()), blob: head.Bytes(), found: true}
+
+	if _, err := Sync(ctx, srv, "repo-1", "main", "member-victim", nil, now); !errors.Is(err, factmerge.ErrIdentityMismatch) {
+		t.Fatalf("Sync accepted a record storing paths its id never covered: %v", err)
+	}
+}
+
+// TestSyncRejectsUnpublishableLocalFacts pins that a member takes its own failure
+// instead of exporting it: a malformed local record must not reach the shared head,
+// where the fail-closed head check would break every other member.
+func TestSyncRejectsUnpublishableLocalFacts(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	bad := fact("a statement", []string{"architecture.boundaries.rationale"}, "session-a", now)
+	bad.Text = "a different statement"
+
+	srv := &fakeServer{}
+	if _, err := Sync(context.Background(), srv, "repo-1", "main", "member-a", []factmerge.Record{bad}, now); !errors.Is(err, factmerge.ErrIdentityMismatch) {
+		t.Fatalf("Sync published a local fact whose id does not match its content: %v", err)
 	}
 }
