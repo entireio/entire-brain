@@ -62,6 +62,13 @@ type entityIndexCache struct {
 	Truncated     bool                               `json:"truncated,omitempty"`
 	Entries       map[string][]entityIndexOccurrence `json:"entries"`
 	Aliases       map[string]string                  `json:"aliases,omitempty"`
+	// LastTouch is the recency signal SearchKeys needs to resolve a
+	// rename-back alias cycle (A -> B -> A) to the spelling actually live in
+	// the tree rather than a dead intermediate name — see
+	// entityindex.resolveAlias. Additive: an older cache file simply decodes
+	// this as nil/empty, which only degrades that one cycle tie-break, not
+	// ordinary lookups.
+	LastTouch map[string]int64 `json:"last_touch,omitempty"`
 }
 
 // entityIndexOccurrence is one commit that changed an entity, joined to the
@@ -337,7 +344,7 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 	if reachable != nil {
 		searchLimit = limit * 4
 	}
-	for _, hit := range entityindex.SearchKeys(keys, view.cache.Aliases, query, searchLimit) {
+	for _, hit := range entityindex.SearchKeys(keys, view.cache.Aliases, view.cache.LastTouch, query, searchLimit) {
 		lookup := hit.EntityKey
 		if hit.AliasOf != "" {
 			lookup = hit.AliasOf
@@ -576,6 +583,7 @@ func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDi
 		MetaTip:       tip,
 		Entries:       map[string][]entityIndexOccurrence{},
 		Aliases:       map[string]string{},
+		LastTouch:     map[string]int64{},
 	}
 	state, err := store.State()
 	if err != nil {
@@ -586,6 +594,7 @@ func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDi
 		return cache, nil
 	}
 	cache.Aliases = snapshot.Aliases()
+	cache.LastTouch = snapshot.LastTouch()
 
 	commitMeta, err := entityCommitMetadata(ctx, opts.Runner, repoDir, snapshot.IndexedCommits())
 	if err != nil {
@@ -816,6 +825,12 @@ func loadEntityIndexCache(brainDir string) (entityIndexCache, bool) {
 	}
 	if cache.Aliases == nil {
 		cache.Aliases = map[string]string{}
+	}
+	if cache.LastTouch == nil {
+		// A cache written before LastTouch existed: SearchKeys degrades
+		// gracefully (nil just means the rename-back-cycle tie-break can't
+		// fire), so this is a compatibility default, not a forced rebuild.
+		cache.LastTouch = map[string]int64{}
 	}
 	return cache, true
 }
