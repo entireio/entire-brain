@@ -1376,17 +1376,104 @@ func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspace
 	if storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts); storageErr == nil && bound {
 		boundKey = storage.Key
 	}
+
+	// RULE 1 -- MEMBERSHIP, which is what actually carries the confused-deputy
+	// protection. An agent bound to repo A may fan out over a workspace only if A
+	// is a member of it. Naming some OTHER workspace is precisely "an agent in
+	// repo A acting on unrelated repo B", and the operator's own `workspace add`
+	// is the declaration that these repos belong together.
+	if !workspaceIncludesBoundRepo(manifest, boundKey, opts.Env.RepoRoot) {
+		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q does not include the bound repository", manifest.Name), boundKey)
+	}
+
+	// RULE 2 -- LOCALITY, scoped to the bound repo's PARENT rather than to the
+	// bound repo itself.
+	//
+	// Requiring every member to live INSIDE the bound root refused the only
+	// layout a workspace is ever built from. Checkouts sit side by side --
+	//
+	//	devenv/cli        <- bound here
+	//	devenv/entiredb   <- a member
+	//
+	// -- and a sibling is never inside its sibling, so all three workspace tools
+	// refused the standard setup they exist to serve. That is the normal case,
+	// not an edge case.
+	scopeRoot := workspaceScopeRoot(opts.Env.RepoRoot)
 	for _, repo := range manifest.Repos {
 		if boundKey != "" && repo.RepoKey == boundKey {
 			continue
 		}
 		hint := strings.TrimSpace(repo.LocalPathHint)
-		if hint != "" && enforceIndexContainment(opts.Env.RepoRoot, hint) == nil {
-			continue
+		if hint == "" {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no local path, so its location cannot be checked", manifest.Name, repo.RepoKey), boundKey)
 		}
-		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside that root", manifest.Name, repo.RepoKey), boundKey)
+		if enforceIndexContainment(scopeRoot, hint) != nil {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
+		}
 	}
 	return nil
+}
+
+// workspaceIncludesBoundRepo reports whether the bound repository is a member of
+// manifest. The repo key is the primary match; the local path is the fallback,
+// because a member added under a different key spelling (a remote renamed since
+// `workspace add`, or a manifest written by another brain version) is still the
+// same checkout on disk.
+func workspaceIncludesBoundRepo(manifest workspaceManifest, boundKey, repoRoot string) bool {
+	for _, repo := range manifest.Repos {
+		if boundKey != "" && repo.RepoKey == boundKey {
+			return true
+		}
+		hint := strings.TrimSpace(repo.LocalPathHint)
+		if hint == "" {
+			continue
+		}
+		if samePathOnDisk(hint, repoRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+// samePathOnDisk compares two paths after making them absolute and resolving
+// symlinks, so /var and /private/var (or a checkout reached through a symlinked
+// parent) are recognized as the same directory.
+func samePathOnDisk(a, b string) bool {
+	resolve := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return p
+		}
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			return resolved
+		}
+		return abs
+	}
+	return resolve(a) == resolve(b)
+}
+
+// workspaceScopeRoot is the directory that bounds an MCP workspace fan-out: the
+// bound repository's PARENT, so sibling checkouts under a common parent are in
+// scope.
+//
+// It deliberately widens by exactly one level. Two levels would put unrelated
+// project trees in scope, and no widening at all refuses every real workspace.
+// A repository checked out at the top of a volume does not widen, so a shallow
+// path cannot put the whole filesystem in scope.
+func workspaceScopeRoot(repoRoot string) string {
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return repoRoot
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	parent := filepath.Dir(abs)
+	if parent == abs || filepath.Dir(parent) == parent {
+		// abs is a filesystem/volume root, or its parent is -- do not widen.
+		return abs
+	}
+	return parent
 }
 
 func mcpGraphBinary() string {

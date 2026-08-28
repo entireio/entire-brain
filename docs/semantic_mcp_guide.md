@@ -296,8 +296,11 @@ that can reach past it are scoped to that repo by default:
 - `brain_list_projects` returns only the bound project, not every locally
   indexed repo's key, brain path, and index counts.
 - `brain_workspace_graph`, `brain_workspace_regressions`, and
-  `brain_workspace_review` refuse a workspace containing repos outside the bound
-  root.
+  `brain_workspace_review` refuse a workspace the bound repository is not a
+  member of, or one whose repos live outside the bound repository's parent
+  directory. Sibling checkouts under a common parent — `devenv/cli` alongside
+  `devenv/entiredb`, the layout `entire brain workspace add` produces — are in
+  scope without the opt-in.
 
 Set `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO=1` on the server to opt back into
 cross-repo behaviour (the sibling of `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH`, which
