@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/ashtom/entire-brain/internal/factmerge"
@@ -91,6 +92,17 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 			head, err = factmerge.ParseNDJSON(bytes.NewReader(plaintext))
 			if err != nil {
 				return Result{}, err
+			}
+			// The head is written by every member with push access, so nothing about
+			// it is authenticated by having arrived over the transport. Re-derive each
+			// record's content id before merging: without this, a record carrying
+			// ANOTHER member's id with attacker-chosen text makes Promote's id match
+			// read as "already present, union the provenance", silently discarding the
+			// victim's real statement and keeping the forgery — with the victim's own
+			// anchors attached to it. Fail closed rather than merge a head one record
+			// of which is provably not what it claims to be.
+			if err := factmerge.VerifyIdentities(head); err != nil {
+				return Result{}, fmt.Errorf("factsync: shared fact-set head for %s/%s is not trustworthy: %w", repoID, branch, err)
 			}
 		}
 
