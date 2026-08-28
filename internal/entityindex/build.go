@@ -158,7 +158,10 @@ type commitInfo struct {
 // landed since (walking only tip..head, so an unchanged branch costs one empty
 // `git log`), and bounded backfill chunks pull the FLOOR backward until it
 // reaches the root. Either end stops at the first commit the provider could not
-// diff, so the range never claims to cover a hole.
+// diff, so the range never claims to cover a hole. A tip that is no longer on
+// the head's FIRST-PARENT chain — still an ancestor, but only through some
+// merge's second parent — is dropped and the range re-covered from the head:
+// `tip..head` omits exactly the commits such a window would go on to claim.
 func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opts BuildOptions) (BuildResult, error) {
 	if runner == nil {
 		return BuildResult{}, errors.New("entityindex: command runner is required")
@@ -354,40 +357,56 @@ func (b *builder) walkBudget() int {
 // extendWindow pushes the tip forward over commits that landed since, then
 // pulls the floor backward over older history, and returns the resulting range.
 func (b *builder) extendWindow(window IndexWindow, head string) IndexWindow {
-	next := window
-
 	// --- forward: cover what landed since the tip ---------------------------
+	var forward []commitInfo
 	if !window.Empty() && window.Tip != head {
 		// Only tip..head: O(new commits), and empty (one instant `git log`)
 		// when the branch has not moved. Bounded by what this pass can index,
 		// so a Limit:10 tick after a 5000-commit fast-forward materializes ten
 		// commit bodies rather than five thousand.
 		commits, err := b.walkForward(window.Tip+".."+head, b.walkBudget())
-		if err != nil {
-			b.result.Warnings = append(b.result.Warnings, err.Error())
-		}
 		// Oldest-first, so the tip advances over a contiguous run.
 		for i, j := 0, len(commits)-1; i < j; i, j = i+1, j-1 {
 			commits[i], commits[j] = commits[j], commits[i]
 		}
-		for _, commit := range commits {
-			if b.exhausted() {
-				break
-			}
-			b.result.Scanned++
-			if b.alreadyIndexed(commit.SHA) {
-				b.result.Skipped++
-				next.Tip = commit.SHA
-				continue
-			}
-			ok, stop := b.indexCommit(commit)
-			if !ok {
-				break // a hole the tip must not step over
-			}
+		if err != nil {
+			b.result.Warnings = append(b.result.Warnings, err.Error())
+		} else if !contiguousWithTip(commits, window.Tip) {
+			// The range does not sit DIRECTLY on top of the tip, so the tip is
+			// not on the head's first-parent chain — it is reachable only
+			// through some merge's second parent. `A..B` excludes everything
+			// reachable from A by ANY parent, so the first-parent commits
+			// between the tip and the head were never listed and are NOT
+			// indexed; advancing the tip over them would make the window claim
+			// coverage of a hole no later pass could ever detect. Re-cover from
+			// the head instead, exactly as a diverged tip does.
+			b.result.Warnings = append(b.result.Warnings, fmt.Sprintf(
+				"indexed window tip %s is not on the first-parent chain of %s; re-covering from the head",
+				short(window.Tip), short(head)))
+			window = IndexWindow{}
+			commits = nil
+		}
+		forward = commits
+	}
+
+	next := window
+	for _, commit := range forward {
+		if b.exhausted() {
+			break
+		}
+		b.result.Scanned++
+		if b.alreadyIndexed(commit.SHA) {
+			b.result.Skipped++
 			next.Tip = commit.SHA
-			if stop {
-				break
-			}
+			continue
+		}
+		ok, stop := b.indexCommit(commit)
+		if !ok {
+			break // a hole the tip must not step over
+		}
+		next.Tip = commit.SHA
+		if stop {
+			break
 		}
 	}
 
@@ -602,6 +621,27 @@ func (b *builder) walkForward(spec string, maxCount int) ([]commitInfo, error) {
 		skip = total - maxCount
 	}
 	return b.walk(spec, maxCount, skip)
+}
+
+// contiguousWithTip reports whether a forward range walk actually starts one
+// commit above the window tip. `git log --first-parent <tip>..<head>` lists the
+// head's first-parent chain MINUS everything reachable from the tip by any
+// parent, so when the tip is only a merge's SECOND parent the range silently
+// omits the first-parent commits between them and the walk cannot be used to
+// advance the cursor. The walk is bounded from the NEWEST end (walkForward
+// skips past what the budget cannot reach), so its oldest element is always the
+// oldest commit of the range and its first parent is always the tip when the
+// range really is contiguous.
+//
+// commits must already be oldest-first. An empty range with tip != head means
+// the same thing: if the tip were on the head's first-parent chain there would
+// be at least one commit above it, and no commit above the tip is reachable
+// from it.
+func contiguousWithTip(commits []commitInfo, tip string) bool {
+	if len(commits) == 0 {
+		return false
+	}
+	return commits[0].Parent == tip
 }
 
 // countCommits counts the first-parent commits a revision spec names, without
