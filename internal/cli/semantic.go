@@ -28,18 +28,23 @@ import (
 )
 
 const (
-	semanticDirName                     = "semantic"
-	semanticSnapshotsDir                = "snapshots"
-	semanticGenerationsDir              = "generations"
-	semanticBundleDir                   = "bundles"
-	semanticAuditLogName                = "audit.jsonl"
-	semanticLockDir                     = "locks"
-	semanticIndexLockName               = "index.lock"
-	semanticSnapshotName                = "snapshot.ndjson"
-	semanticManifestName                = "manifest.json"
-	semanticSQLiteName                  = "semantic.sqlite"
-	semanticMetricsName                 = "metrics.json"
-	semanticSupportedMajor              = "1"
+	semanticDirName        = "semantic"
+	semanticSnapshotsDir   = "snapshots"
+	semanticGenerationsDir = "generations"
+	semanticBundleDir      = "bundles"
+	semanticAuditLogName   = "audit.jsonl"
+	semanticLockDir        = "locks"
+	semanticIndexLockName  = "index.lock"
+	semanticSnapshotName   = "snapshot.ndjson"
+	semanticManifestName   = "manifest.json"
+	semanticSQLiteName     = "semantic.sqlite"
+	semanticMetricsName    = "metrics.json"
+	semanticSupportedMajor = "1"
+	// semanticSchemaVersion is the newest provider schema this build knows how
+	// to ingest in full. A newer minor is still accepted (ADR 0001: minors are
+	// additive) but warns, because facts added after this version are dropped.
+	semanticSchemaVersion               = "1.1"
+	semanticSupportedSchemaRange        = "semantic schema >=1.0 <2.0"
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
 	semanticParseCacheMaxFile           = 16 * 1024 * 1024
@@ -559,6 +564,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		}
 		if err := validateSemanticSchema(header.SchemaVersion); err != nil {
 			return err
+		}
+		if skew := semanticSchemaMinorSkewWarning(header.SchemaVersion); skew != nil {
+			warnings = append(warnings, *skew)
 		}
 		if err := validateLiveSemanticHeader(header, identity, head, tree, indexOpts.worktree && dirty); err != nil {
 			return err
@@ -1245,15 +1253,66 @@ func validateSemanticProviderPath(providerPath string) (string, error) {
 	return cleanSlash, nil
 }
 
-func validateSemanticSchema(version string) error {
-	major, _, ok := strings.Cut(version, ".")
+// parseSemanticSchemaVersion splits a provider schema_version into its major
+// and minor numbers. ADR 0001 fixes the shape as major.minor, so anything that
+// is not two non-negative integers is not a version this reader can reason
+// about: the old implementation only looked at the text before the first dot,
+// which silently accepted "1.abc" and "1." as if they were ordinary 1.x minors
+// and let a malformed header ride straight into the store.
+func parseSemanticSchemaVersion(version string) (int, int, error) {
+	majorText, rest, ok := strings.Cut(version, ".")
 	if !ok {
-		return fmt.Errorf("unsupported semantic schema version %q", version)
+		return 0, 0, fmt.Errorf("semantic schema version %q is not major.minor", version)
 	}
-	if major != semanticSupportedMajor {
-		return fmt.Errorf("unsupported semantic schema major version %q", major)
+	// A trailing patch component is tolerated and ignored: it is additive, and
+	// refusing it would violate the tolerant-reader rule.
+	minorText, _, _ := strings.Cut(rest, ".")
+	major, err := strconv.Atoi(majorText)
+	if err != nil || major < 0 {
+		return 0, 0, fmt.Errorf("semantic schema version %q has a non-numeric major", version)
+	}
+	minor, err := strconv.Atoi(minorText)
+	if err != nil || minor < 0 {
+		return 0, 0, fmt.Errorf("semantic schema version %q has a non-numeric minor", version)
+	}
+	return major, minor, nil
+}
+
+// validateSemanticSchema applies ADR 0001's compatibility boundary: refuse an
+// unknown major, accept every minor within the supported major.
+func validateSemanticSchema(version string) error {
+	major, _, err := parseSemanticSchemaVersion(version)
+	if err != nil {
+		return fmt.Errorf("%w (this build reads %s)", err, semanticSupportedSchemaRange)
+	}
+	if strconv.Itoa(major) != semanticSupportedMajor {
+		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s", strconv.Itoa(major), semanticSupportedSchemaRange)
 	}
 	return nil
+}
+
+// semanticSchemaMinorSkewWarning implements ADR 0001 rule 3: a newer minor
+// within the supported major is accepted, but the reader must WARN, because the
+// producer may have emitted additive facts this build does not know how to
+// ingest. Accepting silently is not compliance — the whole point of the warning
+// is that the resulting index is quietly less complete than the snapshot.
+func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
+	major, minor, err := parseSemanticSchemaVersion(version)
+	if err != nil {
+		return nil
+	}
+	knownMajor, knownMinor, err := parseSemanticSchemaVersion(semanticSchemaVersion)
+	if err != nil || strconv.Itoa(major) != semanticSupportedMajor || minor <= knownMinor || major != knownMajor {
+		return nil
+	}
+	return &semanticWarning{
+		Code:     "provider_schema_newer_minor",
+		Severity: "warning",
+		Effect:   "additive semantic facts introduced after " + semanticSchemaVersion + " may not have been ingested",
+		Detail: fmt.Sprintf(
+			"semantic provider emitted schema_version %q but this build reads %s; minors are additive, so the snapshot is usable, but upgrade entire-brain to ingest everything %q carries",
+			version, semanticSchemaVersion, version),
+	}
 }
 
 // buildSemanticGeneration ingests the filtered snapshot into a fresh SQLite
