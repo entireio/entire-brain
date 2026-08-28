@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/ashtom/entire-brain/internal/httpx"
 )
 
 // mcpProtocolVersion is the MCP protocol version the client requests on initialize.
@@ -49,14 +50,22 @@ var (
 type Client struct {
 	BaseURL string
 	Token   string
-	HTTP    *http.Client
+	// HTTP overrides the transport. When nil the shared bounded client from
+	// internal/httpx is used — never http.DefaultClient, which has no timeout
+	// and would park the CLI and the watch daemon forever on a hosted endpoint
+	// that accepts the connection and never answers.
+	HTTP *http.Client
 }
+
+// defaultHTTPClient is a package var so tests can substitute a client with the
+// same bounds tightened; production always gets httpx.Default().
+var defaultHTTPClient = httpx.Default()
 
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return http.DefaultClient
+	return defaultHTTPClient
 }
 
 // ServerInfo is the hosted brain's initialize serverInfo, including the brain wire

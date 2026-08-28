@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/ashtom/entire-brain/internal/httpx"
 )
 
 // HTTPServer is the real Server adapter: it drives entire-api's fact-set sync
@@ -31,16 +33,24 @@ import (
 // string, and encoding/json here does the same on both sides, so the []byte fields match
 // byte-for-byte. Authorization is a bearer token (the member's session/runner token).
 type HTTPServer struct {
-	BaseURL string       // entire-api origin, e.g. https://api.entire.io (no trailing slash needed)
-	Token   string       // bearer token; sent as Authorization: Bearer <token> when non-empty
-	Client  *http.Client // defaults to http.DefaultClient when nil
+	BaseURL string // entire-api origin, e.g. https://api.entire.io (no trailing slash needed)
+	Token   string // bearer token; sent as Authorization: Bearer <token> when non-empty
+	// Client overrides the transport. When nil the shared bounded client from
+	// internal/httpx is used — never http.DefaultClient, which has no timeout
+	// and would park a sync (including the watch daemon's) forever on an API
+	// that accepts the connection and never answers.
+	Client *http.Client
 }
+
+// defaultHTTPClient is a package var so tests can substitute a client with the
+// same bounds tightened; production always gets httpx.Default().
+var defaultHTTPClient = httpx.Default()
 
 func (h *HTTPServer) client() *http.Client {
 	if h.Client != nil {
 		return h.Client
 	}
-	return http.DefaultClient
+	return defaultHTTPClient
 }
 
 func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
