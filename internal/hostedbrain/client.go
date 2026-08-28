@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
 )
 
@@ -45,7 +46,9 @@ var (
 )
 
 // Client talks to a repo's hosted brain MCP endpoint. BaseURL is the entire-api
-// origin; Token is the member's bearer token (same as factsync.HTTPServer).
+// origin; Token is the member's bearer token (same as factsync.HTTPServer). BaseURL
+// must clear the shared scheme floor (apiurl.Validate): https, or http only to a
+// loopback host.
 type Client struct {
 	BaseURL string
 	Token   string
@@ -113,7 +116,14 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, err
 	}
-	url := strings.TrimRight(c.BaseURL, "/") + "/api/v1/repos/" + repoID + "/brain/mcp"
+	// Scheme floor: the hosted MCP query surface is an egress chokepoint too — the
+	// query and the bearer token authorizing it must not cross plaintext to a
+	// non-loopback host.
+	base, err := apiurl.Validate(c.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("hostedbrain: %w", err)
+	}
+	url := base + "/api/v1/repos/" + repoID + "/brain/mcp"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err

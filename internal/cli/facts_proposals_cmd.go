@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/factsync"
 	"github.com/ashtom/entire-brain/internal/hostedbrain"
 )
@@ -61,7 +62,7 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 
 	cmd.PersistentFlags().StringVar(&pOpts.branch, "branch", "", "Branch whose open proposals to review (default: current branch)")
 	cmd.PersistentFlags().StringVar(&pOpts.repoID, "repo-id", "", "Target repo id (overrides "+envRepoID+")")
-	cmd.PersistentFlags().StringVar(&pOpts.apiURL, "api-url", "", "Entire API base URL (overrides "+envAPIBaseURL+")")
+	cmd.PersistentFlags().StringVar(&pOpts.apiURL, "api-url", "", "Entire API base URL, https:// (overrides "+envAPIBaseURL+")")
 	cmd.PersistentFlags().StringVar(&pOpts.token, "token", "", "Entire API bearer token (overrides "+envAPIToken+")")
 	cmd.PersistentFlags().BoolVar(&pOpts.jsonOut, "json", false, "Emit the result as JSON")
 
@@ -129,6 +130,10 @@ func resolveHostedProposalTarget(ctx context.Context, opts Options, pOpts factsP
 	baseURL := publishFlagOrEnv(pOpts.apiURL, envAPIBaseURL)
 	if baseURL == "" {
 		return hostedProposalTarget{}, fmt.Errorf("facts proposals: API base URL is required; set --api-url or %s", envAPIBaseURL)
+	}
+	baseURL, urlErr := apiurl.Validate(baseURL)
+	if urlErr != nil {
+		return hostedProposalTarget{}, fmt.Errorf("facts proposals: %w", urlErr)
 	}
 	token := publishFlagOrEnv(pOpts.token, envAPIToken)
 	if token == "" {

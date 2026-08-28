@@ -698,6 +698,7 @@ required for normal use.
 | `ENTIRE_BRAIN_CONVERSATION_FUSION` | disabled | Development flag: fuse conversation BM25 with calibrated exchange vectors in `query --source conversation`. Dark pending an eval-ledger positive (see `docs/eval_ledger.md`); lexical ranking is the shipped default. |
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
 | `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
+| `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish, facts sync, and the hosted proposal queue otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 
 ## Development

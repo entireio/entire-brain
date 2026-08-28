@@ -8,7 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
+
+	"github.com/ashtom/entire-brain/internal/apiurl"
 )
 
 // HTTPServer is the real Server adapter: it drives entire-api's fact-set sync
@@ -31,7 +32,7 @@ import (
 // string, and encoding/json here does the same on both sides, so the []byte fields match
 // byte-for-byte. Authorization is a bearer token (the member's session/runner token).
 type HTTPServer struct {
-	BaseURL string       // entire-api origin, e.g. https://api.entire.io (no trailing slash needed)
+	BaseURL string       // entire-api origin, e.g. https://api.entire.io (no trailing slash needed); must clear apiurl.Validate — https, or http only to loopback
 	Token   string       // bearer token; sent as Authorization: Bearer <token> when non-empty
 	Client  *http.Client // defaults to http.DefaultClient when nil
 }
@@ -44,7 +45,16 @@ func (h *HTTPServer) client() *http.Client {
 }
 
 func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(h.BaseURL, "/")+path, body)
+	// Scheme floor (apiurl.Validate) at the single request chokepoint of both the
+	// fact-set and the proposal-queue surfaces: the bearer token below and the
+	// fact-set blob above it must never be built into a plaintext request to a
+	// non-loopback host. Every construction path lands here, so a caller that
+	// bypassed the CLI's own check is still covered.
+	base, err := apiurl.Validate(h.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("factsync: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, body)
 	if err != nil {
 		return nil, err
 	}
