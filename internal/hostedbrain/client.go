@@ -27,6 +27,7 @@ import (
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/ashtom/entire-brain/internal/httpx"
 )
 
 // mcpProtocolVersion is the MCP protocol version the client requests on initialize.
@@ -78,9 +79,11 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	// A fresh Client per call is free and keeps http.DefaultTransport (and its
-	// connection pool) shared, so this costs no connection reuse.
-	return &http.Client{Timeout: hostedRequestTimeout}
+	// The phase bounds (dial, TLS handshake, response header) come from the shared
+	// bounded transport; hostedRequestTimeout is this caller's own end-to-end bound.
+	// A fresh Client per call is free — the transport, and so the connection pool,
+	// is shared.
+	return httpx.Client(hostedRequestTimeout)
 }
 
 // ServerInfo is the hosted brain's initialize serverInfo, including the brain wire

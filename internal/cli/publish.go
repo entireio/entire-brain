@@ -21,6 +21,7 @@ import (
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
+	"github.com/ashtom/entire-brain/internal/httpx"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
@@ -539,6 +540,19 @@ func publishManifestRef(ctx context.Context, opts Options, repoDir string, manif
 	return brainKindManifest
 }
 
+// publishHTTPClient is the outbound client for the hosted publish call.
+//
+// It carries BOTH bounds from internal/httpx: publishRequestTimeout end to end (the
+// bundle is large, so this has to be generous) and the shared transport's much
+// narrower phase bounds. The phase bounds are the ones that matter here — with only
+// http.Client.Timeout on http.DefaultTransport, a server that accepts the bundle and
+// then never writes a response header costs the caller the full five minutes, and
+// any dependency mutating the process-global http.DefaultTransport retunes this path
+// behind our backs.
+func publishHTTPClient() *http.Client {
+	return httpx.Client(publishRequestTimeout)
+}
+
 // postBrainArtifacts POSTs the bundle to the hosted brain publish endpoint and
 // maps the response to a clear error or result. It is the only network call in
 // the command; it runs only after both opt-in gates have passed.
@@ -556,8 +570,7 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{Timeout: publishRequestTimeout}
-	resp, err := client.Do(req)
+	resp, err := publishHTTPClient().Do(req)
 	if err != nil {
 		return publishResult{}, fmt.Errorf("publish: request to %s failed: %w", endpoint, err)
 	}
