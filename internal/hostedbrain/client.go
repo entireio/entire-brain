@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -147,8 +148,12 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, fmt.Errorf("hostedbrain: %w", err)
 	}
-	url := base + "/api/v1/repos/" + repoID + "/brain/mcp"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	// PathEscape keeps the repo id inside ONE path segment. Concatenating it raw
+	// lets a "/", "?", "#", or dot segment rewrite the request target, sending the
+	// caller's bearer token to an endpoint it never asked for. Every sibling call
+	// escapes the same way (factsync.HTTPServer, factsync proposals, cli publish).
+	endpoint := base + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}
