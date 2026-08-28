@@ -435,6 +435,49 @@ func TestEntitiesHistoryReportsAnEmptyIndex(t *testing.T) {
 	}
 }
 
+// TestEntitiesHistoryPrintsTruncatedWarningInHumanTextToo pins entity-index
+// audit fix (c): the entityIndexCacheMaxKeys clip sets "truncated": true in
+// the JSON contract, but the plain-text path printed nothing at all — a
+// human running `entities history` without --json had no way to know the
+// answer was a clipped subset of the index, a silent partial answer
+// indistinguishable in shape from a complete one.
+func TestEntitiesHistoryPrintsTruncatedWarningInHumanTextToo(t *testing.T) {
+	fixture := newEntityIndexFixture(t)
+	fixture.writeSessionManifest(t)
+	fixture.run(t, "entities", "backfill", "--json")
+
+	// Force the derived cache into the truncated state a real 50k+-entity
+	// index would reach, WITHOUT indexing 50,001 entities: keep everything
+	// else (MetaTip in particular) exactly as backfill left it, so
+	// loadEntityIndexView serves this cache as-is instead of rebuilding over
+	// it and silently clearing the flag.
+	cache, ok := loadEntityIndexCache(fixture.storage.BrainDir)
+	if !ok {
+		t.Fatal("backfill built no cache to truncate")
+	}
+	cache.Truncated = true
+	if err := saveEntityIndexCache(fixture.storage.BrainDir, cache); err != nil {
+		t.Fatalf("save truncated cache: %v", err)
+	}
+
+	// JSON contract: the flag is visible (already correct before this fix;
+	// pinned here so a regression on either side is caught).
+	stdout, _ := fixture.run(t, "entities", "history", "ChargeCard", "--json")
+	var result entityHistoryResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout)
+	}
+	if !result.Truncated {
+		t.Fatalf("JSON result.Truncated = false, want true: %+v", result)
+	}
+
+	// Plain text: a human reader must see the SAME fact, not silence.
+	_, stderr := fixture.run(t, "entities", "history", "ChargeCard")
+	if !strings.Contains(stderr, "truncated") {
+		t.Fatalf("plain-text run printed no truncation warning; stderr=%q", stderr)
+	}
+}
+
 // TestEntitiesFreshnessStepIndexesNewCommits locks the deterministic,
 // zero-token freshness path the watch tick and the session-end hook call.
 func TestEntitiesFreshnessStepIndexesNewCommits(t *testing.T) {
