@@ -69,6 +69,31 @@ func (h *HTTPServer) client() *http.Client {
 	return httpx.Client(syncRequestTimeout)
 }
 
+// syncOperationTimeout is the stated ceiling for ONE do() call, retries included.
+//
+// syncRequestTimeout bounds a single http.Client.Do. do() may issue several, so
+// without an operation-wide deadline the two compose by MULTIPLICATION and a caller
+// reading syncRequestTimeout gets a number that is wrong by the attempt count:
+//
+//	attempts         = 1 + transientDialRetries        = 3
+//	per attempt      = syncRequestTimeout              = 5m
+//	inter-attempt    = 2 x transientDialRetryDelay     = 40ms
+//	naive worst case = 3 x 5m + 40ms                   = 15m0.04s
+//	enforced ceiling = syncOperationTimeout            = 5m
+//
+// In practice retries are cheap: they fire only on a LOCAL dial failure that
+// returns in microseconds (EADDRNOTAVAIL, see isTransientLocalDialError), so they
+// spend ~40ms of the budget rather than a second and third five-minute wait. The
+// deadline turns that from an expectation into a guarantee -- whatever the remote
+// does, one fact-set request costs its caller at most syncOperationTimeout, and the
+// retry budget can never widen it.
+//
+// It must stay >= syncRequestTimeout (a single healthy slow request has to be able
+// to finish) and < the naive worst case (or it caps nothing). Both are asserted.
+//
+// It is a var, not a const, so tests can shorten it.
+var syncOperationTimeout = 5 * time.Minute
+
 // transientDialRetries bounds how many times do() will redial after a local
 // dial failure before giving up and returning it to the caller.
 const transientDialRetries = 2
@@ -99,32 +124,60 @@ const transientDialRetryDelay = 20 * time.Millisecond
 // Anything else (refused, no route, DNS failure, TLS failure) is a real
 // connectivity problem and is returned immediately, unretried.
 func (h *HTTPServer) do(req *http.Request) (*http.Response, error) {
+	// One deadline for the whole operation, so the retry budget and the per-request
+	// bound compose by MIN rather than by multiplication. See syncOperationTimeout
+	// for the arithmetic this replaces.
+	ctx, cancel := context.WithTimeout(req.Context(), syncOperationTimeout)
+	req = req.WithContext(ctx)
+
 	var lastErr error
 	for attempt := 0; attempt <= transientDialRetries; attempt++ {
 		if attempt > 0 {
 			if req.GetBody != nil {
 				body, err := req.GetBody()
 				if err != nil {
+					cancel()
 					return nil, lastErr
 				}
 				req.Body = body
 			}
 			select {
-			case <-req.Context().Done():
+			case <-ctx.Done():
+				cancel()
 				return nil, lastErr
 			case <-time.After(transientDialRetryDelay):
 			}
 		}
 		resp, err := h.client().Do(req)
 		if err == nil {
+			// The deadline has to outlive do(): http.Client.Timeout covers the
+			// body read, so the operation budget must too, and cancelling here
+			// would break every caller that reads resp.Body afterwards. Hand the
+			// cancel to the body instead -- every factsync call site closes it.
+			resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
 			return resp, nil
 		}
 		if !isTransientLocalDialError(err) {
+			cancel()
 			return nil, err
 		}
 		lastErr = err
 	}
+	cancel()
 	return nil, lastErr
+}
+
+// cancelOnCloseBody releases the operation context when the caller closes the
+// response body, which is the point the request is genuinely finished.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
 }
 
 // isTransientLocalDialError reports whether err is a dial failure that never
