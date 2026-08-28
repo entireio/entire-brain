@@ -64,6 +64,9 @@ func (ExecRunner) RunWithEnv(ctx context.Context, dir string, env map[string]str
 }
 
 func runExecCommand(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	if name == "git" {
+		args = hardenedGitArgs(args...)
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -114,6 +117,9 @@ func mergeCommandEnv(base []string, overrides map[string]string) []string {
 // captured into a bounded buffer by exec's own copy goroutine, so reading
 // stdout never blocks on stderr.
 func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error) {
+	if name == "git" {
+		args = hardenedGitArgs(args...)
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
