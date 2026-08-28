@@ -48,6 +48,56 @@ var ErrRecordTooLarge = errors.New("factmerge: record exceeds the maximum NDJSON
 // merge into every other member.
 var ErrInvalidUTF8 = errors.New("factmerge: record contains invalid UTF-8")
 
+// InvalidUTF8Error names the record WriteNDJSON refused, so the caller can drop
+// exactly that record and retry.
+//
+// WHY REFUSE RATHER THAN SKIP-AND-WARN. This writer produces the durable
+// fact-set, including the shared cross-member head. A record silently dropped
+// here is not a local inconvenience: it is an ABSENCE, and an absence merges
+// into every other member as "this fact is not there", so one unrepresentable
+// path on one machine quietly deletes a fact for everybody. A warning on stderr
+// is not a control -- the sync runner and the distill pipeline are both
+// non-interactive, and nothing downstream can tell a fact that was never
+// distilled from one that was thrown away. Refusing keeps the store's central
+// promise: what it returns is what was written.
+//
+// WHY IT MUST BE A TYPED ERROR. "Fail and let the caller drop it" is only a
+// usable answer if the caller can identify what to drop. A formatted string
+// cannot be acted on -- and a record whose own ID holds the invalid bytes has
+// no printable name to match on. Index is into the slice WriteNDJSON just
+// sorted, which is the caller's own slice (Sort is in place), so recovery is
+// exactly: errors.As, drop records[Index], call again.
+//
+// WHY THE BATCH IS ALL-OR-NOTHING. Refusing mid-loop left every record sorted
+// before the offender already written to w and every record after it silently
+// unattempted. The caller then held a truncated fact-set with no way to tell.
+// WriteNDJSON now validates and marshals the whole batch before writing a byte,
+// so a failure leaves the destination untouched and the caller's retry is a
+// retry, not a resume.
+//
+// NO MIGRATION IS NEEDED for data already stored: ParseNDJSON only ever
+// returned records that round-tripped through encoding/json, so nothing on disk
+// carries invalid UTF-8. This governs newly authored records only.
+type InvalidUTF8Error struct {
+	// RecordID is the offending record's ID, quoted for safe logging when the
+	// ID itself is the invalid field.
+	RecordID string
+	// Index is the record's position in the sorted slice passed to WriteNDJSON.
+	Index int
+	// Field names the offending field ("paths", "provenance.commit", ...).
+	Field string
+	// Value is the invalid value, quoted when rendered.
+	Value string
+}
+
+func (e *InvalidUTF8Error) Error() string {
+	return fmt.Sprintf(
+		"%s: record %d (%q) field %q is not valid UTF-8 (%q); encoding/json would substitute U+FFFD and the record would read back changed. Drop this record and retry, or repair the value at its source",
+		ErrInvalidUTF8.Error(), e.Index, e.RecordID, e.Field, e.Value)
+}
+
+func (e *InvalidUTF8Error) Unwrap() error { return ErrInvalidUTF8 }
+
 // invalidUTF8Field returns the name and value of the first field of record that
 // is not valid UTF-8, or "" if every string round-trips.
 func invalidUTF8Field(record Record) (string, string) {
@@ -157,9 +207,16 @@ func ParseNDJSON(r io.Reader) ([]Record, error) {
 // a store that writes what it cannot read is unrecoverable from the reading side.
 func WriteNDJSON(w io.Writer, records []Record) error {
 	Sort(records)
-	for _, record := range records {
+	// Validate and marshal the WHOLE batch first: a writer that reports failure
+	// must leave the destination untouched, or the caller is left holding a
+	// half-written fact-set it cannot distinguish from a complete one. See
+	// InvalidUTF8Error for the reasoning. The marshalled bytes are retained
+	// rather than re-marshalled, which costs nothing in practice -- every caller
+	// writes into a bytes.Buffer, so the serialized form is held either way.
+	lines := make([][]byte, 0, len(records))
+	for i, record := range records {
 		if field, value := invalidUTF8Field(record); field != "" {
-			return fmt.Errorf("%w: %s field %q is not valid UTF-8 (%q); encoding/json would substitute U+FFFD and the record would read back changed", ErrInvalidUTF8, record.ID, field, value)
+			return &InvalidUTF8Error{RecordID: record.ID, Index: i, Field: field, Value: value}
 		}
 		data, err := json.Marshal(record)
 		if err != nil {
@@ -168,6 +225,9 @@ func WriteNDJSON(w io.Writer, records []Record) error {
 		if len(data) > MaxLineBytes {
 			return fmt.Errorf("%w: %s is %d bytes, maximum %d", ErrRecordTooLarge, record.ID, len(data), MaxLineBytes)
 		}
+		lines = append(lines, data)
+	}
+	for _, data := range lines {
 		if _, err := w.Write(data); err != nil {
 			return err
 		}
