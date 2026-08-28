@@ -21,6 +21,9 @@ Available tools:
 - Cross-repo (workspace): `brain_workspace_graph`,
   `brain_workspace_regressions`, `brain_workspace_review`
 - Pattern corpus: `brain_patterns`, `brain_patterns_status`
+- `brain_entity_history` for "which checkpoints and sessions changed this
+  function/class", answered from the persisted entity index (built by
+  `entire brain entities backfill`) rather than by re-reading history
 
 Tool responses wrap the existing CLI `--json` output as text content by default.
 Treat the CLI JSON contracts as the source of truth for fields and freshness

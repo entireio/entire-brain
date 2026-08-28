@@ -550,6 +550,63 @@ func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 	}
 }
 
+// TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum locks the schema for
+// the two integer params whose zero value the handler actually accepts as the
+// default (mcpNonNegativeInt): brain_search_graph's "offset" and
+// brain_get_code_snippet's "context_lines". Both previously declared
+// minimum:1 (the generic integerArg helper), which told a schema-validating
+// MCP client that 0 was invalid even though the server always treated it as
+// the default and never rejected it.
+func TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum(t *testing.T) {
+	wantMinZero := map[string]string{
+		"brain_search_graph":     "offset",
+		"brain_get_code_snippet": "context_lines",
+	}
+	for _, tool := range mcpToolDefinitions() {
+		name, _ := tool["name"].(string)
+		key, ok := wantMinZero[name]
+		if !ok {
+			continue
+		}
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		arg, ok := props[key].(map[string]any)
+		if !ok || arg["type"] != "integer" || arg["minimum"] != 0 {
+			t.Fatalf("%s.%s = %+v, want integer with minimum 0 (handler accepts and defaults to 0)", name, key, arg)
+		}
+		delete(wantMinZero, name)
+	}
+	for name := range wantMinZero {
+		t.Fatalf("tool %s not found in mcpToolDefinitions", name)
+	}
+}
+
+// TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput guards
+// against the description re-drifting from the handler: brain_get_architecture
+// and brain_get_graph_schema dispatch to the exact same runSemanticGraphSchema
+// call (see handleMCPToolCall), so brain_get_architecture's description must
+// not claim fields the report never carries (it previously claimed "boundary
+// counts", which semanticGraphSchemaReport/graphMetrics has never had).
+func TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput(t *testing.T) {
+	var description string
+	for _, tool := range mcpToolDefinitions() {
+		if tool["name"] == "brain_get_architecture" {
+			description, _ = tool["description"].(string)
+		}
+	}
+	if description == "" {
+		t.Fatal("brain_get_architecture tool definition missing")
+	}
+	if strings.Contains(strings.ToLower(description), "boundary count") {
+		t.Fatalf("brain_get_architecture description claims boundary counts, a field semanticGraphSchemaReport never returns: %q", description)
+	}
+	for _, want := range []string{"hotspots", "entry points"} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("brain_get_architecture description missing %q (a real graphMetrics field): %q", want, description)
+		}
+	}
+}
+
 func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"scope regression","location_only":"true"}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"x","include_deletions":"yes"}}}`)
