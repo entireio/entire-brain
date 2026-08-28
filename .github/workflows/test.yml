@@ -49,7 +49,19 @@ jobs:
         with: { go-version: "1.26.2" }
       # Windows + the race detector is much slower than the other runners, so
       # give the suite headroom over the default 10m `go test` timeout.
-      - run: go test -race -timeout 20m ./...
+      #
+      # 20m was not enough headroom. Measured on green runs, `internal/cli`
+      # alone takes 811-997s on windows-latest against that 1200s cap, i.e. it
+      # routinely consumes 68-83% of the budget with nothing wrong. The same
+      # test subset varies 2.75x across runner draws (phase1-semantic ranges
+      # 4m46s to 13m10s), so a slow draw tips an otherwise passing PR into
+      # `panic: test timed out`. Two audit PRs failed that way and both passed
+      # on an unchanged re-run.
+      #
+      # A timeout is a guard against a hang, not a performance budget: 30m
+      # still catches a genuinely wedged test in reasonable time while leaving
+      # the normal run a comfortable margin.
+      - run: go test -race -timeout 30m ./...
 
   # Stage 1b cgo stack: mattn/go-sqlite3 + sqlite-vec (vec0) + FTS5. The
   # default jobs above stay pure-Go and prove the cgo-less fallback; this lane
