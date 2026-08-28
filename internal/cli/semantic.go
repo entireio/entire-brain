@@ -722,6 +722,30 @@ func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, ta
 		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	source := manifest.Sources.Semantic
+	// Repair is meant to regenerate a missing/corrupt generation from the
+	// durable snapshot; it must not run when the active generation is
+	// already healthy. Without this check, running `semantic repair`
+	// against a fine store (doctor suggests it defensively, and nothing
+	// stops a user or agent from invoking it speculatively) unconditionally
+	// rebuilds and rewrites a full new generation directory: on a real repo
+	// this duplicated a 178MB semantic.sqlite for no reason, and the old one
+	// is never cleaned up automatically (`semantic gc` is manual, defaults
+	// to a 30-day age cutoff, so a same-day duplicate is never pruned). See
+	// TestSemanticRepairIsNoOpWhenGenerationAlreadyValid.
+	if source.GenerationPath != "" && source.StorePath != "" {
+		if generationPath, genErr := validateSemanticGenerationPath(source.GenerationPath); genErr == nil {
+			if storePath, storeErr := validateSemanticGenerationFilePath(source.StorePath, generationPath, semanticSQLiteName); storeErr == nil {
+				if rejectSymlinkPathComponents(storage.BrainDir, storePath) == nil {
+					fullStorePath := filepath.Join(storage.BrainDir, storePath)
+					if validateSemanticSQLiteStore(fullStorePath, source.Symbols, source.Relations) == nil {
+						fmt.Fprintf(cmd.OutOrStdout(), "semantic generation already valid; nothing to repair: %s\n", storage.BrainDir)
+						fmt.Fprintf(cmd.OutOrStdout(), "store: %s\n", source.StorePath)
+						return nil
+					}
+				}
+			}
+		}
+	}
 	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
 	if err != nil {
 		return err
