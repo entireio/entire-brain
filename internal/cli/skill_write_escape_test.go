@@ -123,3 +123,69 @@ func TestSkillFileExistsSeesDanglingSymlink(t *testing.T) {
 		t.Fatalf("overwrite guard does not see a dangling symlink at the destination")
 	}
 }
+
+// TestSkillWriteRefusesSymlinkedBase closes the escape the per-component check
+// alone leaves open. rejectExistingSymlinkPathComponents deliberately
+// EvalSymlinks-normalizes its own root before the containment test, so a base
+// that is itself a symlink is treated as legitimate. Git stores symlinks, so an
+// untrusted checkout can ship ".claude -> $HOME/.claude" and a repo-scope
+// install silently lands in the user's real home agent config — a different
+// directory from the one the --yes preview printed.
+func TestSkillWriteRefusesSymlinkedBase(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	home := filepath.Join(root, "home", ".claude")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The checked-out tree ships .claude as a link to the real home config.
+	base := filepath.Join(repo, ".claude")
+	if err := os.Symlink(home, base); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := skillDestination{
+		Agents: []string{"claude-code"},
+		Path:   filepath.ToSlash(filepath.Join(base, "skills", "deploy", "SKILL.md")),
+		base:   filepath.ToSlash(base),
+		rel:    "skills/deploy/SKILL.md",
+	}
+	if err := writeSkillFile(dest, []byte("---\nname: deploy\n---\nbody\n")); err == nil {
+		t.Fatalf("writeSkillFile wrote through a symlinked base")
+	}
+	if _, err := os.Stat(filepath.Join(home, "skills", "deploy", "SKILL.md")); err == nil {
+		t.Fatalf("skill landed in the real home config at %s, not the previewed path", home)
+	}
+}
+
+// TestSkillDestinationsDisambiguateUnrepresentableNames pins that two skill
+// names with no representable characters do not collapse onto one directory.
+// safePathComponent returns its fallback for both, so without a stable
+// disambiguator the second install silently overwrites the first.
+func TestSkillDestinationsDisambiguateUnrepresentableNames(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	a, err := skillDestinations("claude-code", "repo", "デプロイ", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := skillDestinations("claude-code", "repo", "ロールバック", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a[0].Path == b[0].Path {
+		t.Fatalf("two distinct skill names collapsed onto one path: %s", a[0].Path)
+	}
+	// An ASCII name must keep its plain slug — existing installs must not move.
+	c, err := skillDestinations("claude-code", "repo", "Deploy Service", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(c[0].Path, "/skills/deploy-service/SKILL.md") {
+		t.Fatalf("ASCII skill name changed shape: %s", c[0].Path)
+	}
+}
