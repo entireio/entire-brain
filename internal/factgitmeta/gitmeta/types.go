@@ -88,9 +88,14 @@ type Target struct {
 	Value string // empty only for project targets
 }
 
+// MinTargetValueLen is the fewest characters a non-project target value may
+// carry, matching the reference implementation. It is also a hard structural
+// requirement for commit targets, whose tree path shards on Value[:2].
+const MinTargetValueLen = 3
+
 // ParseTarget parses a target in "type:value" form (e.g. "commit:abc123"), or
-// the bare "project". The value must be at least 3 characters for non-project
-// targets, matching the reference implementation.
+// the bare "project". The value must be at least MinTargetValueLen characters
+// for non-project targets, matching the reference implementation.
 func ParseTarget(s string) (Target, error) {
 	if s == string(TargetProject) {
 		return Target{Type: TargetProject}, nil
@@ -105,9 +110,6 @@ func ParseTarget(s string) (Target, error) {
 	}
 	if tt == TargetProject {
 		return Target{Type: TargetProject}, nil
-	}
-	if len(value) < 3 {
-		return Target{}, fmt.Errorf("target value must be at least 3 characters, got: %s", value)
 	}
 	t := Target{Type: tt, Value: value}
 	if err := ValidateTargetValue(t); err != nil {
@@ -139,6 +141,14 @@ func ParseTarget(s string) (Target, error) {
 // scheme would risk silently diverging from the reference format with no test to
 // catch it. Rejecting loudly is strictly safer than the current silent
 // corruption and keeps byte-compat intact for the values that do round-trip.
+//
+// It also enforces MinTargetValueLen, the minimum ParseTarget has always
+// documented. That check used to live ONLY in ParseTarget, so a Target built any
+// other way — most importantly the one materialize.go reconstructs from a tree
+// leaf path, which is bytes another member wrote — skipped it entirely and reached
+// TreeBasePath, whose commit-target sharding slices Value[:2] and PANICS on a
+// shorter value. Serialize is the only gate between a materialized State and the
+// tree, so the check belongs here, where every write path passes through it.
 func ValidateTargetValue(t Target) error {
 	if t.Type == TargetProject || t.Type == TargetPath {
 		return nil
@@ -147,6 +157,8 @@ func ValidateTargetValue(t Target) error {
 	switch {
 	case v == "":
 		return fmt.Errorf("%s target value cannot be empty", t.Type)
+	case len(v) < MinTargetValueLen:
+		return fmt.Errorf("%s target value %q must be at least %d characters", t.Type, v, MinTargetValueLen)
 	case strings.Contains(v, "/"):
 		return fmt.Errorf("%s target value %q must not contain '/'", t.Type, v)
 	case v == "." || v == "..":

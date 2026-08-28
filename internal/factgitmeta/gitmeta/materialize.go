@@ -166,6 +166,14 @@ func parseLeafPath(path string) (leafRecord, error) {
 			return leafRecord{}, fmt.Errorf("target path too short")
 		}
 		target = Target{Type: tt, Value: comps[2]}
+		// The tree is untrusted input on a shared ref: reject a target value the
+		// serializer could not have produced HERE, at the read boundary, so it is
+		// classified as ErrMalformedTree (a permanent failure the consumer drops)
+		// rather than carried into State and re-encountered by the write half of
+		// the same read-modify-CAS loop, where it panics.
+		if err := ValidateTargetValue(target); err != nil {
+			return leafRecord{}, err
+		}
 		keyStart = 3
 	}
 
