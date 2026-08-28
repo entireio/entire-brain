@@ -799,6 +799,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// interrupted force run re-distills the sessions it never reached.
 	flushFactStoresLocked := func(final bool) error {
 		for branch := range dirtyBranches {
+			// Rebase onto the current on-disk set before writing. The in-memory
+			// set was loaded when the branch was first seen, which for a run that
+			// is hours of agent calls is long before this flush; writing it back
+			// wholesale silently reverts everything another writer committed in
+			// the meantime — a `remember`, a `facts retract`, a review the user
+			// applied, a settlement `facts sync` mirrored back. Those writers hold
+			// the same brain write lock this flush does, so the lock alone cannot
+			// see them: the run's read-modify-write spans the whole run.
+			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, branch, byBranch[branch], distillOpts.force)
+			if rebaseErr != nil {
+				return rebaseErr
+			}
+			byBranch[branch] = rebased
 			if err := writeFacts(brainDir, branch, byBranch[branch]); err != nil {
 				return err
 			}
@@ -2089,4 +2102,39 @@ func loopbackOnlyDialContext(ctx context.Context, network, address string) (net.
 		return nil, fmt.Errorf("ollama loopback dial failed for %s: %w", address, lastErr)
 	}
 	return nil, fmt.Errorf("ollama dial target is not loopback-only: %s", address)
+}
+
+// rebaseFactsOntoDisk folds concurrent on-disk changes into a distill run's
+// in-memory fact set, so a flush publishes the run's work without reverting
+// anyone else's. It is deliberately MONOTONE — it only adopts records the run
+// never saw and only moves a fact from active to retracted/superseded — so it
+// can never undo one of this run's own decisions, and re-running it over the
+// same inputs is a no-op.
+//
+// force is threaded through because a --force rebuild deliberately dropped the
+// ACTIVE distilled facts it is regenerating; re-adopting those would turn the
+// rebuild back into an append. Everything else on disk is another writer's work.
+func rebaseFactsOntoDisk(brainDir, branch string, inMemory []factRecord, force bool) ([]factRecord, error) {
+	onDisk, err := loadFacts(brainDir, branch)
+	if err != nil {
+		return nil, err
+	}
+	out := inMemory
+	for _, record := range onDisk {
+		i := indexOfFact(out, record.ID)
+		if i < 0 {
+			if force && record.Origin == factOriginDistilled && record.Status == factStatusActive {
+				continue // this run is rebuilding exactly these
+			}
+			out = append(out, record)
+			continue
+		}
+		if record.Status != factStatusActive && out[i].Status == factStatusActive {
+			// Somebody retired this fact while the run was in flight.
+			out[i].Status = record.Status
+			out[i].SupersededBy = record.SupersededBy
+			out[i].UpdatedAt = record.UpdatedAt
+		}
+	}
+	return out, nil
 }
