@@ -20,6 +20,16 @@ import "slices"
 //     and `git log -p`.
 //   - core.fsmonitor runs for `git status`, every `git diff` form, `git
 //     ls-files` (with and without --others) and `git diff-tree`.
+//   - filter.<driver>.{clean,smudge,process}, selected by an in-tree
+//     .gitattributes entry, runs when git converts between worktree and stored
+//     content -- which `git diff HEAD` must do to compare them. There is no
+//     per-command flag for it, so it is neutralized in the environment instead;
+//     see git_harden_filters.go, which is the other half of this hardening
+//     point.
+//
+// The flags below cover the first three vectors. The filter drivers have no
+// flag equivalent and are handled by repoFilterDriverOverrides, applied at the
+// same single spawn point in runner.go.
 //
 // Neutralizing the diff drivers with `-c diff.external=` does NOT work: git
 // still takes the external-diff path and aborts with "external diff died,

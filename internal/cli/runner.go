@@ -64,15 +64,19 @@ func (ExecRunner) RunWithEnv(ctx context.Context, dir string, env map[string]str
 }
 
 func runExecCommand(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	var gitOverrides []gitConfigOverride
 	if name == "git" {
 		args = hardenedGitArgs(args...)
+		// The filter neutralizers travel in the environment, not in argv; see
+		// git_harden_filters.go for why `-c` cannot express them safely.
+		gitOverrides = repoFilterDriverOverrides(ctx, dir)
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if len(env) > 0 {
-		cmd.Env = mergeCommandEnv(os.Environ(), env)
+	if len(env) > 0 || len(gitOverrides) > 0 {
+		cmd.Env = gitConfigOverrideEnv(mergeCommandEnv(os.Environ(), env), gitOverrides)
 	}
 
 	var stdout bytes.Buffer
@@ -117,12 +121,17 @@ func mergeCommandEnv(base []string, overrides map[string]string) []string {
 // captured into a bounded buffer by exec's own copy goroutine, so reading
 // stdout never blocks on stderr.
 func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error) {
+	var gitOverrides []gitConfigOverride
 	if name == "git" {
 		args = hardenedGitArgs(args...)
+		gitOverrides = repoFilterDriverOverrides(ctx, dir)
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	if dir != "" {
 		cmd.Dir = dir
+	}
+	if len(gitOverrides) > 0 {
+		cmd.Env = gitConfigOverrideEnv(os.Environ(), gitOverrides)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
