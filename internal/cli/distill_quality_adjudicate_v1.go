@@ -11,9 +11,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ashtom/entire-brain/internal/tui"
 )
 
 const (
@@ -59,16 +62,73 @@ type distillQualityAdjudicateMetadataV1 struct {
 	EvidenceTruncated bool     `json:"evidence_truncated"`
 }
 
+// distillQualityAdjudicationSessionV1 owns the immutable review inputs, the
+// per-reviewer lock, and the append-only human decisions for one invocation.
+// Both the full-screen reviewer and the plain fallback use this boundary so
+// they cannot drift on queue selection, validation, persistence, or resume.
+type distillQualityAdjudicationSessionV1 struct {
+	manifest   distillQualityRunManifestV1
+	items      []distillQualityAdjudicateItemV1
+	records    []distillQualityHumanAdjudicationV1
+	result     distillQualityAdjudicateResultV1
+	recordPath string
+	lock       *fileLock
+}
+
+func (session *distillQualityAdjudicationSessionV1) close() error {
+	if session == nil || session.lock == nil {
+		return nil
+	}
+	return session.lock.Close()
+}
+
+func (session *distillQualityAdjudicationSessionV1) save(item distillQualityAdjudicateItemV1, admission, authority, safety, rationale string, at time.Time) error {
+	record := makeDistillQualityHumanAdjudicationV1(session.manifest.RunID, session.result.AdjudicatorID, item, admission, authority, safety, rationale, at.UTC())
+	if err := validateDistillQualityHumanAdjudicationV1(item.Packet, item.Aggregate, record); err != nil {
+		return err
+	}
+	for _, existing := range session.records {
+		if existing.PacketID == record.PacketID {
+			return fmt.Errorf("quality adjudication: packet %q was already reviewed", record.PacketID)
+		}
+	}
+	next := append([]distillQualityHumanAdjudicationV1(nil), session.records...)
+	next = append(next, record)
+	if err := saveDistillQualityHumanAdjudicationsV1(session.recordPath, next); err != nil {
+		return err
+	}
+	session.records = next
+	session.result.Reviewed++
+	session.result.Remaining--
+	return nil
+}
+
 func newFactsDistillQualityAdjudicateCommand(opts Options) *cobra.Command {
-	var bundleDir, adjudicatorID, queue string
+	var bundleDir, adjudicatorID, queue, themeName string
 	var limit int
-	var fullEvidence bool
+	var fullEvidence, plain bool
 	cmd := &cobra.Command{
 		Use:   "adjudicate",
-		Short: "Review a small resumable batch of advisory packets",
-		Args:  cobra.NoArgs,
+		Short: "Review a readable, resumable batch of advisory packets",
+		Long: `adjudicate opens a full-screen human review workspace over a bounded
+Phase 2 quality batch. It shows one candidate at a time with wrapped redacted
+evidence, compact Copilot/Cursor/Claude assessments, explicit human decisions,
+and a confirmation step. Every confirmed decision is saved immediately and a
+later invocation resumes without repeating it.
+
+On a non-TTY, or with --plain, it uses the deterministic line-oriented fallback.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue, limit, fullEvidence, cmd.InOrStdin(), cmd.OutOrStdout(), opts.Now)
+			theme, err := resolveDashTheme(themeName)
+			if err != nil {
+				return err
+			}
+			var result distillQualityAdjudicateResultV1
+			if !plain && commandInputIsTTY(cmd) && commandOutputIsTTY(cmd) {
+				result, err = runDistillQualityAdjudicationTUIV1(bundleDir, adjudicatorID, queue, limit, cmd.InOrStdin(), cmd.OutOrStdout(), theme, opts.Now)
+			} else {
+				result, err = runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue, limit, fullEvidence, cmd.InOrStdin(), cmd.OutOrStdout(), opts.Now)
+			}
 			if err != nil {
 				return err
 			}
@@ -85,7 +145,9 @@ func newFactsDistillQualityAdjudicateCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&adjudicatorID, "adjudicator", "", "Stable human reviewer id (required)")
 	cmd.Flags().StringVar(&queue, "queue", distillQualityAdjudicateQueueCalV1, "Queue: calibration, all, critical, invalid, disagreement, or clean")
 	cmd.Flags().IntVar(&limit, "limit", distillQualityAdjudicateDefaultV1, "Maximum items presented in this session (1..100)")
-	cmd.Flags().BoolVar(&fullEvidence, "full-evidence", false, "Show complete evidence immediately instead of a head/tail preview")
+	cmd.Flags().StringVar(&themeName, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
+	cmd.Flags().BoolVar(&plain, "plain", false, "Use the line-oriented reviewer instead of the full-screen TUI")
+	cmd.Flags().BoolVar(&fullEvidence, "full-evidence", false, "In --plain mode, show complete evidence instead of a head/tail preview")
 	_ = cmd.MarkFlagRequired("bundle")
 	_ = cmd.MarkFlagRequired("adjudicator")
 	return cmd
@@ -93,57 +155,19 @@ func newFactsDistillQualityAdjudicateCommand(opts Options) *cobra.Command {
 
 func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, limit int, fullEvidence bool, input io.Reader, output io.Writer, now func() time.Time) (distillQualityAdjudicateResultV1, error) {
 	var result distillQualityAdjudicateResultV1
-	if err := validateDistillQualityPanelOpaqueIDV1("adjudicator_id", adjudicatorID, distillQualityPanelMaxOpaqueIDBytes); err != nil {
-		return result, err
-	}
-	queue = strings.ToLower(strings.TrimSpace(queue))
-	if !validDistillQualityAdjudicateQueueV1(queue) {
-		return result, fmt.Errorf("quality adjudication: invalid queue %q", queue)
-	}
-	if limit < 1 || limit > distillQualityAdjudicateMaxV1 {
-		return result, fmt.Errorf("quality adjudication: limit must be 1..%d", distillQualityAdjudicateMaxV1)
-	}
 	if input == nil || output == nil {
 		return result, errors.New("quality adjudication: input and output are required")
 	}
 	if now == nil {
 		now = time.Now
 	}
-	manifest, packets, sources, aggregates, err := loadDistillQualityAdjudicationInputsV1(bundleDir)
+	session, err := openDistillQualityAdjudicationSessionV1(bundleDir, adjudicatorID, queue, limit)
 	if err != nil {
 		return result, err
 	}
-	bundleDir, err = validateDistillQualityBundleDirV1(bundleDir)
-	if err != nil {
-		return result, err
-	}
-	humanDir := filepath.Join(bundleDir, distillQualityHumanDirV1)
-	if err := ensureDistillQualityPanelDirV1(humanDir); err != nil {
-		return result, err
-	}
-	lock, err := acquireFileLock(filepath.Join(humanDir, ".locks", adjudicatorID+".lock"), "quality_adjudication_locked", 0)
-	if err != nil {
-		return result, err
-	}
-	defer func() { _ = lock.Close() }()
-	recordPath := filepath.Join(humanDir, adjudicatorID+".jsonl")
-	records, err := loadDistillQualityHumanAdjudicationsV1(bundleDir, adjudicatorID, packets, aggregates)
-	if err != nil {
-		return result, err
-	}
-	byRecordPacket := make(map[string]bool, len(records))
-	for _, record := range records {
-		byRecordPacket[record.PacketID] = true
-	}
-	items, err := buildDistillQualityAdjudicateItemsV1(packets, sources, aggregates, byRecordPacket)
-	if err != nil {
-		return result, err
-	}
-	items = selectDistillQualityAdjudicateQueueV1(items, queue, limit)
-	result = distillQualityAdjudicateResultV1{
-		RunID: manifest.RunID, AdjudicatorID: adjudicatorID, Total: len(packets),
-		AlreadyReviewed: len(records), Remaining: len(packets) - len(records), OutputPath: recordPath,
-	}
+	defer func() { _ = session.close() }()
+	result = session.result
+	items := session.items
 	if len(items) == 0 {
 		fmt.Fprintln(output, "No unreviewed packets match this queue.")
 		return result, nil
@@ -151,7 +175,7 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 	fmt.Fprintf(output, "Reviewing at most %d of %d unreviewed packets. Each answer is saved immediately; rerun the same command to resume.\n", len(items), result.Remaining)
 	reader := bufio.NewReader(input)
 	for index, item := range items {
-		result.Presented++
+		session.result.Presented++
 		renderDistillQualityAdjudicateItemV1(output, item, index+1, len(items), fullEvidence)
 		var choice string
 		skip := false
@@ -159,11 +183,11 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 			var action string
 			choice, action, err = readDistillQualityAdmissionChoiceV1(reader, output)
 			if err != nil {
-				return result, err
+				return session.result, err
 			}
 			switch action {
 			case "quit":
-				result.Quit = true
+				session.result.Quit = true
 			case "skip":
 				skip = true
 			case "full":
@@ -172,7 +196,7 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 			}
 			break
 		}
-		if result.Quit {
+		if session.result.Quit {
 			break
 		}
 		if skip {
@@ -180,38 +204,86 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 		}
 		authority, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Adequate direct-human or corroborated authority? [y/n/u/q]: ")
 		if err != nil {
-			return result, err
+			return session.result, err
 		}
 		if quit {
-			result.Quit = true
+			session.result.Quit = true
 			break
 		}
 		safety, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Safe to admit (not injection, pasted instruction, one-off task, or review prose)? [y/n/u/q]: ")
 		if err != nil {
-			return result, err
+			return session.result, err
 		}
 		if quit {
-			result.Quit = true
+			session.result.Quit = true
 			break
 		}
 		fmt.Fprint(output, "Optional rationale (one line; Enter to skip): ")
 		rationale, _, err := readDistillQualityInputLineV1(reader)
 		if err != nil {
-			return result, err
+			return session.result, err
 		}
-		record := makeDistillQualityHumanAdjudicationV1(manifest.RunID, adjudicatorID, item, choice, authority, safety, rationale, now().UTC())
-		if err := validateDistillQualityHumanAdjudicationV1(item.Packet, item.Aggregate, record); err != nil {
-			return result, err
+		if err := session.save(item, choice, authority, safety, rationale, now()); err != nil {
+			return session.result, err
 		}
-		records = append(records, record)
-		if err := saveDistillQualityHumanAdjudicationsV1(recordPath, records); err != nil {
-			return result, err
-		}
-		result.Reviewed++
-		result.Remaining--
-		fmt.Fprintf(output, "Saved. Progress: %d/%d reviewed.\n", result.Total-result.Remaining, result.Total)
+		fmt.Fprintf(output, "Saved. Progress: %d/%d reviewed.\n", session.result.Total-session.result.Remaining, session.result.Total)
 	}
-	return result, nil
+	return session.result, nil
+}
+
+func openDistillQualityAdjudicationSessionV1(bundleDir, adjudicatorID, queue string, limit int) (*distillQualityAdjudicationSessionV1, error) {
+	if err := validateDistillQualityPanelOpaqueIDV1("adjudicator_id", adjudicatorID, distillQualityPanelMaxOpaqueIDBytes); err != nil {
+		return nil, err
+	}
+	queue = strings.ToLower(strings.TrimSpace(queue))
+	if !validDistillQualityAdjudicateQueueV1(queue) {
+		return nil, fmt.Errorf("quality adjudication: invalid queue %q", queue)
+	}
+	if limit < 1 || limit > distillQualityAdjudicateMaxV1 {
+		return nil, fmt.Errorf("quality adjudication: limit must be 1..%d", distillQualityAdjudicateMaxV1)
+	}
+	manifest, packets, sources, aggregates, err := loadDistillQualityAdjudicationInputsV1(bundleDir)
+	if err != nil {
+		return nil, err
+	}
+	bundleDir, err = validateDistillQualityBundleDirV1(bundleDir)
+	if err != nil {
+		return nil, err
+	}
+	humanDir := filepath.Join(bundleDir, distillQualityHumanDirV1)
+	if err := ensureDistillQualityPanelDirV1(humanDir); err != nil {
+		return nil, err
+	}
+	lock, err := acquireFileLock(filepath.Join(humanDir, ".locks", adjudicatorID+".lock"), "quality_adjudication_locked", 0)
+	if err != nil {
+		return nil, err
+	}
+	fail := func(err error) (*distillQualityAdjudicationSessionV1, error) {
+		_ = lock.Close()
+		return nil, err
+	}
+	recordPath := filepath.Join(humanDir, adjudicatorID+".jsonl")
+	records, err := loadDistillQualityHumanAdjudicationsV1(bundleDir, adjudicatorID, packets, aggregates)
+	if err != nil {
+		return fail(err)
+	}
+	byRecordPacket := make(map[string]bool, len(records))
+	for _, record := range records {
+		byRecordPacket[record.PacketID] = true
+	}
+	items, err := buildDistillQualityAdjudicateItemsV1(packets, sources, aggregates, byRecordPacket)
+	if err != nil {
+		return fail(err)
+	}
+	items = selectDistillQualityAdjudicateQueueV1(items, queue, limit)
+	result := distillQualityAdjudicateResultV1{
+		RunID: manifest.RunID, AdjudicatorID: adjudicatorID, Total: len(packets),
+		AlreadyReviewed: len(records), Remaining: len(packets) - len(records), OutputPath: recordPath,
+	}
+	return &distillQualityAdjudicationSessionV1{
+		manifest: manifest, items: items, records: records, result: result,
+		recordPath: recordPath, lock: lock,
+	}, nil
 }
 
 func loadDistillQualityAdjudicationInputsV1(bundleDir string) (distillQualityRunManifestV1, []distillQualityPanelPacketV1, []distillQualityPrivateSourceRecordV1, map[string]distillQualityPanelAggregateV1, error) {
@@ -386,7 +458,7 @@ func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityA
 	if item.CandidateAdmitted {
 		decision = "ADMITTED"
 	}
-	fmt.Fprintf(output, "\n=== Item %d/%d · %s ===\nCandidate: %s · Stratum: %s\nAttention: %s\n", index, total, item.Packet.PacketID, decision, item.Stratum, reportDistillQualityAttentionTextV1(item.Aggregate))
+	fmt.Fprintf(output, "\n=== Item %d/%d · %s ===\nCandidate: %s · Stratum: %s\nAttention: %s\n", index, total, item.Packet.PacketID, decision, distillQualityTerminalTextV1(item.Stratum), reportDistillQualityAttentionTextV1(item.Aggregate))
 	renderDistillQualityEvidenceV1(output, item.Packet, fullEvidence)
 	fmt.Fprintln(output, "\nAdvisory scores (input only; you own the decision):")
 	fmt.Fprintln(output, "judge     state      admission  authority  safety")
@@ -397,15 +469,15 @@ func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityA
 		}
 		fmt.Fprintf(output, "%-9s %-10s %-10s %-10s %-10s\n", verdict.Judge, verdict.State, emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAdmissionV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAuthorityV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionSafetyV1]))
 		if verdict.Rationale != "" {
-			fmt.Fprintf(output, "  %s: %s\n", verdict.Judge, verdict.Rationale)
+			fmt.Fprintf(output, "  %s: %s\n", verdict.Judge, distillQualityTerminalTextV1(verdict.Rationale))
 		}
 		for _, score := range verdict.Scores {
-			fmt.Fprintf(output, "  %s/%s [%s] raw=%s · %s\n", verdict.Judge, score.Dimension, score.Label, reportDistillQualityInlineJSONV1(score.RawScore), score.Rationale)
+			fmt.Fprintf(output, "  %s/%s [%s] %s · %s\n", verdict.Judge, score.Dimension, score.Label, distillQualityReviewScoreSummaryV1(score), distillQualityTerminalTextV1(score.Rationale))
 		}
 	}
 	if len(item.Sources) > 0 {
 		source := item.Sources[0]
-		fmt.Fprintf(output, "Source: %s:%d-%d (%s", filepath.ToSlash(source.TranscriptPath), source.StartLine, source.EndLine, source.Branch)
+		fmt.Fprintf(output, "Source: %s:%d-%d (%s", distillQualityTerminalTextV1(filepath.ToSlash(source.TranscriptPath)), source.StartLine, source.EndLine, distillQualityTerminalTextV1(source.Branch))
 		if len(item.Sources) > 1 {
 			fmt.Fprintf(output, "; +%d more", len(item.Sources)-1)
 		}
@@ -416,7 +488,7 @@ func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityA
 func renderDistillQualityEvidenceV1(output io.Writer, packet distillQualityPanelPacketV1, full bool) {
 	var evidence strings.Builder
 	for _, fragment := range packet.Payload.Fragments {
-		fmt.Fprintf(&evidence, "[%s]\n%s\n", fragment.ID, fragment.Text)
+		fmt.Fprintf(&evidence, "[%s]\n%s\n", fragment.ID, distillQualityTerminalTextV1(fragment.Text))
 	}
 	value := strings.TrimSpace(evidence.String())
 	runes := []rune(value)
@@ -545,4 +617,22 @@ func distillQualityChoiceProofV1(choice string) distillQualityProofLabelV1 {
 	default:
 		return distillQualityProofUncertainV1
 	}
+}
+
+func distillQualityTerminalTextV1(value string) string {
+	var out strings.Builder
+	out.Grow(len(value))
+	for _, r := range value {
+		switch {
+		case r == '\n':
+			out.WriteRune(r)
+		case r == '\t':
+			out.WriteString("    ")
+		case unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r):
+			out.WriteRune('�')
+		default:
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }

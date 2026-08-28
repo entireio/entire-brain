@@ -30,7 +30,7 @@ func TestRenderDistillQualityHumanReviewV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Human Review", "do **not** need to read", "distill-quality adjudicate", "20-item calibration", distillQualityAuditArchiveFileV1} {
+	for _, want := range []string{"Human Review", "do **not** need to read", "distill-quality adjudicate", "20-item calibration", "full-screen terminal workspace", "--plain", distillQualityAuditArchiveFileV1} {
 		if !strings.Contains(string(review), want) {
 			t.Fatalf("review missing %q:\n%s", want, review)
 		}

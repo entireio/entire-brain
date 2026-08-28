@@ -25,6 +25,9 @@ func TestRunDistillQualityAdjudicationV1SavesAndResumes(t *testing.T) {
 			t.Fatalf("output missing %q:\n%s", want, output.String())
 		}
 	}
+	if strings.Contains(output.String(), "raw={") {
+		t.Fatalf("plain fallback exposed raw score JSON:\n%s", output.String())
+	}
 	info, err := os.Stat(result.OutputPath)
 	if err != nil {
 		t.Fatal(err)
@@ -134,6 +137,51 @@ func TestSelectDistillQualityAdjudicateQueueV1IsBalancedAndDeterministic(t *test
 	}
 	if got, want := strings.Join(ids, ","), "invalid,admitted-critical,filtered-critical,disagreement,clean,invalid-2"; got != want {
 		t.Fatalf("selection=%s want=%s", got, want)
+	}
+}
+
+func TestMakeDistillQualityReviewV1IsReadableAndKeepsAdvisoriesSeparate(t *testing.T) {
+	root, _ := adjudicationFixtureRunV1(t)
+	session, err := openDistillQualityAdjudicationSessionV1(root, "reviewer", distillQualityAdjudicateQueueCalV1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.close() }()
+	review, byID := makeDistillQualityReviewV1(session, distillQualityAdjudicateQueueCalV1)
+	if len(review.Items) != 1 || len(byID) != 1 {
+		t.Fatalf("review items=%d lookup=%d", len(review.Items), len(byID))
+	}
+	item := review.Items[0]
+	if !strings.Contains(item.Candidate, "Candidate filter: ADMITTED") || len(item.Evidence) == 0 {
+		t.Fatalf("candidate/evidence was not human-readable: %+v", item)
+	}
+	if len(item.Judges) != len(distillQualityPanelJudgesV1) {
+		t.Fatalf("judges=%d want=%d", len(item.Judges), len(distillQualityPanelJudgesV1))
+	}
+	for _, judge := range item.Judges {
+		if len(judge.Scores) != 3 {
+			t.Fatalf("judge %s scores=%d", judge.Name, len(judge.Scores))
+		}
+		for _, score := range judge.Scores {
+			if score.Summary == "" || strings.Contains(score.Summary, "{") {
+				t.Fatalf("judge %s exposed unreadable score %q", judge.Name, score.Summary)
+			}
+		}
+	}
+	if got := review.Progress; got.Reviewer != "reviewer" || got.Queue != distillQualityAdjudicateQueueCalV1 || got.Remaining == 0 {
+		t.Fatalf("progress = %+v", got)
+	}
+}
+
+func TestDistillQualityTerminalTextV1MakesControlsInert(t *testing.T) {
+	got := distillQualityTerminalTextV1("safe\x1b]52;c;clipboard\a\rrewritten\u202etrick")
+	for _, forbidden := range []string{"\x1b", "\a", "\r", "\u202e"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("terminal text retained control %q: %q", forbidden, got)
+		}
+	}
+	if got != "safe�]52;c;clipboard��rewritten�trick" {
+		t.Fatalf("terminal text = %q", got)
 	}
 }
 

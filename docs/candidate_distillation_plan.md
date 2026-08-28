@@ -1,9 +1,9 @@
 # Candidate-First Distillation Plan
 
 Status: Phase 3 conservative-write exit gate complete. Phase 2 has a sealed
-advisory multi-model pre-adjudication package ready for human review; human
-labels, paired fact-quality runs, and retrieval gates remain pending and block
-default promotion (2026-08-26).
+advisory multi-model pre-adjudication package and a full-screen resumable human
+review workspace; human labels, paired fact-quality runs, and retrieval gates
+remain pending and block default promotion (2026-08-28).
 
 The first implementation slice on `feat/candidate-first-distillation` adds the
 opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
@@ -162,8 +162,17 @@ entire brain facts distill-quality adjudicate \
 
 The default session is a deterministic 20-item calibration batch balanced
 across invalid, admitted-critical, filtered-critical, disagreement, and clean
-items. It presents one redacted packet at a time, including the complete
-Copilot, Cursor, and Claude scores and rationales; `v` reveals full evidence.
+items. On a terminal it opens a responsive full-screen workspace: a bounded
+queue and scrollable evidence/detail panes on wide screens, and a single
+evidence-focused pane on narrow screens. It presents one redacted packet at a
+time, uses human-readable summaries instead of raw score JSON, and retains the
+complete Copilot, Cursor, and Claude rationales in the scrollable detail. The
+reviewer explicitly answers admission, authority, and safety with `y`, `n`, or
+`u`; no answer is prefilled from the panel. A separate confirmation step is the
+only save action. `x` skips without writing, `q` discards only the current
+partial decision, and every prior confirmed answer remains durable. `--plain`
+retains the deterministic line-oriented accessibility/non-TTY fallback.
+
 Each explicit human answer is validated, bound to the immutable packet and
 advisory digests, written atomically to a private per-reviewer JSONL file, and
 skipped on resume. `--queue critical|invalid|disagreement|clean|all` and
