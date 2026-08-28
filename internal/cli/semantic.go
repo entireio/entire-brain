@@ -520,7 +520,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
 		}
 		indexOpts.reportPhase("parsing sources")
-		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, providerIgnoreFiles, ignore, out)
+		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, providerIgnoreFiles, ignore, out)
 		if serr != nil && len(providerIgnoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(serr) {
 			warnings = append(warnings, semanticWarning{
 				Code:     "provider_ignore_file_unsupported",
@@ -531,7 +531,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			if err := resetSnapshotTempFile(tmp, hasher); err != nil {
 				return err
 			}
-			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, nil, ignore, out)
+			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, nil, ignore, out)
 		}
 		if serr != nil {
 			return serr
@@ -546,6 +546,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return err
 		}
 		if err := validateSemanticSchema(header.SchemaVersion); err != nil {
+			return err
+		}
+		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, indexOpts.graphBinary); err != nil {
 			return err
 		}
 		if err := validateLiveSemanticHeader(header, storage.Key, head, tree, indexOpts.worktree && dirty); err != nil {
@@ -984,6 +987,12 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 			strings.Contains(text, "flag provided but not defined"))
 }
 
+// validateLiveSemanticHeader checks the header the brain is about to persist.
+// repoKey is the brain's canonical storage key: the header has already been
+// normalized to it by scanSemanticStream, so an inequality here would mean the
+// normalization itself broke. The provider's own repo_key spelling is checked
+// separately, against the documented contract, by
+// validateSemanticProviderRepoKey.
 func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
 		return errors.New("semantic snapshot header missing commit")
