@@ -484,12 +484,12 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_list_projects",
-			"description": "List locally indexed brain projects and semantic index counts.",
+			"description": "List locally indexed brain projects and semantic index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
 			"name":        "brain_delete_project",
-			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only. Irreversible: exported session history and indexes for the project are erased, so confirm=true is required.",
+			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only. Irreversible: exported session history and indexes for the project are erased, so confirm=true is required. A repo_key other than the bound repository's is refused unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
 			"inputSchema": objectSchema([]string{"confirm"}, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)"), "confirm": boolArg("confirm", "Must be true; acknowledges that the project's exported history and indexes are erased irreversibly")}),
 		},
 		{
@@ -564,17 +564,17 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_workspace_regressions",
-			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key.",
+			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
 			"name":        "brain_workspace_graph",
-			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace.",
+			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
 			"inputSchema": objectSchema([]string{"workspace"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "limit": integerArg("limit", "Maximum contracts/cross_edges")}),
 		},
 		{
 			"name":        "brain_workspace_review",
-			"description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo.",
+			"description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
@@ -729,7 +729,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
 	case "brain_list_projects":
-		err = runMCPListProjects(cmd, opts)
+		err = runMCPListProjects(ctx, cmd, opts)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
 		if stringErr != nil {
@@ -982,6 +982,9 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = errors.New("workspace is required")
 		}
 		if err == nil {
+			err = mcpEnforceWorkspaceScope(ctx, opts, params.Name, workspace)
+		}
+		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
 			if boolErr != nil {
 				err = boolErr
@@ -998,7 +1001,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		workspace = strings.TrimSpace(workspace)
 		if workspace == "" {
 			err = errors.New("workspace is required")
-		} else {
+		} else if err = mcpEnforceWorkspaceScope(ctx, opts, params.Name, workspace); err == nil {
 			err = runWorkspaceGraph(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, workspace)
 		}
 	case "brain_workspace_review":
@@ -1011,6 +1014,9 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		err = requireMCPQuery(query)
 		if err == nil && workspace == "" {
 			err = errors.New("workspace is required")
+		}
+		if err == nil {
+			err = mcpEnforceWorkspaceScope(ctx, opts, params.Name, workspace)
 		}
 		if err == nil {
 			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
@@ -1125,10 +1131,23 @@ type mcpProjectSummary struct {
 	Profile     string   `json:"profile,omitempty"`
 }
 
-func runMCPListProjects(cmd *cobra.Command, opts Options) error {
+func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) error {
 	dirs, err := resolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
+	}
+	// Enumerating every locally indexed project hands an agent bound to one repo
+	// the keys, brain paths, and index counts of every other repo on the machine.
+	// Scope the listing to the bound repo unless the operator opts out.
+	boundKey := ""
+	if !mcpCrossRepoAllowed() {
+		storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts)
+		if storageErr != nil {
+			return storageErr
+		}
+		if bound {
+			boundKey = storage.Key
+		}
 	}
 	root := filepath.Join(dirs.Data, repoStoreDirName)
 	var projects []mcpProjectSummary
@@ -1145,6 +1164,9 @@ func runMCPListProjects(cmd *cobra.Command, opts Options) error {
 		brainDir := filepath.Dir(path)
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
+			return nil
+		}
+		if boundKey != "" && manifest.RepoKey != boundKey {
 			return nil
 		}
 		summary := mcpProjectSummary{
@@ -1176,24 +1198,44 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 	var brainDir string
 	var err error
 	if repoKey == "" {
-		target := "."
-		if opts.Env.RepoRoot != "" {
-			target = opts.Env.RepoRoot
+		boundStorage, bound, boundErr := mcpBoundRepoStorage(ctx, opts)
+		if boundErr != nil {
+			return boundErr
 		}
-		repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
-		if resolveErr != nil {
-			return resolveErr
+		if !bound {
+			// Unbound server: fall back to the process CWD repo, as before.
+			target := "."
+			repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			if !local {
+				return fmt.Errorf("brain_delete_project requires a local repository path: %s", target)
+			}
+			storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+			if storageErr != nil {
+				return storageErr
+			}
+			boundStorage = storage
 		}
-		if !local {
-			return fmt.Errorf("brain_delete_project requires a local repository path: %s", target)
-		}
-		storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-		if storageErr != nil {
-			return storageErr
-		}
-		repoKey = storage.Key
-		brainDir = storage.BrainDir
+		repoKey = boundStorage.Key
+		brainDir = boundStorage.BrainDir
 	} else {
+		// A repo_key names a project directly, so it is the confused-deputy
+		// vector: deleting a brain erases that repo's exported session history
+		// and every derived index, and confirm=true is no defence — the same
+		// prompt-injected agent that picks a foreign key also supplies the
+		// confirmation. Refuse anything but the bound repo unless the operator
+		// opted in.
+		if !mcpCrossRepoAllowed() && strings.TrimSpace(opts.Env.RepoRoot) != "" {
+			boundStorage, bound, boundErr := mcpBoundRepoStorage(ctx, opts)
+			if boundErr != nil {
+				return boundErr
+			}
+			if !bound || repoKey != boundStorage.Key {
+				return mcpCrossRepoRefusal("brain_delete_project", fmt.Sprintf("repo_key %q names a different project", repoKey), boundStorage.Key)
+			}
+		}
 		brainDir, err = brainDirForKey(opts.Env, repoKey)
 		if err != nil {
 			return err
@@ -1217,6 +1259,87 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 // it defaults to "entire". Resolving this server-side closes the
 // arbitrary-executable vector that an untrusted (or prompt-injected) MCP client
 // would otherwise reach through a tool argument.
+// mcpAllowCrossRepoEnv is the operator opt-in that lets MCP tools act outside
+// the bound repository root, the sibling of ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH used
+// by brain_index_repository. It is unset by default: the MCP surface is driven
+// by an agent whose context can be poisoned by hostile repository content, so
+// project deletion, project enumeration, and workspace fan-out stay inside the
+// repo the server was bound to. The plain CLI is unaffected — a human at a
+// terminal is not the confused deputy.
+const mcpAllowCrossRepoEnv = "ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO"
+
+// mcpCrossRepoAllowed reports whether the operator opted the MCP surface out of
+// bound-repo scoping.
+func mcpCrossRepoAllowed() bool { return envBool(mcpAllowCrossRepoEnv) }
+
+// mcpBoundRepoStorage resolves the storage identity (repo key + brain dir) of
+// the repository this MCP server is bound to. An empty EntireEnv.RepoRoot means
+// the server is not bound to a repo, which the callers treat the same way
+// mcpResolveIndexPath treats an unset root: no scoping to enforce.
+func mcpBoundRepoStorage(ctx context.Context, opts Options) (repoStorage, bool, error) {
+	root := strings.TrimSpace(opts.Env.RepoRoot)
+	if root == "" {
+		return repoStorage{}, false, nil
+	}
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, root)
+	if err != nil {
+		return repoStorage{}, false, err
+	}
+	if !local {
+		return repoStorage{}, false, fmt.Errorf("bound repository root is not a local repository: %s", root)
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return repoStorage{}, false, err
+	}
+	return storage, true, nil
+}
+
+// mcpCrossRepoRefusal is the single refusal message for every MCP tool that
+// would otherwise reach outside the bound repository. It always names the gate
+// so an operator who genuinely wants cross-repo access knows the one knob.
+func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
+	bound := boundKey
+	if bound == "" {
+		bound = "the bound repository"
+	}
+	return fmt.Errorf(
+		"%s is scoped to the MCP server's bound repository (%s): %s; set %s=1 to allow cross-repo access",
+		tool, bound, detail, mcpAllowCrossRepoEnv,
+	)
+}
+
+// mcpEnforceWorkspaceScope refuses a workspace whose members reach outside the
+// bound repository root. Workspace fan-out reads (and reports on) every member
+// repo's brain and working tree, so an agent bound to one repo must not be able
+// to name an arbitrary workspace and pull the rest in. Enforced here, at the MCP
+// dispatch site, and never inside runWorkspace* — the CLI verbs share those
+// functions and must stay cross-repo.
+func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspaceName string) error {
+	if mcpCrossRepoAllowed() || strings.TrimSpace(opts.Env.RepoRoot) == "" {
+		return nil
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	boundKey := ""
+	if storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts); storageErr == nil && bound {
+		boundKey = storage.Key
+	}
+	for _, repo := range manifest.Repos {
+		if boundKey != "" && repo.RepoKey == boundKey {
+			continue
+		}
+		hint := strings.TrimSpace(repo.LocalPathHint)
+		if hint != "" && enforceIndexContainment(opts.Env.RepoRoot, hint) == nil {
+			continue
+		}
+		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside that root", manifest.Name, repo.RepoKey), boundKey)
+	}
+	return nil
+}
+
 func mcpGraphBinary() string {
 	if v := strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_GRAPH_BINARY")); v != "" {
 		return v

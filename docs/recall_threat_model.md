@@ -116,6 +116,15 @@ Enforced:
   resolved path; `brain_get` resolves transcript paths from the trusted index
   only, with canonical-path validation, a `sessions/` containment check, and
   symlink-component rejection.
+- Tool arguments never reach another repository's brain: `brain_delete_project`
+  refuses a `repo_key` other than the bound repo's (`confirm=true` is not a
+  defence — the same injected agent supplies it), `brain_list_projects` returns
+  only the bound project instead of enumerating every local repo's key, path,
+  and counts, and the `brain_workspace_*` fan-out refuses a workspace whose
+  repos live outside the bound root. Each is opt-out via
+  `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`, and each applies to the MCP surface only:
+  the `entire brain ...` CLI stays cross-repo because the operator there is a
+  human, not a deputy acting on injected instructions.
 - Argument names are validated against each tool's declared schema (single
   source of truth); input frames, transcript reads (streamed for line
   transcripts, bounded for document form), parser lines, and per-exchange
@@ -136,7 +145,9 @@ hostile content cannot exfiltrate via the embedder channel.
 
 1. No retrieval surface returns conversation content without
    `verification_required` + the historical-evidence caveat.
-2. No MCP argument reaches a filesystem path or executable choice.
+2. No MCP argument reaches a filesystem path or executable choice, and no MCP
+   argument reaches another repository's brain (read or delete) unless the
+   operator set `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`.
 3. Publish/bundle output never contains transcripts, history records, or
    conversation text.
 4. Tombstones are honored before every derived build AND consulted at every
