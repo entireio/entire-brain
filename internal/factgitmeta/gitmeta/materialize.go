@@ -160,6 +160,14 @@ func parseLeafPath(path string) (leafRecord, error) {
 			return leafRecord{}, fmt.Errorf("path target missing %s", PathTargetSeparator)
 		}
 		target = Target{Type: TargetPath, Value: decodePathTargetSegments(comps[1:sepIdx])}
+		// The tree is untrusted input on a shared ref: reject at the READ boundary
+		// a target value the serializer could not have produced, so it is
+		// classified as ErrMalformedTree (a permanent failure the consumer drops)
+		// rather than carried into State and re-encountered by the write half of
+		// the same read-modify-CAS loop, where it fails the whole Serialize.
+		if err := ValidateTargetValue(target); err != nil {
+			return leafRecord{}, err
+		}
 		keyStart = sepIdx + 1
 	default: // commit, branch, change-id: <type>/<shard>/<value>/<key...>
 		if len(comps) < 4 {
