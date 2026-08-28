@@ -548,7 +548,7 @@ func TestEntityProvenanceIsDeterministicOnTimestampTies(t *testing.T) {
 		for _, key := range order {
 			cache.Entries[key] = []entityIndexOccurrence{occurrences[key]}
 		}
-		resolver := buildEntityProvenanceResolver(cache, map[string]string{session: "main"})
+		resolver := buildEntityProvenanceResolver(cache, map[string]string{session: "main"}, nil)
 		if resolver == nil {
 			t.Fatal("resolver is nil despite a populated cache")
 		}
