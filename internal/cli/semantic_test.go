@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -152,16 +153,23 @@ func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 	}
 }
 
-func TestValidateLiveSemanticHeaderAcceptsRepoKeyCaseOnlyDifference(t *testing.T) {
-	err := validateLiveSemanticHeader(
-		semanticHeader{RepoKey: "gh/redacted-contributor/Ultron", Commit: "aaa111", Tree: "tree111"},
-		"gh/redacted-contributor/ultron",
-		"aaa111",
-		"tree111",
-		false,
+// TestSemanticProviderRepoKeyAcceptsCaseOnlyDifference: entire-graph preserves
+// the case of a github.com remote path while the brain folds its storage key to
+// lower case, so gh/Owner/Repo and gh/owner/repo name the same repository.
+//
+// This assertion used to live on validateLiveSemanticHeader, where it could not
+// fail: scanSemanticStream normalizes header.RepoKey to the storage key before
+// that function ever sees it. It belongs here, on the one comparison that reads
+// the provider's own untrusted spelling.
+func TestSemanticProviderRepoKeyAcceptsCaseOnlyDifference(t *testing.T) {
+	err := validateSemanticProviderRepoKey(
+		context.Background(), nil, t.TempDir(),
+		"gh/redacted-contributor/ultron", // the brain's storage key, folded
+		"gh/redacted-contributor/Ultron", // what the provider stamped
+		"", "entire",
 	)
 	if err != nil {
-		t.Fatalf("case-only repo key mismatch should be accepted: %v", err)
+		t.Fatalf("case-only repo key difference should be accepted: %v", err)
 	}
 }
 

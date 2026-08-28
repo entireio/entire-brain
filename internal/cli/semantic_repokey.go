@@ -125,8 +125,20 @@ func expectedProviderRepoKey(ctx context.Context, runner CommandRunner, repoDir 
 
 // validateSemanticProviderRepoKey enforces the contract above. providerKey is
 // the repo_key the provider stamped on the snapshot header, before the brain
-// normalizes it to its own storage key.
-func validateSemanticProviderRepoKey(ctx context.Context, runner CommandRunner, repoDir, storageKey, providerKey, graphBinary string) error {
+// normalizes it to its own storage key. doctorKey is the key the provider
+// reported for this repository from `graph doctor --json`, or "" if the
+// installed provider predates that handshake.
+//
+// Three sources of truth, in descending authority:
+//
+//  1. the brain's own storage key — a snapshot the brain wrote itself;
+//  2. doctorKey — the provider's own answer about its own rule. When the
+//     provider tells us what it will stamp, the mirror is not consulted at all:
+//     a mirror that disagreed with the provider would only ever be wrong, and
+//     silently accepting a third spelling would defeat the guard;
+//  3. the mirror (providerRepoKeyFromRemotes) — the fallback for a provider too
+//     old to answer.
+func validateSemanticProviderRepoKey(ctx context.Context, runner CommandRunner, repoDir, storageKey, providerKey, doctorKey, graphBinary string) error {
 	if strings.TrimSpace(providerKey) == "" {
 		return fmt.Errorf("semantic snapshot header missing repo_key (provider %q, repo %s)", graphBinary, repoDir)
 	}
@@ -135,28 +147,51 @@ func validateSemanticProviderRepoKey(ctx context.Context, runner CommandRunner, 
 	if semanticRepoKeyEqual(providerKey, storageKey) {
 		return nil
 	}
+	if doctorKey = strings.TrimSpace(doctorKey); doctorKey != "" {
+		if semanticRepoKeyEqual(providerKey, doctorKey) {
+			return nil
+		}
+		return semanticProviderRepoKeyMismatchError(providerKey, storageKey, doctorKey, repoDir, graphBinary, true)
+	}
 	expected := expectedProviderRepoKey(ctx, runner, repoDir)
 	if semanticRepoKeyEqual(providerKey, expected) {
 		return nil
 	}
-	return semanticProviderRepoKeyMismatchError(providerKey, storageKey, expected, repoDir, graphBinary)
+	return semanticProviderRepoKeyMismatchError(providerKey, storageKey, expected, repoDir, graphBinary, false)
 }
 
 // semanticProviderRepoKeyMismatchError names BOTH keys, the key the provider
-// was expected to emit, the repository and provider binary involved, and what
-// to do about it. A mid-phase failure with no remedy is what made the original
-// bug so expensive to diagnose.
-func semanticProviderRepoKeyMismatchError(providerKey, storageKey, expectedKey, repoDir, graphBinary string) error {
+// was expected to emit and where that expectation came from, the repository and
+// provider binary involved, and what to do about it. A mid-phase failure with no
+// remedy is what made the original bug so expensive to diagnose.
+func semanticProviderRepoKeyMismatchError(providerKey, storageKey, expectedKey, repoDir, graphBinary string, fromDoctor bool) error {
 	binary := strings.TrimSpace(graphBinary)
 	if binary == "" {
 		binary = "entire"
 	}
+	source := "is expected to report"
+	cause := fmt.Sprintf("or %q is a build whose repo-key rule this brain does not know", binary)
+	if fromDoctor {
+		source = "reports"
+		cause = fmt.Sprintf("since `%s graph doctor --json` reports that key for this repository", binary)
+	}
 	return fmt.Errorf(
 		"semantic provider reported repo_key %q, which does not match repository %s: the brain knows this repository as %q, "+
-			"and %q is expected to report %q for it. The snapshot most likely belongs to a different repository, or %q is a "+
-			"build whose repo-key rule this brain does not know. Remedy: update the Entire CLI so %q matches this brain, or "+
-			"point the brain at a matching build with --graph-binary <path>; if the snapshot really does describe another "+
-			"repository, re-run the index inside that repository",
-		providerKey, repoDir, storageKey, binary, expectedKey, binary, binary,
+			"and %q %s %q for it. The snapshot most likely belongs to a different repository, %s. Remedy: update the Entire "+
+			"CLI so %q matches this brain, or point the brain at a matching build with --graph-binary <path>; if the snapshot "+
+			"really does describe another repository, re-run the index inside that repository (%s)",
+		providerKey, repoDir, storageKey, binary, source, expectedKey, cause, binary, shellQuotedRepoDir(repoDir),
 	)
+}
+
+// shellQuotedRepoDir makes the remedy copy-pasteable when the repository path
+// contains spaces or quotes.
+func shellQuotedRepoDir(repoDir string) string {
+	if strings.TrimSpace(repoDir) == "" {
+		return "."
+	}
+	if strings.ContainsAny(repoDir, " \t\"'") {
+		return "'" + strings.ReplaceAll(repoDir, "'", `'\''`) + "'"
+	}
+	return repoDir
 }
