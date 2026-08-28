@@ -23,6 +23,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
@@ -55,11 +56,31 @@ type Client struct {
 	HTTP    *http.Client
 }
 
+// hostedRequestTimeout bounds one hosted-brain RPC end to end.
+//
+// The realistic caller is the CLI or the workspace daemon passing
+// context.Background(): with no caller deadline, this client's own bound is the only
+// thing standing between a wedged hosted endpoint — one that completes the dial and
+// then never responds — and a permanently hung process. http.DefaultClient has no
+// timeout at all, so it can never provide one. http.Client.Timeout covers the whole
+// exchange (dial, request, response headers, body), which is what a stall after a
+// successful dial needs; a dial-phase bound alone would not fire.
+//
+// The hosted tools are bounded reads (search / get / status), so a minute is
+// generous; factsync.HTTPServer uses a longer bound because it uploads a whole
+// fact-set. This mirrors cli.publishRequestTimeout, the same shape already used on
+// the hosted publish path.
+//
+// It is a var, not a const, so tests can shorten it.
+var hostedRequestTimeout = 60 * time.Second
+
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return http.DefaultClient
+	// A fresh Client per call is free and keeps http.DefaultTransport (and its
+	// connection pool) shared, so this costs no connection reuse.
+	return &http.Client{Timeout: hostedRequestTimeout}
 }
 
 // ServerInfo is the hosted brain's initialize serverInfo, including the brain wire

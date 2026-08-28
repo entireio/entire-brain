@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 )
@@ -37,11 +38,29 @@ type HTTPServer struct {
 	Client  *http.Client // defaults to http.DefaultClient when nil
 }
 
+// syncRequestTimeout bounds one fact-set sync request end to end.
+//
+// The sync runner is driven from the CLI and the workspace daemon with
+// context.Background(), so with no caller deadline this client's own bound is the
+// only thing standing between a wedged hosted endpoint — one that completes the dial
+// and then never responds — and a permanently hung process; http.DefaultClient has
+// no timeout at all. http.Client.Timeout covers the whole exchange, which is what a
+// stall after a successful dial needs.
+//
+// Advance uploads the whole merged fact-set, so the bound matches the five minutes
+// the hosted publish path already allows for a body-carrying request
+// (cli.publishRequestTimeout) rather than a short read timeout.
+//
+// It is a var, not a const, so tests can shorten it.
+var syncRequestTimeout = 5 * time.Minute
+
 func (h *HTTPServer) client() *http.Client {
 	if h.Client != nil {
 		return h.Client
 	}
-	return http.DefaultClient
+	// A fresh Client per call is free and keeps http.DefaultTransport (and its
+	// connection pool) shared, so this costs no connection reuse.
+	return &http.Client{Timeout: syncRequestTimeout}
 }
 
 func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
