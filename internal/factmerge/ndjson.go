@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 // MaxLineBytes bounds a single NDJSON record line so a corrupt store cannot
@@ -31,6 +32,76 @@ const MaxLineBytes = 16 * 1024 * 1024
 // Refusing at write time keeps a store from persisting a fact-set it cannot
 // load.
 var ErrRecordTooLarge = errors.New("factmerge: record exceeds the maximum NDJSON line size")
+
+// ErrInvalidUTF8 is returned by WriteNDJSON for a record carrying a string that
+// is not valid UTF-8.
+//
+// encoding/json does not fail on such a string: it substitutes U+FFFD for every
+// invalid byte, so the record READS BACK DIFFERENT from the one written, with no
+// error on either side. Fact paths come from real filenames, and a POSIX
+// filesystem permits arbitrary bytes there, so this is reachable from an
+// ordinary repository rather than only from a hostile one.
+//
+// Refusing at write time follows the same rule as ErrRecordTooLarge: never
+// persist a record this package cannot faithfully return. Silent substitution
+// would corrupt the shared cross-member head, where the mangled path would then
+// merge into every other member.
+var ErrInvalidUTF8 = errors.New("factmerge: record contains invalid UTF-8")
+
+// invalidUTF8Field returns the name and value of the first field of record that
+// is not valid UTF-8, or "" if every string round-trips.
+func invalidUTF8Field(record Record) (string, string) {
+	pairs := []struct {
+		name  string
+		value string
+	}{
+		{"id", record.ID},
+		{"kind", record.Kind},
+		{"text", record.Text},
+		{"branch", record.Branch},
+		{"origin", record.Origin},
+		{"status", record.Status},
+		{"confidence", record.Confidence},
+		{"superseded_by", record.SupersededBy},
+	}
+	for _, pair := range pairs {
+		if !utf8.ValidString(pair.value) {
+			return pair.name, pair.value
+		}
+	}
+	for _, path := range record.Paths {
+		if !utf8.ValidString(path) {
+			return "paths", path
+		}
+	}
+	for _, locus := range record.Locus {
+		if !utf8.ValidString(locus) {
+			return "locus", locus
+		}
+	}
+	for _, related := range record.RelatedIDs {
+		if !utf8.ValidString(related) {
+			return "related_ids", related
+		}
+	}
+	for _, anchor := range record.Provenance {
+		for _, pair := range []struct {
+			name  string
+			value string
+		}{
+			{"provenance.session_id", anchor.SessionID},
+			{"provenance.commit", anchor.Commit},
+			{"provenance.checkpoint_id", anchor.CheckpointID},
+			{"provenance.turn_id", anchor.TurnID},
+			{"provenance.transcript", anchor.Transcript},
+		} {
+			if !utf8.ValidString(pair.value) {
+				return pair.name, pair.value
+			}
+		}
+	}
+	return "", ""
+}
 
 // ParseError reports a malformed line in an NDJSON fact stream. It carries the
 // 1-based line number so callers that know the file name can reconstruct a
@@ -87,6 +158,9 @@ func ParseNDJSON(r io.Reader) ([]Record, error) {
 func WriteNDJSON(w io.Writer, records []Record) error {
 	Sort(records)
 	for _, record := range records {
+		if field, value := invalidUTF8Field(record); field != "" {
+			return fmt.Errorf("%w: %s field %q is not valid UTF-8 (%q); encoding/json would substitute U+FFFD and the record would read back changed", ErrInvalidUTF8, record.ID, field, value)
+		}
 		data, err := json.Marshal(record)
 		if err != nil {
 			return err
