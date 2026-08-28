@@ -177,7 +177,7 @@ func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 func TestValidateLiveSemanticHeaderAcceptsRepoKeyCaseOnlyDifference(t *testing.T) {
 	err := validateLiveSemanticHeader(
 		semanticHeader{RepoKey: "gh/redacted-contributor/Ultron", Commit: "aaa111", Tree: "tree111"},
-		"gh/redacted-contributor/ultron",
+		semanticRepoIdentity{StorageKey: "gh/redacted-contributor/ultron"},
 		"aaa111",
 		"tree111",
 		false,
@@ -371,7 +371,10 @@ func TestSemanticIndexRejectsMismatchedProviderHeader(t *testing.T) {
 			env := semanticTestEnv(t, repoDir)
 			runner := semanticFixtureRunner(repoDir, snapshot)
 			err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-			if err == nil || !strings.Contains(err.Error(), "does not match") {
+			if err == nil {
+				t.Fatalf("a header naming a different %s was accepted", name)
+			}
+			if !strings.Contains(err.Error(), "does not match") && !strings.Contains(err.Error(), "does not name this repository") {
 				t.Fatalf("index err = %v", err)
 			}
 		})
@@ -3526,8 +3529,11 @@ func TestBundleImportRejectsRepoKeyMismatch(t *testing.T) {
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive))
-	if err == nil || !strings.Contains(err.Error(), "does not match current repo") {
+	if err == nil || !strings.Contains(err.Error(), "does not name this repository") {
 		t.Fatalf("import err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "gh/other/repo") || !strings.Contains(err.Error(), "--graph-binary") {
+		t.Fatalf("import error is not actionable: %v", err)
 	}
 }
 
