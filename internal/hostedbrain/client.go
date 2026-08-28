@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -113,8 +114,17 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, err
 	}
-	url := strings.TrimRight(c.BaseURL, "/") + "/api/v1/repos/" + repoID + "/brain/mcp"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	// The repo id is exactly one path segment. Interpolating it raw let an id
+	// add segments, traverse out of /api/v1/repos/ (any hop that normalizes dot
+	// segments resolves it), or open a query string and drop the /brain/mcp
+	// suffix — sending the caller's bearer token to an unintended route. Escape
+	// it, as every sibling call in factsync and publish already does.
+	repoID = strings.TrimSpace(repoID)
+	if repoID == "" {
+		return nil, fmt.Errorf("hostedbrain: %s: repo id is required", method)
+	}
+	endpoint := strings.TrimRight(c.BaseURL, "/") + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}
