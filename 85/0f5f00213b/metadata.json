@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.10.2",
+  "checkpoint_id": "850f5f00213b",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill_quality_adjudicate_tui_v1.go",
+    "internal/cli/distill_quality_adjudicate_v1.go",
+    "internal/cli/distill_quality_adjudicate_v1_test.go",
+    "internal/cli/distill_quality_report_v1.go",
+    "internal/cli/distill_quality_report_v1_test.go",
+    "internal/tui/quality_review.go",
+    "internal/tui/quality_review_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/85/0f5f00213b/0/metadata.json",
+      "transcript": "/85/0f5f00213b/0/full.jsonl",
+      "compact_transcript": "/85/0f5f00213b/0/transcript.jsonl",
+      "content_hash": "/85/0f5f00213b/0/content_hash.txt",
+      "prompt": "/85/0f5f00213b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12633206,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 896905472,
+    "output_tokens": 1405282,
+    "api_call_count": 6464
+  }
+}
