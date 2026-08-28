@@ -3,11 +3,24 @@ package entityindex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 )
+
+// graphDiffTimeout bounds a single `entire graph diff` invocation. DiffCommit
+// runs once per commit inside the entity-index build loop (see build.go's
+// indexCommit), and nothing upstream of it — not build.go, not the CLI's
+// cmd.Context() in root.go — sets any deadline. Without a bound here, one
+// wedged provider process hangs the entire build forever with no output and
+// no way to tell what happened. Two minutes is generous for a single commit's
+// diff (far lighter than a full-repo semantic snapshot, which gets
+// semanticSnapshotTimeout's 30 minutes) while still failing a stuck build
+// fast enough to be noticed. A package-level var, not a const, so tests can
+// lower it — the same pattern semanticStreamProgressInterval uses.
+var graphDiffTimeout = 2 * time.Minute
 
 // Runner runs external commands. It is the same shape as the brain's
 // cli.CommandRunner seam, so the CLI passes its runner straight through and
@@ -77,8 +90,13 @@ func DiffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 		args = append(args, "--repo", repoDir)
 	}
 	args = append(args, "--base", base, "--head", head, "--json")
-	stdout, _, err := runner.Run(ctx, repoDir, graphBinary, args...)
+	runCtx, cancel := context.WithTimeout(ctx, graphDiffTimeout)
+	defer cancel()
+	stdout, _, err := runner.Run(runCtx, repoDir, graphBinary, args...)
 	if err != nil {
+		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+			return Delta{}, fmt.Errorf("entityindex: graph diff %s..%s: provider timed out after %s (a wedged `entire graph diff` process); raise graphDiffTimeout or investigate the provider: %w", short(base), short(head), graphDiffTimeout, context.DeadlineExceeded)
+		}
 		return Delta{}, fmt.Errorf("entityindex: graph diff %s..%s: %w", short(base), short(head), err)
 	}
 	return ParseDiff(stdout, base, head, now)
