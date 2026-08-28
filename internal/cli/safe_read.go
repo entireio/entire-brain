@@ -62,51 +62,57 @@ const safeReadDeadline = 30 * time.Second
 // safeOpenRegularFile opens path for reading and refuses anything that is not a
 // regular file.
 //
-// A size ceiling alone does not bound a read: open(2) on a FIFO with no writer
+// A size ceiling alone does not bound a read. open(2) on a FIFO with no writer
 // blocks inside the syscall before a single byte is read, and a character device
-// can yield bytes forever. Both are reachable wherever the path is caller
-// supplied. So:
+// yields bytes forever, exhausting the ceiling and then reporting the wrong
+// reason. Both are reachable wherever the path is caller supplied, and several
+// safeReadFile call sites take an arbitrary path by design
+// (brain_ingest_traces, loadEvalTasks).
 //
-//   - os.Lstat, never os.Stat, so a symlink pointing at a FIFO cannot slip
-//     through the type check the way it would through a resolving stat;
-//   - O_NOFOLLOW (fileLockOpenFlags) so the open itself refuses a symlink
-//     swapped in after the lstat;
-//   - O_NONBLOCK on Unix (memoryStateReadOpenFlags) so even if a FIFO is swapped
-//     in during that window the open returns instead of parking;
-//   - a post-open SameFile/IsRegular recheck, which closes the remaining TOCTOU
-//     window by rejecting a descriptor that is no longer the file we inspected.
+// Two mechanisms, and only two:
 //
-// This is the same house pattern used for privacy artifacts and lock files
-// (rejectOpenFileAlias); the hardlink clause of that helper is deliberately not
-// applied here, because a legitimately hardlinked snapshot or document is not a
-// denial-of-service vector and callers of safeReadFile only read.
+//   - O_NONBLOCK on Unix (memoryStateReadOpenFlags) so opening a FIFO returns
+//     immediately instead of parking the calling thread until a writer appears;
+//   - fstat on the RESULTING DESCRIPTOR, which must be a regular file.
+//
+// Checking the descriptor rather than the path is what makes this airtight:
+// there is no window between the check and the use, because the thing checked
+// IS the thing opened. A path-based lstat would need a post-open recheck to
+// close its own TOCTOU gap; this has no gap to close.
+//
+// It deliberately does NOT refuse symlinks. An earlier revision paired an lstat
+// with O_NOFOLLOW, which rejected every symlink at all 13 call sites. That is
+// collateral damage, not a control: this helper defends against a read that
+// never ends, and a symlink to an ordinary file ends exactly like the ordinary
+// file does. Symlinked files are unremarkable on a developer machine -- a
+// checkout under a symlinked parent, a fixture linked into a test tree, macOS's
+// own /tmp -> /private/tmp -- and refusing them broke user-supplied paths with
+// an error that named a property the user had no reason to think mattered. A
+// symlink cannot smuggle a FIFO through either, because the fstat above
+// describes what was actually opened, not what the path looked like.
+//
+// Write-side symlink escapes are a different problem with a different control:
+// see rejectOpenFileAlias for lock and privacy artifacts, which brain owns and
+// writes, and where following a link really would be an escape. Callers of
+// safeReadFile only read.
 func safeOpenRegularFile(path string) (*os.File, error) {
-	info, err := os.Lstat(path)
+	// O_NONBLOCK must be on the open itself; there is no way to add it later.
+	f, err := safeReadOpenFile(path, os.O_RDONLY|memoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("%s must not be a symlink", path)
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
 	}
 	if !info.Mode().IsRegular() {
+		_ = f.Close()
 		return nil, fmt.Errorf("%s must be a regular file", path)
-	}
-	f, err := safeReadOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
-	if err != nil {
-		return nil, err
-	}
-	openedInfo, err := f.Stat()
-	if err != nil {
-		_ = f.Close()
-		return nil, err
-	}
-	if !os.SameFile(info, openedInfo) || !openedInfo.Mode().IsRegular() {
-		_ = f.Close()
-		return nil, fmt.Errorf("%s changed while opening; must be a regular file", path)
 	}
 	// Best effort: a regular file reports os.ErrNoDeadline and needs no deadline
 	// (its reads complete or fail, they do not park in the netpoller). Anything
-	// pollable that reached this point despite the checks above is bounded.
+	// pollable that reached this point despite the check above is bounded.
 	if err := f.SetReadDeadline(time.Now().Add(safeReadDeadline)); err != nil && !errors.Is(err, os.ErrNoDeadline) {
 		_ = f.Close()
 		return nil, err
