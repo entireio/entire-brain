@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -148,11 +147,18 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, fmt.Errorf("hostedbrain: %w", err)
 	}
-	// PathEscape keeps the repo id inside ONE path segment. Concatenating it raw
-	// lets a "/", "?", "#", or dot segment rewrite the request target, sending the
-	// caller's bearer token to an endpoint it never asked for. Every sibling call
-	// escapes the same way (factsync.HTTPServer, factsync proposals, cli publish).
-	endpoint := base + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	// The repo id is interpolated into the request target by concatenation, so it
+	// must be exactly one safe path segment — otherwise a "/", "?", "#", or dot
+	// segment rewrites the target and sends the caller's bearer token to an
+	// endpoint it never asked for. Escaping alone is NOT enough: "." and ".." are
+	// unreserved, so url.PathEscape("..") == "..", and "/api/v1/repos/../brain/mcp"
+	// collapses to /api/v1/brain/mcp at any normalizing hop. validRepoID states the
+	// rule instead; see repoid.go. Refuse before the request exists, so a bad id
+	// costs zero egress.
+	if err := validRepoID(repoID); err != nil {
+		return nil, fmt.Errorf("%s: %w", method, err)
+	}
+	endpoint := base + "/api/v1/repos/" + repoID + "/brain/mcp"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
