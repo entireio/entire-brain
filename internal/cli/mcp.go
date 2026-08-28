@@ -331,6 +331,15 @@ func mcpToolDefinitions() []map[string]any {
 	integerArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1}
 	}
+	// nonNegativeIntegerArg is for the handful of integer params whose zero
+	// value is meaningful and accepted by the handler (mcpNonNegativeInt):
+	// "offset" (no results skipped) and "context_lines" (no surrounding
+	// lines). Declaring minimum:1 here would tell a schema-validating MCP
+	// client that 0 is invalid when the server actually treats it as the
+	// default.
+	nonNegativeIntegerArg := func(name, description string) map[string]any {
+		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 0}
+	}
 	boolArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "boolean", "description": description, "title": name}
 	}
@@ -500,7 +509,7 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_search_graph",
 			"description": "Search the semantic graph for matching symbols with stable pagination.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or graph text query"), "limit": integerArg("limit", "Maximum results"), "offset": integerArg("offset", "Results to skip")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or graph text query"), "limit": integerArg("limit", "Maximum results"), "offset": nonNegativeIntegerArg("offset", "Results to skip (default: 0)")}),
 		},
 		{
 			"name":        "brain_query_graph",
@@ -515,7 +524,7 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_get_code_snippet",
 			"description": "Return the exact bounded source snippet for a symbol id or name.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol id, name, or qualified name"), "context_lines": integerArg("context_lines", "Extra lines before and after")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol id, name, or qualified name"), "context_lines": nonNegativeIntegerArg("context_lines", "Extra lines before and after (default: 0)")}),
 		},
 		{
 			"name":        "brain_trace_path",
@@ -534,7 +543,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get_architecture",
-			"description": "Return graph-derived architecture metadata: schema, relation types, languages, and boundary counts.",
+			"description": "Alias for brain_get_graph_schema: return graph-derived architecture metadata (schema, relation types, languages) plus structural metrics (hotspots, entry points, package/layer breakdowns).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
