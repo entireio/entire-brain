@@ -65,7 +65,7 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 	if err != nil {
 		return ProposalSet{}, err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: %w", repoID, branch, err)
 	}
@@ -107,7 +107,7 @@ func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID
 	if err != nil {
 		return OpenProposal{}, err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: %w", repoID, branch, proposalID, err)
 	}
@@ -157,7 +157,7 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 	if err != nil {
 		return "", err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return "", fmt.Errorf("factsync: POST proposals %s/%s: %w", repoID, branch, err)
 	}
@@ -254,7 +254,7 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 	if err != nil {
 		return ResolveProposalResponse{}, err
 	}
-	resp, err := h.client().Do(httpReq)
+	resp, err := h.do(httpReq)
 	if err != nil {
 		return ResolveProposalResponse{}, fmt.Errorf("factsync: POST resolve %s/%s/%s: %w", req.RepoID, req.Branch, req.ProposalID, err)
 	}

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
@@ -66,6 +69,77 @@ func (h *HTTPServer) client() *http.Client {
 	return httpx.Client(syncRequestTimeout)
 }
 
+// transientDialRetries bounds how many times do() will redial after a local
+// dial failure before giving up and returning it to the caller.
+const transientDialRetries = 2
+
+// transientDialRetryDelay is the fixed pause between redial attempts. It only
+// needs to outlast a momentary local resource crunch (see
+// isTransientLocalDialError), not model network RTT or server load, so a flat
+// short delay is enough — this is not a server-side backoff policy.
+const transientDialRetryDelay = 20 * time.Millisecond
+
+// do issues req, transparently redialing up to transientDialRetries times on
+// a TRANSIENT LOCAL dial failure — one where net/http never got past
+// establishing the TCP connection, so nothing reached the peer and a retry
+// can never double up a mutation (POST bodies are re-armed via req.GetBody,
+// which http.NewRequestWithContext populates automatically for the
+// bytes.Reader bodies every factsync request uses).
+//
+// The failure this exists for is "dial tcp ...: connect: cannot assign
+// requested address" (EADDRNOTAVAIL): the LOCAL ephemeral port range or
+// connection table is briefly exhausted, which has nothing to do with the
+// remote host's health and clears itself in milliseconds once some of the
+// host's own recently-closed sockets leave TIME_WAIT. A single member's
+// laptop can hit this under its own load; a shared CI runner running more
+// than one job's test suite at once hits it far more easily, since ALL of
+// those jobs draw from the same finite local port table. Before this fix,
+// the very first such blip failed the whole sync/proposal round-trip outright
+// — a client with zero tolerance for a purely local, self-resolving hiccup.
+// Anything else (refused, no route, DNS failure, TLS failure) is a real
+// connectivity problem and is returned immediately, unretried.
+func (h *HTTPServer) do(req *http.Request) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt <= transientDialRetries; attempt++ {
+		if attempt > 0 {
+			if req.GetBody != nil {
+				body, err := req.GetBody()
+				if err != nil {
+					return nil, lastErr
+				}
+				req.Body = body
+			}
+			select {
+			case <-req.Context().Done():
+				return nil, lastErr
+			case <-time.After(transientDialRetryDelay):
+			}
+		}
+		resp, err := h.client().Do(req)
+		if err == nil {
+			return resp, nil
+		}
+		if !isTransientLocalDialError(err) {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// isTransientLocalDialError reports whether err is a dial failure that never
+// reached the peer and is known to self-resolve: local ephemeral-port/
+// connection-table exhaustion. Matched by message rather than a syscall errno
+// so this stays correct across platforms (Windows reports the same condition
+// under a different errno) without a build-tagged file.
+func isTransientLocalDialError(err error) bool {
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) || opErr.Op != "dial" || opErr.Err == nil {
+		return false
+	}
+	return strings.Contains(opErr.Err.Error(), "assign requested address")
+}
+
 func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
 	// Scheme floor (apiurl.Validate) at the single request chokepoint of both the
 	// fact-set and the proposal-queue surfaces: the bearer token below and the
@@ -98,7 +172,7 @@ func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string
 	if err != nil {
 		return "", nil, false, err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return "", nil, false, fmt.Errorf("factsync: GET fact-set head %s/%s: %w", repoID, branch, err)
 	}
@@ -143,7 +217,7 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 	if err != nil {
 		return "", err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return "", fmt.Errorf("factsync: POST advance %s/%s: %w", repoID, branch, err)
 	}
