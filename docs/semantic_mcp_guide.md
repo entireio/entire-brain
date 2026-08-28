@@ -285,6 +285,26 @@ patterns need refresh.
 semantic index; neither tool publishes artifacts. `brain_delete_project`
 removes local generated brain data for the selected repo key.
 
+### Cross-repo scope
+
+The MCP server is bound to one repository (`ENTIRE_REPO_ROOT`), and the tools
+that can reach past it are scoped to that repo by default:
+
+- `brain_delete_project` accepts only the bound repo's key. A foreign `repo_key`
+  is refused; the deletion is irreversible and `confirm=true` is no protection
+  against a prompt-injected agent that supplies it itself.
+- `brain_list_projects` returns only the bound project, not every locally
+  indexed repo's key, brain path, and index counts.
+- `brain_workspace_graph`, `brain_workspace_regressions`, and
+  `brain_workspace_review` refuse a workspace containing repos outside the bound
+  root.
+
+Set `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO=1` on the server to opt back into
+cross-repo behaviour (the sibling of `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH`, which
+does the same for `brain_index_repository`'s path argument). The refusal message
+always names the variable. None of this touches the `entire brain ...` CLI: a
+human at a terminal keeps every cross-repo verb, gate unset.
+
 `brain_patterns` and `brain_patterns_status` are read-only pattern-corpus
 inspection tools. Skill formation is intentionally not exposed as an MCP write
 tool; use the explicit CLI flow `entire brain patterns skills form` when a human

@@ -131,9 +131,11 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 	// and 226 -> 186 tokens; the full tools/list result is 15,864 -> 15,711
 	// bytes and 3,354 -> 3,314 tokens. The pinned tokenizer asset (SHA-256
 	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
-	// is deliberately not a production or test dependency.
-	if len(got) != 907 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 907", len(got))
+	// is deliberately not a production or test dependency. The +80 bytes over
+	// that 907-byte floor are the cross-repo scope gate, named in the
+	// description so an agent that hits the refusal knows the one knob.
+	if len(got) != 987 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 987", len(got))
 	}
 }
 
@@ -311,6 +313,9 @@ func TestMCPBrainRefreshRejectsSessionsAndHonorsTimeout(t *testing.T) {
 }
 
 func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC) }}
@@ -625,6 +630,9 @@ func TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly(t *testing.T) {
 }
 
 func TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	logPath := filepath.Join(t.TempDir(), "mcp.log")
 	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
 
@@ -735,6 +743,8 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 	})
 
 	t.Run("brain_workspace_review", func(t *testing.T) {
+		// Cross-repo workspace fan-out over MCP is operator-gated.
+		t.Setenv(mcpAllowCrossRepoEnv, "1")
 		logPath := filepath.Join(t.TempDir(), "mcp.log")
 		t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
 
@@ -957,6 +967,9 @@ func TestMCPBrainReviewTool(t *testing.T) {
 }
 
 func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
@@ -1019,6 +1032,9 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 }
 
 func TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
