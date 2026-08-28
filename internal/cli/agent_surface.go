@@ -491,7 +491,15 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			}
 		}
 		if status.Manifest.Sources.History != nil {
-			report.RecentDecisions = recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions, overviewPrivacyGuard)
+			// The history source is declared, so an unreadable index is a
+			// storage failure, not an empty decision log. Report it instead of
+			// letting the section vanish from an otherwise confident summary.
+			recent, recentErr := recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions, overviewPrivacyGuard)
+			if recentErr != nil {
+				report.Warnings = append(report.Warnings, "recent decisions unavailable: the manifest declares a history index that could not be read: "+recentErr.Error())
+			} else {
+				report.RecentDecisions = recent
+			}
 		}
 	}
 	report.StrongestPatterns, err = strongestPatternsChecked(status.Brain.Path, 3)
@@ -517,13 +525,16 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 
 // recentDecisionMatches returns the most recent decision records so an agent can
 // see how the project's design has been steered, newest first.
-func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int, guard sessionReadGuard) []brainTextMatch {
+// It returns an error when the declared history index cannot be loaded: an
+// unreadable index is not an empty decision log, and a caller that cannot tell
+// the two apart reads a silently truncated summary as a complete one.
+func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int, guard sessionReadGuard) ([]brainTextMatch, error) {
 	if limit <= 0 {
-		return nil
+		return nil, nil
 	}
 	index, err := loadBrainHistoryIndex(brainDir, source)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var decisions []historyRecord
 	for _, record := range index.Records {
@@ -554,7 +565,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 			break
 		}
 	}
-	return matches
+	return matches, nil
 }
 
 func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
@@ -618,6 +629,15 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 		fmt.Fprintln(out, "strongest themes:")
 		for _, th := range report.StrongestThemes {
 			fmt.Fprintf(out, "  [%s] %s (strength %.2f)\n", th.Shape, th.Title, th.Strength)
+		}
+	}
+	// Warnings are the only place a section that could not be built is named.
+	// They already ride the JSON contract; without this the text surface reads
+	// as a complete summary of a partially-unreadable brain.
+	if len(report.Warnings) > 0 {
+		fmt.Fprintln(out, "warnings:")
+		for _, warning := range report.Warnings {
+			fmt.Fprintf(out, "  %s\n", warning)
 		}
 	}
 }
