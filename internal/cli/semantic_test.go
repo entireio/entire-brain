@@ -338,6 +338,89 @@ func TestSemanticIndexRejectsUnsupportedSchemaMajor(t *testing.T) {
 	}
 }
 
+// TestSemanticSchemaMinorWarning exercises the ADR-0001 major/minor
+// compatibility rule directly (docs/semantic_brain_plan.md, "Schema
+// compatibility policy"): unknown major stays a hard error (validateSemanticSchema,
+// unchanged), a same-major minor at or below semanticSupportedMinor is silent,
+// and a same-major minor above it produces a non-empty warning without an error.
+func TestSemanticSchemaMinorWarning(t *testing.T) {
+	tests := []struct {
+		name       string
+		version    string
+		wantErr    bool
+		wantWarned bool
+	}{
+		{name: "equal to supported minor", version: "1.1", wantErr: false, wantWarned: false},
+		{name: "below supported minor", version: "1.0", wantErr: false, wantWarned: false},
+		{name: "above supported minor", version: "1.2", wantErr: false, wantWarned: true},
+		{name: "far above supported minor", version: "1.9", wantErr: false, wantWarned: true},
+		{name: "unknown major", version: "2.0", wantErr: true, wantWarned: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateSemanticSchema(tc.version)
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("validateSemanticSchema(%q) err = %v, wantErr = %v", tc.version, err, tc.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			warn := semanticSchemaMinorWarning(tc.version)
+			if tc.wantWarned != (warn != "") {
+				t.Fatalf("semanticSchemaMinorWarning(%q) = %q, wantWarned = %v", tc.version, warn, tc.wantWarned)
+			}
+		})
+	}
+}
+
+// TestSemanticIndexWarnsOnNewerSupportedMinor proves the specific bug this
+// change fixes: a provider snapshot on a newer, still-supported-major minor
+// (an additive field it doesn't know about) used to be silently accepted with
+// zero warning. It must now index successfully (tolerant reader — no
+// DisallowUnknownFields) AND record a visible "schema_minor_newer" warning in
+// the persisted manifest.
+func TestSemanticIndexWarnsOnNewerSupportedMinor(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.2"))
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	manifest := mustSemanticSource(t, env)
+	found := false
+	for _, warning := range manifest.Warnings {
+		if warning.Code == "schema_minor_newer" {
+			found = true
+			if !strings.Contains(warning.Detail, "1.2") {
+				t.Fatalf("warning detail missing remote version: %+v", warning)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("manifest warnings missing schema_minor_newer: %+v", manifest.Warnings)
+	}
+}
+
+// TestSemanticIndexNoWarningForSupportedMinor is the negative case: indexing
+// a snapshot at the current highest-understood minor must not emit a
+// schema_minor_newer warning.
+func TestSemanticIndexNoWarningForSupportedMinor(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.1"))
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	manifest := mustSemanticSource(t, env)
+	for _, warning := range manifest.Warnings {
+		if warning.Code == "schema_minor_newer" {
+			t.Fatalf("unexpected schema_minor_newer warning at supported minor: %+v", manifest.Warnings)
+		}
+	}
+}
+
 func TestSemanticIndexRejectsMismatchedProviderHeader(t *testing.T) {
 	for name, snapshot := range map[string]string{
 		"repo-key": strings.Replace(semanticFixtureSnapshot("1.0"), `"repo_key":"gh/example/repo"`, `"repo_key":"gh/other/repo"`, 1),
@@ -1501,6 +1584,40 @@ func TestSemanticStaleReportsDirtyUnindexedWorktree(t *testing.T) {
 	}
 	if report.Axes["worktree"].State != "dirty-unindexed" {
 		t.Fatalf("worktree axis = %+v", report.Axes["worktree"])
+	}
+}
+
+// TestSemanticStaleReportDegradesOnNewerSupportedMinor proves the
+// "provider" freshness axis (surfaced by `entire brain doctor`/`status` and
+// every semantic query/context/impact command via semanticStaleReport) turns
+// visibly degraded — not silently "ok" — when the persisted manifest records
+// a schema_version whose minor is newer than this build understands. Unknown
+// major stays unsafe (unchanged, asserted separately below).
+func TestSemanticStaleReportDegradesOnNewerSupportedMinor(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	// The on-disk snapshot and the manifest's recorded schema_version must
+	// agree (validateSemanticSourceMatchesSnapshot enforces this on every
+	// freshness check), so index directly against a 1.2 provider snapshot
+	// rather than patching the manifest alone afterward.
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.2"))
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	report, err := semanticStaleReport(cmd.Context(), Options{Env: env, Runner: runner}, repoDir)
+	if err != nil {
+		t.Fatalf("stale: %v", err)
+	}
+	if report.Axes["provider"].State != "degraded" {
+		t.Fatalf("provider axis = %+v, want degraded", report.Axes["provider"])
+	}
+	if !strings.Contains(report.Axes["provider"].Detail, "1.2") {
+		t.Fatalf("provider axis detail missing remote version: %+v", report.Axes["provider"])
+	}
+	if report.Severity != "degraded" {
+		t.Fatalf("severity = %s, want degraded", report.Severity)
 	}
 }
 
@@ -4341,6 +4458,36 @@ func TestBundleImportRejectsUnsupportedSemanticSchema(t *testing.T) {
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive))
 	if err == nil || !strings.Contains(err.Error(), "schema unsupported") {
 		t.Fatalf("import err = %v", err)
+	}
+}
+
+// TestBundleImportWarnsOnNewerSupportedMinor proves a bundle produced by a
+// newer Entire Brain build (same supported major, higher minor) still
+// imports successfully here (tolerant reader) and that the import records a
+// visible schema_minor_newer warning on the imported manifest, rather than
+// silently accepting it with no trace.
+func TestBundleImportWarnsOnNewerSupportedMinor(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.2"))
+	archive := filepath.Join(t.TempDir(), "newer-minor.tar")
+	writeTestBundle(t, archive, map[string]string{
+		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.2","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.2"),
+	})
+	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive))
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	manifest := mustSemanticSource(t, env)
+	found := false
+	for _, warning := range manifest.Warnings {
+		if warning.Code == "schema_minor_newer" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("imported manifest warnings missing schema_minor_newer: %+v", manifest.Warnings)
 	}
 }
 

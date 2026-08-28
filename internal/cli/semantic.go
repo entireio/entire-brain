@@ -28,18 +28,23 @@ import (
 )
 
 const (
-	semanticDirName                     = "semantic"
-	semanticSnapshotsDir                = "snapshots"
-	semanticGenerationsDir              = "generations"
-	semanticBundleDir                   = "bundles"
-	semanticAuditLogName                = "audit.jsonl"
-	semanticLockDir                     = "locks"
-	semanticIndexLockName               = "index.lock"
-	semanticSnapshotName                = "snapshot.ndjson"
-	semanticManifestName                = "manifest.json"
-	semanticSQLiteName                  = "semantic.sqlite"
-	semanticMetricsName                 = "metrics.json"
-	semanticSupportedMajor              = "1"
+	semanticDirName        = "semantic"
+	semanticSnapshotsDir   = "snapshots"
+	semanticGenerationsDir = "generations"
+	semanticBundleDir      = "bundles"
+	semanticAuditLogName   = "audit.jsonl"
+	semanticLockDir        = "locks"
+	semanticIndexLockName  = "index.lock"
+	semanticSnapshotName   = "snapshot.ndjson"
+	semanticManifestName   = "manifest.json"
+	semanticSQLiteName     = "semantic.sqlite"
+	semanticMetricsName    = "metrics.json"
+	semanticSupportedMajor = "1"
+	// semanticSupportedMinor is the highest schema_version minor within
+	// semanticSupportedMajor that semanticHeader/semanticSummary's decode
+	// structs actually understand (see semanticSchemaMinorWarning). Bump this
+	// only alongside adding the fields a new minor introduces.
+	semanticSupportedMinor              = 1
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
 	semanticParseCacheMaxFile           = 16 * 1024 * 1024
@@ -547,6 +552,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		}
 		if err := validateSemanticSchema(header.SchemaVersion); err != nil {
 			return err
+		}
+		if warn := semanticSchemaMinorWarning(header.SchemaVersion); warn != "" {
+			warnings = append(warnings, semanticWarning{Code: "schema_minor_newer", Severity: "warning", Effect: "some semantic facts may have been skipped", Detail: warn})
 		}
 		if err := validateLiveSemanticHeader(header, storage.Key, head, tree, indexOpts.worktree && dirty); err != nil {
 			return err
@@ -1223,6 +1231,46 @@ func validateSemanticSchema(version string) error {
 		return fmt.Errorf("unsupported semantic schema major version %q", major)
 	}
 	return nil
+}
+
+// semanticSchemaMinorWarning implements the second half of ADR-0001's
+// major/minor schema-compatibility policy (docs/semantic_brain_plan.md,
+// "Schema compatibility policy"; the same rule is applied to the separate
+// brainwire contract by brainwire.CheckCompatibility) for the entire-graph
+// provider's `entire graph snapshot` schema_version: "If the provider emits a
+// newer supported-major MINOR version, Entire Brain may continue by ignoring
+// unknown fields, but MUST record a visible warning that some facts may have
+// been skipped."
+//
+// version is assumed to have already passed validateSemanticSchema (same
+// supported major). semanticSupportedMinor is the highest minor this
+// package's semanticHeader/semanticSummary decode structs actually understand
+// today (1, i.e. "1.1" — profile, relation_set, skipped_relation_families,
+// completeness, profile_limits, stats). When the remote minor exceeds that,
+// this returns a non-empty warning describing the risk; callers surface it
+// through the existing semanticWarning / staleAxis channels rather than
+// failing, since decoding itself already tolerates unknown fields (no
+// decoder in this package sets json.Decoder.DisallowUnknownFields on these
+// formats).
+//
+// A version whose minor component doesn't parse as a plain non-negative
+// integer is not itself part of the major/minor contract violation this
+// guards against, so it is treated as "cannot tell" (no warning) rather than
+// a hard failure — validateSemanticSchema is the authority on rejecting a
+// malformed or unsupported version outright.
+func semanticSchemaMinorWarning(version string) string {
+	_, minorPart, ok := strings.Cut(version, ".")
+	if !ok {
+		return ""
+	}
+	minor, err := strconv.Atoi(minorPart)
+	if err != nil || minor <= semanticSupportedMinor {
+		return ""
+	}
+	return fmt.Sprintf(
+		"semantic schema version %q is newer than the supported %s.%d; unknown additive fields will be ignored (tolerant reader) and some facts may have been skipped",
+		version, semanticSupportedMajor, semanticSupportedMinor,
+	)
 }
 
 // buildSemanticGeneration ingests the filtered snapshot into a fresh SQLite
@@ -2340,6 +2388,8 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["provider"] = staleAxis{State: "degraded", Detail: "semantic provider was skipped"}
 	} else if err := validateSemanticSchema(source.SchemaVersion); err != nil {
 		axes["provider"] = staleAxis{State: "unsafe", Detail: err.Error()}
+	} else if warn := semanticSchemaMinorWarning(source.SchemaVersion); warn != "" {
+		axes["provider"] = staleAxis{State: "degraded", Detail: warn}
 	} else if !source.NoEgressVerified {
 		axes["provider"] = staleAxis{State: "degraded", Detail: "provider no-egress status was not verified"}
 	} else {
@@ -5972,6 +6022,9 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	}
 	if err := validateSemanticSchema(manifest.Sources.Semantic.SchemaVersion); err != nil {
 		return nil, fmt.Errorf("bundle semantic schema unsupported: %w", err)
+	}
+	if warn := semanticSchemaMinorWarning(manifest.Sources.Semantic.SchemaVersion); warn != "" {
+		manifest.Sources.Semantic.Warnings = append(manifest.Sources.Semantic.Warnings, semanticWarning{Code: "schema_minor_newer", Severity: "warning", Effect: "some semantic facts may have been skipped", Detail: warn})
 	}
 	snapshotPath := manifest.Sources.Semantic.SnapshotPath
 	if snapshotPath == "" {
