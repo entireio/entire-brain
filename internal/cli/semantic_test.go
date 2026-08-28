@@ -1255,7 +1255,11 @@ func TestSemanticIndexSanitizesAbsoluteProviderWarnings(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	absPath := filepath.ToSlash(filepath.Join(repoDir, "secret", "config.go"))
-	snapshot := strings.Replace(semanticFixtureSnapshot("1.0"), `"warnings":[],"partial_failures":[]`, `"warnings":[{"code":"absolute_path","severity":"warning","path":"`+absPath+`","effect":"read `+absPath+`","detail":"failed at D:/work/repo/file.go and `+absPath+`"}],"partial_failures":[{"code":"partial_absolute","severity":"warning","path":"`+absPath+`","detail":"`+absPath+`"}]`, 1)
+	// The trailing summary record is authoritative for warnings/partial_failures
+	// (mergeSemanticSummary overrides the header with it), so both the header
+	// and the summary copies of the empty arrays must be replaced for the
+	// injected warning to actually reach the manifest.
+	snapshot := strings.Replace(semanticFixtureSnapshot("1.0"), `"warnings":[],"partial_failures":[]`, `"warnings":[{"code":"absolute_path","severity":"warning","path":"`+absPath+`","effect":"read `+absPath+`","detail":"failed at D:/work/repo/file.go and `+absPath+`"}],"partial_failures":[{"code":"partial_absolute","severity":"warning","path":"`+absPath+`","detail":"`+absPath+`"}]`, -1)
 	runner := semanticFixtureRunner(repoDir, snapshot)
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Env: env, Runner: runner, Now: time.Now}
@@ -2490,6 +2494,7 @@ func semanticFixtureSnapshotWithCallerSymbol() string {
 {"record_type":"symbol","id":"target","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"caller","kind":"function","name":"HandleLogin","qualified_name":"api.HandleLogin","file_path":"internal/api/login.go","start_line":30,"end_line":50,"signature":"func HandleLogin() error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"target","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 }
 
@@ -4053,6 +4058,7 @@ func TestBundleExportPreservesDistinctRedactedRecordIDs(t *testing.T) {
 {"record_type":"symbol","id":"/private/local/repo/a.go:function:A","kind":"function","name":"A","qualified_name":"pkg.A","file_path":"internal/a.go","start_line":1,"end_line":2,"signature":"func A()","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"/private/local/repo/b.go:function:B","kind":"function","name":"B","qualified_name":"pkg.B","file_path":"internal/b.go","start_line":1,"end_line":2,"signature":"func B()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"/private/local/repo/a.go:function:A","to_id":"/private/local/repo/b.go:function:B","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 	runner := semanticFixtureRunner(repoDir, snapshot)
 	cmd := &cobra.Command{Use: "index"}
@@ -4593,6 +4599,7 @@ func semanticFixtureSnapshot(schema string) string {
 	return `{"schema_version":"` + schema + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+{"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 }
 
@@ -4600,6 +4607,7 @@ func semanticChangesRangeFixtureSnapshot() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.PrepareToken","kind":"function","name":"PrepareToken","qualified_name":"auth.PrepareToken","file_path":"internal/auth/token.go","start_line":1,"end_line":5,"signature":"func PrepareToken()","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"summary"}
 `
 }
 
@@ -4608,6 +4616,7 @@ func semanticDataFlowFixtureSnapshot() string {
 {"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:run","kind":"function","name":"run","qualified_name":"flow.run","file_path":"flow.ts","start_line":1,"end_line":8,"signature":"function run(input: Input): string","language":"TypeScript","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:normalize","kind":"function","name":"normalize","qualified_name":"flow.normalize","file_path":"flow.ts","start_line":10,"end_line":12,"signature":"function normalize(value: string): string","language":"TypeScript","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:ts:flow.ts:function:run","to_id":"gh/example/repo:ts:flow.ts:function:normalize","type":"DATA_FLOWS","confidence":0.7,"reason":"caller parameter destructured alias forwarded into callee argument","relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"destructured_alias_forward_flow","file_path":"flow.ts","start_line":1,"end_line":8,"detail":"input -> value -> normalize()"}],"warning_codes":[]}
+{"record_type":"summary"}
 `
 }
 
@@ -4616,6 +4625,7 @@ func semanticResolvedImportFixtureSnapshot() string {
 {"record_type":"file","id":"gh/example/repo:file:apps/web/src/app.ts","path":"apps/web/src/app.ts","blob":"app","language":"TypeScript","bytes":96}
 {"record_type":"file","id":"gh/example/repo:file:packages/utils/src/index.ts","path":"packages/utils/src/index.ts","blob":"utils","language":"TypeScript","bytes":48}
 {"record_type":"relation","from_id":"gh/example/repo:file:apps/web/src/app.ts","to_id":"gh/example/repo:file:packages/utils/src/index.ts","type":"IMPORTS","confidence":0.91,"reason":"JS/TS workspace package export resolved through nested package.json","relation_scope":"module","resolution":"import_resolved","target_kind":"file","evidence":[{"kind":"package_workspace_exports_import","file_path":"apps/web/src/app.ts","start_line":1,"end_line":1,"detail":"@acme/utils"}],"warning_codes":[]}
+{"record_type":"summary"}
 `
 }
 
@@ -4624,6 +4634,7 @@ func semanticFixtureSnapshotWithQualifiedCallerSymbol() string {
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/caller.go:function:auth.CallValidateToken","kind":"function","name":"CallValidateToken","qualified_name":"auth.CallValidateToken","file_path":"internal/auth/caller.go","start_line":30,"end_line":40,"signature":"func CallValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/caller.go:function:auth.CallValidateToken","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 }
 
@@ -4637,15 +4648,22 @@ func semanticBoundaryFixtureSnapshot() string {
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:go:internal/http/routes.go:route:GET /tokens/{id}","type":"HANDLES_ROUTE","confidence":1}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:go:internal/cli/root.go:cli_command:brain refresh","type":"HANDLES_TOOL","confidence":0.8}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:yaml:.github/workflows/test.yml:workflow:token validation","type":"HANDLES_WORKFLOW","confidence":0.7}
+{"record_type":"summary"}
 `
 }
 
 func semanticBoundaryFixtureSnapshotWithExtraRoute() string {
-	return strings.TrimSuffix(semanticBoundaryFixtureSnapshot(), "\n") + `
-{"record_type":"symbol","id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","kind":"route","name":"POST /sessions","qualified_name":"POST /sessions","file_path":"internal/http/routes.go","start_line":6,"end_line":6,"signature":"POST /sessions","language":"Go","stable_id_version":"1"}
+	// The extra route/relation records must land before the terminating summary
+	// record, the same as a real provider stream: the summary is always last.
+	base := semanticBoundaryFixtureSnapshot()
+	before, after, found := strings.Cut(base, `{"record_type":"summary"}`)
+	if !found {
+		panic("semanticBoundaryFixtureSnapshot no longer ends with a summary record")
+	}
+	return before + `{"record_type":"symbol","id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","kind":"route","name":"POST /sessions","qualified_name":"POST /sessions","file_path":"internal/http/routes.go","start_line":6,"end_line":6,"signature":"POST /sessions","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/http/session.go:function:http.CreateSession","kind":"function","name":"CreateSession","qualified_name":"http.CreateSession","file_path":"internal/http/session.go","start_line":12,"end_line":24,"signature":"func CreateSession()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/http/session.go:function:http.CreateSession","to_id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","type":"HANDLES_ROUTE","confidence":1}
-`
+{"record_type":"summary"}` + after
 }
 
 func semanticFixtureSnapshotWithDelayedRelevantRelation() string {
@@ -4656,6 +4674,7 @@ func semanticFixtureSnapshotWithDelayedRelevantRelation() string {
 		fmt.Fprintf(&b, `{"record_type":"relation","from_id":"unrelated-%d","to_id":"other-%d","type":"CALLS","confidence":1}`+"\n", i, i)
 	}
 	b.WriteString(`{"record_type":"relation","from_id":"caller","to_id":"target","type":"CALLS","confidence":1}` + "\n")
+	b.WriteString(`{"record_type":"summary"}` + "\n")
 	return b.String()
 }
 
@@ -4664,18 +4683,24 @@ func semanticFixtureSnapshotWithIgnoredSecret() string {
 {"record_type":"symbol","id":"public","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"secret","kind":"const","name":"SECRET_TOKEN","qualified_name":"config.SECRET_TOKEN","file_path":"secret/config.go","start_line":1,"end_line":1,"signature":"const SECRET_TOKEN","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"public","to_id":"secret","type":"ACCESSES","confidence":1}
+{"record_type":"summary"}
 `
 }
 
 func semanticFixtureSnapshotWithIgnoredWarnings() string {
-	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[{"code":"kept","severity":"warning","path":"internal/auth/token.go","detail":"visible"},{"code":"ignored","severity":"warning","path":"secret/config.go","detail":"SECRET_TOKEN in secret/config.go"}],"partial_failures":[{"code":"ignored_failure","severity":"error","path":"secret/config.go","detail":"parse failed for SECRET_TOKEN"}]}
+	// The trailing summary record (not the lean header) is authoritative for
+	// warnings/partial_failures: mergeSemanticSummary overrides the header with
+	// it, so that is where a real provider reports them.
+	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"public","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"summary","warnings":[{"code":"kept","severity":"warning","path":"internal/auth/token.go","detail":"visible"},{"code":"ignored","severity":"warning","path":"secret/config.go","detail":"SECRET_TOKEN in secret/config.go"}],"partial_failures":[{"code":"ignored_failure","severity":"error","path":"secret/config.go","detail":"parse failed for SECRET_TOKEN"}]}
 `
 }
 
 func semanticFixtureSnapshotWithGitHubWorkflow() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["yaml"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"workflow","kind":"workflow","name":"ci","qualified_name":"ci","file_path":".github/workflows/ci.yml","start_line":1,"end_line":20,"signature":"ci","language":"YAML","stable_id_version":"1"}
+{"record_type":"summary"}
 `
 }
 
@@ -4683,6 +4708,7 @@ func semanticFixtureSnapshotWithIgnoredRelationID() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"public","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"public","to_id":"gh/example/repo:go:secret/config.go:function:Secret","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 }
 

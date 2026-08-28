@@ -448,7 +448,46 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir s
 	if !res.haveHeader {
 		return res, errors.New("semantic provider snapshot produced no output")
 	}
+	if truncErr := semanticSummaryTruncationCheck(&res); truncErr != nil {
+		return res, truncErr
+	}
 	return res, nil
+}
+
+// semanticSummaryTruncationCheck enforces that the trailing summary record is
+// the stream's end-of-stream marker, not merely an optional courtesy. A real
+// entire-graph provider emits it unconditionally as the last line before
+// exiting 0; its absence means the child exited (or was wrapped/shimmed into
+// exiting) before finishing, even though the exit code alone looks clean. A
+// provider bug, a truncated write, or a caught panic that still exits 0 can
+// all produce this shape, and none of them are distinguishable from a
+// legitimately short snapshot by exit code alone.
+//
+// Detection is scoped to the entire-graph provider (including an empty
+// provider field, which Brain defaults to entire-graph) so a hard failure
+// only fires where the summary record is guaranteed to exist. A third-party
+// or unknown provider that has not implemented the trailing summary record is
+// not truncated by definition — it never had one — so that case only
+// surfaces a warning, keeping this safe across version skew in both
+// directions.
+func semanticSummaryTruncationCheck(res *semanticStreamResult) error {
+	if res.summary != nil {
+		return nil
+	}
+	provider := strings.TrimSpace(res.header.Provider)
+	if provider == "" || provider == "entire-graph" {
+		return fmt.Errorf(
+			"semantic provider snapshot truncated: stream ended without its terminating summary record after %d file record(s), %d symbol(s), %d relation(s); the provider exited without finishing",
+			res.stream.Files, res.stream.Symbols, res.stream.Relations,
+		)
+	}
+	res.extraWarnings = append(res.extraWarnings, semanticWarning{
+		Code:     "provider_summary_missing",
+		Severity: "warning",
+		Effect:   "aggregate metadata (languages, completeness, stats) unavailable; truncation cannot be ruled out for this provider",
+		Detail:   fmt.Sprintf("semantic provider %q snapshot ended without a terminating summary record", provider),
+	})
+	return nil
 }
 
 // semanticStreamContextError maps a cancelled run context to a descriptive

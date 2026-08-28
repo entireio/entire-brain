@@ -22,6 +22,7 @@ func semanticBoundaryFixtureSnapshotExternalNodes() string {
 {"record_type":"external","id":"external:import:../lib/util","kind":"import","name":""}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"external:route:/tokens/{id}","type":"HANDLES_ROUTE","confidence":0.9}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/cli/root.go:function:cli.Refresh","to_id":"external:tool:brain refresh","type":"HANDLES_TOOL","confidence":0.8}
+{"record_type":"summary"}
 `
 }
 
