@@ -1306,7 +1306,7 @@ func TestMCPToolCallRejectsInvalidIntegerArguments(t *testing.T) {
 			}
 			responses := readMCPResponses(t, out.String())
 			data, _ := json.Marshal(responses[0]["error"])
-			if !strings.Contains(string(data), "limit must be an integer greater than zero") {
+			if !strings.Contains(string(data), "limit must be an integer between 1 and") {
 				t.Fatalf("error = %s", data)
 			}
 		})
@@ -1321,7 +1321,7 @@ func TestMCPToolCallRejectsInvalidDepth(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["error"])
-	if !strings.Contains(string(data), "depth must be an integer greater than zero") {
+	if !strings.Contains(string(data), "depth must be an integer between 1 and") {
 		t.Fatalf("error = %s", data)
 	}
 }

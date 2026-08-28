@@ -1375,6 +1375,25 @@ func mcpStringSlice(args map[string]any, key string) ([]string, error) {
 	return out, nil
 }
 
+// mcpIntegerArgMax caps every integer tool argument.
+//
+// The lower bounds below were always enforced; the UPPER bound was not, and it
+// is not a result-quality question. `limit` reaches make([]T, 0, limit) in the
+// retrieval layer (history_fts.go, doc_fts.go at limit*4) and `context_lines`
+// widens a snippet window, so a value like 1e9 asks the runtime for hundreds of
+// gigabytes. That is a fatal out-of-memory, which no recover() catches, and it
+// takes the whole brain MCP server down. A tools/call is one line of JSON from a
+// client whose agent carries untrusted repository text in its context, so the
+// ceiling belongs on the server.
+//
+// It is enforced here rather than declared in each inputSchema on purpose: the
+// tool definitions are sent on every tools/list and their size is budgeted in
+// tokens (see TestMCPBrainBriefToolDefinitionGolden), so adding a "maximum" to
+// ~25 properties would spend that budget to restate a bound the server has to
+// check itself regardless. 10000 is far above any useful result count, depth, or
+// context window.
+const mcpIntegerArgMax = 10000
+
 func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) {
 	value, ok := args[key]
 	if !ok {
@@ -1382,15 +1401,15 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 	}
 	switch typed := value.(type) {
 	case float64:
-		if typed >= 1 && typed <= float64(math.MaxInt) && math.Trunc(typed) == typed {
+		if typed >= 1 && typed <= float64(mcpIntegerArgMax) && math.Trunc(typed) == typed {
 			return int(typed), nil
 		}
 	case int:
-		if typed >= 1 {
+		if typed >= 1 && typed <= mcpIntegerArgMax {
 			return typed, nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be an integer greater than zero", key)
+	return 0, fmt.Errorf("%s must be an integer between 1 and %d", key, mcpIntegerArgMax)
 }
 
 func mcpNonNegativeInt(args map[string]any, key string, fallback int) (int, error) {
@@ -1400,15 +1419,15 @@ func mcpNonNegativeInt(args map[string]any, key string, fallback int) (int, erro
 	}
 	switch typed := value.(type) {
 	case float64:
-		if typed >= 0 && typed <= float64(math.MaxInt) && math.Trunc(typed) == typed {
+		if typed >= 0 && typed <= float64(mcpIntegerArgMax) && math.Trunc(typed) == typed {
 			return int(typed), nil
 		}
 	case int:
-		if typed >= 0 {
+		if typed >= 0 && typed <= mcpIntegerArgMax {
 			return typed, nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be a non-negative integer", key)
+	return 0, fmt.Errorf("%s must be an integer between 0 and %d", key, mcpIntegerArgMax)
 }
 
 // errMCPRecoverable marks a single malformed/oversized frame that should be
