@@ -530,11 +530,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		}
 		warnings = append(warnings, doctorWarnings...)
 		if !noEgress {
-			code := "provider_no_egress_unverified"
-			if len(doctorWarnings) > 0 && doctorWarnings[0].Code != "" {
-				code = doctorWarnings[0].Code
-			}
-			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
+			return semanticDoctorFailureError(indexOpts.graphBinary, doctorWarnings)
 		}
 		indexOpts.reportPhase("parsing sources")
 		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, providerIgnoreFiles, ignore, out)
@@ -1024,6 +1020,68 @@ func stringValue(data map[string]any, key string) string {
 	}
 	s, _ := value.(string)
 	return s
+}
+
+// semanticDoctorFailureError turns a failed no-egress verification into an
+// error that names the actual root cause instead of a single generic
+// "no-egress status is not verified" claim. runSemanticDoctor already
+// distinguishes several unrelated failure modes (binary missing or not
+// executable, malformed doctor output, a provider that openly requires
+// network access, a doctor that is simply silent about egress) and captures
+// the real reason in each warning's Detail; this only got discarded before
+// reaching the operator. The code prefix from the first warning is preserved
+// so existing callers matching on it keep working.
+func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWarning) error {
+	code := "provider_no_egress_unverified"
+	detail := ""
+	if len(doctorWarnings) > 0 {
+		if doctorWarnings[0].Code != "" {
+			code = doctorWarnings[0].Code
+		}
+		detail = doctorWarnings[0].Detail
+	}
+	switch code {
+	case "provider_doctor_failed":
+		switch {
+		case semanticDetailMeansBinaryNotFound(detail):
+			return fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)
+		case semanticDetailMeansBinaryNotExecutable(detail):
+			return fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)
+		default:
+			return fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
+		}
+	case "provider_doctor_timeout":
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s", code, graphBinary, detail)
+	case "provider_doctor_malformed":
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q returned output that could not be parsed: %s", code, graphBinary, detail)
+	case "provider_network_required":
+		return fmt.Errorf("%s: semantic provider graph binary %q reports it requires network access, which local-only indexing does not allow: %s", code, graphBinary, detail)
+	case "provider_no_egress_unknown":
+		return fmt.Errorf("%s: semantic provider graph binary %q did not confirm a no-egress guarantee: %s", code, graphBinary, detail)
+	default:
+		if detail != "" {
+			return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q: %s", code, graphBinary, detail)
+		}
+		return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q", code, graphBinary)
+	}
+}
+
+// semanticDetailMeansBinaryNotFound reports whether a runSemanticDoctor
+// failure detail indicates the configured --graph-binary does not exist on
+// PATH (or a same-named impostor tool shadowed the real one so badly the
+// shell itself could not locate an executable), as opposed to some other
+// doctor failure.
+func semanticDetailMeansBinaryNotFound(detail string) bool {
+	d := strings.ToLower(detail)
+	return strings.Contains(d, "executable file not found") || strings.Contains(d, "no such file or directory")
+}
+
+// semanticDetailMeansBinaryNotExecutable reports whether a runSemanticDoctor
+// failure detail indicates the configured --graph-binary exists but could not
+// be executed (wrong permissions, wrong architecture, etc.).
+func semanticDetailMeansBinaryNotExecutable(detail string) bool {
+	d := strings.ToLower(detail)
+	return strings.Contains(d, "permission denied") || strings.Contains(d, "exec format error")
 }
 
 func boolValue(data map[string]any, key string) bool {

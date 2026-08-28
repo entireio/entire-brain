@@ -436,25 +436,95 @@ func TestSemanticIndexFailsBeforeSnapshotWhenProviderRequiresNetwork(t *testing.
 }
 
 func TestSemanticIndexFailsClosedWhenProviderNoEgressUnknown(t *testing.T) {
-	for name, response := range map[string]fakeCommandResponse{
-		"doctor-failed":    {err: os.ErrNotExist},
-		"doctor-malformed": {stdout: `{not-json`},
-		"doctor-unknown":   {stdout: `{}`},
+	// Each case fails closed for a different underlying reason (the doctor
+	// call itself errored, its output didn't parse, or it simply said
+	// nothing about egress), so each gets its own expected substring instead
+	// of one blanket "no-egress" check — see
+	// TestSemanticIndexDoctorFailureNamesRootCause for the detailed root-cause
+	// coverage of these same failure modes.
+	for name, tc := range map[string]struct {
+		response    fakeCommandResponse
+		wantErrText string
+	}{
+		"doctor-failed":    {response: fakeCommandResponse{err: os.ErrNotExist}, wantErrText: "doctor failed to run graph binary"},
+		"doctor-malformed": {response: fakeCommandResponse{stdout: `{not-json`}, wantErrText: "returned output that could not be parsed"},
+		"doctor-unknown":   {response: fakeCommandResponse{stdout: `{}`}, wantErrText: "no-egress"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			repoDir := t.TempDir()
 			env := semanticTestEnv(t, repoDir)
 			runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-			runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = response
+			runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = tc.response
 			delete(runner.responses, fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"))
 
 			err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-			if err == nil || !strings.Contains(err.Error(), "no-egress") {
-				t.Fatalf("index err = %v", err)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrText) {
+				t.Fatalf("index err = %v, want it to contain %q", err, tc.wantErrText)
 			}
 			for _, call := range runner.calls {
 				if call.name == "entire" && len(call.args) > 1 && call.args[0] == "graph" && call.args[1] == "snapshot" {
 					t.Fatalf("snapshot was called without verified no-egress")
+				}
+			}
+		})
+	}
+}
+
+// TestSemanticIndexDoctorFailureNamesRootCause locks down that a semantic
+// doctor failure surfaces WHY it failed, not just a blanket "no-egress status
+// is not verified" claim. Each doctor failure mode has a distinct underlying
+// cause (binary missing from PATH, malformed doctor JSON, provider declaring
+// it needs the network, doctor silent on egress) and an operator reading the
+// error must be able to tell which one happened and against which binary,
+// without re-running with extra flags to find out.
+func TestSemanticIndexDoctorFailureNamesRootCause(t *testing.T) {
+	for name, tc := range map[string]struct {
+		response       fakeCommandResponse
+		wantSubstrings []string
+	}{
+		"exec-not-found": {
+			response: fakeCommandResponse{err: errors.New(`entire [graph doctor --json]: exec: "entire": executable file not found in $PATH`)},
+			wantSubstrings: []string{
+				"entire",
+				"executable file not found in $PATH",
+			},
+		},
+		"malformed-json": {
+			response: fakeCommandResponse{stdout: `{not-json`},
+			wantSubstrings: []string{
+				"entire",
+				"invalid character",
+			},
+		},
+		"network-required": {
+			response: fakeCommandResponse{stdout: `{"requires_network":true}`},
+			wantSubstrings: []string{
+				"entire",
+				"provider doctor reports network access is required",
+			},
+		},
+		"egress-status-unreported": {
+			response: fakeCommandResponse{stdout: `{}`},
+			wantSubstrings: []string{
+				"entire",
+				"provider doctor did not report no-egress status",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repoDir := t.TempDir()
+			env := semanticTestEnv(t, repoDir)
+			runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+			runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = tc.response
+			delete(runner.responses, fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"))
+
+			err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
+			if err == nil {
+				t.Fatalf("index err = nil, want a descriptive doctor-failure error")
+			}
+			for _, want := range tc.wantSubstrings {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("index err = %q, want it to contain %q", err.Error(), want)
 				}
 			}
 		})
