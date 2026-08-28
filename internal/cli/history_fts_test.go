@@ -587,3 +587,80 @@ func TestBriefFocusedHistoryNeverRebuildsFTSFromMergedRecords(t *testing.T) {
 	}
 	after.Close()
 }
+
+// TestBuildHistoryFTS_DuplicateIDAcrossBranches guards against a regression of
+// a real production bug: conversationExchangeID hashes
+// (repo_key, session_id, ordinal, request_digest) with no branch/path
+// component, so the same exchange retained under two branches (or a branch
+// and sessions/main after merge) produces two history records that
+// legitimately share one id. history_records.id previously carried a UNIQUE
+// constraint, so building the derived BM25 index against any repo with this
+// (common, expected) shape failed with a UNIQUE constraint violation, rolled
+// back the whole transaction, and left the cache permanently empty — every
+// search/query/brief call then paid a full rebuild-and-fail cycle forever
+// (measured ~9-11s per call against a 136k-record real repo) with no visible
+// error, since a build failure here silently falls back to the substring
+// scorer. Both duplicate-id rows must build successfully, both must remain
+// queryable (neither branch's copy may be silently dropped), and the store
+// must persist as fresh so later calls do not pay the rebuild again.
+func TestBuildHistoryFTS_DuplicateIDAcrossBranches(t *testing.T) {
+	index := historyIndex{
+		GeneratedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Records: []historyRecord{
+			{ID: "conversation:dup1", Kind: conversationKind, Branch: "feature-a", Path: "sessions/branches/feature-a/20260624T202030Z_a.jsonl", Line: 9,
+				Summary: "Review entiresem pullrequest quokkazebra using the review skill."},
+			{ID: "conversation:dup1", Kind: conversationKind, Branch: "main", Path: "sessions/main/20260625T084826Z_a.jsonl", Line: 9,
+				Summary: "Review entiresem pullrequest quokkazebra using the review skill."},
+			{ID: "d1", Kind: "decision", Path: "sessions/main/20260601T000000Z_b.jsonl", Line: 1,
+				Summary: "Unrelated decision about the embedding cache."},
+		},
+	}
+	brainDir := t.TempDir()
+	db, err := openHistoryFTSLocked(brainDir, index)
+	if err != nil {
+		t.Fatalf("build with duplicate ids across branches must succeed, got: %v", err)
+	}
+	var rows int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM history_records`).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != len(index.Records) {
+		t.Fatalf("history_records rows = %d, want %d (a duplicate-id row must not be dropped)", rows, len(index.Records))
+	}
+	// Both branch-scoped copies of the shared id must be persisted rows, not
+	// collapsed at build time. (The ranked-results path separately dedups by
+	// normalized summary for display quality — see the "dedup tail" fixture
+	// above — which is unrelated to and must not be confused with storage
+	// correctness here.)
+	branchRows, err := db.Query(`SELECT branch FROM history_records WHERE id = ? ORDER BY branch`, "conversation:dup1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotBranches []string
+	for branchRows.Next() {
+		var b string
+		if err := branchRows.Scan(&b); err != nil {
+			t.Fatal(err)
+		}
+		gotBranches = append(gotBranches, b)
+	}
+	branchRows.Close()
+	if want := []string{"feature-a", "main"}; !reflect.DeepEqual(gotBranches, want) {
+		t.Fatalf("stored branches for the shared id = %v, want %v (a branch's copy was dropped)", gotBranches, want)
+	}
+	db.Close()
+
+	scored, ok := rankHistoryViaFTS(brainDir, index, conversationKind, "quokkazebra", 25)
+	if !ok || len(scored) == 0 {
+		t.Fatalf("BM25 ranking unavailable after a duplicate-id build: ok=%v matches=%v", ok, ftsExcerpts(scored))
+	}
+
+	fresh, err := openHistoryFTSIfFresh(brainDir, index)
+	if err != nil {
+		t.Fatalf("history FTS unreadable after a successful duplicate-id build: %v", err)
+	}
+	if fresh == nil {
+		t.Fatal("duplicate-id build did not persist as fresh: every future call would pay a full rebuild")
+	}
+	fresh.Close()
+}

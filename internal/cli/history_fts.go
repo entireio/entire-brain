@@ -256,6 +256,17 @@ func buildHistoryFTSIdentity(db *sql.DB, index historyIndex, identity historyFTS
 		return err
 	}
 	defer tx.Rollback()
+	// id is deliberately NOT unique: conversationExchangeID hashes
+	// (repo_key, session_id, ordinal, request_digest), so the same exchange
+	// legitimately produces the same id once per branch it is reachable from
+	// (a session captured on a feature branch and later retained under
+	// sessions/main after merge indexes as separate branch-scoped rows sharing
+	// one id). rec_order/fts_rowid are the true per-row keys used everywhere
+	// else in this file; a UNIQUE constraint on id made every build against
+	// real multi-branch history fail with a UNIQUE constraint violation,
+	// rolling back the whole transaction and forcing a full rebuild-and-fail
+	// on every subsequent search/query/brief call. See history_fts_test.go's
+	// TestBuildHistoryFTS_DuplicateIDAcrossBranches.
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS history_fts`,
 		`DROP TABLE IF EXISTS history_records`,
@@ -264,7 +275,7 @@ func buildHistoryFTSIdentity(db *sql.DB, index historyIndex, identity historyFTS
 		`CREATE TABLE history_records(
 			fts_rowid INTEGER PRIMARY KEY,
 			rec_order INTEGER NOT NULL UNIQUE,
-			id TEXT NOT NULL UNIQUE,
+			id TEXT NOT NULL,
 			kind TEXT NOT NULL,
 			branch TEXT NOT NULL,
 			path TEXT NOT NULL,
@@ -581,7 +592,6 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 	out := make([]scoredHistoryRecord, 0, limit)
 	seen := map[string]struct{}{}
 	seenOrders := map[int]struct{}{}
-	seenIDs := map[string]struct{}{}
 	var topScore float64
 	valid := true
 	for rows.Next() {
@@ -598,16 +608,17 @@ func rankHistoryViaFreshFTSCutoffOnce(brainDir string, source *historySourceMani
 			valid = false
 			break
 		}
+		// order (== fts_rowid-1) is the real per-row identity here: a repeat
+		// means the join/scan produced the same physical row twice, which is
+		// genuine corruption. rec.ID is NOT required to be unique across rows
+		// (see buildHistoryFTSIdentity) — the same exchange legitimately
+		// appears once per branch it is reachable from, sharing one id, so a
+		// repeated id alone must not be treated as a corruption signal.
 		if _, duplicate := seenOrders[order]; duplicate {
 			valid = false
 			break
 		}
-		if _, duplicate := seenIDs[rec.ID]; duplicate {
-			valid = false
-			break
-		}
 		seenOrders[order] = struct{}{}
-		seenIDs[rec.ID] = struct{}{}
 		if termsJSON != "null" {
 			if err := json.Unmarshal([]byte(termsJSON), &rec.Terms); err != nil {
 				valid = false
