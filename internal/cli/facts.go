@@ -155,6 +155,44 @@ func parseFactsFile(path string) ([]factRecord, error) {
 	return records, nil
 }
 
+// missingFactBranchStores returns the branches a fact source manifest declares
+// whose facts.ndjson is no longer on disk.
+//
+// loadFacts treats an absent file as an empty branch (first-run callers must
+// not special-case it), so a deleted or never-restored fact store is
+// indistinguishable from "this branch has no facts" on every read surface.
+// The manifest, however, names exactly which branches the store is supposed to
+// hold, and that claim is checkable. Anything it names but cannot produce is a
+// source that will silently contribute nothing.
+func missingFactBranchStores(brainDir string, source *factSourceManifest) []string {
+	if source == nil || brainDir == "" {
+		return nil
+	}
+	var missing []string
+	for _, branch := range source.Branches {
+		if branch == "" {
+			continue
+		}
+		path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			missing = append(missing, branch)
+		}
+	}
+	return missing
+}
+
+// missingFactStoreWarning renders the caller-facing warning for the branches
+// missingFactBranchStores found, or "" when the declared store is intact.
+func missingFactStoreWarning(missing []string) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `entire brain refresh` and re-distill",
+		strings.Join(missing, ", "), factsFileName,
+	)
+}
+
 // writeFacts persists a branch's facts as newline-delimited JSON, one record
 // per line, sorted deterministically so the file is stable across rebuilds and
 // diffs cleanly. The branch directory is created if needed. The byte-level
