@@ -349,10 +349,12 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 		if hit.AliasOf != "" {
 			lookup = hit.AliasOf
 		}
-		// Union the whole rename/move chain so a symbol's history survives the
-		// names it has been through.
+		// Union the whole rename/move family — the older spellings that resolve
+		// into this key as well as the chain forward from it — so a symbol's
+		// history survives the names it has been through no matter which of
+		// them the query happened to match.
 		var occurrences []entityIndexOccurrence
-		for _, key := range entityindex.AliasChain(view.cache.Aliases, lookup) {
+		for _, key := range entityindex.AliasFamily(view.cache.Aliases, lookup) {
 			occurrences = mergeEntityOccurrences(occurrences, view.cache.Entries[key])
 		}
 		occurrences = filterOccurrencesToBranch(occurrences, reachable)

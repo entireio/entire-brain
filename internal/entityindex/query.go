@@ -120,42 +120,20 @@ func (s *Snapshot) Resolve(entityKey string) string {
 	return resolveAlias(s.aliases, s.lastTouch, entityKey)
 }
 
-// AliasChain returns every key an entity has been known by from entityKey
-// forward to its current key, oldest spelling first. An unaliased key yields a
-// one-element chain.
-func AliasChain(aliases map[string]string, entityKey string) []string {
-	chain := []string{entityKey}
-	seen := map[string]struct{}{entityKey: {}}
-	current := entityKey
-	for hop := 0; hop < maxAliasHops; hop++ {
-		next, ok := aliases[current]
-		if !ok || next == current {
-			break
-		}
-		if _, cycle := seen[next]; cycle {
-			break
-		}
-		seen[next] = struct{}{}
-		chain = append(chain, next)
-		current = next
-	}
-	return chain
-}
-
 // Commits returns the commits that changed an entity in INDEX order — the order
 // the reverse list was appended in, which is the only order the exchange format
 // preserves (a late-arriving older entry is appended, not re-sorted). Callers
 // that need chronology sort by the commits' own dates. The WHOLE rename/move
-// chain from entityKey to its current key contributes, so asking by any
-// spelling the symbol ever had returns its full history — including the commits
-// recorded under intermediate names.
+// family contributes — the earlier spellings that resolve INTO entityKey as
+// well as the chain forward from it — so asking by any spelling the symbol ever
+// had, its current one included, returns its full history.
 func (s *Snapshot) Commits(entityKey string) []string {
 	if s == nil {
 		return nil
 	}
 	var out []string
 	seen := map[string]struct{}{}
-	for _, key := range AliasChain(s.aliases, entityKey) {
+	for _, key := range AliasFamily(s.aliases, entityKey) {
 		for _, commit := range s.commitsByEntity[key] {
 			if _, dup := seen[commit]; dup {
 				continue
@@ -163,6 +141,77 @@ func (s *Snapshot) Commits(entityKey string) []string {
 			seen[commit] = struct{}{}
 			out = append(out, commit)
 		}
+	}
+	return out
+}
+
+// AliasFamily returns every key one entity has ever been known by: the earlier
+// spellings that resolve INTO entityKey (oldest first), entityKey itself, then
+// the chain forward to its current key.
+//
+// Following the chain only FORWARD is not enough for a history lookup. Aliases
+// point old key -> new key, and the reverse list records a commit under the
+// entity's POST-change key, so the pre-rename commits live under the OLD key. A
+// forward-only walk therefore leaves a query by the entity's CURRENT name — the
+// one that actually exists in the tree, and therefore the one a human or an
+// agent types — seeing nothing before the rename, and answering with no warning
+// as if the symbol had no earlier history.
+//
+// Traversal is breadth-first over both directions with a visited set, so a
+// cycle (A -> B -> A, an entity renamed and then renamed back) terminates and
+// nothing is silently truncated: the family is bounded by the alias map itself.
+// Predecessors are sorted at every level, so the result is deterministic.
+func AliasFamily(aliases map[string]string, entityKey string) []string {
+	if len(aliases) == 0 {
+		return []string{entityKey}
+	}
+	predecessors := make(map[string][]string, len(aliases))
+	for oldKey, newKey := range aliases {
+		predecessors[newKey] = append(predecessors[newKey], oldKey)
+	}
+	for _, olds := range predecessors {
+		sort.Strings(olds)
+	}
+
+	seen := map[string]struct{}{entityKey: {}}
+	// Walk BACK level by level, then emit oldest level first, so a linear
+	// rename chain comes out in the order it was renamed in.
+	var levels [][]string
+	frontier := []string{entityKey}
+	for len(frontier) > 0 {
+		var next []string
+		for _, key := range frontier {
+			for _, older := range predecessors[key] {
+				if _, dup := seen[older]; dup {
+					continue
+				}
+				seen[older] = struct{}{}
+				next = append(next, older)
+			}
+		}
+		if len(next) == 0 {
+			break
+		}
+		sort.Strings(next)
+		levels = append(levels, next)
+		frontier = next
+	}
+	out := make([]string, 0, len(seen))
+	for i := len(levels) - 1; i >= 0; i-- {
+		out = append(out, levels[i]...)
+	}
+	out = append(out, entityKey)
+	for current := entityKey; ; {
+		next, ok := aliases[current]
+		if !ok {
+			break
+		}
+		if _, dup := seen[next]; dup {
+			break
+		}
+		seen[next] = struct{}{}
+		out = append(out, next)
+		current = next
 	}
 	return out
 }
