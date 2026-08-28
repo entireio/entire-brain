@@ -768,7 +768,17 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if distillOpts.force {
 			kept := existing[:0]
 			for _, record := range existing {
-				if record.Origin != factOriginDistilled {
+				// A force rebuild drops the distilled facts it is about to
+				// regenerate — but never a RETIRED one. A retracted or superseded
+				// record is a tombstone for a decision the rebuild does not replay
+				// (`facts retract`, an applied review proposal, a promote, a synced
+				// settlement); dropping it lets the very next chunk re-add the same
+				// statement as ACTIVE and silently resurrect a fact somebody
+				// declared false. Retaining it costs nothing: the regenerated
+				// candidate has the same content-derived id, so upsertFact lands on
+				// the tombstone and leaves its status alone, and a supersede the
+				// rebuild does replay re-marks it identically.
+				if record.Origin != factOriginDistilled || record.Status != factStatusActive {
 					kept = append(kept, record)
 				}
 			}
