@@ -121,3 +121,68 @@ class ReadIsolationIsLiveTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(SANDBOX_PRESENT, "no /usr/bin/sandbox-exec")
+class AnswerKeyIsDeniedTest(unittest.TestCase):
+    """`<graphmark_root>/tasks/*.json` carries the GOLD PATCH for every instance.
+
+    Each record holds `patch`, `test_patch`, `FAIL_TO_PASS`, `PASS_TO_PASS` and
+    `hints_text`. run.py's profile denies the entire-brain repo root and
+    benchmarks/agent-brain; graphmark is a SIBLING checkout, so it fell under
+    `(allow default)`.
+
+    And the session does not have to guess where it is: `_repo.netjail_path`
+    puts `<graphmark_root>/tools/netjail` first on its own PATH, so `echo $PATH`
+    yields the checkout root and `<root>/tasks/*.json` yields the answer to the
+    instance being scored.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.graphmark = _fake_graphmark_root(self.tmp)
+        for name in ("tasks", "results", "repo-cache"):
+            (self.graphmark / name).mkdir(parents=True, exist_ok=True)
+        (self.graphmark / "tasks" / "pilot.json").write_text('{"instances":[]}',
+                                                             encoding="utf-8")
+        self.worktree = self.tmp / "wt" / "abc123"
+        self.worktree.mkdir(parents=True)
+        self.config = {"graphmark_root": str(self.graphmark)}
+        self.env = {"HOME": str(self.tmp), "PATH": "/usr/bin"}
+
+    def _profile(self) -> str:
+        profile, self.provenance = run_b.read_isolation(
+            self.config, self.worktree, self.env)
+        self.assertIsNotNone(profile)
+        return profile
+
+    def test_the_task_json_tree_is_denied(self):
+        denied = [l for l in self._profile().splitlines() if l.startswith("(deny")]
+        target = str((self.graphmark / "tasks").resolve())
+        self.assertTrue(any(target in line for line in denied),
+                        "the gold patch / FAIL_TO_PASS tree stays readable")
+
+    def test_the_graphmark_results_tree_is_denied(self):
+        denied = [l for l in self._profile().splitlines() if l.startswith("(deny")]
+        target = str((self.graphmark / "results").resolve())
+        self.assertTrue(any(target in line for line in denied),
+                        "other runs' staged predictions stay readable")
+
+    def test_the_repo_cache_is_NOT_denied(self):
+        """The worktree's `.git` points into it; denying it breaks every session."""
+        cache = str((self.graphmark / "repo-cache").resolve())
+        for line in self._profile().splitlines():
+            if line.startswith("(deny"):
+                self.assertNotIn(cache, line)
+
+    def test_the_denied_roots_are_recorded(self):
+        self._profile()
+        recorded = self.provenance["extra_denied_roots"]
+        self.assertIn(str((self.graphmark / "tasks").resolve()), recorded)
+
+    def test_absent_subtrees_are_not_invented(self):
+        import shutil
+
+        shutil.rmtree(self.graphmark / "results")
+        self.assertEqual(
+            run_b.answer_key_roots(self.graphmark), [self.graphmark / "tasks"])
