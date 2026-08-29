@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -175,17 +174,26 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		body := strings.TrimSpace(string(raw))
+		// httpx renders the body rather than pasting it: bounded read, the JSON
+		// envelope's own explanation when the endpoint answered, an HTML page's title
+		// when something in FRONT of the endpoint did, and control characters
+		// stripped either way. Pasting the raw prefix (what this used to do) was
+		// right for the documented envelope and wrong for a gateway's error page —
+		// kilobytes of markup, or a peer's terminal escapes, printed at the member.
+		//
+		// The typed sentinels are unchanged and still wrapped with %w: callers branch
+		// on errors.Is, and the detail is additive. A body with nothing to say adds
+		// no separator, so a silent refusal no longer ends in a bare ": ".
+		detail := httpx.ErrorSuffix(resp)
 		switch resp.StatusCode {
 		case http.StatusUnauthorized:
-			return nil, fmt.Errorf("%w: %s", ErrUnauthorized, body)
+			return nil, fmt.Errorf("%w%s", ErrUnauthorized, detail)
 		case http.StatusForbidden:
-			return nil, fmt.Errorf("%w: %s", ErrForbidden, body)
+			return nil, fmt.Errorf("%w%s", ErrForbidden, detail)
 		case http.StatusServiceUnavailable:
-			return nil, fmt.Errorf("%w: %s", ErrNotConfigured, body)
+			return nil, fmt.Errorf("%w%s", ErrNotConfigured, detail)
 		default:
-			return nil, fmt.Errorf("hostedbrain: %s %s: unexpected status %s: %s", method, repoID, resp.Status, body)
+			return nil, fmt.Errorf("hostedbrain: %s %s: unexpected status %s%s", method, repoID, resp.Status, detail)
 		}
 	}
 	var out struct {

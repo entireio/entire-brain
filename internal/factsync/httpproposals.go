@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/ashtom/entire-brain/internal/httpx"
 )
 
 // HTTPServer also drives the OPEN-PROPOSAL SET endpoints, symmetric with the fact-set
@@ -41,6 +42,20 @@ import (
 // local transcript path and line offset, so a resolution can never leak a member's
 // filesystem layout even if a caller hands the client unsanitized records.
 
+// notFound renders a 404 on a single proposal as ErrProposalNotFound, carrying the
+// server's account of why when it gave one.
+//
+// As with conflict(), the SENTINEL is the contract: the resolve loops treat
+// errors.Is(err, ErrProposalNotFound) as "another member already settled this", a
+// normal outcome they skip past rather than a failure. %w keeps that true while the
+// message grows.
+func notFound(resp *http.Response, proposalID string) error {
+	if detail := httpx.ErrorDetail(resp); detail != "" {
+		return fmt.Errorf("%w: %s: %s", ErrProposalNotFound, proposalID, detail)
+	}
+	return fmt.Errorf("%w: %s", ErrProposalNotFound, proposalID)
+}
+
 // proposalsPath is the collection endpoint for a repo's open proposal set.
 //
 // It returns an error rather than a string because the repo id is interpolated into
@@ -49,8 +64,10 @@ import (
 // url.PathEscape("..") == ".." and ".../proposals" under a ".." repo id normalizes to
 // a different route, reached with the member's bearer token). Every proposal endpoint
 // goes through here, so the refusal happens before any request is built.
-func proposalsPath(repoID string) (string, error) {
-	base, err := repoBasePath(repoID)
+// It also applies the branch cap (requestTarget), so a branch the hosted API is known
+// to refuse never costs a round trip with the member's token attached.
+func proposalsPath(repoID, branch string) (string, error) {
+	base, err := requestTarget(repoID, branch)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +88,7 @@ type wireProposalSet struct {
 // to review. Any non-200 is an error: the caller must not resolve against an unknown
 // open set.
 func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (ProposalSet, error) {
-	collection, err := proposalsPath(repoID)
+	collection, err := proposalsPath(repoID, branch)
 	if err != nil {
 		return ProposalSet{}, err
 	}
@@ -94,9 +111,9 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 		// queue with a warning, which is right for an optional sub-feature — and the
 		// next sync re-checks, so a genuinely transient 503 costs one cycle, never a
 		// failed sync whose head-advance already succeeded.
-		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
+		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	default:
-		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
+		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	}
 	var out wireProposalSet
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -117,7 +134,7 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 // no proposal, is ErrProposalNotFound — the normal outcome when another member
 // already settled it.
 func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID string) (OpenProposal, error) {
-	collection, err := proposalsPath(repoID)
+	collection, err := proposalsPath(repoID, branch)
 	if err != nil {
 		return OpenProposal{}, err
 	}
@@ -134,9 +151,9 @@ func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
-		return OpenProposal{}, fmt.Errorf("%w: %s", ErrProposalNotFound, proposalID)
+		return OpenProposal{}, notFound(resp, proposalID)
 	default:
-		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: unexpected status %s", repoID, branch, proposalID, resp.Status)
+		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: unexpected status %s%s", repoID, branch, proposalID, resp.Status, httpx.ErrorSuffix(resp))
 	}
 	var out wireProposalSet
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -164,7 +181,7 @@ type publishProposalsBody struct {
 // 412/409 → ErrConflict (another member changed the set first); a 200 reporting
 // changed=false → ErrNoChange, mirroring Advance's contract on the fact-set head.
 func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRef string, proposals []OpenProposal) (string, error) {
-	collection, err := proposalsPath(repoID)
+	collection, err := proposalsPath(repoID, branch)
 	if err != nil {
 		return "", err
 	}
@@ -203,13 +220,13 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 		}
 		return out.Ref, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
-		return "", ErrConflict
+		return "", conflict(resp)
 	case http.StatusNotFound, http.StatusNotImplemented, http.StatusServiceUnavailable:
 		// Same reading as the list path: no queue on this deployment, so the proposals
 		// stay local rather than failing a sync that already landed its facts.
-		return "", fmt.Errorf("%w: POST proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
+		return "", fmt.Errorf("%w: POST proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	default:
-		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
+		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	}
 }
 
@@ -239,7 +256,7 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 	// Refuse a target that is not one safe path segment first, before the resolution
 	// is serialized at all: a resolution body carries the member's whole fact set, so
 	// the id that decides where it is POSTed has to be checked before it is built.
-	collection, err := proposalsPath(req.RepoID)
+	collection, err := proposalsPath(req.RepoID, req.Branch)
 	if err != nil {
 		return ResolveProposalResponse{}, err
 	}
@@ -306,11 +323,11 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 		}
 		return ResolveProposalResponse{FactsRef: out.FactsRef, ProposalsRef: out.ProposalsRef, Changed: changed}, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
-		return ResolveProposalResponse{}, ErrConflict
+		return ResolveProposalResponse{}, conflict(resp)
 	case http.StatusNotFound:
-		return ResolveProposalResponse{}, fmt.Errorf("%w: %s", ErrProposalNotFound, req.ProposalID)
+		return ResolveProposalResponse{}, notFound(resp, req.ProposalID)
 	default:
-		return ResolveProposalResponse{}, fmt.Errorf("factsync: POST resolve %s/%s/%s: unexpected status %s",
-			req.RepoID, req.Branch, req.ProposalID, strings.TrimSpace(resp.Status))
+		return ResolveProposalResponse{}, fmt.Errorf("factsync: POST resolve %s/%s/%s: unexpected status %s%s",
+			req.RepoID, req.Branch, req.ProposalID, strings.TrimSpace(resp.Status), httpx.ErrorSuffix(resp))
 	}
 }
