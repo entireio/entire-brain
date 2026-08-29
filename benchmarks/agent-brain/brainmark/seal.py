@@ -290,6 +290,10 @@ def _promote_v1(args, review: dict) -> int:
         "tasks": dict(sorted(entries.items())),
         "miner_sha256": _harness.sha256_file(root / "mine_pairs.py"),
         "config_sha256": config["_config_sha256"],
+        # WHICH files those two hashes are OF. Without them verify() cannot
+        # recompute either one, and a hash nothing recomputes pins nothing.
+        "config_path": _relative_to_root(root, config["_config_path"]),
+        "prereg_path": _relative_to_root(root, prereg_path),
         "prereg_sha256": _harness.sha256_file(prereg_path),
         "prompts_sha256": _harness.sha256_file(root / "prompts.py"),
         "mechmetrics_sha256": _harness.sha256_file(root / "mechmetrics.py"),
@@ -468,6 +472,10 @@ def _promote_v2(args, review: dict) -> int:
         "tasks": dict(sorted(entries.items())),
         "miner_sha256": _harness.sha256_file(root / "mine_pairs.py"),
         "config_sha256": config["_config_sha256"],
+        # WHICH files those two hashes are OF. Without them verify() cannot
+        # recompute either one, and a hash nothing recomputes pins nothing.
+        "config_path": _relative_to_root(root, config["_config_path"]),
+        "prereg_path": _relative_to_root(root, prereg_path),
         "prereg_sha256": _harness.sha256_file(prereg_path),
         "prompts_sha256": _harness.sha256_file(root / "prompts.py"),
         "mechmetrics_sha256": _harness.sha256_file(root / "mechmetrics.py"),
@@ -497,8 +505,34 @@ def _promote_v2(args, review: dict) -> int:
     return 0
 
 
+def _relative_to_root(root: pathlib.Path, path: str | pathlib.Path) -> str:
+    """A root-relative POSIX path when possible, else the path unchanged."""
+    resolved = pathlib.Path(path)
+    try:
+        return resolved.resolve().relative_to(pathlib.Path(root).resolve()).as_posix()
+    except ValueError:
+        return _harness.display_path(resolved)
+
+
+#: (manifest key, path relative to the brainmark root) for every pinned FILE.
+#: A blank or absent value here is a HOLE, not a pass: the previous guard was
+#: `if manifest.get(key) and actual != manifest[key]`, so a manifest with
+#: `"prompts_sha256": ""` skipped the prompts check in silence.
+_PINNED_FILES: tuple[tuple[str, str], ...] = (
+    ("miner_sha256", "mine_pairs.py"),
+    ("prompts_sha256", "prompts.py"),
+    ("mechmetrics_sha256", "mechmetrics.py"),
+    ("vendored_metrics_sha256", "vendor/graphmark_metrics.py"),
+)
+
+
 def verify(root: pathlib.Path | None = None) -> tuple[bool, list[str]]:
-    """Recompute every hash in the manifest. Returns (ok, problems)."""
+    """Recompute every hash in the manifest. Returns (ok, problems).
+
+    EVERY pin is recomputed or reported. A pin the manifest does not carry, or
+    carries blank, is a problem -- an unverifiable seal must not read as a
+    verified one, because report.py aggregates on `ok`.
+    """
     root = root or _harness.BRAINMARK_DIR
     manifest_path = root / MANIFEST_NAME
     if not manifest_path.is_file():
@@ -526,32 +560,43 @@ def verify(root: pathlib.Path | None = None) -> tuple[bool, list[str]]:
         if extra:
             problems.append(f"UNSEALED tasks present in {split}/: {sorted(extra)}")
 
-    for key, rel in (
-        ("miner_sha256", "mine_pairs.py"),
-        ("prompts_sha256", "prompts.py"),
-        ("mechmetrics_sha256", "mechmetrics.py"),
-        ("vendored_metrics_sha256", "vendor/graphmark_metrics.py"),
-    ):
-        path = root / rel
-        if not path.is_file():
-            problems.append(f"{rel} missing")
-            continue
-        actual = _harness.sha256_file(path)
-        if manifest.get(key) and actual != manifest[key]:
-            problems.append(
-                f"{rel} CHANGED since seal (sealed {manifest[key][:12]}, now {actual[:12]})"
-            )
+    for key, rel in _PINNED_FILES:
+        problems.extend(_check_pin(root, manifest, key, rel, rel))
 
-    prereg = root / "PREREGISTRATION.md"
-    if prereg.is_file() and manifest.get("prereg_sha256"):
-        actual = _harness.sha256_file(prereg)
-        if actual != manifest["prereg_sha256"]:
+    # The prereg and the config are pinned by hash AND by path, so the hash is
+    # recomputable. config.json carries `arms`, the packet budget, the seeds,
+    # the distill model and the backend: sealing its hash and never checking it
+    # left every one of those post-hoc editable behind a green seal.
+    for key, path_key, default_rel in (
+        ("prereg_sha256", "prereg_path", "PREREGISTRATION.md"),
+        ("config_sha256", "config_path", "config.json"),
+    ):
+        rel = manifest.get(path_key)
+        if not rel:
             problems.append(
-                f"PREREGISTRATION.md CHANGED since seal "
-                f"(sealed {manifest['prereg_sha256'][:12]}, now {actual[:12]})"
+                f"manifest records {key} but not {path_key}, so the hash cannot be "
+                f"recomputed; re-seal to make it verifiable"
             )
+            continue
+        problems.extend(_check_pin(root, manifest, key, str(rel), str(rel)))
 
     return (not problems), problems
+
+
+def _check_pin(root: pathlib.Path, manifest: dict, key: str, rel: str,
+               label: str) -> list[str]:
+    """One pinned file: the hash must be present, the file must be, they match."""
+    expected = manifest.get(key)
+    if not expected:
+        return [f"manifest carries no {key}: {label} is UNPINNED and this seal "
+                f"does not verify what it claims to"]
+    path = root / rel
+    if not path.is_file():
+        return [f"{label} missing but pinned by {key} (sealed {expected[:12]})"]
+    actual = _harness.sha256_file(path)
+    if actual != expected:
+        return [f"{label} CHANGED since seal (sealed {expected[:12]}, now {actual[:12]})"]
+    return []
 
 
 def cmd_verify(args) -> int:
