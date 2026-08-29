@@ -469,6 +469,23 @@ FROZEN_MEMORY_PACKET_END_TAG = "</frozen-memory-packet>"
 FROZEN_MEMORY_PACKET_END_TAG_PATTERN = re.compile(
     r"<\s*/\s*frozen-memory-packet\s*>", re.IGNORECASE
 )
+# Whitespace is not the only invisible separator. Zero-width and format
+# characters (ZWSP, ZWNJ/ZWJ, word joiner, BOM, soft hyphen, the bidi controls)
+# and the C0/C1 control range are all absent from Python's \s, render to nothing,
+# and split the delimiter's tokens exactly the way a literal space does --
+# `<\u200b/frozen-memory-packet>` is indistinguishable from the real tag on
+# screen. Scanning text with this class removed closes that gap for the same
+# threat the \s tolerance was added for.
+FROZEN_MEMORY_PACKET_INVISIBLE_PATTERN = re.compile(
+    "[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u061c"
+    "\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u206a-\u206f\ufeff"
+    "\ufff9-\ufffb]"
+)
+
+
+def strip_invisible_characters(text: str) -> str:
+    """Text with zero-width, format, and control characters removed."""
+    return FROZEN_MEMORY_PACKET_INVISIBLE_PATTERN.sub("", text)
 
 
 def temporal_delivery_mode(task: dict[str, Any]) -> str:
@@ -4837,20 +4854,31 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
     }
 
 
+def text_contains_reserved_delimiter(text: str) -> bool:
+    """True when this text carries the reserved end delimiter in any form that
+    renders as the delimiter: literal, whitespace-separated, or separated by
+    zero-width/format/control characters that display as nothing."""
+    if FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(text):
+        return True
+    stripped = strip_invisible_characters(text)
+    return stripped != text and bool(FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(stripped))
+
+
 def packet_contains_reserved_delimiter(packet_text: str) -> bool:
     """True when the serialized packet or any decoded JSON string contains the
     reserved prompt delimiter. JSON encoders (e.g. Go's, which HTML-escapes angle
     brackets to \\u003c/\\u003e) may hide the delimiter from a serialized-text
     scan, so the decoded string content is checked as well; undecodable packet
-    text fails closed. Matching is whitespace-tolerant so a delimiter whose
-    tokens are separated by literal whitespace or by escapes that decode to
-    whitespace (\\u0009/\\u000a/\\u000d) still fails closed."""
-    if FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(packet_text):
+    text fails closed. Matching tolerates any invisible separator between the
+    delimiter's tokens -- literal whitespace, escapes that decode to whitespace
+    (\\u0009/\\u000a/\\u000d), and the zero-width/format/control characters that
+    Python's \\s does not cover -- so none of them can forge a closing tag."""
+    if text_contains_reserved_delimiter(packet_text):
         return True
 
     def contains(item: Any) -> bool:
         if isinstance(item, str):
-            return bool(FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(item))
+            return text_contains_reserved_delimiter(item)
         if isinstance(item, dict):
             return any(contains(key) or contains(child) for key, child in item.items())
         if isinstance(item, list):
