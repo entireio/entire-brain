@@ -1031,7 +1031,11 @@ func inspectBoundarySpec(kind string) (semanticBoundarySpec, error) {
 	case "workflow", "workflows":
 		return semanticBoundarySpec{Name: "workflows", Use: "boundaries", Short: "List workflow boundaries", SymbolKinds: []string{"workflow", "job", "pipeline"}, RelationTypes: []string{"HANDLES_WORKFLOW", "PART_OF_WORKFLOW"}}, nil
 	default:
-		return semanticBoundarySpec{}, fmt.Errorf("--kind must be route, tool, or workflow")
+		// Flag-neutral on purpose: this is shared by the `boundaries` CLI
+		// command and the brain_boundaries MCP tool, whose argument is the
+		// JSON field "kind". Naming "--kind" told an MCP caller to correct a
+		// flag that does not exist on the surface it is calling.
+		return semanticBoundarySpec{}, fmt.Errorf("kind must be route, tool, or workflow")
 	}
 }
 
