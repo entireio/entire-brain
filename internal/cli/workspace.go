@@ -551,6 +551,17 @@ type workspaceAddResult struct {
 	Already bool
 }
 
+// workspaceDirOrEmpty resolves a workspace directory for use in a MESSAGE only:
+// the caller is already reporting an error, so a second one would just hide the
+// first.
+func workspaceDirOrEmpty(env EntireEnv, name string) string {
+	dir, err := workspaceDir(env, name)
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
 // addWorkspaceRepoLocked is the ONLY way a repo enters a workspace manifest.
 // Membership is a read-modify-write of a shared file, and the common case —
 // running `entire-brain setup` in two repos at once — had both readers load the
@@ -582,7 +593,13 @@ func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceR
 	manifest, err := loadWorkspaceManifest(env, workspaceName)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return result, err
+			// A manifest that exists but cannot be read blocks registration for
+			// EVERY repo in the workspace, permanently, and the underlying error
+			// ("invalid character ...") names neither the file nor a way out.
+			// Recreating it silently would be worse — it would drop every other
+			// member — so say exactly which file to look at.
+			return result, fmt.Errorf("%w\nworkspace manifest %s is unusable; fix or delete it, then re-run (deleting it drops the other members, who re-register on their next setup)",
+				err, filepath.Join(workspaceDirOrEmpty(env, workspaceName), workspaceManifestName))
 		}
 		manifest = workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: workspaceName}
 		result.Created = true
@@ -592,6 +609,12 @@ func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceR
 		if manifest.Repos[i].RepoKey == repo.RepoKey {
 			result.Already = true
 			// Keep the freshest local path hint; the member itself is unchanged.
+			// A caller that carries no display name — `setup`'s registration,
+			// which re-runs every time — must not erase the one a human set with
+			// `workspace add --name`.
+			if strings.TrimSpace(repo.Name) == "" {
+				repo.Name = manifest.Repos[i].Name
+			}
 			manifest.Repos[i] = repo
 			replaced = true
 			break

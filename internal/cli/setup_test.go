@@ -963,7 +963,10 @@ func TestSetupRemembersItsIdentitiesForLaterReads(t *testing.T) {
 	runSetupForTest(t, f, opts, rec)
 
 	stateDir := filepath.Dir(f.storage.HeadPath)
-	recorded, existed := setupOptionsFromRecord(stateDir)
+	recorded, existed, recordErr := setupOptionsFromRecord(stateDir)
+	if recordErr != nil {
+		t.Fatalf("read setup record: %v", recordErr)
+	}
 	if !existed {
 		t.Fatal("setup must write a record for this repo")
 	}
@@ -1010,7 +1013,7 @@ func TestSetupRecordRemembersTheDaemonTuning(t *testing.T) {
 
 	runSetupForTest(t, f, opts, rec)
 
-	recorded, _ := setupOptionsFromRecord(filepath.Dir(f.storage.HeadPath))
+	recorded, _, _ := setupOptionsFromRecord(filepath.Dir(f.storage.HeadPath))
 	inherited := applySetupRecordDefaults(defaultSetupOptions(), recorded, nothingChanged)
 	if inherited.interval != 90*time.Second || inherited.distillEvery != 6*time.Hour {
 		t.Fatalf("a bare re-run must keep the recorded cadence, got interval=%s distill-every=%s", inherited.interval, inherited.distillEvery)
@@ -1107,7 +1110,7 @@ func TestSetupRenamingTheDaemonRetiresTheOldUnit(t *testing.T) {
 	if !strings.Contains(out, "previous watcher") || !strings.Contains(out, "removed") {
 		t.Fatalf("the retirement must be reported:\n%s", out)
 	}
-	if recorded, _ := setupOptionsFromRecord(filepath.Dir(f.storage.HeadPath)); recorded.daemonName != "entire-brain-watch-new" {
+	if recorded, _, _ := setupOptionsFromRecord(filepath.Dir(f.storage.HeadPath)); recorded.daemonName != "entire-brain-watch-new" {
 		t.Fatalf("the record must move to the new daemon, got %s", recorded.daemonName)
 	}
 }
@@ -1132,7 +1135,10 @@ func TestSetupFirstRunNeverRetiresAnotherReposDaemon(t *testing.T) {
 
 func TestSetupOptionsFromRecordFallsBackToDefaults(t *testing.T) {
 	t.Parallel()
-	got, existed := setupOptionsFromRecord(t.TempDir())
+	got, existed, recordErr := setupOptionsFromRecord(t.TempDir())
+	if recordErr != nil {
+		t.Fatalf("a never-set-up repo must not be an error: %v", recordErr)
+	}
 	if existed {
 		t.Fatal("a never-set-up repo must report that it has no record")
 	}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // render_json_contract_test.go pins the --json contract of the two commands the
@@ -46,12 +48,18 @@ func checkJSONContract(t *testing.T, name string, value any) {
 	if err := json.Unmarshal(data, value); err != nil {
 		t.Fatalf("golden %s does not fit the report struct (a field was renamed or removed): %v", path, err)
 	}
-	// writeJSON's encoder settings, verbatim.
-	got, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal %s: %v", path, err)
+	// Re-emit through the REAL producer. Re-implementing writeJSON's encoder
+	// settings here (MarshalIndent + a trailing newline) meant the contract was
+	// pinned against a copy of the encoder rather than the encoder: a change to
+	// writeJSON's indentation, HTML escaping, or trailing newline — every byte
+	// the scripts parsing this output depend on — passed this test untouched.
+	buf := &bytes.Buffer{}
+	cmd := &cobra.Command{}
+	cmd.SetOut(buf)
+	if err := writeJSON(cmd, value); err != nil {
+		t.Fatalf("writeJSON %s: %v", path, err)
 	}
-	got = append(got, '\n')
+	got := buf.Bytes()
 	if os.Getenv(goldenUpdateEnv) != "" {
 		if err := os.WriteFile(path, got, 0o600); err != nil {
 			t.Fatalf("update golden %s: %v", path, err)

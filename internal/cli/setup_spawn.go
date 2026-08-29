@@ -41,7 +41,7 @@ func spawnDetached(plan setupBackfillPlan) (int, error) {
 
 	var log *os.File
 	if plan.LogPath != "" {
-		log, err = os.OpenFile(plan.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		log, err = os.OpenFile(plan.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND|noFollowOpenFlag, 0o600)
 		if err != nil {
 			return 0, fmt.Errorf("open backfill log: %w", err)
 		}

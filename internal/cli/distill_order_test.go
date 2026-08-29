@@ -197,6 +197,71 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 	}
 }
 
+// TestForcedCappedDistillDoesNotStrandDeferredSessions: `--force --max-sessions N`
+// silently deleted the deferred sessions' facts and marked them done forever.
+// A forced pass drops every distilled fact on each branch it VISITS
+// (ensureBranch), and a session deferred by the budget `continue`s before that —
+// so a sibling session on the same branch had already dropped its facts while
+// its cache fingerprint was carried through unchanged. It is then skipped by
+// every later run, and `status` reports it as distilled because it counts cache
+// keys. The analogous pair, --session + --force, is rejected outright; this one
+// had no guard at all.
+func TestForcedCappedDistillDoesNotStrandDeferredSessions(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
+	repoDir := t.TempDir()
+
+	var first []string
+	opts := distillCommandOptions{
+		agent:         "command",
+		agentCommand:  []string{"fake"},
+		run:           recordingDistillRunner(&first),
+		maxChunkBytes: defaultDistillChunkSize,
+		timeout:       time.Minute,
+	}
+	if _, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts, now); err != nil {
+		t.Fatalf("initial runDistillForBrain: %v", err)
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 3 {
+		t.Fatalf("all three sessions should be distilled first, got %d", status.Distilled)
+	}
+
+	// The forced rebuild: capped at 2, so "old" is deferred — but "new" and
+	// "mid" are on the same branch, and visiting either already dropped "old"'s
+	// facts.
+	var second []string
+	opts.run = recordingDistillRunner(&second)
+	opts.force = true
+	opts.newestFirst = true
+	opts.maxSessions = 2
+	if _, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts, now); err != nil {
+		t.Fatalf("forced runDistillForBrain: %v", err)
+	}
+	if got := strings.Join(second, ","); got != "new,mid" {
+		t.Fatalf("the forced pass must spend on exactly the two newest sessions, visited %s", got)
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 2 {
+		t.Fatalf("a forced pass dropped the deferred session's facts but still marked it distilled: %d/%d\nit is skipped by every later run and status lies about it",
+			status.Distilled, status.Sessions)
+	}
+
+	// And the follow-up must actually re-derive it.
+	var third []string
+	opts.run = recordingDistillRunner(&third)
+	opts.force = false
+	opts.newestFirst = false
+	opts.maxSessions = 0
+	if _, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts, now); err != nil {
+		t.Fatalf("follow-up runDistillForBrain: %v", err)
+	}
+	if got := strings.Join(third, ","); got != "old" {
+		t.Fatalf("the follow-up run must re-distill the stranded session, visited %s", got)
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 3 {
+		t.Fatalf("all three sessions should be distilled after the follow-up, got %d", status.Distilled)
+	}
+}
+
 func TestBuildDistillPlanHonorsOrderAndBudget(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")

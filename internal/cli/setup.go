@@ -423,7 +423,13 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// at THAT daemon, or `setup --uninstall-daemon` would look for one that was
 	// never installed and leave the real one running. Same for the tuning flags:
 	// a re-run that does not name them must not silently revert them.
-	previous, setUpBefore := setupOptionsFromRecord(stateDir)
+	previous, setUpBefore, recordErr := setupOptionsFromRecord(stateDir)
+	if recordErr != nil {
+		// Refusing here is the whole point: every path below acts on a PREVIOUS
+		// daemon identity, and without the record we would act on the default
+		// one — retiring or uninstalling a watcher that belongs to another repo.
+		return fmt.Errorf("%w\nthis repo's setup record is unreadable; delete it and re-run `entire-brain setup` to re-adopt the watcher", recordErr)
+	}
 	setupOpts = applySetupRecordDefaults(setupOpts, previous, setupFlagChanged(cmd))
 	if steps.observeComponent == nil {
 		steps.observeComponent = &setupComponentObserver{}
@@ -445,6 +451,30 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		Repo:          repoDir,
 		RepoKey:       storage.Key,
 		BrainPath:     storage.BrainDir,
+	}
+
+	// The workspace name is the daemon's ONLY argument, and it is validated deep
+	// inside registerRepoInWorkspace — a phase whose failure setup deliberately
+	// downgrades to a warning so one bad source never costs the whole run. That
+	// combination installed a KeepAlive / Restart=always unit running
+	// `workspace watch <name the CLI rejects>`: it exits immediately, the
+	// service manager restarts it every 60s forever, and setup exits 0. Reject
+	// the name here, before anything is planned or installed, where the only
+	// thing it can cost is this command.
+	if err := validateWorkspaceName(setupOpts.workspace); err != nil {
+		return fmt.Errorf("--workspace %q: %w", setupOpts.workspace, err)
+	}
+
+	// Resolve the agent ONCE, here, before the daemon plan is built. The plan
+	// embeds the argv the watcher runs forever, so an agent resolved later (in
+	// the backfill phase) reached the detached child but never the daemon, which
+	// then fell back to watch's "codex" default no matter what setup detected,
+	// reported, and paid the backfill with. Skipped for --uninstall-daemon,
+	// which needs only the label and must not probe for CLIs it will not use.
+	if !setupOpts.uninstallDaemon {
+		if agent := strings.TrimSpace(setupOpts.agent); agent == "" || agent == "auto" {
+			setupOpts.agent = steps.detectAgent(ctx)
+		}
 	}
 
 	plan, planErr := steps.plan(setupOpts)
@@ -689,6 +719,7 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		progress.Skip("fact backfill: no agent CLI on PATH (install codex or claude, then re-run `entire-brain setup`)")
 		return setupPhase{State: "skipped", Detail: "no agent CLI available"}
 	}
+	budget := setupResolvedBackfillBudget(setupOpts)
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
 		progress.Skip("fact backfill: could not resolve this executable's path")
@@ -707,7 +738,7 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		Agent:         agent,
 		Model:         strings.TrimSpace(setupOpts.model),
 		Effort:        strings.TrimSpace(setupOpts.effort),
-		MaxSessions:   setupOpts.backfillBudget,
+		MaxSessions:   budget,
 		LogPath:       plan.LogPath,
 		Sessions:      report.Facts.Pending(),
 	}
@@ -716,8 +747,8 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 	}
 	task := progress.Begin("fact backfill")
 	queued := state.Sessions
-	if setupOpts.backfillBudget > 0 && queued > setupOpts.backfillBudget {
-		queued = setupOpts.backfillBudget
+	if budget > 0 && queued > budget {
+		queued = budget
 	}
 	task.Update(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, agent %s (pid %d)",
 		queued, agent, pid))
@@ -725,12 +756,24 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 	// Say what the cap did and how to lift it. A silent cap is as surprising as
 	// a silent uncapped spend: the user is left believing the whole corpus was
 	// distilled when only the newest slice was.
-	if setupOpts.backfillBudget > 0 && state.Sessions > setupOpts.backfillBudget {
+	if budget > 0 && state.Sessions > budget {
 		progress.Skip(fmt.Sprintf(
 			"fact backfill capped at %d of %d pending session(s) this pass (--backfill-budget); re-run `entire-brain setup` for the next batch, or `--backfill-budget 0` to distill the whole corpus in one spend",
-			setupOpts.backfillBudget, state.Sessions))
+			budget, state.Sessions))
 	}
 	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions)}
+}
+
+// setupResolvedBackfillBudget normalizes --backfill-budget into the number the
+// distill passes actually receive, so the detached backfill and the daemon it
+// installs are capped by the SAME value. Only an EXPLICIT 0 means unlimited; a
+// negative value is a typo, not a request to distill the whole corpus, and
+// silently reading it as one is the most expensive way to misread a flag.
+func setupResolvedBackfillBudget(setupOpts setupCommandOptions) int {
+	if setupOpts.backfillBudget < 0 {
+		return setupDefaultBackfillBudget
+	}
+	return setupOpts.backfillBudget
 }
 
 // setupBackfillPlanFor builds the detached distill argv. --newest-first is the
@@ -748,8 +791,8 @@ func setupBackfillPlanFor(opts Options, setupOpts setupCommandOptions, agent, re
 	if effort := strings.TrimSpace(setupOpts.effort); effort != "" {
 		args = append(args, "--effort", effort)
 	}
-	if setupOpts.backfillBudget > 0 {
-		args = append(args, "--max-sessions", fmt.Sprint(setupOpts.backfillBudget))
+	if budget := setupResolvedBackfillBudget(setupOpts); budget > 0 {
+		args = append(args, "--max-sessions", fmt.Sprint(budget))
 	}
 	return setupBackfillPlan{
 		Binary:  binary,
@@ -839,12 +882,31 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 // durable, self-resetting guard is the pair watch.go documents: --distill-every
 // plus each repo's persisted cursor, which survives restarts and bounds spend
 // per repo per window without ever latching off.
+//
+// --max-sessions IS passed, and it is the guard that was missing. --distill-every
+// and the cursor bound the FREQUENCY of a gated pass; nothing bounded its
+// VOLUME. So `setup` would distill 25 sessions, print "capped at 25 of N ...
+// re-run setup for the next batch", and then install a daemon that distilled the
+// remaining N-25 in one window, for every repo in the workspace, silently. The
+// cap the user was shown has to bind on the process that does the spending.
+//
+// --agent is passed for the same reason: setup RESOLVED an agent, told the user
+// which one, and paid the backfill with it. A daemon that falls back to watch's
+// "codex" default can never succeed on a claude-only machine, and — because the
+// agent name is part of the distill cache salt — a codex that appears later
+// re-distills the whole corpus the backfill already paid for.
 func brainWatchDaemonArgs(setupOpts setupCommandOptions) []string {
 	args := []string{
 		"workspace", "watch", setupOpts.workspace,
 		"--interval", setupOpts.interval.String(),
 		"--distill",
 		"--distill-every", setupOpts.distillEvery.String(),
+	}
+	if agent := strings.TrimSpace(setupOpts.agent); agent != "" && agent != "auto" && agent != "none" {
+		args = append(args, "--agent", agent)
+	}
+	if budget := setupResolvedBackfillBudget(setupOpts); budget > 0 {
+		args = append(args, "--max-sessions", fmt.Sprint(budget))
 	}
 	if model := strings.TrimSpace(setupOpts.model); model != "" {
 		args = append(args, "--model", model)
@@ -1081,15 +1143,26 @@ func writeSetupRecord(stateDir string, record setupRecord) error {
 // which of the two it is — "never set up" and "set up with the defaults" are
 // indistinguishable in the values but mean opposite things to anything that
 // acts on a previous daemon.
-func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool) {
+//
+// The error is the third state, and it is NOT the same as "never set up": a
+// setup.json that exists but cannot be parsed means the recorded daemon name is
+// unknown, and answering "never set up, here are the defaults" made
+// `--uninstall-daemon` uninstall the DEFAULT watcher — which on a shared
+// machine is the one every OTHER repo depends on — instead of this repo's. A
+// caller that is about to act on a previous daemon must refuse; a caller that
+// only wants defaults may ignore it.
+func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool, error) {
 	opts := defaultSetupOptions()
 	data, err := os.ReadFile(filepath.Join(stateDir, setupRecordFile))
 	if err != nil {
-		return opts, false
+		if os.IsNotExist(err) {
+			return opts, false, nil
+		}
+		return opts, false, fmt.Errorf("read %s: %w", filepath.Join(stateDir, setupRecordFile), err)
 	}
 	var record setupRecord
 	if err := json.Unmarshal(data, &record); err != nil {
-		return opts, false
+		return opts, false, fmt.Errorf("parse %s: %w", filepath.Join(stateDir, setupRecordFile), err)
 	}
 	if strings.TrimSpace(record.Workspace) != "" {
 		opts.workspace = record.Workspace
@@ -1109,7 +1182,7 @@ func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool) {
 	if strings.TrimSpace(record.Effort) != "" {
 		opts.effort = record.Effort
 	}
-	return opts, true
+	return opts, true, nil
 }
 
 // setupInstantRecord is the last instant phase's per-component outcome, kept

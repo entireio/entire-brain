@@ -404,6 +404,11 @@ type distillCommandOptions struct {
 	// are visited first — every session is still visited, and the persisted
 	// distill cache means neither order re-spends on unchanged sessions.
 	newestFirst bool
+	// onPassSkipped fires when the cross-process pass lock was already held, so
+	// this run did nothing and spent nothing. `distill` still exits 0 (another
+	// process is doing the work), but a caller that RESERVED a spend window
+	// before calling has to be able to give it back.
+	onPassSkipped func()
 	// maxSessions caps how many UNCACHED sessions one run distills (0 =
 	// unlimited). Paired with newestFirst it is "distill the N newest sessions
 	// that still need it", the token budget for a backfill pass; the remaining
@@ -663,6 +668,15 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	skipped := false
 	err = withDistillPassLock(storage.BrainDir, func() {
 		skipped = true
+		// Tell the CALLER, not just the terminal. A skipped pass spends
+		// nothing, and a supervised watcher that cannot tell "done" from
+		// "someone else was holding the lock" burns its whole --distill-every
+		// window on a no-op and logs "spent tokens" while doing it — which is
+		// exactly what `setup` produces, since it spawns the hours-long
+		// detached backfill and installs a watcher that ticks immediately.
+		if distillOpts.onPassSkipped != nil {
+			distillOpts.onPassSkipped()
+		}
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"distill: another distill pass already holds %s for this brain; skipping so the same sessions are not distilled twice\n",
 			filepath.Join(storage.BrainDir, brainLockDirName, brainDistillLockName))
@@ -969,6 +983,20 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// same.) A --max-sessions deferral carries nothing when the session
 			// was never distilled, which is exactly right: it stays uncached and
 			// the next run picks it up.
+			//
+			// EXCEPT under --force. A forced pass drops every distilled fact on
+			// each branch it visits (see ensureBranch), and a session deferred by
+			// --max-sessions `continue`s before ensureBranch — so its facts can
+			// already have been deleted by a SIBLING session on the same branch
+			// while its fingerprint says "distilled". Carrying that entry marks
+			// the session done forever: its facts are gone, no later run will
+			// re-derive them, and `status` counts it as distilled because it
+			// counts cache keys. --session + --force is rejected outright for the
+			// same reason; this pair needed the same guard. Dropping the entry
+			// costs at most one re-distill of a session whose facts survived.
+			if distillOpts.force && ps.deferred {
+				continue
+			}
 			if prev, ok := prevCache.Sessions[distillSessionCacheKey(branch, session.SessionID)]; ok {
 				newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = prev
 			} else if prev, ok := prevCache.Sessions[session.SessionID]; ok {

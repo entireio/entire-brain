@@ -217,13 +217,24 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	manifest, _ := loadBrainManifest(brainDir)
 	needSeed := outputExplicit || refreshOpts.seed.force
+	// seedProbeErr is a freshness check that could not RUN — `git rev-parse
+	// HEAD` failing on an unborn branch, an interrupted git state, or git
+	// missing from a daemon's PATH. Returning it raw punched a hole straight
+	// through the never-abort contract this best-effort mode exists to keep
+	// (setup.go's instant phase): the phase died before reporting a single
+	// component, so instant.json was never written, `status` and `doctor` could
+	// not name the reason, and the workspace, the daemon and the backfill were
+	// all skipped. It is a failed SEED source, so it is reported as one.
+	var seedProbeErr error
 	if !needSeed {
-		needSeed, err = seedRefreshNeeded(ctx, opts, repoDir, manifest, refreshOpts.seed.worktree)
-		if err != nil {
-			return err
+		needSeed, seedProbeErr = seedRefreshNeeded(ctx, opts, repoDir, manifest, refreshOpts.seed.worktree)
+		if seedProbeErr != nil {
+			// Freshness unknown: leave the existing seed alone rather than
+			// rebuilding one on the strength of a check that did not run.
+			needSeed = false
 		}
 	}
-	if exportErr != nil && (manifest == nil || manifest.Sources == nil) {
+	if exportErr != nil && (manifest == nil || manifest.Sources == nil) && seedProbeErr == nil {
 		needSeed = true
 	}
 	// The sessions component is reported exactly once, here, where the export
@@ -244,7 +255,13 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		updateExportTask("export sessions: unavailable, using seed baseline")
 	}
 	finishExportTask(nil)
-	if needSeed {
+	switch {
+	case seedProbeErr != nil:
+		progress.Skip("seed baseline: freshness unknown (" + seedProbeErr.Error() + ")")
+		if stage(brainComponentSeed, seedProbeErr) {
+			return seedProbeErr
+		}
+	case needSeed:
 		seedTask := progress.Begin("seed baseline")
 		seedCmd := &cobra.Command{Use: "seed"}
 		seedCmd.SetOut(io.Discard)
@@ -269,7 +286,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			seedTask.Finish(nil)
 			stage(brainComponentSeed, nil)
 		}
-	} else {
+	default:
 		progress.Skip(refreshSeedLabel(manifest))
 		stage(brainComponentSeed, nil)
 	}

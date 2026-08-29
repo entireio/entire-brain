@@ -150,7 +150,7 @@ entire brain setup --uninstall-daemon  # stop and remove the watcher
 |---|---|---|---|
 | 1. instant core (sessions, semantic index, seed, docs, history) | yes, seconds | **no** | — |
 | 2. fact backfill (distill past sessions, newest first) | no, detached | **yes** | `--backfill-budget` (default 25 sessions per pass), the distill cache |
-| 3. watcher daemon (launchd agent / systemd user unit) | no | **yes**, per window | `--distill-every` (default 24h) per repo, the watch cursor |
+| 3. watcher daemon (launchd agent / systemd user unit) | no | **yes**, per window | `--distill-every` (default 24h) per repo, the watch cursor, and `--backfill-budget` sessions per pass |
 
 **This spends money, and it keeps spending.** Setup is not a one-off build: it
 installs a background service whose gated step calls an agent. Four gates bound
@@ -161,7 +161,11 @@ it, and none of them is a quota you have to remember:
   prints what the cap did; `--backfill-budget 0` explicitly means "the whole
   corpus in one spend".
 - `--distill-every` (default 24h) plus each repo's persisted watch cursor allow
-  **one** gated agent run per repo per window, and survive restarts.
+  **one** gated agent run per repo per window, and survive restarts. That bounds
+  how *often* the daemon spends; `--backfill-budget` bounds how *much* each
+  spend costs — setup installs the watcher with the same per-pass session cap it
+  gave the backfill, so a window can never quietly distill the whole remaining
+  corpus.
 - The distill cache means a session is never distilled twice, across every entry
   point.
 - `--model` / `--effort` keep each call cheap; the daemon inherits whatever the
@@ -202,7 +206,9 @@ entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort l
 ```
 
 `--distill-every` plus the persisted watch cursor are the durable spend guard:
-one gated agent run per repo per window, across restarts. `--budget` is a
+one gated agent run per repo per window, across restarts. `--max-sessions` caps
+how many not-yet-distilled sessions ONE gated pass processes (0 = no cap), so
+the frequency guard and the volume guard are separate knobs. `--budget` is a
 different, weaker thing — it counts gated runs for the life of the **process**
 and never resets, so on a long-lived daemon `--budget 1` means one run *ever*,
 not one per window. Use it only for a bounded foreground run.

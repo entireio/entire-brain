@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,9 +39,16 @@ type watchCommandOptions struct {
 	distillEvery     time.Duration
 	distillAgent     string
 	distillJobs      int
-	seedAgent        string
-	model            string
-	effort           string
+	// distillMaxSessions caps how many NOT-YET-DISTILLED sessions one gated
+	// pass processes (0 = no cap). --distill-every and the persisted cursor
+	// bound how OFTEN the daemon spends; this is the only thing that bounds how
+	// MUCH one spend costs. Without it a supervised watcher's first gated tick
+	// distills the entire remaining corpus of every repo in the workspace —
+	// exactly the spend `setup` told the user it had capped at 25.
+	distillMaxSessions int
+	seedAgent          string
+	model              string
+	effort             string
 	// budget caps gated agent runs for the life of THIS PROCESS (distill + seed;
 	// each spends tokens); 0 = unlimited. It is not window-scoped and never
 	// resets while the process lives, which makes it the wrong guard for a
@@ -112,6 +120,7 @@ func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
 	cmd.Flags().StringVar(&w.distillAgent, "agent", w.distillAgent, "Agent for the distill step (used only with --distill)")
 	cmd.Flags().IntVar(&w.distillJobs, "jobs", w.distillJobs, "Parallel distill extraction jobs when --distill is enabled; reconciliation and writes remain deterministic")
+	cmd.Flags().IntVar(&w.distillMaxSessions, "max-sessions", w.distillMaxSessions, "Cap how many not-yet-distilled sessions ONE gated distill pass processes (0 = no cap). --distill-every bounds how often the daemon spends; this bounds how much each spend costs")
 	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
 	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
@@ -304,12 +313,39 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		}
 	}
 	if w.distill {
-		if err := steps.distill(ctx); err != nil {
+		switch err := steps.distill(ctx); {
+		case errors.Is(err, errDistillPassBusy):
+			// Nothing was spent, so nothing may be charged. Hand the window
+			// back instead of logging "spent tokens" and going quiet until the
+			// next one — otherwise a watcher installed beside `setup`'s
+			// hours-long backfill loses its first window (and, if the backfill
+			// outlives it, every window) to a pass that never ran.
+			releaseWatchAgentSpend(cursorPath, cursor.LastAgentSpendAt, agentCalls)
+			fmt.Fprintln(out, "[watch] distill skipped: another pass holds this brain; the spend window was NOT consumed")
+		case err != nil:
 			fmt.Fprintf(out, "[watch] distill failed: %v\n", err)
-		} else {
+		default:
 			fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
 		}
 	}
+}
+
+// releaseWatchAgentSpend gives back a window reserved by reserveWatchAgentSpend
+// when the gated step turned out to do nothing at all. previous is the
+// LastAgentSpendAt read at the top of this tick, so the cursor lands exactly
+// where it was; the budget counter is decremented for the same reason. Failures
+// are deliberately silent: the worst case is the pre-existing behaviour (a
+// window charged for a no-op), and a watcher must never die on cursor
+// bookkeeping.
+func releaseWatchAgentSpend(cursorPath string, previous time.Time, agentCalls *int) {
+	_ = withWatchCursorLock(cursorPath, func() error {
+		cursor := loadWatchCursor(cursorPath)
+		cursor.LastAgentSpendAt = previous
+		if *agentCalls > 0 {
+			*agentCalls--
+		}
+		return saveWatchCursor(cursorPath, cursor)
+	})
 }
 
 // agentWorkEnabled reports whether any token-spending step is turned on.
@@ -571,19 +607,41 @@ func watchSeed(ctx context.Context, cmd *cobra.Command, opts Options, w watchCom
 	return runSeed(ctx, sub, opts, seedOpts, repoDir)
 }
 
+// errDistillPassBusy reports that the gated distill did NOTHING because another
+// process already held the brain's distill pass lock. `distill` itself treats
+// that as success — someone else is doing the work — but the watcher must not:
+// it had already reserved the --distill-every window, so a silent success burned
+// a whole window (24h by default) on a no-op and logged "spent tokens". `setup`
+// creates that collision by design, spawning an hours-long detached backfill and
+// installing a watcher that ticks immediately after.
+var errDistillPassBusy = errors.New("another distill pass holds this brain")
+
 func watchDistill(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {
 	distillOpts := watchDistillOptions(w)
+	busy := false
+	distillOpts.onPassSkipped = func() { busy = true }
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())
 	sub.SetErr(cmd.ErrOrStderr())
-	return runDistill(ctx, sub, opts, distillOpts, repoDir)
+	if err := runDistill(ctx, sub, opts, distillOpts, repoDir); err != nil {
+		return err
+	}
+	if busy {
+		return errDistillPassBusy
+	}
+	return nil
 }
 
 func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 	jobs := w.distillJobs
 	if jobs <= 0 {
 		jobs = 1
+	}
+	// A negative cap is a typo, not "unlimited". Only an explicit 0 means that.
+	maxSessions := w.distillMaxSessions
+	if maxSessions < 0 {
+		maxSessions = 0
 	}
 	return distillCommandOptions{
 		agent:               w.distillAgent,
@@ -592,7 +650,14 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		timeout:             defaultDistillTimeout,
 		maxChunkBytes:       defaultDistillChunkSize,
 		confidenceThreshold: defaultFactConfidenceThreshold,
-		jobs:                jobs,
+		// The per-pass VOLUME cap. A capped pass is ordered newest-first,
+		// matching what `setup` says it did and what a reader wants first; the
+		// deferred remainder stays UNCACHED, so the next window picks it up
+		// rather than it being skipped forever. Ordering is left alone when
+		// there is no cap, so an uncapped `watch --distill` is unchanged.
+		maxSessions: maxSessions,
+		newestFirst: maxSessions > 0,
+		jobs:        jobs,
 		// concurrency is what the distill pipeline (and runDistill's guard)
 		// actually reads; --jobs is only its compatibility alias. Leaving it at
 		// the zero value made every gated distill the watcher ever attempted
