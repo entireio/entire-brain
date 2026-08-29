@@ -81,10 +81,18 @@ ends up measuring its parser.
     two vocabularies differ, and the plan reports per-backend cells anyway. What
     is compared is the WITHIN-PAIR, WITHIN-BACKEND arm delta.
 
-  NO-EDIT SESSIONS: a session that never edits has no cutoff, so ALL of its
-  locate calls count and `no_edit` is set True. Such sessions are reported
-  separately and are dropped by the standard pair gate anyway (empty patch), but
-  the metric is still defined so the drop is auditable rather than a crash.
+  NO-EDIT SESSIONS: a session that never emits an EDIT event has no cutoff, so
+  ALL of its locate calls count and `no_edit` is set True. THIS IS NOT A RARE
+  CASE AND IT IS NOT DROPPED. An edit made through the shell -- `sed -i`, a
+  heredoc, `cat >` -- is not an EDIT event on either backend (see the bullet
+  above) and still produces a NON-EMPTY PATCH, so such a session passes the
+  pre-registered gate (usd>0 + non-empty patch) and enters the primary metric
+  with a WIDER horizon than a session that used the edit tool. Two streams with
+  identical exploration measure 4 and 3 locate calls purely because of the edit
+  modality. The inflation lands on whichever arm shell-edits more, so it is a
+  real confound, not a rounding detail. report.py counts these cells per arm,
+  warns, and publishes `headline_excluding_no_edit` beside the headline; the
+  gate itself is pre-registered and is NOT changed here.
 
   RATIOS are formed on (count + 1) so that a 0-locate session is finite and a
   pair with a 0 denominator cannot explode the geometric mean.
