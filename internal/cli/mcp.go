@@ -412,8 +412,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_refresh",
-			"description": "Refresh bounded code-derived Brain sources and return status JSON. Includes current worktree content by default and never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
-			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content (default true; set false for committed HEAD only)"), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call (prefer brain_index_repository for large repositories)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
+			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, so use brain_index_repository with worktree=true when you need a dirty semantic snapshot. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the semantic index, which always builds from committed HEAD."), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
 			"name":        "brain_brief",
@@ -493,8 +493,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_repository",
-			"description": "Build or refresh the local semantic index for a repository path. Local-only; does not publish artifacts.",
-			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: current repo)"), "profile": stringArg("profile", "Provider profile: full, fast, or syntax-only"), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
+			"description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set.",
+			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: the bound repo). A relative path resolves inside the bound repository root, not the working directory; a path outside that root is refused unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set."), "profile": stringArg("profile", "Semantic provider snapshot profile (e.g. full, syntax-only), forwarded to the provider unchanged; empty uses the provider default."), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
 		},
 		{
 			"name":        "brain_list_projects",
@@ -665,33 +665,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, details: details, compact: true, failOn: semanticAuditFailOnNone}, target)
 	case "brain_refresh":
-		worktree := true
-		if _, provided := params.Arguments["worktree"]; provided {
-			worktree, err = mcpBool(params.Arguments, "worktree")
-			if err != nil {
-				break
-			}
-		}
-		force, boolErr := mcpBool(params.Arguments, "force")
-		if boolErr != nil {
-			err = boolErr
+		refreshOpts, refreshErr := mcpRefreshOptions(params.Arguments)
+		if refreshErr != nil {
+			err = refreshErr
 			break
 		}
-		semantic, boolErr := mcpBool(params.Arguments, "semantic")
-		if boolErr != nil {
-			err = boolErr
-			break
-		}
-		refreshOpts := defaultRefreshCommandOptions()
-		refreshOpts.force = force
-		refreshOpts.seed.force = force
-		refreshOpts.graphBinary = mcpGraphBinary()
-		refreshOpts.skipSessions = true
-		refreshOpts.historyIndex = false
-		refreshOpts.semantic = semantic
-		refreshOpts.statusAfter = false
-		refreshOpts.seed.agent = "none"
-		refreshOpts.seed.worktree = worktree
 		refreshCmd := &cobra.Command{Use: "brain_refresh"}
 		refreshCmd.SetOut(io.Discard)
 		refreshCmd.SetErr(io.Discard)
@@ -1080,6 +1058,44 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		return nil, err
 	}
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": out.String()}}}, nil
+}
+
+// mcpRefreshOptions builds the refresh options for the brain_refresh tool.
+//
+// Extracted so the tool's declared contract is testable directly: the
+// "worktree" argument sets seed.worktree only. semanticWorktree is deliberately
+// left false, because a dirty semantic snapshot is an explicit `brain index
+// --worktree` operation (see the refresh command's own RunE). brain_refresh's
+// description must therefore not promise that worktree content reaches the
+// semantic index -- it does not.
+func mcpRefreshOptions(args map[string]any) (refreshCommandOptions, error) {
+	worktree := true
+	if _, provided := args["worktree"]; provided {
+		parsed, err := mcpBool(args, "worktree")
+		if err != nil {
+			return refreshCommandOptions{}, err
+		}
+		worktree = parsed
+	}
+	force, err := mcpBool(args, "force")
+	if err != nil {
+		return refreshCommandOptions{}, err
+	}
+	semantic, err := mcpBool(args, "semantic")
+	if err != nil {
+		return refreshCommandOptions{}, err
+	}
+	refreshOpts := defaultRefreshCommandOptions()
+	refreshOpts.force = force
+	refreshOpts.seed.force = force
+	refreshOpts.graphBinary = mcpGraphBinary()
+	refreshOpts.skipSessions = true
+	refreshOpts.historyIndex = false
+	refreshOpts.semantic = semantic
+	refreshOpts.statusAfter = false
+	refreshOpts.seed.agent = "none"
+	refreshOpts.seed.worktree = worktree
+	return refreshOpts, nil
 }
 
 func requireMCPQuery(query string) error {
