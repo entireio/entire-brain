@@ -1389,6 +1389,16 @@ func workspaceIncludesBoundRepo(manifest workspaceManifest, boundKey, repoRoot s
 // samePathOnDisk compares two paths after making them absolute and resolving
 // symlinks, so /var and /private/var (or a checkout reached through a symlinked
 // parent) are recognized as the same directory.
+//
+// The final comparison goes through filepath.Rel rather than string equality,
+// because string equality is not the host's rule. Windows compares paths
+// case-insensitively; symlink resolution only hides that while both paths exist
+// on disk, and a manifest's local path hint routinely names a checkout that has
+// been moved or not cloned yet. For such a path only Abs runs, which preserves
+// case, so `C:\dev\cli` and `C:\Dev\CLI` -- the same path on Windows -- compared
+// unequal and the bound repository was not recognized as a member of its own
+// workspace. filepath.Rel folds case on Windows and only on Windows, so this
+// applies each host's own rule.
 func samePathOnDisk(a, b string) bool {
 	resolve := func(p string) string {
 		abs, err := filepath.Abs(p)
@@ -1400,7 +1410,8 @@ func samePathOnDisk(a, b string) bool {
 		}
 		return abs
 	}
-	return resolve(a) == resolve(b)
+	rel, err := filepath.Rel(resolve(a), resolve(b))
+	return err == nil && rel == "."
 }
 
 // workspaceScopeRoot is the directory that bounds an MCP workspace fan-out: the

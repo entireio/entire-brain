@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -134,9 +135,85 @@ func TestWorkspaceScopeRootWidensToTheParent(t *testing.T) {
 		t.Fatalf("workspaceScopeRoot(%q) = %q, want the parent %q", repo, got, want)
 	}
 
-	root := string(filepath.Separator)
+	// The filesystem root is host-shaped. On POSIX a bare separator IS the
+	// root; on Windows it is only drive-RELATIVE ("\" means "the root of the
+	// current drive"), so it must be absolutized to the volume root ("D:\")
+	// before the no-widening rule can be asserted against it. Comparing the
+	// bare separator to the result is what made this assertion fail on Windows
+	// even though workspaceScopeRoot behaved correctly there.
+	root, err := filepath.Abs(string(filepath.Separator))
+	if err != nil {
+		t.Fatalf("resolve the filesystem root: %v", err)
+	}
 	if got := workspaceScopeRoot(root); got != root {
 		t.Fatalf("workspaceScopeRoot(%q) = %q; a repo at the filesystem root must not widen", root, got)
+	}
+
+	// The case the guard actually exists for: a checkout one level below the
+	// root. Widening by one would hand the whole volume to the fan-out, so this
+	// path must stay its own scope. Plain widening returns the root here, which
+	// is why this assertion -- not the root itself -- is what pins the rule.
+	atRoot := filepath.Join(root, "cli")
+	if got := workspaceScopeRoot(atRoot); got != atRoot {
+		t.Fatalf("workspaceScopeRoot(%q) = %q; widening to %q would put the whole volume in scope", atRoot, got, root)
+	}
+}
+
+// filepathCaseInsensitiveHost mirrors path/filepath's own rule: it folds case
+// when comparing path elements on Windows and compares them byte-for-byte
+// everywhere else. It is not a switch that skips a test -- every row of the
+// table below runs on every host; it only records what "the same path" means
+// on this one.
+var filepathCaseInsensitiveHost = runtime.GOOS == "windows"
+
+// TestSamePathOnDiskUsesHostPathSemantics pins the comparison that decides
+// whether the bound repository is a member of a workspace by path. Getting it
+// wrong is not cosmetic: a false negative refuses a legitimate workspace, and a
+// false positive is the confused-deputy hole the membership check exists to
+// close. The table runs on every host; only the case row's expectation is
+// host-defined, because path case-sensitivity itself is.
+func TestSamePathOnDiskUsesHostPathSemantics(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	resolved := dir
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		resolved = r
+	}
+	sibling := filepath.Join(filepath.Dir(resolved), "not-the-same")
+	// A hint in a manifest can name a checkout that is not on this disk (moved,
+	// not cloned yet). Symlink resolution cannot canonicalize such a path, so
+	// this is where a raw string comparison and the host's real path rules come
+	// apart -- and it is exactly the spelling difference Windows produces.
+	gone := filepath.Join(resolved, "moved-away", "cli")
+
+	for _, tc := range []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"identical", resolved, resolved, true},
+		{"trailing separator", resolved, resolved + string(filepath.Separator), true},
+		{"redundant dot segment", resolved, filepath.Join(resolved, ".", "."), true},
+		{"round trip through a child", resolved, filepath.Join(resolved, "child", ".."), true},
+		{"forward slashes", resolved, filepath.ToSlash(resolved), true},
+		{"different directory", resolved, sibling, false},
+		{"child is not the same directory", resolved, filepath.Join(resolved, "child"), false},
+		{"parent is not the same directory", resolved, filepath.Dir(resolved), false},
+		{"absent path, trailing separator", gone, gone + string(filepath.Separator), true},
+		{"absent path, different directory", gone, filepath.Join(resolved, "moved-away", "entiredb"), false},
+		// Windows compares paths case-insensitively and POSIX does not, so the
+		// rule here is the host's own rule, applied consistently.
+		{"different case", resolved, strings.ToUpper(resolved), filepathCaseInsensitiveHost},
+		{"absent path, different case", gone, strings.ToUpper(gone), filepathCaseInsensitiveHost},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := samePathOnDisk(tc.a, tc.b); got != tc.want {
+				t.Fatalf("samePathOnDisk(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+			if got := samePathOnDisk(tc.b, tc.a); got != tc.want {
+				t.Fatalf("samePathOnDisk(%q, %q) = %v, want %v (comparison must be symmetric)", tc.b, tc.a, got, tc.want)
+			}
+		})
 	}
 }
 
