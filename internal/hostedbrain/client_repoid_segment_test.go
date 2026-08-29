@@ -9,6 +9,8 @@ import (
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/ashtom/entire-brain/internal/repoid"
 )
 
 // TestRPCRejectsRepoIDThatIsNotOneSafeSegment is the assertion url.PathEscape alone
@@ -66,8 +68,8 @@ func TestRPCRejectsRepoIDThatIsNotOneSafeSegment(t *testing.T) {
 			if err == nil {
 				t.Fatalf("repo id %q was accepted; want a refusal before any request", repoID)
 			}
-			if !errors.Is(err, ErrInvalidRepoID) {
-				t.Errorf("repo id %q: error = %v; want it to wrap ErrInvalidRepoID", repoID, err)
+			if !errors.Is(err, repoid.ErrInvalid) {
+				t.Errorf("repo id %q: error = %v; want it to wrap repoid.ErrInvalid", repoID, err)
 			}
 			if sent != 0 {
 				t.Errorf("repo id %q: %d request(s) reached the server; want the bearer token to never leave the process", repoID, sent)

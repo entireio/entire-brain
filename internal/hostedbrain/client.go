@@ -28,6 +28,7 @@ import (
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
 	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/ashtom/entire-brain/internal/repoid"
 )
 
 // mcpProtocolVersion is the MCP protocol version the client requests on initialize.
@@ -152,11 +153,12 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	// segment rewrites the target and sends the caller's bearer token to an
 	// endpoint it never asked for. Escaping alone is NOT enough: "." and ".." are
 	// unreserved, so url.PathEscape("..") == "..", and "/api/v1/repos/../brain/mcp"
-	// collapses to /api/v1/brain/mcp at any normalizing hop. validRepoID states the
-	// rule instead; see repoid.go. Refuse before the request exists, so a bad id
-	// costs zero egress.
-	if err := validRepoID(repoID); err != nil {
-		return nil, fmt.Errorf("%s: %w", method, err)
+	// collapses to /api/v1/brain/mcp at any normalizing hop. repoid.Validate states
+	// the rule instead, and it is the SAME rule the fact-set transport and `brain
+	// publish` apply — one implementation in internal/repoid, not three copies.
+	// Refuse before the request exists, so a bad id costs zero egress.
+	if err := repoid.Validate(repoID); err != nil {
+		return nil, fmt.Errorf("hostedbrain: %s: %w", method, err)
 	}
 	endpoint := base + "/api/v1/repos/" + repoID + "/brain/mcp"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
