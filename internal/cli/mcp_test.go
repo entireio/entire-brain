@@ -2004,3 +2004,52 @@ func TestMCPMultiConceptQuery(t *testing.T) {
 		t.Fatalf("concepts without conversation source must error: %+v", responses[1])
 	}
 }
+
+// TestMCPPingReturnsEmptyResult pins MCP's ping utility: a host sends it to
+// decide whether the connection is still alive, and the receiver must answer
+// with an empty result. A JSON-RPC error is not an answer — it reports an
+// unhealthy server to a host that is only asking whether the pipe is open.
+func TestMCPPingReturnsEmptyResult(t *testing.T) {
+	t.Parallel()
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"ping"}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 2 {
+		t.Fatalf("expected one response per ping, got %d: %q", len(responses), out.String())
+	}
+	for i, response := range responses {
+		if response["error"] != nil {
+			t.Fatalf("ping %d answered with an error: %v", i, response["error"])
+		}
+		result, ok := response["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("ping %d result = %#v, want an object", i, response["result"])
+		}
+		if len(result) != 0 {
+			t.Fatalf("ping %d result = %v, want an empty object", i, result)
+		}
+	}
+}
+
+// TestMCPUnknownMethodStillReportsMethodNotFound keeps ping's answer from being
+// widened into a blanket success for anything the server does not implement.
+func TestMCPUnknownMethodStillReportsMethodNotFound(t *testing.T) {
+	t.Parallel()
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 1 {
+		t.Fatalf("expected one response, got %d", len(responses))
+	}
+	errObj, ok := responses[0]["error"].(map[string]any)
+	if !ok || errObj["code"].(float64) != -32601 {
+		t.Fatalf("unimplemented method should stay -32601, got %v", responses[0])
+	}
+}

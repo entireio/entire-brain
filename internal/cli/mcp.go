@@ -298,6 +298,13 @@ var dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage)
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "entire-brain", "version": opts.Version},
 		}
+	case "ping":
+		// MCP's ping utility is how a host decides whether this connection is
+		// still alive; the receiver must answer with an empty result. Falling
+		// through to "method not found" hands the host a failed health check on a
+		// server that is in fact healthy, and a host that acts on that tears the
+		// stdio session down mid-task.
+		response.Result = map[string]any{}
 	case "tools/list":
 		response.Result = map[string]any{"tools": mcpToolDefinitions()}
 	case "tools/call":
