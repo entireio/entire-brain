@@ -2004,3 +2004,39 @@ func TestMCPMultiConceptQuery(t *testing.T) {
 		t.Fatalf("concepts without conversation source must error: %+v", responses[1])
 	}
 }
+
+// TestMCPBrainIndexRepositoryHonorsTimeout pins the MCP deadline on the one tool
+// that walks the whole repository through an external provider. runMCP serves
+// one request at a time, so an unbounded index holds the only pipe open and the
+// server answers nothing else — measured at 40s on a 40k-symbol repository, with
+// no ceiling on a larger one. brain_refresh already carries this bound; indexing
+// is the longer of the two.
+func TestMCPBrainIndexRepositoryHonorsTimeout(t *testing.T) {
+	oldTimeout := mcpIndexTimeout
+	mcpIndexTimeout = time.Millisecond
+	t.Cleanup(func() { mcpIndexTimeout = oldTimeout })
+
+	blocking := commandRunnerFunc(func(ctx context.Context, _ string, _ string, _ ...string) ([]byte, []byte, error) {
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	})
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_index_repository","arguments":{}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
+	var out bytes.Buffer
+	if err := runMCP(context.Background(), strings.NewReader(input), &out, Options{Version: "test-version", Runner: blocking}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 2 {
+		t.Fatalf("expected the timeout plus the next request, got %d", len(responses))
+	}
+	errObj, ok := responses[0]["error"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "exceeded the 1ms MCP limit") {
+		t.Fatalf("timeout was not surfaced: %+v", responses[0])
+	}
+	// The point of the bound is that the pipe comes back, so assert the server
+	// went on to serve the request queued behind the index.
+	if responses[1]["result"] == nil {
+		t.Fatalf("server did not resume after the bounded index: %+v", responses[1])
+	}
+}

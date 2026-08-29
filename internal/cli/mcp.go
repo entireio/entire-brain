@@ -24,6 +24,16 @@ const maxMCPFrameBytes = 4 * 1024 * 1024
 
 var mcpRefreshTimeout = 60 * time.Second
 
+// mcpIndexTimeout bounds brain_index_repository for the same reason
+// mcpRefreshTimeout bounds brain_refresh, and to the same value: runMCP serves
+// one request at a time, so however long an indexing run takes is time the
+// server answers nothing at all — not another tool, not a host's liveness
+// check. Indexing is the one MCP tool that walks the whole repository through
+// an external provider, so it is the one that can hold the only pipe open for
+// minutes. Past the limit the caller is told to run the dedicated CLI command,
+// which has no such constraint.
+var mcpIndexTimeout = 60 * time.Second
+
 type mcpFrameMode string
 
 const (
@@ -727,7 +737,15 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = boolErr
 			break
 		}
-		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
+		indexCtx, cancelIndex := context.WithTimeout(ctx, mcpIndexTimeout)
+		defer cancelIndex()
+		err = runSemanticIndex(indexCtx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
+		if errors.Is(indexCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf(
+				"brain_index_repository exceeded the %s MCP limit; use the dedicated CLI index command",
+				mcpIndexTimeout,
+			)
+		}
 	case "brain_list_projects":
 		err = runMCPListProjects(cmd, opts)
 	case "brain_delete_project":
