@@ -188,10 +188,15 @@ class CodexAdapter(AgentAdapter):
         cmd.append(prompt)
         return cmd
 
-    def prepare_env(self, env: dict[str, str], out_dir: pathlib.Path) -> tuple[dict[str, str], dict]:
+    def prepare_env(self, env: dict[str, str], out_dir: pathlib.Path,
+                    state_dir: pathlib.Path | None = None) -> tuple[dict[str, str], dict]:
+        """CODEX_HOME reaches the model's shell, so its VALUE is an arm-visible
+        cue: `<results>/<pair_id>/<arm>/codex-home` prints the arm name, the
+        pair id and a path into the results tree on a bare `env`. `state_dir`
+        lets a session-B caller supply an arm-neutral path instead."""
         env = dict(env)
         azure = self.azure_settings(env)
-        codex_home = pathlib.Path(out_dir) / "codex-home"
+        codex_home = pathlib.Path(state_dir) if state_dir else pathlib.Path(out_dir) / "codex-home"
         codex_home.mkdir(parents=True, exist_ok=True)
         env["CODEX_HOME"] = str(codex_home)
         # run.py's sanitizer runs BEFORE this and strips harness variables; the

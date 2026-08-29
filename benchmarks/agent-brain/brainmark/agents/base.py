@@ -281,11 +281,20 @@ class AgentAdapter(abc.ABC):
         can log `cmd[:-1] + ["<PROMPT>"]` without leaking the packet."""
 
     @abc.abstractmethod
-    def prepare_env(self, env: dict[str, str], out_dir: pathlib.Path) -> tuple[dict[str, str], dict]:
+    def prepare_env(self, env: dict[str, str], out_dir: pathlib.Path,
+                    state_dir: pathlib.Path | None = None) -> tuple[dict[str, str], dict]:
         """Backend-specific env on top of the caller's sanitized env.
 
         Returns (env, provenance). The provenance must be safe to write to
         meta.json: run it through redact_env() for anything credential-shaped.
+
+        `state_dir` is where the backend puts its own home (CODEX_HOME /
+        CLAUDE_CONFIG_DIR). The CALLER chooses it because the choice is a
+        fairness property, not a backend detail: those variables reach the
+        model's shell, so a session-B caller must hand over an arm-neutral,
+        opaque path (run_b.agent_state_path) rather than let it default into
+        `<results>/<pair_id>/<arm>/`. `None` keeps the per-out_dir default,
+        which is what session A -- one directory per PAIR, no arms -- wants.
         """
 
     @abc.abstractmethod
@@ -306,6 +315,7 @@ class AgentAdapter(abc.ABC):
         env: dict[str, str] | None = None,
         patch_collector: Callable[[pathlib.Path, pathlib.Path], int] | None = None,
         sandbox_wrapper: list[str] | None = None,
+        state_dir: pathlib.Path | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Spawn one session and return the normalized result.
@@ -322,7 +332,7 @@ class AgentAdapter(abc.ABC):
         out_json_path = out_dir / "cc_out.json"
         err_path = out_dir / "cc_err.log"
 
-        child_env, env_prov = self.prepare_env(dict(env or os.environ), out_dir)
+        child_env, env_prov = self.prepare_env(dict(env or os.environ), out_dir, state_dir)
         # The command is built from the CHILD env, not the parent's: the codex
         # adapter reads its Azure endpoint from there, and reading it from
         # os.environ instead would let an unsanitized variable pick the provider.
