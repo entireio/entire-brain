@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +21,7 @@ import (
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/brainwire"
 	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/ashtom/entire-brain/internal/repoid"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
@@ -181,6 +181,12 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	repoID := publishFlagOrEnv(publishOpts.repoID, envRepoID)
 	if repoID == "" {
 		return fmt.Errorf("publish: target repo id is required; set --repo-id or %s", envRepoID)
+	}
+	// The id is concatenated into the publish target, so it must be exactly one safe
+	// path segment. Checked here, alongside the URL floor and before any git/disk
+	// work, so a malformed target refuses with the whole brain still on disk.
+	if err := repoid.Validate(repoID); err != nil {
+		return fmt.Errorf("publish: %w", err)
 	}
 	baseURL := publishFlagOrEnv(publishOpts.apiURL, envAPIBaseURL)
 	if baseURL == "" {
@@ -561,7 +567,19 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	if err != nil {
 		return publishResult{}, fmt.Errorf("publish: encode request: %w", err)
 	}
-	endpoint := strings.TrimRight(baseURL, "/") + publishAPIPathPrefix + url.PathEscape(repoID) + publishAPIPathSuffix
+	// The chokepoint check, not a duplicate of the one in runPublish: this is the
+	// only function that turns a repo id into a network target, and it is reachable
+	// from tests and any future caller that did not come through the command. An id
+	// that is not one bare path segment re-addresses the request — url.PathEscape
+	// cannot prevent that, since "." and ".." are unreserved and survive escaping, so
+	// ".." here yields /api/v1/repos/../brain/artifacts, which normalizes to
+	// /api/v1/brain/artifacts with the caller's bearer token and the whole brain
+	// bundle attached. Refuse before http.NewRequest exists.
+	if err := repoid.Validate(repoID); err != nil {
+		return publishResult{}, fmt.Errorf("publish: %w", err)
+	}
+	// Validated ids equal their own escaped form, so the id is concatenated raw.
+	endpoint := strings.TrimRight(baseURL, "/") + publishAPIPathPrefix + repoID + publishAPIPathSuffix
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {

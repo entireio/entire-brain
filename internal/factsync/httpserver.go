@@ -15,6 +15,7 @@ import (
 
 	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/httpx"
+	"github.com/ashtom/entire-brain/internal/repoid"
 )
 
 // HTTPServer is the real Server adapter: it drives entire-api's fact-set sync
@@ -193,6 +194,31 @@ func isTransientLocalDialError(err error) bool {
 	return strings.Contains(opErr.Err.Error(), "assign requested address")
 }
 
+// repoBasePath is the single point at which a repo id becomes part of a request
+// target in this package. Every fact-set and proposal endpoint below is built on top
+// of it, so the segment rule is applied once rather than once per endpoint.
+//
+// The id is interpolated by concatenation, so it has to be exactly one safe path
+// segment: a "/", a "?" or a dot segment would otherwise re-address the request while
+// newRequest attaches the member's bearer token to it. Escaping does not achieve
+// that — "." and ".." are RFC 3986 unreserved, so url.PathEscape("..") == "..", and
+//
+//	/api/v1/repos/../brain/facts
+//
+// collapses at any normalizing hop to /api/v1/brain/facts, a route the caller never
+// asked for. repoid.Validate states the rule instead; because it also requires the id
+// to equal its own escaped form, the id is concatenated raw here — PathEscape would
+// be a no-op and hiding the check behind it is what made this look safe before.
+//
+// Returning an error (rather than a string) is deliberate: it forces every call site
+// to refuse BEFORE http.NewRequest exists, so a rejected id costs zero egress.
+func repoBasePath(repoID string) (string, error) {
+	if err := repoid.Validate(repoID); err != nil {
+		return "", fmt.Errorf("factsync: %w", err)
+	}
+	return "/api/v1/repos/" + repoID, nil
+}
+
 func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
 	// Scheme floor (apiurl.Validate) at the single request chokepoint of both the
 	// fact-set and the proposal-queue surfaces: the bearer token below and the
@@ -220,7 +246,11 @@ func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body i
 // found=false and nil plaintext; the data field is base64-decoded by encoding/json into
 // the []byte. Any non-200 is an error (the runner cannot merge against an unknown state).
 func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string, []byte, bool, error) {
-	path := fmt.Sprintf("/api/v1/repos/%s/brain/facts?branch=%s", url.PathEscape(repoID), url.QueryEscape(branch))
+	base, err := repoBasePath(repoID)
+	if err != nil {
+		return "", nil, false, err
+	}
+	path := base + "/brain/facts?branch=" + url.QueryEscape(branch)
 	req, err := h.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return "", nil, false, err
@@ -255,6 +285,10 @@ func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string
 // none of which the runner should paper over). The duplicated ref spellings
 // keep mixed-version entire-api / entire-brain rollouts compatible.
 func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string, plaintext []byte) (string, error) {
+	base, err := repoBasePath(repoID)
+	if err != nil {
+		return "", err
+	}
 	reqBody := struct {
 		Branch       string `json:"branch"`
 		OldRef       string `json:"oldRef"`
@@ -265,7 +299,8 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 	if err != nil {
 		return "", err
 	}
-	path := fmt.Sprintf("/api/v1/repos/%s/brain/facts/advance", url.PathEscape(repoID))
+
+	path := base + "/brain/facts/advance"
 	req, err := h.newRequest(ctx, http.MethodPost, path, bytes.NewReader(buf))
 	if err != nil {
 		return "", err

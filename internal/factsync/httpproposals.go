@@ -42,8 +42,19 @@ import (
 // filesystem layout even if a caller hands the client unsanitized records.
 
 // proposalsPath is the collection endpoint for a repo's open proposal set.
-func proposalsPath(repoID string) string {
-	return fmt.Sprintf("/api/v1/repos/%s/brain/facts/proposals", url.PathEscape(repoID))
+//
+// It returns an error rather than a string because the repo id is interpolated into
+// the target by concatenation, and repoBasePath refuses an id that is not exactly one
+// safe path segment (see its comment in httpserver.go for why escaping is not enough:
+// url.PathEscape("..") == ".." and ".../proposals" under a ".." repo id normalizes to
+// a different route, reached with the member's bearer token). Every proposal endpoint
+// goes through here, so the refusal happens before any request is built.
+func proposalsPath(repoID string) (string, error) {
+	base, err := repoBasePath(repoID)
+	if err != nil {
+		return "", err
+	}
+	return base + "/brain/facts/proposals", nil
 }
 
 // wireProposalSet is the list/get response envelope.
@@ -60,7 +71,11 @@ type wireProposalSet struct {
 // to review. Any non-200 is an error: the caller must not resolve against an unknown
 // open set.
 func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (ProposalSet, error) {
-	path := proposalsPath(repoID) + "?branch=" + url.QueryEscape(branch)
+	collection, err := proposalsPath(repoID)
+	if err != nil {
+		return ProposalSet{}, err
+	}
+	path := collection + "?branch=" + url.QueryEscape(branch)
 	req, err := h.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return ProposalSet{}, err
@@ -102,7 +117,11 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 // no proposal, is ErrProposalNotFound — the normal outcome when another member
 // already settled it.
 func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID string) (OpenProposal, error) {
-	path := proposalsPath(repoID) + "/" + url.PathEscape(proposalID) + "?branch=" + url.QueryEscape(branch)
+	collection, err := proposalsPath(repoID)
+	if err != nil {
+		return OpenProposal{}, err
+	}
+	path := collection + "/" + url.PathEscape(proposalID) + "?branch=" + url.QueryEscape(branch)
 	req, err := h.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return OpenProposal{}, err
@@ -145,6 +164,10 @@ type publishProposalsBody struct {
 // 412/409 → ErrConflict (another member changed the set first); a 200 reporting
 // changed=false → ErrNoChange, mirroring Advance's contract on the fact-set head.
 func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRef string, proposals []OpenProposal) (string, error) {
+	collection, err := proposalsPath(repoID)
+	if err != nil {
+		return "", err
+	}
 	body := publishProposalsBody{Branch: branch, OldRef: oldRef, Proposals: proposals}
 	if body.Proposals == nil {
 		body.Proposals = []OpenProposal{}
@@ -153,7 +176,7 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 	if err != nil {
 		return "", err
 	}
-	req, err := h.newRequest(ctx, http.MethodPost, proposalsPath(repoID), bytes.NewReader(encoded))
+	req, err := h.newRequest(ctx, http.MethodPost, collection, bytes.NewReader(encoded))
 	if err != nil {
 		return "", err
 	}
@@ -213,6 +236,13 @@ type resolveRequestBody struct {
 // over. changed=false is reported as-is (the caller keeps its refs); it is not an
 // error, because a re-pushed identical resolution is idempotent.
 func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalRequest) (ResolveProposalResponse, error) {
+	// Refuse a target that is not one safe path segment first, before the resolution
+	// is serialized at all: a resolution body carries the member's whole fact set, so
+	// the id that decides where it is POSTed has to be checked before it is built.
+	collection, err := proposalsPath(req.RepoID)
+	if err != nil {
+		return ResolveProposalResponse{}, err
+	}
 	// Redact local-only provenance coordinates before the facts leave this member —
 	// the same guarantee Sync makes on its merged blob (see egress.go).
 	var buf bytes.Buffer
@@ -249,7 +279,7 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 	if err != nil {
 		return ResolveProposalResponse{}, err
 	}
-	path := proposalsPath(req.RepoID) + "/" + url.PathEscape(req.ProposalID) + "/resolve"
+	path := collection + "/" + url.PathEscape(req.ProposalID) + "/resolve"
 	httpReq, err := h.newRequest(ctx, http.MethodPost, path, bytes.NewReader(encoded))
 	if err != nil {
 		return ResolveProposalResponse{}, err
