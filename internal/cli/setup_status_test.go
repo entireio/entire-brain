@@ -58,6 +58,18 @@ func TestBuildBrainOnboardingStatusReportsBackfillAndDaemon(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write backfill state: %v", err)
 	}
+	// A live pid is not on its own a live backfill — pids are reused, and a
+	// reboot hands the low ones straight back out. What makes this pid a
+	// RUNNING backfill is that a distill pass holds the pass lock, so take it
+	// for the duration of this test the way a real pass would.
+	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainLockDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	passLock, err := acquireFileLock(filepath.Join(f.storage.BrainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	if err != nil {
+		t.Fatalf("take the distill pass lock: %v", err)
+	}
+	defer func() { _ = passLock.Close() }()
 	if err := saveWatchCursor(filepath.Join(stateDir, "watch.json"), watchCursor{LastRefreshAt: setupTestNow.Add(-5 * time.Minute)}); err != nil {
 		t.Fatalf("save watch cursor: %v", err)
 	}
@@ -326,5 +338,38 @@ func TestRenderBrainOnboardingStatusDistinguishesHistoryFromHealth(t *testing.T)
 	}, setupTestNow)
 	if !strings.Contains(out.String(), "daemon: not installed (last watcher tick 4m0s ago)") {
 		t.Fatalf("a stale tick must read as history, not health:\n%s", out.String())
+	}
+}
+
+// `status` used to decide "backfill running" from a bare kill(pid, 0) on a
+// recorded pid. After a reboot that pid belongs to something else, so status
+// reported a backfill that did not exist — and `setup`'s re-entrancy guard, on
+// the same signal, refused to start a new one, forever, in silence.
+func TestStatusDoesNotReportAReusedPidAsARunningBackfill(t *testing.T) {
+	f := newSetupTestFixture(t, "s1", "s2")
+	f.markDistilled(t, "s1")
+	stateDir := filepath.Dir(f.storage.HeadPath)
+	if err := writeSetupBackfillState(stateDir, setupBackfillState{
+		SchemaVersion: setupBackfillStateVersion,
+		StartedAt:     setupTestNow.Add(-time.Minute),
+		// Alive, and emphatically NOT a distill pass: this is the test binary.
+		// That is exactly the shape a reused pid has.
+		PID:   os.Getpid(),
+		Agent: "codex",
+	}); err != nil {
+		t.Fatalf("write backfill state: %v", err)
+	}
+	manifest, err := loadBrainManifest(f.storage.BrainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+
+	onboarding := buildBrainOnboardingStatus(context.Background(), f.opts, f.storage, manifest, defaultSetupOptions())
+
+	if onboarding.Facts.Running {
+		t.Fatalf("a stale pid with no distill pass behind it must not be reported as a running backfill: %+v", onboarding.Facts)
+	}
+	if onboarding.Facts.Pending() != 1 {
+		t.Fatalf("the pending work is still pending and must still be reported: %+v", onboarding.Facts)
 	}
 }

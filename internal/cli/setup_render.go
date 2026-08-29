@@ -144,7 +144,7 @@ const setupSummaryLabelWidth = 11
 
 // renderSetupSummary prints the closing block: what this brain is, what each
 // phase did, how long it took, and what to run next.
-func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport, timings *setupTimings) {
+func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport, timings *setupTimings, watchPlan setupWatchPlan) {
 	headline := "Brain ready"
 	headlinePhase := tui.PhaseDone
 	if report.Instant.State == "degraded" {
@@ -190,6 +190,14 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	row("backfill", setupPhaseValue(render, report.Backfill, tui.PhaseBackfill, "running in the background"), phaseTiming(timings, "backfill"))
 	row("workspace", render.Mark(tui.MarkDone)+" "+render.PhasePaint(tui.PhaseDaemon, report.Workspace.Name), phaseTiming(timings, "workspace"))
 	row("daemon", setupDaemonValue(render, report.Daemon), phaseTiming(timings, "daemon"))
+	// What the ONE machine-wide watcher covers. Render-only: `setup --json` is a
+	// published contract and a new field in it is a breaking change, so this is
+	// derived here from the plan rather than added to setupReport.
+	if report.Daemon.Installed {
+		if coverage := describeWatchPlanCoverage(watchPlan); coverage != "" {
+			fmt.Fprintf(out, "  %-*s %s\n", setupSummaryLabelWidth, "", render.Dim(coverage))
+		}
+	}
 
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(out, "  %-*s %s %s\n", setupSummaryLabelWidth, "", render.Mark(tui.MarkFailed), render.PhasePaint(tui.PhaseSkipped, warning))

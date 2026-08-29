@@ -360,6 +360,12 @@ that way. It runs three phases:
   3. daemon    register the repo into a workspace and install ONE machine-wide
                watcher service (launchd on macOS, a systemd user unit on Linux)
                so freshness never depends on remembering to run anything.
+               ONE means one: the installed unit is identical for every repo and
+               every workspace, and each workspace's interval, distill cadence,
+               agent, model, effort and session cap live in a machine-level watch
+               plan the running watcher re-reads. Setting up a second repo adds a
+               row to that plan; it does not rewrite, restart or steal the
+               watcher the first repo is relying on.
 
 TOKEN SPEND: phases 2 and 3 call an agent. This is the first release in which
 the watcher's --distill step and the session-end hook's distill actually run
@@ -398,7 +404,7 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	cmd.Flags().IntVar(&setupOpts.backfillBudget, "backfill-budget", setupOpts.backfillBudget, "Cap sessions the background backfill distills in one pass, newest first (0 = explicitly unlimited: the WHOLE corpus in one spend)")
 	cmd.Flags().DurationVar(&setupOpts.interval, "interval", setupOpts.interval, "Daemon poll interval")
 	cmd.Flags().DurationVar(&setupOpts.distillEvery, "distill-every", setupOpts.distillEvery, "Minimum interval between the daemon's gated agent runs")
-	cmd.Flags().StringVar(&setupOpts.daemonName, "daemon-name", setupOpts.daemonName, "Service identity (launchd label / systemd unit stem); override to avoid clobbering an existing daemon")
+	cmd.Flags().StringVar(&setupOpts.daemonName, "daemon-name", setupOpts.daemonName, "RENAME the machine's single watcher (launchd label / systemd unit stem). It moves the watcher, it does not add a second one: the previous unit is retired first")
 	cmd.Flags().BoolVar(&setupOpts.json, "json", false, "Emit the setup report as JSON")
 	_ = cmd.Flags().MarkHidden("daemon-name")
 	return cmd
@@ -488,10 +494,21 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		return runSetupUninstall(ctx, cmd, setupOpts, steps, plan, planErr, report)
 	}
 
+	// The machine-level watch plan is the authority on which watcher is
+	// installed. The per-repo setup record only knows what THIS repo installed,
+	// so a second repo naming a different daemon used to install a SECOND
+	// watcher — two services, both ticking, both distilling — that no `status`
+	// and no `--uninstall-daemon` could see.
+	machinePlan, machinePlanErr := loadSetupWatchPlan(perRepo.Env)
+	if machinePlanErr != nil {
+		report.Warnings = append(report.Warnings, "machine watch plan unreadable: "+machinePlanErr.Error())
+	}
+
 	// Renaming the daemon must MOVE it, not fork it: without this the old
 	// launchd job / systemd unit keeps running under its old label forever,
 	// invisible to every later `status` and `--uninstall-daemon`.
-	if detail := retireRenamedDaemon(ctx, setupOpts, previous, setUpBefore, steps, planErr); detail != "" {
+	previousName, previousKnown := installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
+	if detail := retireRenamedDaemon(ctx, setupOpts, previousName, previousKnown, steps, planErr); detail != "" {
 		progress.Skip(detail)
 	}
 
@@ -582,6 +599,18 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	timings.record("workspace", time.Since(workspaceStarted))
 
+	// Record this workspace's tuning in the machine-level plan BEFORE the daemon
+	// is installed, so the watcher's very first tick reads a plan that already
+	// contains this repo's workspace instead of reporting "nothing to watch".
+	// A failure here is a warning, not a fatal: everything the deterministic
+	// phases built stays usable, and the next `setup` re-attempts it.
+	if !setupOpts.noDaemon {
+		if _, err := recordSetupWatchPlan(perRepo.Env, setupOpts.daemonName, setupWatchPlanEntryFor(setupOpts, steps.now())); err != nil {
+			report.Warnings = append(report.Warnings, "machine watch plan not saved: "+err.Error())
+			daemonProgress.Skip("machine watch plan not saved: " + err.Error())
+		}
+	}
+
 	daemonStarted := time.Now()
 	switch {
 	case setupOpts.noDaemon:
@@ -618,7 +647,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if setupOpts.json {
 		return writeJSON(cmd, report)
 	}
-	renderSetupSummary(cmd.OutOrStdout(), tui.NewRenderer(cmd.OutOrStdout()), report, timings)
+	// Re-read rather than reuse the value recordSetupWatchPlan returned: another
+	// repo's `setup` may have joined the plan while this one was building, and
+	// the coverage line is only worth printing if it is the truth right now.
+	summaryPlan, _ := loadSetupWatchPlan(perRepo.Env)
+	renderSetupSummary(cmd.OutOrStdout(), tui.NewRenderer(cmd.OutOrStdout()), report, timings, summaryPlan)
 	return nil
 }
 
@@ -702,7 +735,7 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 	// setup spawns a SECOND detached distill over the same pending sessions —
 	// double token spend on the very corpus the first pass is working through.
 	stateDir := filepath.Dir(storage.HeadPath)
-	if previous, ok := readSetupBackfillState(stateDir); ok && processAlive(previous.PID) {
+	if previous, ok := readSetupBackfillState(stateDir); ok && backfillRunning(storage.BrainDir, previous.PID) {
 		detail := fmt.Sprintf("already running (pid %d, started %s, %d/%d sessions distilled so far)",
 			previous.PID, previous.StartedAt.Format(time.RFC3339), report.Facts.Distilled, report.Facts.Sessions)
 		progress.Skip("fact backfill: " + detail)
@@ -725,6 +758,20 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		progress.Skip("fact backfill: could not resolve this executable's path")
 		return setupPhase{State: "skipped", Detail: "executable path unavailable"}
 	}
+	// Say what this is about to cost BEFORE spending it. Everything the phase
+	// used to print — how many sessions, which agent, which model — arrived
+	// AFTER the detached child was already running, so the first thing the user
+	// could do with the number was read it about a spend already underway. The
+	// order is the whole point of a cost line: a user who did not want this has
+	// to be able to see it and Ctrl-C, and to be told the one flag that turns it
+	// off.
+	queued := report.Facts.Pending()
+	if budget > 0 && queued > budget {
+		queued = budget
+	}
+	progress.Skip(fmt.Sprintf("fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)",
+		setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending())))
+
 	pid, err := steps.spawnBackfill(ctx, plan)
 	if err != nil {
 		progress.Skip("fact backfill: " + err.Error())
@@ -746,10 +793,6 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		report.Warnings = append(report.Warnings, "backfill state not recorded: "+err.Error())
 	}
 	task := progress.Begin("fact backfill")
-	queued := state.Sessions
-	if budget > 0 && queued > budget {
-		queued = budget
-	}
 	task.Update(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, agent %s (pid %d)",
 		queued, agent, pid))
 	task.Finish(nil)
@@ -762,6 +805,33 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 			budget, state.Sessions))
 	}
 	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions)}
+}
+
+// setupBackfillSpendLabel names WHAT will be spent, in the terms the user chose:
+// the agent, and the model and effort if they were set. "agent claude on
+// haiku/low" is a cost a reader can price; "the backfill" is not.
+func setupBackfillSpendLabel(agent string, setupOpts setupCommandOptions) string {
+	label := "agent " + agent
+	model := strings.TrimSpace(setupOpts.model)
+	effort := strings.TrimSpace(setupOpts.effort)
+	switch {
+	case model != "" && effort != "":
+		label += " on " + model + "/" + effort
+	case model != "":
+		label += " on " + model
+	case effort != "":
+		label += " at " + effort + " effort"
+	}
+	return label
+}
+
+// setupBackfillOfLabel spells out the cap when one is biting, so "25 sessions"
+// is never mistaken for "all of them".
+func setupBackfillOfLabel(queued, pending int) string {
+	if queued >= pending {
+		return ""
+	}
+	return fmt.Sprintf(" (capped at %d of %d pending; --backfill-budget 0 for all)", queued, pending)
 }
 
 // setupResolvedBackfillBudget normalizes --backfill-budget into the number the
@@ -871,9 +941,31 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 	return planBrainWatchDaemon(goos, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
 }
 
-// brainWatchDaemonArgs are the token-frugal watcher flags: the deterministic
-// refresh runs free on every tick; distill is enabled but gated by
-// --distill-every and the per-repo watch cursor, on the cheap model/effort.
+// brainWatchDaemonArgs are the argv of the ONE machine-wide watcher, and they
+// are deliberately CONSTANT: `workspace watch --distill`, with no positional
+// workspace and no tuning flags. Nothing about which repo ran `setup` reaches
+// the unit file.
+//
+// That is the whole point. The launchd label and systemd unit name derive from
+// the daemon NAME alone, so they are machine-wide — but the args used to be
+// per-repo (`workspace watch <ws> --interval ... --model ...`). Two repos that
+// asked for two different workspaces resolved to the SAME unit path and rendered
+// DIFFERENT bytes: the second `setup` overwrote the first repo's watcher, the
+// first repo was never watched again, and its `status` still said "running"
+// because the drift was computed and then dropped. Even two repos on the SAME
+// workspace clobbered each other's interval, model and effort.
+//
+// With a constant unit, everything that varies per workspace — interval,
+// distill cadence, agent, model, effort, session cap — lives in the machine-level
+// watch plan (setup_watchplan.go) that the running daemon re-reads on every
+// outer pass. A second repo's `setup` adds a row to that plan; the unit's bytes
+// do not change, so inspectDaemon sees no drift and the service is never
+// unloaded and reloaded under an in-flight refresh.
+//
+// --distill stays here rather than in the plan because it is not tuning: it is
+// the statement that this service is allowed to spend at all, and `setup` always
+// installs a watcher that is. How MUCH and how OFTEN it may spend are both in
+// the plan (--max-sessions, --distill-every) and both bind, per workspace.
 //
 // --budget is deliberately NOT passed. It counts gated agent runs for the life
 // of the PROCESS and never resets, and this daemon is a KeepAlive service that
@@ -882,39 +974,8 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 // durable, self-resetting guard is the pair watch.go documents: --distill-every
 // plus each repo's persisted cursor, which survives restarts and bounds spend
 // per repo per window without ever latching off.
-//
-// --max-sessions IS passed, and it is the guard that was missing. --distill-every
-// and the cursor bound the FREQUENCY of a gated pass; nothing bounded its
-// VOLUME. So `setup` would distill 25 sessions, print "capped at 25 of N ...
-// re-run setup for the next batch", and then install a daemon that distilled the
-// remaining N-25 in one window, for every repo in the workspace, silently. The
-// cap the user was shown has to bind on the process that does the spending.
-//
-// --agent is passed for the same reason: setup RESOLVED an agent, told the user
-// which one, and paid the backfill with it. A daemon that falls back to watch's
-// "codex" default can never succeed on a claude-only machine, and — because the
-// agent name is part of the distill cache salt — a codex that appears later
-// re-distills the whole corpus the backfill already paid for.
-func brainWatchDaemonArgs(setupOpts setupCommandOptions) []string {
-	args := []string{
-		"workspace", "watch", setupOpts.workspace,
-		"--interval", setupOpts.interval.String(),
-		"--distill",
-		"--distill-every", setupOpts.distillEvery.String(),
-	}
-	if agent := strings.TrimSpace(setupOpts.agent); agent != "" && agent != "auto" && agent != "none" {
-		args = append(args, "--agent", agent)
-	}
-	if budget := setupResolvedBackfillBudget(setupOpts); budget > 0 {
-		args = append(args, "--max-sessions", fmt.Sprint(budget))
-	}
-	if model := strings.TrimSpace(setupOpts.model); model != "" {
-		args = append(args, "--model", model)
-	}
-	if effort := strings.TrimSpace(setupOpts.effort); effort != "" {
-		args = append(args, "--effort", effort)
-	}
-	return args
+func brainWatchDaemonArgs(setupCommandOptions) []string {
+	return []string{"workspace", "watch", "--distill"}
 }
 
 func daemonEnv(env EntireEnv) map[string]string {
@@ -1102,13 +1163,13 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 // leaves two watchers running: the old label is not in any later plan, so
 // `status` cannot see it and `--uninstall-daemon` cannot remove it. It would
 // keep ticking (and spending) until the machine was rebuilt.
-func retireRenamedDaemon(ctx context.Context, setupOpts, previous setupCommandOptions, setUpBefore bool, steps setupSteps, planErr error) string {
-	old := strings.TrimSpace(previous.daemonName)
-	// Only a repo THIS machine actually set up before can have a daemon to
-	// retire. Without that check, a first-ever `setup --daemon-name mine` in one
-	// repo would read the absent record as the default name and uninstall the
-	// machine-wide default watcher that every other repo depends on.
-	if !setUpBefore || planErr != nil || old == "" || old == setupOpts.daemonName || setupOpts.noDaemon {
+func retireRenamedDaemon(ctx context.Context, setupOpts setupCommandOptions, old string, known bool, steps setupSteps, planErr error) string {
+	old = strings.TrimSpace(old)
+	// Only a machine that actually installed a watcher before can have one to
+	// retire. Without that check, a first-ever `setup --daemon-name mine` would
+	// read the absent record as the default name and uninstall the machine-wide
+	// default watcher that every other repo depends on.
+	if !known || planErr != nil || old == "" || old == setupOpts.daemonName || setupOpts.noDaemon {
 		return ""
 	}
 	retired := setupOpts
@@ -1129,6 +1190,23 @@ func retireRenamedDaemon(ctx context.Context, setupOpts, previous setupCommandOp
 		return fmt.Sprintf("previous watcher %s not removed: %v", oldPlan.Label, err)
 	}
 	return fmt.Sprintf("previous watcher %s removed (renamed to %s)", oldPlan.Label, setupOpts.daemonName)
+}
+
+// installedDaemonName answers "which watcher does this MACHINE have installed",
+// preferring the machine-level watch plan over this repo's own setup record.
+//
+// The per-repo record is the fallback for a machine set up by an older build
+// that never wrote a plan; it is correct for the single-repo case and wrong for
+// exactly the case the plan exists to fix, so the plan wins whenever it has an
+// answer. An unreadable plan falls back rather than guessing: retiring the
+// wrong daemon is worse than retiring none.
+func installedDaemonName(plan setupWatchPlan, planErr error, previous setupCommandOptions, setUpBefore bool) (string, bool) {
+	if planErr == nil {
+		if name := strings.TrimSpace(plan.DaemonName); name != "" {
+			return name, true
+		}
+	}
+	return strings.TrimSpace(previous.daemonName), setUpBefore
 }
 
 func writeSetupRecord(stateDir string, record setupRecord) error {
@@ -1261,8 +1339,17 @@ func describeDaemonState(state daemonState) string {
 	switch {
 	case state.Detail != "" && !state.Installed:
 		return state.Detail
+	case state.Running && !state.Current:
+		// A running watcher whose unit on disk is not what this repo would write
+		// is the one state a reader most needs told. inspectDaemon computed
+		// Current and this function dropped it, so a watcher installed by a
+		// different build or a different name reported as plain "running" and
+		// nothing in `status` said otherwise.
+		return fmt.Sprintf("running, but the installed unit is stale and not current (%s); re-run `entire-brain setup`", state.Label)
 	case state.Running:
 		return fmt.Sprintf("running (%s)", state.Label)
+	case state.Installed && !state.Current:
+		return fmt.Sprintf("installed but not running, and not current (%s)", state.Label)
 	case state.Installed:
 		return fmt.Sprintf("installed but not running (%s)", state.Label)
 	default:

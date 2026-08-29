@@ -799,30 +799,49 @@ func TestBrainWatchDaemonArgsStayTokenFrugal(t *testing.T) {
 	opts := defaultSetupOptions()
 	opts.effort = "low"
 	args := strings.Join(brainWatchDaemonArgs(opts), " ")
-	for _, want := range []string{"workspace watch default", "--distill-every 24h0m0s", "--effort low"} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("daemon argv missing %q: %s", want, args)
-		}
+	// The argv is the machine-wide half and must stay free of anything
+	// per-repo: a workspace, an interval or a model rendered here goes into a
+	// unit whose path is shared, so the next repo's `setup` overwrites it.
+	if args != "workspace watch --distill" {
+		t.Fatalf("the installed argv must be constant and workspace-independent, got %q", args)
 	}
-	if strings.Contains(args, "--seed-agent") {
-		t.Fatalf("the daemon must never enable agent seed synthesis: %s", args)
+	// The cost contract itself is unchanged; it is now carried by the plan.
+	w := daemonWatchOptions(t, opts)
+	if !w.distill {
+		t.Fatal("the deterministic refresh is free, but the daemon must still be allowed to distill")
+	}
+	if w.distillEvery != 24*time.Hour {
+		t.Fatalf("the gated step must stay interval-gated, got --distill-every %s", w.distillEvery)
+	}
+	if w.effort != "low" {
+		t.Fatalf("the daemon must spend on the cheap effort setup chose, got %q", w.effort)
+	}
+	if strings.Contains(args, "--seed-agent") || w.seedAgent != "none" {
+		t.Fatalf("the daemon must never enable agent seed synthesis: argv %q, seedAgent %q", args, w.seedAgent)
 	}
 }
 
-// daemonWatchOptions parses the argv setup actually installs, so the semantics
-// test is driven by the real flags rather than by a hand-built option struct
-// that could drift away from them.
+// daemonWatchOptions is the EFFECTIVE configuration one workspace's pass runs
+// with under the installed daemon, so the semantics tests are driven by what the
+// daemon really does rather than by a hand-built option struct that could drift.
+//
+// It is two halves because the daemon is: the installed argv is constant and
+// workspace-independent (that is what stops a second repo's `setup` overwriting
+// the first repo's unit), and everything per-workspace comes from the machine
+// watch plan the running daemon re-reads. A test that read only one half would
+// pass while the other silently lost the user's cap, agent or model.
 func daemonWatchOptions(t *testing.T, setupOpts setupCommandOptions) watchCommandOptions {
 	t.Helper()
 	w := defaultWatchOptions()
 	cmd := &cobra.Command{Use: "watch", RunE: func(*cobra.Command, []string) error { return nil }}
 	bindWatchFlags(cmd, &w)
 	args := brainWatchDaemonArgs(setupOpts)
-	// Drop the "workspace watch <name>" verb prefix; only the flags are parsed.
-	if err := cmd.ParseFlags(args[3:]); err != nil {
+	// Drop the "workspace watch" verb prefix; the daemon passes no positional
+	// workspace, because it watches every workspace in the plan.
+	if err := cmd.ParseFlags(args[2:]); err != nil {
 		t.Fatalf("parse daemon argv %v: %v", args, err)
 	}
-	return w
+	return applyWatchPlanEntry(w, setupWatchPlanEntryFor(setupOpts, setupTestNow))
 }
 
 // TestDaemonBudgetSemanticsAllowOneRunPerWindow is the regression test for the
@@ -1172,6 +1191,18 @@ func TestSetupSkipsBackfillWhileOneIsStillRunning(t *testing.T) {
 	if err := writeSetupBackfillState(stateDir, state); err != nil {
 		t.Fatalf("write backfill state: %v", err)
 	}
+	// A live pid is necessary but not sufficient: pids are reused, so the guard
+	// also requires a distill pass to hold the pass lock. Hold it here, the way
+	// the real running backfill would, or this test would be asserting the
+	// reused-pid behaviour that TestBackfillRunningRejectsAReusedPid forbids.
+	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainLockDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	passLock, err := acquireFileLock(filepath.Join(f.storage.BrainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	if err != nil {
+		t.Fatalf("take the distill pass lock: %v", err)
+	}
+	defer func() { _ = passLock.Close() }()
 
 	out := runSetupForTest(t, f, opts, rec)
 

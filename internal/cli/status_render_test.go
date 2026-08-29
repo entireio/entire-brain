@@ -56,8 +56,12 @@ func statusFixtureReport(t *testing.T, blindSpotCount int) brainStatusReport {
 			}},
 		},
 		Onboarding: &brainStatusOnboarding{
-			Facts:      factsBackfillStatus{Sessions: 185, Distilled: 20, Running: true, PID: 4242},
-			Daemon:     daemonState{Installed: true, Label: "io.entire.brain-watch.a2d3fd66"},
+			Facts: factsBackfillStatus{Sessions: 185, Distilled: 20, Running: true, PID: 4242},
+			// Current: the unit on disk IS the one this repo would write. Said
+			// explicitly because it is now load-bearing — a fixture that left it
+			// false would be describing a drifted watcher and would pin the
+			// wrong line as the ordinary case.
+			Daemon:     daemonState{Installed: true, Current: true, Label: "io.entire.brain-watch.a2d3fd66"},
 			LastTickAt: now.Add(-17 * time.Minute),
 			Components: []brainStatusComponent{
 				{Name: "sessions", State: "built"},
@@ -262,5 +266,27 @@ func TestStatusHealthCounts(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Errorf("verdict %q missing %q", line, want)
 		}
+	}
+}
+
+// A watcher can be running and still not be YOURS: another repo's `setup`, or an
+// older build, leaves a unit on disk that is not the one this repo would write.
+// inspectDaemon computes exactly that (Current), and the status line dropped it,
+// so the reader saw "running" and had no way to learn the watcher was not theirs.
+func TestStatusSaysWhenTheInstalledDaemonIsNotCurrent(t *testing.T) {
+	t.Parallel()
+	report := statusFixtureReport(t, 44)
+	report.Onboarding.Daemon = daemonState{
+		Installed: true,
+		Running:   true,
+		Current:   false,
+		Label:     "io.entire.brain-watch.a2d3fd66",
+	}
+	got := renderStatus(t, report, false)
+	if !strings.Contains(got, "not current") {
+		t.Fatalf("a running-but-not-current watcher must say so in status:\n%s", got)
+	}
+	if !strings.Contains(got, "entire-brain setup") {
+		t.Fatalf("status must say what to do about it:\n%s", got)
 	}
 }

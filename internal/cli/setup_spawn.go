@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // spawnDetached starts the background backfill and returns immediately with the
@@ -63,4 +65,52 @@ func spawnDetached(plan setupBackfillPlan) (int, error) {
 		return pid, nil
 	}
 	return pid, nil
+}
+
+// backfillRunning answers "is the detached backfill this repo recorded STILL
+// running", which is the question both `setup`'s re-entrancy guard and `status`
+// actually ask. processAlive alone cannot answer it.
+//
+// processAlive is a bare kill(pid, 0): it asks whether SOMETHING owns that pid,
+// not whether it is our child. Pids are reused, and a reboot reuses low ones
+// almost immediately — so a setup.json written before a reboot names a pid that
+// after the reboot belongs to a system daemon. processAlive says true, `setup`
+// skips the backfill as "already running (pid 412, started <yesterday>)" for as
+// long as that process lives, and `status` reports a backfill that does not
+// exist. The repo's facts are then never backfilled again and nothing says why.
+//
+// The cross-check is the distill PASS LOCK. A live backfill is a distill pass,
+// and a distill pass holds that lock for its whole duration. So: pid gone means
+// gone; pid present AND the lock held means running; pid present and the lock
+// FREE means the record is stale — some other process inherited the number.
+//
+// Known race, deliberately accepted: between the child's Start() and its
+// acquisition of the pass lock, this reports "not running" and a second `setup`
+// spawns a rival child. That is benign — the pass lock makes whichever child
+// arrives second skip its pass — and it is a far smaller cost than the failure
+// it replaces, which is permanent and silent.
+func backfillRunning(brainDir string, pid int) bool {
+	if !processAlive(pid) {
+		return false
+	}
+	if strings.TrimSpace(brainDir) == "" {
+		// No brain to check the lock in: fall back to the pid answer rather than
+		// claiming a backfill is dead on no evidence.
+		return true
+	}
+	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	if err != nil {
+		if errors.Is(err, errFileLockTimeout) {
+			// Contended: a distill pass IS running. That it might be the watch
+			// daemon's pass rather than our child does not change the answer a
+			// caller needs — spawning another backfill now would only produce a
+			// child that skips on this same lock.
+			return true
+		}
+		// The lock is unreadable (permissions, a path that is not a directory).
+		// Do not turn an unrelated failure into "your backfill is dead".
+		return true
+	}
+	_ = lock.Close()
+	return false
 }

@@ -330,15 +330,97 @@ func newWorkspaceRefreshCommand(opts Options) *cobra.Command {
 func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 	w := defaultWatchOptions()
 	cmd := &cobra.Command{
-		Use:   "watch <workspace>",
+		Use:   "watch [workspace]",
 		Short: "Keep every repo in a workspace fresh automatically (deterministic refresh is free; agent steps gated)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Keep every repo in a workspace fresh automatically.\n\n" +
+			"With a workspace name, watches that one workspace with the flags given here.\n\n" +
+			"With NO workspace name this is SUPERVISED mode: it watches every workspace `setup`\n" +
+			"has recorded in the machine-level watch plan, each with its own interval, distill\n" +
+			"cadence, agent, model, effort and session cap. That is the form the installed\n" +
+			"background service runs, and it is why the installed unit is byte-identical on\n" +
+			"every machine: nothing about which repo ran `setup` reaches the unit file.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return runSupervisedWatch(cmd.Context(), cmd, opts, w)
+			}
 			return runWorkspaceWatch(cmd.Context(), cmd, opts, w, args[0])
 		},
 	}
 	bindWatchFlags(cmd, &w)
 	return cmd
+}
+
+// runSupervisedWatch is the ONE machine-wide watcher. It re-reads the watch plan
+// on every outer pass, so a repo that runs `setup` while the daemon is already
+// running joins the rotation WITHOUT the unit file changing and therefore
+// without the service being unloaded and reloaded under an in-flight refresh.
+//
+// An empty plan is not an error. A KeepAlive/Restart=always unit that exits
+// non-zero because nothing is registered yet is a restart loop, and the honest
+// state of a machine mid-onboarding is "nothing to watch yet", so it says that
+// once per pass and keeps waiting.
+func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions) error {
+	if w.distillJobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	ctx, stop := watchSignalContext(ctx)
+	defer stop()
+	onePass := func(workspaceName string, pass watchCommandOptions) error {
+		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now)
+	}
+	return supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass)
+}
+
+// supervisedWatchLoop is the supervised loop with the per-workspace pass
+// injected, so the part that matters — which workspaces get visited, with whose
+// tuning, and what an empty or unreadable plan does — is testable without a real
+// refresh, a real manifest, or a real agent.
+func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions) error) error {
+	for {
+		if ctx.Err() != nil {
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
+		}
+		plan, err := loadSetupWatchPlan(env)
+		if err != nil {
+			// An unreadable plan must not take the service down: report it and
+			// retry on the next pass, because the file is repaired by the next
+			// `setup` and a crash-looping daemon repairs nothing.
+			fmt.Fprintf(out, "[watch] watch plan unusable: %v\n", err)
+		}
+		if len(plan.Workspaces) == 0 {
+			fmt.Fprintln(out, "[watch] no workspaces registered yet — run `entire-brain setup` in a repo")
+		}
+		for _, entry := range plan.Workspaces {
+			pass := applyWatchPlanEntry(w, entry)
+			// once: this loop owns the waiting, so the inner workspace loop runs
+			// exactly one pass over its members and returns.
+			pass.once = true
+			if err := onePass(entry.Workspace, pass); err != nil {
+				// One broken workspace must not stop the others. A manifest
+				// deleted by hand is a normal state, not a fatal one.
+				fmt.Fprintf(out, "[watch] workspace %s: skipped (%v)\n", entry.Workspace, err)
+			}
+			if ctx.Err() != nil {
+				fmt.Fprintln(out, "[watch] stopping")
+				return nil
+			}
+		}
+		if w.once {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
+		case <-time.After(watchPlanSleep(plan, w.interval)):
+		}
+	}
 }
 
 // runWorkspaceWatch fans the WS3 watch loop over every member repo, reusing the same per-repo
@@ -352,10 +434,17 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 	if now == nil {
 		now = time.Now
 	}
-	out := cmd.OutOrStdout()
 	// Stop cleanly between ticks on SIGINT/SIGTERM (same as single-repo watch).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
+	return runWorkspaceWatchPass(ctx, cmd, opts, w, workspaceName, now)
+}
+
+// runWorkspaceWatchPass is runWorkspaceWatch without the signal plumbing, so the
+// supervised loop can drive one workspace at a time under a context it already
+// owns instead of installing a second signal handler per workspace per pass.
+func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string, now func() time.Time) error {
+	out := cmd.OutOrStdout()
 	repoTick := func(repoDir string, agentCalls *int) {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 		if err != nil {

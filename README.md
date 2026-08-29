@@ -168,8 +168,8 @@ it, and none of them is a quota you have to remember:
   corpus.
 - The distill cache means a session is never distilled twice, across every entry
   point.
-- `--model` / `--effort` keep each call cheap; the daemon inherits whatever the
-  last setup was given.
+- `--model` / `--effort` keep each call cheap; the daemon uses whatever the
+  setup for *that workspace* was given.
 
 Re-running setup is safe and non-duplicating: it finds the existing workspace
 membership and daemon instead of creating second ones, resumes a backfill that
@@ -177,6 +177,16 @@ is still running rather than starting a rival pass, and keeps the
 `--interval`/`--distill-every`/`--model`/`--effort` a previous run was given
 unless you pass the flag again. One machine gets exactly one watcher, shared by
 every repo you set up.
+
+That last sentence is enforced rather than hoped for. The installed unit is
+byte-identical for every repo and every workspace — it runs `workspace watch
+--distill` and nothing else — and everything that varies per workspace lives in
+a machine-level watch plan (`<state>/watch-plan.json`) that the running watcher
+re-reads on every pass. So setting up a second repo, even into a different
+workspace with a different interval and model, adds a row to that plan; it does
+not rewrite the unit, does not restart the running service, and cannot leave the
+first repo unwatched. `entire brain status` names the workspaces the watcher
+covers, so you can see you are still in there.
 
 ### 4. Distill durable facts
 

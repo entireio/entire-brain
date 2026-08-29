@@ -124,8 +124,24 @@ func TestSetupResolvesTheAgentBeforePlanningTheDaemon(t *testing.T) {
 		t.Fatalf("runSetup: %v", err)
 	}
 
-	if got := strings.Join(planned, " "); !strings.Contains(got, "--agent claude-code") {
-		t.Fatalf("the installed daemon does not use the agent setup resolved and paid with: %s", got)
+	// The resolved agent no longer rides in the unit's argv — the unit is
+	// machine-wide and carries nothing per-repo — so the assertion is on the
+	// machine watch plan the daemon reads instead. What matters is unchanged:
+	// the agent must be resolved BEFORE the daemon is planned, or the daemon
+	// gets watch's "codex" default no matter what setup detected and paid with.
+	if got := strings.Join(planned, " "); got != "workspace watch --distill" {
+		t.Fatalf("the installed argv must carry nothing per-repo, got %q", got)
+	}
+	plan, err := loadSetupWatchPlan(f.env)
+	if err != nil {
+		t.Fatalf("load watch plan: %v", err)
+	}
+	entry, ok := plan.entry(opts.workspace)
+	if !ok {
+		t.Fatalf("setup registered no workspace for the daemon to watch: %+v", plan.Workspaces)
+	}
+	if entry.Agent != "claude-code" {
+		t.Fatalf("the daemon does not use the agent setup resolved and paid with: %+v", entry)
 	}
 	if got := strings.Join(rec.spawned.Args, " "); !strings.Contains(got, "--agent claude-code") {
 		t.Fatalf("the detached backfill must still use the resolved agent: %s", got)

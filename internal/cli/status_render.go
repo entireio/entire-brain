@@ -292,6 +292,14 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 		daemonLine += render.Dim(" " + render.Bullet() + " last tick " + age + " ago")
 	}
 	fmt.Fprintln(out, daemonLine)
+	// Say what the machine's ONE watcher covers. A hashed launchd label answers
+	// nothing a reader of `status` came to ask; the workspaces it is watching
+	// answer it exactly.
+	if onboarding.Daemon.Installed {
+		if coverage := describeWatchPlanCoverage(onboarding.WatchPlan); coverage != "" {
+			fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "", render.Dim(coverage))
+		}
+	}
 
 	if len(onboarding.Components) > 0 {
 		parts := make([]string, 0, len(onboarding.Components))

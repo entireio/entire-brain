@@ -67,6 +67,11 @@ type brainStatusOnboarding struct {
 	Daemon     daemonState            `json:"daemon"`
 	LastTickAt time.Time              `json:"last_tick_at,omitempty"`
 	Components []brainStatusComponent `json:"components,omitempty"`
+	// WatchPlan is what the machine's ONE watcher covers. json:"-" on purpose:
+	// the status JSON is a published contract and a new field in it is a
+	// breaking change for anything parsing it today, so this is carried for the
+	// text renderer only.
+	WatchPlan setupWatchPlan `json:"-"`
 }
 
 // factsBackfillStatusForBrain counts how many exported sessions have already
@@ -129,11 +134,12 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Facts.StartedAt = state.StartedAt
 		onboarding.Facts.Agent = state.Agent
 		onboarding.Facts.LogPath = state.LogPath
-		onboarding.Facts.Running = onboarding.Facts.Pending() > 0 && processAlive(state.PID)
+		onboarding.Facts.Running = onboarding.Facts.Pending() > 0 && backfillRunning(storage.BrainDir, state.PID)
 	}
 	if cursor := loadWatchCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
 		onboarding.LastTickAt = cursor.LastRefreshAt
 	}
+	onboarding.WatchPlan, _ = loadSetupWatchPlan(opts.Env)
 	if plan, err := brainWatchDaemonPlan(opts, setupOpts); err == nil {
 		onboarding.Daemon = inspectDaemon(ctx, opts.Runner, plan)
 	} else {

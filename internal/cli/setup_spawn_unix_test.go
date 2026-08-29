@@ -81,3 +81,52 @@ func TestSpawnDetachedRefusesASymlinkedLogPath(t *testing.T) {
 		t.Fatalf("the symlink target was written through: %q", string(data))
 	}
 }
+
+// A recorded pid that some UNRELATED process inherited — the ordinary situation
+// after a reboot, where low pids are handed out again within seconds — used to
+// read as "your backfill is still running". `setup` then skipped the backfill
+// for as long as that stranger lived, and `status` reported a pass that did not
+// exist, so the repo's facts were never backfilled again and nothing said why.
+func TestBackfillRunningRejectsAReusedPid(t *testing.T) {
+	brainDir := t.TempDir()
+	// os.Getpid() is alive by construction and is emphatically NOT a detached
+	// backfill child: it is the test binary. That is exactly the shape of a
+	// reused pid.
+	if backfillRunning(brainDir, os.Getpid()) {
+		t.Fatal("a live pid that holds no distill pass lock is a STALE record, not a running backfill")
+	}
+}
+
+// The other direction: while a distill pass genuinely holds the lock, the
+// backfill must read as running, or the re-entrancy guard stops guarding and a
+// second `setup` doubles the token spend on the same pending sessions.
+func TestBackfillRunningSeesAHeldDistillPassLock(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brainDir, brainLockDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	if err != nil {
+		t.Fatalf("take the pass lock: %v", err)
+	}
+	defer func() { _ = lock.Close() }()
+	if !backfillRunning(brainDir, os.Getpid()) {
+		t.Fatal("a live pid AND a held distill pass lock is a running backfill")
+	}
+}
+
+// A pid nothing owns is gone whatever the lock says; the lock is a
+// disambiguator for live pids, not a replacement for the liveness check.
+func TestBackfillRunningRejectsADeadPid(t *testing.T) {
+	if backfillRunning(t.TempDir(), 0) {
+		t.Fatal("pid 0 is not a running backfill")
+	}
+}
+
+// No brain directory means no lock to consult. Answering "dead" there would
+// invent a fact; the honest fallback is the pid answer.
+func TestBackfillRunningFallsBackToThePidWithoutABrain(t *testing.T) {
+	if !backfillRunning("", os.Getpid()) {
+		t.Fatal("with no brain to check, a live pid must not be reported as a dead backfill")
+	}
+}
