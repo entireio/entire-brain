@@ -113,16 +113,20 @@ class SixArmSymmetryTest(unittest.TestCase):
                 self.assertNotIn(token, prompts.POLICY.lower())
 
     def test_the_packet_never_reveals_which_arm_produced_it_to_the_prompt(self):
-        """The arm label lives INSIDE the packet JSON for auditing. Assert it is
-        the only place it appears, so the scaffold stays arm-blind."""
+        """This test's NAME was always the right invariant; its body used to
+        assert the opposite -- that `"arm":"irrelevant"` IS in packet.text,
+        "for auditing". Auditing reads the artifact, not the wire: the arm now
+        lives on MemoryPacket.arm and in `meta`, and NOTHING the agent reads
+        names the condition."""
         packet = stub_packet(prompts.PLACEBO_ARM)
-        prompt = prompts.build_prompt(QUERY, packet.text)
-        outside = prompt.replace(packet.text, "")
-        label = '"arm":"irrelevant"'
-        self.assertIn(label, packet.text)
-        self.assertNotIn(label, outside)
-        self.assertEqual(prompt.count(label), 1, "the arm label lives in ONE place")
-        self.assertEqual(json.loads(packet.text)["arm"], "irrelevant")
+        # Scoped to the PACKET, not the whole prompt: POLICY names mem0 /
+        # graphify / cmm in a forbid-list every arm receives identically, which
+        # test_policy_names_no_arm already pins as symmetric.
+        for arm in prompts.ARMS:
+            with self.subTest(arm=arm):
+                self.assertNotIn(arm, packet.text)
+        self.assertNotIn("arm", json.loads(packet.text))
+        self.assertEqual(packet.arm, "irrelevant")
 
 
 if __name__ == "__main__":

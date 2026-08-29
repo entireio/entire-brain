@@ -119,9 +119,16 @@ class PacketEnvelopeTest(unittest.TestCase):
             query=QUERY, max_bytes=MAX_BYTES, sentinel="(no prior-session memory available)"
         )
         payload = json.loads(packet.text)
+        # A real, well-formed packet through the real envelope -- with EMPTY
+        # results, which is the honest output of an arm that has no memory.
+        # The sentinel prose and the arm label are provenance, not payload:
+        # delivered, they told the baseline it was the baseline.
         self.assertEqual(payload["results"], [])
-        self.assertEqual(payload["note"], "(no prior-session memory available)")
-        self.assertEqual(payload["arm"], "no_brain")
+        self.assertNotIn("note", payload)
+        self.assertNotIn("arm", payload)
+        self.assertEqual(packet.arm, "no_brain")
+        self.assertEqual(packet.meta["empty_sentinel"],
+                         "(no prior-session memory available)")
 
     def test_normalize_sorts_by_score_then_id(self):
         out = msbase.normalize_results(

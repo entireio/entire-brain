@@ -41,6 +41,13 @@ from .base import MemoryPacket, MemorySourceError, Stopwatch, build_packet, norm
 # loudly at prep, never silently, if nothing is found there.
 _DEFAULT_EG_MEMHARNESS_ROOT = pathlib.Path.home() / "devenv" / "eg-memharness"
 
+#: Fallback `source` for a client that labels none of its own. It must NOT be
+#: the arm name: `normalize_results` copies `source` into every delivered
+#: result, so defaulting to the arm repeated the condition name up to top_k
+#: times inside the packet the model reads. A backend's OWN source string is
+#: tool output and is kept verbatim.
+DEFAULT_RESULT_SOURCE = "memory"
+
 # Transcript roles we surface. `system` is dropped: it is harness scaffolding,
 # identical across arms, and feeding it in would just pad every store equally.
 _ROLES = {"user", "assistant"}
@@ -145,7 +152,7 @@ def run_competitor(
 
     for hit in hits:
         if isinstance(hit, dict):
-            hit.setdefault("source", arm)
+            hit.setdefault("source", DEFAULT_RESULT_SOURCE)
 
     return build_packet(
         arm=arm,
