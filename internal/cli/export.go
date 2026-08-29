@@ -55,6 +55,10 @@ const (
 	checkpointStorageV1 = 1
 
 	v1TranscriptFileName = "full.jsonl"
+	// v1CompactTranscriptFileName is the normalized transcript the CLI writes
+	// into the session directory next to full.jsonl, pointed at by the root
+	// summary's sessions[].compact_transcript.
+	v1CompactTranscriptFileName = "transcript.jsonl"
 
 	checkpointTrailerKey = "Entire-Checkpoint"
 
@@ -1251,11 +1255,10 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		return nil, nil, fmt.Errorf("%w: configured checkpoint remote requires complete routed discovery", errCheckpointSnapshotUnavailable)
 	}
 
-	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, limit, branchDestinations, progress, cache, brainNoEgressMode())
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, limit, branchDestinations, progress, cache, brainNoEgressMode())
 	if err == nil {
-		warnings = append(warnings, "exporting raw transcripts directly from complete local checkpoint store union")
-		if !raw {
-			warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
+		if snapshot.TranscriptMode == "raw" {
+			warnings = append(warnings, "exporting raw transcripts directly from complete local checkpoint store union")
 		}
 		return snapshot, warnings, nil
 	}
@@ -1400,7 +1403,7 @@ type loadedLocalCheckpoint struct {
 // The aggregate git-branch tree and each git-refs checkpoint use different tree
 // roots, so every selected session retains a source key for later transcript
 // reads. This also prevents equal virtual paths from colliding during migration.
-func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner, repoDir, primary string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache, localOnly bool) (*checkpointSnapshot, []string, error) {
+func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner, repoDir, primary string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache, localOnly bool) (*checkpointSnapshot, []string, error) {
 	if primary == "" {
 		primary = checkpointBackendGitBranch
 	}
@@ -1553,13 +1556,24 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 			}
 		}
 	}
+	transcriptFileName := v1TranscriptFileName
+	transcriptMode := "raw"
+	if !raw {
+		var compactWarnings []string
+		transcriptMode, compactWarnings = useCompactTranscripts(selected, members)
+		warnings = append(warnings, compactWarnings...)
+		if transcriptMode == "compact" {
+			transcriptFileName = v1CompactTranscriptFileName
+		}
+	}
+
 	first := loaded[0].source
 	return &checkpointSnapshot{
 		GitDir:                first.GitDir,
 		Ref:                   first.Ref,
 		Version:               checkpointStorageV1,
-		TranscriptMode:        "raw",
-		TranscriptFileName:    v1TranscriptFileName,
+		TranscriptMode:        transcriptMode,
+		TranscriptFileName:    transcriptFileName,
 		Selected:              selected,
 		SessionCheckpoints:    members,
 		CheckpointCount:       len(loaded),
@@ -1567,6 +1581,53 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 		Sources:               sources,
 		UnreadableCheckpoints: unreadable,
 	}, warnings, nil
+}
+
+// useCompactTranscripts points a snapshot at the compact transcripts the CLI
+// stored, when it can do so for EVERY session, and reports the resulting
+// transcript mode plus any warning the caller should carry.
+//
+// v1 checkpoints do carry a compact transcript: the CLI writes transcript.jsonl
+// into the session directory beside full.jsonl and records the pointer in the
+// root summary's sessions[].compact_transcript. It is not universal, though —
+// compaction is best-effort, so a non-compactable, empty, or oversized
+// transcript has no pointer, and neither does anything written by a CLI that
+// predates it.
+//
+// The switch is all-or-nothing because one export manifest carries ONE
+// transcript_mode: mixing compact and raw transcripts under a single label
+// would misdescribe every file on the losing side. When any session is missing
+// its compact transcript the whole export stays raw and says so, rather than
+// silently handing back raw bytes under a "compact" label — which is exactly
+// what the reader used to do, unconditionally, for every v1 checkpoint.
+func useCompactTranscripts(selected map[string]selectedSession, members []sessionCheckpoint) (string, []string) {
+	total := 0
+	missing := 0
+	for _, session := range selected {
+		total++
+		if session.CompactTranscriptPath == "" {
+			missing++
+		}
+	}
+	for _, member := range members {
+		if member.CompactTranscriptPath == "" {
+			missing++
+		}
+	}
+	if total == 0 {
+		return "raw", nil
+	}
+	if missing > 0 {
+		return "raw", []string{fmt.Sprintf("compact transcripts unavailable for %d of %d exported v1 sessions; exported raw full.jsonl logs", missing, total)}
+	}
+	for key, session := range selected {
+		session.SourceTranscriptPath = session.CompactTranscriptPath
+		selected[key] = session
+	}
+	for i := range members {
+		members[i].TranscriptPath = members[i].CompactTranscriptPath
+	}
+	return "compact", []string{"exporting compact transcripts directly from complete local checkpoint store union"}
 }
 
 func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
@@ -1832,7 +1893,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 	}
 	reportMetadataProgress(0)
 
-	rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, unsafeCheckpointIDs, rootWarnings := readRootMetadataForSnapshot(ctx, reader, rootMetadataPaths, allowed, func() {
+	rootMetadataByCheckpoint, transcriptPathsByMetadata, compactPathsByMetadata, branchByCheckpoint, unsafeCheckpointIDs, rootWarnings := readRootMetadataForSnapshot(ctx, reader, rootMetadataPaths, allowed, func() {
 		advanceMetadataProgress(0)
 	})
 	warnings = append(warnings, rootWarnings...)
@@ -1882,7 +1943,13 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 			deferProgress()
 			continue
 		}
-		if candidate, ok := addSnapshotSession(selected, checkpointID, sessionIndex, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations); ok {
+		compactPath := compactPathsByMetadata[path]
+		if compactPath != "" && !hasSnapshotTranscript(compactPath, treePaths) {
+			// The summary points at a compact transcript this ref does not
+			// carry. Treat it as absent rather than exporting a dangling path.
+			compactPath = ""
+		}
+		if candidate, ok := addSnapshotSession(selected, checkpointID, sessionIndex, transcriptPath, compactPath, meta, branchByCheckpoint[checkpointID], branchDestinations); ok {
 			members = append(members, sessionCheckpointOf(candidate))
 		}
 		deferProgress()
@@ -1918,7 +1985,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s root metadata: parse metadata: %v", checkpointID, err))
 			continue
 		}
-		if candidate, ok := addSnapshotSession(selected, checkpointID, 0, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations); ok {
+		if candidate, ok := addSnapshotSession(selected, checkpointID, 0, transcriptPath, "", meta, branchByCheckpoint[checkpointID], branchDestinations); ok {
 			members = append(members, sessionCheckpointOf(candidate))
 		}
 		reportMetadataProgress(len(selected))
@@ -1941,11 +2008,12 @@ func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobR
 // sessionCheckpointOf projects a read session onto its membership record.
 func sessionCheckpointOf(candidate selectedSession) sessionCheckpoint {
 	return sessionCheckpoint{
-		CheckpointID:   candidate.CheckpointID,
-		SessionID:      candidate.SessionID,
-		SessionIndex:   candidate.SessionIndex,
-		Branch:         candidate.Branch,
-		TranscriptPath: candidate.SourceTranscriptPath,
+		CheckpointID:          candidate.CheckpointID,
+		SessionID:             candidate.SessionID,
+		SessionIndex:          candidate.SessionIndex,
+		Branch:                candidate.Branch,
+		TranscriptPath:        candidate.SourceTranscriptPath,
+		CompactTranscriptPath: candidate.CompactTranscriptPath,
 	}
 }
 
@@ -1979,9 +2047,10 @@ func countAllowedSnapshotMetadataPaths(rootMetadataPaths, sessionMetadataPaths [
 	return total
 }
 
-func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobReader, rootMetadataPaths []string, allowed map[string]struct{}, progress func()) (map[string][]byte, map[string]string, map[string]string, map[string]struct{}, []string) {
+func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobReader, rootMetadataPaths []string, allowed map[string]struct{}, progress func()) (map[string][]byte, map[string]string, map[string]string, map[string]string, map[string]struct{}, []string) {
 	rootMetadataByCheckpoint := make(map[string][]byte)
 	transcriptPathsByMetadata := make(map[string]string)
+	compactPathsByMetadata := make(map[string]string)
 	branchByCheckpoint := make(map[string]string)
 	unsafeCheckpointIDs := make(map[string]struct{})
 	metadataOwners := make(map[string]string)
@@ -2028,6 +2097,15 @@ func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobRead
 					continue
 				}
 			}
+			compactPath := ""
+			if strings.TrimSpace(session.CompactTranscript) != "" {
+				var compactOK bool
+				compactPath, compactOK = reader.virtualizePointer(checkpointID, session.CompactTranscript)
+				if !compactOK {
+					warnings = append(warnings, fmt.Sprintf("skipped unsafe checkpoint %s session file pointer", checkpointID))
+					continue
+				}
+			}
 			owner := fmt.Sprintf("%s/%d", checkpointID, sessionIndex)
 			if metadataPath != "" {
 				if previous, duplicate := metadataOwners[metadataPath]; duplicate && previous != owner {
@@ -2035,14 +2113,20 @@ func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobRead
 				}
 				metadataOwners[metadataPath] = owner
 			}
-			if transcriptPath != "" {
-				if previous, duplicate := transcriptOwners[transcriptPath]; duplicate && previous != owner {
+			for _, path := range []string{transcriptPath, compactPath} {
+				if path == "" {
+					continue
+				}
+				if previous, duplicate := transcriptOwners[path]; duplicate && previous != owner {
 					unsafeCheckpointIDs[checkpointID] = struct{}{}
 				}
-				transcriptOwners[transcriptPath] = owner
+				transcriptOwners[path] = owner
 			}
 			if metadataPath != "" && transcriptPath != "" {
 				transcriptPathsByMetadata[metadataPath] = transcriptPath
+			}
+			if metadataPath != "" && compactPath != "" {
+				compactPathsByMetadata[metadataPath] = compactPath
 			}
 		}
 		if _, unsafe := unsafeCheckpointIDs[checkpointID]; unsafe {
@@ -2050,7 +2134,7 @@ func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobRead
 		}
 	}
 
-	return rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, unsafeCheckpointIDs, warnings
+	return rootMetadataByCheckpoint, transcriptPathsByMetadata, compactPathsByMetadata, branchByCheckpoint, unsafeCheckpointIDs, warnings
 }
 
 func (r *checkpointBlobReader) virtualizePointer(checkpointID, storedPath string) (string, bool) {
@@ -2087,7 +2171,7 @@ func (r *checkpointBlobReader) virtualizePointer(checkpointID, storedPath string
 // addSnapshotSession folds one read (checkpoint, session) pair into the
 // per-session selection and returns the candidate it built, so the caller can
 // also record the membership that the selection discards.
-func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath string, meta checkpointExportSession, checkpointBranch string, branchDestinations checkpointBranchDestinations) (selectedSession, bool) {
+func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath, compactTranscriptPath string, meta checkpointExportSession, checkpointBranch string, branchDestinations checkpointBranchDestinations) (selectedSession, bool) {
 	if meta.SessionID == "" {
 		return selectedSession{}, false
 	}
@@ -2119,6 +2203,8 @@ func addSnapshotSession(selected map[string]selectedSession, checkpointID string
 		Summary:              meta.Summary,
 		CheckpointsCount:     meta.CheckpointsCount,
 		SourceTranscriptPath: transcriptPath,
+
+		CompactTranscriptPath: compactTranscriptPath,
 	}
 
 	addSelectedSession(selected, candidate, branchDestinations)
@@ -3163,8 +3249,6 @@ func exportWarningIsDebugOnly(warning string) bool {
 		return true
 	case strings.HasPrefix(warning, "exporting compact transcripts directly from "):
 		return true
-	case strings.HasPrefix(warning, "compact transcript unavailable for v1 checkpoints;"):
-		return true
 	case warning == "discovered checkpoint refs from configured checkpoint remote":
 		return true
 	case warning == "used Entire's complete routed checkpoint list because no local metadata refs were enumerable":
@@ -3190,8 +3274,8 @@ func usefulExportWarningText(warning string) string {
 		return "Could not read the configured checkpoint remote; export used local checkpoint data only: " + strings.TrimSpace(strings.TrimPrefix(warning, "checkpoint remote unavailable:"))
 	case strings.HasPrefix(warning, "direct checkpoint export unavailable:"):
 		return "Could not export directly from checkpoint storage; export fell back to the Entire CLI checkpoint API: " + strings.TrimSpace(strings.TrimPrefix(warning, "direct checkpoint export unavailable:"))
-	case strings.HasPrefix(warning, "compact transcript unavailable for v1 checkpoints;"):
-		return "This repository uses v1 checkpoints, which only store raw full.jsonl transcripts; exported transcripts are raw."
+	case strings.HasPrefix(warning, "compact transcripts unavailable for "):
+		return "Some checkpoints store no compact transcript, so the whole export used raw full.jsonl transcripts (" + strings.TrimSuffix(strings.TrimPrefix(warning, "compact transcripts unavailable for "), "; exported raw full.jsonl logs") + ")."
 	default:
 		return warning
 	}
@@ -3367,6 +3451,11 @@ type checkpointSummaryPaths struct {
 type checkpointSessionPaths struct {
 	Metadata   string `json:"metadata,omitempty"`
 	Transcript string `json:"transcript,omitempty"`
+	// CompactTranscript is the CLI's pointer at the normalized transcript
+	// stored beside the raw one. Omitted when compaction was skipped for that
+	// session (non-compactable, empty, or oversized) and by CLI versions that
+	// predate it.
+	CompactTranscript string `json:"compact_transcript,omitempty"`
 }
 
 type checkpointSnapshot struct {
@@ -3392,12 +3481,13 @@ type checkpointSnapshot struct {
 // sessionCheckpoint is one (session, checkpoint) membership record with the
 // transcript that checkpoint retained for that session.
 type sessionCheckpoint struct {
-	CheckpointID   string
-	SessionID      string
-	SessionIndex   int
-	Branch         string
-	TranscriptPath string
-	SourceKey      string
+	CheckpointID          string
+	SessionID             string
+	SessionIndex          int
+	Branch                string
+	TranscriptPath        string
+	CompactTranscriptPath string
+	SourceKey             string
 }
 
 type checkpointSnapshotSource struct {
@@ -3474,7 +3564,11 @@ type selectedSession struct {
 	Summary              *checkpointSummary
 	CheckpointsCount     int
 	SourceTranscriptPath string
-	SourceKey            string
+	// CompactTranscriptPath is the readable compact transcript this session
+	// stored, or "" when it has none. The snapshot loader decides whether the
+	// export reads it; until then SourceTranscriptPath stays on the raw log.
+	CompactTranscriptPath string
+	SourceKey             string
 }
 
 type exportManifest struct {
