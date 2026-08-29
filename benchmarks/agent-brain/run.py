@@ -1547,11 +1547,25 @@ def load_ndjson(path: pathlib.Path) -> list[dict[str, Any]]:
     return records
 
 
+def opaque_cell_key(run_id: str) -> str:
+    """Arm-neutral name for a per-cell directory whose path reaches the agent.
+
+    A cell's run id is `<task>__<runner>__<condition>__r<n>`, so any path built
+    from it spells the arm. create_worktree already gives the agent an opaque
+    cwd for exactly this reason; anything that lands in the agent's ENVIRONMENT
+    is strictly more visible than its cwd (a bare `env` prints it), so it gets
+    the same treatment. Stable across a resume, distinct per cell."""
+    return hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:16]
+
+
 def runtime_cache_paths(suite_dir: pathlib.Path, run_dir: pathlib.Path | None, policy: str) -> dict[str, pathlib.Path]:
     if policy == "prewarmed_shared":
         root = suite_dir / "runtime-cache" / "shared"
     elif policy == "isolated_per_cell" and run_dir is not None:
-        root = run_dir / "runtime-cache"
+        # NOT `run_dir / "runtime-cache"`: these paths become GOCACHE,
+        # GOMODCACHE and ENTIRE_PLUGIN_CACHE_DIR in the agent's own
+        # environment, and run_dir's name carries the condition.
+        root = suite_dir / "runtime-cache" / "cells" / opaque_cell_key(run_dir.name)
     else:
         root = suite_dir / "runtime-cache" / "setup"
     return {
@@ -5088,8 +5102,24 @@ def remove_agent_visible_git_remotes(worktree: pathlib.Path) -> dict[str, Any]:
     return {"removed": remotes, "remaining": remaining}
 
 
-def sanitize_harness_agent_environment(env: dict[str, str]) -> tuple[dict[str, str], dict[str, Any]]:
-    """Remove harness-control and shell-redirection state from the agent env."""
+def sanitize_harness_agent_environment(
+    env: dict[str, str], identifying_tokens: Iterable[str] = ()
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Remove harness-control and shell-redirection state from the agent env.
+
+    The key list below is a NAME-based filter, which cannot see an arm name that
+    arrives inside a VALUE. Every variable holding a path derived from the
+    results tree does exactly that, because a cell's directory is named
+    `<task>__<runner>__<condition>__r<n>`; observed live in GOCACHE, GOMODCACHE
+    and ENTIRE_PLUGIN_CACHE_DIR, and the same shape reached the model through
+    CODEX_HOME / CLAUDE_CONFIG_DIR downstream. A bare `env` in the agent's own
+    shell prints all of it.
+
+    `identifying_tokens` closes that class for any caller: pass the strings that
+    must never reach the agent (the condition, the run id) and a remaining value
+    containing one is a fail-closed error rather than a silently delivered cue.
+    The default is empty, so existing callers keep the exact previous behaviour.
+    """
     blocked_exact = {
         "BASH_ENV",
         "CDPATH",
@@ -5119,7 +5149,21 @@ def sanitize_harness_agent_environment(env: dict[str, str]) -> tuple[dict[str, s
         or (key.startswith("ENTIRE_") and key not in allowed_entire)
     )
     sanitized = {key: value for key, value in env.items() if key not in removed}
-    return sanitized, {"removed_keys": removed, "remaining_keys_sha256": stable_json_sha256(sorted(sanitized))}
+    tokens = sorted({token for token in identifying_tokens if token})
+    leaking = sorted(
+        key for key, value in sanitized.items() if any(token in str(value) for token in tokens)
+    )
+    if leaking:
+        raise RuntimeError(
+            "agent environment names the arm: "
+            + ", ".join(f"{key}={sanitized[key]!r}" for key in leaking)
+        )
+    return sanitized, {
+        "removed_keys": removed,
+        "remaining_keys_sha256": stable_json_sha256(sorted(sanitized)),
+        "identifying_token_count": len(tokens),
+        "identifying_tokens_absent_from_values": bool(tokens),
+    }
 
 
 def temporal_agent_read_isolation(
@@ -5304,6 +5348,7 @@ def complete_harness_delivery_isolation(
     source: pathlib.Path,
     env: dict[str, str],
     tools: dict[str, pathlib.Path],
+    identifying_tokens: Iterable[str] = (),
 ) -> tuple[dict[str, str], str, dict[str, Any]]:
     """Complete the causal lane's isolation or mark delivery unusable before failing."""
     stage = "brain_store_removal"
@@ -5312,7 +5357,7 @@ def complete_harness_delivery_isolation(
         stage = "git_remote_isolation"
         delivery["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
         stage = "environment_isolation"
-        env, environment_isolation = sanitize_harness_agent_environment(env)
+        env, environment_isolation = sanitize_harness_agent_environment(env, identifying_tokens)
         delivery["environment_isolation"] = environment_isolation
         stage = "filesystem_read_isolation"
         # The sanitized agent env (not the host env) is what the agent resolves
@@ -8865,7 +8910,7 @@ def run_one(
             )
             try:
                 env, read_isolation_profile, read_isolation = complete_harness_delivery_isolation(
-                    memory_delivery, worktree, source, env, tools
+                    memory_delivery, worktree, source, env, tools, (condition, run_id)
                 )
             finally:
                 persist_memory_delivery(
