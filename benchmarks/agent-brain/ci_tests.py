@@ -26,6 +26,25 @@ import pathlib
 import subprocess
 import sys
 
+# Modules that need a facility only a macOS host has. Each was passing on a
+# developer's Mac and failing on the Linux runner the first time the gate
+# actually executed it, which is the clearest possible statement that they had
+# never run in CI. They are skipped where the facility is absent rather than
+# quarantined, so a macOS developer still gets them.
+DARWIN_ONLY: dict[str, str] = {
+    "test_isolation_repairs.py": "needs /usr/bin/sandbox-exec for the read-isolation profile",
+    "confirmatory/test_negative_control_darwin_capacity_v1.py": "shells /usr/bin/xcrun",
+    "confirmatory/test_negative_control_owner_approval_v1.py": (
+        "pins the sha256 of the host ssh-keygen, and the recorded hash is the "
+        "macOS system binary"
+    ),
+    "confirmatory/test_restricted_replay_attestation.py": (
+        "requires a temporary directory that is not group- or world-writable; "
+        "the default tempdir is /tmp (1777) on Linux and a private "
+        "/var/folders/... on macOS"
+    ),
+}
+
 ROOT = pathlib.Path(__file__).resolve().parent
 
 # Modules that do not pass on a clean checkout today. Each entry states why, so the
@@ -84,15 +103,18 @@ def main() -> int:
     unexpected_pass: list[str] = []
     for path in modules():
         rel = path.relative_to(ROOT).as_posix()
+        if rel in DARWIN_ONLY and sys.platform != "darwin":
+            print(f"skipped (host)  {rel}", flush=True)
+            continue
         ok, output = run(path)
         if rel in QUARANTINE:
             # A quarantined module's failure output is expected and noisy; only the
             # surprise is worth printing.
-            print(f"{'UNEXPECTED PASS' if ok else 'quarantined  '}  {rel}", flush=True)
+            print(f"{'UNEXPECTED PASS ' if ok else 'quarantined     '}{rel}", flush=True)
             if ok:
                 unexpected_pass.append(rel)
             continue
-        print(f"{'ok           ' if ok else 'FAIL         '}  {rel}", flush=True)
+        print(f"{'ok              ' if ok else 'FAIL            '}{rel}", flush=True)
         if not ok:
             sys.stdout.write(output)
             failed.append(rel)

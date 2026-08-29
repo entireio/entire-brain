@@ -100,7 +100,21 @@ jobs:
   benchmark-corpus:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth 0: the packet-format A/B modules assert that a recorded
+      # product-contract commit is an ancestor of HEAD, which a depth-1 checkout
+      # cannot answer.
       - uses: actions/checkout@v6.0.2
+        with: { fetch-depth: 0 }
+      # The suite was written against Python 3.14 (it packages evidence with
+      # tarfile's zstd mode, added there). The job previously used whatever
+      # `python3` the image happened to ship — 3.12 — and never declared an
+      # interpreter, because the modules that need one were not being run.
+      - uses: actions/setup-python@v6.0.0
+        with: { python-version: "3.14" }
+      # The task negative-control module drives the pinned Go toolchain. Same
+      # story: the job had no Go at all.
+      - uses: actions/setup-go@v6.4.0
+        with: { go-version: "1.26.2" }
       - name: Validate mined-scale corpus and run the benchmark test suite
         run: |
           set -e
