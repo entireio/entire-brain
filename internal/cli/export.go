@@ -1647,9 +1647,22 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 	}, warnings, nil
 }
 
+// loadAggregateCheckpointSources reads the git-branch backend's aggregate
+// checkpoint refs and returns one source per checkpoint ID found.
+//
+// It reads EVERY candidate ref and unions the results, first ref wins per
+// checkpoint ID. entire/checkpoints/v1 is an ordinary branch, so the local ref
+// and origin's tracking ref diverge in both directions: the CLI advances the
+// local ref only under its own confinement rules, and checkpoints pushed from
+// another clone reach origin's tracking ref without ever touching this one.
+// Stopping at the first ref that yielded anything therefore hid every
+// origin-only checkpoint behind a single stale local one, and reported success
+// while doing it — the caller's contract is a complete union of the local
+// stores, and the export manifest says so.
 func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
 	sources := make(map[string]checkpointSnapshotSource)
 	var deferredErrors []string
+	var warnings []string
 	for _, ref := range []string{v1MainRef, v1OriginRef} {
 		pathsOut, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
 		if err != nil {
@@ -1664,6 +1677,11 @@ func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, r
 			}
 		}
 		for _, id := range checkpointIDsFromTreeListing(pathsOut) {
+			// First ref wins: the local ref keeps precedence for a checkpoint
+			// both refs carry, as before.
+			if _, seen := sources[id]; seen {
+				continue
+			}
 			root := checkpointPath(id)
 			sourcePaths := pathsUnderCheckpointRoot(paths, root)
 			if len(sourcePaths) == 0 {
@@ -1679,13 +1697,12 @@ func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, r
 				LocalOnly:   localOnly,
 			}
 		}
-		warnings := warningLines("checkpoint ref "+ref, stderr)
-		if len(sources) > 0 {
-			return sources, warnings
-		}
-		deferredErrors = append(deferredErrors, warnings...)
+		warnings = append(warnings, warningLines("checkpoint ref "+ref, stderr)...)
 	}
-	return sources, deferredErrors
+	if len(sources) > 0 {
+		return sources, warnings
+	}
+	return sources, append(warnings, deferredErrors...)
 }
 
 func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
