@@ -3920,10 +3920,52 @@ def parse_iso_timestamp(value: str, label: str) -> dt.datetime:
     return parsed.astimezone(dt.UTC)
 
 
+#: The closed field sets for a frozen memory bundle. Every name here is read by
+#: this module; an unlisted key is a typo, and a typo'd pin is an absent pin.
+MEMORY_BUNDLE_FIELDS = frozenset(
+    {
+        "role",
+        "checkpoint_ref_commit",
+        "cutoff_at",
+        "session_ids",
+        "session_variants",
+        "retrieval_branch",
+        "search_limit",
+        "packet",
+        "source_artifact",
+        "distill",
+        "require_facts",
+    }
+)
+MEMORY_BUNDLE_SOURCE_ARTIFACT_FIELDS = frozenset(
+    {"cache_key", "transcript_sha256", "history_sha256", "fact_artifact_sha256"}
+)
+MEMORY_BUNDLE_DISTILL_FIELDS = frozenset(
+    {
+        "agent",
+        "agent_command",
+        "binary",
+        "model",
+        "effort",
+        "concurrency",
+        "max_chunk_bytes",
+        "timeout_seconds",
+    }
+)
+
+
 def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
     raw = task.get("memory_bundle")
     if not isinstance(raw, dict):
         raise ValueError(f"task {task.get('id', '<unknown>')} requires a memory_bundle object")
+    # Closed key sets. Every field below is read by name somewhere in this file,
+    # so a misspelled one is not an extra annotation -- it is a pin that silently
+    # does not exist. `source_artifacts` instead of `source_artifact` turned off
+    # every content check in validate_temporal_source_artifact while the bundle
+    # still declared itself sealed.
+    unknown_bundle = sorted(set(raw) - MEMORY_BUNDLE_FIELDS)
+    if unknown_bundle:
+        raise ValueError(f"memory_bundle has unknown fields: {unknown_bundle}")
     role = raw.get("role")
     if role not in {"development", "sealed"}:
         raise ValueError("memory_bundle.role must be development or sealed")
@@ -3990,10 +4032,32 @@ def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
             if key in seen_variants:
                 raise ValueError("memory_bundle.session_variants must not contain duplicates")
             seen_variants.add(key)
+    distill = raw.get("distill")
+    if distill is not None:
+        if not isinstance(distill, dict):
+            raise ValueError("memory_bundle.distill must be an object when present")
+        unknown_distill = sorted(set(distill) - MEMORY_BUNDLE_DISTILL_FIELDS)
+        if unknown_distill:
+            raise ValueError(f"memory_bundle.distill has unknown fields: {unknown_distill}")
     source_artifact = raw.get("source_artifact")
+    if role == "sealed" and not isinstance(source_artifact, dict):
+        # `role` is copied verbatim into every memory record and read by a
+        # reviewer as the claim that this bundle's content is pinned. Without a
+        # source_artifact, validate_temporal_source_artifact returns on its first
+        # line and not one hash is compared -- the word "sealed" would assert
+        # something nothing checks.
+        raise ValueError(
+            "memory_bundle.role=sealed requires a source_artifact; without it no "
+            "transcript, history, or fact hash is ever compared"
+        )
     if source_artifact is not None:
         if not isinstance(source_artifact, dict):
             raise ValueError("memory_bundle.source_artifact must be an object when present")
+        unknown_artifact = sorted(set(source_artifact) - MEMORY_BUNDLE_SOURCE_ARTIFACT_FIELDS)
+        if unknown_artifact:
+            raise ValueError(
+                f"memory_bundle.source_artifact has unknown fields: {unknown_artifact}"
+            )
         if not re.fullmatch(r"[0-9a-f]{24}", str(source_artifact.get("cache_key") or "")):
             raise ValueError("memory_bundle.source_artifact.cache_key must be a 24-character lowercase hex key")
         for field in ("transcript_sha256", "fact_artifact_sha256"):
