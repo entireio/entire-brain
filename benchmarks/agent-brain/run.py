@@ -4731,36 +4731,56 @@ def _canonical_packet_json(value: Any) -> str:
 def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any]]:
     """Bound a search response without handing the agent malformed JSON.
 
-    Responses that already fit are delivered byte-for-byte. Oversized responses
-    retain ranked results in order: whole results first, then (when it fits) a
-    UTF-8-safe prefix of the next result's text. The compact packet records the
-    omitted/partial result counts in-band and in provenance.
+    EVERY delivered packet carries the same top-level keys, canonically
+    serialized, whether or not it needed truncating. `_benchmark_delivery` used
+    to be added only on the oversized path, so the mere PRESENCE of that key --
+    and of the truncation suffix inside the last delivered result -- was
+    correlated with how much memory an arm had. A content-poor arm (a baseline
+    with no results, or a size-matched placebo) could never trip it while a
+    content-rich arm routinely did, which let a subject read its own condition
+    off the packet's shape. Shape is harness-authored and must be constant;
+    only the VALUES may differ, and they still report what really happened.
+
+    Oversized responses retain ranked results in order: whole results first,
+    then (when it fits) a UTF-8-safe prefix of the next result's text. The
+    delivery note's ~150 bytes come out of the same budget for every arm.
     """
-    raw = stdout.encode("utf-8")
     payload = json.loads(stdout)
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         raise ValueError("search response must be an object with a results array")
     results = payload["results"]
-    if len(raw) <= max_bytes:
-        delivered = stdout
+    delivery_note = {
+        "max_bytes": max_bytes,
+        "original_result_count": len(results),
+        "delivered_result_count": len(results),
+        "omitted_result_count": 0,
+        "partial_last_result": False,
+        "truncated": False,
+    }
+    packet_payload = {key: value for key, value in payload.items() if key != "results"}
+    packet_payload["results"] = list(results)
+    packet_payload["_benchmark_delivery"] = delivery_note
+
+    def render() -> str:
+        return _canonical_packet_json(packet_payload)
+
+    whole = render()
+    if len(whole.encode("utf-8")) <= max_bytes:
+        delivered = whole
         delivered_count = len(results)
         partial_last_result = False
         strategy = "none"
+        truncated = False
     else:
-        delivery_note = {
-            "max_bytes": max_bytes,
-            "original_result_count": len(results),
-            "delivered_result_count": 0,
-            "omitted_result_count": len(results),
-            "partial_last_result": False,
-            "truncated": True,
-        }
-        packet_payload = {key: value for key, value in payload.items() if key != "results"}
+        delivery_note.update(
+            {
+                "delivered_result_count": 0,
+                "omitted_result_count": len(results),
+                "partial_last_result": False,
+                "truncated": True,
+            }
+        )
         packet_payload["results"] = []
-        packet_payload["_benchmark_delivery"] = delivery_note
-
-        def render() -> str:
-            return _canonical_packet_json(packet_payload)
 
         if len(render().encode("utf-8")) > max_bytes:
             raise ValueError("search response metadata exceeds the packet byte budget")
@@ -4819,6 +4839,7 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
         delivered = render()
         delivered_count = len(packet_payload["results"])
         strategy = "whole_ranked_results_then_text_prefix"
+        truncated = True
 
     delivered_raw = delivered.encode("utf-8")
     return delivered, {
@@ -4827,7 +4848,7 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
         "token_estimate": deterministic_token_estimate(delivered),
         "token_estimator": "ceil_utf8_bytes_div_4",
         "max_bytes": max_bytes,
-        "truncated": len(raw) > max_bytes,
+        "truncated": truncated,
         "truncation_strategy": strategy,
         "original_result_count": len(results),
         "delivered_result_count": delivered_count,
