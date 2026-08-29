@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -80,15 +81,49 @@ func TestStreamWaitReturnsAfterCancellationDespiteGrandchildHoldingStdout(t *tes
 	}
 }
 
+// runnerHelperEnv marks a re-execution of this test binary as the child process
+// for TestWaitDelayDoesNotAffectACommandThatExitsNormally.
+//
+// The child has to be a program that exists on every host the suite runs on.
+// /bin/sh is not: on Windows it is not on PATH, and the assertion below is not
+// about shells anyway -- it is about WaitDelay leaving a normally-exiting
+// command alone, which is host-independent. Re-executing the test binary is the
+// standard way to get a portable, predictable child.
+const runnerHelperEnv = "ENTIRE_BRAIN_RUNNER_TEST_HELPER"
+
+// TestRunnerHelperPrintsHello is not an assertion of its own: it is the child
+// process. Under the marker variable it writes the expected bytes and exits
+// before the testing framework can add anything of its own to stdout.
+func TestRunnerHelperPrintsHello(t *testing.T) {
+	if os.Getenv(runnerHelperEnv) != "1" {
+		t.Skip("child process for TestWaitDelayDoesNotAffectACommandThatExitsNormally")
+	}
+	fmt.Print("hello")
+	os.Exit(0)
+}
+
 // A command that exits on its own must be entirely unaffected: WaitDelay is a
 // cancellation backstop, not a timeout.
 func TestWaitDelayDoesNotAffectACommandThatExitsNormally(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	stdout, _, err := (ExecRunner{}).Run(context.Background(), dir, "/bin/sh", "-c", "printf hello")
+	self, err := os.Executable()
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("locate the test binary: %v", err)
+	}
+
+	// RunWithEnv and Run share runExecCommand, which is where WaitDelay is set,
+	// so the child still runs under the exact configuration under test.
+	stdout, _, err := (ExecRunner{}).RunWithEnv(
+		context.Background(),
+		dir,
+		map[string]string{runnerHelperEnv: "1"},
+		self,
+		"-test.run=^TestRunnerHelperPrintsHello$",
+	)
+	if err != nil {
+		t.Fatalf("RunWithEnv: %v", err)
 	}
 	if string(stdout) != "hello" {
 		t.Fatalf("stdout = %q, want %q", stdout, "hello")
