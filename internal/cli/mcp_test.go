@@ -99,8 +99,13 @@ func TestMCPBrainReviewToolDefinitionGolden(t *testing.T) {
 	// bytes and 3,411 -> 3,354 tokens. The pinned tokenizer asset (SHA-256
 	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
 	// is deliberately not a production or test dependency.
-	if len(got) != 810 {
-		t.Fatalf("brain_review tool definition bytes = %d, want 810", len(got))
+	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
+	// argument. Byte counts below are re-measured; the token counts are the
+	// earlier measurement and are NOT re-measured here, because the pinned
+	// o200k_base asset is deliberately not a test dependency. Across the whole
+	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
+	if len(got) != 826 {
+		t.Fatalf("brain_review tool definition bytes = %d, want 826", len(got))
 	}
 }
 
@@ -134,8 +139,13 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 	// is deliberately not a production or test dependency. The +80 bytes over
 	// that 907-byte floor are the cross-repo scope gate, named in the
 	// description so an agent that hits the refusal knows the one knob.
-	if len(got) != 987 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 987", len(got))
+	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
+	// argument. Byte counts below are re-measured; the token counts are the
+	// earlier measurement and are NOT re-measured here, because the pinned
+	// o200k_base asset is deliberately not a test dependency. Across the whole
+	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
+	if len(got) != 1003 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1003", len(got))
 	}
 }
 
@@ -2075,5 +2085,115 @@ func TestMCPMultiConceptQuery(t *testing.T) {
 	// Concepts without the conversation source are a structured error.
 	if responses[1]["error"] == nil {
 		t.Fatalf("concepts without conversation source must error: %+v", responses[1])
+	}
+}
+
+// TestMCPToolSurfaceGolden pins the entire declared MCP tool surface — every
+// tool name, description, and JSON schema — in one file.
+//
+// The per-tool goldens above cover three tools chosen for their token budget.
+// This one exists for a different reason: the surface is about to be wrapped by
+// a separate unified-MCP layer, so any silent edit to a name, a description, or
+// a schema bound propagates into consumers that never see this repo. A reviewer
+// looking at a diff of this file sees the contract change itself rather than
+// having to infer it from a Go literal spanning 250 lines.
+//
+// Regenerate deliberately, never reflexively:
+//
+//	UPDATE_MCP_SURFACE_GOLDEN=1 go test ./internal/cli -run TestMCPToolSurfaceGolden
+func TestMCPToolSurfaceGolden(t *testing.T) {
+	t.Parallel()
+	const path = "testdata/mcp_tool_surface.golden.json"
+	got, err := json.MarshalIndent(mcpToolDefinitions(), "", "  ")
+	if err != nil {
+		t.Fatalf("marshal tool surface: %v", err)
+	}
+	got = append(got, '\n')
+	if os.Getenv("UPDATE_MCP_SURFACE_GOLDEN") != "" {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		t.Log("regenerated " + path)
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read tool surface golden: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("MCP tool surface changed; if the change is intended, regenerate with UPDATE_MCP_SURFACE_GOLDEN=1 and review the diff as a contract change")
+	}
+}
+
+// TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces ties every declared
+// integer bound to the bound that is actually enforced, so the two cannot drift
+// apart again.
+//
+// mcpPositiveInt/mcpNonNegativeInt reject anything above mcpIntegerArgMax with
+// a -32000 tool error, but the schema used to declare a floor and no ceiling.
+// A schema-validating MCP client therefore believed limit=1000000 was a legal
+// call and only discovered the real ceiling by being refused at runtime. Every
+// integer property must now declare a maximum, and no tool may advertise a
+// ceiling above the one the handler will actually accept.
+func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
+	t.Parallel()
+
+	// Prove the generic ceiling is the one the parsers enforce, rather than
+	// asserting a constant against itself.
+	if _, err := mcpPositiveInt(map[string]any{"limit": float64(mcpIntegerArgMax)}, "limit", 1); err != nil {
+		t.Fatalf("mcpPositiveInt rejected the declared maximum %d: %v", mcpIntegerArgMax, err)
+	}
+	if _, err := mcpPositiveInt(map[string]any{"limit": float64(mcpIntegerArgMax + 1)}, "limit", 1); err == nil {
+		t.Fatalf("mcpPositiveInt accepted %d, one above the declared maximum", mcpIntegerArgMax+1)
+	}
+	if _, err := mcpNonNegativeInt(map[string]any{"offset": float64(mcpIntegerArgMax)}, "offset", 0); err != nil {
+		t.Fatalf("mcpNonNegativeInt rejected the declared maximum %d: %v", mcpIntegerArgMax, err)
+	}
+	if _, err := mcpNonNegativeInt(map[string]any{"offset": float64(mcpIntegerArgMax + 1)}, "offset", 0); err == nil {
+		t.Fatalf("mcpNonNegativeInt accepted %d, one above the declared maximum", mcpIntegerArgMax+1)
+	}
+
+	// A tool may declare a stricter ceiling than the MCP parser when a
+	// downstream validator enforces it. Those are enumerated here against the
+	// very constants that validator uses (conversation_session.go), so raising
+	// one without updating the other fails this test.
+	stricter := map[string]int{
+		"brain_get.context_before": conversationContextMax,
+		"brain_get.context_after":  conversationContextMax,
+		"brain_get.limit":          conversationOutlineMaxLimit,
+	}
+
+	seen := 0
+	for _, tool := range mcpToolDefinitions() {
+		name, _ := tool["name"].(string)
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		for key, raw := range props {
+			arg, ok := raw.(map[string]any)
+			if !ok || arg["type"] != "integer" {
+				continue
+			}
+			seen++
+			maximum, ok := arg["maximum"].(int)
+			if !ok {
+				t.Errorf("%s.%s declares no maximum; the handler rejects values above %d, so the schema understates the contract", name, key, mcpIntegerArgMax)
+				continue
+			}
+			if maximum > mcpIntegerArgMax {
+				t.Errorf("%s.%s declares maximum %d, above the %d the handler accepts", name, key, maximum, mcpIntegerArgMax)
+			}
+			if want, isStricter := stricter[name+"."+key]; isStricter {
+				if maximum != want {
+					t.Errorf("%s.%s declares maximum %d, want the %d its downstream validator enforces", name, key, maximum, want)
+				}
+				continue
+			}
+			if maximum != mcpIntegerArgMax {
+				t.Errorf("%s.%s declares maximum %d but nothing enforces it; either enforce it downstream and list it in the stricter map, or declare the %d ceiling the handler uses", name, key, maximum, mcpIntegerArgMax)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no integer tool arguments found; the walk is broken, not the schema")
 	}
 }
