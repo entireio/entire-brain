@@ -1490,10 +1490,20 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 		}
 	}
 	if length < 0 {
-		return mcpMessage{}, "", errors.New("missing Content-Length")
+		// The header block ended without a Content-Length, so no body was
+		// announced and nothing has to be skipped: the reader still sits on a
+		// frame boundary and the session can answer and carry on.
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: missing Content-Length", errMCPRecoverable)
 	}
 	if length > maxMCPFrameBytes {
-		return mcpMessage{}, "", fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes", maxMCPFrameBytes)
+		oversize := fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes", maxMCPFrameBytes)
+		// The announced length is known, so the body can be discarded without ever
+		// allocating it, which leaves the reader on the next frame boundary. Only a
+		// short stream (the peer announced more than it sent) is unrecoverable.
+		if _, err := io.CopyN(io.Discard, reader, int64(length)); err != nil {
+			return mcpMessage{}, "", oversize
+		}
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: %v", errMCPRecoverable, oversize)
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(reader, data); err != nil {
@@ -1501,7 +1511,10 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	}
 	var msg mcpMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
-		return mcpMessage{}, "", err
+		// Exactly length bytes were consumed, so the malformed body cannot
+		// desynchronize the stream: report it the way a malformed json-line frame
+		// is reported and keep serving.
+		return mcpMessage{}, mcpFrameContentLength, fmt.Errorf("%w: %v", errMCPRecoverable, err)
 	}
 	return msg, mcpFrameContentLength, nil
 }

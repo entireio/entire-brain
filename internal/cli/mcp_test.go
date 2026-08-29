@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -2002,5 +2003,67 @@ func TestMCPMultiConceptQuery(t *testing.T) {
 	// Concepts without the conversation source are a structured error.
 	if responses[1]["error"] == nil {
 		t.Fatalf("concepts without conversation source must error: %+v", responses[1])
+	}
+}
+
+// TestMCPRecoversFromMalformedContentLengthFrame pins the Content-Length framing
+// mode to the same survival guarantee the json-line mode already has
+// (TestMCPRecoversFromMalformedJSONLineFrame): a single frame the server cannot
+// turn into a request must not tear down the session, as long as the reader is
+// still sitting on a frame boundary. Each case below leaves the stream aligned —
+// a body of exactly the announced length was consumed, or none was announced at
+// all — so the next valid frame is still servable.
+func TestMCPRecoversFromMalformedContentLengthFrame(t *testing.T) {
+	t.Parallel()
+	initialize := `{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`
+	oversized := strings.Repeat("A", maxMCPFrameBytes+1)
+	for _, tc := range []struct {
+		name string
+		bad  string
+	}{
+		// A JSON-RPC batch is legal JSON and a legal JSON-RPC 2.0 construct, but it
+		// does not decode into a single request object.
+		{name: "batch body", bad: frameMCP(`[{"jsonrpc":"2.0","id":1,"method":"ping"}]`)},
+		{name: "non-object body", bad: frameMCP(`"just a string"`)},
+		{name: "truncated body", bad: frameMCP(`{"jsonrpc":`)},
+		{name: "header block without Content-Length", bad: "\r\n"},
+		{name: "body over the frame cap", bad: frameMCP(oversized)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var out bytes.Buffer
+			if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(tc.bad+frameMCP(initialize)), &out, Options{Version: "test-version"}); err != nil {
+				t.Fatalf("session should survive a malformed Content-Length frame, got err: %v", err)
+			}
+			responses := readMCPResponses(t, out.String())
+			if len(responses) != 2 {
+				t.Fatalf("expected parse-error + initialize responses, got %d: %q", len(responses), out.String())
+			}
+			errObj, ok := responses[0]["error"].(map[string]any)
+			if !ok || errObj["code"].(float64) != -32700 {
+				t.Fatalf("first response should be parse error -32700, got %v", responses[0])
+			}
+			if responses[1]["result"] == nil {
+				t.Fatalf("second response should be a valid initialize result, got %v", responses[1])
+			}
+		})
+	}
+}
+
+// TestMCPContentLengthFrameCapNeverAllocatesTheAnnouncedBody guards the discard
+// path added for oversized frames: the cap exists so a peer cannot make the
+// server allocate an arbitrary buffer, so recovering from the frame must skip
+// the body rather than read it into memory.
+func TestMCPContentLengthFrameCapNeverAllocatesTheAnnouncedBody(t *testing.T) {
+	t.Parallel()
+	// The announced length is far larger than the bytes that follow. Draining must
+	// stop at the end of the stream instead of allocating the announced size.
+	reader := bufio.NewReader(strings.NewReader("Content-Length: 4294967296\r\n\r\nshort"))
+	_, _, err := readMCPMessage(reader)
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Fatalf("oversized frame err = %v", err)
+	}
+	if errors.Is(err, errMCPRecoverable) {
+		t.Fatalf("a short stream cannot be realigned, so the error must be fatal: %v", err)
 	}
 }
