@@ -2823,27 +2823,13 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 		}
 		return readCheckpointSourceTranscript(ctx, runner, source, sourcePath)
 	}
-	if _, ok := snapshot.TreePaths[sourcePath]; ok {
-		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, sourcePath, brainNoEgressMode())
-	}
-
 	chunks := snapshotTranscriptChunks(sourcePath, snapshot.TreePaths)
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("transcript path %s not found in %s", sourcePath, snapshot.Ref)
 	}
-
-	var b strings.Builder
-	for i, chunk := range chunks {
-		data, err := catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
-		if err != nil {
-			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
-		}
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.Write(data)
-	}
-	return []byte(b.String()), nil
+	return readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
+		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
+	})
 }
 
 func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) ([]byte, error) {
@@ -2854,25 +2840,91 @@ func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, s
 		}
 		return catFileWithPolicy(ctx, runner, source.GitDir, source.Ref, actualPath, source.LocalOnly)
 	}
-	if _, ok := source.TreePaths[virtualPath]; ok {
-		return readOne(virtualPath)
-	}
 	chunks := snapshotTranscriptChunks(virtualPath, source.TreePaths)
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("transcript path %s not found in %s", virtualPath, source.Ref)
 	}
-	var b strings.Builder
-	for i, chunk := range chunks {
+	return readTranscriptChunks(chunks, readOne)
+}
+
+// readTranscriptChunks reads the ordered parts of one stored transcript and
+// reassembles them the way the CLI that wrote them does.
+//
+// The CLI splits an oversized transcript into `full.jsonl` plus numbered
+// `full.jsonl.NNN` parts and reassembles them FORMAT-AWARE
+// (cmd/entire/cli/agent/chunking.go ReassembleTranscript). Every part is a
+// fragment, including the unsuffixed one, so a reader that returns the base
+// file whenever it exists returns a truncated transcript; and Gemini — the one
+// supported agent whose transcript is a standalone JSON document rather than
+// JSONL — stores each part as its own complete {"messages":[...]} object, so a
+// byte join with a newline produces two top-level JSON documents in one file
+// and the exported transcript does not parse at all.
+//
+// A single unchunked part is returned verbatim, so the overwhelmingly common
+// case is byte-identical to a plain read.
+func readTranscriptChunks(chunks []string, readOne func(string) ([]byte, error)) ([]byte, error) {
+	parts := make([][]byte, 0, len(chunks))
+	for _, chunk := range chunks {
 		data, err := readOne(chunk)
 		if err != nil {
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
 		}
+		parts = append(parts, data)
+	}
+	if len(parts) == 1 {
+		return parts[0], nil
+	}
+	if isGeminiTranscriptDocument(parts[0]) {
+		return mergeGeminiTranscriptChunks(parts)
+	}
+	var b strings.Builder
+	for i, part := range parts {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.Write(data)
+		b.Write(part)
 	}
 	return []byte(b.String()), nil
+}
+
+// geminiTranscriptDocument is the Gemini transcript envelope. Messages stay raw
+// so a merge re-emits each message exactly as the CLI stored it.
+type geminiTranscriptDocument struct {
+	Messages []json.RawMessage `json:"messages"`
+}
+
+// isGeminiTranscriptDocument mirrors the CLI's own content sniff for a Gemini
+// transcript (cmd/entire/cli/agent/chunking.go DetectAgentTypeFromContent),
+// which is what the CLI itself falls back to when the agent type is not
+// recorded. A JSONL part cannot match: more than one line of JSON fails to
+// unmarshal as a single document.
+func isGeminiTranscriptDocument(data []byte) bool {
+	if !strings.HasPrefix(strings.TrimSpace(string(data)), "{") {
+		return false
+	}
+	var doc geminiTranscriptDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return false
+	}
+	return len(doc.Messages) > 0
+}
+
+// mergeGeminiTranscriptChunks concatenates the parts' message arrays into one
+// document, the same reassembly the CLI performs
+// (cmd/entire/cli/agent/geminicli/gemini.go ReassembleTranscript).
+func mergeGeminiTranscriptChunks(parts [][]byte) ([]byte, error) {
+	merged := geminiTranscriptDocument{Messages: make([]json.RawMessage, 0, len(parts))}
+	for i, part := range parts {
+		var doc geminiTranscriptDocument
+		if err := json.Unmarshal(part, &doc); err != nil {
+			// The first part already parsed as a Gemini document, so a later
+			// one that does not is a damaged store, not a format guess gone
+			// wrong. Fail loudly rather than emit a file that does not parse.
+			return nil, fmt.Errorf("reassemble Gemini transcript chunk %d: %w", i, err)
+		}
+		merged.Messages = append(merged.Messages, doc.Messages...)
+	}
+	return json.Marshal(merged)
 }
 
 func (s checkpointSnapshotSource) actualPath(virtualPath string) (string, error) {
