@@ -4872,6 +4872,34 @@ class MemoryDeliveryError(RuntimeError):
         self.delivery = delivery
 
 
+class HarnessIsolationError(RuntimeError):
+    """A harness-owned isolation step failed; the agent was never started.
+
+    Removing the brain store, dropping the git remote, sanitizing the agent env
+    and building the seatbelt profile are HARNESS work, not product work. A
+    failure in any of them is an infrastructure non-outcome, exactly like a
+    failed harness retrieval, and must not be scored as the arm performing
+    badly."""
+
+
+def harness_failure_analysis_exclusion(exc: BaseException) -> dict[str, Any] | None:
+    """Classify a cell failure as an infrastructure non-outcome, or not.
+
+    summarize() keeps `analysis_excluded` rows out of every arm mean, delta and
+    p-value and reports their count instead. The rule is ownership: a failure in
+    a step the PRODUCT owns (retrieval that returned nothing usable, validation,
+    a bad patch) is a real outcome for that arm; a failure in a step the HARNESS
+    owns is not. Harness-owned failures are also structurally arm-correlated --
+    only a treatment arm has a brain store to remove, only the causal lane runs
+    delivery isolation -- so scoring them injects a directional zero into one
+    arm only."""
+    if isinstance(exc, MemoryDeliveryError):
+        return {"reason": "harness_memory_delivery_failed"}
+    if isinstance(exc, HarnessIsolationError):
+        return {"reason": "harness_delivery_isolation_failed"}
+    return None
+
+
 def memory_delivery_sources(prep: dict[str, Any]) -> dict[str, Any]:
     bundle_record = prep.get("memory_bundle") if isinstance(prep.get("memory_bundle"), dict) else {}
     sessions = [item for item in bundle_record.get("selected_sessions", []) if isinstance(item, dict)]
@@ -5328,7 +5356,44 @@ def complete_harness_delivery_isolation(
             # Persistence redacts the complete message before applying its size bound.
             "message": str(exc),
         }
-        raise
+        # Re-raised as a HARNESS failure, not a bare Exception: run_one's generic
+        # handler scores an unclassified failure 0 and leaves it in the arm mean,
+        # which is the one thing the sibling MemoryDeliveryError path exists to
+        # prevent. summarize()'s own contract already says isolation failures are
+        # kept out; this is what makes that true.
+        raise HarnessIsolationError(
+            f"harness delivery isolation failed at {stage}: {exc}"
+        ) from exc
+
+
+def standard_cell_read_isolation(
+    worktree: pathlib.Path,
+    source: pathlib.Path,
+    env: dict[str, str],
+    tools: dict[str, pathlib.Path],
+    extra_allowed_roots: Iterable[pathlib.Path] = (),
+) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    """Physical isolation for a cell that did not go through the causal lane.
+
+    Same ownership rule as complete_harness_delivery_isolation: this is harness
+    work, so a failure here is an infrastructure non-outcome rather than the
+    arm's score."""
+    stage = "git_remote_isolation"
+    try:
+        git_remote_isolation = remove_agent_visible_git_remotes(worktree)
+        stage = "filesystem_read_isolation"
+        profile, read_isolation = temporal_agent_read_isolation(
+            worktree,
+            source,
+            tools,
+            host_env=env,
+            extra_allowed_roots=extra_allowed_roots,
+        )
+    except Exception as exc:
+        raise HarnessIsolationError(
+            f"standard-cell read isolation failed at {stage}: {exc}"
+        ) from exc
+    return git_remote_isolation, profile, read_isolation
 
 
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
@@ -8886,16 +8951,15 @@ def run_one(
             # self-contained by design, so removing the remote and denying
             # reads of the harness and source trees changes nothing for a
             # compliant agent in any arm.
-            record["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
             standard_cell_allowed_roots = []
             if agent_bin is not None:
                 standard_cell_allowed_roots.append(CACHE_DIR / "agent-bin" / agent_bin["key"])
-            read_isolation_profile, read_isolation = temporal_agent_read_isolation(
-                worktree,
-                source,
-                tools,
-                host_env=env,
-                extra_allowed_roots=standard_cell_allowed_roots,
+            (
+                record["git_remote_isolation"],
+                read_isolation_profile,
+                read_isolation,
+            ) = standard_cell_read_isolation(
+                worktree, source, env, tools, standard_cell_allowed_roots
             )
             record["agent_read_isolation"] = read_isolation
         prompt = prompt_for(task, condition, runner, memory_packet=memory_packet)
@@ -9165,7 +9229,7 @@ def run_one(
                 # from arm means -- it can only occur in the harness-delivered
                 # treatment arm, so counting its synthetic 0 zero-pollutes that arm
                 # directionally. summarize() drops it and reports the count.
-                "analysis_excluded": {"reason": "harness_memory_delivery_failed"},
+                "analysis_excluded": harness_failure_analysis_exclusion(exc),
             }
         )
     except Exception as exc:
@@ -9204,6 +9268,9 @@ def run_one(
                 },
             }
         )
+        exclusion = harness_failure_analysis_exclusion(exc)
+        if exclusion is not None:
+            record["analysis_excluded"] = exclusion
     finally:
         cell_finished = time.monotonic()
         if agent_interval_started is not None and agent_interval_wall_seconds is None:
