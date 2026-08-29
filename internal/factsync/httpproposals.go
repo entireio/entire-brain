@@ -57,6 +57,24 @@ func proposalsPath(repoID string) (string, error) {
 	return base + "/brain/facts/proposals", nil
 }
 
+// proposalPath is the ONE place a proposal id becomes part of a request target, and
+// the reason it returns an error rather than a string: the two endpoints addressed by
+// id cannot build a path without handling the refusal, so no call site has to remember
+// to check. See validateProposalID for why escaping is not the rule and why a proposal
+// id is held to a stricter one than a repo id.
+func proposalPath(repoID, proposalID string) (string, error) {
+	if err := validateProposalID(proposalID); err != nil {
+		return "", err
+	}
+	// Concatenated raw: a validated id equals its own PathEscape, so escaping here
+	// would be a no-op that hides which line is actually doing the work.
+	collection, err := proposalsPath(repoID)
+	if err != nil {
+		return "", err
+	}
+	return collection + "/" + proposalID, nil
+}
+
 // wireProposalSet is the list/get response envelope.
 type wireProposalSet struct {
 	Found     bool           `json:"found"`
@@ -117,11 +135,11 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 // no proposal, is ErrProposalNotFound — the normal outcome when another member
 // already settled it.
 func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID string) (OpenProposal, error) {
-	collection, err := proposalsPath(repoID)
+	target, err := proposalPath(repoID, proposalID)
 	if err != nil {
 		return OpenProposal{}, err
 	}
-	path := collection + "/" + url.PathEscape(proposalID) + "?branch=" + url.QueryEscape(branch)
+	path := target + "?branch=" + url.QueryEscape(branch)
 	req, err := h.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return OpenProposal{}, err
@@ -236,10 +254,10 @@ type resolveRequestBody struct {
 // over. changed=false is reported as-is (the caller keeps its refs); it is not an
 // error, because a re-pushed identical resolution is idempotent.
 func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalRequest) (ResolveProposalResponse, error) {
-	// Refuse a target that is not one safe path segment first, before the resolution
-	// is serialized at all: a resolution body carries the member's whole fact set, so
-	// the id that decides where it is POSTed has to be checked before it is built.
-	collection, err := proposalsPath(req.RepoID)
+	// Build the target first, before the resolution is serialized at all: this body
+	// carries the member's whole fact set, so the id that decides where it is POSTed
+	// has to be settled before there is anything to send.
+	target, err := proposalPath(req.RepoID, req.ProposalID)
 	if err != nil {
 		return ResolveProposalResponse{}, err
 	}
@@ -279,7 +297,7 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 	if err != nil {
 		return ResolveProposalResponse{}, err
 	}
-	path := collection + "/" + url.PathEscape(req.ProposalID) + "/resolve"
+	path := target + "/resolve"
 	httpReq, err := h.newRequest(ctx, http.MethodPost, path, bytes.NewReader(encoded))
 	if err != nil {
 		return ResolveProposalResponse{}, err

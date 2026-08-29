@@ -136,7 +136,7 @@ func TestClientListAndGetProposals(t *testing.T) {
 	if err != nil || one.ID != open[0].ID {
 		t.Fatalf("GetProposal = %+v, %v", one, err)
 	}
-	if _, err := c.GetProposal(ctx, "repo1", "main", "prop-missing"); !errors.Is(err, factsync.ErrProposalNotFound) {
+	if _, err := c.GetProposal(ctx, "repo1", "main", "prop-deadbeefdeadbeef"); !errors.Is(err, factsync.ErrProposalNotFound) {
 		t.Fatalf("GetProposal(missing) = %v; want ErrProposalNotFound", err)
 	}
 }

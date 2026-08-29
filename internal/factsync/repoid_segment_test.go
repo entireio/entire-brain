@@ -90,7 +90,7 @@ func TestFactsyncRepoIDMustBeOneSafeSegment(t *testing.T) {
 			return err
 		},
 		"GetProposal": func(ctx context.Context, h *HTTPServer, id string) error {
-			_, err := h.GetProposal(ctx, id, "main", "p1")
+			_, err := h.GetProposal(ctx, id, "main", "prop-1234567890abcdef")
 			return err
 		},
 		"PublishProposals": func(ctx context.Context, h *HTTPServer, id string) error {
@@ -99,7 +99,7 @@ func TestFactsyncRepoIDMustBeOneSafeSegment(t *testing.T) {
 		},
 		"ResolveProposal": func(ctx context.Context, h *HTTPServer, id string) error {
 			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{
-				RepoID: id, Branch: "main", ProposalID: "p1",
+				RepoID: id, Branch: "main", ProposalID: "prop-1234567890abcdef",
 				Decision: Reject, FactsUnchanged: true,
 			})
 			return err
@@ -184,13 +184,13 @@ func TestProposalEndpointsLandOnTheIntendedPath(t *testing.T) {
 			// 404 is a normal outcome (already settled); the path is the assertion.
 			body: `{"found":false}`,
 			call: func(ctx context.Context, h *HTTPServer) error {
-				_, err := h.GetProposal(ctx, repoID, "main", "p1")
+				_, err := h.GetProposal(ctx, repoID, "main", "prop-1234567890abcdef")
 				if errors.Is(err, ErrProposalNotFound) {
 					return nil
 				}
 				return err
 			},
-			want: base + "/p1",
+			want: base + "/prop-1234567890abcdef",
 		},
 		"PublishProposals": {
 			body: `{"ref":"r2","changed":true}`,
@@ -204,12 +204,12 @@ func TestProposalEndpointsLandOnTheIntendedPath(t *testing.T) {
 			body: `{"factsRef":"f2","proposalsRef":"p2","changed":true}`,
 			call: func(ctx context.Context, h *HTTPServer) error {
 				_, err := h.ResolveProposal(ctx, ResolveProposalRequest{
-					RepoID: repoID, Branch: "main", ProposalID: "p1",
+					RepoID: repoID, Branch: "main", ProposalID: "prop-1234567890abcdef",
 					Decision: Reject, FactsUnchanged: true,
 				})
 				return err
 			},
-			want: base + "/p1/resolve",
+			want: base + "/prop-1234567890abcdef/resolve",
 		},
 	}
 	for name, tc := range cases {
