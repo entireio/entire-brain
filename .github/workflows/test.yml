@@ -89,18 +89,23 @@ jobs:
       - name: Run deterministic Phase 1 semantic tests
         run: go test -race -timeout 20m ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'
 
+  # The benchmark harness is Python and `go test ./...` does not see it. This job
+  # is its only gate, so it must run the whole suite by DISCOVERY, not by a list:
+  # the previous hand-maintained list named five scripts, two of them narrowed to
+  # one TestCase class, and executed ten tests in ten seconds. Everything else —
+  # 36 of 39 test modules and 310 of run_test.py's 313 tests — ran nowhere, so a
+  # fix whose evidence was a new test file was reported green without that
+  # evidence ever being executed. ci_tests.py discovers every test module, and
+  # carries the quarantine list for the modules that are red on a clean checkout.
   benchmark-corpus:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
-      - name: Validate mined-scale corpus and portable task setup
+      - name: Validate mined-scale corpus and run the benchmark test suite
         run: |
           set -e
-          python3 benchmarks/agent-brain/test_publication_safety.py
           python3 benchmarks/agent-brain/mined-scale/check_manifest.py
-          python3 benchmarks/agent-brain/test_mined_scale_manifest.py
-          python3 benchmarks/agent-brain/run_test.py PostBrainSetupTests
-          python3 benchmarks/agent-brain/test_profile_brief.py BriefProfileCorpusTest
+          python3 benchmarks/agent-brain/ci_tests.py
 
   release-evidence:
     # Release-evidence audits enforce proof-ready release artifacts. The plan
