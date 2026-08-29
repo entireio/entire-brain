@@ -115,6 +115,12 @@ jobs:
       # story: the job had no Go at all.
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.26.2" }
+      # That module discovers its toolchain with GOPROXY=off, deliberately — the
+      # receipt it produces is only a negative control if the runtime is fixed
+      # and local. So the pin it names has to be in the module cache before it
+      # runs; this is the one command allowed to fetch it.
+      - name: Prime the Go toolchain the task negative control pins
+        run: GOTOOLCHAIN=go1.26.4 go version
       - name: Validate mined-scale corpus and run the benchmark test suite
         run: |
           set -e
