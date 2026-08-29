@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2002,5 +2003,80 @@ func TestMCPMultiConceptQuery(t *testing.T) {
 	// Concepts without the conversation source are a structured error.
 	if responses[1]["error"] == nil {
 		t.Fatalf("concepts without conversation source must error: %+v", responses[1])
+	}
+}
+
+// TestMCPToolResultRefusesAFrameTheServerWouldNotRead pins the outbound frame
+// bound. readMCPMessage already rejects an inbound frame over maxMCPFrameBytes;
+// emitting one is the same protocol violation in the other direction, and on the
+// graph and semantic tools — which have no envelope budget of their own — a
+// declared argument like limit is enough to reach it.
+func TestMCPToolResultRefusesAFrameTheServerWouldNotRead(t *testing.T) {
+	t.Parallel()
+	ctx := context.WithValue(context.Background(), mcpResponseTransportContextKey{}, mcpResponseTransport{ID: 1, FrameMode: mcpFrameContentLength})
+
+	if _, err := mcpToolTextResult(ctx, "brain_impact", strings.Repeat("x", maxMCPFrameBytes+1)); err == nil {
+		t.Fatal("an oversized result must be refused, not emitted")
+	} else if !strings.Contains(err.Error(), "brain_impact") || !strings.Contains(err.Error(), strconv.Itoa(maxMCPFrameBytes)) {
+		t.Fatalf("refusal must name the tool and the cap, got: %v", err)
+	}
+
+	// The cap is on the frame, not on the raw text: a body just under the cap
+	// still exceeds it once JSON escaping and the response envelope are added, so
+	// measuring the text alone would let an over-cap frame through.
+	justUnder := strings.Repeat("\"", maxMCPFrameBytes-1024)
+	if _, err := mcpToolTextResult(ctx, "brain_context", justUnder); err == nil {
+		t.Fatal("a body that only exceeds the cap once escaped must still be refused")
+	}
+
+	result, err := mcpToolTextResult(ctx, "brain_context", strings.Repeat("x", 1024))
+	if err != nil {
+		t.Fatalf("a small result must be emitted: %v", err)
+	}
+	content, ok := result["content"].([]map[string]any)
+	if !ok || len(content) != 1 || content[0]["text"] != strings.Repeat("x", 1024) {
+		t.Fatalf("result envelope = %#v", result)
+	}
+}
+
+// TestMCPToolCallEnforcesTheResultFrameCap drives the cap through the real
+// tools/call path. It needs no large corpus: the query is echoed back inside the
+// MCP text envelope, where every character is JSON escaped a second time, so a
+// request comfortably under the inbound frame cap produces a response frame
+// roughly twice its size — over the very cap readMCPMessage enforces on reads.
+func TestMCPToolCallEnforcesTheResultFrameCap(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	opts := Options{Version: "test-version", Env: env, Runner: runner}
+
+	// Each quote costs 2 bytes in the request and 4 in the response, so a length
+	// just over a quarter of the cap lands the request under it and the response
+	// over it.
+	query := strings.Repeat(`"`, (maxMCPFrameBytes/4)+(64*1024))
+	input := frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "brain_search", "arguments": map[string]any{"query": query}},
+	})
+	if len(input) > maxMCPFrameBytes {
+		t.Fatalf("the request itself must be acceptable to readMCPMessage, got %d bytes", len(input))
+	}
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	if out.Len() > maxMCPFrameBytes {
+		t.Fatalf("server emitted a %d byte frame, over the %d byte cap it enforces on reads", out.Len(), maxMCPFrameBytes)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 1 {
+		t.Fatalf("expected one response, got %d", len(responses))
+	}
+	errObj, ok := responses[0]["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("oversized result should be an error, got a result of %d bytes", out.Len())
+	}
+	if !strings.Contains(errObj["message"].(string), "MCP frame limit") {
+		t.Fatalf("error = %v", errObj)
 	}
 }

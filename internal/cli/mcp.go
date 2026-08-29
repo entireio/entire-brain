@@ -1059,7 +1059,39 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": out.String()}}}, nil
+	return mcpToolTextResult(ctx, params.Name, out.String())
+}
+
+// mcpToolTextResult wraps a tool's output in the MCP content envelope, refusing
+// to emit a frame larger than the one the server is willing to read.
+//
+// readMCPMessage rejects an inbound frame over maxMCPFrameBytes, but nothing
+// bounded the outbound side, and the graph and semantic tools have no envelope
+// budget of their own the way the retrieval surface does (see
+// boundedRetrievalJSONPayload). limit is a declared argument an agent picks, so
+// a single ordinary call could hand the client a result orders of magnitude past
+// that cap: on a 40k-symbol repository, brain_impact with limit=10000 and
+// details=true serializes to ~74 MB. A refusal that names the cap is
+// recoverable — the caller narrows the request and asks again — where an
+// unbounded frame is not.
+func mcpToolTextResult(ctx context.Context, name, text string) (map[string]any, error) {
+	result := map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
+	// The escaped text can only grow inside the envelope, so a body already over
+	// the cap is over it for certain; this skips re-serializing a huge payload
+	// just to measure it.
+	if len(text) <= maxMCPFrameBytes {
+		size, err := mcpToolResultTransportSize(ctx, result)
+		if err != nil {
+			return nil, err
+		}
+		if size <= maxMCPFrameBytes {
+			return result, nil
+		}
+	}
+	return nil, fmt.Errorf(
+		"%s produced a result larger than the %d byte MCP frame limit; narrow the request (a smaller limit, or details=false)",
+		name, maxMCPFrameBytes,
+	)
 }
 
 func requireMCPQuery(query string) error {
