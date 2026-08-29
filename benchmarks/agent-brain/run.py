@@ -462,6 +462,10 @@ TEMPORAL_DELIVERY_MODES = {"agent_tool", "harness"}
 DEFAULT_MEMORY_PACKET_MAX_BYTES = 65536
 TEMPORAL_AGENT_SANDBOX_EXECUTABLE = pathlib.Path("/usr/bin/sandbox-exec")
 FROZEN_MEMORY_PACKET_END_TAG = "</frozen-memory-packet>"
+#: What an arm with no memory delivers. Same envelope, same JSON shape, no
+#: results -- the honest output of a retrieval that found nothing, rather than a
+#: label saying this arm is the control.
+EMPTY_MEMORY_PACKET = '{"results":[]}'
 # Whitespace-tolerant matcher for the reserved end delimiter. Injected copies
 # may separate the structural tokens with whitespace -- either literal, or
 # decoded from JSON escapes such as \\u0009 / \\u000a / \\u000d -- to slip past a
@@ -6667,6 +6671,16 @@ def prompt_for(
                 "memory packet injection is only allowed for harness-delivered temporal "
                 "conditions or explicit packet treatments"
             )
+    if memory_packet is not None and packet_contains_reserved_delimiter(memory_packet):
+        # The prompt is the one place every lane's packet converges, so the
+        # delimiter guard belongs here as well as at each producer. The
+        # harness-delivery lane already screens its packet; the explicit
+        # treatment lane did not screen at all, and a fact whose text carries the
+        # closing tag would end the memory block and have everything after it
+        # read as an instruction.
+        raise RuntimeError(
+            f"memory packet for {condition} contains the reserved packet delimiter"
+        )
     base = user_query(task)
     validation = "\n".join(
         f"- `{entry['command']}`" for entry in validation_commands(task)
@@ -6782,7 +6796,13 @@ def prompt_for(
         parts.append("Run the focused tests you identify as relevant before finishing.")
     parts.append("Keep the fix minimal. Do not edit tests unless the task explicitly asks for test changes. Do not commit changes. Finish with a short summary of what changed and which validation commands passed.")
     if explicit_treatments:
-        payload = memory_packet if memory_packet is not None else "<no-packet>"
+        # The no-memory arm receives a well-formed EMPTY packet, not the literal
+        # string "<no-packet>". An empty `results` array is honest output for an
+        # arm with no memory; a harness-authored token that only the control
+        # carries -- and that is not even the JSON every other arm gets -- tells
+        # the subject it is the untreated control in the first bytes of its
+        # memory block.
+        payload = memory_packet if memory_packet is not None else EMPTY_MEMORY_PACKET
         parts.append("Context packet:\n<frozen-memory-packet>\n" + payload + "\n</frozen-memory-packet>")
     elif memory_packet is not None:
         # Injected verbatim so the recorded packet SHA-256 also covers what the
