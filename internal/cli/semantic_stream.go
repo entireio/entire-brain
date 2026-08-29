@@ -202,7 +202,7 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 				}
 				break // skip ignored file/symbol record
 			}
-			if record.RecordType == "relation" && relationEndpointIgnored(record, cfg.ignore, ignoredIDs) {
+			if record.RecordType == "relation" && relationEndpointIgnored(record, res.header.RepoKey, cfg.ignore, ignoredIDs) {
 				break
 			}
 			switch record.RecordType {
@@ -297,11 +297,11 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 	return res, nil
 }
 
-func relationEndpointIgnored(record semanticRecord, ignore brainIgnore, ignoredIDs map[string]struct{}) bool {
-	if p := semanticEndpointPath(record.FromID); p != "" && ignore.Ignored(p) {
+func relationEndpointIgnored(record semanticRecord, repoKey string, ignore brainIgnore, ignoredIDs map[string]struct{}) bool {
+	if p := semanticEndpointPath(repoKey, record.FromID); p != "" && ignore.Ignored(p) {
 		return true
 	}
-	if p := semanticEndpointPath(record.ToID); p != "" && ignore.Ignored(p) {
+	if p := semanticEndpointPath(repoKey, record.ToID); p != "" && ignore.Ignored(p) {
 		return true
 	}
 	if _, ok := ignoredIDs[record.FromID]; ok {
