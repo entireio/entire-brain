@@ -242,13 +242,14 @@ type semanticRecord struct {
 	// Schema 1.1 fields. These are omitempty so older (1.0) snapshots round-trip
 	// unchanged, but they must be modeled so the streaming filter does not
 	// silently drop them when re-marshaling file/symbol/relation records.
-	Bytes         int                `json:"bytes,omitempty"`          // file record: source size
-	ContainerID   string             `json:"container_id,omitempty"`   // symbol record: enclosing symbol
-	BodyHash      string             `json:"body_hash,omitempty"`      // symbol record: content hash
-	RelationScope string             `json:"relation_scope,omitempty"` // relation record: file|external|...
-	Resolution    string             `json:"resolution,omitempty"`     // relation record: exact|type_inferred|name_only
-	TargetKind    string             `json:"target_kind,omitempty"`    // relation record: symbol|external
-	Evidence      []semanticEvidence `json:"evidence,omitempty"`       // relation record: supporting spans
+	Bytes           int                `json:"bytes,omitempty"`            // file record: source size
+	ContainerID     string             `json:"container_id,omitempty"`     // symbol record: enclosing symbol
+	BodyHash        string             `json:"body_hash,omitempty"`        // symbol record: content hash
+	RelationScope   string             `json:"relation_scope,omitempty"`   // relation record: file|external|...
+	Resolution      string             `json:"resolution,omitempty"`       // relation record: exact|type_inferred|name_only
+	TargetKind      string             `json:"target_kind,omitempty"`      // relation record: symbol|external
+	Evidence        []semanticEvidence `json:"evidence,omitempty"`         // relation record: supporting spans
+	EvidenceDropped int                `json:"evidence_dropped,omitempty"` // relation record: supporting spans omitted by provider limit
 }
 
 // semanticEvidence is a single supporting span for a relation (schema 1.1).
