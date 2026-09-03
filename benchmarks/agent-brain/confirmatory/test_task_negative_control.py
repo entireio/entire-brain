@@ -238,6 +238,43 @@ class TaskNegativeControlTest(unittest.TestCase):
             "reversed_invalid_timeout",
         )
 
+    def test_isolated_execution_state_disables_the_go_telemetry_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = pathlib.Path(temporary)
+            (repo / "go.mod").write_text(
+                "module example.invalid/telemetry\n\ngo 1.23\n", encoding="utf-8"
+            )
+            state_root = repo / "state"
+            negative._reset_execution_state(state_root)
+            directories = negative._telemetry_directories(state_root)
+            # Whichever of these the host's Go treats as os.UserConfigDir(),
+            # it finds a mode file that says "off".
+            for directory in directories:
+                self.assertEqual((directory / "mode").read_text(encoding="utf-8").strip(), "off")
+            environment = negative._test_environment(state_root)
+            self.assertEqual(environment["XDG_CONFIG_HOME"], str(state_root / "xdg-config"))
+            self.assertEqual(environment["HOME"], str(state_root / "home"))
+            completed = negative._run(
+                [negative._go_runtime()["binary"], "list", "-m", "-json"],
+                cwd=repo,
+                combined_output=True,
+                env=environment,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stdout.decode("utf-8", errors="replace"),
+            )
+            # With the mode at "off" the toolchain neither opens a counter file
+            # nor forks the upload sidecar, so nothing is left writing into the
+            # execution state once the measured command has exited.
+            for directory in directories:
+                self.assertEqual(
+                    sorted(entry.name for entry in directory.iterdir()),
+                    ["mode"],
+                    f"the Go toolchain wrote telemetry into {directory}",
+                )
+
     def test_effective_environment_is_captured_before_execution(self) -> None:
         state_root = pathlib.Path(self.temporary.name) / "environment-state"
         negative._reset_execution_state(state_root)

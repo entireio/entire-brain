@@ -259,11 +259,41 @@ def _go_cache_paths() -> dict[str, str]:
     return value
 
 
+def _telemetry_directories(state_root: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """Every path the pinned toolchain may treat as its telemetry directory.
+
+    The Go toolchain places it at ``os.UserConfigDir()/go/telemetry``, resolved
+    from the environment ``_test_environment`` hands it: ``$XDG_CONFIG_HOME``
+    on Linux, ``$HOME/.config`` when that is unset, and
+    ``$HOME/Library/Application Support`` on macOS.  All of them are inside the
+    isolated state root, and writing all of them keeps this independent of the
+    host the control runs on.
+    """
+    home = state_root / "home"
+    return (
+        state_root / "xdg-config" / "go" / "telemetry",
+        home / ".config" / "go" / "telemetry",
+        home / "Library" / "Application Support" / "go" / "telemetry",
+    )
+
+
 def _reset_execution_state(state_root: pathlib.Path) -> None:
     shutil.rmtree(state_root, ignore_errors=True)
     _require(not state_root.exists(), "cannot reset isolated execution state")
     for relative in ("home", "tmp", "xdg-cache", "xdg-config", "xdg-data"):
         (state_root / relative).mkdir(parents=True, exist_ok=True)
+    # Left at its default ("local"), every `go` invocation opens a telemetry
+    # counter file under the isolated state root and fork+execs an upload
+    # sidecar that is documented to outlive its parent, so work keeps landing
+    # in that directory after the measured command has already exited.  That is
+    # unmeasured background activity inside a run whose whole point is to be
+    # hermetic -- the same reason GOPROXY, GOVCS and the proxy variables are
+    # denied -- and it races whoever deletes the state root next, which is how
+    # it first showed up (a caller's teardown failing with ENOTEMPTY).  "off"
+    # is the one mode in which no counter file is opened and no sidecar starts.
+    for telemetry in _telemetry_directories(state_root):
+        telemetry.mkdir(parents=True, exist_ok=True)
+        (telemetry / "mode").write_text("off\n", encoding="utf-8")
 
 
 def _test_environment(state_root: pathlib.Path) -> dict[str, str]:
