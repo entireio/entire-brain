@@ -345,7 +345,16 @@ def _execution(
     worktree: pathlib.Path,
     timeout_seconds: float,
     environment: dict[str, str],
+    output_sink: Callable[[bytes], None] | None = None,
 ) -> dict[str, Any]:
+    """Run ``command`` under a single external timeout and summarise the result.
+
+    The returned mapping is what a receipt records, so it deliberately keeps
+    only a digest and a byte count of the command output.  ``output_sink`` is a
+    diagnostic seam for callers that must explain an unexpected result -- it
+    receives the raw bytes and is never supplied by receipt production, so no
+    command output can reach a receipt through it.
+    """
     try:
         process = subprocess.Popen(
             command,
@@ -365,12 +374,16 @@ def _execution(
         else:
             process.kill()
         output, _ = process.communicate()
+        if output_sink is not None:
+            output_sink(output)
         return {
             "status": "timeout",
             "exit_code": None,
             "output_sha256": _sha256(output),
             "output_byte_count": len(output),
         }
+    if output_sink is not None:
+        output_sink(output)
     return {
         "status": "completed",
         "exit_code": process.returncode,
