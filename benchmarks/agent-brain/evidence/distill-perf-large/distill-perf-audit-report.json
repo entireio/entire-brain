@@ -6,34 +6,34 @@
   "target": {
     "repo": "github.com/entireio/cli",
     "repo_key": "gh/entireio/cli",
-    "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
-    "brain_manifest_sha256": "sha256:7156602fcc33b4d19a06d0100bc08047b62968f51d9d32c7acf10a88c506e85a",
+    "source_head": "d35e7ae53a5f3ab26418407f51369a2da19638c3",
+    "brain_manifest_sha256": "sha256:72e8d1f0f1b758bdae49590ad049167641ac6e0944716ccf69d167f4c6d04b96",
     "claim_scope": "large-repo (entireio/cli) local command-agent distill extraction scheduling speedup"
   },
   "executed_agent": {
     "path": "benchmarks/agent-brain/evidence/distill-perf-large/large_command_agent.py",
-    "sha256": "sha256:79661f48d35b5b9272a251f99a4af4f983d42dded31ec3a3f2e01d0d99b3f354"
+    "sha256": "sha256:7eadd7dcccac826503661b1b662a9986240af17fdbd45ae8bdc4fde2c1caf4d6"
   },
   "min_speedup": 1.5,
-  "speedup": 1.8199532284718734,
+  "speedup": 1.7114243734688384,
   "dry_run": {
-    "sessions": 2080,
-    "sessions_to_distill": 2080,
-    "chunks": 2104,
-    "preprocessed_bytes": 93223332,
-    "estimated_agent_calls_upper_bound": 4208
+    "sessions": 2375,
+    "sessions_to_distill": 2375,
+    "chunks": 2435,
+    "preprocessed_bytes": 117311688,
+    "estimated_agent_calls_upper_bound": 4870
   },
   "serial_run": {
     "jobs": 1,
     "extraction_jobs_cap": 1,
-    "total_seconds": 554.445675333,
-    "total_agent_calls": 3560
+    "total_seconds": 326.420891,
+    "total_agent_calls": 3955
   },
   "parallel_run": {
     "jobs": 4,
     "extraction_jobs_cap": 4,
-    "total_seconds": 304.64831,
-    "total_agent_calls": 3560
+    "total_seconds": 190.730537709,
+    "total_agent_calls": 3955
   },
   "source_hashes": {
     "repo_root": ".",
@@ -56,7 +56,7 @@
   },
   "local_ollama_contract": {
     "artifact": "go-test-internal-cli-ollama-distill.jsonl",
-    "sha256": "sha256:7e883ff66cbf54662d277dc62d17bd77639ee3036ba310d9075a3d97b62b659a",
+    "sha256": "sha256:6c29877b84bf860cec6a07b30743e5cd7047065375a1cada2ebd55586e48f7df",
     "command": [
       "go",
       "test",
@@ -66,7 +66,7 @@
       "-run",
       "Test(DistillCommandOllamaLoopbackProducesTimedSummary|ExecOllamaDistillAgentUsesLoopbackGenerateAPI|ExecOllamaDistillAgentIgnoresProxyTransport|ExecOllamaDistillAgentIgnoresCustomTLSDialHook|ExecOllamaDistillAgentRejectsNonLoopbackURL|ExecOllamaDistillAgentRejectsNonLoopbackRedirect|IsLoopbackHTTPURLAllowsFullLoopbackRange|LoopbackOnlyDialContextRejectsNonLoopbackTargets|LoopbackOnlyDialContextAllowsLocalhostResolution)$"
     ],
-    "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
+    "source_head": "d35e7ae53a5f3ab26418407f51369a2da19638c3",
     "source_paths": [
       "internal/cli/distill.go",
       "internal/cli/distill_cmd.go",
