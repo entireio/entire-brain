@@ -50,52 +50,80 @@ harness operation and the retired-corpus notice.
 
 ## Install
 
-Prerequisites:
+### 1. Install: one command
 
-- Entire CLI installed and available as `entire`
-- Entire already enabled in the repository you want to use
-- The target agent hooks already installed for that repository
+```sh
+git clone https://github.com/entireio/entire-brain.git
+entire-brain/scripts/install.sh
+```
+
+That is the whole install. `scripts/install.sh` finds the `entire-graph`
+semantic provider on your machine or clones it for you, so nothing has to be
+arranged in advance and this checkout can live anywhere under any name.
+
+**Prerequisites.** One command does not mean no dependencies — it means you no
+longer have to arrange directories. These are still required, and `install.sh`
+checks all of them before it builds anything, reporting every missing one in a
+single pass with the fix for each:
+
+- the Entire CLI, on `PATH` as `entire`
 - Git
-- Go 1.26 toolchain for `entire-brain`
-- A cgo-capable compiler/toolchain for `entire-graph`
+- a Go toolchain, 1.26 or newer, for `entire-brain`
+- a cgo-capable C compiler for `entire-graph`, which uses tree-sitter native
+  parser bindings — `xcode-select --install` on macOS, `build-essential` on
+  Debian/Ubuntu. `entire-brain` itself is a pure-Go build and does not need cgo.
 
-### 1. Clone the repositories
+To then use a brain in a repository, that repository also needs Entire enabled
+and your agent's hooks installed — but that is about the repository, not about
+this install.
 
-Clone `entire-graph` and `entire-brain` side by side. The directory names matter:
-`scripts/install.sh` expects `entire-graph` to be the sibling checkout next to
-`entire-brain`.
+**What it does to your machine.** Four things, and nothing else:
 
-```sh
-cd /path/to/your/source-directory
+1. builds `entire-graph` and registers it with the Entire CLI
+   (`entire plugin install`),
+2. builds `entire-brain` and registers it the same way,
+3. writes the default `entire-brain` plugin configuration
+   (`entire brain config init`),
+4. runs `entire brain doctor`.
 
-git clone https://github.com/entireio/entire-graph.git
-git clone https://github.com/ashtom/entire-brain.git
-```
+The two binaries are built inside their checkouts and linked into Entire's
+managed plugin directory under your home directory. Nothing is installed
+system-wide and nothing asks for `sudo`.
 
-### 2. Install the plugins
+**Where `entire-graph` comes from.** Three routes, tried in order; the installer
+prints the one it took.
 
-Run the installer from the `entire-brain` checkout:
+1. `ENTIRE_GRAPH_DIR`, when you set it. An explicit override is used exactly as
+   given — if it does not hold an `entire-graph` checkout the run stops there
+   rather than quietly installing something else.
+2. A checkout already on this machine: next to this one (or next to the main
+   checkout, when you are in a linked worktree), the route-3 cache, and the
+   usual source directories under `$HOME`. A candidate has to *be*
+   `entire-graph` rather than merely be named that, so it is accepted only when
+   `cmd/entire-graph` is present.
+3. Otherwise a shallow clone of the public
+   [`entireio/entire-graph`](https://github.com/entireio/entire-graph) into
+   `${XDG_CACHE_HOME:-~/.cache}/entire-brain/entire-graph`. It is a public
+   repository, so no credentials are needed; the clone takes a few seconds and
+   later runs reuse and refresh it.
 
-```sh
-cd /path/to/your/source-directory/entire-brain
-scripts/install.sh
-```
+If none of the three can work, the installer fails naming all three and how to
+satisfy each. `ENTIRE_INSTALL_OFFLINE=1` disables route 3 for an air-gapped
+machine.
 
-This builds and installs both plugins, writes the default `entire-brain`
-configuration file, then runs `entire brain doctor`. `entire-brain` uses a
-pure-Go default build; `entire-graph` uses tree-sitter native parser bindings, so
-its local source build needs cgo.
+**There is deliberately no `curl … | sh` one-liner.** It could not work and
+would buy nothing if it could: `entireio/entire-brain` is a *private*
+repository, so `raw.githubusercontent.com` answers 404 without a token and a
+piped installer would fail for exactly the people it is aimed at; installing
+means building from source, so the clone has to happen anyway and a pipe would
+replace one command with another rather than remove one; and cloning first puts
+the script that builds and registers your plugins on disk, at a reviewable
+commit, before any of it runs. `scripts/bootstrap.sh` is the equivalent for a
+machine with nothing at all — it clones `entire-brain` when it is not already
+there (falling back to `gh` for the private-repo credentials) and then runs
+`install.sh`.
 
-Other install paths:
-
-- `scripts/install-local.sh` — one-command local source install of just this plugin.
-- `mise install && mise run check && mise run build && entire plugin install ./entire-brain` — build without the sibling `entire-graph` step.
-- `scripts/release.sh` — local release archives with `SHA256SUMS`.
-
-See [docs/operations.md](docs/operations.md) for target, cgo, and shared
-baseline details.
-
-Verify:
+### 2. Verify
 
 ```sh
 entire graph version
@@ -105,8 +133,37 @@ entire brain doctor
 entire plugin doctor
 ```
 
-If `doctor` reports the semantic provider is missing, check that `entire-graph`
-and `entire-brain` were cloned side by side with the names above.
+If `doctor` reports the semantic provider is missing, re-run
+`scripts/install.sh` and read the route line it prints under
+`==> entire-graph semantic provider`; that is the checkout it built the provider
+from.
+
+### Managing the provider checkout yourself
+
+If you would rather own the `entire-graph` checkout, clone both repositories and
+run the same installer. Directory names do not matter, and the two checkouts do
+not have to be siblings:
+
+```sh
+git clone https://github.com/entireio/entire-graph.git
+git clone https://github.com/entireio/entire-brain.git
+cd entire-brain
+scripts/install.sh
+```
+
+Side-by-side checkouts are discovered without any configuration. Set
+`ENTIRE_GRAPH_DIR=/path/to/entire-graph` only when your provider checkout lives
+somewhere the installer would not look, or when you want to pin a specific one.
+
+Other install paths:
+
+- `scripts/bootstrap.sh` — clone `entire-brain` if it is not already here, then install.
+- `scripts/install-local.sh` — build and register just this plugin; the provider is left alone.
+- `mise install && mise run check && mise run build && entire plugin install ./entire-brain` — the same, with the full check suite in front of it.
+- `scripts/release.sh` — local release archives with `SHA256SUMS`.
+
+See [docs/operations.md](docs/operations.md) for target, cgo, and shared
+baseline details.
 
 ### 3. Build the deterministic brain
 

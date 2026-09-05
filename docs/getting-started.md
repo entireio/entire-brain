@@ -36,9 +36,37 @@ the provider and run the brain with `--semantic=false` (see First run).
 ## Install
 
 There are two components: the brain plugin and the `entire-graph` provider it
-calls. Install the provider first, then the brain. Both are registered with the
-Entire CLI the same way, using `entire plugin install <path>`, which links a
-local `entire-<name>` executable into Entire's managed plugin directory.
+calls. Both are registered with the Entire CLI the same way, using
+`entire plugin install <path>`, which links a local `entire-<name>` executable
+into Entire's managed plugin directory. You do not have to fetch or arrange the
+provider yourself -- `scripts/install.sh` does both components in one pass.
+
+### One command
+
+```sh
+git clone https://github.com/entireio/entire-brain.git
+entire-brain/scripts/install.sh
+```
+
+This is the whole install: it checks the prerequisites listed above and reports
+every missing one at once, resolves `entire-graph` (using `$ENTIRE_GRAPH_DIR`,
+then any checkout already on this machine, then a shallow clone of the public
+repository into `${XDG_CACHE_HOME:-~/.cache}/entire-brain/entire-graph`), builds
+and registers both plugins, writes the default plugin configuration
+(`entire brain config init`), and runs `entire brain doctor`. It prints which of
+the three provider routes it took. Neither checkout has to have a particular
+name, and they do not have to be siblings.
+
+The prerequisites do not go away: Go 1.26 or newer and a cgo-capable C compiler
+are still required, because both components are built from source here. What
+goes away is having to arrange directories before you start.
+
+`scripts/bootstrap.sh` is the same flow for a machine with nothing on it: it
+clones `entire-brain` when it is not already present and then runs
+`scripts/install.sh`. There is no `curl | sh` form, because
+`entireio/entire-brain` is a private repository -- `raw.githubusercontent.com`
+returns 404 for it without a token -- and because installing means building from
+source, so the clone has to happen either way.
 
 ### Versioned install status
 
@@ -53,12 +81,15 @@ both repositories.
 not fetch from a git URL or a GitHub release, and it does not auto-install the
 provider dependency.
 
-### Install from source
+### Managing the provider checkout yourself
 
-Until matching Graph-based tags are available, the working pre-release path is to
-build both components from their current `main` branches. This path tracks
-development and is not a reproducible versioned install; use matching release
-tags once they are published.
+The one command above is the source install: until matching Graph-based tags are
+available, both components are built from their current `main` branches, which
+tracks development and is not a reproducible versioned install. Use matching
+release tags once they are published.
+
+If you would rather own the `entire-graph` checkout -- to pin a commit, or to
+work on the provider -- clone it too and run the same installer:
 
 ```sh
 git clone --branch main https://github.com/entireio/entire-graph.git
@@ -67,11 +98,14 @@ cd entire-brain
 scripts/install.sh
 ```
 
-`scripts/install.sh` builds and installs the sibling `entire-graph` provider, then
-builds and installs `entire-brain`, writes the default plugin configuration
-(`entire brain config init`), and runs `entire brain doctor`. It expects
-`entire-graph` to be the sibling checkout next to `entire-brain`; point it
-elsewhere with `ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/install.sh`.
+A side-by-side checkout is discovered with no configuration, and so are the usual
+source directories under `$HOME`. Set
+`ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/install.sh` only when your
+checkout is somewhere the installer would not look, or when you want to pin one
+specific checkout; an override that does not hold an `entire-graph` checkout is
+an error rather than a silent fallback. `ENTIRE_INSTALL_OFFLINE=1` stops the
+installer reaching the network at all, so a machine without egress fails with an
+explanation instead of hanging on a clone.
 
 To build and install only the brain from a checkout, run `scripts/install-local.sh`
 (equivalently `mise run install`). You still need `entire graph` installed

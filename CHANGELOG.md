@@ -5,6 +5,32 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Installing from git is one command that works with nothing arranged in
+  advance. `scripts/install.sh` no longer requires `entire-graph` to be a
+  sibling checkout with that exact name — the documented constraint that made
+  the install path fail for anyone who cloned one repository, cloned under a
+  different directory name, or ran from a worktree. It now resolves the provider
+  by three routes and prints the one it took: `$ENTIRE_GRAPH_DIR` when set (an
+  override that is not an `entire-graph` checkout is a hard error, not a silent
+  fallback); any checkout already on the machine — siblings of this checkout and
+  of the main worktree when this is a linked one, plus the usual source
+  directories under `$HOME`, accepted only when `cmd/entire-graph` is really
+  there rather than only the directory name; otherwise a shallow clone of the
+  public `entireio/entire-graph` into
+  `${XDG_CACHE_HOME:-~/.cache}/entire-brain/entire-graph`, reused and refreshed
+  by later runs. When no route can work it fails naming all three and how to
+  satisfy each. `ENTIRE_INSTALL_OFFLINE=1` disables the clone for an air-gapped
+  machine, and `ENTIRE_GRAPH_REPO`/`ENTIRE_GRAPH_CACHE` redirect it.
+- `scripts/install.sh` checks the prerequisites before it builds anything and
+  reports all the missing ones at once with the fix for each — `git`, the
+  `entire` CLI, a Go toolchain at least as new as the `go` directive in `go.mod`
+  (tolerating an older `go` when `GOTOOLCHAIN` may fetch the newer one), and a C
+  compiler for `entire-graph`'s tree-sitter cgo bindings. Previously the first
+  two were separate late failures and a missing C compiler surfaced minutes into
+  a build.
+
 ### Fixed
 
 - First-run onboarding. Every item below made a brand-new user's very first
@@ -42,6 +68,15 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Added
 
+- `scripts/bootstrap.sh`: the one command for a machine with nothing on it. It
+  uses the checkout it was run from when there is one, otherwise clones
+  `entire-brain` (falling back to `gh repo clone` for the private-repo
+  credentials), then execs `scripts/install.sh`. There is deliberately no
+  `curl | sh` form: `entireio/entire-brain` is a private repository, so
+  `raw.githubusercontent.com` answers 404 without a token; the install is a
+  source build, so the clone has to happen either way and a pipe removes no
+  step; and cloning first puts the script that builds and registers the plugins
+  on disk, at a reviewable commit, before any of it runs.
 - `ENTIRE_BRAIN_DAEMON_NO_REGISTER`: writes the launchd/systemd unit file but
   never calls `launchctl`/`systemctl`. `ENTIRE_BRAIN_DAEMON_DIR` redirects the
   unit FILE only — `launchctl load -w` acts on the caller's live session
