@@ -977,10 +977,40 @@ func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 	}
 
 	var checkpoints []checkpointListEntry
-	if err := json.Unmarshal(stdout, &checkpoints); err != nil {
+	if err := decodeHostCLIJSON(stdout, &checkpoints); err != nil {
 		return nil, nil, fmt.Errorf("parse checkpoint list json: %w", err)
 	}
 	return checkpoints, warnings, nil
+}
+
+// decodeHostCLIJSON decodes the FIRST JSON value on the host CLI's stdout and
+// ignores whatever follows it.
+//
+// The host `entire` CLI appends human notices to the SAME stream its --json
+// output goes to. Released versions before the update notice moved to stderr
+// print "\nUpdate available! x -> y\nRelease notes: ..." from a post-run hook,
+// so `entire checkpoint explain --json` emits a complete JSON value and THEN a
+// banner. A strict json.Unmarshal over the whole buffer fails that with
+// "invalid character 'U' after top-level value" -- and only on a first-ever
+// run, because the 24h version-check cache suppresses the banner on the next
+// one. That made a deterministic first-run failure look like flakiness: setup
+// reported "session export failed" once and then silently healed.
+//
+// Tolerating trailing bytes is the durable fix: the JSON value is the contract,
+// anything after it is chatter this process does not own. Leading garbage stays
+// an error, because that would mean the value is not first and no prefix of the
+// stream can be trusted.
+func decodeHostCLIJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(target); err != nil {
+		if errors.Is(err, io.EOF) {
+			// json.Unmarshal's wording for an empty buffer, preserved so callers
+			// and their tests keep reading one message for one condition.
+			return errors.New("unexpected end of JSON input")
+		}
+		return err
+	}
+	return nil
 }
 
 // routedCheckpointWarnings preserves ordinary stderr diagnostics while
@@ -2506,7 +2536,7 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 	}
 
 	var detail checkpointExportEnvelope
-	if err := json.Unmarshal(stdout, &detail); err != nil {
+	if err := decodeHostCLIJSON(stdout, &detail); err != nil {
 		return checkpointExportEnvelope{}, fmt.Errorf("parse checkpoint json: %w", err)
 	}
 	if detail.CheckpointID == "" {

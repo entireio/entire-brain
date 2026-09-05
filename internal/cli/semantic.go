@@ -517,11 +517,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		noEgress, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.graphBinary)
 		warnings = append(warnings, doctorWarnings...)
 		if !noEgress {
-			code := "provider_no_egress_unverified"
-			if len(doctorWarnings) > 0 && doctorWarnings[0].Code != "" {
-				code = doctorWarnings[0].Code
-			}
-			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
+			return semanticProviderUnverifiedError(indexOpts.graphBinary, doctorWarnings)
 		}
 		indexOpts.reportPhase("parsing sources")
 		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, providerIgnoreFiles, ignore, out)
@@ -965,6 +961,106 @@ func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graph
 		return true, nil
 	}
 	return false, []semanticWarning{{Code: "provider_no_egress_unknown", Severity: "warning", Effect: "phase 1 local-only guarantee not fully verified", Detail: "provider doctor did not report no-egress status"}}
+}
+
+// semanticProviderUnverifiedError is the one error a reader ever sees when the
+// semantic index cannot be built because the provider could not be verified.
+//
+// runSemanticDoctor already captures WHY in the warning's Detail -- the missing
+// plugin's own "unknown command \"graph\"", a timeout, malformed JSON. That
+// detail used to be collected and then dropped in favour of the formatted
+// string, so the first thing a new user saw was
+//
+//	provider_doctor_failed: semantic provider no-egress status is not verified
+//
+// which names neither the cause nor a next step. It is reported here instead:
+// code, the human sentence, the underlying detail, and -- for the failure mode
+// that a first run actually hits, the entire-graph plugin simply not being
+// installed -- the install step by name.
+func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarning) error {
+	code := "provider_no_egress_unverified"
+	detail := ""
+	if len(warnings) > 0 {
+		if warnings[0].Code != "" {
+			code = warnings[0].Code
+		}
+		detail = strings.TrimSpace(warnings[0].Detail)
+	}
+	message := fmt.Sprintf("%s: semantic provider no-egress status is not verified", code)
+	if summary := semanticProviderDetailSummary(detail); summary != "" {
+		message += ": " + summary
+	}
+	if semanticProviderMissing(detail) {
+		binary := strings.TrimSpace(graphBinary)
+		if binary == "" {
+			binary = entireBinaryName
+		}
+		message += fmt.Sprintf(
+			"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
+				" -- install it with `scripts/install.sh` from the entire-brain checkout"+
+				" (it builds and registers entire-graph from the sibling clone),"+
+				" then re-run `entire-brain setup`", binary)
+	}
+	return errors.New(message)
+}
+
+// semanticProviderDetailSummary reduces a subprocess failure to one printable
+// line.
+//
+// A CLI answers an unknown command by dumping its ENTIRE usage text -- sixty
+// lines of command groups and flags -- to stderr, and that text arrives here as
+// the error detail. Printed whole it buries the one sentence that matters
+// inside setup's failure line, its summary block, `status` and `doctor` alike.
+// The line the CLI marks with "Error:" is that sentence; the first line is the
+// fallback for tools that do not mark one. Detection still runs against the
+// FULL detail, so shortening what is shown never changes what is recognised.
+func semanticProviderDetailSummary(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return ""
+	}
+	lines := strings.Split(detail, "\n")
+	summary := strings.TrimSpace(lines[0])
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, "Error:"); ok {
+			summary = strings.TrimSpace(after)
+			break
+		}
+	}
+	summary = strings.TrimSuffix(strings.TrimSpace(summary), "Usage:")
+	summary = strings.TrimSpace(summary)
+	const maxProviderDetail = 200
+	if runes := []rune(summary); len(runes) > maxProviderDetail {
+		summary = strings.TrimSpace(string(runes[:maxProviderDetail])) + "..."
+	}
+	return summary
+}
+
+// semanticProviderMissing recognises the provider-absent shape of a doctor
+// failure -- the host CLI rejecting an unknown `graph` command, or the binary
+// not being on PATH at all -- as opposed to a provider that ran and reported
+// something. Matching on text is unavoidable here: the failure is another
+// process's exit status plus its stderr, and there is no typed error to switch
+// on across a process boundary.
+func semanticProviderMissing(detail string) bool {
+	text := strings.ToLower(detail)
+	if text == "" {
+		return false
+	}
+	for _, marker := range []string{
+		`unknown command "graph"`,
+		"unknown command 'graph'",
+		"unknown command graph",
+		"executable file not found",
+		"no such file or directory",
+		"command not found",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func boolValue(data map[string]any, key string) bool {

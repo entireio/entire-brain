@@ -176,6 +176,31 @@ func resolveLocalTargetRepoDir(ctx context.Context, runner CommandRunner, target
 	return abs, true, nil
 }
 
+// gitWorkTreeRoot reports the work-tree root git resolves for dir, and whether
+// dir is inside a git work tree at all.
+//
+// resolveLocalTargetRepoDir deliberately TOLERATES a non-repository (a path is
+// still a path, and workspace members keep path hints for repos that are not
+// present yet), so the callers that REQUIRE a repository have to ask for
+// themselves. Without this, `setup` in a plain directory discovered the answer
+// one component at a time, as four separate raw `fatal: not a git repository`
+// subprocess failures, after it had already registered a workspace and
+// installed a background watcher.
+func gitWorkTreeRoot(ctx context.Context, runner CommandRunner, dir string) (string, bool) {
+	if runner == nil || strings.TrimSpace(dir) == "" {
+		return "", false
+	}
+	stdout, _, err := runner.Run(ctx, dir, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", false
+	}
+	root := strings.TrimSpace(string(stdout))
+	if root == "" {
+		return "", false
+	}
+	return filepath.Clean(root), true
+}
+
 func matchingLexicalAncestor(path, target string) (string, bool) {
 	targetInfo, err := os.Stat(target)
 	if err != nil {

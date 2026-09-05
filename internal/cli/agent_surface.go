@@ -4656,6 +4656,21 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	if err != nil {
 		return live, err
 	}
+	// Apply the SAME ignore policy the semantic freshness check applies. This
+	// was the one dirtiness computation in the brain that read raw `git status`,
+	// and the gap showed up on the very first run in a pristine clone: the host
+	// `entire` CLI that setup shells out to creates an empty
+	// `.entire/logs/entire.log` inside the working tree, which every other
+	// reader here already treats as ignored (brainIgnore skips the whole
+	// `.entire` segment), but which made live.Dirty true, which graded the seed
+	// axis "dirty-unindexed", which reported a clean onboarding as
+	// "freshness: degraded". A successful setup must not end on a red line the
+	// user did not cause.
+	if ignore, ignoreErr := loadBrainIgnore(repoDir); ignoreErr != nil {
+		live.Warnings = append(live.Warnings, "ignore rules unavailable: "+ignoreErr.Error())
+	} else {
+		status = filterWorktreeStatus(status, ignore)
+	}
 	live.Staged, live.Unstaged, live.Untracked = parseBrainLiveStatus(status)
 	live.Dirty = len(live.Staged)+len(live.Unstaged)+len(live.Untracked) > 0
 	if stat, err := gitScalar(ctx, runner, repoDir, "diff", "--shortstat", "HEAD"); err == nil {

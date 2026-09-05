@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -174,9 +175,26 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	// Background context otherwise).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, budget=%d)\n",
-		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model, w.budget)
+	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
+		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model,
+		watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
 	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
+}
+
+// watchCapLabel renders a cap where a non-positive value means "no cap".
+//
+// The banner printed a bare "budget=0", and 0 is the value a setup-installed
+// watcher ALWAYS has: setup deliberately never passes --budget, because that
+// counter is process-lifetime and never resets (see brainWatchDaemonArgs). So
+// the one number the daemon's log offered about spend was both meaningless and
+// easy to read as "zero allowed", while the cap that actually binds it --
+// --max-sessions, carried per workspace in the machine watch plan -- was not
+// printed at all.
+func watchCapLabel(value int) string {
+	if value <= 0 {
+		return "uncapped"
+	}
+	return strconv.Itoa(value)
 }
 
 // watchSignalContext returns a context cancelled on SIGINT/SIGTERM so `watch` and `workspace watch`

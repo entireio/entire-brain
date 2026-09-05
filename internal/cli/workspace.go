@@ -474,7 +474,9 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (budget=%d)\n", manifest.Name, len(manifest.Repos), w.distill, w.budget)
+		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (every %s, max-sessions=%s, run-budget=%s)\n",
+			manifest.Name, len(manifest.Repos), w.distill, w.distillEvery,
+			watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
 		dirs, err := resolvePluginDirs(opts.Env)
 		if err != nil {
 			return err

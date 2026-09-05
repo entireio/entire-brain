@@ -188,6 +188,44 @@ not rewrite the unit, does not restart the running service, and cannot leave the
 first repo unwatched. `entire brain status` names the workspaces the watcher
 covers, so you can see you are still in there.
 
+### 3c. Trying it: `scripts/trial-setup.sh`
+
+Before you point `setup` at a repository you care about, you can watch it run
+against a throwaway one. One command, no arguments:
+
+```sh
+scripts/trial-setup.sh
+```
+
+It builds `entire-brain` from this checkout, creates a scratch git repository
+with real content and history (a synthesised Go + Markdown tree, ~130 files over
+13 commits), runs `setup` twice to show a re-run is idempotent, runs `status
+--verbose` and `doctor`, exercises the failure modes (a directory that is not a
+git repository, an offline run, two concurrent setups), then tears the sandbox
+down and proves nothing leaked.
+
+It is safe on a real machine. Every path the binary can write is redirected into
+`.trial-setup/`: `HOME`, the four `XDG_*_HOME` directories, the four
+`ENTIRE_PLUGIN_*_DIR` directories, and `ENTIRE_BRAIN_DAEMON_DIR`. It also sets
+`ENTIRE_BRAIN_DAEMON_NO_REGISTER=1`, and **both of those last two are needed**:
+`ENTIRE_BRAIN_DAEMON_DIR` moves the plist / systemd unit *file*, while
+`launchctl load -w` and `systemctl --user enable --now` act on your live session
+whatever directory the file came from. Set only the directory — as a CI job or a
+smoke test naturally would — and a "sandboxed" run still registers a real,
+restart-forever agent on the machine. `ENTIRE_BRAIN_DAEMON_NO_REGISTER` is the
+knob that withholds the service-manager call while still writing the unit, so
+what *would* have been installed stays inspectable.
+
+The teardown compares `launchctl list` / `systemctl --user` and the user unit
+directories against a snapshot taken before the run, so an existing watcher of
+your own is never mistaken for a leak. The run spends no agent tokens
+(`--no-backfill` throughout, and the watcher is never started).
+
+```sh
+TRIAL_DIR=/path/to/scratch scripts/trial-setup.sh   # sandbox somewhere else
+TRIAL_KEEP=1 scripts/trial-setup.sh                 # keep the sandbox to poke at
+```
+
 ### 4. Distill durable facts
 
 Distillation is the egress-gated agent step that turns captured sessions into

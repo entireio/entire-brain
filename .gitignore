@@ -2,6 +2,7 @@
 /bin/
 /dist/
 /coverage.out
+/.trial-setup/
 .DS_Store
 __pycache__/
 .pytest_cache/

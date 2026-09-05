@@ -418,6 +418,23 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if !local {
 		return fmt.Errorf("setup requires a local repository path: %s", target)
 	}
+	// Refuse a non-repository UP FRONT. Everything below is a side effect --
+	// a workspace registration, a machine watch-plan row, a per-repo state
+	// directory, an installed KeepAlive service -- and every deterministic
+	// source setup builds reads git. Without this check a plain directory got
+	// all of those side effects, four components failing with a raw
+	// `fatal: not a git repository`, and exit 0.
+	//
+	// --uninstall-daemon is exempt: it is machine-level maintenance that must
+	// keep working from anywhere, including the directory whose failed setup is
+	// the reason someone is uninstalling.
+	if !setupOpts.uninstallDaemon {
+		if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
+			return fmt.Errorf("not a git repository: %s\n"+
+				"entire-brain setup builds every source it has -- sessions, seed, docs, semantic index, entities -- from git history, so it needs one.\n"+
+				"run `git init` here and make at least one commit, or point setup at a repository: entire-brain setup <path>", repoDir)
+		}
+	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		return err
@@ -695,6 +712,13 @@ func runSetupDaemon(ctx context.Context, progress *refreshProgress, steps setupS
 		progress.Skip(fmt.Sprintf("background watcher already running (%s)", plan.Label))
 		return before
 	}
+	// A no-register run can never observe "running", so byte-identical is the
+	// whole of idempotence there; without this a second setup would report
+	// "updated" forever and a harness could not demonstrate re-run safety.
+	if plan.NoRegister && before.Installed && before.Current {
+		progress.Skip(fmt.Sprintf("background watcher unit current, not registered (%s, %s)", plan.Label, envDaemonNoRegister))
+		return before
+	}
 	task := progress.Begin("background watcher")
 	if err := steps.install(ctx, plan); err != nil {
 		task.Finish(err)
@@ -938,7 +962,14 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 		LogPath:    filepath.Join(dirs.State, "logs", setupDaemonLogFile),
 		Env:        daemonEnv(opts.Env),
 	}
-	return planBrainWatchDaemon(goos, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
+	plan, err := planBrainWatchDaemon(goos, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
+	if err != nil {
+		return daemonPlan{}, err
+	}
+	// Read the no-register decision ONCE, here, so install, uninstall and the
+	// running-probe all act on the same answer for the life of this command.
+	plan.NoRegister = daemonRegistrationDisabled()
+	return plan, nil
 }
 
 // brainWatchDaemonArgs are the argv of the ONE machine-wide watcher, and they

@@ -5,8 +5,52 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- First-run onboarding. Every item below made a brand-new user's very first
+  `entire-brain setup` report a failure it did not have to:
+  - `session export failed (... parse checkpoint list json: invalid character
+    'U' after top-level value)`. The `U` is the host `entire` CLI's
+    `Update available!` banner, which released versions print on the SAME stream
+    as `--json` output. The whole-buffer `json.Unmarshal` is now a decode of the
+    first JSON value that tolerates trailing output. Because the host caches its
+    version check for 24h, this failed on the first-ever run and silently healed
+    on the second.
+  - A missing `entire-graph` plugin reported only
+    `provider_doctor_failed: semantic provider no-egress status is not
+    verified`. The provider doctor's actual error is now surfaced, shortened to
+    one line, and names the install step when the plugin is simply absent.
+  - `entire-brain doctor` — the command `setup` tells you to run when a
+    component fails — printed nothing about the repository unless
+    `ENTIRE_REPO_ROOT` was set, which only the host sets. It now infers the
+    repository from the working directory, and says so when it cannot.
+  - A pristine clone graded itself `freshness: degraded` because the host CLI's
+    own `.entire/logs/entire.log` made the live-state check see a dirty tree.
+    That check now applies the same ignore policy every other reader already
+    applied.
+  - `setup` in a directory that is not a git repository failed four components
+    with a raw `fatal: not a git repository`, registered a workspace, installed
+    the watcher, and exited 0. It now refuses up front, before any side effect.
+  - `--uninstall-daemon` appeared only in `setup --help`. `setup` and `status`
+    now name it, and `setup` says plainly that a persistent service was
+    installed and where its unit lives.
+  - The watcher logged `budget=0` — the value a setup-installed watcher always
+    has — while `--max-sessions`, the cap that actually binds it, was not logged
+    at all.
+  - `status` hard-coded five component names, so a component `setup` reported as
+    FAILED (`entities`, say) was missing from `status` entirely.
+
 ### Added
 
+- `ENTIRE_BRAIN_DAEMON_NO_REGISTER`: writes the launchd/systemd unit file but
+  never calls `launchctl`/`systemctl`. `ENTIRE_BRAIN_DAEMON_DIR` redirects the
+  unit FILE only — `launchctl load -w` acts on the caller's live session
+  whatever directory the file came from — so a CI job or smoke test that set
+  only the directory still registered a real KeepAlive agent.
+- `scripts/trial-setup.sh`: one command that runs the whole first-run experience
+  against a throwaway repository in a fully redirected sandbox, exercises the
+  failure modes, and proves on teardown that nothing leaked into the machine's
+  launchd/systemd session.
 - `entire brain setup`: one command that builds the deterministic core (free,
   blocking, seconds), starts a detached fact backfill over past sessions
   (newest first, cheap model), and installs a single machine-wide watcher

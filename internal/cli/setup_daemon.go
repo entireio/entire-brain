@@ -37,14 +37,41 @@ const (
 	daemonManagerSystemd     = "systemd"
 	daemonManagerUnsupported = "unsupported"
 
-	// envDaemonUnitDir redirects the unit file (launchd plist / systemd user
+	// envDaemonUnitDir redirects the unit FILE (launchd plist / systemd user
 	// unit) somewhere other than the real service-manager directory. Tests and
-	// smoke runs set it so a run with a REAL $HOME can never write into the
+	// smoke runs set it so a run with a REAL $HOME never writes into the
 	// developer's ~/Library/LaunchAgents or ~/.config/systemd/user. Redirecting
 	// $HOME alone is not enough: a sandboxed process that still sees the real
-	// home would install a live agent.
+	// home would write a plist into it.
+	//
+	// It redirects the FILE AND NOTHING ELSE. `launchctl load -w <path>` and
+	// `systemctl --user enable --now` act on the caller's live session whatever
+	// directory the unit was read from, so a run that sets only this variable
+	// still registers a real, KeepAlive, restart-forever job on the developer's
+	// machine. Anything that must not touch the session -- CI, a smoke test,
+	// the sandboxed trial harness -- has to set envDaemonNoRegister as well.
 	envDaemonUnitDir = "ENTIRE_BRAIN_DAEMON_DIR"
+
+	// envDaemonNoRegister makes the install a DRY RUN against the service
+	// manager: the unit file is still written (so its bytes, path and
+	// idempotence stay observable) but launchctl/systemctl are never invoked,
+	// so nothing is loaded, enabled or started in the caller's session. This is
+	// the half envDaemonUnitDir cannot provide, and the reason a CI job that set
+	// only the directory still ended up with a live agent.
+	envDaemonNoRegister = "ENTIRE_BRAIN_DAEMON_NO_REGISTER"
 )
+
+// daemonRegistrationDisabled reports whether this process may talk to the
+// service manager at all. Read once, at plan time, so the decision travels with
+// the plan and every consumer (install, uninstall, the running-probe) agrees.
+func daemonRegistrationDisabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(envDaemonNoRegister))) {
+	case "", "0", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
 
 var daemonNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
@@ -90,6 +117,11 @@ type daemonPlan struct {
 	UnitPath string
 	Contents string
 	Spec     daemonSpec
+	// NoRegister carries the envDaemonNoRegister decision. It deliberately does
+	// not affect Contents or UnitPath: what would be installed stays exactly
+	// what a real run installs, so a sandboxed trial verifies the real artifact
+	// and only the service-manager call is withheld.
+	NoRegister bool
 }
 
 func (p daemonPlan) supported() bool { return p.Manager != daemonManagerUnsupported }
@@ -345,6 +377,12 @@ func inspectDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) d
 }
 
 func daemonRunning(ctx context.Context, runner CommandRunner, plan daemonPlan) (bool, string) {
+	if plan.NoRegister {
+		// Never probe the live session in a no-register run: `launchctl list`
+		// against a real label would report a job this process did not install
+		// and must not claim.
+		return false, "not registered (" + envDaemonNoRegister + ")"
+	}
 	if runner == nil {
 		return false, "no command runner"
 	}
@@ -388,7 +426,10 @@ func installDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) e
 	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", plan.UnitPath, err)
 	}
-	if runner == nil {
+	if runner == nil || plan.NoRegister {
+		// No-register: the unit file is on disk and byte-identical to what a
+		// real install would write, and the caller's launchd/systemd session is
+		// untouched.
 		return nil
 	}
 	switch plan.Manager {
@@ -416,7 +457,7 @@ func uninstallDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan)
 	if !plan.supported() {
 		return nil
 	}
-	if runner != nil {
+	if runner != nil && !plan.NoRegister {
 		switch plan.Manager {
 		case daemonManagerLaunchd:
 			_, _, _ = runner.Run(ctx, "", "launchctl", "unload", "-w", plan.UnitPath)
@@ -427,7 +468,7 @@ func uninstallDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan)
 	if err := os.Remove(plan.UnitPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove %s: %w", plan.UnitPath, err)
 	}
-	if runner != nil && plan.Manager == daemonManagerSystemd {
+	if runner != nil && !plan.NoRegister && plan.Manager == daemonManagerSystemd {
 		_, _, _ = runner.Run(ctx, "", "systemctl", "--user", "daemon-reload")
 	}
 	return nil

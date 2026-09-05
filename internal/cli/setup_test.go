@@ -56,7 +56,15 @@ func newSetupTestFixture(t *testing.T, sessionIDs ...string) *setupTestFixture {
 	home := t.TempDir()
 	isolateDaemonEnv(t, home)
 	env := semanticTestEnv(t, repoDir)
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	// setup now REFUSES a directory that is not a git repository (a plain
+	// directory used to get a workspace entry, a watch-plan row and a daemon,
+	// with four components failing on raw `fatal: not a git repository` and
+	// exit 0). The fixture therefore has to model what setup actually requires:
+	// a repository. Modelling one is the correction — the old fixture asserted
+	// setup's behaviour in a state setup should never have accepted.
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+	}}
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return setupTestNow }}
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {

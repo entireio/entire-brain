@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -192,8 +193,9 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord)
 			generated["history"] = sources.History.GeneratedAt
 		}
 	}
-	components := make([]brainStatusComponent, 0, 5)
-	for _, name := range []string{"sessions", "seed", "docs", "semantic", "history"} {
+	manifestBacked := []string{"sessions", "seed", "docs", "semantic", "history"}
+	components := make([]brainStatusComponent, 0, len(manifestBacked)+len(record.Components))
+	for _, name := range manifestBacked {
 		failure, hasFailure := failures[name]
 		if hasFailure && present[name] && !generated[name].Before(record.UpdatedAt) {
 			hasFailure = false
@@ -211,6 +213,28 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord)
 		default:
 			components = append(components, brainStatusComponent{Name: name, State: "missing"})
 		}
+	}
+	// Everything else the last setup actually attempted, in the order it ran.
+	// The five above are the sources the manifest can vouch for; setup's instant
+	// phase builds more than five (patterns, entities, memory, branches, ...)
+	// and this list dropped them entirely. So `setup` could print
+	// "FAILED entities" and `status` -- the command setup points at for exactly
+	// this -- showed no entities line at all, which is the opposite of the one
+	// shared vocabulary the component ids are declared to be.
+	for _, component := range record.Components {
+		if slices.Contains(manifestBacked, component.Name) {
+			continue
+		}
+		state := "built"
+		if component.failed() {
+			state = "failed"
+		}
+		components = append(components, brainStatusComponent{
+			Name:   component.Name,
+			State:  state,
+			Detail: component.Detail,
+			Hint:   component.Hint,
+		})
 	}
 	return components
 }
@@ -245,6 +269,11 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		}
 	}
 	fmt.Fprintln(out)
+	// Same reason as setup's Next block: the only place --uninstall-daemon was
+	// ever written down was `setup --help`.
+	if onboarding.Daemon.Installed {
+		fmt.Fprintln(out, "    remove it with `entire-brain setup --uninstall-daemon`")
+	}
 	if len(onboarding.Components) > 0 {
 		parts := make([]string, 0, len(onboarding.Components))
 		failed := false

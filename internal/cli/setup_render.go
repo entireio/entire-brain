@@ -190,6 +190,13 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	row("backfill", setupPhaseValue(render, report.Backfill, tui.PhaseBackfill, "running in the background"), phaseTiming(timings, "backfill"))
 	row("workspace", render.Mark(tui.MarkDone)+" "+render.PhasePaint(tui.PhaseDaemon, report.Workspace.Name), phaseTiming(timings, "workspace"))
 	row("daemon", setupDaemonValue(render, report.Daemon), phaseTiming(timings, "daemon"))
+	// Say plainly, at the moment of install, that this is a persistent service
+	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
+	// does not tell a first-time reader that something now survives reboots.
+	if report.Daemon.Installed && report.Daemon.UnitPath != "" {
+		fmt.Fprintf(out, "  %-*s %s\n", setupSummaryLabelWidth, "",
+			render.Dim("persistent service, restarts with your session: "+report.Daemon.UnitPath))
+	}
 	// What the ONE machine-wide watcher covers. Render-only: `setup --json` is a
 	// published contract and a new field in it is a breaking change, so this is
 	// derived here from the plan rather than added to setupReport.
@@ -204,16 +211,37 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	}
 
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Next"))
-	for _, next := range [][2]string{
+	next := [][2]string{
 		{"entire-brain overview", "what this project is"},
 		{`entire-brain brief "<task>"`, "task-shaped context"},
 		{"entire-brain status", "backfill progress and daemon health"},
-	} {
-		// Pad BEFORE colouring: a %-28s over an already-painted string counts
+	}
+	// Name the removal command wherever the thing it removes was installed.
+	// setup installs a persistent, restart-forever service by default, and
+	// --uninstall-daemon appeared ONLY in `setup --help`: nothing in setup's
+	// own output, this block, or `status` told a first-time user that a service
+	// now exists on their machine or how to take it off. Surfacing it does not
+	// change the default -- whether the default should be on is a product call,
+	// not this line's.
+	if report.Daemon.Installed {
+		next = append(next, [2]string{"entire-brain setup --uninstall-daemon", "stop and remove the background watcher"})
+	}
+	// Size the column to its widest entry rather than to a constant: the
+	// conditional --uninstall-daemon row is longer than any fixed width chosen
+	// for the three static ones, and a row that overflows its column loses the
+	// alignment the block exists for.
+	width := 28
+	for _, entry := range next {
+		if len(entry[0]) > width {
+			width = len(entry[0])
+		}
+	}
+	for _, next := range next {
+		// Pad BEFORE colouring: a %-*s over an already-painted string counts
 		// the escape bytes as width and the column collapses on a colour
 		// terminal while looking fine in a pipe.
 		fmt.Fprintf(out, "  %s %s\n",
-			render.PhasePaint(tui.PhaseInstant, fmt.Sprintf("%-28s", next[0])),
+			render.PhasePaint(tui.PhaseInstant, fmt.Sprintf("%-*s", width, next[0])),
 			render.Dim(next[1]))
 	}
 }
