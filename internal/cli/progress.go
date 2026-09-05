@@ -519,6 +519,19 @@ func (t *refreshProgressTask) Finish(err error) {
 		if err == nil && t.phase != tui.PhaseNeutral {
 			phase = t.phase
 		}
+		// Budget this line exactly as liveLine budgets its own, and for the
+		// same reason: Finish writes onto the row the in-place repaints own,
+		// and clearTerminalLine erases exactly ONE row. A terminal line wider
+		// than the terminal wraps onto a second row, the repaint that follows
+		// lands on the second row, and every later erase clears only that one —
+		// so the first row is stranded on screen for the rest of the run.
+		// Seen at 130 cells on a 120-column terminal: "instant core ready in
+		// 1m4.4s — built sessions, seed, docs, semantic, ...; the brain is
+		// queryable now done".
+		if width := render.Width(); width > 0 {
+			used := utf8.RuneCountInString(render.MarkGlyph(mark)) + 1
+			line = render.TruncateTo(line, width-1-used)
+		}
 		fmt.Fprintf(t.progress.out, "%s %s\n", render.Mark(mark), render.PhasePaint(phase, line))
 	})
 }

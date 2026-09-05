@@ -249,6 +249,16 @@ func (r *Renderer) Mark(m Mark) string {
 	return r.Paint(color, glyph)
 }
 
+// MarkGlyph is the outcome glyph WITHOUT colour, for callers that have to
+// budget a line's width before painting it. Measuring the painted form would
+// charge the SGR bytes as display width and shrink the line for no reason —
+// the same reason liveLine measures the plain spinner frame rather than the
+// coloured one.
+func (r *Renderer) MarkGlyph(m Mark) string {
+	glyph, _ := r.markGlyph(m)
+	return glyph
+}
+
 func (r *Renderer) markGlyph(m Mark) (string, lipgloss.Color) {
 	theme := r.Theme()
 	unicode := r != nil && r.caps.Unicode

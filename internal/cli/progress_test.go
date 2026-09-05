@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ashtom/entire-brain/internal/tui"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 // ttyCaps is a terminal that can do everything: colour, unicode, a known width.
@@ -468,5 +469,55 @@ func TestProgressTTYNarrowTerminalDropsTheGaugeNotTheLabel(t *testing.T) {
 		if !strings.Contains(plain, "export sessions") {
 			t.Errorf("the label must survive: %q", plain)
 		}
+	}
+}
+
+// TestFinishTerminalLineFitsTheTerminal pins the width budget on the line
+// Finish prints on a terminal.
+//
+// Finish writes onto the SAME single row the in-place repaints own, and
+// clearTerminalLine ("\r\033[2K") erases exactly one row. A terminal line wider
+// than the terminal wraps onto a second row; the repaint that liveTerminal.finish
+// issues afterwards lands on that second row, and every later erase clears only
+// that one — leaving the first row stranded on screen for the rest of the run.
+// liveLine has budgeted its own width from the start; Finish did not, which is
+// how a real setup produced a 130-cell line on a 120-column terminal:
+//
+//	✓ instant core ready in 1m4.4s — built sessions, seed, docs, semantic,
+//	  patterns, entities, memory; the brain is queryable now done
+func TestFinishTerminalLineFitsTheTerminal(t *testing.T) {
+	t.Parallel()
+	caps := ttyCaps()
+	var buf bytes.Buffer
+	p := newTestProgress(t, &buf, caps)
+	// The real label that overflowed, reconstructed: a seven-component summary
+	// is the ordinary outcome of a successful instant phase, not a pathological
+	// input.
+	task := p.Begin("instant core ready in 1m4.4s — built sessions, seed, docs, semantic, patterns, entities, memory; the brain is queryable now")
+	task.Finish(nil)
+
+	for _, line := range visibleLines(buf.String()) {
+		if got := runewidth.StringWidth(line); got > caps.Width {
+			t.Fatalf("terminal line is %d cells wide on a %d-column terminal, so it wraps and strands a row: %q",
+				got, caps.Width, line)
+		}
+	}
+}
+
+// TestFinishTerminalLineKeepsShortLabelsWhole guards the fix from overshooting:
+// a label that already fits must be printed verbatim, suffix and all. A budget
+// that truncated everything would hide the outcome word the line exists to say.
+func TestFinishTerminalLineKeepsShortLabelsWhole(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	p := newTestProgress(t, &buf, ttyCaps())
+	p.Begin("workspace registration").Finish(nil)
+
+	lines := visibleLines(buf.String())
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly one terminal line, got %d: %q", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], "workspace registration done") {
+		t.Fatalf("terminal line lost its label or suffix: %q", lines[0])
 	}
 }
