@@ -226,6 +226,58 @@ TRIAL_DIR=/path/to/scratch scripts/trial-setup.sh   # sandbox somewhere else
 TRIAL_KEEP=1 scripts/trial-setup.sh                 # keep the sandbox to poke at
 ```
 
+### 3d. Watching it: `scripts/demo-setup.sh`
+
+`trial-setup.sh` answers *is this safe*. `demo-setup.sh` answers *what does it
+look like*. One command, no arguments:
+
+```sh
+scripts/demo-setup.sh
+```
+
+`setup` renders a single in-place line — a braille spinner, a determinate bar
+that colour-ramps red → amber → green as it fills, and a tick row of components
+landing one by one — and every one of those is gated on the destination being a
+terminal. **Pipe it and you get the deliberate degraded fallback**: whole lines,
+ASCII, no colour. So this script never pipes, captures or tees the run, and
+refuses to start if its stdout is not a terminal. To keep a transcript anyway,
+give it a pty: `script -q /dev/null scripts/demo-setup.sh`.
+
+It arranges the three things a bare `setup` in a scratch directory does not
+have:
+
+- **A repository with real substance.** This checkout is cloned (~1,200 tracked
+  files, the full commit history), so the semantic index runs for about a minute
+  instead of half a second and the repaints are actually visible.
+- **A working `entire-graph` provider, installed *into the sandbox*.** Without
+  it the semantic component fails and the run ends on a red ✗. `entire plugin
+  install` honours the sandboxed `HOME`, so the provider is registered where the
+  sandbox's `entire` looks for it and your real plugin registry is untouched.
+  The demo clone is given a GitHub `origin` URL for the same reason: without one
+  `entire-brain` and `entire-graph` derive different repo keys and the semantic
+  snapshot is rejected on a key mismatch. Nothing is fetched from it.
+- **Captured sessions, and a stub agent to distill them with.** The facts bar is
+  `distilled/total sessions`; with no sessions it is an empty grey track that
+  never moves. Sessions are seeded into the demo clone's checkpoint ref in the
+  shape `entire` itself writes, then distilled in paced batches so the bar is
+  watched filling and ramping instead of jumping from nothing to done.
+
+**No tokens are spent.** The distill agent is a stub shell script that reads the
+transcript on stdin and prints fixed fact lines; it never calls a model.
+
+Sandboxing and the teardown leak-diff are the same as `trial-setup.sh` — `HOME`,
+the four `XDG_*_HOME`, the four `ENTIRE_PLUGIN_*_DIR`, `ENTIRE_BRAIN_DAEMON_DIR`
+and `ENTIRE_BRAIN_DAEMON_NO_REGISTER=1` — plus a check that `entire-graph` was
+registered inside the sandbox rather than in your real plugin root.
+
+```sh
+DEMO_SESSIONS=60 scripts/demo-setup.sh              # seed more sessions
+DEMO_BATCH=10 scripts/demo-setup.sh                 # coarser ramp, fewer passes
+DEMO_PAUSE=0 scripts/demo-setup.sh                  # no pause between passes
+DEMO_KEEP=1 scripts/demo-setup.sh                   # keep the sandbox to poke at
+ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/demo-setup.sh
+```
+
 ### 4. Distill durable facts
 
 Distillation is the egress-gated agent step that turns captured sessions into

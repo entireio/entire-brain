@@ -3,6 +3,7 @@
 /dist/
 /coverage.out
 /.trial-setup/
+/.demo-setup/
 .DS_Store
 __pycache__/
 .pytest_cache/
