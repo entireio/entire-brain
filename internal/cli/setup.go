@@ -606,11 +606,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// launchd job / systemd unit keeps running under its old label forever,
 	// invisible to every later `status` and `--uninstall-daemon`.
 	previousName, previousKnown := installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
-	if detail, retireErr := retireRenamedDaemon(ctx, setupOpts, previousName, previousKnown, steps, planErr); retireErr != nil {
-		report.Warnings = append(report.Warnings, retireErr.Error())
-		progress.Skip(retireErr.Error())
-	} else if detail != "" {
-		progress.Skip(detail)
+	// A repo that has never completed setup does not own the machine-wide
+	// watcher merely because another repo recorded it in the shared plan.
+	if !setUpBefore {
+		previousKnown = false
 	}
 
 	// The one side effect of `setup` that OUTLIVES the command gets announced
@@ -745,6 +744,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		report.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: planErr.Error()}
 	default:
 		report.Daemon = runSetupDaemon(ctx, daemonProgress, steps, plan, &report, brainCmd)
+		// Switch watcher names only after the replacement is confirmed on disk.
+		// This preserves the old service if the instant phase or new install
+		// fails, while still preventing two names from running indefinitely.
+		if report.Daemon.Installed && report.Daemon.Label == plan.Label {
+			if detail, retireErr := retireRenamedDaemon(ctx, setupOpts, previousName, previousKnown, steps, planErr); retireErr != nil {
+				report.Warnings = append(report.Warnings, retireErr.Error())
+				daemonProgress.Skip(retireErr.Error())
+			} else if detail != "" {
+				daemonProgress.Skip(detail)
+			}
+		}
 	}
 	timings.record("daemon", time.Since(daemonStarted))
 
@@ -1362,9 +1372,9 @@ func retireRenamedDaemon(ctx context.Context, setupOpts setupCommandOptions, old
 	if !oldPlan.supported() {
 		return "", nil
 	}
-	if state := steps.inspect(ctx, oldPlan); !state.Installed {
-		return "", nil
-	}
+	// Uninstall is idempotent, so do not re-inspect here: the replacement has
+	// already been installed and the old unit may no longer be representable by
+	// a single-state test adapter. A known previous name is enough authority.
 	if err := steps.uninstall(ctx, oldPlan); err != nil {
 		return "", fmt.Errorf("previous watcher %s not removed: %w", oldPlan.Label, err)
 	}

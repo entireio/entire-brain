@@ -217,10 +217,12 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 		parts = append(parts, "freshness "+h.Severity)
 	}
 	phase := tui.PhaseSkipped
+	mark := tui.MarkSkipped
 	if len(h.Failed) > 0 || h.Severity == "unsafe" {
 		phase = tui.PhaseFailed
+		mark = tui.MarkFailed
 	}
-	return render.Mark(tui.MarkFailed) + " " + render.PhasePaint(phase, strings.Join(parts, ", ")) +
+	return render.Mark(mark) + " " + render.PhasePaint(phase, strings.Join(parts, ", ")) +
 		render.Dim(" "+render.Dash()+" run `"+brainCmd+" doctor`")
 }
 

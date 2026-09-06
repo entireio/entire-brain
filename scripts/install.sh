@@ -42,6 +42,7 @@ brain_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 graph_repo=${ENTIRE_GRAPH_REPO:-https://github.com/entireio/entire-graph.git}
 offline=${ENTIRE_INSTALL_OFFLINE:-}
 graph_cache=${ENTIRE_GRAPH_CACHE:-"${XDG_CACHE_HOME:-${HOME:-$brain_root}/.cache}/entire-brain/entire-graph"}
+graph_cache_marker=.entire-brain-managed-cache
 
 nl='
 '
@@ -231,7 +232,7 @@ if [ -z "$graph_root" ]; then
 		seen="$seen|$candidate|"
 		if is_graph_checkout "$candidate"; then
 			graph_root=$(abspath "$candidate")
-			if [ "$graph_root" = "$graph_cache_abs" ]; then
+			if [ "$graph_root" = "$graph_cache_abs" ] && [ -f "$graph_root/$graph_cache_marker" ]; then
 				graph_route='cache from a previous run'
 			else
 				graph_route='checkout discovered on this machine'
@@ -259,10 +260,15 @@ if [ -z "$graph_root" ]; then
 	note "from $graph_repo"
 	note "into $graph_cache"
 	note 'shallow clone, normally 5-30 seconds; the build after it is the slow part'
-	rm -rf "$graph_cache"
+	if [ -e "$graph_cache" ] || [ -L "$graph_cache" ]; then
+		die "cache path already exists but is not an entire-graph checkout: $graph_cache
+       Refusing to delete or overwrite it. Move it aside, choose a different
+       ENTIRE_GRAPH_CACHE, or point ENTIRE_GRAPH_DIR at a valid checkout."
+	fi
 	mkdir -p "$(dirname -- "$graph_cache")"
-	if ! git clone --depth 1 --quiet "$graph_repo" "$graph_cache"; then
-		rm -rf "$graph_cache"
+	graph_clone_tmp=$(mktemp -d "${graph_cache}.clone.XXXXXX")
+	if ! git clone --depth 1 --quiet "$graph_repo" "$graph_clone_tmp"; then
+		rm -rf "$graph_clone_tmp"
 		die "could not clone entire-graph. All three ways to supply it:
        1. point at a checkout you already have:
             ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/install.sh
@@ -273,10 +279,17 @@ if [ -z "$graph_root" ]; then
           repository, so no credentials are needed; a proxy, a firewall or DNS
           is the usual cause."
 	fi
-	if ! is_graph_checkout "$graph_cache"; then
-		die "cloned $graph_repo into $graph_cache, but it is not an entire-graph
+	if ! is_graph_checkout "$graph_clone_tmp"; then
+		rm -rf "$graph_clone_tmp"
+		die "cloned $graph_repo, but it is not an entire-graph
        checkout (no cmd/entire-graph). Check ENTIRE_GRAPH_REPO."
 	fi
+	printf '%s\n' 'Created and managed by entire-brain scripts/install.sh.' >"$graph_clone_tmp/$graph_cache_marker"
+	if [ -e "$graph_cache" ] || [ -L "$graph_cache" ]; then
+		rm -rf "$graph_clone_tmp"
+		die "cache path appeared while cloning; refusing to overwrite it: $graph_cache"
+	fi
+	mv "$graph_clone_tmp" "$graph_cache"
 	graph_root=$(abspath "$graph_cache")
 	graph_route="shallow clone of $graph_repo"
 elif [ "$graph_route" = 'cache from a previous run' ] && [ -z "$offline" ]; then

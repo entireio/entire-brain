@@ -423,7 +423,7 @@ func installDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) e
 			return fmt.Errorf("create log directory: %w", err)
 		}
 	}
-	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o644); err != nil {
+	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", plan.UnitPath, err)
 	}
 	if runner == nil || plan.NoRegister {

@@ -220,6 +220,13 @@ func TestInstallDaemonWritesUnitAndLoadsItIdempotently(t *testing.T) {
 	if string(data) != plan.Contents {
 		t.Fatal("installed plist does not match the plan")
 	}
+	info, err := os.Stat(plan.UnitPath)
+	if err != nil {
+		t.Fatalf("stat installed plist: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("installed unit exposes local paths/env to other users: mode %o", got)
+	}
 	// Unload-before-load is the idempotence hinge: without it a second install
 	// fails with "service already loaded" and leaves a stale job registered.
 	if got := strings.Join(runner.calls, "\n"); strings.Count(got, "launchctl unload") != 2 || strings.Count(got, "launchctl load -w") != 2 {

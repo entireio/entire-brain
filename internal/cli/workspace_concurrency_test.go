@@ -55,6 +55,36 @@ func TestWorkspaceRefreshAndRemoveUseTheMembershipLock(t *testing.T) {
 		cmd.SetOut(&bytes.Buffer{})
 		return runWorkspaceRemove(cmd, f.opts, workspace, "local/a")
 	})
+	assertBlocked("whole-workspace remove", func() error {
+		cmd := &cobra.Command{}
+		cmd.SetOut(&bytes.Buffer{})
+		return runWorkspaceRemove(cmd, f.opts, workspace, "")
+	})
+}
+
+func TestWorkspaceRefreshMergePreservesConcurrentMembership(t *testing.T) {
+	f := newSetupTestFixture(t)
+	const workspace = "refresh-merge"
+	if _, err := addWorkspaceRepoLocked(f.env, workspace, workspaceRepo{RepoKey: "local/a"}); err != nil {
+		t.Fatal(err)
+	}
+	computed := []workspaceRepoFreshness{{RepoKey: "local/a", State: "fresh"}}
+	if _, err := addWorkspaceRepoLocked(f.env, workspace, workspaceRepo{RepoKey: "local/b"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeWorkspaceRefreshResult(f.env, workspace, computed, setupTestNow); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := loadWorkspaceManifest(f.env, workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Repos) != 2 || manifest.Repos[1].RepoKey != "local/b" {
+		t.Fatalf("refresh overwrote a concurrent add: %+v", manifest.Repos)
+	}
+	if len(manifest.Freshness) != 1 || manifest.Freshness[0].RepoKey != "local/a" {
+		t.Fatalf("refresh merge wrote mismatched freshness: %+v", manifest.Freshness)
+	}
 }
 
 // workspace_concurrency_test.go covers the other race `setup` creates: running
@@ -186,13 +216,14 @@ func TestWorkspaceAddReportsCreatedAndAlready(t *testing.T) {
 	if len(manifest.Repos) != 1 {
 		t.Fatalf("re-adding must not duplicate the member: %+v", manifest.Repos)
 	}
-	// The lock file lives beside the manifest and must not leak into the store's
-	// meaningful contents.
+	// The lock file lives beside the workspace directory, where whole-workspace
+	// removal can hold it without deleting the open file.
 	dir, err := workspaceDir(f.env, "fresh")
 	if err != nil {
 		t.Fatalf("workspace dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, brainLockDirName, workspaceManifestLockName)); err != nil {
-		t.Fatalf("the manifest lock must live beside the manifest: %v", err)
+	lockPath := filepath.Join(filepath.Dir(dir), brainLockDirName, "fresh-"+workspaceManifestLockName)
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("the manifest lock must live outside the deletable workspace: %v", err)
 	}
 }

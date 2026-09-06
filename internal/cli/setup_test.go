@@ -191,7 +191,12 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 			}
 			return nil
 		},
-		inspect: func(context.Context, daemonPlan) daemonState { return r.state },
+		inspect: func(_ context.Context, plan daemonPlan) daemonState {
+			if r.state.Current && r.state.Label != "" && r.state.Label != plan.Label {
+				return daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath}
+			}
+			return r.state
+		},
 		install: func(_ context.Context, plan daemonPlan) error {
 			r.installCalls++
 			r.state = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Installed: true, Current: true, Running: true}
@@ -823,6 +828,9 @@ func TestSetupUninstallUsesTheMachineDaemonName(t *testing.T) {
 func TestSetupJSONReportsFailureToRetireRenamedDaemon(t *testing.T) {
 	f := newSetupTestFixture(t)
 	const oldName = "entire-brain-watch-old"
+	if err := writeSetupRecord(filepath.Dir(f.storage.HeadPath), setupRecord{SchemaVersion: setupBackfillStateVersion, DaemonName: oldName}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := recordSetupWatchPlan(f.env, oldName, setupWatchPlanEntry{Workspace: setupDefaultWorkspace, Interval: "5m"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1220,6 +1228,9 @@ func TestSetupRenamingTheDaemonRetiresTheOldUnit(t *testing.T) {
 // name and uninstall the machine-wide watcher every other repo depends on.
 func TestSetupFirstRunNeverRetiresAnotherReposDaemon(t *testing.T) {
 	f := newSetupTestFixture(t)
+	if _, err := recordSetupWatchPlan(f.env, daemonDefaultName, setupWatchPlanEntry{Workspace: setupDefaultWorkspace, Interval: "5m"}); err != nil {
+		t.Fatal(err)
+	}
 	// A default-named watcher is already installed and healthy on this machine.
 	rec := &recordedSetup{state: daemonState{Manager: daemonManagerLaunchd, Label: launchdLabel(daemonDefaultName), Installed: true, Current: true, Running: true}}
 	opts := defaultSetupOptions()
@@ -1229,6 +1240,25 @@ func TestSetupFirstRunNeverRetiresAnotherReposDaemon(t *testing.T) {
 
 	if rec.uninstallCalls != 0 {
 		t.Fatalf("a first-ever setup must not uninstall anything, got %d", rec.uninstallCalls)
+	}
+}
+
+func TestSetupInstantFailureLeavesPreviousWatcherRunning(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	first := defaultSetupOptions()
+	first.daemonName = "entire-brain-watch-old"
+	runSetupForTest(t, f, first, rec)
+
+	rec.instantErr = errors.New("brain unavailable")
+	second := defaultSetupOptions()
+	second.daemonName = "entire-brain-watch-new"
+	cmd := setupTestCommand(t, &bytes.Buffer{}, second)
+	if err := runSetup(context.Background(), cmd, f.opts, second, f.repoDir, rec.steps(f)); err == nil {
+		t.Fatal("setup should fail when the instant phase fails")
+	}
+	if rec.uninstallCalls != 0 {
+		t.Fatalf("old watcher was retired before its replacement could be installed: %d", rec.uninstallCalls)
 	}
 }
 

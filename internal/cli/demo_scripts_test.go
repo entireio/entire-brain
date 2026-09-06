@@ -88,6 +88,12 @@ func TestInstallChecksCompilerEvenWhenGoIsMissing(t *testing.T) {
 	if goCheck < 0 || compilerCheck < goCheck || problemsCheck < compilerCheck {
 		t.Fatalf("compiler prerequisite is not checked independently before preflight exits")
 	}
+	if strings.Contains(body, `rm -rf "$graph_cache"`) {
+		t.Fatal("installer may delete an arbitrary user-supplied cache path")
+	}
+	if !strings.Contains(body, `-f "$graph_root/$graph_cache_marker"`) {
+		t.Fatal("installer refreshes cache checkouts without proving it created them")
+	}
 }
 
 // Once `entire enable` has run in scripts/demo-agent-session.sh, the demo

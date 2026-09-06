@@ -99,7 +99,7 @@ func TestShortStatusGolden(t *testing.T) {
 		"  daemon    - installed but not running (io.entire.brain-watch.a2d3fd66) | last tick 17m0s ago\n" +
 		"  instant   + sessions  + seed  + docs  + semantic  . history\n" +
 		"\n" +
-		"x freshness degraded -- run `entire-brain doctor`\n" +
+		"- freshness degraded -- run `entire-brain doctor`\n" +
 		"  `entire-brain status --verbose` for the full report\n"
 	if got != want {
 		t.Fatalf("short status\n got:\n%s\nwant:\n%s", got, want)
@@ -266,6 +266,15 @@ func TestStatusHealthCounts(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Errorf("verdict %q missing %q", line, want)
 		}
+	}
+}
+
+func TestStatusHealthWarningUsesSkippedMark(t *testing.T) {
+	t.Parallel()
+	render := tui.NewRendererWith(tui.Theme{}, tui.PlainCaps())
+	line := (statusHealth{Warnings: 1}).Line(render, setupBrainBinaryName)
+	if !strings.HasPrefix(line, "- 1 warning") {
+		t.Fatalf("warning-only health rendered as a hard failure: %q", line)
 	}
 }
 

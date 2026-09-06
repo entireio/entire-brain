@@ -723,19 +723,16 @@ func acquireWorkspaceManifestLock(env EntireEnv, workspaceName string) (*fileLoc
 	if err != nil {
 		return nil, err
 	}
-	if err := rejectExistingSymlinkPathComponents(dir, brainLockDirName); err != nil {
+	workspaceRoot := filepath.Dir(dir)
+	if err := rejectExistingSymlinkPathComponents(workspaceRoot, brainLockDirName); err != nil {
 		return nil, err
 	}
-	return acquireFileLock(filepath.Join(dir, brainLockDirName, workspaceManifestLockName), "workspace_manifest_locked", brainWriteLockTimeout)
+	// Keep membership locks outside the workspace directory so whole-workspace
+	// deletion can hold the same lock without deleting an open lock file.
+	return acquireFileLock(filepath.Join(workspaceRoot, brainLockDirName, workspaceName+"-"+workspaceManifestLockName), "workspace_manifest_locked", brainWriteLockTimeout)
 }
 
 func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {
-	lock, err := acquireWorkspaceManifestLock(opts.Env, workspaceName)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = lock.Close() }()
-
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
@@ -759,9 +756,7 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	manifest.Freshness = freshness
-	manifest.RefreshedAt = opts.Now().UTC()
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	if err := writeWorkspaceRefreshResult(opts.Env, workspaceName, freshness, opts.Now().UTC()); err != nil {
 		return err
 	}
 	if full {
@@ -775,6 +770,35 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", repo.RepoKey, repo.State)
 	}
 	return nil
+}
+
+// writeWorkspaceRefreshResult keeps the expensive multi-repo work outside the
+// membership lock, then merges its results into the latest manifest. Repos
+// added during refresh are preserved and simply receive freshness next pass;
+// repos removed during refresh are not resurrected.
+func writeWorkspaceRefreshResult(env EntireEnv, workspaceName string, freshness []workspaceRepoFreshness, refreshedAt time.Time) error {
+	lock, err := acquireWorkspaceManifestLock(env, workspaceName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	manifest, err := loadWorkspaceManifest(env, workspaceName)
+	if err != nil {
+		return err
+	}
+	byRepo := make(map[string]workspaceRepoFreshness, len(freshness))
+	for _, state := range freshness {
+		byRepo[state.RepoKey] = state
+	}
+	merged := make([]workspaceRepoFreshness, 0, len(manifest.Repos))
+	for _, repo := range manifest.Repos {
+		if state, ok := byRepo[repo.RepoKey]; ok {
+			merged = append(merged, state)
+		}
+	}
+	manifest.Freshness = merged
+	manifest.RefreshedAt = refreshedAt
+	return writeWorkspaceManifest(env, manifest)
 }
 
 func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspaceContextOptions, workspaceName, query string) error {
@@ -3259,6 +3283,12 @@ func newWorkspaceRemoveCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey string) error {
+	lock, err := acquireWorkspaceManifestLock(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+
 	if repoKey == "" {
 		// workspaceDir validates the name and rejects symlinked paths, so RemoveAll stays inside the store.
 		dir, err := workspaceDir(opts.Env, workspaceName)
@@ -3277,12 +3307,6 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 		fmt.Fprintf(cmd.OutOrStdout(), "removed workspace %s\n", workspaceName)
 		return nil
 	}
-	lock, err := acquireWorkspaceManifestLock(opts.Env, workspaceName)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = lock.Close() }()
-
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
