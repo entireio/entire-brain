@@ -4,6 +4,7 @@
 /coverage.out
 /.trial-setup/
 /.demo-setup/
+/.demo-agent-session/
 .DS_Store
 __pycache__/
 .pytest_cache/
