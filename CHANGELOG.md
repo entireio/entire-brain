@@ -7,6 +7,41 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- The documented journey now ends where a user actually ends up: a brain
+  onboarded in *their* repository. It used to stop at the install. `README.md`
+  said "That is the whole install" and the next thing a reader was given was
+  `entire brain refresh --agent none`; `entire brain setup` appeared only as an
+  aside two sections later, and `docs/getting-started.md` — a guide whose whole
+  job is the journey — never mentioned `setup` at all in 762 lines. The install
+  is machine-scoped and gives no repository a brain, so a reader finished it
+  with working plugins and nothing to show for them.
+  - `README.md` opens `## Install` with the two commands the whole journey is
+    (install once per machine, `entire brain setup` once per repository), renames
+    step 1 to "Install the plugins on this machine", and promotes `setup` to
+    **step 3**, the next thing a reader does. The old step 3 (`refresh`) is now
+    step 3b, described as the manual path rather than the default one.
+  - A new **step 3a** documents what `setup` genuinely requires — a local path
+    that is a git repository, checked before any side effect — versus what it
+    degrades around: `entire enable`, captured sessions, the `entire graph`
+    provider, a service manager, an agent CLI. It states the real order
+    (`entire enable` then `setup`) and that the order is a quality decision, not
+    a correctness one, and it warns that a repository new to Entire reports
+    `Brain ready (degraded)` at exit 0 — with the two components that fail and
+    the fix for each.
+  - Step 3 says plainly that the watcher is installed as a **persistent
+    launchd/systemd service, by default, with no prompt**, names the
+    `RunAtLoad`/`KeepAlive` and `Restart=always` that make it survive reboot,
+    and gives `--no-daemon` and `entire brain setup --uninstall-daemon`.
+  - `docs/getting-started.md` gains "Onboard a repository: `entire brain setup`"
+    in place of "First run", with the phase table, the spend labels, the
+    prerequisite/ordering section, and `refresh` kept as the by-hand path.
+  - `docs/operations.md` gains an "After the install: onboard a repository"
+    section, because the installer it documents is not the last command a user
+    runs.
+  - `scripts/install.sh`'s closing banner said `Next: build a brain: entire
+    brain refresh --agent none` — the same truncation in the terminal. It now
+    says the machine is set up, no repository has a brain yet, and gives
+    `cd /path/to/your/repo && entire brain setup` with its token-spend caveat.
 - Installing from git is one command that works with nothing arranged in
   advance. `scripts/install.sh` no longer requires `entire-graph` to be a
   sibling checkout with that exact name — the documented constraint that made

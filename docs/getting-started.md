@@ -3,6 +3,20 @@
 This guide takes you from nothing to querying a local repository brain. No team
 context is assumed.
 
+It is two commands. The first installs the plugins on this machine; the second
+onboards a repository. Do not stop after the first — installing gives no
+repository a brain.
+
+```sh
+# once per machine
+git clone https://github.com/entireio/entire-brain.git
+entire-brain/scripts/install.sh
+
+# once per repository you want a brain for
+cd /path/to/your/repo
+entire brain setup
+```
+
 `entire-brain` is an external-command plugin for the Entire CLI. Once installed
 it is invoked as `entire brain ...`. It builds a local, inspectable "brain" for a
 repository from retained Entire sessions, seed context, docs, decision history,
@@ -31,7 +45,8 @@ The provider is `entire-graph` (the public `entireio/entire-graph` repo),
 invoked as `entire graph`. The brain shells out to `entire graph snapshot` and
 `entire graph doctor` to build and verify the semantic layer. Install the latest
 provider as shown below. If you do not need the semantic code graph, you can skip
-the provider and run the brain with `--semantic=false` (see First run).
+the provider and run the brain with `--semantic=false` (see
+"If you do not have the semantic provider yet").
 
 ## Install
 
@@ -136,7 +151,7 @@ the same way so `entire graph` is available.
 ```sh
 entire brain version          # plugin version
 entire brain doctor           # checks the Entire CLI plugin environment
-entire brain status           # summarizes the brain (empty until the first refresh)
+entire brain status           # summarizes the brain (empty until you run `entire brain setup` in a repo)
 
 entire graph version            # provider version
 entire graph doctor --json      # provider diagnostics; expect "no_egress": true
@@ -148,13 +163,86 @@ resolves and that the installed binary is named `entire-graph` rather than the
 retired `entire-sem`. For a versioned release, also confirm the brain and provider
 report the same published release version.
 
-## First run: build a brain and query it
+That is the machine set up. No repository has a brain yet — the next section is
+the command that gives one to a repository you actually work in.
 
-Run the first build inside a git repository. A repository that has Entire enabled
-and some captured agent sessions produces the richest brain, because sessions,
-decision history, and distillable facts all come from that captured work. On a
-repository with no Entire history the brain still builds from seed context, docs,
-and the semantic code graph.
+## Onboard a repository: `entire brain setup`
+
+Installing put two plugins on this machine. It gave no repository a brain. This
+is the step that does, and it is where a first-time reader should go next:
+
+```sh
+cd /path/to/your/repo
+entire brain setup
+```
+
+One command, three phases:
+
+| phase | blocking? | spends tokens? | installed by default? |
+| --- | --- | --- | --- |
+| 1. **instant core** — sessions, semantic index, seed, docs, history, entities | yes, seconds | **no**, deterministic | — |
+| 2. **fact backfill** — distill past sessions into durable facts, newest first, detached | no | **yes** | yes, unless `--no-backfill` |
+| 3. **watcher daemon** — one machine-wide launchd agent / systemd user unit | no | **yes**, per window | **yes, with no prompt**, unless `--no-daemon` |
+
+Three things are worth being explicit about before you run it:
+
+- **Phase 2 spends tokens.** It distills your past sessions with an agent CLI,
+  capped at 25 sessions per pass (`--backfill-budget`). `--no-backfill` skips it.
+- **Phase 3 installs a persistent background service, by default, without
+  asking.** launchd with `RunAtLoad`/`KeepAlive` on macOS, a systemd user unit
+  with `Restart=always` on Linux. It survives logout and reboot, and its gated
+  distill step calls an agent, so it is a recurring spend. `--no-daemon` skips
+  it; `entire brain setup --uninstall-daemon` removes one you already have.
+- **`entire brain setup --no-backfill --no-daemon` spends nothing at all** and
+  changes no service — it is phase 1 only.
+
+```sh
+entire brain setup --no-backfill --no-daemon   # deterministic build only, zero spend
+entire brain status                            # what was built, backfill progress, daemon health
+entire brain setup --uninstall-daemon          # stop and remove the watcher
+```
+
+### What `setup` needs first, and what it does not
+
+`setup` hard-fails on one thing only: the target must be a **local path that is a
+git repository** with at least one commit. It checks that before it registers a
+workspace, writes state, or installs anything.
+
+It does **not** require, and will not do for you:
+
+- **`entire enable` in the repository.** Hook registration belongs to the Entire
+  CLI's repository enablement, which owns the whole lifecycle hook set;
+  duplicating it in `setup` would leave two hooks racing to distill the same
+  session. `setup` reports the session-end hook as an advisory line, never a
+  failure.
+- **Captured Entire sessions.** Without them the session export fails, is
+  reported as a failed `sessions` component, and the run falls back to a
+  deterministic seed baseline and builds everything else.
+- **A working `entire graph` provider**, a supported service manager, or an
+  agent CLI — each missing piece degrades exactly its own phase.
+
+So the order that produces the best brain, rather than merely a successful
+command, is:
+
+```sh
+entire enable          # capture sessions + wire the session-end hook
+entire brain setup     # then onboard: build, backfill, watch
+```
+
+That order is a quality decision, not a correctness one — running `entire enable`
+after `setup` works too, and the next backfill pass picks the new sessions up.
+
+**Expect `Brain ready (degraded)` on a repository new to Entire.** `setup` exits
+0 whenever at least one component built, and names the ones that did not. The
+two you will see on a fresh repository are `x session export` (no captured
+history yet — run `entire enable`) and `x semantic index: repo key mismatch` (the
+repository has **no git remote**, so the brain and the provider derive different
+keys for it; `git remote add origin …` and re-run).
+
+### Or build the brain by hand: `refresh`
+
+`refresh` is the same deterministic build on its own — no backfill, no workspace,
+no watcher. Use it when you want the brain and nothing else, or when scripting:
 
 ```sh
 cd /path/to/your/repo
@@ -165,8 +253,8 @@ entire brain status
 
 `refresh` exports captured sessions, builds the local history and doc indexes,
 asks `entire graph` for a semantic snapshot, and stores the derived brain under
-Entire's plugin data directory. `--agent none` keeps this first build
-deterministic and token-free, with no hosted-model calls.
+Entire's plugin data directory. `--agent none` keeps this build deterministic and
+token-free, with no hosted-model calls.
 
 The semantic snapshot is built from committed state, so run `refresh` on a clean
 checkout. On a dirty worktree the semantic step can be skipped or refused; index
@@ -232,6 +320,11 @@ opens no network listener.
 ```sh
 entire brain mcp
 ```
+
+If you ran `entire brain setup` without `--no-daemon`, a watcher is already
+installed and keeping this repository fresh; the commands below are the manual
+equivalents, for a brain built with `refresh` or a repository set up with
+`--no-daemon`.
 
 The default watcher performs deterministic refreshes only. Token-spending work,
 such as fact distillation or seed synthesis, is opt-in and separately gated.

@@ -314,8 +314,23 @@ Entire is installed end to end:
       from:  $brain_root
   - default entire-brain plugin config written
 
-Next:
-  - build a brain:  entire brain refresh --agent none
-  - MCP (stdio):    entire brain mcp
-  - re-run checks:  entire brain doctor
+That is the machine. No repository has a brain yet.
+
+Next -- onboard a repository, once per repository:
+
+    cd /path/to/your/repo
+    entire brain setup
+
+  setup builds the deterministic core (seconds, no tokens), then starts a
+  detached fact backfill and installs ONE machine-wide watcher service, both of
+  which SPEND TOKENS. Skip either with --no-backfill / --no-daemon;
+  --no-backfill --no-daemon spends nothing at all. Remove the watcher with
+  \`entire brain setup --uninstall-daemon\`.
+
+Then:
+  - what was built:   entire brain status
+  - what this is:     entire brain overview
+  - context a task:   entire brain brief "<task>"
+  - MCP (stdio):      entire brain mcp
+  - re-run checks:    entire brain doctor
 DONE

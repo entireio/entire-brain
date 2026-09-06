@@ -45,6 +45,27 @@ be cloned regardless because the install is a source build; and cloning first
 puts the script that registers your plugins on disk at a reviewable commit
 before it runs.
 
+### After the install: onboard a repository
+
+The installer is machine-scoped. It gives no repository a brain, and it is not
+the last command a user runs. That is `entire brain setup`, once per repository:
+
+```sh
+cd /path/to/your/repo
+entire brain setup
+```
+
+Operationally the thing to know is that a default `setup` does two things beyond
+the deterministic build, both of which spend tokens: it starts a detached fact
+backfill (capped at 25 sessions per pass, `--no-backfill` to skip), and it
+installs **one machine-wide watcher as a persistent service, by default, with no
+prompt** — a launchd agent with `RunAtLoad`/`KeepAlive`, or a systemd user unit
+with `Restart=always`. `--no-daemon` skips it, `entire brain setup
+--uninstall-daemon` removes it, and `entire brain setup --no-backfill
+--no-daemon` spends nothing and changes no service. See the README's
+[step 3](../README.md#3-onboard-a-repository-entire-brain-setup) for the full
+phase table and the ordering against `entire enable`.
+
 ## Local Install (brain only)
 
 ```sh
