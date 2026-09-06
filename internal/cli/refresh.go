@@ -135,6 +135,40 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
 	progress := newRefreshProgress(cmd.ErrOrStderr())
+	storageTask := progress.Begin("locate brain")
+	storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if storageErr != nil {
+		storageTask.Finish(storageErr)
+		return storageErr
+	}
+	storageTask.Update("locate brain: " + storage.Key)
+	storageTask.Finish(nil)
+	brainDir := storage.BrainDir
+	if outputExplicit {
+		finishOutput := progress.Step("resolve output path")
+		brainDir, err = filepath.Abs(refreshOpts.outputDir)
+		if err != nil {
+			finishOutput(err)
+			return fmt.Errorf("resolve output directory: %w", err)
+		}
+		finishOutput(nil)
+	}
+	// Before any stage writes, not after: a manifest carrying another build's
+	// fields is readable but no writer will replace it, and the session export
+	// below is a writer. Discarding it afterwards let the export fail first, and
+	// refresh then reported "unavailable, using seed baseline" -- masking the
+	// real cause and throwing away the sessions it had just gathered. An
+	// explicit --force is the operator asking for the rebuild, so clear the way
+	// for it here. An explicit --output has already had its directory removed.
+	if refreshOpts.force && !outputExplicit {
+		discarded, derr := discardManifestThisBuildCannotRewrite(brainDir)
+		if derr != nil {
+			return derr
+		}
+		if discarded {
+			fmt.Fprintln(cmd.ErrOrStderr(), "refresh: discarded a manifest written by a different build; rebuilding it")
+		}
+	}
 	exportCmd := &cobra.Command{Use: "export"}
 	exportCmd.SetOut(io.Discard)
 	exportCmd.SetErr(io.Discard)
@@ -174,38 +208,6 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		progress.Skip("export sessions")
 	}
 
-	storageTask := progress.Begin("locate brain")
-	storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if storageErr != nil {
-		storageTask.Finish(storageErr)
-		return storageErr
-	}
-	storageTask.Update("locate brain: " + storage.Key)
-	storageTask.Finish(nil)
-	brainDir := storage.BrainDir
-	if outputExplicit {
-		finishOutput := progress.Step("resolve output path")
-		brainDir, err = filepath.Abs(refreshOpts.outputDir)
-		if err != nil {
-			finishOutput(err)
-			return fmt.Errorf("resolve output directory: %w", err)
-		}
-		finishOutput(nil)
-	}
-	// A manifest carrying another build's fields is readable but no writer will
-	// replace it, so every stage below would refuse. An explicit --force is the
-	// operator saying to rebuild it from canonical sources; do that for them
-	// rather than making them delete the file by hand. An explicit --output has
-	// already had its whole directory removed above.
-	if refreshOpts.force && !outputExplicit {
-		discarded, derr := discardManifestThisBuildCannotRewrite(brainDir)
-		if derr != nil {
-			return derr
-		}
-		if discarded {
-			fmt.Fprintln(cmd.ErrOrStderr(), "refresh: discarded a manifest written by a different build; rebuilding it")
-		}
-	}
 	manifest, _ := loadBrainManifest(brainDir)
 	needSeed := outputExplicit || refreshOpts.seed.force
 	if !needSeed {

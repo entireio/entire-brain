@@ -612,3 +612,70 @@ func TestPathMaterializesSeedWhenExportUnavailable(t *testing.T) {
 		t.Fatalf("path did not create seed: %v", err)
 	}
 }
+
+// A forced refresh must discard a manifest it cannot rewrite BEFORE the session
+// export runs, because the export is itself a manifest writer.
+//
+// Doing it afterwards let the export hit the guard and fail first; refresh then
+// reported "unavailable, using seed baseline", masking the real cause and
+// throwing away the sessions it had just gathered. The assertion is the order of
+// the two lines in the output, which is exactly what regressed.
+func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	dataDir := filepath.Join(t.TempDir(), "data")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	runner := seedFixtureRunner(repoDir)
+	addRefreshSemanticFixture(runner, repoDir)
+
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	if err := os.MkdirAll(brainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A manifest from a build that knew a field this one has since retired.
+	skewed := []byte(`{"schema_version":3,"repo_key":"gh/example/repo","retired_field":0}` + "\n")
+	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), skewed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  stateDir,
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC) },
+	})
+
+	out, err := execute(t, cmd, "refresh", "--force", "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("forced refresh must recover, not fail: %v\n%s", err, out)
+	}
+
+	const discarded = "refresh: discarded a manifest written by a different build"
+	discardAt := strings.Index(out, discarded)
+	if discardAt < 0 {
+		t.Fatalf("forced refresh did not discard the unrewritable manifest:\n%s", out)
+	}
+	exportAt := strings.Index(out, "refresh: export sessions")
+	if exportAt < 0 {
+		t.Fatalf("no export stage in output:\n%s", out)
+	}
+	if discardAt > exportAt {
+		t.Fatalf("discard ran after the export, so the export hit the write guard first:\n%s", out)
+	}
+
+	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	if err != nil {
+		t.Fatalf("read rebuilt manifest: %v", err)
+	}
+	if strings.Contains(string(data), "retired_field") {
+		t.Fatalf("manifest was not rebuilt; it still carries the retired field:\n%s", data)
+	}
+	if _, err := loadBrainManifestForReplace(brainDir); err != nil {
+		t.Fatalf("the rebuilt manifest must be writable by this build: %v", err)
+	}
+}
