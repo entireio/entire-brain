@@ -23,8 +23,13 @@ var errTrailingJSONData = errors.New("trailing JSON data")
 // silently restoring the brick this guards against.
 const unknownFieldErrPrefix = "json: unknown field "
 
+// HasPrefix, not Contains: the stdlib returns this error unwrapped at every
+// nesting depth, and matching only the prefix fails closed. If a future stdlib
+// ever wraps it, this stops recognising it and the state is called corrupt again
+// -- loud and caught by the pin test -- rather than silently tolerating an error
+// that merely happens to quote this text.
 func isUnknownFieldError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), unknownFieldErrPrefix)
+	return err != nil && strings.HasPrefix(err.Error(), unknownFieldErrPrefix)
 }
 
 // checkedVersionedJSONHeader deliberately decodes only the version before the

@@ -187,14 +187,28 @@ func TestLoadBrainManifestForReplace_StillRefusesUnknownFields(t *testing.T) {
 func TestUnknownFieldErrorTextIsStillStdlibContract(t *testing.T) {
 	t.Parallel()
 
-	decoder := json.NewDecoder(strings.NewReader(`{"nope":1}`))
-	decoder.DisallowUnknownFields()
-	err := decoder.Decode(&struct{}{})
-	if err == nil {
-		t.Fatal("expected an unknown-field error from the stdlib decoder")
-	}
-	if !isUnknownFieldError(err) {
-		t.Fatalf("stdlib unknown-field error text changed; isUnknownFieldError no longer matches it: %v", err)
+	// Nested targets too: the fallback must recognise the error wherever in the
+	// document the unknown field sits, or a manifest like ours (the retired
+	// field lives under sources.seed.history_coverage) is still called corrupt.
+	for name, body := range map[string]string{
+		"top level": `{"nope":1}`,
+		"nested":    `{"nested":{"nope":1}}`,
+		"deep":      `{"nested":{"nope":{"a":[1,2]}}}`,
+	} {
+		var target struct {
+			Nested struct {
+				Known string `json:"known"`
+			} `json:"nested"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(body))
+		decoder.DisallowUnknownFields()
+		err := decoder.Decode(&target)
+		if err == nil {
+			t.Fatalf("%s: expected an unknown-field error from the stdlib decoder", name)
+		}
+		if !isUnknownFieldError(err) {
+			t.Fatalf("%s: stdlib unknown-field error text changed; isUnknownFieldError no longer matches it: %v", name, err)
+		}
 	}
 }
 
