@@ -192,6 +192,20 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		}
 		finishOutput(nil)
 	}
+	// A manifest carrying another build's fields is readable but no writer will
+	// replace it, so every stage below would refuse. An explicit --force is the
+	// operator saying to rebuild it from canonical sources; do that for them
+	// rather than making them delete the file by hand. An explicit --output has
+	// already had its whole directory removed above.
+	if refreshOpts.force && !outputExplicit {
+		discarded, derr := discardManifestThisBuildCannotRewrite(brainDir)
+		if derr != nil {
+			return derr
+		}
+		if discarded {
+			fmt.Fprintln(cmd.ErrOrStderr(), "refresh: discarded a manifest written by a different build; rebuilding it")
+		}
+	}
 	manifest, _ := loadBrainManifest(brainDir)
 	needSeed := outputExplicit || refreshOpts.seed.force
 	if !needSeed {

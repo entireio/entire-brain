@@ -1623,7 +1623,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		// refresh rebuild it from canonical sources.
 		// State stays "current" on purpose: the manifest is present, usable and
 		// this build's supported schema, and callers switch on that string.
-		health.RecommendedAction = "written by a different build and read-only; remove it to let the next `entire brain refresh` rebuild it from canonical sources"
+		health.RecommendedAction = "written by a different build and read-only; run `entire brain refresh --force` to rebuild it from canonical sources"
 	}
 	return &manifest, health, nil
 }

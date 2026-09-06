@@ -340,3 +340,85 @@ func TestEveryManifestWriterGatesOnTheStrictReader(t *testing.T) {
 		t.Fatalf("found %d manifest writers, want at least the 3 known ones; the detection pattern has drifted", writers)
 	}
 }
+
+// A forced refresh rebuilds a manifest this build cannot rewrite, so a brain
+// that is readable but frozen recovers without anyone deleting a file by hand.
+func TestDiscardManifestThisBuildCannotRewrite_RecoversASkewedManifest(t *testing.T) {
+	t.Parallel()
+
+	dir := writeTestManifest(t, `{"schema_version":3,"repo_key":"gh/entirehq/devenv","retired_field":0}`)
+
+	if _, err := loadBrainManifestForReplace(dir); err == nil {
+		t.Fatal("precondition: a writer should refuse this manifest")
+	}
+	discarded, err := discardManifestThisBuildCannotRewrite(dir)
+	if err != nil || !discarded {
+		t.Fatalf("discarded=%v err=%v, want discarded with no error", discarded, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, exportManifestFileName)); !os.IsNotExist(err) {
+		t.Fatalf("manifest should be gone: %v", err)
+	}
+	rebuilt := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "gh/entirehq/devenv"}
+	if err := writeBrainManifestAndReadme(dir, rebuilt); err != nil {
+		t.Fatalf("the rebuild must now succeed: %v", err)
+	}
+}
+
+// --force does not overrule the version check. Down-converting a manifest from
+// a newer schema is the loss that check exists to prevent, so those bytes stay.
+func TestDiscardManifestThisBuildCannotRewrite_KeepsWhatItMustNotDelete(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		body     string
+		wantCode string
+	}{
+		"newer schema": {`{"schema_version":99,"future":true}`, memoryErrUnsupportedVersion},
+		"corrupt":      {`{"schema_version":3,"repo_key":`, memoryErrStateCorrupt},
+		"wrong type":   {`{"schema_version":3,"repo_key":123}`, memoryErrStateCorrupt},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeTestManifest(t, tc.body)
+			discarded, err := discardManifestThisBuildCannotRewrite(dir)
+			if discarded {
+				t.Fatalf("%s must not be discarded", name)
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantCode) {
+				t.Fatalf("%s: err=%v, want %s", name, err, tc.wantCode)
+			}
+			got, readErr := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+			if readErr != nil || string(got) != tc.body {
+				t.Fatalf("%s: bytes changed: %q err=%v", name, got, readErr)
+			}
+		})
+	}
+}
+
+// A manifest this build can already rewrite is left exactly where it is, so a
+// forced refresh does not throw away a perfectly good one on the way past.
+func TestDiscardManifestThisBuildCannotRewrite_LeavesAGoodManifestAlone(t *testing.T) {
+	t.Parallel()
+
+	body := `{"schema_version":3,"repo_key":"gh/entirehq/devenv"}`
+	dir := writeTestManifest(t, body)
+
+	discarded, err := discardManifestThisBuildCannotRewrite(dir)
+	if discarded || err != nil {
+		t.Fatalf("discarded=%v err=%v, want neither", discarded, err)
+	}
+	got, readErr := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+	if readErr != nil || string(got) != body {
+		t.Fatalf("bytes changed: %q err=%v", got, readErr)
+	}
+}
+
+// An absent manifest is the ordinary first-run case, not something to fail on.
+func TestDiscardManifestThisBuildCannotRewrite_ToleratesAnAbsentManifest(t *testing.T) {
+	t.Parallel()
+
+	discarded, err := discardManifestThisBuildCannotRewrite(t.TempDir())
+	if discarded || err != nil {
+		t.Fatalf("discarded=%v err=%v, want neither", discarded, err)
+	}
+}

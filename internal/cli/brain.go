@@ -180,6 +180,55 @@ func readBrainManifest(outputDir string, tolerateUnknownFields bool) (*exportMan
 	return &manifest, droppedUnknownFields, nil
 }
 
+// errManifestRoundTrips reports a manifest this build can already rewrite, so
+// there is nothing for a forced refresh to discard.
+var errManifestRoundTrips = errors.New("manifest round-trips")
+
+// discardManifestThisBuildCannotRewrite removes a manifest whose only defect is
+// fields this build cannot name, so an explicit forced refresh can rebuild it.
+//
+// Every writer refuses such a manifest deliberately: re-encoding from a struct
+// that never saw a field erases it. That leaves a brain readable but frozen,
+// and until now the only way out was for a person to delete the file by hand.
+// An operator asking for a forced refresh is asking for exactly that
+// replacement, rebuilt from canonical sources -- but only for this one cause:
+//
+//   - a newer schema stays. Down-converting a vNext manifest is the loss the
+//     version check exists to prevent, and --force does not overrule it.
+//   - genuine corruption stays. That is a diagnosis for the operator, not bytes
+//     to delete on a guess.
+//
+// The removal runs under the manifest write lock and through the checked
+// remover, so it inherits the same symlink and file-identity guarantees as
+// every other cooperative manifest mutation.
+func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
+	unrewritable := false
+	err := withBrainManifestWriteLock(brainDir, func() error {
+		return removeCheckedMemoryStateFile(brainDir, exportManifestFileName, "brain manifest", maxManifestBytes, func(data []byte) error {
+			if _, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest"); err != nil {
+				return err
+			}
+			var manifest exportManifest
+			droppedUnknownFields, err := decodeVersionedJSONBody(data, &manifest, true)
+			if err != nil {
+				return fmt.Errorf("%s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
+			}
+			if !droppedUnknownFields {
+				return errManifestRoundTrips
+			}
+			unrewritable = true
+			return nil
+		})
+	})
+	if errors.Is(err, errManifestRoundTrips) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return unrewritable, nil
+}
+
 func normalizeBrainManifest(manifest *exportManifest) {
 	if manifest.SchemaVersion == 0 {
 		manifest.SchemaVersion = 1
