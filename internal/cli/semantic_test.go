@@ -112,6 +112,28 @@ func TestSemanticIndexStoresProviderSnapshotAndManifest(t *testing.T) {
 	}
 }
 
+func TestSemanticIndexAcceptsEntireProxyOrigin(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "entire://cluster.example/gh/example/repo\n"}
+	cmd := &cobra.Command{Use: "index"}
+
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{
+		Version: "test",
+		Env:     env,
+		Runner:  runner,
+		Now:     func() time.Time { return time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC) },
+	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	manifestPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", exportManifestFileName)
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Fatalf("manifest under canonical proxy path: %v", err)
+	}
+}
+
 func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 	repoDir := t.TempDir()
 	brainDir := t.TempDir()
