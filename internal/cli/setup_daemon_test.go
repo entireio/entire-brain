@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -224,7 +225,7 @@ func TestInstallDaemonWritesUnitAndLoadsItIdempotently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat installed plist: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
+	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("installed unit exposes local paths/env to other users: mode %o", got)
 	}
 	// Unload-before-load is the idempotence hinge: without it a second install

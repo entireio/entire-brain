@@ -230,7 +230,11 @@ func TestAbstractProviderSideEffectLockLeavesDeterministicBrainWorkAvailable(t *
 		if err != nil {
 			t.Fatalf("deterministic projection during provider: %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
+		// Release the provider before failing so Windows can close the lock file
+		// during TempDir cleanup instead of reporting a second, masking error.
+		close(provider.release)
+		<-generationDone
 		t.Fatal("provider side-effect lock blocked deterministic Brain work")
 	}
 
