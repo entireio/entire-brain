@@ -205,13 +205,22 @@ func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
 	unrewritable := false
 	err := withBrainManifestWriteLock(brainDir, func() error {
 		return removeCheckedMemoryStateFile(brainDir, exportManifestFileName, "brain manifest", maxManifestBytes, func(data []byte) error {
-			if _, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest"); err != nil {
+			version, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest")
+			if err != nil {
 				return err
 			}
+			// The same range the reader enforces. checkedVersionedJSONHeader only
+			// rejects versions newer than this build, so without this a negative
+			// or otherwise out-of-range version reaches the delete -- state the
+			// reader already calls unsupported, which is exactly the "genuine
+			// corruption stays" case above.
+			if version < 0 || version > brainManifestSchemaVersion {
+				return fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
+			}
 			var manifest exportManifest
-			droppedUnknownFields, err := decodeVersionedJSONBody(data, &manifest, true)
-			if err != nil {
-				return fmt.Errorf("%s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
+			droppedUnknownFields, decodeErr := decodeVersionedJSONBody(data, &manifest, true)
+			if decodeErr != nil {
+				return fmt.Errorf("%s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, decodeErr)
 			}
 			if !droppedUnknownFields {
 				return errManifestRoundTrips

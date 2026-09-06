@@ -422,3 +422,32 @@ func TestDiscardManifestThisBuildCannotRewrite_ToleratesAnAbsentManifest(t *test
 		t.Fatalf("discarded=%v err=%v, want neither", discarded, err)
 	}
 }
+
+// --force may only discard the one thing it claims to: a manifest this build
+// cannot rewrite. A version the reader already calls unsupported is corruption,
+// and corruption is a diagnosis for the operator, not bytes to delete on a
+// guess. checkedVersionedJSONHeader alone does not catch these, because it only
+// rejects versions NEWER than this build.
+func TestDiscardManifestThisBuildCannotRewrite_KeepsOutOfRangeVersions(t *testing.T) {
+	t.Parallel()
+
+	for name, body := range map[string]string{
+		"negative": `{"schema_version":-1,"repo_key":"gh/entirehq/devenv","retired_field":0}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeTestManifest(t, body)
+			discarded, err := discardManifestThisBuildCannotRewrite(dir)
+			if discarded {
+				t.Fatalf("%s schema version must not be deleted", name)
+			}
+			if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				t.Fatalf("%s: err=%v, want %s", name, err, memoryErrUnsupportedVersion)
+			}
+			got, readErr := os.ReadFile(filepath.Join(dir, exportManifestFileName))
+			if readErr != nil || string(got) != body {
+				t.Fatalf("%s: bytes changed: %q err=%v", name, got, readErr)
+			}
+		})
+	}
+}
