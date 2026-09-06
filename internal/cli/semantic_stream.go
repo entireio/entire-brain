@@ -74,6 +74,10 @@ type semanticStreamResult struct {
 	stream        semanticStreamCounts
 	extraWarnings []semanticWarning // synthesized warnings, e.g. unknown record types
 	haveHeader    bool
+	// providerRepoKey is the repo key exactly as the provider emitted it, kept
+	// even when header.RepoKey was rewritten to the brain's own spelling of the
+	// same repository. Diagnostics must be able to name what the provider said.
+	providerRepoKey string
 }
 
 // semanticStreamProgressInterval controls how often progress is reported while
@@ -81,8 +85,13 @@ type semanticStreamResult struct {
 var semanticStreamProgressInterval = 5000
 
 type semanticStreamScanConfig struct {
-	ignore   brainIgnore
-	repoDir  string
+	ignore  brainIgnore
+	repoDir string
+	// repoKey is the brain's key for repoDir. When set, a header carrying the
+	// semantic provider's own spelling of THIS repository is stored under it —
+	// see semantic_repokey.go for why the two spellings differ and why this is
+	// safe. Left empty (tests, fuzzing) the header's repo key is untouched.
+	repoKey  string
 	progress func(phase string)
 	// counts reports the running record tallies alongside the phase label, so a
 	// caller can draw a determinate bar instead of an indeterminate spinner.
@@ -122,6 +131,10 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			return res, fmt.Errorf("parse semantic snapshot header: %w", err)
 		}
 		header.RepoRoot = ""
+		res.providerRepoKey = header.RepoKey
+		if semanticProviderRepoKeyAlias(header.RepoKey, cfg.repoKey, cfg.repoDir) {
+			header.RepoKey = cfg.repoKey
+		}
 		header.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.Warnings), cfg.repoDir)
 		header.PartialFailures = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(header.PartialFailures), cfg.repoDir)
 		headerLine, err := json.Marshal(header)
@@ -375,7 +388,7 @@ func writeNDJSONLine(out io.Writer, line []byte) error {
 // through ctx, with a configurable overall deadline and an inactivity timeout so
 // large repositories are not killed by a fixed short timeout while a hung
 // provider still aborts.
-func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir string, indexOpts semanticIndexOptions, ignoreFiles []string, ignore brainIgnore, out io.Writer) (semanticStreamResult, error) {
+func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, repoKey string, indexOpts semanticIndexOptions, ignoreFiles []string, ignore brainIgnore, out io.Writer) (semanticStreamResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -412,6 +425,7 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir s
 	cfg := semanticStreamScanConfig{
 		ignore:   ignore,
 		repoDir:  repoDir,
+		repoKey:  repoKey,
 		progress: indexOpts.progress,
 		counts:   indexOpts.progressCounts,
 		onRecord: func(string) {

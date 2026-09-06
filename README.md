@@ -324,16 +324,25 @@ the refusal names, is a `refresh` flag — `setup` does not accept it.)
 
 **So expect `Brain ready (degraded)` on a repository that is new to Entire, and
 read it as information rather than as a failure.** Setup exits 0 and the brain
-is queryable; the summary names the component that did not build. The two you
+is queryable; the summary names the component that did not build. The one you
 will actually see:
 
 - `x session export` — this repository has no captured Entire history yet. The
   fix is `entire enable`, and then using it.
-- `x semantic index: repo key mismatch` — the repository has **no git remote**,
-  so `entire-brain` and `entire-graph` derive different keys for it and the
-  snapshot is rejected. `setup` prints the hint; `git remote add origin …` and
-  re-run. A repository you actually work in has a remote, so this bites scratch
-  repositories rather than real ones.
+
+`x semantic index: repo key mismatch` used to belong on that list, and no longer
+does. `entire-brain` and `entire-graph` name the same repository differently —
+the provider recognises `github.com` remotes and otherwise falls back to
+`local/<basename>`, while the brain recognises many hosts and hashes the path of
+a repository with no usable remote — so every `git init` repository and every
+non-GitHub origin failed the semantic component, and the hint blamed the
+reader's repository for a disagreement between two of our own tools. The brain
+now recognises the provider's own spelling of the repository it just asked the
+provider to index and stores the snapshot under its own key, so **a fresh
+`git init` repository reaches an all-green `setup` with no user action.** A
+mismatch that still appears means the snapshot really does name another
+repository — in practice one cached by the provider before this repo's origin
+changed — and the hint says to rebuild the index.
 
 Re-running `setup` is safe and non-duplicating: it finds the existing workspace
 membership and daemon instead of creating second ones, resumes a backfill that
@@ -456,9 +465,9 @@ have:
   a candidate counts only when it really is `entire-graph`. `entire plugin
   install` honours the sandboxed `HOME`, so the provider is registered where the
   sandbox's `entire` looks for it and your real plugin registry is untouched.
-  The demo clone is given a GitHub `origin` URL for the same reason: without one
-  `entire-brain` and `entire-graph` derive different repo keys and the semantic
-  snapshot is rejected on a key mismatch. Nothing is fetched from it.
+  The demo clone is given a GitHub `origin` URL so the run models a real
+  checkout rather than a scratch directory; a repository with no remote indexes
+  just as green. Nothing is fetched from it.
 - **Captured sessions, and a stub agent to distill them with.** The facts bar is
   `distilled/total sessions`; with no sessions it is an empty grey track that
   never moves. Sessions are seeded into the demo clone's checkpoint ref in the
