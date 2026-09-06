@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.10.3-nightly.202608220610.6bf587d66",
+  "checkpoint_id": "381560d29705",
+  "strategy": "manual-commit",
+  "branch": "codex/pr183-review",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/main_test.go",
+    "tools/ci-bench/windows-production/README.md",
+    "tools/ci-bench/windows-production/settings.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/38/1560d29705/0/metadata.json",
+      "transcript": "/38/1560d29705/0/full.jsonl",
+      "compact_transcript": "/38/1560d29705/0/transcript.jsonl",
+      "content_hash": "/38/1560d29705/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 33117,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1146880,
+    "output_tokens": 4133,
+    "api_call_count": 14
+  }
+}
