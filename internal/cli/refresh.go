@@ -275,13 +275,17 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		if outputExplicit {
 			seedOpts.outputDir = brainDir
 		}
-		if err := runSeed(ctx, seedCmd, opts, seedOpts, repoDir); err != nil {
-			seedTask.Finish(err)
-			if stage(brainComponentSeed, err) {
-				return err
+		seedErr := runSeed(ctx, seedCmd, opts, seedOpts, repoDir)
+		// Seed may have updated the manifest before a later best-effort step
+		// failed. History freshness must use the state now on disk in either
+		// outcome, not the snapshot loaded before seed ran.
+		manifest, _ = loadBrainManifest(brainDir)
+		if seedErr != nil {
+			seedTask.Finish(seedErr)
+			if stage(brainComponentSeed, seedErr) {
+				return seedErr
 			}
 		} else {
-			manifest, _ = loadBrainManifest(brainDir)
 			seedTask.Update(refreshSeedLabel(manifest))
 			seedTask.Finish(nil)
 			stage(brainComponentSeed, nil)

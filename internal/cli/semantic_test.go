@@ -174,6 +174,24 @@ func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 	}
 }
 
+func TestValidateSemanticRecordPathRejectsEscapingEvidence(t *testing.T) {
+	record := semanticRecord{
+		RecordType: "relation",
+		Evidence:   []semanticEvidence{{Kind: "call", FilePath: "../outside.go"}},
+	}
+	if err := validateSemanticRecordPath(&record); err == nil || !strings.Contains(err.Error(), "semantic evidence path") {
+		t.Fatalf("escaping evidence path was accepted: %v", err)
+	}
+
+	record.Evidence[0].FilePath = "internal/safe.go"
+	if err := validateSemanticRecordPath(&record); err != nil {
+		t.Fatalf("clean repository-relative evidence path: %v", err)
+	}
+	if got := record.Evidence[0].FilePath; got != "internal/safe.go" {
+		t.Fatalf("evidence path was not normalized: %q", got)
+	}
+}
+
 func TestValidateLiveSemanticHeaderAcceptsRepoKeyCaseOnlyDifference(t *testing.T) {
 	err := validateLiveSemanticHeader(
 		semanticHeader{RepoKey: "gh/redacted-contributor/Ultron", Commit: "aaa111", Tree: "tree111"},

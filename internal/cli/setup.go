@@ -348,6 +348,7 @@ type setupSteps struct {
 	observeComponent *setupComponentObserver
 	detectAgent      func(context.Context) string
 	spawnBackfill    func(context.Context, setupBackfillPlan) (int, error)
+	stopBackfill     func(int) error
 	// plan resolves the daemon artifact for a set of options. It is a step, not
 	// a direct call, for the same reason planBrainWatchDaemon takes goos as an
 	// argument: the install/idempotence/retirement logic above it is
@@ -718,10 +719,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// contains this repo's workspace instead of reporting "nothing to watch".
 	// A failure here is a warning, not a fatal: everything the deterministic
 	// phases built stays usable, and the next `setup` re-attempts it.
+	var watchPlanErr error
 	if !setupOpts.noDaemon {
-		if _, err := recordSetupWatchPlan(perRepo.Env, setupOpts.daemonName, setupWatchPlanEntryFor(setupOpts, steps.now())); err != nil {
-			report.Warnings = append(report.Warnings, "machine watch plan not saved: "+err.Error())
-			daemonProgress.Skip("machine watch plan not saved: " + err.Error())
+		if _, watchPlanErr = recordSetupWatchPlan(perRepo.Env, setupOpts.daemonName, setupWatchPlanEntryFor(setupOpts, steps.now())); watchPlanErr != nil {
+			report.Warnings = append(report.Warnings, "machine watch plan not saved: "+watchPlanErr.Error())
+			daemonProgress.Skip("machine watch plan not saved: " + watchPlanErr.Error())
 		}
 	}
 
@@ -730,6 +732,8 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	case setupOpts.noDaemon:
 		daemonProgress.Skip("background watcher (--no-daemon)")
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: --no-daemon"}
+	case watchPlanErr != nil:
+		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: machine watch plan not saved"}
 	case planErr != nil:
 		daemonProgress.Skip("background watcher: " + planErr.Error())
 		report.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: planErr.Error()}
@@ -941,7 +945,13 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		Sessions:      report.Facts.Pending(),
 	}
 	if err := writeSetupBackfillState(stateDir, state); err != nil {
-		report.Warnings = append(report.Warnings, "backfill state not recorded: "+err.Error())
+		detail := "backfill state not recorded: " + err.Error()
+		if stopErr := steps.stopBackfill(pid); stopErr != nil {
+			detail += "; stopping untracked backfill: " + stopErr.Error()
+		}
+		progress.Skip("fact backfill: " + detail)
+		report.Warnings = append(report.Warnings, detail)
+		return setupPhase{State: "failed", Detail: detail}
 	}
 	task := progress.Begin("fact backfill")
 	task.Update(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, agent %s (pid %d)",
@@ -1218,6 +1228,9 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 		steps.spawnBackfill = func(ctx context.Context, plan setupBackfillPlan) (int, error) {
 			return spawnDetached(plan)
 		}
+	}
+	if steps.stopBackfill == nil {
+		steps.stopBackfill = stopDetachedProcess
 	}
 	if steps.plan == nil {
 		steps.plan = func(so setupCommandOptions) (daemonPlan, error) {

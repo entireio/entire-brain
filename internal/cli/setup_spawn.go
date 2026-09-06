@@ -67,6 +67,23 @@ func spawnDetached(plan setupBackfillPlan) (int, error) {
 	return pid, nil
 }
 
+// stopDetachedProcess prevents an untracked child from continuing to spend
+// tokens when setup cannot persist the state needed to recognize that child on
+// the next run.
+func stopDetachedProcess(pid int) error {
+	if pid <= 0 {
+		return fmt.Errorf("invalid pid %d", pid)
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("find process %d: %w", pid, err)
+	}
+	if err := proc.Kill(); err != nil {
+		return fmt.Errorf("kill process %d: %w", pid, err)
+	}
+	return nil
+}
+
 // backfillRunning answers "is the detached backfill this repo recorded STILL
 // running", which is the question both `setup`'s re-entrancy guard and `status`
 // actually ask. processAlive alone cannot answer it.

@@ -1279,18 +1279,27 @@ func (r *semanticRecord) setSemanticPath(path string) {
 func validateSemanticRecordPath(record *semanticRecord) error {
 	switch record.RecordType {
 	case "file", "symbol":
+		path := record.semanticPath()
+		if path != "" {
+			clean, err := validateSemanticProviderPath(path)
+			if err != nil {
+				return err
+			}
+			record.setSemanticPath(clean)
+		}
 	default:
-		return nil
 	}
-	path := record.semanticPath()
-	if path == "" {
-		return nil
+	for i := range record.Evidence {
+		path := record.Evidence[i].FilePath
+		if path == "" {
+			continue
+		}
+		clean, err := validateSemanticProviderPath(path)
+		if err != nil {
+			return fmt.Errorf("semantic evidence path: %w", err)
+		}
+		record.Evidence[i].FilePath = clean
 	}
-	clean, err := validateSemanticProviderPath(path)
-	if err != nil {
-		return err
-	}
-	record.setSemanticPath(clean)
 	return nil
 }
 

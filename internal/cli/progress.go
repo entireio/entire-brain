@@ -606,17 +606,21 @@ func (t *refreshProgressTask) liveLine() string {
 	// RUNES, not bytes: a braille spinner frame is three bytes and one cell, and
 	// charging it three would shrink the label for no reason.
 	width := render.Width()
-	used := utf8.RuneCountInString(spinner) + 1
+	used := utf8.RuneCountInString(spinner)
+	partCount := 2 // spinner + label
 	if gaugePlain != "" {
-		used += utf8.RuneCountInString(gaugePlain) + 1
+		used += utf8.RuneCountInString(gaugePlain)
+		partCount++
 	}
+	// strings.Join inserts one cell between every pair of rendered parts.
+	used += partCount - 1
 	// A terminal too narrow to hold the gauge AND a readable label loses the
 	// gauge, not the label: the label says what is happening, the gauge only
 	// says how far along it is. Keeping both would overflow the row and wrap,
 	// which is the failure mode this whole line-budget exists to prevent.
 	if width > 0 && gaugePlain != "" && used+liveMinLabelWidth > width-1 {
 		gauge, gaugePlain = "", ""
-		used = utf8.RuneCountInString(spinner) + 1
+		used = utf8.RuneCountInString(spinner) + 1 // spinner + join space + label
 	}
 	limit := utf8.RuneCountInString(label)
 	if width > 0 {

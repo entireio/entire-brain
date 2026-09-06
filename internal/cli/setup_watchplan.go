@@ -110,7 +110,7 @@ func loadSetupWatchPlan(env EntireEnv) (setupWatchPlan, error) {
 	if err := json.Unmarshal(data, &plan); err != nil {
 		return setupWatchPlan{}, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if plan.SchemaVersion != 0 && plan.SchemaVersion != setupWatchPlanVersion {
+	if plan.SchemaVersion != setupWatchPlanVersion {
 		return setupWatchPlan{}, fmt.Errorf("unsupported watch plan schema_version %d in %s", plan.SchemaVersion, path)
 	}
 	return plan, nil

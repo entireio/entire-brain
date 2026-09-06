@@ -300,6 +300,23 @@ func TestProgressTTYTruncatesToWidth(t *testing.T) {
 	}
 }
 
+func TestProgressGaugeBudgetIncludesJoinSpaces(t *testing.T) {
+	t.Parallel()
+	for width := 46; width <= 80; width++ {
+		caps := ttyCaps()
+		caps.Width = width
+		var buf bytes.Buffer
+		p := newTestProgress(t, &buf, caps)
+		task := p.Begin(strings.Repeat("label ", 40))
+		task.SetProgress(3, 618)
+		line := stripANSI(task.liveLine())
+		task.Finish(nil)
+		if got := runewidth.StringWidth(line); got >= width {
+			t.Fatalf("width %d: spinner, gauge, join spaces, and label consume %d cells: %q", width, got, line)
+		}
+	}
+}
+
 // TestProgressNestedTasksShareOneLiveLine reproduces the setup-calls-refresh
 // collision: two reporters, two streams, one terminal row. Only the innermost
 // task may paint, and the outer one must be erased while it is suspended.

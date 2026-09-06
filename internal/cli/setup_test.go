@@ -136,6 +136,7 @@ func (f *setupTestFixture) markDistilled(t *testing.T, ids ...string) {
 type recordedSetup struct {
 	instantCalls   int
 	spawnCalls     int
+	stopCalls      int
 	installCalls   int
 	uninstallCalls int
 	spawned        setupBackfillPlan
@@ -182,6 +183,13 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 			r.spawned = plan
 			return 4242, nil
 		},
+		stopBackfill: func(pid int) error {
+			r.stopCalls++
+			if pid != 4242 {
+				return fmt.Errorf("unexpected backfill pid %d", pid)
+			}
+			return nil
+		},
 		inspect: func(context.Context, daemonPlan) daemonState { return r.state },
 		install: func(_ context.Context, plan daemonPlan) error {
 			r.installCalls++
@@ -193,6 +201,28 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 			r.state = daemonState{}
 			return nil
 		},
+	}
+}
+
+func TestSetupStopsBackfillWhenItsStateCannotBeRecorded(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	stateDir := filepath.Dir(f.storage.HeadPath)
+	if err := os.MkdirAll(filepath.Join(stateDir, setupBackfillStateFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+	out := &bytes.Buffer{}
+	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
+		t.Fatalf("setup should preserve the usable instant phase: %v", err)
+	}
+	if rec.spawnCalls != 1 || rec.stopCalls != 1 {
+		t.Fatalf("an unrecorded child must be stopped: spawn=%d stop=%d", rec.spawnCalls, rec.stopCalls)
+	}
+	if !strings.Contains(out.String(), "backfill state not recorded") {
+		t.Fatalf("the stopped backfill must be reported: %q", out.String())
 	}
 }
 

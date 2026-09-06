@@ -373,6 +373,50 @@ func TestLoadWatchPlanTreatsAMissingFileAsEmpty(t *testing.T) {
 	}
 }
 
+func TestLoadWatchPlanRejectsAnUnversionedDocument(t *testing.T) {
+	f := newSetupTestFixture(t)
+	path, err := setupWatchPlanPath(f.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"workspaces":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadSetupWatchPlan(f.env); err == nil || !strings.Contains(err.Error(), "schema_version 0") {
+		t.Fatalf("unversioned watch plan was accepted: %v", err)
+	}
+}
+
+func TestSetupDoesNotInstallDaemonWithoutItsWatchPlan(t *testing.T) {
+	f := newSetupTestFixture(t)
+	path, err := setupWatchPlanPath(f.env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := &recordedSetup{}
+	opts := defaultSetupOptions()
+	out := &bytes.Buffer{}
+	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
+		t.Fatalf("the instant brain should remain usable: %v", err)
+	}
+	if rec.installCalls != 0 {
+		t.Fatalf("daemon installed without persisted tuning: %d calls", rec.installCalls)
+	}
+	if !strings.Contains(out.String(), "machine watch plan not saved") {
+		t.Fatalf("the skipped daemon must name its blocker: %q", out.String())
+	}
+}
+
 // The supervised loop is what the installed unit actually runs. Its whole job is
 // to visit EVERY workspace the machine registered, each with its OWN recorded
 // tuning — the tuning that used to be clobbered when a second repo overwrote the
