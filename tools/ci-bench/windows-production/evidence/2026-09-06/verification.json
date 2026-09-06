@@ -1,0 +1,323 @@
+{
+  "schema": "entire-brain.windows-ci.verification.v1",
+  "passed": true,
+  "failures": [],
+  "shards": {
+    "metadataCount": 8,
+    "eventCount": 10580,
+    "expectedRootCount": 1718,
+    "topLevelRunCount": 1718,
+    "topLevelTerminalCount": 1718,
+    "unexpectedRoots": [],
+    "rootMismatches": [],
+    "processMismatches": [],
+    "differencesTruncated": false
+  },
+  "otherPackages": {
+    "eventCount": 1563,
+    "buildOutputCount": 0,
+    "expectedPackageCount": 11,
+    "unexpectedPackages": [],
+    "benchmarkRoots": [],
+    "failedTests": [],
+    "packageMismatches": [],
+    "differencesTruncated": false
+  },
+  "inventory": {
+    "repositorySha": "20865b7c8440643ed49e8b4b4d7ed5d2ea58c2a1",
+    "goVersion": "go version go1.26.2 windows/amd64",
+    "targetEnvironment": {
+      "GOOS": "windows",
+      "GOARCH": "amd64",
+      "CGO_ENABLED": "1"
+    },
+    "packageCount": 12,
+    "heavyPackageCount": 1,
+    "runnableRootCount": 1718,
+    "excludedBenchmarkCount": 22,
+    "historicallyWeightedCount": 0,
+    "defaultWeightedCount": 1718
+  },
+  "exitCodes": [
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[1].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[2].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[3].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[4].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[5].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[6].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[7].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[8].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[9].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[10].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\bundle\\prepare-metadata.json",
+      "location": "$.operations[11].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-0\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-0\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-0\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-1\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-1\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-1\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-2\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-2\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-2\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-3\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-3\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-3\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-4\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-4\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-4\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-5\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-5\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-5\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-6\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-6\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-6\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-7\\shard-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-7\\shard-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\shards\\shard-7\\shard-metadata.json",
+      "location": "$.invocations[0].exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\other\\other-metadata.json",
+      "location": "$.exitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\other\\other-metadata.json",
+      "location": "$.cleanTestCacheExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    },
+    {
+      "input": "C:\\brain-ci-20260906\\results\\other\\other-metadata.json",
+      "location": "$.testExitCode",
+      "present": true,
+      "value": 0,
+      "passed": true
+    }
+  ]
+}

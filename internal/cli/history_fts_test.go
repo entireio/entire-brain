@@ -115,6 +115,67 @@ func TestHistoryFTSDirectPathDoesNotLoadJSON(t *testing.T) {
 	}
 }
 
+func TestHistoryFTSPreservesReplacementScopedDuplicateIDs(t *testing.T) {
+	sharedID := conversationIDPrefix + "shared-turn"
+	index := historyIndex{
+		GeneratedAt: time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC),
+		Records: []historyRecord{
+			{ID: sharedID, Kind: conversationKind, Branch: "main", SessionID: "session-1", Path: "sessions/main/first.jsonl", Line: 10, Summary: "Alpha conversation covers the shared retrieval marker."},
+			{ID: sharedID, Kind: conversationKind, Branch: "feature", SessionID: "session-1", Path: "sessions/feature/second.jsonl", Line: 20, Summary: "Beta conversation covers the shared retrieval marker."},
+		},
+	}
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+
+	got, used, err := rankHistoryViaFreshFTSCutoff(brainDir, source, conversationKind, "shared retrieval marker", 10, 0)
+	if err != nil || !used {
+		t.Fatalf("direct duplicate-ID ranking: used=%v err=%v", used, err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("replacement-scoped duplicate IDs were collapsed or rejected: %+v", got)
+	}
+	orders := map[int]bool{}
+	branches := map[string]bool{}
+	for _, match := range got {
+		if match.Record.ID != sharedID {
+			t.Fatalf("unexpected hydrated ID: %+v", match)
+		}
+		orders[match.Order] = true
+		branches[match.Record.Branch] = true
+	}
+	if !orders[0] || !orders[1] || !branches["main"] || !branches["feature"] {
+		t.Fatalf("physical row identity was not preserved: orders=%v branches=%v", orders, branches)
+	}
+
+	db, err := openHistoryFTSIfFresh(brainDir, index)
+	if err != nil || db == nil {
+		t.Fatalf("open duplicate-ID store: db=%v err=%v", db, err)
+	}
+	defer db.Close()
+	var rows, distinctIDs int
+	if err := db.QueryRow(`SELECT count(*), count(DISTINCT id) FROM history_records`).Scan(&rows, &distinctIDs); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 || distinctIDs != 1 {
+		t.Fatalf("payload rows=%d distinct IDs=%d, want 2 physical rows sharing 1 ID", rows, distinctIDs)
+	}
+}
+
+func TestHistoryFTSExhaustiveQueryUsesPayloadMetadata(t *testing.T) {
+	brainDir := t.TempDir()
+	index := historyIndex{Records: []historyRecord{
+		{ID: conversationIDPrefix + "one-term", Kind: conversationKind, Path: "sessions/main/one.jsonl", Line: 1, Summary: "alpha only"},
+		{ID: conversationIDPrefix + "both-terms", Kind: conversationKind, Path: "sessions/main/both.jsonl", Line: 1, Summary: "alpha and beta"},
+	}}
+
+	got, state, ok, scanned := rankHistoryViaFTSExhaustiveFiltered(brainDir, index, conversationKind, "alpha beta", 10, nil)
+	if !ok || state != historyExhaustiveRankComplete || scanned == 0 {
+		t.Fatalf("direct exhaustive FTS unavailable: ok=%v state=%v scanned=%d", ok, state, scanned)
+	}
+	if len(got) != 1 || got[0].Record.ID != conversationIDPrefix+"both-terms" {
+		t.Fatalf("direct exhaustive FTS matches = %+v", got)
+	}
+}
+
 func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -586,4 +647,80 @@ func TestBriefFocusedHistoryNeverRebuildsFTSFromMergedRecords(t *testing.T) {
 		t.Fatal("focused history left the BM25 store stale for the long-term index: it was rebuilt from a merged record set")
 	}
 	after.Close()
+}
+
+// Removing UNIQUE(id) is read-compatible with payload v1. Existing caches with
+// unique IDs can remain fresh; changing the source rebuilds the whole table,
+// rather than inserting new records into the legacy schema.
+func TestHistoryFTSLegacyUniquePayloadRebuildsForDuplicateIDs(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: conversationIDPrefix + "shared", Kind: conversationKind, Branch: "main", Path: "sessions/main/one.jsonl", Line: 1, Summary: "alpha shared retrieval marker"},
+	}}
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+	db, err := openHistoryFTSIfFresh(brainDir, index)
+	if err != nil || db == nil {
+		t.Fatalf("open fixture: db=%v err=%v", db, err)
+	}
+	defer db.Close()
+	var schema string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE name = 'history_records'`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(schema, "id TEXT NOT NULL,", "id TEXT NOT NULL UNIQUE,", 1)
+	if legacySchema == schema {
+		t.Fatal("fixture could not restore the old UNIQUE(id) table definition")
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`ALTER TABLE history_records RENAME TO saved_records`,
+		legacySchema,
+		`INSERT INTO history_records SELECT * FROM saved_records`,
+		`DROP TABLE saved_records`,
+		`UPDATE history_fts_meta SET value = '1' WHERE key = 'payload_schema'`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			t.Fatalf("restore legacy schema: %v", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if !historyFTSFresh(db, index) {
+		t.Fatal("unchanged history should reuse the read-compatible legacy cache")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, used, err := rankHistoryViaFreshFTSCutoff(brainDir, source, conversationKind, "shared retrieval marker", 10, 0)
+	if err != nil || !used || len(got) != 1 {
+		t.Fatalf("legacy direct read: used=%v matches=%d err=%v", used, len(got), err)
+	}
+
+	index.Records = append(index.Records, historyRecord{
+		ID: index.Records[0].ID, Kind: conversationKind, Branch: "feature", Path: "sessions/feature/two.jsonl", Line: 1, Summary: "beta shared retrieval marker",
+	})
+	fresh, err := openHistoryFTSIfFresh(brainDir, index)
+	if fresh != nil {
+		fresh.Close()
+		t.Fatal("changed source incorrectly reused the legacy cache")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := openHistoryFTS(brainDir, index)
+	if err != nil {
+		t.Fatalf("rebuild for duplicate IDs: %v", err)
+	}
+	defer rebuilt.Close()
+	var rows, ids int
+	if err := rebuilt.QueryRow(`SELECT count(*), count(DISTINCT id) FROM history_records`).Scan(&rows, &ids); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 || ids != 1 || !historyFTSFresh(rebuilt, index) {
+		t.Fatalf("rebuilt cache: rows=%d distinct IDs=%d; want two fresh rows sharing an ID", rows, ids)
+	}
 }
