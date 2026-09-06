@@ -33,7 +33,10 @@ const (
 	// v3 combines payload-backed direct hydration with conversation exchange
 	// indexing. General history ranking excludes exchanges unless callers select
 	// the conversation kind explicitly.
-	historyFTSSchema  = "3"
+	historyFTSSchema = "3"
+	// Dropping UNIQUE(id) is read-compatible with payload v1. A changed source
+	// fingerprint rebuilds the tables before any inserts; existing caches with
+	// unique IDs need no eager rebuild. See the legacy-payload regression test.
 	historyFTSPayload = "1"
 )
 

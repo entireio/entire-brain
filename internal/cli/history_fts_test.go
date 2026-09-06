@@ -648,3 +648,79 @@ func TestBriefFocusedHistoryNeverRebuildsFTSFromMergedRecords(t *testing.T) {
 	}
 	after.Close()
 }
+
+// Removing UNIQUE(id) is read-compatible with payload v1. Existing caches with
+// unique IDs can remain fresh; changing the source rebuilds the whole table,
+// rather than inserting new records into the legacy schema.
+func TestHistoryFTSLegacyUniquePayloadRebuildsForDuplicateIDs(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: conversationIDPrefix + "shared", Kind: conversationKind, Branch: "main", Path: "sessions/main/one.jsonl", Line: 1, Summary: "alpha shared retrieval marker"},
+	}}
+	brainDir, source := writeDirectHistoryFTSFixture(t, index)
+	db, err := openHistoryFTSIfFresh(brainDir, index)
+	if err != nil || db == nil {
+		t.Fatalf("open fixture: db=%v err=%v", db, err)
+	}
+	defer db.Close()
+	var schema string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE name = 'history_records'`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	legacySchema := strings.Replace(schema, "id TEXT NOT NULL,", "id TEXT NOT NULL UNIQUE,", 1)
+	if legacySchema == schema {
+		t.Fatal("fixture could not restore the old UNIQUE(id) table definition")
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`ALTER TABLE history_records RENAME TO saved_records`,
+		legacySchema,
+		`INSERT INTO history_records SELECT * FROM saved_records`,
+		`DROP TABLE saved_records`,
+		`UPDATE history_fts_meta SET value = '1' WHERE key = 'payload_schema'`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			t.Fatalf("restore legacy schema: %v", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if !historyFTSFresh(db, index) {
+		t.Fatal("unchanged history should reuse the read-compatible legacy cache")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, used, err := rankHistoryViaFreshFTSCutoff(brainDir, source, conversationKind, "shared retrieval marker", 10, 0)
+	if err != nil || !used || len(got) != 1 {
+		t.Fatalf("legacy direct read: used=%v matches=%d err=%v", used, len(got), err)
+	}
+
+	index.Records = append(index.Records, historyRecord{
+		ID: index.Records[0].ID, Kind: conversationKind, Branch: "feature", Path: "sessions/feature/two.jsonl", Line: 1, Summary: "beta shared retrieval marker",
+	})
+	fresh, err := openHistoryFTSIfFresh(brainDir, index)
+	if fresh != nil {
+		fresh.Close()
+		t.Fatal("changed source incorrectly reused the legacy cache")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := openHistoryFTS(brainDir, index)
+	if err != nil {
+		t.Fatalf("rebuild for duplicate IDs: %v", err)
+	}
+	defer rebuilt.Close()
+	var rows, ids int
+	if err := rebuilt.QueryRow(`SELECT count(*), count(DISTINCT id) FROM history_records`).Scan(&rows, &ids); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 || ids != 1 || !historyFTSFresh(rebuilt, index) {
+		t.Fatalf("rebuilt cache: rows=%d distinct IDs=%d; want two fresh rows sharing an ID", rows, ids)
+	}
+}
