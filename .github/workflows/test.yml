@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.26.2" }
+        with: { go-version: "1.27.1" }
       - run: go vet ./...
       - run: |
           unformatted=$(gofmt -l -s .)
@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.26.2" }
+        with: { go-version: "1.27.1" }
       - env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.26.2" }
+        with: { go-version: "1.27.1" }
       # Windows + the race detector is much slower than the other runners, so
       # give the suite headroom over the default 10m `go test` timeout.
       - run: go test -race -timeout 20m ./...
@@ -65,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.26.2" }
+        with: { go-version: "1.27.1" }
       - run: go test -race -tags "brain_cgo sqlite_fts5" -timeout 20m ./...
 
   phase1-semantic:
@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.26.2" }
+        with: { go-version: "1.27.1" }
       - name: Prime module cache
         env:
           GOPROXY: "https://proxy.golang.org,direct"
