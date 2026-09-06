@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.10.3-nightly.202608220610.6bf587d66",
+  "checkpoint_id": "1b3d9f9e0f22",
+  "session_id": "01a0784a-7651-7912-ab5f-6fc6f759113f",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-06T21:10:33.057268Z",
+  "branch": "codex/pr89-merge",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/demo_scripts_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_order_test.go",
+    "internal/cli/setup.go",
+    "internal/cli/setup_pr89_test.go",
+    "internal/cli/setup_spawn_windows.go",
+    "internal/cli/setup_test.go",
+    "internal/cli/watch.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_concurrency_test.go",
+    "scripts/demo-agent-session.sh"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "a5f92078c6fe",
+  "checkpoint_transcript_start": 612,
+  "transcript_lines_at_start": 612,
+  "compact_transcript_start": 94,
+  "token_usage": {
+    "input_tokens": 88465,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 10592000,
+    "output_tokens": 14097,
+    "api_call_count": 66
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-06T21:10:32.841397Z",
+    "agent_lines": 188,
+    "agent_removed": 33,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 188,
+    "total_lines_changed": 221,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
