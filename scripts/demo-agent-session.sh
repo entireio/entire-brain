@@ -332,7 +332,7 @@ note 'setup refuses to index an uncommitted tree; enable leaves one behind'
 # GIT_TERMINAL_PROMPT=0, which the CLI treats as "the caller cannot answer
 # prompts" (cmd/entire/cli/interactive/interactive.go, isAgentSubprocessEnv) and
 # auto-links instead of asking -- the same default the prompt itself carries.
-run_step "git add .entire .claude && git commit" \
+run_step "stage and commit Entire configuration" \
 	sandbox "$demo_repo" sh -c "git add .entire .claude && git commit -qm 'chore: enable Entire session capture'" ||
 	fail "could not commit the files entire enable wrote"
 
@@ -394,7 +394,7 @@ run_step "entire hooks claude-code stop" \
 # creates one (it is list/explain/tokens/search only). Committing is therefore
 # part of the loop, not a tidy-up after it.
 say "6/9  commit the session's work  (the post-commit hook writes the checkpoint)"
-run_step "git add -A && git commit" \
+run_step "stage and commit the session work" \
 	sandbox "$demo_repo" sh -c "git add -A && git commit -qm 'fix(greet): greet \"there\" for an empty name'" ||
 	fail "the commit failed, so no post-commit hook ran"
 
