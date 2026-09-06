@@ -29,7 +29,7 @@ surfaces that agents and humans query. Everything it builds stays on your machin
   dispatches `entire brain`, and it is what captures the sessions the brain
   learns from.
 - Git.
-- A Go toolchain (1.26 or newer) if you install with `go install` or build from
+- A Go toolchain (1.27 or newer) if you install with `go install` or build from
   source. The prebuilt release archive does not need Go.
 - The `entire-graph` semantic provider, invoked as `entire graph`. The brain shells
   out to it (`entire graph snapshot`, `entire graph doctor`) to build the semantic
@@ -72,7 +72,7 @@ and registers both plugins, writes the default plugin configuration
 the three provider routes it took. Neither checkout has to have a particular
 name, and they do not have to be siblings.
 
-The prerequisites do not go away: Go 1.26 or newer and a cgo-capable C compiler
+The prerequisites do not go away: Go 1.27 or newer and a cgo-capable C compiler
 are still required, because both components are built from source here. What
 goes away is having to arrange directories before you start.
 

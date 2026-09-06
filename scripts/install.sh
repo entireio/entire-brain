@@ -93,7 +93,7 @@ fi
 # The required Go version is read from go.mod rather than pinned here, so this
 # check cannot drift away from what the build actually needs.
 go_required=$(sed -n 's/^go \([0-9][0-9.]*\).*/\1/p' "$brain_root/go.mod" 2>/dev/null | head -1)
-[ -n "$go_required" ] || go_required=1.26
+[ -n "$go_required" ] || go_required=1.27
 
 if ! have go; then
 	add_problem "Go $go_required or newer is not on PATH

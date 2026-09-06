@@ -89,7 +89,7 @@ single pass with the fix for each:
 
 - the Entire CLI, on `PATH` as `entire`
 - Git
-- a Go toolchain, 1.26 or newer, for `entire-brain`
+- a Go toolchain, 1.27 or newer, for `entire-brain`
 - a cgo-capable C compiler for `entire-graph`, which uses tree-sitter native
   parser bindings — `xcode-select --install` on macOS, `build-essential` on
   Debian/Ubuntu. `entire-brain` itself is a pure-Go build and does not need cgo.
