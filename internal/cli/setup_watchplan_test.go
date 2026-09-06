@@ -443,7 +443,7 @@ func TestSupervisedWatchVisitsEveryWorkspaceWithItsOwnTuning(t *testing.T) {
 	base := defaultWatchOptions()
 	base.once = true // one outer pass, then return
 	err := supervisedWatchLoop(context.Background(), &bytes.Buffer{}, f.env, base,
-		func(workspace string, pass watchCommandOptions) error {
+		func(workspace string, pass watchCommandOptions, _ *int) error {
 			visits = append(visits, visit{workspace, pass.interval, pass.model, pass.distillMaxSessions, pass.once})
 			return nil
 		})
@@ -474,7 +474,7 @@ func TestSupervisedWatchSurvivesAnEmptyPlan(t *testing.T) {
 	base.once = true
 	called := 0
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(string, watchCommandOptions) error { called++; return nil }); err != nil {
+		func(string, watchCommandOptions, *int) error { called++; return nil }); err != nil {
 		t.Fatalf("an empty plan must not take the service down: %v", err)
 	}
 	if called != 0 {
@@ -499,7 +499,7 @@ func TestSupervisedWatchKeepsGoingAfterOneWorkspaceFails(t *testing.T) {
 	base.once = true
 	out := &bytes.Buffer{}
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(workspace string, _ watchCommandOptions) error {
+		func(workspace string, _ watchCommandOptions, _ *int) error {
 			seen = append(seen, workspace)
 			if workspace == "broken" {
 				return errors.New("manifest gone")
@@ -513,6 +513,31 @@ func TestSupervisedWatchKeepsGoingAfterOneWorkspaceFails(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "manifest gone") {
 		t.Fatalf("the failure must be reported, not swallowed: %q", out.String())
+	}
+}
+
+func TestSupervisedWatchBudgetSurvivesOuterPasses(t *testing.T) {
+	f := newSetupTestFixture(t)
+	if _, err := recordSetupWatchPlan(f.env, daemonDefaultName, setupWatchPlanEntry{Workspace: "alpha", Interval: "1ms"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var seen []int
+	err := supervisedWatchLoop(ctx, &bytes.Buffer{}, f.env, defaultWatchOptions(),
+		func(_ string, _ watchCommandOptions, agentCalls *int) error {
+			seen = append(seen, *agentCalls)
+			*agentCalls++
+			if len(seen) == 2 {
+				cancel()
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("supervised loop: %v", err)
+	}
+	if len(seen) != 2 || seen[0] != 0 || seen[1] != 1 {
+		t.Fatalf("--budget counter reset between outer passes: %v", seen)
 	}
 }
 

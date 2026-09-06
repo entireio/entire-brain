@@ -509,10 +509,19 @@ esac
 counter=${STUB_AGENT_COUNTER:-}
 n=0
 if [ -n "$counter" ]; then
-	n=$(cat "$counter" 2>/dev/null || printf '0')
-	case $n in *[!0-9]* | '') n=0 ;; esac
-	n=$((n + 1))
-	printf '%s\n' "$n" >"$counter" 2>/dev/null || true
+	# Distill invokes up to four agents concurrently. Serialize this demo-only
+	# sequence so every invocation receives a distinct fact type instead of
+	# racing through the same read/increment/write cycle.
+	n=$(
+		counter_lock="${counter}.lock"
+		while ! mkdir "$counter_lock" 2>/dev/null; do sleep 0.01; done
+		trap 'rmdir "$counter_lock" 2>/dev/null || true' EXIT HUP INT TERM
+		current=$(cat "$counter" 2>/dev/null || printf '0')
+		case $current in *[!0-9]* | '') current=0 ;; esac
+		current=$((current + 1))
+		printf '%s\n' "$current" >"$counter"
+		printf '%s\n' "$current"
+	)
 fi
 
 # Most chunks yield nothing. That is the documented default in the distill

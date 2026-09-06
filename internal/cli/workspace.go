@@ -370,8 +370,8 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 	}
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	onePass := func(workspaceName string, pass watchCommandOptions) error {
-		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now)
+	onePass := func(workspaceName string, pass watchCommandOptions, agentCalls *int) error {
+		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now, agentCalls)
 	}
 	return supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass)
 }
@@ -380,7 +380,11 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 // injected, so the part that matters — which workspaces get visited, with whose
 // tuning, and what an empty or unreadable plan does — is testable without a real
 // refresh, a real manifest, or a real agent.
-func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions) error) error {
+func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error) error {
+	// This counter belongs to the supervised process, not to an individual
+	// workspace pass. --budget is documented as a lifetime cap, so it must
+	// survive both workspace fan-out and every outer-plan tick.
+	agentCalls := 0
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
@@ -401,7 +405,7 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 			// once: this loop owns the waiting, so the inner workspace loop runs
 			// exactly one pass over its members and returns.
 			pass.once = true
-			if err := onePass(entry.Workspace, pass); err != nil {
+			if err := onePass(entry.Workspace, pass, &agentCalls); err != nil {
 				// One broken workspace must not stop the others. A manifest
 				// deleted by hand is a normal state, not a fatal one.
 				fmt.Fprintf(out, "[watch] workspace %s: skipped (%v)\n", entry.Workspace, err)
@@ -437,13 +441,14 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 	// Stop cleanly between ticks on SIGINT/SIGTERM (same as single-repo watch).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	return runWorkspaceWatchPass(ctx, cmd, opts, w, workspaceName, now)
+	agentCalls := 0
+	return runWorkspaceWatchPass(ctx, cmd, opts, w, workspaceName, now, &agentCalls)
 }
 
 // runWorkspaceWatchPass is runWorkspaceWatch without the signal plumbing, so the
 // supervised loop can drive one workspace at a time under a context it already
 // owns instead of installing a second signal handler per workspace per pass.
-func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string, now func() time.Time) error {
+func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string, now func() time.Time, agentCalls *int) error {
 	out := cmd.OutOrStdout()
 	repoTick := func(repoDir string, agentCalls *int) {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
@@ -454,17 +459,16 @@ func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options
 		cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
 		watchTick(ctx, out, w, cursorPath, watchStepsForRepo(cmd, opts, w, repoDir, now), agentCalls)
 	}
-	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, repoTick)
+	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, agentCalls, repoTick)
 }
 
 // workspaceWatchLoop iterates the workspace members, resolving each to a local repo and handing it to
 // repoTick with a single shared agentCalls counter (so --budget caps total token spend across the whole
 // workspace, not per-repo). repoTick is injected so the fan-out is testable without a real refresh.
-func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, repoTick func(repoDir string, agentCalls *int)) error {
+func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, agentCalls *int, repoTick func(repoDir string, agentCalls *int)) error {
 	if w.interval <= 0 {
 		w.interval = 5 * time.Minute
 	}
-	agentCalls := 0
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
@@ -488,7 +492,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
-			repoTick(repoDir, &agentCalls)
+			repoTick(repoDir, agentCalls)
 		}
 		if w.once {
 			return nil

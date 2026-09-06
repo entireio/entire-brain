@@ -189,7 +189,11 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	row("facts", factsValue, "")
 
 	row("backfill", setupPhaseValue(render, report.Backfill, tui.PhaseBackfill, "running in the background"), phaseTiming(timings, "backfill"))
-	row("workspace", render.Mark(tui.MarkDone)+" "+render.PhasePaint(tui.PhaseDaemon, report.Workspace.Name), phaseTiming(timings, "workspace"))
+	workspaceValue := render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseDaemon, report.Workspace.Name)
+	if !report.Workspace.Registered {
+		workspaceValue = render.Mark(tui.MarkFailed) + " " + render.PhasePaint(tui.PhaseFailed, report.Workspace.Name+" (registration failed)")
+	}
+	row("workspace", workspaceValue, phaseTiming(timings, "workspace"))
 	row("daemon", setupDaemonValue(render, report.Daemon, brainCmd), phaseTiming(timings, "daemon"))
 	// Say plainly, at the moment of install, that this is a persistent service
 	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"

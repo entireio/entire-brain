@@ -43,7 +43,8 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 	w.once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
-	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", repoTick); err != nil {
+	agentCalls := 0
+	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", &agentCalls, repoTick); err != nil {
 		t.Fatalf("workspaceWatchLoop: %v", err)
 	}
 	// repoc is unresolvable, so only the two resolvable members tick.
@@ -181,7 +182,8 @@ func TestWorkspaceWatchOnceSkipsStaleLocalPathHintBeforeTick(t *testing.T) {
 	w.once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
-	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", func(repoDir string, agentCalls *int) {
+	agentCalls := 0
+	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", &agentCalls, func(repoDir string, agentCalls *int) {
 		t.Fatalf("repoTick must not run for stale hint %s", repoDir)
 	}); err != nil {
 		t.Fatalf("workspaceWatchLoop: %v", err)

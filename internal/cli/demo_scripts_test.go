@@ -61,6 +61,35 @@ func TestDemoScriptSandboxesKeepEveryChildNonBlocking(t *testing.T) {
 	}
 }
 
+func TestDemoSetupSerializesConcurrentStubCounters(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join("..", "..", "scripts", "demo-setup.sh")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, `mkdir "$counter_lock"`) || !strings.Contains(body, `rmdir "$counter_lock"`) {
+		t.Fatalf("demo stub counter is not protected by an atomic lock")
+	}
+}
+
+func TestInstallChecksCompilerEvenWhenGoIsMissing(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join("..", "..", "scripts", "install.sh")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	goCheck := strings.Index(body, "if ! have go; then")
+	compilerCheck := strings.Index(body, `if ! have "$go_cc"`)
+	problemsCheck := strings.Index(body, `if [ -n "$problems" ]`)
+	if goCheck < 0 || compilerCheck < goCheck || problemsCheck < compilerCheck {
+		t.Fatalf("compiler prerequisite is not checked independently before preflight exits")
+	}
+}
+
 // Once `entire enable` has run in scripts/demo-agent-session.sh, the demo
 // repository carries Entire's git hooks, so EVERY later `git commit` runs
 // `entire` as a hook child. Two things then depend on that commit going through

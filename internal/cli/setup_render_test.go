@@ -89,6 +89,17 @@ func TestSetupSummaryPlainHasNoNonASCII(t *testing.T) {
 	}
 }
 
+func TestSetupSummaryMarksWorkspaceRegistrationFailure(t *testing.T) {
+	t.Parallel()
+	report := setupRenderFixtureReport()
+	report.Workspace.Registered = false
+	report.Warnings = []string{"workspace registration failed: manifest locked"}
+	got := renderSetupSummaryPlain(t, report, nil)
+	if !strings.Contains(got, "workspace   x default (registration failed)") {
+		t.Fatalf("failed registration rendered as successful:\n%s", got)
+	}
+}
+
 // TestSetupSummaryColoursEveryPhaseDistinctly proves the phase colour-coding
 // reaches the summary, not just the live lines.
 func TestSetupSummaryColoursEveryPhaseDistinctly(t *testing.T) {

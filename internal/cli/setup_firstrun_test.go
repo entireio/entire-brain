@@ -494,7 +494,8 @@ func TestWatchBannerNamesTheCapThatBinds(t *testing.T) {
 	w.once = true
 	w.distillMaxSessions = setupDefaultBackfillBudget
 	out := &bytes.Buffer{}
-	if err := workspaceWatchLoop(context.Background(), out, Options{Env: env, Runner: runner, Now: time.Now}, w, "ws", func(string, *int) {}); err != nil {
+	agentCalls := 0
+	if err := workspaceWatchLoop(context.Background(), out, Options{Env: env, Runner: runner, Now: time.Now}, w, "ws", &agentCalls, func(string, *int) {}); err != nil {
 		t.Fatalf("workspaceWatchLoop: %v", err)
 	}
 	printed := out.String()

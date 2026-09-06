@@ -134,16 +134,22 @@ else
 		;;
 	esac
 
-	# entire-graph binds tree-sitter through cgo, so a C compiler is not
-	# optional for it, even though entire-brain itself is a pure-Go build.
+fi
+
+# entire-graph binds tree-sitter through cgo, so a C compiler is not optional
+# for it, even when Go itself is missing. Ask Go for its configured compiler
+# when possible, but keep this prerequisite independent so one preflight pass
+# reports both missing tools.
+go_cc=cc
+if have go; then
 	go_cc=$(go env CC 2>/dev/null || echo cc)
 	[ -n "$go_cc" ] || go_cc=cc
-	if ! have "$go_cc" && ! have cc && ! have clang && ! have gcc; then
-		add_problem "no C compiler found (Go reports CC=$go_cc)
+fi
+if ! have "$go_cc" && ! have cc && ! have clang && ! have gcc; then
+	add_problem "no C compiler found (compiler checked: $go_cc)
       entire-graph uses tree-sitter native parser bindings, so its build needs
       cgo. entire-brain itself is pure Go and does not.
       fix: $cc_fix"
-	fi
 fi
 
 if [ -n "$problems" ]; then
