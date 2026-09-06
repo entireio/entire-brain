@@ -195,7 +195,7 @@ sandbox() {
 	dir=$1
 	shift
 	(cd "$dir" && env -i \
-		PATH="$stub_bin:$(dirname -- "$entire_bin"):/usr/bin:/bin:/usr/sbin:/sbin" \
+		PATH="$stub_bin:$(dirname -- "$entire_bin"):${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" \
 		TERM="${TERM:-xterm-256color}" \
 		LANG="${LANG:-en_US.UTF-8}" \
 		PAGER=cat \

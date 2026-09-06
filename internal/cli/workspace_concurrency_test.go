@@ -1,13 +1,61 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
 )
+
+func TestWorkspaceRefreshAndRemoveUseTheMembershipLock(t *testing.T) {
+	f := newSetupTestFixture(t)
+	const workspace = "locked"
+	for _, key := range []string{"local/a", "local/b"} {
+		if _, err := addWorkspaceRepoLocked(f.env, workspace, workspaceRepo{RepoKey: key}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertBlocked := func(name string, run func() error) {
+		t.Helper()
+		lock, err := acquireWorkspaceManifestLock(f.env, workspace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- run() }()
+		select {
+		case err := <-done:
+			_ = lock.Close()
+			t.Fatalf("%s bypassed the membership lock: %v", name, err)
+		case <-time.After(50 * time.Millisecond):
+		}
+		if err := lock.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("%s after lock release: %v", name, err)
+		}
+	}
+
+	assertBlocked("refresh", func() error {
+		cmd := &cobra.Command{}
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		return runWorkspaceRefresh(context.Background(), cmd, f.opts, workspace, false)
+	})
+	assertBlocked("remove", func() error {
+		cmd := &cobra.Command{}
+		cmd.SetOut(&bytes.Buffer{})
+		return runWorkspaceRemove(cmd, f.opts, workspace, "local/a")
+	})
+}
 
 // workspace_concurrency_test.go covers the other race `setup` creates: running
 // it in two repos at once is the ordinary case on a developer machine, and an

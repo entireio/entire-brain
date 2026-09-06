@@ -323,7 +323,9 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	// counted against --budget. A transient failure of one step is intentionally best-effort: we still
 	// advance the spend cursor + budget below so a failed step retries on the NEXT interval, not every
 	// tick (and a step that already burned tokens before failing can't be re-run for free).
+	seedAttempted := false
 	if w.seedAgent != "none" {
+		seedAttempted = true
 		if err := steps.seed(ctx); err != nil {
 			fmt.Fprintf(out, "[watch] seed synthesis failed: %v\n", err)
 		} else {
@@ -333,13 +335,20 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	if w.distill {
 		switch err := steps.distill(ctx); {
 		case errors.Is(err, errDistillPassBusy):
-			// Nothing was spent, so nothing may be charged. Hand the window
+			// When distill was the only agent step, nothing was spent, so nothing
+			// may be charged. Hand the window
 			// back instead of logging "spent tokens" and going quiet until the
 			// next one — otherwise a watcher installed beside `setup`'s
 			// hours-long backfill loses its first window (and, if the backfill
 			// outlives it, every window) to a pass that never ran.
-			releaseWatchAgentSpend(cursorPath, cursor.LastAgentSpendAt, agentCalls)
-			fmt.Fprintln(out, "[watch] distill skipped: another pass holds this brain; the spend window was NOT consumed")
+			// A seed step attempted immediately before this may already have spent
+			// tokens even when it returned an error, so its reservation must stay.
+			if seedAttempted {
+				fmt.Fprintln(out, "[watch] distill skipped: another pass holds this brain; the spend window remains consumed by seed synthesis")
+			} else {
+				releaseWatchAgentSpend(cursorPath, cursor.LastAgentSpendAt, agentCalls)
+				fmt.Fprintln(out, "[watch] distill skipped: another pass holds this brain; the spend window was NOT consumed")
+			}
 		case err != nil:
 			fmt.Fprintf(out, "[watch] distill failed: %v\n", err)
 		default:

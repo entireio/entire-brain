@@ -668,14 +668,7 @@ func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceR
 	if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
 		return result, err
 	}
-	dir, err := workspaceDir(env, workspaceName)
-	if err != nil {
-		return result, err
-	}
-	if err := rejectExistingSymlinkPathComponents(dir, brainLockDirName); err != nil {
-		return result, err
-	}
-	lock, err := acquireFileLock(filepath.Join(dir, brainLockDirName, workspaceManifestLockName), "workspace_manifest_locked", brainWriteLockTimeout)
+	lock, err := acquireWorkspaceManifestLock(env, workspaceName)
 	if err != nil {
 		return result, err
 	}
@@ -721,7 +714,24 @@ func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceR
 	return result, nil
 }
 
+func acquireWorkspaceManifestLock(env EntireEnv, workspaceName string) (*fileLock, error) {
+	dir, err := workspaceDir(env, workspaceName)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectExistingSymlinkPathComponents(dir, brainLockDirName); err != nil {
+		return nil, err
+	}
+	return acquireFileLock(filepath.Join(dir, brainLockDirName, workspaceManifestLockName), "workspace_manifest_locked", brainWriteLockTimeout)
+}
+
 func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {
+	lock, err := acquireWorkspaceManifestLock(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
@@ -3263,6 +3273,12 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 		fmt.Fprintf(cmd.OutOrStdout(), "removed workspace %s\n", workspaceName)
 		return nil
 	}
+	lock, err := acquireWorkspaceManifestLock(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err

@@ -157,6 +157,7 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
 
 	var first []string
+	var progress []distillProgress
 	opts := distillCommandOptions{
 		agent:         "command",
 		agentCommand:  []string{"fake"},
@@ -165,6 +166,7 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 		timeout:       time.Minute,
 		newestFirst:   true,
 		maxSessions:   2,
+		progress:      func(p distillProgress) { progress = append(progress, p) },
 	}
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
 	if err != nil {
@@ -175,6 +177,9 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(source.Warnings, "\n"), "--max-sessions 2 reached") {
 		t.Fatalf("a budget-limited run must say so: %v", source.Warnings)
+	}
+	if len(progress) != 3 || progress[len(progress)-1].SessionsDone != 3 || progress[len(progress)-1].SessionsTotal != 3 {
+		t.Fatalf("deferred sessions must still complete progress: %+v", progress)
 	}
 
 	// The deferred session must be undistilled, not silently cached.

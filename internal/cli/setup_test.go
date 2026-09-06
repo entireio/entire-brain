@@ -139,6 +139,7 @@ type recordedSetup struct {
 	stopCalls      int
 	installCalls   int
 	uninstallCalls int
+	uninstalled    daemonPlan
 	spawned        setupBackfillPlan
 	agent          string
 	state          daemonState
@@ -196,8 +197,9 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 			r.state = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Installed: true, Current: true, Running: true}
 			return nil
 		},
-		uninstall: func(context.Context, daemonPlan) error {
+		uninstall: func(_ context.Context, plan daemonPlan) error {
 			r.uninstallCalls++
+			r.uninstalled = plan
 			r.state = daemonState{}
 			return nil
 		},
@@ -800,6 +802,46 @@ func TestSetupUninstallDaemonIsStandalone(t *testing.T) {
 	}
 	if !strings.Contains(out, "removed the watcher") {
 		t.Fatalf("expected the removal line:\n%s", out)
+	}
+}
+
+func TestSetupUninstallUsesTheMachineDaemonName(t *testing.T) {
+	f := newSetupTestFixture(t)
+	const machineName = "entire-brain-watch-shared"
+	if _, err := recordSetupWatchPlan(f.env, machineName, setupWatchPlanEntry{Workspace: setupDefaultWorkspace, Interval: "5m"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordedSetup{state: daemonState{Installed: true, Running: true}}
+	opts := defaultSetupOptions()
+	opts.uninstallDaemon = true
+	runSetupForTest(t, f, opts, rec)
+	if rec.uninstallCalls != 1 || rec.uninstalled.Label != launchdLabel(machineName) {
+		t.Fatalf("uninstall targeted stale repo daemon instead of machine daemon: calls=%d plan=%+v", rec.uninstallCalls, rec.uninstalled)
+	}
+}
+
+func TestSetupJSONReportsFailureToRetireRenamedDaemon(t *testing.T) {
+	f := newSetupTestFixture(t)
+	const oldName = "entire-brain-watch-old"
+	if _, err := recordSetupWatchPlan(f.env, oldName, setupWatchPlanEntry{Workspace: setupDefaultWorkspace, Interval: "5m"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordedSetup{state: daemonState{Installed: true, Running: true}}
+	steps := rec.steps(f)
+	steps.uninstall = func(context.Context, daemonPlan) error { return errors.New("service manager refused") }
+	opts := defaultSetupOptions()
+	opts.daemonName = "entire-brain-watch-new"
+	opts.json = true
+	out := &bytes.Buffer{}
+	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, steps); err != nil {
+		t.Fatal(err)
+	}
+	var report setupReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("parse setup JSON: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(strings.Join(report.Warnings, "\n"), "service manager refused") {
+		t.Fatalf("JSON omitted daemon retirement failure: %+v", report.Warnings)
 	}
 }
 

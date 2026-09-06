@@ -11,7 +11,7 @@ import (
 // already detached from the console because its stdio is redirected and the
 // parent releases the process handle.
 func detachedSysProcAttr() *syscall.SysProcAttr {
-	return nil
+	return &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
 }
 
 // noFollowOpenFlag has no Windows equivalent in the syscall package; symlink

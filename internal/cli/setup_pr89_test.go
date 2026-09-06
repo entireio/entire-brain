@@ -368,6 +368,28 @@ func TestWatchDoesNotSpendTheWindowOnAContendedDistill(t *testing.T) {
 	}
 }
 
+func TestWatchKeepsSeedSpendWhenDistillIsContended(t *testing.T) {
+	t.Parallel()
+	w := daemonWatchOptions(t, defaultSetupOptions())
+	w.seedAgent = "codex"
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	agentCalls := 0
+	seedCalls := 0
+	watchTick(context.Background(), io.Discard, w, cursorPath, watchSteps{
+		now:         func() time.Time { return setupTestNow },
+		fingerprint: func(context.Context) string { return "fp" },
+		refresh:     func(context.Context) error { return nil },
+		seed:        func(context.Context) error { seedCalls++; return nil },
+		distill:     func(context.Context) error { return errDistillPassBusy },
+	}, &agentCalls)
+	if seedCalls != 1 || agentCalls != 1 {
+		t.Fatalf("seed spend was incorrectly refunded: seed=%d budget=%d", seedCalls, agentCalls)
+	}
+	if cursor := loadWatchCursor(cursorPath); cursor.LastAgentSpendAt.IsZero() {
+		t.Fatal("seed synthesis spent tokens, so the spend window must remain reserved")
+	}
+}
+
 // TestWatchDistillReportsContentionToItsCaller is the wiring half: the sentinel
 // only reaches watchTick if runDistill's busy path tells the caller. The brain
 // here has ZERO sessions, so this test cannot make an agent call under any

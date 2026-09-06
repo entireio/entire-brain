@@ -975,6 +975,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if ps.skip || ps.deferred {
 			if ps.deferred {
 				budgetDeferred++
+				sessionsDone++
+				if distillOpts.progress != nil {
+					distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+				}
 			}
 			// Carry the session's cache entry through unchanged: the final flush
 			// persists newCache only, so dropping filtered sessions here would

@@ -531,7 +531,8 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		// one — retiring or uninstalling a watcher that belongs to another repo.
 		return fmt.Errorf("%w\nthis repo's setup record is unreadable; delete it and re-run `%s setup` to re-adopt the watcher", recordErr, brainCmd)
 	}
-	setupOpts = applySetupRecordDefaults(setupOpts, previous, setupFlagChanged(cmd))
+	changed := setupFlagChanged(cmd)
+	setupOpts = applySetupRecordDefaults(setupOpts, previous, changed)
 	if steps.observeComponent == nil {
 		steps.observeComponent = &setupComponentObserver{}
 	}
@@ -578,6 +579,18 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		}
 	}
 
+	// The machine-level watch plan is the authority on which watcher is
+	// installed. The per-repo setup record only knows what THIS repo installed.
+	machinePlan, machinePlanErr := loadSetupWatchPlan(perRepo.Env)
+	if machinePlanErr != nil {
+		report.Warnings = append(report.Warnings, "machine watch plan unreadable: "+machinePlanErr.Error())
+	}
+	if setupOpts.uninstallDaemon && !changed(setupFlagDaemonName) {
+		if installedName, known := installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore); known {
+			setupOpts.daemonName = installedName
+		}
+	}
+
 	plan, planErr := steps.plan(setupOpts)
 	if planErr != nil {
 		report.Warnings = append(report.Warnings, "daemon plan unavailable: "+planErr.Error())
@@ -589,21 +602,14 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		return runSetupUninstall(ctx, cmd, setupOpts, steps, plan, planErr, report)
 	}
 
-	// The machine-level watch plan is the authority on which watcher is
-	// installed. The per-repo setup record only knows what THIS repo installed,
-	// so a second repo naming a different daemon used to install a SECOND
-	// watcher — two services, both ticking, both distilling — that no `status`
-	// and no `--uninstall-daemon` could see.
-	machinePlan, machinePlanErr := loadSetupWatchPlan(perRepo.Env)
-	if machinePlanErr != nil {
-		report.Warnings = append(report.Warnings, "machine watch plan unreadable: "+machinePlanErr.Error())
-	}
-
 	// Renaming the daemon must MOVE it, not fork it: without this the old
 	// launchd job / systemd unit keeps running under its old label forever,
 	// invisible to every later `status` and `--uninstall-daemon`.
 	previousName, previousKnown := installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
-	if detail := retireRenamedDaemon(ctx, setupOpts, previousName, previousKnown, steps, planErr); detail != "" {
+	if detail, retireErr := retireRenamedDaemon(ctx, setupOpts, previousName, previousKnown, steps, planErr); retireErr != nil {
+		report.Warnings = append(report.Warnings, retireErr.Error())
+		progress.Skip(retireErr.Error())
+	} else if detail != "" {
 		progress.Skip(detail)
 	}
 
@@ -1336,33 +1342,33 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 // leaves two watchers running: the old label is not in any later plan, so
 // `status` cannot see it and `--uninstall-daemon` cannot remove it. It would
 // keep ticking (and spending) until the machine was rebuilt.
-func retireRenamedDaemon(ctx context.Context, setupOpts setupCommandOptions, old string, known bool, steps setupSteps, planErr error) string {
+func retireRenamedDaemon(ctx context.Context, setupOpts setupCommandOptions, old string, known bool, steps setupSteps, planErr error) (string, error) {
 	old = strings.TrimSpace(old)
 	// Only a machine that actually installed a watcher before can have one to
 	// retire. Without that check, a first-ever `setup --daemon-name mine` would
 	// read the absent record as the default name and uninstall the machine-wide
 	// default watcher that every other repo depends on.
 	if !known || planErr != nil || old == "" || old == setupOpts.daemonName || setupOpts.noDaemon {
-		return ""
+		return "", nil
 	}
 	retired := setupOpts
 	retired.daemonName = old
 	oldPlan, err := steps.plan(retired)
 	if err != nil {
-		return fmt.Sprintf("previous watcher %q could not be planned for removal: %v", old, err)
+		return "", fmt.Errorf("previous watcher %q could not be planned for removal: %w", old, err)
 	}
 	// An OS with no service manager never installed the old daemon either, so
 	// there is nothing to retire and nothing worth saying about it.
 	if !oldPlan.supported() {
-		return ""
+		return "", nil
 	}
 	if state := steps.inspect(ctx, oldPlan); !state.Installed {
-		return ""
+		return "", nil
 	}
 	if err := steps.uninstall(ctx, oldPlan); err != nil {
-		return fmt.Sprintf("previous watcher %s not removed: %v", oldPlan.Label, err)
+		return "", fmt.Errorf("previous watcher %s not removed: %w", oldPlan.Label, err)
 	}
-	return fmt.Sprintf("previous watcher %s removed (renamed to %s)", oldPlan.Label, setupOpts.daemonName)
+	return fmt.Sprintf("previous watcher %s removed (renamed to %s)", oldPlan.Label, setupOpts.daemonName), nil
 }
 
 // installedDaemonName answers "which watcher does this MACHINE have installed",

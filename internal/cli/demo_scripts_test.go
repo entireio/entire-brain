@@ -54,6 +54,9 @@ func TestDemoScriptSandboxesKeepEveryChildNonBlocking(t *testing.T) {
 						path, entry, body)
 				}
 			}
+			if name == "demo-agent-session.sh" && !strings.Contains(body, `${PATH:-`) {
+				t.Errorf("%s: sandbox() discards the caller's PATH; git and other prerequisites outside system directories become unreachable\nblock was:\n%s", path, body)
+			}
 		})
 	}
 }
