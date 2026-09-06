@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.10.3-nightly.202608220610.6bf587d66",
+  "checkpoint_id": "46def8f2de94",
+  "strategy": "manual-commit",
+  "branch": "codex/pr89-merge",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/demo_scripts_test.go",
+    "internal/cli/setup.go",
+    "internal/cli/setup_daemon.go",
+    "internal/cli/setup_daemon_test.go",
+    "internal/cli/setup_test.go",
+    "internal/cli/status_render.go",
+    "internal/cli/status_render_test.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_concurrency_test.go",
+    "scripts/install.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/46/def8f2de94/0/metadata.json",
+      "transcript": "/46/def8f2de94/0/full.jsonl",
+      "compact_transcript": "/46/def8f2de94/0/transcript.jsonl",
+      "content_hash": "/46/def8f2de94/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 83720,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 12413184,
+    "output_tokens": 19198,
+    "api_call_count": 93
+  }
+}
