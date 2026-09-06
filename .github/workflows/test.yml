@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.26.2" }
-      - run: go test -tags "brain_cgo sqlite_fts5" -timeout 20m ./...
+      - run: go test -race -tags "brain_cgo sqlite_fts5" -timeout 20m ./...
 
   phase1-semantic:
     strategy:
@@ -116,120 +116,118 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - name: Check retained release evidence
         run: |
-          set -e
-          python3 benchmarks/agent-brain/run_test.py
+          # Every lane is checked before the job decides. `set -e` used to stop at
+          # the first failing audit, so a red main reported one stale lane while
+          # hiding the rest: on 2026-08-19 two lanes went stale in the same merge,
+          # only the Radar tool lane was ever named, and the change that refreshed
+          # it would have left main red on the distill lane nobody had seen.
+          set -uo pipefail
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          python3 benchmarks/agent-brain/audit_codex.py \
+          failures=0
+          check() {
+            label="$1"
+            shift
+            if ! "$@"; then
+              echo "::error::release-evidence check failed: $label"
+              failures=$((failures + 1))
+            fi
+          }
+          compare() {
+            label="$1"
+            committed="$2"
+            generated="$3"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "::error::retained $label report is stale: $(basename "$committed")"
+              diff -u "$committed" "$generated" >&2 || true
+              failures=$((failures + 1))
+            fi
+          }
+          check "benchmark harness tests" \
+            python3 benchmarks/agent-brain/run_test.py
+          check "replay-lab release evidence" \
+            python3 benchmarks/agent-brain/audit_codex.py \
             --results benchmarks/agent-brain/evidence/release \
             --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
-          python3 benchmarks/agent-brain/audit_codex.py \
+          check "clean replay-lab proof" \
+            python3 benchmarks/agent-brain/audit_codex.py \
             --results benchmarks/agent-brain/evidence/replay-lab-clean \
             --release-manifest benchmarks/agent-brain/evidence/replay-lab-clean/manifest.json \
             --out-dir "$tmp/clean-proof" \
             --fail-on-flags
-          python3 benchmarks/agent-brain/audit_radar_evidence.py \
+          check "Radar agent-lift evidence" \
+            python3 benchmarks/agent-brain/audit_radar_evidence.py \
             --results benchmarks/agent-brain/evidence/release \
             --suite-glob 'release-candidate-*' \
             --out-dir "$tmp" \
             --codex-audit-report "$tmp/codex-audit-report.json" \
             --fail-when-no-proof
-          python3 benchmarks/agent-brain/audit_radar_tool_evidence.py \
+          check "Radar tool-contract evidence" \
+            python3 benchmarks/agent-brain/audit_radar_tool_evidence.py \
             --manifest benchmarks/agent-brain/evidence/radar-tool/manifest.json \
             --repo-root . \
             --out-dir "$tmp" \
             --fail-on-flags
-          python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
+          check "workspace Radar evidence" \
+            python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
             --manifest benchmarks/agent-brain/evidence/workspace-radar/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
-          python3 benchmarks/agent-brain/audit_distill_perf.py \
+          check "current-repo distill performance evidence" \
+            python3 benchmarks/agent-brain/audit_distill_perf.py \
             --manifest benchmarks/agent-brain/evidence/distill-perf/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
-          python3 benchmarks/agent-brain/audit_distill_perf.py \
+          check "large-repo distill performance evidence" \
+            python3 benchmarks/agent-brain/audit_distill_perf.py \
             --manifest benchmarks/agent-brain/evidence/distill-perf-large/manifest.json \
             --out-dir "$tmp/distill-large" \
             --fail-on-flags
-          python3 benchmarks/agent-brain/audit_facts_eval.py \
+          check "facts eval evidence" \
+            python3 benchmarks/agent-brain/audit_facts_eval.py \
             --manifest benchmarks/agent-brain/evidence/facts-eval/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
-          python3 benchmarks/agent-brain/audit_release_matrix.py \
+          check "release matrix" \
+            python3 benchmarks/agent-brain/audit_release_matrix.py \
             --manifest benchmarks/agent-brain/evidence/release-matrix/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
           for report in codex-audit-report.json codex-audit-report.md; do
-            committed="benchmarks/agent-brain/evidence/release/$report"
-            generated="$tmp/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained release evidence report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "release evidence" \
+              "benchmarks/agent-brain/evidence/release/$report" "$tmp/$report"
           done
           for report in codex-audit-report.json codex-audit-report.md; do
-            committed="benchmarks/agent-brain/evidence/replay-lab-clean/$report"
-            generated="$tmp/clean-proof/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained clean replay-lab proof report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "clean replay-lab proof" \
+              "benchmarks/agent-brain/evidence/replay-lab-clean/$report" "$tmp/clean-proof/$report"
           done
           for report in radar-tool-audit-report.json radar-tool-audit-report.md; do
-            committed="benchmarks/agent-brain/evidence/radar-tool/$report"
-            generated="$tmp/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained Radar tool evidence report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "Radar tool evidence" \
+              "benchmarks/agent-brain/evidence/radar-tool/$report" "$tmp/$report"
           done
           for report in workspace-radar-audit-report.json workspace-radar-audit-report.md; do
-            committed="benchmarks/agent-brain/evidence/workspace-radar/$report"
-            generated="$tmp/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained workspace Radar evidence report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "workspace Radar evidence" \
+              "benchmarks/agent-brain/evidence/workspace-radar/$report" "$tmp/$report"
           done
           for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
-            committed="benchmarks/agent-brain/evidence/distill-perf/$report"
-            generated="$tmp/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained distill performance evidence report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "distill performance evidence" \
+              "benchmarks/agent-brain/evidence/distill-perf/$report" "$tmp/$report"
           done
           for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
-            committed="benchmarks/agent-brain/evidence/distill-perf-large/$report"
-            generated="$tmp/distill-large/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained large-repo distill performance evidence report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "large-repo distill performance evidence" \
+              "benchmarks/agent-brain/evidence/distill-perf-large/$report" "$tmp/distill-large/$report"
           done
           for report in facts-eval-audit-report.json facts-eval-audit-report.md; do
-            committed="benchmarks/agent-brain/evidence/facts-eval/$report"
-            generated="$tmp/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained facts eval evidence report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "facts eval evidence" \
+              "benchmarks/agent-brain/evidence/facts-eval/$report" "$tmp/$report"
           done
           for report in release-matrix-report.json release-matrix-report.md; do
-            committed="benchmarks/agent-brain/evidence/release-matrix/$report"
-            generated="$tmp/$report"
-            if ! cmp -s "$committed" "$generated"; then
-              echo "retained release matrix report is stale: $report" >&2
-              diff -u "$committed" "$generated" >&2 || true
-              exit 1
-            fi
+            compare "release matrix" \
+              "benchmarks/agent-brain/evidence/release-matrix/$report" "$tmp/$report"
           done
+          if [ "$failures" -ne 0 ]; then
+            echo "::error::$failures release-evidence check(s) failed"
+            exit 1
+          fi

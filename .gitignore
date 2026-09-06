@@ -10,3 +10,6 @@ __pycache__/
 # Machine-local Claude tooling state (pid/lock files), not shared config.
 .claude/scheduled_tasks.lock
 /bin/
+
+# embedded git worktrees
+.worktrees
