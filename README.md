@@ -302,14 +302,25 @@ So the order that gets you the *best* brain, as opposed to merely a successful
 command, is:
 
 ```sh
-entire enable          # in the repo: capture sessions + wire the session-end hook
-entire brain setup     # then onboard: build, backfill, watch
+entire enable                              # in the repo: capture sessions + wire the session-end hook
+git add .entire .claude && git commit      # enable wrote these and did not commit them
+entire brain setup                         # then onboard: build, backfill, watch
 ```
 
 `entire enable` first is a quality decision, not a correctness one. Run it after
 `setup` and nothing breaks — the next backfill pass and the watcher pick the new
 sessions up. Skip it entirely and the brain still builds, permanently without
 the one source it is most interesting for.
+
+**The commit in the middle is not optional, and it is the one thing about this
+order that surprises people.** `entire enable` writes `.entire/settings.json`
+and your agent's hook settings (`.claude/settings.json` for Claude Code) and
+leaves them uncommitted, so `setup` run immediately afterwards finds a dirty
+worktree and refuses to seed or index it — two more red ✗ on a first run,
+caused by the command directly above. Both files are project configuration that
+belongs in the repository anyway, so committing them is the real fix rather than
+a workaround; `setup` prints the same remedy if you hit it. (`--worktree`, which
+the refusal names, is a `refresh` flag — `setup` does not accept it.)
 
 **So expect `Brain ready (degraded)` on a repository that is new to Entire, and
 read it as information rather than as a failure.** Setup exits 0 and the brain
@@ -473,6 +484,132 @@ ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/demo-setup.sh   # use this checko
 ENTIRE_GRAPH_REPO=<url> scripts/demo-setup.sh                  # clone from elsewhere
 ENTIRE_INSTALL_OFFLINE=1 scripts/demo-setup.sh                 # never reach the network
 ```
+
+### 3e. Proving it end to end: `scripts/demo-agent-session.sh`
+
+`trial-setup.sh` answers *is this safe*. `demo-setup.sh` answers *what does it
+look like*. This one answers **does the loop actually work** — and it is the only
+one of the three that runs the real `entire` CLI.
+
+The reason it exists is that `demo-setup.sh` writes checkpoint refs into its demo
+repository with git plumbing. That proves `setup` can read a checkpoint ref, and
+nothing else. The chain that *produces* one —
+
+```
+entire enable → an agent session runs → the session-end hook fires
+              → a checkpoint ref is written → entire-brain setup finds it
+              → distill → the brain answers
+```
+
+— is four components and three seams, none of them exercised by a synthesised
+ref. Every bug this feature has shipped lived on one of those seams.
+
+```sh
+scripts/demo-agent-session.sh
+```
+
+It runs the whole chain in a sandbox and **asserts at each seam**, so it fails
+loudly rather than printing a green summary over a broken link: `entire enable`
+must leave a session-end hook behind, the session must leave a checkpoint ref
+behind, `entire checkpoint list` must read it back, `setup`'s manifest must
+report a non-zero session count, and `brief` must return *both* the exported
+transcript and the fact distilled from it. Every step prints its command and its
+exit code.
+
+**What is real.** `entire enable`; the git hooks and agent hook settings it
+installs; the host CLI's own lifecycle hook verbs (`entire hooks claude-code
+session-start | user-prompt-submit | stop | session-end`); the session state
+machine behind them; the post-commit git hook that writes the persistent
+checkpoint; the checkpoint ref itself; `entire checkpoint list`; and then
+`setup`, `distill`, `status`, `overview` and `brief`.
+
+**What is substituted, and it is one thing: the model.** A live agent would call
+an API and spend tokens, so the script writes the session transcript (a Claude
+Code JSONL file) itself and hands it to the real hooks exactly as the agent host
+would. The hook contract is a JSON object on stdin naming a transcript path, so
+nothing downstream can tell the difference — but the sentences in that transcript
+were typed by the script, not generated. **Zero tokens are spent, at any step**,
+including distillation, which uses the same kind of stub agent `demo-setup.sh`
+does.
+
+Two things the run makes concrete that are easy to get wrong from the docs alone:
+
+- **`entire checkpoint` cannot create a checkpoint.** It is `list`, `explain`,
+  `tokens` and `search` only. The persistent checkpoint is written by the
+  **post-commit git hook** `entire enable` installed, so committing the session's
+  work is part of the loop rather than tidying up after it.
+- **A freshly enabled repository uses `refs/entire/checkpoints/<shard>/<ULID>`,
+  one ref per checkpoint.** The aggregate `refs/heads/entire/checkpoints/v1`
+  branch that `demo-setup.sh` seeds is the legacy backend. Brain reads both; a
+  demo that only writes the legacy layout is not demonstrating what a new user
+  gets.
+
+Sandboxing goes one variable further than `demo-setup.sh`: `ENTIRE_CONFIG_DIR`
+on top of `HOME`, the four `XDG_*_HOME`, the four `ENTIRE_PLUGIN_*_DIR`,
+`ENTIRE_BRAIN_DAEMON_DIR` and `ENTIRE_BRAIN_DAEMON_NO_REGISTER=1`. `entire
+enable` is the one step here that writes outside the repository — git hooks,
+`.entire/settings.json`, your agent's settings, and login contexts — so teardown
+diffs your real Entire config store as well as launchd/systemd state.
+
+The `entire-graph` provider is **optional** here, unlike in `demo-setup.sh`:
+without it only the semantic component fails, and the session loop this script
+exists to prove does not depend on it.
+
+```sh
+DEMO_KEEP=1 scripts/demo-agent-session.sh                            # keep the sandbox to poke at
+DEMO_DIR=/path/to/scratch scripts/demo-agent-session.sh              # sandbox somewhere else
+ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/demo-agent-session.sh # use this provider checkout
+ENTIRE_BRAIN_BIN=/path/to/entire-brain scripts/demo-agent-session.sh # skip the build
+```
+
+### 3f. The whole journey, end to end
+
+Every command a new user runs, in order, with what each one costs. Steps 1 and 4
+are once per machine and once per repository; steps 5–7 are the loop you stay in.
+
+```sh
+# 1. once per machine — installs two plugins, no tokens, no services
+git clone https://github.com/entireio/entire-brain.git
+entire-brain/scripts/install.sh
+
+# 2. once per repository — capture sessions, wire the agent's lifecycle hooks
+cd /path/to/your/repo
+entire enable --agent claude-code          # --agent makes it non-interactive;
+                                           # no login and no network needed
+
+# 3. commit what enable just wrote — setup will not index a dirty worktree
+git add .entire .claude && git commit -m "chore: enable Entire session capture"
+
+# 4. once per repository — build the brain, backfill facts, install the watcher
+entire brain setup                         # --no-backfill --no-daemon spends
+                                           # nothing and installs nothing
+
+# 5. work — the hooks capture the session; your commit writes the checkpoint
+#    (there is no command to run here; this is just using your agent)
+git commit -m "..."
+
+# 6. ask
+entire brain overview
+entire brain brief "<the task at hand>"
+
+# 7. keep it current — automatic if you kept the watcher in step 4
+entire brain setup                         # safe to re-run; resumes, never duplicates
+```
+
+| step | spends tokens? | installs a persistent service? |
+|---|---|---|
+| 1. `install.sh` | no | no |
+| 2. `entire enable` | no | no — git hooks and agent settings in the repo only |
+| 3. the commit | no | no |
+| 4. `entire brain setup` | **yes**, phase 2 backfill unless `--no-backfill` | **yes**, unless `--no-daemon` |
+| 5. the session-end hook | **yes**, once per session, once `entire enable` has wired it | no |
+| 6. `overview` / `brief` | no | no |
+| 7. the watcher | **yes**, one gated run per `--distill-every` window | already installed by step 4 |
+
+Two of those spends are recurring and neither prompts: the watcher installed in
+step 4, and the session-end hook wired in step 2, which distills each session as
+it ends. `entire brain setup --uninstall-daemon` removes the first;
+`entire disable` in the repository removes the second.
 
 ### 4. Distill durable facts
 
