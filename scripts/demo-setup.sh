@@ -45,22 +45,70 @@
 # launchctl/systemctl away from your real session. Teardown proves it by diffing
 # the machine's service state against a snapshot taken before the run.
 #
+# NOTHING HAS TO BE ARRANGED FIRST. The semantic provider is the one thing this
+# demo needs that does not live in this repository, and rather than requiring a
+# second checkout parked in a particular place beside this one, the script finds
+# a local entire-graph if there is one and otherwise clones it. A demo that only
+# runs in the directory it was written in is not a demo.
+#
 # Environment:
 #   DEMO_DIR=<path>          put the sandbox somewhere else (default: .demo-setup/)
 #   DEMO_KEEP=1              keep the sandbox after the run (leak checks still run)
 #   DEMO_SESSIONS=<n>        how many sessions to seed (default: 30)
 #   DEMO_BATCH=<n>           sessions distilled per visible pass (default: 5)
 #   DEMO_PAUSE=<seconds>     pause between passes so the ramp is readable (default: 1)
-#   ENTIRE_GRAPH_DIR=<path>  entire-graph checkout (default: ../entire-graph)
+#
+# The provider knobs are the same ones scripts/install.sh takes, so a machine
+# configured for one is configured for the other:
+#   ENTIRE_GRAPH_DIR=<path>    use this entire-graph checkout; skip discovery
+#   ENTIRE_GRAPH_REPO=<url>    clone the provider from somewhere else
+#   ENTIRE_GRAPH_CACHE=<path>  where install.sh keeps its clone; searched too
+#   ENTIRE_INSTALL_OFFLINE=1   never reach the network; fail rather than clone
+#   DEMO_GRAPH_CLONE=1         skip discovery and always clone, to exercise the cold path
 set -eu
 
-repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# ------------------------------------------------------------- where we are
+#
+# $0-relative derivation alone covers only one of the four ways this gets run.
+# It is resolved through symlinks (so a link on PATH works), and then VERIFIED
+# to be an entire-brain checkout rather than trusted, with `git rev-parse` as
+# the fallback. That makes the script correct from a linked worktree, from a
+# plain clone, from a symlink, and when invoked by absolute path from an
+# unrelated working directory.
+
+is_brain_checkout() { [ -n "${1:-}" ] && [ -d "$1/cmd/entire-brain" ] && [ -f "$1/go.mod" ]; }
+
+script_path=$0
+case $script_path in
+*/*) ;;
+*) script_path=$(command -v -- "$script_path" 2>/dev/null || printf './%s' "$script_path") ;;
+esac
+hops=0
+while [ -L "$script_path" ] && [ "$hops" -lt 40 ]; do
+	link=$(readlink -- "$script_path")
+	case $link in
+	/*) script_path=$link ;;
+	*) script_path=$(dirname -- "$script_path")/$link ;;
+	esac
+	hops=$((hops + 1))
+done
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$script_path")" && pwd)
+repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd)
+if ! is_brain_checkout "$repo_root"; then
+	top=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null || true)
+	[ -n "$top" ] && is_brain_checkout "$top" && repo_root=$top
+fi
+
 demo_dir=${DEMO_DIR:-"$repo_root/.demo-setup"}
 keep=${DEMO_KEEP:-}
 sessions=${DEMO_SESSIONS:-30}
 batch=${DEMO_BATCH:-5}
 pause=${DEMO_PAUSE:-1}
-graph_root=${ENTIRE_GRAPH_DIR:-"$repo_root/../entire-graph"}
+graph_repo=${ENTIRE_GRAPH_REPO:-https://github.com/entireio/entire-graph.git}
+graph_cache=${ENTIRE_GRAPH_CACHE:-"${XDG_CACHE_HOME:-${HOME:-$repo_root}/.cache}/entire-brain/entire-graph"}
+offline=${ENTIRE_INSTALL_OFFLINE:-}
+graph_root=
+graph_route=
 
 # Distinct from the real default (entire-brain-watch) so a developer's own
 # watcher is never confused with this demo's.
@@ -81,7 +129,17 @@ die() { printf 'demo-setup: %s\n' "$1" >&2; exit 1; }
 
 command -v git >/dev/null 2>&1 || die 'git is required'
 command -v go >/dev/null 2>&1 || die 'a Go toolchain is required to build the branch binary'
-command -v entire >/dev/null 2>&1 || die 'the parent `entire` CLI is required (it dispatches `entire graph` to the provider)'
+# shellcheck disable=SC2016  # literal backticks, prose not expansion
+command -v entire >/dev/null 2>&1 || die 'the parent `entire` CLI is required (it dispatches `entire graph` to the provider); install it from https://github.com/entireio/cli, then re-run'
+
+is_brain_checkout "$repo_root" ||
+	die "this script must live in an entire-brain checkout; resolved $repo_root from $0, which has no cmd/entire-brain"
+
+# The demo repository is a --local clone of this checkout, so this checkout has
+# to be a git repository -- an extracted tarball or a stripped copy is not
+# enough, and finding that out 90 seconds into the run is worse than now.
+git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1 ||
+	die "$repo_root is not a git repository; the demo repository is cloned from it, so clone entire-brain rather than copying it"
 
 case $sessions in *[!0-9]* | '') die 'DEMO_SESSIONS must be a whole number' ;; esac
 case $batch in *[!0-9]* | '') die 'DEMO_BATCH must be a whole number' ;; esac
@@ -138,6 +196,130 @@ service_state() {
 }
 service_state | sort >"$demo_dir/services.before"
 
+# --------------------------------------------------------- finding entire-graph
+#
+# entire-graph is the semantic provider; without it the semantic component fails
+# and the run ends on a red x. It is the only thing this demo needs that is not
+# in this repository, and the previous default -- a sibling checkout at
+# ../entire-graph -- was an artifact of the directory this script was written
+# in. Anyone whose checkout lives anywhere else got a dead stop on step 1.
+#
+# Three routes, in order, and the run says which one it took:
+#
+#   1. ENTIRE_GRAPH_DIR. Explicit and authoritative: if it is set and wrong,
+#      that is an error, not a reason to go looking somewhere else.
+#   2. A local checkout, found by looking in the places one plausibly is --
+#      including the cache scripts/install.sh clones into, so a machine that has
+#      already installed does not fetch a second copy -- and confirming each
+#      candidate by CONTENT: a directory named entire-graph that is not an
+#      entire-graph checkout is worse than no directory at all.
+#   3. A shallow clone into the sandbox. This is the route that makes the
+#      command runnable by someone who has only this repository.
+#
+# The knobs are scripts/install.sh's, deliberately: two scripts in one repo that
+# disagree about the name of the same variable is its own kind of trap.
+
+is_graph_checkout() {
+	[ -n "${1:-}" ] && [ -d "$1/cmd/entire-graph" ] && [ -f "$1/go.mod" ] &&
+		grep -q '^module .*entire-graph$' "$1/go.mod" 2>/dev/null
+}
+
+abs_dir() { (CDPATH='' cd -- "$1" 2>/dev/null && pwd); }
+
+graph_routes_help() {
+	printf '            1. point at a checkout you already have:\n' >&2
+	printf '                 ENTIRE_GRAPH_DIR=/path/to/entire-graph %s\n' "$0" >&2
+	printf '            2. put one where this looks -- beside this checkout is simplest:\n' >&2
+	printf '                 git -C %s clone %s\n' "$repo_root/.." "$graph_repo" >&2
+	printf '               (also searched: beside the main worktree, %s,\n' "$graph_cache" >&2
+	printf '                and ~/{devenv,src,code,dev,projects,Projects,workspace,Developer}/entire-graph)\n' >&2
+	printf '            3. let this script shallow-clone %s, which needs network access\n' "$graph_repo" >&2
+}
+
+resolve_graph() {
+	if [ -n "${ENTIRE_GRAPH_DIR:-}" ]; then
+		graph_root=$(abs_dir "$ENTIRE_GRAPH_DIR") ||
+			die "ENTIRE_GRAPH_DIR=$ENTIRE_GRAPH_DIR does not exist"
+		is_graph_checkout "$graph_root" ||
+			die "ENTIRE_GRAPH_DIR=$graph_root is not an entire-graph checkout (no cmd/entire-graph); unset it to have one found or cloned"
+		graph_route='ENTIRE_GRAPH_DIR'
+		return 0
+	fi
+
+	if [ -z "${DEMO_GRAPH_CLONE:-}" ]; then
+		# The main worktree's sibling first: this checkout may be a linked
+		# worktree parked anywhere, and its sibling then means nothing, while
+		# the sibling of the repository it belongs to is where a paired
+		# checkout actually lives.
+		# --path-format is git 2.31+; older git answers with a path relative to
+		# the repository, so it is resolved against $repo_root by hand.
+		common=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+		[ -n "$common" ] || common=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null || true)
+		case $common in
+		'') ;;
+		/*) ;;
+		*) common="$repo_root/$common" ;;
+		esac
+		main_root=
+		[ -n "$common" ] && main_root=$(dirname -- "$common")
+
+		# An empty candidate is skipped by abs_dir rather than dropped from the
+		# list, so the whole word stays quoted and a path with a space in it
+		# survives. The source-directory names are install.sh's list.
+		home=${HOME:-}
+		cache_abs=$(abs_dir "$graph_cache" 2>/dev/null || true)
+		for candidate in \
+			"${main_root:+$main_root/../entire-graph}" \
+			"$repo_root/../entire-graph" \
+			"$repo_root/../../entire-graph" \
+			"$graph_cache" \
+			"${home:+$home/devenv/entire-graph}" \
+			"${home:+$home/src/entire-graph}" \
+			"${home:+$home/code/entire-graph}" \
+			"${home:+$home/dev/entire-graph}" \
+			"${home:+$home/projects/entire-graph}" \
+			"${home:+$home/Projects/entire-graph}" \
+			"${home:+$home/workspace/entire-graph}" \
+			"${home:+$home/Developer/entire-graph}" \
+			"${home:+$home/go/src/github.com/entireio/entire-graph}" \
+			"${home:+$home/entire-graph}"; do
+			[ -n "$candidate" ] || continue
+			resolved=$(abs_dir "$candidate") || continue
+			is_graph_checkout "$resolved" || continue
+			graph_root=$resolved
+			if [ -n "$cache_abs" ] && [ "$resolved" = "$cache_abs" ]; then
+				graph_route='install.sh cache'
+			else
+				graph_route='found locally'
+			fi
+			return 0
+		done
+	fi
+
+	if [ -n "$offline" ]; then
+		printf 'demo-setup: no entire-graph checkout found, and ENTIRE_INSTALL_OFFLINE=%s forbids cloning one.\n' "$offline" >&2
+		printf '            Any one of these fixes it:\n' >&2
+		graph_routes_help
+		exit 1
+	fi
+
+	# Nothing local. Clone it -- this is the whole point.
+	graph_root="$demo_dir/entire-graph-src"
+	note "no entire-graph checkout found, so cloning one"
+	note "git clone --depth 1 $graph_repo  (~10-40s on a normal connection)"
+	if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --quiet "$graph_repo" "$graph_root" 2>"$demo_dir/graph-clone.err"; then
+		rm -rf "$graph_root"
+		printf 'demo-setup: could not obtain entire-graph.\n' >&2
+		sed -e 's/^/            git: /' "$demo_dir/graph-clone.err" >&2 2>/dev/null || true
+		printf '            Any one of these fixes it:\n' >&2
+		graph_routes_help
+		exit 1
+	fi
+	is_graph_checkout "$graph_root" ||
+		die "cloned $graph_repo but it does not look like an entire-graph checkout"
+	graph_route='cloned'
+}
+
 # ------------------------------------------------------- the sandboxed binary
 #
 # Both builds are niced and capped: indexing a real repository is the point of
@@ -145,11 +327,18 @@ service_state | sort >"$demo_dir/services.before"
 # laptop got warm" into a complaint.
 
 say "1/6  build entire-brain and entire-graph"
+
+# Resolved before either build so that a missing provider is reported in the
+# first seconds rather than after a minute of compiling.
+resolve_graph
+note "entire-graph: $graph_root  [$graph_route]"
+
 brain_bin="$demo_dir/entire-brain"
 graph_bin="$demo_dir/entire-graph"
 (cd "$repo_root" && CGO_ENABLED="${CGO_ENABLED:-0}" GOMAXPROCS=4 nice -n 10 go build -p 2 -trimpath -o "$brain_bin" ./cmd/entire-brain)
 note "$brain_bin"
-[ -d "$graph_root" ] || die "entire-graph not found at $graph_root; set ENTIRE_GRAPH_DIR to its checkout"
+# No CGO_ENABLED override here: entire-graph's tree-sitter grammars are cgo, so
+# forcing it off builds a provider that cannot parse anything.
 (cd "$graph_root" && GOMAXPROCS=4 nice -n 10 go build -p 2 -trimpath -o "$graph_bin" ./cmd/entire-graph)
 note "$graph_bin"
 
@@ -400,7 +589,11 @@ fi
 # The provider must have been registered INSIDE the sandbox. Seeing it there is
 # how you know the redirect worked rather than the install having silently gone
 # to the developer's real plugin root.
-if [ -e "$sandbox_home/.local/share/entire/plugins/bin/entire-graph" ]; then
+# Searched rather than spelled out: the plugin root is derived from the
+# sandboxed HOME and the four ENTIRE_PLUGIN_* variables, so hard-coding one of
+# the layouts it can choose makes this check fail the day the other one is used
+# -- and a leak check that fails on a correct run is a check nobody reads.
+if [ -n "$(find "$sandbox_home" -name entire-graph -path '*plugins*' -print 2>/dev/null | head -n 1)" ]; then
 	printf '   ok    entire-graph was registered inside the sandbox\n'
 else
 	printf '   LEAK  entire-graph was not registered inside the sandbox\n'

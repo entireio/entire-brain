@@ -286,11 +286,18 @@ TRIAL_KEEP=1 scripts/trial-setup.sh                 # keep the sandbox to poke a
 ### 3d. Watching it: `scripts/demo-setup.sh`
 
 `trial-setup.sh` answers *is this safe*. `demo-setup.sh` answers *what does it
-look like*. One command, no arguments:
+look like*. One command, no arguments, and — like `scripts/install.sh` — no
+prior arrangement: a fresh clone of this repository is the whole prerequisite.
 
 ```sh
 scripts/demo-setup.sh
 ```
+
+The `entire-graph` provider it needs is resolved by the same three routes
+`install.sh` uses, and the run prints which one it took: `ENTIRE_GRAPH_DIR`, then
+a checkout already on this machine (including the cache `install.sh` clones
+into), then a shallow clone — into the sandbox, so it goes away with the rest of
+the run.
 
 `setup` renders a single in-place line — a braille spinner, a determinate bar
 that colour-ramps red → amber → green as it fills, and a tick row of components
@@ -307,7 +314,9 @@ have:
   files, the full commit history), so the semantic index runs for about a minute
   instead of half a second and the repaints are actually visible.
 - **A working `entire-graph` provider, installed *into the sandbox*.** Without
-  it the semantic component fails and the run ends on a red ✗. `entire plugin
+  it the semantic component fails and the run ends on a red ✗. It is found on
+  this machine or cloned, never assumed to be sitting next to this checkout, and
+  a candidate counts only when it really is `entire-graph`. `entire plugin
   install` honours the sandboxed `HOME`, so the provider is registered where the
   sandbox's `entire` looks for it and your real plugin registry is untouched.
   The demo clone is given a GitHub `origin` URL for the same reason: without one
@@ -332,7 +341,11 @@ DEMO_SESSIONS=60 scripts/demo-setup.sh              # seed more sessions
 DEMO_BATCH=10 scripts/demo-setup.sh                 # coarser ramp, fewer passes
 DEMO_PAUSE=0 scripts/demo-setup.sh                  # no pause between passes
 DEMO_KEEP=1 scripts/demo-setup.sh                   # keep the sandbox to poke at
-ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/demo-setup.sh
+DEMO_GRAPH_CLONE=1 scripts/demo-setup.sh            # ignore local checkouts, always clone
+
+ENTIRE_GRAPH_DIR=/path/to/entire-graph scripts/demo-setup.sh   # use this checkout
+ENTIRE_GRAPH_REPO=<url> scripts/demo-setup.sh                  # clone from elsewhere
+ENTIRE_INSTALL_OFFLINE=1 scripts/demo-setup.sh                 # never reach the network
 ```
 
 ### 4. Distill durable facts
