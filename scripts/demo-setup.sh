@@ -346,6 +346,15 @@ note "$graph_bin"
 # `env -i` is deliberate: an inherited variable is exactly how a "sandboxed" run
 # ends up writing to a real store. The stub agent's directory goes FIRST on PATH
 # so nothing can reach a real agent CLI.
+#
+# PAGER/GIT_PAGER=cat and GIT_TERMINAL_PROMPT=0 keep every child NON-BLOCKING.
+# TERM is set below, so under a captured pty (`script -q run.log ...`) stdout is
+# a terminal and any `entire` verb long enough to page sends its output through
+# $PAGER -- `less` by default (cmd/entire/cli/explain.go, buildPagerCmd) --
+# which then waits on RETURN forever. `cat` is honoured by the same lookup and
+# covers every child in one place; GIT_TERMINAL_PROMPT=0 does the same for a git
+# child that would otherwise block asking for credentials. See the longer note
+# in scripts/demo-agent-session.sh, where this bug actually bit.
 sandbox() {
 	dir=$1
 	shift
@@ -353,6 +362,9 @@ sandbox() {
 		PATH="$stub_bin:$PATH" \
 		TERM="${TERM:-xterm-256color}" \
 		LANG="${LANG:-en_US.UTF-8}" \
+		PAGER=cat \
+		GIT_PAGER=cat \
+		GIT_TERMINAL_PROMPT=0 \
 		GOMAXPROCS=4 \
 		HOME="$sandbox_home" \
 		XDG_CONFIG_HOME="$sandbox_home/.config" \

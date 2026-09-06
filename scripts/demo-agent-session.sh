@@ -171,6 +171,25 @@ real_config_state >"$demo_dir/entire-config.before"
 # ENTIRE_TOKEN_STORE=file keeps the CLI off the login keychain. It never logs in
 # here (nothing in this demo needs an account) but a keychain prompt in the
 # middle of a demo is its own kind of failure.
+#
+# PAGER/GIT_PAGER=cat is that same rule applied to OUTPUT, and it is not
+# optional. TERM is set below, so under a captured pty --
+#   script -q run.log ./scripts/demo-agent-session.sh
+# -- stdout IS a terminal, and `entire checkpoint list` pages anything taller
+# than the window through $PAGER (cmd/entire/cli/explain.go: outputWithPager ->
+# buildPagerCmd, which reads PAGER and falls back to `less`). `less` then sits
+# on "Press RETURN to continue" and the demo hangs forever, mid-run, with no
+# further output. `cat` is honoured by that same lookup, so setting it here
+# covers every child and grandchild in one place -- every `entire` verb, every
+# `entire-brain` verb, and the `entire` binary entire-brain itself shells out
+# to -- rather than a --no-pager flag bolted onto whichever command happens to
+# page today.
+#
+# GIT_TERMINAL_PROMPT=0 is the INPUT half of the same rule: a git child that
+# wants a username or password must fail fast instead of blocking on the pty.
+# The `entire` CLI already sets it on its own remote calls (internal/remote/
+# git.go, disableTerminalPrompt); this extends the guarantee to every other git
+# child the sandbox may start.
 
 sandbox() {
 	dir=$1
@@ -179,6 +198,9 @@ sandbox() {
 		PATH="$stub_bin:$(dirname -- "$entire_bin"):/usr/bin:/bin:/usr/sbin:/sbin" \
 		TERM="${TERM:-xterm-256color}" \
 		LANG="${LANG:-en_US.UTF-8}" \
+		PAGER=cat \
+		GIT_PAGER=cat \
+		GIT_TERMINAL_PROMPT=0 \
 		GOMAXPROCS=4 \
 		HOME="$sandbox_home" \
 		XDG_CONFIG_HOME="$sandbox_home/.config" \
@@ -300,7 +322,18 @@ note "checkpoint backend: $(sed -n 's/.*"type": *"\([a-z-]*\)".*/\1/p' "$demo_re
 # configuration that belongs in the repository anyway.
 say "4/9  commit what enable wrote"
 note 'setup refuses to index an uncommitted tree; enable leaves one behind'
-run_step "git add .entire .claude && git commit" sh -c "git -C '$demo_repo' add .entire .claude && git -C '$demo_repo' commit -qm 'chore: enable Entire session capture'" ||
+# Through sandbox(), not bare `sh -c`. From here on this repository has the git
+# hooks `entire enable` installed, so EVERY commit below runs `entire` -- and an
+# unsandboxed commit would run it against the developer's real HOME and
+# ENTIRE_CONFIG_DIR, and would stop on the prepare-commit-msg hook's
+# "Link this commit to session context? [Y]es / [n]o / [a]lways" question. That
+# question is asked on /dev/tty, not stdin, so redirecting input cannot answer
+# it and the demo blocks forever on a human's terminal. sandbox() sets
+# GIT_TERMINAL_PROMPT=0, which the CLI treats as "the caller cannot answer
+# prompts" (cmd/entire/cli/interactive/interactive.go, isAgentSubprocessEnv) and
+# auto-links instead of asking -- the same default the prompt itself carries.
+run_step "git add .entire .claude && git commit" \
+	sandbox "$demo_repo" sh -c "git add .entire .claude && git commit -qm 'chore: enable Entire session capture'" ||
 	fail "could not commit the files entire enable wrote"
 
 # ------------------------------------------------------- 5. the agent session
@@ -361,7 +394,8 @@ run_step "entire hooks claude-code stop" \
 # creates one (it is list/explain/tokens/search only). Committing is therefore
 # part of the loop, not a tidy-up after it.
 say "6/9  commit the session's work  (the post-commit hook writes the checkpoint)"
-run_step "git add -A && git commit" sh -c "git -C '$demo_repo' add -A && git -C '$demo_repo' commit -qm 'fix(greet): greet \"there\" for an empty name'" ||
+run_step "git add -A && git commit" \
+	sandbox "$demo_repo" sh -c "git add -A && git commit -qm 'fix(greet): greet \"there\" for an empty name'" ||
 	fail "the commit failed, so no post-commit hook ran"
 
 run_step "entire hooks claude-code session-end" \
@@ -373,7 +407,23 @@ checkpoint_refs=$(git -C "$demo_repo" for-each-ref --format='%(refname)' 'refs/e
 	fail "the session ended and NO checkpoint ref was written -- this is the seam a synthesised ref hides"
 printf '%s\n' "$checkpoint_refs" | sed -e 's/^/   ref  /'
 
+# The two warning lines this step prints are TRUE, and they are left in
+# deliberately. `entire enable` writes no checkpoint_remote, so the CLI falls
+# back to `origin` for remote checkpoint discovery (cmd/entire/cli/
+# git_operations.go, listCheckpointRefsOnRemote) -- and this demo's origin is
+# the deliberately unreachable github.com URL above, which exists only so that
+# entire-brain and entire-graph derive the same repo key from `git remote
+# get-url origin`. Redirecting the warning away would hide the identical
+# message in a real run, where an unreachable checkpoint remote is exactly the
+# thing a user needs told; writing a checkpoint_remote into .entire/settings.json
+# to make the CLI skip discovery would misrepresent what `entire enable` wrote,
+# which is the artifact this script asserts on two steps above. So it is
+# narrated instead of silenced.
 printf '\n'
+note 'the two warnings below are expected and correct: origin is deliberately'
+note 'unreachable here, so remote checkpoint discovery fails and the list falls'
+note 'back to local refs -- which is all this demo ever wrote. A real repo with'
+note 'a reachable remote gets its remote checkpoints merged in at this point.'
 run_step "entire checkpoint list" sandbox "$demo_repo" entire checkpoint list ||
 	fail "entire cannot read back the checkpoint it just wrote"
 
