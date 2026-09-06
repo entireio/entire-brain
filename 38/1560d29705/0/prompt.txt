@@ -1,0 +1,41 @@
+Review all open PRs. Decide which one comes next.
+
+---
+
+Check the trail for 189, make sure it's not behind main, check all review findings and resolve, and end when CI is green.
+
+---
+
+The Entire CLI doesn't work?
+
+---
+
+Entire CLI pushes checkpoints and sessions via git. It does not need auth.
+
+---
+
+Try again, the CLI is now authenticated
+
+---
+
+What's the link to the trail?
+
+---
+
+You f
+
+---
+
+Why is this session not attached as Entire checkpoint?
+
+---
+
+Fix it
+
+---
+
+Which PR / trail is next?
+
+---
+
+Go through the review protocol as above
