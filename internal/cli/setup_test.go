@@ -317,7 +317,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 		// The dash is ASCII here on purpose: the test buffer is not a terminal,
 		// so the renderer resolves to the plain, locale-independent glyph set.
 		"-- continuing; run 'entire-brain doctor' for detail",
-		setupRepoKeyMismatchHint,
+		setupRepoKeyMismatchHint(setupBrainBinaryName),
 		"the brain is queryable now",
 		"FAILED semantic",
 		"Brain ready",
@@ -377,8 +377,8 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSessions, errors.New("export unavailable")),
-		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError)),
+		newSetupComponent(brainComponentSessions, errors.New("export unavailable"), setupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), setupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
@@ -402,8 +402,8 @@ func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
 func TestSetupIsStillDegradedNotFailedWithASingleSurvivor(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSeed, nil),
-		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError)),
+		newSetupComponent(brainComponentSeed, nil, setupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), setupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	opts.noDaemon = true

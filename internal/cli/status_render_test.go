@@ -261,7 +261,7 @@ func TestStatusHealthCounts(t *testing.T) {
 		t.Errorf("failed components = %+v", health.Failed)
 	}
 	render := tui.NewRendererWith(tui.Theme{}, tui.PlainCaps())
-	line := health.Line(render)
+	line := health.Line(render, setupBrainBinaryName)
 	for _, want := range []string{"history failed", "1 issue", "run `entire-brain doctor`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("verdict %q missing %q", line, want)

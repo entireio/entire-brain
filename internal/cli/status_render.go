@@ -198,7 +198,8 @@ func (h statusHealth) Healthy() bool {
 }
 
 // Line renders the verdict.
-func (h statusHealth) Line(render *tui.Renderer) string {
+func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
+	brainCmd = setupBrainCommand(brainCmd)
 	if h.Healthy() {
 		return render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseDone, "healthy")
 	}
@@ -220,7 +221,7 @@ func (h statusHealth) Line(render *tui.Renderer) string {
 		phase = tui.PhaseFailed
 	}
 	return render.Mark(tui.MarkFailed) + " " + render.PhasePaint(phase, strings.Join(parts, ", ")) +
-		render.Dim(" "+render.Dash()+" run `entire-brain doctor`")
+		render.Dim(" "+render.Dash()+" run `"+brainCmd+" doctor`")
 }
 
 func plural(n int, word string) string {
@@ -238,7 +239,8 @@ const statusBarWidth = 14
 
 // renderBrainStatusShort is the DEFAULT report: who this brain is, how far
 // onboarding has got, and one line of verdict. Everything else is one flag away.
-func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainStatusReport) {
+func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd string) {
+	brainCmd = setupBrainCommand(brainCmd)
 	fmt.Fprintf(out, "%s  %s\n",
 		render.Bold(render.PhasePaint(tui.PhaseInstant, "Brain")),
 		render.Bold(valueOrUnset(report.Repo.Key)))
@@ -251,15 +253,16 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	}
 	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
 
-	renderStatusOnboardingBlock(out, render, report)
+	renderStatusOnboardingBlock(out, render, report, brainCmd)
 
-	fmt.Fprintf(out, "\n%s\n", buildStatusHealth(report).Line(render))
-	fmt.Fprintf(out, "%s\n", render.Dim("  `entire-brain status --verbose` for the full report"))
+	fmt.Fprintf(out, "\n%s\n", buildStatusHealth(report).Line(render, brainCmd))
+	fmt.Fprintf(out, "%s\n", render.Dim("  `"+brainCmd+" status --verbose` for the full report"))
 }
 
 // renderStatusOnboardingBlock is the part a person actually came for: is the
 // backfill moving, is the watcher alive, did every source build.
-func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report brainStatusReport) {
+func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd string) {
+	brainCmd = setupBrainCommand(brainCmd)
 	onboarding := report.Onboarding
 	if onboarding == nil {
 		return
@@ -286,7 +289,7 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 		daemonPhase, daemonMark = tui.PhaseDaemon, tui.MarkDone
 	}
 	daemonLine := fmt.Sprintf("  %-*s %s %s", statusLabelWidth, "daemon",
-		render.Mark(daemonMark), render.PhasePaint(daemonPhase, describeDaemonState(onboarding.Daemon)))
+		render.Mark(daemonMark), render.PhasePaint(daemonPhase, describeDaemonState(onboarding.Daemon, brainCmd)))
 	if !onboarding.LastTickAt.IsZero() {
 		age := humanizeAge(report.GeneratedAt.Sub(onboarding.LastTickAt))
 		daemonLine += render.Dim(" " + render.Bullet() + " last tick " + age + " ago")
@@ -322,7 +325,7 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 // verbose mode) the member paths for the groups that are NOT obvious data.
 // A data-file group never enumerates: that is the whole point of the collapse,
 // and `doctor` is where the full list lives.
-func renderStatusBlindSpotGroups(out io.Writer, render *tui.Renderer, indent string, groups []statusBlindSpotGroup, enumerate bool) {
+func renderStatusBlindSpotGroups(out io.Writer, render *tui.Renderer, indent string, groups []statusBlindSpotGroup, enumerate bool, brainCmd string) {
 	for _, group := range groups {
 		phase := tui.PhaseSkipped
 		if !group.DataFiles {
@@ -330,7 +333,7 @@ func renderStatusBlindSpotGroups(out io.Writer, render *tui.Renderer, indent str
 		}
 		line := group.Summary()
 		if group.DataFiles {
-			line += " " + render.Dash() + " `entire-brain doctor` lists them"
+			line += " " + render.Dash() + " `" + setupBrainCommand(brainCmd) + " doctor` lists them"
 		}
 		fmt.Fprintf(out, "%s%s %s\n", indent, render.Mark(tui.MarkSkipped), render.PhasePaint(phase, line))
 		if !enumerate || group.DataFiles {

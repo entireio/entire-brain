@@ -244,17 +244,17 @@ func TestDescribeDaemonStateSurfacesADriftedUnit(t *testing.T) {
 	}
 	drifted := base
 	drifted.Running = true
-	got := describeDaemonState(drifted)
+	got := describeDaemonState(drifted, setupBrainBinaryName)
 	if !strings.Contains(got, "not current") {
 		t.Fatalf("a running-but-not-current daemon must not be described as plain %q", got)
 	}
 	current := drifted
 	current.Current = true
-	if got := describeDaemonState(current); strings.Contains(got, "not current") {
+	if got := describeDaemonState(current, setupBrainBinaryName); strings.Contains(got, "not current") {
 		t.Fatalf("a current, running daemon must not be reported as stale: %q", got)
 	}
 	stopped := base
-	if got := describeDaemonState(stopped); !strings.Contains(got, "not current") {
+	if got := describeDaemonState(stopped, setupBrainBinaryName); !strings.Contains(got, "not current") {
 		t.Fatalf("an installed, stopped, drifted daemon must say so: %q", got)
 	}
 }

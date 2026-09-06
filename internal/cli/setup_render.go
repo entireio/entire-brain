@@ -144,7 +144,8 @@ const setupSummaryLabelWidth = 11
 
 // renderSetupSummary prints the closing block: what this brain is, what each
 // phase did, how long it took, and what to run next.
-func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport, timings *setupTimings, watchPlan setupWatchPlan) {
+func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport, timings *setupTimings, watchPlan setupWatchPlan, brainCmd string) {
+	brainCmd = setupBrainCommand(brainCmd)
 	headline := "Brain ready"
 	headlinePhase := tui.PhaseDone
 	if report.Instant.State == "degraded" {
@@ -189,13 +190,13 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 
 	row("backfill", setupPhaseValue(render, report.Backfill, tui.PhaseBackfill, "running in the background"), phaseTiming(timings, "backfill"))
 	row("workspace", render.Mark(tui.MarkDone)+" "+render.PhasePaint(tui.PhaseDaemon, report.Workspace.Name), phaseTiming(timings, "workspace"))
-	row("daemon", setupDaemonValue(render, report.Daemon), phaseTiming(timings, "daemon"))
+	row("daemon", setupDaemonValue(render, report.Daemon, brainCmd), phaseTiming(timings, "daemon"))
 	// Say plainly, at the moment of install, that this is a persistent service
 	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
 	// does not tell a first-time reader that something now survives reboots.
 	if report.Daemon.Installed && report.Daemon.UnitPath != "" {
 		fmt.Fprintf(out, "  %-*s %s\n", setupSummaryLabelWidth, "",
-			render.Dim("persistent service, restarts with your session: "+report.Daemon.UnitPath))
+			render.Dim("persistent service, starts again at every login: "+report.Daemon.UnitPath))
 	}
 	// What the ONE machine-wide watcher covers. Render-only: `setup --json` is a
 	// published contract and a new field in it is a breaking change, so this is
@@ -212,9 +213,9 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Next"))
 	next := [][2]string{
-		{"entire-brain overview", "what this project is"},
-		{`entire-brain brief "<task>"`, "task-shaped context"},
-		{"entire-brain status", "backfill progress and daemon health"},
+		{brainCmd + " overview", "what this project is"},
+		{brainCmd + ` brief "<task>"`, "task-shaped context"},
+		{brainCmd + " status", "backfill progress and daemon health"},
 	}
 	// Name the removal command wherever the thing it removes was installed.
 	// setup installs a persistent, restart-forever service by default, and
@@ -224,7 +225,7 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	// change the default -- whether the default should be on is a product call,
 	// not this line's.
 	if report.Daemon.Installed {
-		next = append(next, [2]string{"entire-brain setup --uninstall-daemon", "stop and remove the background watcher"})
+		next = append(next, [2]string{brainCmd + " setup --uninstall-daemon", "stop and remove the background watcher"})
 	}
 	// Size the column to its widest entry rather than to a constant: the
 	// conditional --uninstall-daemon row is longer than any fixed width chosen
@@ -287,8 +288,8 @@ func setupPhaseValue(render *tui.Renderer, phase setupPhase, color tui.Phase, ok
 	return render.Mark(mark) + " " + render.PhasePaint(color, text)
 }
 
-func setupDaemonValue(render *tui.Renderer, state daemonState) string {
-	text := describeDaemonState(state)
+func setupDaemonValue(render *tui.Renderer, state daemonState, brainCmd string) string {
+	text := describeDaemonState(state, brainCmd)
 	switch {
 	case state.Running:
 		return render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseDaemon, text)

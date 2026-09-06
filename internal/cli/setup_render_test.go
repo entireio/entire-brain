@@ -39,7 +39,7 @@ func renderSetupSummaryPlain(t *testing.T, report setupReport, timings *setupTim
 	t.Helper()
 	out := &bytes.Buffer{}
 	theme, _ := tui.ThemeByName("default")
-	renderSetupSummary(out, tui.NewRendererWith(theme, tui.PlainCaps()), report, timings, setupWatchPlan{})
+	renderSetupSummary(out, tui.NewRendererWith(theme, tui.PlainCaps()), report, timings, setupWatchPlan{}, setupBrainBinaryName)
 	return out.String()
 }
 
@@ -96,7 +96,7 @@ func TestSetupSummaryColoursEveryPhaseDistinctly(t *testing.T) {
 	out := &bytes.Buffer{}
 	theme, _ := tui.ThemeByName("default")
 	render := tui.NewRendererWith(theme, tui.Caps{TTY: true, Color: true, Unicode: true, Width: 200})
-	renderSetupSummary(out, render, setupRenderFixtureReport(), nil, setupWatchPlan{})
+	renderSetupSummary(out, render, setupRenderFixtureReport(), nil, setupWatchPlan{}, setupBrainBinaryName)
 	got := out.String()
 	for name, color := range map[string]string{
 		"good":    string(render.PhaseColor(tui.PhaseDone)),

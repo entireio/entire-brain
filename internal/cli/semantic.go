@@ -520,7 +520,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return semanticProviderUnverifiedError(indexOpts.graphBinary, doctorWarnings)
 		}
 		indexOpts.reportPhase("parsing sources")
-		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, providerIgnoreFiles, ignore, out)
+		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, providerIgnoreFiles, ignore, out)
 		if serr != nil && len(providerIgnoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(serr) {
 			warnings = append(warnings, semanticWarning{
 				Code:     "provider_ignore_file_unsupported",
@@ -531,7 +531,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			if err := resetSnapshotTempFile(tmp, hasher); err != nil {
 				return err
 			}
-			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, nil, ignore, out)
+			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, nil, ignore, out)
 		}
 		if serr != nil {
 			return serr
@@ -999,7 +999,7 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 			"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
 				" -- install it with `scripts/install.sh` from the entire-brain checkout"+
 				" (it builds and registers entire-graph from the sibling clone),"+
-				" then re-run `entire-brain setup`", binary)
+				" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
 	}
 	return errors.New(message)
 }

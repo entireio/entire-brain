@@ -1186,10 +1186,14 @@ func brainStatusBlindSpots(report brainStatusReport) []brainBlindSpot {
 }
 
 func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose bool) {
+	// Every command this report names is spelled the way the reader reached this
+	// binary, resolved once here so the short report and the verbose one cannot
+	// disagree. See setupCommandPrefix.
+	brainCmd := setupCommandPrefix(os.LookupEnv)
 	out := cmd.OutOrStdout()
 	render := tui.NewRenderer(out)
 	if !verbose {
-		renderBrainStatusShort(out, render, report)
+		renderBrainStatusShort(out, render, report, brainCmd)
 		return
 	}
 	// Everything below is the full report. Blind spots and semantic partial
@@ -1215,7 +1219,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 		}
 	}
-	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt)
+	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
 	if s := report.Semantic; s != nil {
 		fmt.Fprintln(out, "\nSemantic")
 		if p := s.Provider; p != nil && p.Name != "" {
@@ -1250,7 +1254,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 					continue
 				}
 				fmt.Fprintf(out, "  %s:\n", section.label+"s")
-				renderStatusBlindSpotGroups(out, render, "    ", groups, true)
+				renderStatusBlindSpotGroups(out, render, "    ", groups, true, brainCmd)
 			}
 		}
 		if f := s.Freshness; f != nil {
@@ -1283,7 +1287,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 					fmt.Fprintf(out, "    %s\n", render.Dim("all of them are the semantic warnings listed above"))
 					break
 				}
-				renderStatusBlindSpotGroups(out, render, "    ", groupStatusBlindSpots(fresh), true)
+				renderStatusBlindSpotGroups(out, render, "    ", groupStatusBlindSpots(fresh), true, brainCmd)
 			}
 		}
 	}

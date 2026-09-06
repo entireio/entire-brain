@@ -241,7 +241,8 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord)
 
 // renderBrainOnboardingStatus prints the section `entire-brain status` gained:
 // backfill progress, daemon health, and instant-phase component freshness.
-func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboarding, now time.Time) {
+func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboarding, now time.Time, brainCmd string) {
+	brainCmd = setupBrainCommand(brainCmd)
 	if onboarding == nil {
 		return
 	}
@@ -256,7 +257,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		line += fmt.Sprintf(" (%d pending)", onboarding.Facts.Pending())
 	}
 	fmt.Fprintln(out, line)
-	fmt.Fprintf(out, "  daemon: %s", describeDaemonState(onboarding.Daemon))
+	fmt.Fprintf(out, "  daemon: %s", describeDaemonState(onboarding.Daemon, brainCmd))
 	// The watch cursor is written only by a watcher tick, so it is real history
 	// even when no daemon is installed right now — say which it is, or "not
 	// installed; last tick 4m ago" reads as a contradiction.
@@ -272,7 +273,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 	// Same reason as setup's Next block: the only place --uninstall-daemon was
 	// ever written down was `setup --help`.
 	if onboarding.Daemon.Installed {
-		fmt.Fprintln(out, "    remove it with `entire-brain setup --uninstall-daemon`")
+		fmt.Fprintln(out, "    remove it with `"+brainCmd+" setup --uninstall-daemon`")
 	}
 	if len(onboarding.Components) > 0 {
 		parts := make([]string, 0, len(onboarding.Components))
@@ -285,7 +286,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		// A failed component is only useful if the reader can get at the reason,
 		// and the reason is one command away rather than in this line.
 		if failed {
-			fmt.Fprintln(out, "    a component failed — run `entire-brain doctor` for the reason")
+			fmt.Fprintln(out, "    a component failed — run `"+brainCmd+" doctor` for the reason")
 		}
 	}
 }

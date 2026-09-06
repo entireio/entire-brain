@@ -374,7 +374,7 @@ func TestSetupSummaryNamesTheWatcherAndHowToRemoveIt(t *testing.T) {
 			Running:   true,
 		},
 	}
-	renderSetupSummary(out, tui.NewRenderer(out), report, &setupTimings{}, setupWatchPlan{})
+	renderSetupSummary(out, tui.NewRenderer(out), report, &setupTimings{}, setupWatchPlan{}, setupBrainBinaryName)
 
 	printed := out.String()
 	if !strings.Contains(printed, "--uninstall-daemon") {
@@ -392,7 +392,7 @@ func TestStatusNamesTheUninstallCommand(t *testing.T) {
 	out := &bytes.Buffer{}
 	renderBrainOnboardingStatus(out, &brainStatusOnboarding{
 		Daemon: daemonState{Manager: daemonManagerLaunchd, Label: "io.entire.brain-watch.1a2b3c4d", Installed: true, Running: true},
-	}, setupTestNow)
+	}, setupTestNow, setupBrainBinaryName)
 	if !strings.Contains(out.String(), "--uninstall-daemon") {
 		t.Fatalf("status must name the removal command for a daemon it reports:\n%s", out.String())
 	}
@@ -550,7 +550,7 @@ func TestStatusReportsEveryComponentSetupReported(t *testing.T) {
 func TestSetupNamesTheRemedyForADirtyWorktree(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{brainComponentSeed, brainComponentSemantic} {
-		component := newSetupComponent(name, errors.New(dirtyWorktreeErrorCode+": refusing to index uncommitted content without --worktree"))
+		component := newSetupComponent(name, errors.New(dirtyWorktreeErrorCode+": refusing to index uncommitted content without --worktree"), setupBrainBinaryName)
 		hint := component.Hint
 		if hint == "" {
 			t.Fatalf("%s: a dirty worktree must carry a remedy; the refusal names --worktree, which setup does not accept", name)
@@ -572,7 +572,7 @@ func TestSetupNamesTheRemedyForADirtyWorktree(t *testing.T) {
 func TestSetupExplainsARepoWithNoSessionsYet(t *testing.T) {
 	t.Parallel()
 	detail := checkpointScopeIncompleteCode + ": Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory"
-	component := newSetupComponent(brainComponentSessions, errors.New(detail))
+	component := newSetupComponent(brainComponentSessions, errors.New(detail), setupBrainBinaryName)
 	if component.Hint == "" {
 		t.Fatalf("a repo with no sessions yet must be explained, not just reported: %+v", component)
 	}
@@ -592,8 +592,8 @@ func TestSetupExplainsARepoWithNoSessionsYet(t *testing.T) {
 func TestRoutedDiscoveryFailureKeepsItsOwnDetail(t *testing.T) {
 	t.Parallel()
 	component := newSetupComponent(brainComponentSessions,
-		errors.New(`complete routed checkpoint discovery failed: list checkpoints: entire [checkpoint explain --json --search-all]: exec: "entire": executable file not found in $PATH`))
-	if component.Hint == setupNoSessionsHint {
+		errors.New(`complete routed checkpoint discovery failed: list checkpoints: entire [checkpoint explain --json --search-all]: exec: "entire": executable file not found in $PATH`), setupBrainBinaryName)
+	if component.Hint == setupNoSessionsHint(setupBrainBinaryName) {
 		t.Fatalf("a real discovery failure is not an empty repo: %+v", component)
 	}
 }
