@@ -60,8 +60,11 @@ the deterministic build, both of which spend tokens: it starts a detached fact
 backfill (capped at 25 sessions per pass, `--no-backfill` to skip), and it
 installs **one machine-wide watcher as a persistent service, by default, with no
 prompt** — a launchd agent with `RunAtLoad`/`KeepAlive`, or a systemd user unit
-with `Restart=always`. `--no-daemon` skips it, `entire brain setup
---uninstall-daemon` removes it, and `entire brain setup --no-backfill
+with `Restart=always`. There is no prompt, but there is a pre-flight line: a run
+that will register a watcher opens with it, before any work, naming the unit
+label and the path it will write and giving both `--no-daemon` and
+`entire brain setup --uninstall-daemon`. `--no-daemon` skips it, `entire brain
+setup --uninstall-daemon` removes it, and `entire brain setup --no-backfill
 --no-daemon` spends nothing and changes no service. See the README's
 [step 3](../README.md#3-onboard-a-repository-entire-brain-setup) for the full
 phase table and the ordering against `entire enable`.

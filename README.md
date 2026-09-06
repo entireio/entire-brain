@@ -229,7 +229,20 @@ them:
   with `Restart=always`, enabled with `systemctl --user enable --now`. It
   survives logout and reboot, and its gated distill step calls an agent, so it
   is a **recurring** spend, not a one-off. There is no confirmation prompt
-  anywhere in `setup`. Pass `--no-daemon` if you do not want it, and
+  anywhere in `setup`. What there is, is a pre-flight line — the FIRST thing a
+  run that will register a watcher prints, before any work, naming the label,
+  the unit path, and both ways out:
+
+  ```
+  setup: background watcher: this run will install io.entire.brain-watch.<id> at
+  ~/Library/LaunchAgents/io.entire.brain-watch.<id>.plist — a persistent launchd
+  service that starts again at every login; pass --no-daemon to skip it, or
+  remove it later with `entire brain setup --uninstall-daemon`
+  ```
+
+  A re-run that finds the watcher already there says it *keeps* it rather than
+  claiming a second install, and `--no-daemon` says nothing about a service it
+  will not install. Pass `--no-daemon` if you do not want it, and
   `entire brain setup --uninstall-daemon` to stop and remove one you already
   have.
 
@@ -288,10 +301,13 @@ is a git repository**. Everything else it either handles or degrades around.
   would leave two hooks racing to distill the same session. `setup` **reports**
   the hook as one advisory line and carries on — it is never a failure.
 - **Captured Entire sessions.** With none (a repository Entire has never been
-  enabled in), the session export fails, and that is reported as a failed
-  `sessions` component while the run falls back to a deterministic seed baseline
-  and builds the rest. You get a brain from code, docs and git history; you do
-  not get one from your past agent work.
+  enabled in), the export returns an empty inventory and the `sessions`
+  component is green — an empty answer is a true one. You get a brain from code,
+  docs and git history; you do not get one from your past agent work, which is
+  the source it is most interesting for. The export fails only when Entire
+  cannot prove the inventory is empty rather than merely unreadable — a
+  configured checkpoint remote it cannot enumerate, offline or unauthenticated —
+  and the hint then names `entire checkpoint list` as what Entire itself can see.
 - **A working `entire graph` provider.** A missing or mismatched provider fails
   only the `semantic` component.
 - **A supported service manager.** On a platform with neither launchd nor
@@ -322,13 +338,22 @@ belongs in the repository anyway, so committing them is the real fix rather than
 a workaround; `setup` prints the same remedy if you hit it. (`--worktree`, which
 the refusal names, is a `refresh` flag — `setup` does not accept it.)
 
-**So expect `Brain ready (degraded)` on a repository that is new to Entire, and
-read it as information rather than as a failure.** Setup exits 0 and the brain
-is queryable; the summary names the component that did not build. The one you
-will actually see:
+**A repository that is new to Entire now reaches an all-green `setup` with no
+user action** — including a `git init` repository with no remote at all, on
+which every one of the eight instant components builds:
 
-- `x session export` — this repository has no captured Entire history yet. The
-  fix is `entire enable`, and then using it.
+```
+Brain ready in 3.6s
+  instant     + sessions  + seed  + history  + docs  + semantic  + patterns  + entities  + memory  (3.6s)
+```
+
+`Brain ready (degraded)` still exists, and when you do see it, read it as
+information rather than as failure: setup exits 0, the brain is queryable, and
+the summary names the component that did not build with a hint under it. What
+actually produces it is the uncommitted worktree above, a machine with no
+`entire graph` provider (`x semantic index: provider_doctor_failed: …`, fixed by
+`scripts/install.sh`), or a checkpoint inventory Entire cannot read
+(`x session export`).
 
 `x semantic index: repo key mismatch` used to belong on that list, and no longer
 does. `entire-brain` and `entire-graph` name the same repository differently —

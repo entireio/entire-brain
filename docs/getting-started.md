@@ -193,6 +193,19 @@ Three things are worth being explicit about before you run it:
   with `Restart=always` on Linux. It survives logout and reboot, and its gated
   distill step calls an agent, so it is a recurring spend. `--no-daemon` skips
   it; `entire brain setup --uninstall-daemon` removes one you already have.
+
+  You are told before it happens rather than after. A run that will register a
+  watcher opens with the pre-flight line, ahead of any work:
+
+  ```
+  setup: background watcher: this run will install io.entire.brain-watch.<id> at
+  ~/Library/LaunchAgents/io.entire.brain-watch.<id>.plist — a persistent launchd
+  service that starts again at every login; pass --no-daemon to skip it, or
+  remove it later with `entire brain setup --uninstall-daemon`
+  ```
+
+  A re-run that finds the watcher already installed says it *keeps* it instead,
+  and `--no-daemon` prints nothing about a service it will not install.
 - **`entire brain setup --no-backfill --no-daemon` spends nothing at all** and
   changes no service — it is phase 1 only.
 
@@ -215,9 +228,16 @@ It does **not** require, and will not do for you:
   duplicating it in `setup` would leave two hooks racing to distill the same
   session. `setup` reports the session-end hook as an advisory line, never a
   failure.
-- **Captured Entire sessions.** Without them the session export fails, is
-  reported as a failed `sessions` component, and the run falls back to a
-  deterministic seed baseline and builds everything else.
+- **Captured Entire sessions.** A repository Entire has never captured a
+  session in still builds, and the `sessions` component is green: the export
+  returns an empty inventory, which is a true answer. You get a brain from
+  code, docs and git history rather than from your past agent work — which is
+  the one source it is most interesting for, so this is worth fixing, just not
+  by a failure. The export only *fails* when Entire cannot prove the inventory
+  is empty rather than merely unreadable — a configured checkpoint remote it
+  cannot enumerate, offline or unauthenticated — and the hint then says to work
+  a session and re-run, and points at `entire checkpoint list` for what Entire
+  itself can see.
 - **A working `entire graph` provider**, a supported service manager, or an
   agent CLI — each missing piece degrades exactly its own phase.
 
@@ -225,19 +245,65 @@ So the order that produces the best brain, rather than merely a successful
 command, is:
 
 ```sh
-entire enable          # capture sessions + wire the session-end hook
-entire brain setup     # then onboard: build, backfill, watch
+entire enable                              # capture sessions + wire the session-end hook
+git add .entire .claude && git commit      # enable wrote these and did not commit them
+entire brain setup                         # then onboard: build, backfill, watch
 ```
 
 That order is a quality decision, not a correctness one — running `entire enable`
 after `setup` works too, and the next backfill pass picks the new sessions up.
 
-**Expect `Brain ready (degraded)` on a repository new to Entire.** `setup` exits
-0 whenever at least one component built, and names the ones that did not. The
-two you will see on a fresh repository are `x session export` (no captured
-history yet — run `entire enable`) and `x semantic index: repo key mismatch` (the
-repository has **no git remote**, so the brain and the provider derive different
-keys for it; `git remote add origin …` and re-run).
+**The commit in the middle is not optional.** `entire enable` writes
+`.entire/settings.json` and your agent's hook settings (`.claude/settings.json`
+for Claude Code) and leaves them uncommitted, so a `setup` run immediately
+afterwards finds a dirty worktree and refuses to seed or index it — two red `x`
+on a first run, caused by the command directly above it:
+
+```
+  instant     + sessions  x seed  + history  + docs  x semantic  + patterns  + entities  + memory
+              x seed baseline: dirty_worktree: refusing to seed uncommitted content without --worktree
+                hint: commit or stash the working tree, then re-run `entire brain setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over
+```
+
+Both files are project configuration that belongs in the repository anyway, so
+committing them is the real fix rather than a workaround. (`--worktree`, which
+the refusal names, is a `refresh` flag — `setup` does not accept it.)
+
+**A repository new to Entire reaches an all-green `setup` with no user action.**
+On a committed `git init` repository with no remote at all, every component
+builds:
+
+```
+Brain ready in 3.6s
+  repo        /path/to/your/repo  (local/your-repo-686eadf04b0f)
+  brain       ~/.local/share/entire/plugins/data/brain/repos/local/your-repo-686eadf04b0f
+  instant     + sessions  + seed  + history  + docs  + semantic  + patterns  + entities  + memory  (3.6s)
+  facts       .............. 0/0 sessions distilled
+  backfill    - skipped (--no-backfill)  (0s)
+  workspace   + default  (20ms)
+  daemon      - skipped: --no-daemon  (0s)
+```
+
+`x semantic index: repo key mismatch` used to be the guaranteed second line
+here, blamed on the repository having **no git remote**. It was wrong in both
+directions — it also fired on every non-GitHub origin, because `entire-brain`
+and `entire-graph` spelled the same repository differently — and it is fixed:
+the brain now accepts the provider's own spelling of the repository it just
+asked the provider to index. A mismatch that still appears means the snapshot
+really does describe another repository, in practice one the provider cached
+before this repo's origin changed, and the hint says to rebuild it with
+`entire brain refresh index --force`.
+
+`setup` still exits 0 whenever at least one component built, and still names the
+ones that did not, so `Brain ready (degraded)` is information rather than
+failure when you do see it. The things that legitimately produce it:
+
+- **an uncommitted worktree** — `x seed` and `x semantic`, almost always the
+  `entire enable` output above, fixed by committing it;
+- **no `entire graph` provider** — `x semantic index:
+  provider_doctor_failed: ...`, fixed by `scripts/install.sh`;
+- **an unreadable checkpoint inventory** — `x session export`, when Entire
+  cannot reach the checkpoint remote to prove there is nothing to export.
 
 ### Or build the brain by hand: `refresh`
 
@@ -363,7 +429,7 @@ metadata to commits.
 
 This capture path is background infrastructure. The coding agent does not need
 to remember to save a transcript, and the human does not need to paste context
-into the brain. `entire-brain refresh` later ingests the retained sessions and
+into the brain. `entire brain refresh` later ingests the retained sessions and
 checkpoint history that the hooks produced.
 
 If an agent is not seeing Entire context at all, first check the base Entire

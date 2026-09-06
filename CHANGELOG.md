@@ -25,9 +25,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
     degrades around: `entire enable`, captured sessions, the `entire graph`
     provider, a service manager, an agent CLI. It states the real order
     (`entire enable` then `setup`) and that the order is a quality decision, not
-    a correctness one, and it warns that a repository new to Entire reports
-    `Brain ready (degraded)` at exit 0 — with the two components that fail and
-    the fix for each.
+    a correctness one, and it names what a repository new to Entire actually
+    produces: an all-green run, with `Brain ready (degraded)` explained as
+    exit-0 information and each remaining cause — an uncommitted worktree, a
+    missing `entire graph` provider, an unreadable checkpoint inventory — given
+    with its fix.
   - Step 3 says plainly that the watcher is installed as a **persistent
     launchd/systemd service, by default, with no prompt**, names the
     `RunAtLoad`/`KeepAlive` and `Restart=always` that make it survive reboot,
@@ -42,6 +44,34 @@ All notable changes to `entire-brain` are recorded here. The format follows
     brain refresh --agent none` — the same truncation in the terminal. It now
     says the machine is set up, no repository has a brain yet, and gives
     `cd /path/to/your/repo && entire brain setup` with its token-spend caveat.
+- Every command `setup` and `status` print back is now spelled the way the
+  reader reached this binary. The brain ships as a kubectl-style external
+  command of the Entire CLI, so a reader who types `entire brain setup` never
+  types the binary's own name — and on a managed install they cannot: the
+  binary lives in `<xdg_data>/entire/plugins/bin`, a directory the Entire CLI
+  prepends to `PATH` inside its own process and nowhere else. Everything was
+  printed as `entire-brain …` regardless, so the closing **Next** block handed a
+  plugin reader three commands their shell cannot resolve. The signal is the
+  host's: its plugin dispatcher sets `ENTIRE_CLI_VERSION` unconditionally on
+  every plugin launch (`os.Args[0]` is no signal — the dispatcher execs the
+  resolved path). Absent it the standalone name stays, which is the honest
+  answer for a reader who may not have the host CLI at all. The prefix is
+  resolved once per run and threaded to every printer, so the summary's Next
+  block, every skip and failure line, all three hints, the `status` verdict and
+  `setup --help` move together.
+- `setup` says what it will register with the machine **before** it does it. A
+  run that will install the watcher now opens, ahead of any work, with one line
+  naming the unit and its path, saying plainly that it is a persistent service
+  that starts again at every login, and giving both `--no-daemon` and
+  `entire brain setup --uninstall-daemon` on the same screen. Previously the
+  only mention arrived mid-summary, after a persistent launchd agent had been
+  registered in the user's real `~/Library/LaunchAgents` and started, and
+  `--uninstall-daemon` appeared only in `setup --help`. The default is
+  deliberately unchanged — whether the watcher installs unasked is a product
+  decision — but the consequence is now stated first. A re-run that finds the
+  service already there says it *keeps* it instead of claiming a second
+  install; `--no-daemon` announces nothing it will not do; a platform with no
+  service manager has nothing to announce.
 - Installing from git is one command that works with nothing arranged in
   advance. `scripts/install.sh` no longer requires `entire-graph` to be a
   sibling checkout with that exact name — the documented constraint that made
@@ -100,6 +130,43 @@ All notable changes to `entire-brain` are recorded here. The format follows
     at all.
   - `status` hard-coded five component names, so a component `setup` reported as
     FAILED (`entities`, say) was missing from `status` entirely.
+  - `x semantic index: repo key mismatch` on **every** repository created with
+    `git init` — and, less visibly, on every non-GitHub origin. `entire-graph`
+    recognises `github.com` remotes and otherwise falls back to
+    `local/<basename>`; the brain recognises many hosts by slug and, with no
+    usable remote, derives `local/<basename>-<sha256(abs path)[:12]>`. So the
+    two tools spelled the same repository differently, and the hint blamed the
+    reader's repository ("this repo has no git remote; add one … or upgrade the
+    entire CLI") for a disagreement between two of ours — advice that fired on
+    repositories which already had the remote it asked for, and that no upgrade
+    of either tool would have satisfied. The brain now recognises the provider's
+    own spelling of the repository it just asked the provider to index and
+    stores the snapshot under its own key. **A fresh `git init` repository
+    reaches an all-green `setup` with no user action.** This is not a weaker
+    crossover guard: the snapshot's commit and tree are still validated against
+    this repository's HEAD, and a snapshot naming a genuinely different
+    repository is still refused — with a hint that now says to rebuild the index
+    (`refresh index --force`) rather than to change the repository. Bundle
+    import and stored-snapshot read-back still compare keys exactly.
+  - A dirty worktree had no remedy. `entire enable` writes `.entire/settings.json`
+    and the agent's `.claude/settings.json` and does not commit them, so the very
+    next `setup` — the documented next step — found a dirty worktree and refused
+    to seed or index it, naming `--worktree`, a flag `setup` does not accept.
+    Both refusals now share one error code and `setup` attaches the remedy:
+    commit or stash, and why the tree is dirty when the reader edited nothing.
+  - A repository with no sessions yet read as a fault: "Entire returned no
+    readable checkpoint IDs from an incomplete persistent-store inventory".
+    True, and useless. The detail survives for anyone debugging a real fault; the
+    hint now says what the state means and points at `entire checkpoint list`.
+    A routed discovery that genuinely failed keeps its own detail.
+  - `setup` did not build the durable history projection and then told the user
+    to run `brief`, so the first `brief` after a first-ever `setup` dropped its
+    transcript half and printed "history index missing; run `entire brain
+    refresh`" — setup's own recommended next command reporting a gap in setup's
+    own output. `setup` and a watch tick now say which behaviour each wants, and
+    `refresh` skips the projection when its target directory does not exist
+    (the state a run where every deterministic source failed used to leave,
+    surfacing as a raw `lstat <brainDir>: no such file or directory`).
 
 ### Added
 
