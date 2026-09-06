@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -84,4 +85,63 @@ func useHostXDGDataHome(t *testing.T) {
 		t.Skip("no host data root to restore")
 	}
 	t.Setenv("XDG_DATA_HOME", hostXDGDataHome)
+}
+
+func TestTestMainPinsXDGRoots(t *testing.T) {
+	var root string
+	for _, key := range []string{xdgConfigHome, xdgDataHome, xdgStateHome, xdgCacheHome} {
+		dir := os.Getenv(key)
+		if !filepath.IsAbs(dir) || filepath.Base(dir) != key {
+			t.Fatalf("%s = %q, want an absolute per-run root", key, dir)
+		}
+		if root == "" {
+			root = filepath.Dir(dir)
+		}
+		if filepath.Dir(dir) != root || !strings.HasPrefix(filepath.Base(root), "entire-brain-cli-test-xdg-") {
+			t.Fatalf("%s = %q, want a child of the shared temporary root %q", key, dir, root)
+		}
+	}
+	dirs, err := resolvePluginDirs(EntireEnv{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{dirs.Config, dirs.Data, dirs.State, dirs.Cache} {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil || !filepath.IsLocal(rel) {
+			t.Fatalf("default plugin directory %q escaped temporary root %q: %v", dir, root, err)
+		}
+	}
+}
+
+func TestHostDataHomeSelection(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no host home directory")
+	}
+	abs := t.TempDir()
+	for _, tt := range []struct{ name, value, want string }{
+		{"absolute", abs, abs},
+		{"unset", "", filepath.Join(home, ".local", "share")},
+		{"relative", "relative-data", filepath.Join(home, ".local", "share")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(xdgDataHome, tt.value)
+			if got := hostDataHome(); got != tt.want {
+				t.Fatalf("hostDataHome() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHostXDGDataHomeOverrideIsScoped(t *testing.T) {
+	original := os.Getenv(xdgDataHome)
+	t.Run("live provider", func(t *testing.T) {
+		useHostXDGDataHome(t)
+		if got := os.Getenv(xdgDataHome); got != hostXDGDataHome {
+			t.Fatalf("live provider data root = %q, want %q", got, hostXDGDataHome)
+		}
+	})
+	if got := os.Getenv(xdgDataHome); got != original {
+		t.Fatalf("live provider override leaked: got %q, want %q", got, original)
+	}
 }
