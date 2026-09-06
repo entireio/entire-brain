@@ -531,7 +531,7 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 // The coordinator owns projection publication, retries, and crash recovery;
 // watch only nudges it. Agent seed synthesis remains a separate gated step.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
-	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, nil)
+	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, nil)
 }
 
 // watchDeterministicRefreshComponents is the same free path with an optional
@@ -540,19 +540,31 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 // instead of the first failure aborting the build. `setup` uses it so a single
 // broken source degrades the brain rather than killing first-run onboarding;
 // callers that pass nil keep the strict all-or-nothing behaviour.
-func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, component func(name string, err error)) error {
-	perRepo := opts
-	perRepo.Env.RepoRoot = repoDir
-	refreshOpts := refreshCommandOptions{
+//
+// historyIndex separates the two callers that were previously identical. A
+// watch TICK passes false: it runs every few minutes, the per-tick delta
+// already makes new conversations recallable, and the coordinator consolidates
+// the durable projection on its own schedule. `setup` passes true, because it
+// is a one-shot onboarding build (the same shape as a manual `refresh`, which
+// has always defaulted history on) and it ends by telling the user to run
+// `entire-brain brief`. With history unbuilt that brief silently drops its
+// transcript half and prints "history index missing" instead — setup's own
+// recommended next command, answering with a warning about setup's own output.
+// watchDeterministicRefreshOptions is the free path's refresh configuration,
+// built here rather than inline so both callers' intent — above all whether the
+// history projection is built — is readable and testable in one place.
+func watchDeterministicRefreshOptions(historyIndex bool) refreshCommandOptions {
+	return refreshCommandOptions{
 		outputDir:       defaultExportDir,
 		checkpointLimit: defaultCheckpointLimit,
 		entireBinary:    "entire",
 		graphBinary:     "entire",
 		scope:           exportScopeAll,
-		// The history projection must not bypass the durable work ledger. The
-		// per-tick delta above already makes new conversations recallable while
-		// the coordinator consolidates asynchronously.
-		historyIndex: false,
+		// A tick must not bypass the durable work ledger: the per-tick delta
+		// already makes new conversations recallable while the coordinator
+		// consolidates asynchronously. A one-shot onboarding build has no next
+		// tick to wait for, so `setup` asks for it explicitly.
+		historyIndex: historyIndex,
 		semantic:     true,
 		seed: seedCommandOptions{
 			includeTests:       true,
@@ -566,6 +578,12 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 			agentMaxInputBytes: defaultAgentMaxInput,
 		},
 	}
+}
+
+func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex bool, component func(name string, err error)) error {
+	perRepo := opts
+	perRepo.Env.RepoRoot = repoDir
+	refreshOpts := watchDeterministicRefreshOptions(historyIndex)
 	refreshOpts.component = component
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)

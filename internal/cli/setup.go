@@ -113,6 +113,42 @@ var setupComponentLabels = map[string]string{
 // repo hits.
 const setupRepoKeyMismatchHint = "this repo has no git remote; add one (git remote add origin ...) or upgrade the entire CLI so both derive the same key"
 
+// setupDirtyWorktreeHint is the second thing a first run hits, and it is caused
+// by the step the docs put immediately before setup. `entire enable` writes
+// .entire/settings.json and the agent's hook settings (.claude/settings.json)
+// and does NOT commit them, so the very next `entire-brain setup` finds a dirty
+// worktree and refuses to seed or index it. The error text names --worktree,
+// which `setup` does not accept — leaving the reader with a flag they cannot
+// pass to the command they ran. Both halves of the remedy belong here: what to
+// do, and why the tree is dirty when they never edited anything.
+const setupDirtyWorktreeHint = "commit or stash the working tree, then re-run `entire-brain setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
+
+// setupNoSessionsHint covers the state EVERY repo is in between `entire enable`
+// and its first finished agent session: Entire has no checkpoints to hand over,
+// and when the checkpoint remote is also unreachable (offline, or not yet
+// authenticated) the brain cannot prove the inventory is empty rather than
+// merely unreadable, so it reports a failure. "no readable checkpoint IDs from
+// an incomplete persistent-store inventory" is true and useless; this says what
+// it means and what the reader does about it.
+const setupNoSessionsHint = "no captured sessions are readable yet — if no agent session has finished in this repo since `entire enable`, that is expected: work in a session, then re-run `entire-brain setup`; `entire checkpoint list` shows what Entire itself can see"
+
+// setupBuildsHistoryProjection and watchTickBuildsHistoryProjection are the one
+// place the two callers of the free deterministic refresh disagree.
+//
+// A watch TICK leaves the durable history projection to the memory coordinator:
+// it runs every few minutes, the per-tick delta already makes new conversations
+// recallable, and re-projecting on every tick would bypass the work ledger.
+//
+// `setup` is not a tick. It runs once, and it ends by telling the user to run
+// `entire-brain brief` — which, with no projection, drops its transcript half
+// and answers "history index missing; run `entire brain refresh`". Setup's own
+// recommended next command reporting a gap in setup's own output is the first
+// impression this whole path exists to get right.
+const (
+	setupBuildsHistoryProjection     = true
+	watchTickBuildsHistoryProjection = false
+)
+
 // setupComponent is one instant-phase component and how it ended.
 type setupComponent struct {
 	Name   string `json:"name"`
@@ -138,15 +174,36 @@ func newSetupComponent(name string, err error) setupComponent {
 		return setupComponent{Name: name, State: "ok"}
 	}
 	component := setupComponent{Name: name, State: "failed", Detail: strings.TrimSpace(err.Error())}
-	if setupIsRepoKeyMismatch(component.Detail) {
+	switch {
+	case setupIsRepoKeyMismatch(component.Detail):
 		component.Hint = setupRepoKeyMismatchHint
 		component.Detail = "repo key mismatch: " + component.Detail
+	case setupIsDirtyWorktree(component.Detail):
+		component.Hint = setupDirtyWorktreeHint
+	case setupIsNoReadableSessions(component.Detail):
+		component.Hint = setupNoSessionsHint
 	}
 	return component
 }
 
 func setupIsRepoKeyMismatch(detail string) bool {
 	return strings.Contains(detail, "repo_key") && strings.Contains(detail, "does not match current repo")
+}
+
+// setupIsDirtyWorktree matches the machine-readable prefix both refusals carry
+// (seed.go and semantic.go), not their prose, so rewording either message
+// cannot silently drop the hint.
+func setupIsDirtyWorktree(detail string) bool {
+	return strings.Contains(detail, dirtyWorktreeErrorCode+":")
+}
+
+// setupIsNoReadableSessions matches the export failure raised when nothing is
+// enumerable AND the inventory could not be proven complete. The narrower
+// "routed discovery failed" variants keep their own detail: those name a real
+// fault to fix, while this one is usually just a repo with no sessions yet.
+func setupIsNoReadableSessions(detail string) bool {
+	return strings.Contains(detail, checkpointScopeIncompleteCode+":") &&
+		strings.Contains(detail, "no readable checkpoint IDs")
 }
 
 // partitionSetupComponents splits the phase's outcome into what built and what
@@ -1059,10 +1116,12 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.instant == nil {
 		steps.instant = func(ctx context.Context) ([]setupComponent, error) {
-			// Exactly the free path `watch` runs: sessions + semantic + seed +
-			// docs + history reconciliation with seed agent "none" — but in
+			// The free path `watch` runs — sessions + semantic + seed + docs +
+			// entities + memory reconciliation with seed agent "none" — in
 			// best-effort mode, so each component reports its own outcome and one
-			// failure does not abort the build.
+			// failure does not abort the build. History is the one difference from
+			// a tick: onboarding builds the projection now rather than leaving the
+			// first `brief` to answer without it.
 			sub := &cobra.Command{}
 			sub.SetContext(ctx)
 			sub.SetOut(cmd.OutOrStdout())
@@ -1072,7 +1131,7 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 				sub.SetErr(io.Discard)
 			}
 			var components []setupComponent
-			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, func(name string, err error) {
+			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, func(name string, err error) {
 				component := newSetupComponent(name, err)
 				components = append(components, component)
 				steps.observeComponent.notify(component)

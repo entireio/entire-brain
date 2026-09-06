@@ -290,7 +290,17 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		progress.Skip(refreshSeedLabel(manifest))
 		stage(brainComponentSeed, nil)
 	}
-	if refreshOpts.historyIndex && (refreshOpts.force || !historyIndexCurrent(brainDir, manifest)) {
+	// The projector reads the brain directory directly, and on a first run where
+	// EVERY source failed there is no brain directory to read: a repo enabled a
+	// minute ago has no sessions to export, and if the worktree is also dirty
+	// (which `entire enable` leaves it) the seed baseline does not build either.
+	// Running the projector anyway answered "you have no sessions yet" with a
+	// second, rawer line naming an internal path and no remedy --
+	// "lstat <brainDir>: no such file or directory". An empty history index over
+	// a brain directory that DOES exist is still built, as before.
+	if refreshOpts.historyIndex && !historyProjectionTargetExists(brainDir) {
+		progress.Skip("history index: skipped, no brain directory was built")
+	} else if refreshOpts.historyIndex && (refreshOpts.force || !historyIndexCurrent(brainDir, manifest)) {
 		historyTask := progress.Begin("history index")
 		historyProgress := func(done, total int) {
 			if total <= 0 {
@@ -511,6 +521,16 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		}
 	}
 	return nil
+}
+
+// historyProjectionTargetExists reports whether the brain directory the history
+// projector reads is actually there. See the call site in runRefresh.
+func historyProjectionTargetExists(brainDir string) bool {
+	if strings.TrimSpace(brainDir) == "" {
+		return false
+	}
+	info, err := os.Stat(brainDir)
+	return err == nil && info.IsDir()
 }
 
 func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {

@@ -946,6 +946,12 @@ func listAllRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir
 const (
 	checkpointScopeIncompleteCode = "checkpoint_scope_incomplete"
 	entireCheckpointScopePrefix   = "ENTIRE_CHECKPOINT_SCOPE_V1 "
+
+	// dirtyWorktreeErrorCode prefixes the seed and semantic refusals to index
+	// uncommitted content. It is shared so the reporter that attaches the
+	// remedy (newSetupComponent) matches a code rather than either message's
+	// prose, which would let a reword drop the hint silently.
+	dirtyWorktreeErrorCode = "dirty_worktree"
 )
 
 type routedCheckpointScopeStatus struct {

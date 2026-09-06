@@ -532,3 +532,122 @@ func TestStatusReportsEveryComponentSetupReported(t *testing.T) {
 		t.Fatalf("status must speak setup's whole component vocabulary: %v", states)
 	}
 }
+
+// --- 5. the enable -> setup seam ------------------------------------------
+//
+// These two pin the first run as a REAL user performs it, not as the synthetic
+// demo staged it. scripts/demo-setup.sh writes checkpoint refs into the repo
+// itself and never runs `entire enable`, so neither of these states could ever
+// occur there; both occur every time in scripts/demo-agent-session.sh, which
+// runs the host CLI for real.
+
+// TestSetupNamesTheRemedyForADirtyWorktree: `entire enable` writes
+// .entire/settings.json and .claude/settings.json and does not commit them, so
+// the documented next step -- `entire-brain setup` -- finds a dirty worktree
+// and refuses to seed or index it. The refusal names --worktree, a flag `setup`
+// does not accept, so before this the reader was told to pass something they
+// could not pass, about files they never edited.
+func TestSetupNamesTheRemedyForADirtyWorktree(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{brainComponentSeed, brainComponentSemantic} {
+		component := newSetupComponent(name, errors.New(dirtyWorktreeErrorCode+": refusing to index uncommitted content without --worktree"))
+		hint := component.Hint
+		if hint == "" {
+			t.Fatalf("%s: a dirty worktree must carry a remedy; the refusal names --worktree, which setup does not accept", name)
+		}
+		for _, want := range []string{"commit", "entire enable", ".entire/", ".claude/"} {
+			if !strings.Contains(hint, want) {
+				t.Fatalf("%s: the hint must say what to do and why the tree is dirty, missing %q: %s", name, want, hint)
+			}
+		}
+	}
+}
+
+// TestSetupExplainsARepoWithNoSessionsYet: between `entire enable` and the
+// first finished agent session there are no checkpoints, and when the
+// checkpoint remote is unreachable too the brain cannot prove the inventory is
+// empty rather than unreadable -- so it fails the component with "no readable
+// checkpoint IDs from an incomplete persistent-store inventory". That sentence
+// is true and tells a new user nothing.
+func TestSetupExplainsARepoWithNoSessionsYet(t *testing.T) {
+	t.Parallel()
+	detail := checkpointScopeIncompleteCode + ": Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory"
+	component := newSetupComponent(brainComponentSessions, errors.New(detail))
+	if component.Hint == "" {
+		t.Fatalf("a repo with no sessions yet must be explained, not just reported: %+v", component)
+	}
+	for _, want := range []string{"no captured sessions", "entire enable", "entire checkpoint list"} {
+		if !strings.Contains(component.Hint, want) {
+			t.Fatalf("the hint must name the expected state and how to check it, missing %q: %s", want, component.Hint)
+		}
+	}
+	if !strings.Contains(component.Detail, "no readable checkpoint IDs") {
+		t.Fatalf("the underlying detail must survive for anyone debugging a real fault: %s", component.Detail)
+	}
+}
+
+// TestRoutedDiscoveryFailureKeepsItsOwnDetail is the other side of that line: a
+// routed discovery that actually FAILED names a fault to fix, and must not be
+// softened into "you probably have no sessions yet".
+func TestRoutedDiscoveryFailureKeepsItsOwnDetail(t *testing.T) {
+	t.Parallel()
+	component := newSetupComponent(brainComponentSessions,
+		errors.New(`complete routed checkpoint discovery failed: list checkpoints: entire [checkpoint explain --json --search-all]: exec: "entire": executable file not found in $PATH`))
+	if component.Hint == setupNoSessionsHint {
+		t.Fatalf("a real discovery failure is not an empty repo: %+v", component)
+	}
+}
+
+// TestSetupBuildsTheHistoryIndexTheFirstBriefNeeds. `setup` and a watch tick
+// share one deterministic refresh path, and setup used to inherit the tick's
+// decision to leave the durable history projection to the memory coordinator.
+// The visible result was that the FIRST `entire-brain brief` after a first-ever
+// `entire-brain setup` -- the command setup's own "Next" block recommends --
+// answered without its transcript half and printed
+//
+//	warning: history index missing; run `entire brain refresh`
+//
+// Reproduced against a real captured session in scripts/demo-agent-session.sh:
+// the brief returned the distilled fact but no `history` line until a bare
+// `entire-brain refresh` was run by hand.
+func TestSetupBuildsTheHistoryIndexTheFirstBriefNeeds(t *testing.T) {
+	t.Parallel()
+	if !watchDeterministicRefreshOptions(setupBuildsHistoryProjection).historyIndex {
+		t.Fatal("setup must build the history projection: it runs once and then tells the user to run `brief`, which has nothing to read without it")
+	}
+	if watchDeterministicRefreshOptions(watchTickBuildsHistoryProjection).historyIndex {
+		t.Fatal("a watch TICK must still leave the projection to the coordinator; re-projecting every few minutes bypasses the durable work ledger")
+	}
+}
+
+// TestFirstRunNeverProjectsHistoryFromNothing is the other half of building the
+// projection during setup. On a first run EVERY deterministic source can fail
+// at once -- a repo enabled a minute ago has no sessions to export, and the
+// worktree `entire enable` leaves dirty blocks the seed baseline too -- and then
+// the brain directory the projector reads was never created. Running it anyway
+// answered "you have no sessions yet" with a second, rawer line naming an
+// internal path:
+//
+//	x history index: lstat <brainDir>: no such file or directory
+//
+// Both halves are asserted here, because the guard is only worth having if the
+// thing it guards really does fail that way. An empty index over a brain
+// directory that DOES exist stays built (TestRefreshSeedsWhenExportFindsNoSessions).
+func TestFirstRunNeverProjectsHistoryFromNothing(t *testing.T) {
+	t.Parallel()
+	absent := filepath.Join(t.TempDir(), "brain-that-was-never-built")
+	if historyProjectionTargetExists(absent) {
+		t.Fatal("a brain directory that was never created is not a projection target")
+	}
+	if historyProjectionTargetExists("") {
+		t.Fatal("an unresolved brain directory is not a projection target")
+	}
+	built := t.TempDir()
+	if !historyProjectionTargetExists(built) {
+		t.Fatal("a brain directory that exists must still be projected into, empty or not")
+	}
+
+	if _, err := writeBrainHistoryIndexAndSourceContext(context.Background(), absent, time.Now().UTC(), nil); err == nil {
+		t.Fatal("the projector must fail on a brain directory that does not exist; if it no longer does, the guard above can go")
+	}
+}

@@ -443,7 +443,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
 	}
 	if dirty && !indexOpts.worktree {
-		return errors.New("dirty_worktree: refusing to index uncommitted content without --worktree")
+		return errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content without --worktree")
 	}
 	worktreeHashBefore := ""
 	if indexOpts.worktree {
