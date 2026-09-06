@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -275,5 +276,53 @@ func TestBrainManifestSkewIsReadOnlyAndRecoverableByRemoval(t *testing.T) {
 	}
 	if err := writeBrainManifestAndReadme(dir, rebuilt); err != nil {
 		t.Fatalf("removal must clear the way for a rebuild: %v", err)
+	}
+}
+
+// manifestBrainWrite matches a write of the manifest back into the brain
+// directory: a write-named helper taking the brain dir and the manifest name.
+// It deliberately does not match a manifest packed into a bundle tar, which
+// copies a freshly built value rather than rewriting live state.
+var manifestBrainWrite = regexp.MustCompile(`(?i)write[A-Za-z]*\(\s*(outputDir|brainDir)\s*,\s*exportManifestFileName`)
+
+// Every file that rewrites the manifest into the brain directory gates on the
+// strict reader.
+//
+// The tolerant reader exists for the ~280 call sites that only consume the
+// manifest, but three writers used loadBrainManifest's strictness as their write
+// guard and two of them are nowhere near writeBrainManifestAndReadme. Making the
+// reader tolerant silently disarmed those two: the bytes they write are
+// marshalled from a struct, so a field the reader dropped would be erased. This
+// discovers writers by scanning, so a new one cannot quietly inherit the wrong
+// reader.
+func TestEveryManifestWriterGatesOnTheStrictReader(t *testing.T) {
+	t.Parallel()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writers := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		source, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(source)
+		if !manifestBrainWrite.MatchString(text) {
+			continue
+		}
+		writers++
+		if !strings.Contains(text, "loadBrainManifestForReplace") {
+			t.Errorf("%s rewrites the brain manifest but never calls loadBrainManifestForReplace; a writer "+
+				"gated on the tolerant loadBrainManifest erases fields another build wrote", name)
+		}
+	}
+	if writers < 3 {
+		t.Fatalf("found %d manifest writers, want at least the 3 known ones; the detection pattern has drifted", writers)
 	}
 }
