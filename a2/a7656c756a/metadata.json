@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.3-nightly.202608220610.6bf587d66",
+  "checkpoint_id": "a2a7656c756a",
+  "strategy": "manual-commit",
+  "branch": "codex/pr89-merge",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/memory_abstract_privacy_linearization_test.go",
+    "internal/cli/setup_daemon_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a2/a7656c756a/0/metadata.json",
+      "transcript": "/a2/a7656c756a/0/full.jsonl",
+      "compact_transcript": "/a2/a7656c756a/0/transcript.jsonl",
+      "content_hash": "/a2/a7656c756a/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42625,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 4814976,
+    "output_tokens": 3933,
+    "api_call_count": 29
+  }
+}
