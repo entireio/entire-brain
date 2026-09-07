@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "6d96515aacc9",
+  "session_id": "01a07c26-bf3b-7ff0-9325-2bc39837038b",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-07T16:07:23.28176Z",
+  "branch": "codex/graph-parser-upgrade",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/graph-identity-upgrades.md",
+    "internal/cli/graph_identity_upgrade_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_test.go",
+    "internal/cli/semantic_identity_test.go",
+    "internal/entityindex/graphdiff.go",
+    "internal/entityindex/migrate_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 495191,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 36803712,
+    "output_tokens": 90925,
+    "api_call_count": 288
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-07T16:07:22.718196Z",
+    "agent_lines": 121,
+    "agent_removed": 30,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 121,
+    "total_lines_changed": 151,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
