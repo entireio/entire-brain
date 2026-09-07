@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "0e3262cf769e",
+  "session_id": "01a07af9-9cce-7412-8542-b9f4bc43d809",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-07T09:45:19.354416Z",
+  "branch": "codex/align-trail-runners",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 83496,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1452800,
+    "output_tokens": 8700,
+    "api_call_count": 25
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
