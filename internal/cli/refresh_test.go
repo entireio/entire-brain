@@ -121,6 +121,23 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 			t.Fatalf("warm refresh reran semantic snapshot: %+v", runner.calls)
 		}
 	}
+	// A version-probe failure must not abort the refresh pipeline when its
+	// source and cached snapshot remain usable (including watch's warm path).
+	runner.responses[fakeCommandKey("entire", "graph", "version", "--json")] = fakeCommandResponse{err: errors.New("unknown command version")}
+	runner.calls = nil
+	out, err := execute(t, NewRootCommand(opts), "refresh", "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("warm refresh with unsupported version probe: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "cannot verify semantic provider identity") || !strings.Contains(out, "refreshed brain:") {
+		t.Fatalf("missing warning or pipeline completion: %s", out)
+	}
+	for _, call := range runner.calls {
+		if call.name == "entire" && len(call.args) >= 2 && call.args[0] == "graph" && call.args[1] == "snapshot" {
+			t.Fatal("probe failure unnecessarily rebuilt snapshot")
+		}
+	}
+
 }
 
 func TestRefreshHelpShowsSimplifiedFlags(t *testing.T) {
