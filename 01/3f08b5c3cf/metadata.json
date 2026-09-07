@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "013f08b5c3cf",
+  "strategy": "manual-commit",
+  "branch": "codex/graph-parser-upgrade",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/brain_brief_stale_index.go",
+    "internal/cli/brain_brief_stale_index_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/01/3f08b5c3cf/0/metadata.json",
+      "transcript": "/01/3f08b5c3cf/0/full.jsonl",
+      "compact_transcript": "/01/3f08b5c3cf/0/transcript.jsonl",
+      "content_hash": "/01/3f08b5c3cf/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42591,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2929920,
+    "output_tokens": 8828,
+    "api_call_count": 24
+  }
+}
