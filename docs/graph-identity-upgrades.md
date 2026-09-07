@@ -17,7 +17,9 @@ callables and callable class fields also have their bodies indexed correctly.
 2. Run `entire brain refresh` in each repository. Even if the source tree is
    unchanged, a different provider identity revision rebuilds its semantic
    snapshot and SQLite generation. Normal freshness checks report stale provider
-   identity until this happens.
+   identity until this happens. If the identity command is unavailable, refresh
+   warns and continues with source/artifact checks; it does not stamp identity as
+   verified or abort an otherwise usable warm refresh.
 3. Run `entire brain entities migrate` in each repository with existing entity
    history. This carries the union of previously indexed commits across branches
    into the current parser revision. Normal backfill also works, but follows its
@@ -74,7 +76,11 @@ backfill or metadata-import write causes publication to abort; rerun migration.
 No concurrent work is overwritten and no partial migration is published.
 
 A failed/cancelled provider call, unavailable source commit, malformed or partial
-diff, wrong base/head, changing provider revision, or truncated delta also aborts.
+diff envelope, wrong base/head, changing provider revision, or truncated delta
+also aborts. Entity mapping follows the same rules as backfill: file-only changes
+and records without a resolvable name/path contribute no entity, and a missing
+kind is retained according to the existing contract. These do not abort migration;
+provider warnings about partial results still do.
 Migration is capped at 20,000 distinct stored commits and 200,000 new entity
 changes. It never silently migrates a subset above those limits.
 

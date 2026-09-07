@@ -101,7 +101,7 @@ func TestGraphIdentityUpgradeLive(t *testing.T) {
 	if err != nil || revision == "" {
 		t.Fatalf("new revision=%q, %v", revision, err)
 	}
-	needed, err := semanticRefreshNeeded(ctx, opts, storage.BrainDir, repo, manifest, false, "entire")
+	needed, _, err := semanticRefreshNeeded(ctx, opts, storage.BrainDir, repo, manifest, false, "entire")
 	if err != nil || !needed {
 		t.Fatalf("unchanged tree upgrade not refreshed: %v %v", needed, err)
 	}
@@ -178,7 +178,7 @@ func TestGraphIdentityUpgradeLive(t *testing.T) {
 	if manifest.Sources.Semantic.IdentityRevision != revision {
 		t.Fatal("manifest lost identity revision")
 	}
-	needed, err = semanticRefreshNeeded(ctx, opts, storage.BrainDir, repo, manifest, false, "entire")
+	needed, _, err = semanticRefreshNeeded(ctx, opts, storage.BrainDir, repo, manifest, false, "entire")
 	if err != nil || needed {
 		t.Fatalf("fresh identity not reusable: %v %v", needed, err)
 	}

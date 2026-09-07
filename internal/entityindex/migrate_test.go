@@ -253,3 +253,45 @@ func TestLegacyHistoryIgnoresGlobalIdentityMarker(t *testing.T) {
 		t.Fatal("legacy query blocked")
 	}
 }
+
+// Migration must preserve the established ParseDiff mapping policy: an
+// entity-less file change or an unkeyable record must not block other history.
+func TestMigrateUsesBackfillEntityMapping(t *testing.T) {
+	ctx := context.Background()
+	r := newFakeRunner()
+	store := newTestStore(t)
+	c := commitInfo{SHA: strings.Repeat("a", 40), CommittedAt: commitAt(0)}
+	scriptRepo(r, "main", []commitInfo{c})
+	raw := graphOutput(EmptyTreeSHA, c.SHA,
+		graphFileChange{Path: "renamed.txt", OldPath: "old.txt", Status: "renamed"},
+		graphFileChange{Path: "a.go", Changes: []graphEntityChange{
+			{Type: "modified", Kind: "function", Name: "keep"},
+			{Type: "modified", Kind: "function"},    // no name: skipped by the mapper
+			{Type: "modified", Name: "legacy-kind"}, // absent kind: retained as before
+		}},
+		graphFileChange{Changes: []graphEntityChange{{Type: "modified", Kind: "function", Name: "no-path"}}},
+	)
+	r.set(graphDiffKey(EmptyTreeSHA, c.SHA), raw)
+	if _, err := Build(ctx, r, store, BuildOptions{RepoDir: testRepoDir, Now: fixedNow()}); err != nil {
+		t.Fatal(err)
+	}
+	legacy, ok := loadSnapshot(t, store).Delta(c.SHA)
+	if !ok || len(legacy.Entities) != 2 {
+		t.Fatalf("legacy mapping: %+v", legacy)
+	}
+	r.set(graphDiffKey(EmptyTreeSHA, c.SHA), strings.Replace(raw, "{", `{"identity_revision":"scope-1",`, 1))
+	r.set("git log -1 "+gitLogFormat+" "+c.SHA, fmt.Sprintf("%s\x00\x00%s\x00root\x1e", c.SHA, c.CommittedAt.Format("2006-01-02T15:04:05Z07:00")))
+	r.set("entire graph version --json", `{"identity_revision":"scope-1"}`)
+	result, err := Migrate(ctx, r, store, BuildOptions{RepoDir: testRepoDir, IdentityRevision: "scope-1", Now: fixedNow()})
+	if err != nil || result.Indexed != 1 {
+		t.Fatalf("migration rejected supported mapping: %+v %v", result, err)
+	}
+	state, err := store.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, ok := LoadRevision(state, "scope-1").Delta(c.SHA)
+	if !ok || !reflect.DeepEqual(migrated.Entities, legacy.Entities) {
+		t.Fatalf("mapping diverged: %+v vs %+v", migrated, legacy)
+	}
+}

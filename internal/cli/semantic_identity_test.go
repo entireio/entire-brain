@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"github.com/spf13/cobra"
 	"path/filepath"
 	"testing"
@@ -22,11 +23,28 @@ func TestSemanticRefreshIdentityWithUnchangedTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if needed, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire"); err != nil || needed {
+	if needed, _, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire"); err != nil || needed {
 		t.Fatalf("legacy unchanged tree: %v %v", needed, err)
 	}
+	key := fakeCommandKey("entire", "graph", "version", "--json")
+	runner.responses[key] = fakeCommandResponse{err: errors.New("unknown graph version command")}
+	needed, warning, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire")
+	if err != nil || needed || warning == "" {
+		t.Fatalf("probe failure aborted warm reuse: %v %q %v", needed, warning, err)
+	}
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "changed-tree\n"}
+	needed, warning, err = semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire")
+	if err != nil || !needed || warning == "" {
+		t.Fatalf("probe failure masked changed tree: %v %q %v", needed, warning, err)
+	}
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, _, err := semanticRefreshNeeded(cancelled, opts, brain, repo, manifest, false, "entire"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation swallowed: %v", err)
+	}
 	runner.responses[fakeCommandKey("entire", "graph", "version", "--json")] = fakeCommandResponse{stdout: `{"identity_revision":"scope-1"}`}
-	if needed, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire"); err != nil || !needed {
+	if needed, _, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire"); err != nil || !needed {
 		t.Fatalf("provider upgrade ignored: %v %v", needed, err)
 	}
 	report, err := semanticStaleReport(ctx, opts, repo)

@@ -104,13 +104,9 @@ func diffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 			if len(envelope.Warnings) > 0 {
 				return Delta{}, fmt.Errorf("migration graph diff has warnings; refusing potentially incomplete history: %s", envelope.Warnings[0])
 			}
-			for _, file := range envelope.Files {
-				for _, change := range file.Changes {
-					if _, ok := entityDeltaFrom(file, change); !ok || change.Kind == "" {
-						return Delta{}, fmt.Errorf("migration graph diff contains an unkeyable entity")
-					}
-				}
-			}
+			// Entity mapping has the same tolerant rules in migration and
+			// backfill. File-only/unkeyable changes are skipped by ParseDiff;
+			// envelope/provenance and partial-output validation remain strict.
 		}
 		if envelope.Base != base || envelope.Head != head {
 			return Delta{}, fmt.Errorf("migration graph diff did not attest requested base/head")
