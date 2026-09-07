@@ -2,14 +2,15 @@ package entityindex
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/ashtom/entire-brain/internal/factgitmeta"
 )
 
+// IdentityKey was used by the pre-release global migration. It is ignored;
+// parser selection is local and must never be changed by a synced marker.
 const IdentityKey = "brain:entities-identity-revision"
 
 // ProviderIdentity is an additive provider capability, separate from the wire
@@ -42,27 +43,44 @@ func ProviderIdentity(ctx context.Context, runner Runner, repo, binary string) (
 	return info.IdentityRevision, nil
 }
 
-// CheckIdentity prevents mixing history computed with different parser rules.
-func CheckIdentity(store *factgitmeta.MetaStore, revision string) error {
-	previous, _, err := store.ReadString(projectTarget, IdentityKey)
+// RevisionKey isolates parser-derived records without rewriting legacy keys.
+// An empty revision retains the frozen producer contract for older peers.
+func RevisionKey(key, revision string) string {
+	if revision == "" {
+		return key
+	}
+	return "brain:entities-revision:" + hexSegment(revision) + ":" + hexSegment(key)
+}
+
+func originalRevisionKey(key, revision string) (string, bool) {
+	if revision == "" {
+		return key, !strings.HasPrefix(key, "brain:entities-revision:")
+	}
+	prefix := "brain:entities-revision:" + hexSegment(revision) + ":"
+	if !strings.HasPrefix(key, prefix) {
+		return "", false
+	}
+	raw, err := hex.DecodeString(strings.TrimPrefix(key, prefix))
+	return string(raw), err == nil
+}
+
+// anyRevisionKey identifies source records when carrying history across revisions.
+func anyRevisionKey(key string) string {
+	const prefix = "brain:entities-revision:"
+	if !strings.HasPrefix(key, prefix) {
+		return key
+	}
+	parts := strings.Split(strings.TrimPrefix(key, prefix), ":")
+	if len(parts) != 2 {
+		return ""
+	}
+	revision, err := hex.DecodeString(parts[0])
+	if err != nil || len(revision) == 0 {
+		return ""
+	}
+	raw, err := hex.DecodeString(parts[1])
 	if err != nil {
-		return err
+		return ""
 	}
-	state, err := store.State()
-	if err != nil {
-		return err
-	}
-	for _, v := range state.Strings {
-		if v.Key != ForwardKey || v.Target.Type != CommitTarget("x").Type {
-			continue
-		}
-		var delta Delta
-		if err := json.Unmarshal([]byte(v.Value), &delta); err != nil {
-			return fmt.Errorf("invalid entity history delta: %w", err)
-		}
-		if previous != revision || delta.IdentityRevision != revision {
-			return fmt.Errorf("entity history identity revision changed from %q to %q; run `entire brain entities migrate` before backfill or history queries", delta.IdentityRevision, revision)
-		}
-	}
-	return nil
+	return string(raw)
 }

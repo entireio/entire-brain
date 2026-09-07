@@ -10,7 +10,7 @@ func newEntitiesMigrateCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate [path]",
 		Short: "Recompute stored entity history after a Graph parser identity change",
-		Long:  "Recompute every already-indexed commit across all branches with the current Graph provider. Publishes one atomic git-meta update only after all diffs succeed. Preserves indexed windows, source commits, checkpoint/session provenance, and authored memory. Requires all indexed Git commits to be available locally.",
+		Long:  "Carry already-indexed commits across all branches into the current Graph parser namespace, skipping commits already present there. Computes diffs without the write lock, then atomically publishes only if git-meta has not changed. Preserves older parser records, source commits, checkpoint/session provenance, and authored memory. Requires source Git commits locally; retry if another writer changes git-meta.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo, _, store, err := openEntityIndexStore(cmd.Context(), opts, entitiesTarget(opts, args))

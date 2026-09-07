@@ -12,27 +12,74 @@ import (
 	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
 )
 
-// Migrate recomputes exactly the already indexed commits, across all branches.
-// No history window is widened and no authored memory is removed. All provider
-// work must succeed before one atomic git-meta update replaces the derived keys.
+// Migrate carries indexed commits into the selected parser namespace. Provider
+// work runs without the write lock. Publication checks the captured metadata
+// tip under the lock and aborts on drift; no older parser record is rewritten or
+// tombstoned. Older peers continue to read and extend their original history.
 func Migrate(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opts BuildOptions) (BuildResult, error) {
 	result := BuildResult{}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	opts.migrating = true
 	if runner == nil || store == nil {
 		return result, fmt.Errorf("migration requires runner and store")
 	}
-	unlock, err := store.Lock()
+	baseline, err := store.Tip()
 	if err != nil {
 		return result, err
 	}
-	defer unlock()
 	state, err := store.State()
 	if err != nil {
 		return result, err
 	}
-	var commits []commitInfo
+	observed, err := store.Tip()
+	if err != nil {
+		return result, err
+	}
+	if observed != baseline {
+		return result, fmt.Errorf("entity history changed while reading migration input; retry migration")
+	}
+	existing := map[stateKey]bool{}
 	for _, v := range state.Strings {
-		if v.Target.Type != gitmeta.TargetCommit || v.Key != ForwardKey {
+		existing[stateKey{v.Target, v.Key}] = true
+	}
+	var commits []commitInfo
+	seen := map[string]bool{}
+	var windows []gitmeta.Mutation
+	// Copy a coverage window only when the destination has none. All source
+	// forward records are included below, so the copied range has no holes.
+	for _, v := range state.Strings {
+		key := anyRevisionKey(v.Key)
+		if v.Target != projectTarget {
+			continue
+		}
+		if _, ok := DecodeWindowBranch(key); !ok {
+			continue
+		}
+		dest := RevisionKey(key, opts.IdentityRevision)
+		if existing[stateKey{projectTarget, dest}] {
+			continue
+		}
+		if _, ok := DecodeWindow(v.Value); ok {
+			existing[stateKey{projectTarget, dest}] = true
+			windows = append(windows, gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: dest, Value: v.Value})
+		}
+	}
+
+	for _, v := range state.Strings {
+		if v.Target.Type != gitmeta.TargetCommit || anyRevisionKey(v.Key) != ForwardKey {
+			continue
+		}
+		if seen[v.Target.Value] {
+			continue
+		}
+		seen[v.Target.Value] = true
+		if len(seen) > maxWalkCommits {
+			return result, fmt.Errorf("migration exceeds %d stored commits; no records changed", maxWalkCommits)
+		}
+		if existing[stateKey{v.Target, RevisionKey(ForwardKey, opts.IdentityRevision)}] {
+			result.Skipped++
 			continue
 		}
 		var old Delta
@@ -89,48 +136,32 @@ func Migrate(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, o
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	result.MetaTip, err = store.UpdateLocked(b.mutCount+1, func(current gitmeta.State) (gitmeta.State, error) {
-		next := clearDerivedEntityKeys(current)
+	// Only publication takes the lock. Do not wait behind an unbounded writer.
+	unlock, err := store.TryLock()
+	if err != nil {
+		return result, fmt.Errorf("migration publish lock unavailable; retry migration: %w", err)
+	}
+	defer unlock()
+	result.MetaTip, err = store.UpdateLocked(b.mutCount+len(windows), func(current gitmeta.State) (gitmeta.State, error) {
+		tip, err := store.Tip()
+		if err != nil {
+			return gitmeta.State{}, err
+		}
+		if tip != baseline {
+			return gitmeta.State{}, fmt.Errorf("entity history changed during migration; no migration records published; retry migration")
+		}
+		if err := ctx.Err(); err != nil {
+			return gitmeta.State{}, err
+		}
 		var muts []gitmeta.Mutation
 		for _, g := range b.groups {
 			muts = append(muts, g.muts...)
 		}
-		muts = append(muts, gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: IdentityKey, Value: opts.IdentityRevision})
-		return applyBatch(next, muts), nil
+		muts = append(muts, windows...)
+		if len(muts) == 0 {
+			return gitmeta.State{}, factgitmeta.ErrNoUpdate
+		}
+		return applyBatch(current, muts), nil
 	})
 	return result, err
-}
-
-// Retain forward documents until overwritten, windows, and every unrelated
-// namespace. Tombstone superseded reverse/alias keys so sync cannot revive them.
-func clearDerivedEntityKeys(st gitmeta.State) gitmeta.State {
-	out := gitmeta.State{Tombstones: append([]gitmeta.Tombstone(nil), st.Tombstones...)}
-	removed := map[stateKey]bool{}
-	drop := func(target gitmeta.Target, key string) bool {
-		if target != projectTarget || (!strings.HasPrefix(key, reverseKeyPrefix) && !strings.HasPrefix(key, aliasKeyPrefix)) {
-			return false
-		}
-		id := stateKey{target, key}
-		if !removed[id] {
-			out.Tombstones = append(out.Tombstones, gitmeta.Tombstone{Target: target, Key: key})
-			removed[id] = true
-		}
-		return true
-	}
-	for _, v := range st.Strings {
-		if !drop(v.Target, v.Key) {
-			out.Strings = append(out.Strings, v)
-		}
-	}
-	for _, v := range st.Lists {
-		if !drop(v.Target, v.Key) {
-			out.Lists = append(out.Lists, v)
-		}
-	}
-	for _, v := range st.Sets {
-		if !drop(v.Target, v.Key) {
-			out.Sets = append(out.Sets, v)
-		}
-	}
-	return out
 }

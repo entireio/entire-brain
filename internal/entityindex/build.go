@@ -186,7 +186,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 
 	window := IndexWindow{}
 	if !opts.Full {
-		window, err = readWindow(ctx, runner, store, opts.RepoDir, branch, head)
+		window, err = readRevisionWindow(ctx, runner, store, opts.RepoDir, branch, head, opts.IdentityRevision)
 		if err != nil {
 			return result, err
 		}
@@ -219,9 +219,6 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		return result, err
 	}
 	defer unlock()
-	if err := CheckIdentity(store, opts.IdentityRevision); err != nil {
-		return result, err
-	}
 
 	b := &builder{
 		ctx:     ctx,
@@ -248,7 +245,7 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		windowMut = []gitmeta.Mutation{{
 			Op:     gitmeta.OpSetString,
 			Target: projectTarget,
-			Key:    WindowKey(branch),
+			Key:    RevisionKey(WindowKey(branch), opts.IdentityRevision),
 			Value:  EncodeWindow(nextWindow),
 		}}
 	}
@@ -268,15 +265,13 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		// dropped — replaying only its reverse appends would duplicate entries.
 		pending := make([]gitmeta.Mutation, 0, b.mutCount+len(windowMut))
 		for _, group := range b.groups {
-			if current.HasKey(CommitTarget(group.sha), ForwardKey) {
+			if current.HasKey(CommitTarget(group.sha), RevisionKey(ForwardKey, opts.IdentityRevision)) {
 				continue
 			}
 			pending = append(pending, group.muts...)
 		}
 		pending = append(pending, windowMut...)
-		if opts.IdentityRevision != "" {
-			pending = append(pending, gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: IdentityKey, Value: opts.IdentityRevision})
-		}
+
 		if len(pending) == 0 {
 			return gitmeta.State{}, factgitmeta.ErrNoUpdate
 		}
@@ -303,7 +298,11 @@ func lockStore(store *factgitmeta.MetaStore, nonBlocking bool) (func(), error) {
 // ONE blob, not a materialization of the whole index: a tick that finds nothing
 // new must not pay for every record in the store.
 func readWindow(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, repoDir, branch, head string) (IndexWindow, error) {
-	raw, ok, err := store.ReadString(projectTarget, WindowKey(branch))
+	return readRevisionWindow(ctx, runner, store, repoDir, branch, head, "")
+}
+
+func readRevisionWindow(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, repoDir, branch, head, revision string) (IndexWindow, error) {
+	raw, ok, err := store.ReadString(projectTarget, RevisionKey(WindowKey(branch), revision))
 	if err != nil {
 		return IndexWindow{}, err
 	}
@@ -508,7 +507,7 @@ func (b *builder) alreadyIndexed(sha string) bool {
 	if known, ok := b.indexed[sha]; ok {
 		return known
 	}
-	present, err := b.store.HasString(CommitTarget(sha), ForwardKey)
+	present, err := b.store.HasString(CommitTarget(sha), RevisionKey(ForwardKey, b.opts.IdentityRevision))
 	if err != nil {
 		// Treat an unreadable probe as "not indexed": re-indexing is idempotent
 		// (the pre-CAS re-check drops the duplicate), skipping is not.
@@ -552,7 +551,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 	group := commitMutations{sha: commit.SHA, muts: []gitmeta.Mutation{{
 		Op:     gitmeta.OpSetString,
 		Target: CommitTarget(commit.SHA),
-		Key:    ForwardKey,
+		Key:    RevisionKey(ForwardKey, b.opts.IdentityRevision),
 		Value:  string(encoded),
 	}}}
 	b.mutCount++
@@ -566,7 +565,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 		group.muts = append(group.muts, gitmeta.Mutation{
 			Op:     gitmeta.OpListPush,
 			Target: projectTarget,
-			Key:    EntityRecordKey(entity.Key()),
+			Key:    RevisionKey(EntityRecordKey(entity.Key()), b.opts.IdentityRevision),
 			Value:  commit.SHA,
 			NowMS:  entryMS,
 		})
@@ -575,7 +574,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 			group.muts = append(group.muts, gitmeta.Mutation{
 				Op:     gitmeta.OpSetString,
 				Target: projectTarget,
-				Key:    AliasRecordKey(oldKey),
+				Key:    RevisionKey(AliasRecordKey(oldKey), b.opts.IdentityRevision),
 				Value:  entity.Key(),
 			})
 			b.mutCount++

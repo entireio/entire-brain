@@ -11,7 +11,7 @@ import (
 )
 
 func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
-	for _, failure := range []string{"", "provider", "empty", "wrong-head", "revision", "missing-commit", "warnings", "missing-files", "cancelled"} {
+	for _, failure := range []string{"", "provider", "empty", "wrong-head", "revision", "missing-commit", "warnings", "missing-files", "cancelled", "concurrent-write", "publish-busy"} {
 		t.Run(fmt.Sprint("failure=", failure), func(t *testing.T) {
 			ctx := context.Background()
 			r := newFakeRunner()
@@ -36,8 +36,9 @@ func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
 				t.Fatal(err)
 			}
 			before, _ := store.Tip()
-			if err := CheckIdentity(store, "scope-1"); err == nil {
-				t.Fatal("upgrade accepted without migration")
+			priorState, err := store.State()
+			if err != nil {
+				t.Fatal(err)
 			}
 			for _, c := range cs {
 				base := c.Parent
@@ -86,12 +87,44 @@ func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			}
-			result, err := Migrate(ctx, r, store, BuildOptions{RepoDir: testRepoDir, IdentityRevision: "scope-1", Now: fixedNow()})
+			var concurrentTip string
+			var heldUnlock func()
+			defer func() {
+				if heldUnlock != nil {
+					heldUnlock()
+				}
+			}()
+			progress := func(done int) {
+				// Every provider invocation must run outside the shared lock.
+				unlock, err := store.TryLock()
+				if err != nil {
+					t.Fatalf("migration holds lock during parsing: %v", err)
+				}
+				unlock()
+				if failure == "publish-busy" && done == 2 {
+					heldUnlock, err = store.TryLock()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				if failure == "concurrent-write" && done == 1 {
+					concurrentTip, err = store.Update(1, func(st gitmeta.State) (gitmeta.State, error) {
+						return st.Apply(gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: "brain:concurrent-fact", Value: "preserve"}), nil
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			result, err := Migrate(ctx, r, store, BuildOptions{RepoDir: testRepoDir, IdentityRevision: "scope-1", Now: fixedNow(), Progress: progress})
 			if failure != "" {
 				if err == nil {
 					t.Fatal("accepted partial migration")
 				}
 				after, _ := store.Tip()
+				if failure == "concurrent-write" {
+					before = concurrentTip
+				}
 				if after != before {
 					t.Fatal("failed migration changed store")
 				}
@@ -103,10 +136,33 @@ func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
 			if result.Indexed != 2 {
 				t.Fatal(result)
 			}
-			if err := CheckIdentity(store, "scope-1"); err != nil {
+			state, err := store.State()
+			if err != nil {
 				t.Fatal(err)
 			}
-			snap := loadSnapshot(t, store)
+			snap := LoadRevision(state, "scope-1")
+			legacy := Load(state)
+			preserved := gitmeta.State{Sets: state.Sets, Tombstones: state.Tombstones}
+			for _, v := range state.Strings {
+				if _, ok := originalRevisionKey(v.Key, ""); ok {
+					preserved.Strings = append(preserved.Strings, v)
+				}
+			}
+			for _, v := range state.Lists {
+				if _, ok := originalRevisionKey(v.Key, ""); ok {
+					preserved.Lists = append(preserved.Lists, v)
+				}
+			}
+			if !reflect.DeepEqual(normalizeState(priorState), normalizeState(preserved)) {
+				t.Fatal("migration modified older or unrelated records")
+			}
+
+			if got := legacy.Commits("a.js#method#A.helper"); len(got) != 2 {
+				t.Fatalf("legacy history lost: %v", got)
+			}
+			if len(state.Tombstones) != 0 {
+				t.Fatal("migration introduced synced deletions")
+			}
 			if got := snap.Commits("a.js#function#A.m.helper"); !reflect.DeepEqual(got, []string{cs[0].SHA, cs[1].SHA}) {
 				t.Fatalf("history=%v", got)
 			}
@@ -120,6 +176,41 @@ func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
 			if !ok || w.Floor != cs[0].SHA || w.Tip != cs[1].SHA {
 				t.Fatal("coverage changed", w)
 			}
+			// Simulate delivery of the serialized git-meta generation to an
+			// older peer. Its legacy writer must preserve the new namespace.
+			peer := newTestStore(t)
+			if _, err := peer.Update(1, func(gitmeta.State) (gitmeta.State, error) { return state, nil }); err != nil {
+				t.Fatal(err)
+			}
+			legacyRunner := newFakeRunner()
+			third := commitInfo{SHA: strings.Repeat("c", 40), Parent: cs[1].SHA, CommittedAt: commitAt(2)}
+			scriptRepo(legacyRunner, "main", append(append([]commitInfo(nil), cs...), third))
+			legacyRunner.set(graphDiffKey(third.Parent, third.SHA), graphOutput(third.Parent, third.SHA, graphFileChange{Path: "a.js", Changes: []graphEntityChange{{Type: "modified", Kind: "method", Name: "A.helper"}}}))
+			if _, err := Build(ctx, legacyRunner, peer, BuildOptions{RepoDir: testRepoDir}); err != nil {
+				t.Fatal(err)
+			}
+			peerState, err := peer.State()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(Load(peerState).Commits("a.js#method#A.helper")) != 3 {
+				t.Fatal("legacy peer could not extend history")
+			}
+			if len(LoadRevision(peerState, "scope-1").Commits("a.js#function#A.m.helper")) != 2 {
+				t.Fatal("legacy peer corrupted revised history")
+			}
+			if !HasOtherHistory(peerState, "scope-1") || HasOtherHistory(peerState, "") {
+				t.Fatal("cross-revision coverage hint incorrect")
+			}
+			if len(peerState.Tombstones) != len(state.Tombstones) {
+				t.Fatal("peer exchange introduced tombstones")
+			}
+			// A second migration is a no-op, without duplicate reverse entries.
+			tip, _ := store.Tip()
+			again, err := Migrate(ctx, r, store, BuildOptions{RepoDir: testRepoDir, IdentityRevision: "scope-1", Now: fixedNow()})
+			if err != nil || again.MetaTip != tip || again.Indexed != 0 {
+				t.Fatalf("non-idempotent migration: %+v %v", again, err)
+			}
 			for _, c := range cs {
 				d, ok := snap.Delta(c.SHA)
 				if !ok || d.Head != c.SHA || d.IdentityRevision != "scope-1" {
@@ -127,5 +218,38 @@ func TestMigrateIdentityPreservesHistoryAndUnrelatedMemory(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Regression for the high finding: an advisory global marker cannot invalidate
+// legacy documents or force an unchanged backfill to parse historical JSON.
+func TestLegacyHistoryIgnoresGlobalIdentityMarker(t *testing.T) {
+	ctx := context.Background()
+	r := newFakeRunner()
+	store := newTestStore(t)
+	c := commitInfo{SHA: strings.Repeat("a", 40), CommittedAt: commitAt(0)}
+	scriptRepo(r, "main", []commitInfo{c})
+	r.set(graphDiffKey(EmptyTreeSHA, c.SHA), graphOutput(EmptyTreeSHA, c.SHA, graphFileChange{Path: "a.js", Changes: []graphEntityChange{{Type: "added", Kind: "function", Name: "old"}}}))
+	if _, err := Build(ctx, r, store, BuildOptions{RepoDir: testRepoDir}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.Update(2, func(st gitmeta.State) (gitmeta.State, error) {
+		st = st.Apply(gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: IdentityKey, Value: "scope-1"})
+		// Unrelated older data is intentionally malformed. A steady-state tick
+		// must not deserialize it while reading its own valid coverage window.
+		st = st.Apply(gitmeta.Mutation{Op: gitmeta.OpSetString, Target: CommitTarget(strings.Repeat("b", 40)), Key: ForwardKey, Value: "not-json"})
+		return st, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := store.Tip()
+	calls := r.called("graph diff")
+	got, err := Build(ctx, r, store, BuildOptions{RepoDir: testRepoDir})
+	if err != nil || got.Indexed != 0 || got.MetaTip != before || r.called("graph diff") != calls {
+		t.Fatalf("legacy tick regressed: %+v %v", got, err)
+	}
+	if len(loadSnapshot(t, store).Commits("a.js#function#old")) != 1 {
+		t.Fatal("legacy query blocked")
 	}
 }

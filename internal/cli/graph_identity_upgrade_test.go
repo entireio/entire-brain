@@ -108,8 +108,14 @@ func TestGraphIdentityUpgradeLive(t *testing.T) {
 	if err := runSemanticIndex(ctx, &cobra.Command{}, opts, semanticIndexOptions{graphBinary: "entire", force: true}, repo); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := entityindex.Build(ctx, r, store, entityindex.BuildOptions{RepoDir: repo, IdentityRevision: revision}); err == nil {
-		t.Fatal("mixed old and new history accepted")
+	// The read cache must not serve legacy names after switching providers,
+	// even before a metadata write changes its tip.
+	pending, err := entityHistory(ctx, opts, repo, "A.helper", "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending.Matches) != 0 {
+		t.Fatal("served legacy cache with the new provider")
 	}
 	cmd := newEntitiesMigrateCommand(opts)
 	cmd.SetArgs([]string{repo})
@@ -175,6 +181,18 @@ func TestGraphIdentityUpgradeLive(t *testing.T) {
 	needed, err = semanticRefreshNeeded(ctx, opts, storage.BrainDir, repo, manifest, false, "entire")
 	if err != nil || needed {
 		t.Fatalf("fresh identity not reusable: %v %v", needed, err)
+	}
+	// Roll back and forward with unchanged git-meta: cache selection follows
+	// the local provider, never a marker received from a different peer.
+	r.graph = before
+	legacyHistory, err := entityHistory(ctx, opts, repo, "A.helper", "", 20)
+	if err != nil || len(legacyHistory.Matches) == 0 {
+		t.Fatalf("legacy rollback lost history: %+v %v", legacyHistory, err)
+	}
+	r.graph = after
+	revisedHistory, err := entityHistory(ctx, opts, repo, "A.m.helper", "", 20)
+	if err != nil || len(revisedHistory.Matches) != len(history.Matches) {
+		t.Fatalf("provider switch reused wrong cache: %+v %v", revisedHistory, err)
 	}
 	if git("rev-parse", "HEAD") != head {
 		t.Fatal("migration modified source history")
