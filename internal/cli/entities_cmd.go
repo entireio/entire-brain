@@ -103,6 +103,7 @@ refresh the watch loop and the session-end hook already run.`,
 		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(newEntitiesBackfillCommand(opts))
+	cmd.AddCommand(newEntitiesMigrateCommand(opts))
 	cmd.AddCommand(newEntitiesHistoryCommand(opts))
 	cmd.AddCommand(newEntitiesShowCommand(opts))
 	return cmd
@@ -187,14 +188,19 @@ func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return err
 	}
 	out := cmd.OutOrStdout()
+	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, backfillOpts.graphBinary)
+	if err != nil {
+		return err
+	}
 	result, err := entityindex.Build(ctx, opts.Runner, store, entityindex.BuildOptions{
-		RepoDir:         repoDir,
-		GraphBinary:     backfillOpts.graphBinary,
-		Branch:          backfillOpts.branch,
-		Limit:           backfillOpts.limit,
-		CheckpointsOnly: backfillOpts.checkpointsOnly,
-		Full:            backfillOpts.full,
-		Now:             opts.Now,
+		IdentityRevision: revision,
+		RepoDir:          repoDir,
+		GraphBinary:      backfillOpts.graphBinary,
+		Branch:           backfillOpts.branch,
+		Limit:            backfillOpts.limit,
+		CheckpointsOnly:  backfillOpts.checkpointsOnly,
+		Full:             backfillOpts.full,
+		Now:              opts.Now,
 	})
 	if err != nil {
 		return err
@@ -533,6 +539,12 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 		return nil, err
 	}
 	view := &entityIndexView{}
+	revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+	if identityErr != nil {
+		view.warning = "cannot verify entity history parser identity: " + identityErr.Error()
+	} else if err := entityindex.CheckIdentity(store, revision); err != nil {
+		view.warning = err.Error()
+	}
 	previous, hasPrevious := loadEntityIndexCache(storage.BrainDir)
 	if hasPrevious && previous.MetaTip == tip && tip != "" {
 		view.cache = previous
@@ -856,12 +868,17 @@ func refreshEntityIndexQuietly(ctx context.Context, opts Options, repoDir string
 	if err != nil {
 		return err
 	}
+	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+	if err != nil {
+		return err
+	}
 	result, err := entityindex.Build(ctx, opts.Runner, store, entityindex.BuildOptions{
-		RepoDir:     repoDir,
-		GraphBinary: "entire",
-		Limit:       entitiesFreshnessCommits,
-		NonBlocking: true,
-		Now:         opts.Now,
+		IdentityRevision: revision,
+		RepoDir:          repoDir,
+		GraphBinary:      "entire",
+		Limit:            entitiesFreshnessCommits,
+		NonBlocking:      true,
+		Now:              opts.Now,
 	})
 	if err != nil {
 		return err

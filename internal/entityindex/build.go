@@ -69,6 +69,9 @@ func CommitTarget(sha string) gitmeta.Target {
 
 // BuildOptions configures one indexing pass.
 type BuildOptions struct {
+	migrating bool
+	// IdentityRevision pins the parser rules used for every stored delta.
+	IdentityRevision string
 	// RepoDir is the repository whose history is indexed.
 	RepoDir string
 	// GraphBinary is the Entire CLI binary exposing `graph diff` ("entire").
@@ -216,6 +219,9 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		return result, err
 	}
 	defer unlock()
+	if err := CheckIdentity(store, opts.IdentityRevision); err != nil {
+		return result, err
+	}
 
 	b := &builder{
 		ctx:     ctx,
@@ -268,6 +274,9 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 			pending = append(pending, group.muts...)
 		}
 		pending = append(pending, windowMut...)
+		if opts.IdentityRevision != "" {
+			pending = append(pending, gitmeta.Mutation{Op: gitmeta.OpSetString, Target: projectTarget, Key: IdentityKey, Value: opts.IdentityRevision})
+		}
 		if len(pending) == 0 {
 			return gitmeta.State{}, factgitmeta.ErrNoUpdate
 		}
@@ -517,7 +526,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 	if b.opts.Progress != nil {
 		b.opts.Progress(b.done)
 	}
-	delta, err := DiffCommit(b.ctx, b.runner, b.opts.RepoDir, b.opts.GraphBinary, commit.Parent, commit.SHA, b.now())
+	delta, err := diffCommit(b.ctx, b.runner, b.opts.RepoDir, b.opts.GraphBinary, commit.Parent, commit.SHA, b.now(), b.opts.migrating, b.opts.IdentityRevision)
 	if err != nil {
 		b.result.Failed++
 		b.result.Warnings = append(b.result.Warnings, err.Error())
@@ -533,6 +542,7 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf("commit %s changed %d entities; stored the first %d", short(commit.SHA), len(delta.Entities), maxDeltaEntities))
 		delta.Entities = delta.Entities[:maxDeltaEntities]
 	}
+	delta.IdentityRevision = b.opts.IdentityRevision
 	encoded, err := json.Marshal(delta)
 	if err != nil {
 		b.result.Failed++

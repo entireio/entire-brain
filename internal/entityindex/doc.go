@@ -82,13 +82,14 @@ const (
 // Delta is one commit's entity-change document (schema_version "1.0"). Field
 // order matches the frozen contract.
 type Delta struct {
-	SchemaVersion   string        `json:"schema_version"`
-	Producer        string        `json:"producer"`
-	ProducerVersion string        `json:"producer_version,omitempty"`
-	Base            string        `json:"base"`
-	Head            string        `json:"head"`
-	ComputedAt      string        `json:"computed_at"`
-	Entities        []EntityDelta `json:"entities"`
+	SchemaVersion    string        `json:"schema_version"`
+	Producer         string        `json:"producer"`
+	ProducerVersion  string        `json:"producer_version,omitempty"`
+	IdentityRevision string        `json:"identity_revision,omitempty"`
+	Base             string        `json:"base"`
+	Head             string        `json:"head"`
+	ComputedAt       string        `json:"computed_at"`
+	Entities         []EntityDelta `json:"entities"`
 }
 
 // EntityDelta is one changed entity inside a Delta. Path/Name are the

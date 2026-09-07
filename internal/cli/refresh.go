@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ashtom/entire-brain/internal/entityindex"
 	"github.com/spf13/cobra"
 )
 
@@ -341,7 +342,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
 		semanticWorktree := refreshOpts.semanticWorktree
-		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, semanticWorktree)
+		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, semanticWorktree, refreshOpts.graphBinary)
 		if err != nil {
 			semanticCheckTask.Finish(err)
 			return err
@@ -563,11 +564,18 @@ func pluralCount(count int, singular string) string {
 	return fmt.Sprintf("%d %ss", count, singular)
 }
 
-func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir string, manifest *exportManifest, worktree bool) (bool, error) {
+func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir string, manifest *exportManifest, worktree bool, graphBinary string) (bool, error) {
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Semantic == nil {
 		return true, nil
 	}
 	source := manifest.Sources.Semantic
+	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, graphBinary)
+	if err != nil {
+		return false, err
+	}
+	if source.IdentityRevision != revision {
+		return true, nil
+	}
 	if worktree {
 		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
 		if err != nil {
