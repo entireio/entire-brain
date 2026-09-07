@@ -64,8 +64,9 @@ commit-key reads. They **do not scan historical delta documents**. Queries still
 materialize history when their derived cache is invalidated, as before; that
 rebuild also caches a warning if other revisions contain commits missing from
 the selected revision. Offline history uses the last cached revision with a
-provider-verification warning; `entities show` needs a cached revision to select
-history when the provider is unavailable.
+provider-verification warning; `entities show` uses legacy history when both provider identity and a local
+cache are unavailable. Explicit backfill can also fall back to legacy history
+with a warning, but rejects any diff that declares a different identity revision.
 
 ## Publication and limits
 
@@ -81,8 +82,9 @@ also aborts. Entity mapping follows the same rules as backfill: file-only change
 and records without a resolvable name/path contribute no entity, and a missing
 kind is retained according to the existing contract. These do not abort migration;
 provider warnings about partial results still do.
-Migration is capped at 20,000 distinct stored commits and 200,000 new entity
-changes. It never silently migrates a subset above those limits.
+Migration is capped at 20,000 pending commits and 200,000 new entity changes.
+Already migrated commits do not count against the cap, so small incremental
+migrations and no-op retries work on larger historical corpora. It never silently migrates a subset above those limits.
 
 This removes the long lock around parser subprocesses, not all publication cost:
 MetaStore still materializes and serializes the final state under its write lock.

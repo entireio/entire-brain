@@ -192,7 +192,11 @@ func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Options, 
 	out := cmd.OutOrStdout()
 	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, backfillOpts.graphBinary)
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		revision = ""
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: cannot verify parser identity; using legacy history and checking each diff identity: %v\n", err)
 	}
 	result, err := entityindex.Build(ctx, opts.Runner, store, entityindex.BuildOptions{
 		IdentityRevision: revision,
@@ -438,11 +442,14 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
 	if err != nil {
 		cached, ok := loadEntityIndexCache(storage.BrainDir)
-		if !ok {
-			return fmt.Errorf("cannot select entity history parser revision: %w", err)
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		revision = cached.IdentityRevision
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: using cached entity history revision %q; provider unavailable: %v\n", revision, err)
+		revision = ""
+		if ok {
+			revision = cached.IdentityRevision
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: using entity history revision %q; provider unavailable: %v\n", revision, err)
 	}
 	snapshot := entityindex.LoadRevision(state, revision)
 	commit := strings.TrimSpace(ref)

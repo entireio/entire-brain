@@ -17,6 +17,10 @@ import (
 // tip under the lock and aborts on drift; no older parser record is rewritten or
 // tombstoned. Older peers continue to read and extend their original history.
 func Migrate(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opts BuildOptions) (BuildResult, error) {
+	return migrate(ctx, runner, store, opts, maxWalkCommits)
+}
+
+func migrate(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opts BuildOptions, maxPendingCommits int) (BuildResult, error) {
 	result := BuildResult{}
 	if ctx == nil {
 		ctx = context.Background()
@@ -75,9 +79,6 @@ func Migrate(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, o
 			continue
 		}
 		seen[v.Target.Value] = true
-		if len(seen) > maxWalkCommits {
-			return result, fmt.Errorf("migration exceeds %d stored commits; no records changed", maxWalkCommits)
-		}
 		if existing[stateKey{v.Target, RevisionKey(ForwardKey, opts.IdentityRevision)}] {
 			result.Skipped++
 			continue
@@ -97,8 +98,8 @@ func Migrate(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, o
 			return result, fmt.Errorf("missing migration commit %s", v.Target.Value)
 		}
 		commits = append(commits, parsed[0])
-		if len(commits) > maxWalkCommits {
-			return result, fmt.Errorf("migration exceeds %d stored commits; no records changed", maxWalkCommits)
+		if len(commits) > maxPendingCommits {
+			return result, fmt.Errorf("migration exceeds %d pending commits; no records changed", maxPendingCommits)
 		}
 	}
 	sort.Slice(commits, func(i, j int) bool {

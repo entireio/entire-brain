@@ -2,6 +2,7 @@ package entityindex
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/ashtom/entire-brain/internal/factgitmeta/gitmeta"
@@ -293,5 +294,59 @@ func TestMigrateUsesBackfillEntityMapping(t *testing.T) {
 	migrated, ok := LoadRevision(state, "scope-1").Delta(c.SHA)
 	if !ok || !reflect.DeepEqual(migrated.Entities, legacy.Entities) {
 		t.Fatalf("mapping diverged: %+v vs %+v", migrated, legacy)
+	}
+}
+
+func TestMigrateLimitCountsOnlyMissingCommits(t *testing.T) {
+	for _, alreadyPresent := range []bool{false, true} {
+		t.Run(fmt.Sprint(alreadyPresent), func(t *testing.T) {
+			r := newFakeRunner()
+			store := newTestStore(t)
+			ctx := context.Background()
+			shas := []string{strings.Repeat("a", 40), strings.Repeat("b", 40)}
+			state := gitmeta.State{}
+			for _, sha := range shas {
+				d := Delta{SchemaVersion: SchemaVersion, Head: sha, Base: EmptyTreeSHA, Entities: []EntityDelta{}}
+				raw, _ := json.Marshal(d)
+				state.Strings = append(state.Strings, gitmeta.StringVal{Target: CommitTarget(sha), Key: ForwardKey, Value: string(raw)})
+				r.set("git log -1 "+gitLogFormat+" "+sha, fmt.Sprintf("%s\x00\x00%s\x00root\x1e", sha, commitAt(0).Format("2006-01-02T15:04:05Z07:00")))
+				r.set(graphDiffKey(EmptyTreeSHA, sha), fmt.Sprintf(`{"base":%q,"head":%q,"identity_revision":"scope-1","files":[]}`, EmptyTreeSHA, sha))
+			}
+			if alreadyPresent {
+				// A corpus larger than the cap is allowed when only one commit is missing.
+				d := state.Strings[0]
+				var delta Delta
+				if err := json.Unmarshal([]byte(d.Value), &delta); err != nil {
+					t.Fatal(err)
+				}
+				delta.IdentityRevision = "scope-1"
+				raw, _ := json.Marshal(delta)
+				d.Value = string(raw)
+				d.Key = RevisionKey(ForwardKey, "scope-1")
+				state.Strings = append(state.Strings, d)
+			}
+			if _, err := store.Update(1, func(gitmeta.State) (gitmeta.State, error) { return state, nil }); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := store.Tip()
+			r.set("entire graph version --json", `{"identity_revision":"scope-1"}`)
+			opts := BuildOptions{RepoDir: testRepoDir, IdentityRevision: "scope-1", Now: fixedNow()}
+			// Scale the production cap down to one to exercise its boundary cheaply.
+			result, err := migrate(ctx, r, store, opts, 1)
+			if !alreadyPresent {
+				after, _ := store.Tip()
+				if err == nil || after != before || r.called("graph diff") != 0 {
+					t.Fatalf("excess pending work published: %+v %v", result, err)
+				}
+				return
+			}
+			if err != nil || result.Indexed != 1 || result.Skipped != 1 || r.called("graph diff") != 1 {
+				t.Fatalf("counted old history against cap: %+v %v", result, err)
+			}
+			again, err := migrate(ctx, r, store, opts, 1)
+			if err != nil || again.Indexed != 0 || again.MetaTip != result.MetaTip {
+				t.Fatalf("large no-op migration rejected: %+v %v", again, err)
+			}
+		})
 	}
 }

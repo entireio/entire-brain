@@ -87,13 +87,16 @@ func diffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 	if err != nil {
 		return Delta{}, fmt.Errorf("entityindex: graph diff %s..%s: %w", short(base), short(head), err)
 	}
+	// Even a legacy fallback must not write explicitly revisioned output into
+	// legacy keys. A failed version probe is not proof of legacy parser rules.
+	var envelope graphResult
+	decodeErr := json.Unmarshal(stdout, &envelope)
+	if decodeErr == nil && envelope.IdentityRevision != revision {
+		return Delta{}, fmt.Errorf("graph diff identity revision changed during indexing")
+	}
 	if strict || revision != "" {
-		var envelope graphResult
-		if err := json.Unmarshal(stdout, &envelope); err != nil {
+		if err := decodeErr; err != nil {
 			return Delta{}, fmt.Errorf("migration requires a valid graph diff envelope: %w", err)
-		}
-		if envelope.IdentityRevision != revision {
-			return Delta{}, fmt.Errorf("graph diff identity revision changed during indexing")
 		}
 		if strict {
 			var fields map[string]json.RawMessage
