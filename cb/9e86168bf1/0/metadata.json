@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "cb9e86168bf1",
+  "session_id": "01a07c26-bf3b-7ff0-9325-2bc39837038b",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-07T15:03:33.724069Z",
+  "branch": "codex/graph-parser-upgrade",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/graph-identity-upgrades.md",
+    "internal/cli/entities_cmd.go",
+    "internal/cli/entities_migrate.go",
+    "internal/cli/export_test.go",
+    "internal/cli/graph_identity_upgrade_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_identity_test.go",
+    "internal/entityindex/build.go",
+    "internal/entityindex/doc.go",
+    "internal/entityindex/graphdiff.go",
+    "internal/entityindex/identity.go",
+    "internal/entityindex/migrate.go",
+    "internal/entityindex/migrate_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 283222,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21272832,
+    "output_tokens": 42699,
+    "api_call_count": 168
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-07T15:03:33.61268Z",
+    "agent_lines": 794,
+    "agent_removed": 38,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 794,
+    "total_lines_changed": 832,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

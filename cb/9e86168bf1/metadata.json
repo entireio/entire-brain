@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.10.3",
+  "checkpoint_id": "cb9e86168bf1",
+  "strategy": "manual-commit",
+  "branch": "codex/graph-parser-upgrade",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/graph-identity-upgrades.md",
+    "internal/cli/entities_cmd.go",
+    "internal/cli/entities_migrate.go",
+    "internal/cli/export_test.go",
+    "internal/cli/graph_identity_upgrade_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_identity_test.go",
+    "internal/entityindex/build.go",
+    "internal/entityindex/doc.go",
+    "internal/entityindex/graphdiff.go",
+    "internal/entityindex/identity.go",
+    "internal/entityindex/migrate.go",
+    "internal/entityindex/migrate_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cb/9e86168bf1/0/metadata.json",
+      "transcript": "/cb/9e86168bf1/0/full.jsonl",
+      "compact_transcript": "/cb/9e86168bf1/0/transcript.jsonl",
+      "content_hash": "/cb/9e86168bf1/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 283222,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21272832,
+    "output_tokens": 42699,
+    "api_call_count": 168
+  }
+}
