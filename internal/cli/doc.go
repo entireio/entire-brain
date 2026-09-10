@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -26,6 +25,10 @@ const (
 	docIndexPath     = docDirName + "/" + docIndexFileName
 	maxDocChunkBytes = 3000 // ~750 tokens, qmd-scale chunks
 )
+
+// A doc index aggregates multiple seed documents, so use the general 64 MiB
+// ceiling rather than the smaller manifest limit. Variable for boundary tests.
+var maxDocIndexBytes int64 = defaultMaxReadBytes
 
 type docSourceManifest struct {
 	GeneratedAt time.Time `json:"generated_at"`
@@ -183,6 +186,9 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 		return nil, err
 	}
 	data = append(data, '\n')
+	if int64(len(data)) > maxDocIndexBytes {
+		return nil, &readBoundExceededError{source: docIndexPath, max: maxDocIndexBytes}
+	}
 	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write doc index: %w", err)
 	}
@@ -258,6 +264,10 @@ func openDeclaredDocIndex(brainDir string) (*os.File, error) {
 		f.Close()
 		return nil, fmt.Errorf("%s changed while opening", docIndexPath)
 	}
+	if opened.Size() > maxDocIndexBytes {
+		f.Close()
+		return nil, &readBoundExceededError{source: docIndexPath, max: maxDocIndexBytes}
+	}
 	if err := rejectOpenFileAlias(path, f, docIndexPath); err != nil {
 		f.Close()
 		return nil, err
@@ -272,7 +282,7 @@ func loadDocIndex(brainDir string) (docIndex, error) {
 		return index, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(f)
+	data, err := safeReadAll(f, maxDocIndexBytes, docIndexPath)
 	if err != nil {
 		return index, err
 	}
