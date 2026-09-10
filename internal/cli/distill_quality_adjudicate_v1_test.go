@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ashtom/entire-brain/internal/tui"
 )
 
 func TestRunDistillQualityAdjudicationV1SavesAndResumes(t *testing.T) {
@@ -159,20 +161,77 @@ func TestMakeDistillQualityReviewV1IsReadableAndKeepsAdvisoriesSeparate(t *testi
 		t.Fatalf("judges=%d want=%d", len(item.Judges), len(distillQualityPanelJudgesV1))
 	}
 	for _, judge := range item.Judges {
-		if len(judge.Scores) != 3 {
-			t.Fatalf("judge %s scores=%d", judge.Name, len(judge.Scores))
+		if judge.Position != "disagrees_with_filter" || judge.Why == "" {
+			t.Fatalf("judge %s lacks a compact filter decision: %+v", judge.Name, judge)
 		}
-		for _, score := range judge.Scores {
-			if score.Summary == "" || strings.Contains(score.Summary, "{") {
-				t.Fatalf("judge %s exposed unreadable score %q", judge.Name, score.Summary)
-			}
-		}
-		if judge.State == string(distillQualityVerdictCompletedV1) && (judge.Recommendation == "" || judge.Authority == "" || judge.Safety == "") {
-			t.Fatalf("judge %s lacks plain-language summary: %+v", judge.Name, judge)
-		}
+	}
+	if !strings.Contains(item.PanelSummary, "FILTER WRONG") || item.AnswerKind != tui.QualityReviewPanelAgreement {
+		t.Fatalf("panel summary/question = %q / %q", item.PanelSummary, item.AnswerKind)
 	}
 	if got := review.Progress; got.Reviewer != "reviewer" || got.Queue != distillQualityAdjudicateQueueCalV1 || got.Remaining == 0 {
 		t.Fatalf("progress = %+v", got)
+	}
+}
+
+func TestDistillQualityFilterPanelOmitsUnavailableJudgesAndHandlesNoMajority(t *testing.T) {
+	packet := distillQualityPanelPacketV1{PacketID: "packet"}
+	completedNo := reportAdmissionVerdictV1(packet, distillQualityJudgeCopilotV1, distillQualityAdvisoryPassV1)
+	completedNo.Scores[0].RawScore = []byte(`{"should_admit":"no","candidate_admitted":true,"critical_miss":false}`)
+	completedYes := reportAdmissionVerdictV1(packet, distillQualityJudgeCursorV1, distillQualityAdvisoryPassV1)
+	completedYes.Scores[0].RawScore = []byte(`{"should_admit":"yes","candidate_admitted":true,"critical_miss":false}`)
+	invalid := distillQualityPanelVerdictV1{Judge: distillQualityJudgeClaudeV1, State: distillQualityVerdictInvalidV1}
+	item := distillQualityAdjudicateItemV1{
+		Packet: packet, CandidateAdmitted: true,
+		Aggregate: distillQualityPanelAggregateV1{Verdicts: []distillQualityPanelVerdictV1{completedNo, completedYes, invalid}},
+	}
+	view := makeDistillQualityReviewItemV1("Item 01", item)
+	if len(view.Judges) != 2 {
+		t.Fatalf("available judges=%d want=2: %+v", len(view.Judges), view.Judges)
+	}
+	if view.AnswerKind != tui.QualityReviewFilterCorrect || !strings.Contains(view.PanelSummary, "No majority") {
+		t.Fatalf("split panel = kind %q summary %q", view.AnswerKind, view.PanelSummary)
+	}
+}
+
+func TestDistillQualityFilterAssessmentStoresOnlyTheAdmissionDecision(t *testing.T) {
+	root, packets := adjudicationFixtureRunV1(t)
+	session, err := openDistillQualityAdjudicationSessionV1(root, "simple-reviewer", distillQualityAdjudicateQueueCalV1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := session.items[0]
+	when := time.Date(2026, 9, 10, 12, 34, 56, 0, time.UTC)
+	if err := session.saveFilterAssessment(item, false, "Disagreed with the available judges' majority.", when); err != nil {
+		t.Fatal(err)
+	}
+	path := session.recordPath
+	if err := session.close(); err != nil {
+		t.Fatal(err)
+	}
+	_, loadedPackets, _, aggregates, err := loadDistillQualityAdjudicationInputsV1(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := loadDistillQualityHumanAdjudicationsV1(root, "simple-reviewer", loadedPackets, aggregates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Decision != distillQualityHumanRejectV1 || records[0].Rationale != "Disagreed with the available judges' majority." {
+		t.Fatalf("record = %+v", records)
+	}
+	if len(records[0].Dimensions) != 1 || records[0].Dimensions[0].Dimension != distillQualityDimensionAdmissionV1 || records[0].Dimensions[0].ProofLabel != distillQualityProofUnsupportedV1 {
+		t.Fatalf("filter assessment claimed extra proof: %+v", records[0].Dimensions)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("stored assessment info=%v err=%v", info, err)
+	}
+	resumed, err := openDistillQualityAdjudicationSessionV1(root, "simple-reviewer", distillQualityAdjudicateQueueCalV1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resumed.close() }()
+	if resumed.result.AlreadyReviewed != 1 || resumed.result.Remaining != len(packets)-1 {
+		t.Fatalf("resume state = %+v items=%d", resumed.result, len(resumed.items))
 	}
 }
 

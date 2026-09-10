@@ -39,12 +39,28 @@ func runDistillQualityAdjudicationTUIV1(bundleDir, adjudicatorID, queue string, 
 	}
 
 	view, byViewID := makeDistillQualityReviewV1(session, queue)
-	uiResult, err := tui.RunQualityReview(input, output, theme, view, func(itemID, admission, authority, safety, rationale string) error {
+	uiResult, err := tui.RunQualityReview(input, output, theme, view, func(itemID, answer string) error {
 		item, ok := byViewID[itemID]
 		if !ok {
 			return fmt.Errorf("quality adjudication: unknown review item %q", itemID)
 		}
-		return session.save(item, admission, authority, safety, rationale, now())
+		panel := distillQualityFilterPanelV1(item)
+		filterCorrect, rationale, err := distillQualityFilterAssessmentFromAnswerV1(panel, answer)
+		if err != nil {
+			return err
+		}
+		if err := session.saveFilterAssessment(item, filterCorrect, rationale, now()); err != nil {
+			return err
+		}
+		switch {
+		case !panel.HasMajority:
+			session.result.DirectAssessments++
+		case answer == "agree":
+			session.result.PanelAgreements++
+		case answer == "disagree":
+			session.result.PanelDisagreements++
+		}
+		return nil
 	})
 	session.result.Presented = uiResult.Presented
 	session.result.Quit = uiResult.Quit
@@ -87,8 +103,17 @@ func makeDistillQualityReviewItemV1(viewID string, item distillQualityAdjudicate
 		SelectorReason: distillQualitySelectorReasonV1(item),
 		Focus:          make([]tui.QualityReviewEvidence, 0, len(item.Focus)),
 		Context:        make([]tui.QualityReviewEvidence, 0, len(item.Context)),
-		Judges:         make([]tui.QualityReviewJudge, 0, len(item.Aggregate.Verdicts)+len(item.Aggregate.MissingJudges)),
+		Judges:         make([]tui.QualityReviewJudge, 0, len(item.Aggregate.Verdicts)),
 		Sources:        make([]tui.QualityReviewSource, 0, len(item.Sources)),
+	}
+	panel := distillQualityFilterPanelV1(item)
+	view.PanelSummary = panel.Summary
+	if panel.HasMajority {
+		view.Question = "Do you agree with the judges' majority?"
+		view.AnswerKind = tui.QualityReviewPanelAgreement
+	} else {
+		view.Question = "The judges have no majority. Is the filter decision correct?"
+		view.AnswerKind = tui.QualityReviewFilterCorrect
 	}
 	acceptance := stringSliceContainsV1(item.Cues, string(distillCandidateCueAcceptanceV1))
 	for _, turn := range item.Focus {
@@ -110,34 +135,18 @@ func makeDistillQualityReviewItemV1(viewID string, item distillQualityAdjudicate
 		view.Context = append(view.Context, tui.QualityReviewEvidence{Label: label, Kind: "not the statement being judged", Text: turn.Text})
 	}
 	verdicts := append([]distillQualityPanelVerdictV1(nil), item.Aggregate.Verdicts...)
-	sort.SliceStable(verdicts, func(left, right int) bool {
-		return verdicts[left].State == distillQualityVerdictCompletedV1 && verdicts[right].State != distillQualityVerdictCompletedV1
-	})
+	sort.SliceStable(verdicts, func(left, right int) bool { return verdicts[left].Judge < verdicts[right].Judge })
 	for _, verdict := range verdicts {
-		judge := tui.QualityReviewJudge{
-			Name: string(verdict.Judge), Model: verdict.Model, State: string(verdict.State),
-			Rationale: distillQualityHumanVerdictNoteV1(verdict.Rationale), Scores: make([]tui.QualityReviewScore, 0, len(verdict.Scores)),
+		recommendation, why, ok := distillQualityJudgeAdmissionV1(item.Packet, verdict)
+		if !ok {
+			continue
 		}
-		for _, score := range verdict.Scores {
-			summary, value := distillQualityReviewScoreSummaryV1(score)
-			judge.Scores = append(judge.Scores, tui.QualityReviewScore{
-				Dimension: string(score.Dimension), Label: string(score.Label),
-				Summary: summary, Rationale: distillQualityHumanJudgeRationaleV1(item.Packet, score.Rationale),
-			})
-			switch score.Dimension {
-			case distillQualityDimensionAdmissionV1:
-				judge.Recommendation = value
-				judge.RecommendationRationale = distillQualityHumanJudgeRationaleV1(item.Packet, score.Rationale)
-			case distillQualityDimensionAuthorityV1:
-				judge.Authority = value
-			case distillQualityDimensionSafetyV1:
-				judge.Safety = value
-			}
+		if strings.TrimSpace(why) == "" {
+			why = "No reason was supplied."
 		}
-		view.Judges = append(view.Judges, judge)
-	}
-	for _, missing := range item.Aggregate.MissingJudges {
-		view.Judges = append(view.Judges, tui.QualityReviewJudge{Name: string(missing), State: "missing", Rationale: "No advisory verdict is available; the human decision remains independent."})
+		view.Judges = append(view.Judges, tui.QualityReviewJudge{
+			Name: string(verdict.Judge), Position: distillQualityJudgeFilterPositionV1(item.CandidateAdmitted, recommendation), Why: why,
+		})
 	}
 	for index, source := range item.Sources {
 		detail := "branch: " + source.Branch
@@ -155,6 +164,95 @@ func makeDistillQualityReviewItemV1(viewID string, item distillQualityAdjudicate
 	return view
 }
 
+type distillQualityFilterPanelSummaryV1 struct {
+	Agrees, Disagrees, Unsure int
+	HasMajority               bool
+	MajoritySaysCorrect       bool
+	Summary                   string
+}
+
+func distillQualityFilterPanelV1(item distillQualityAdjudicateItemV1) distillQualityFilterPanelSummaryV1 {
+	var panel distillQualityFilterPanelSummaryV1
+	for _, verdict := range item.Aggregate.Verdicts {
+		recommendation, _, ok := distillQualityJudgeAdmissionV1(item.Packet, verdict)
+		if !ok {
+			continue
+		}
+		switch distillQualityJudgeFilterPositionV1(item.CandidateAdmitted, recommendation) {
+		case "agrees_with_filter":
+			panel.Agrees++
+		case "disagrees_with_filter":
+			panel.Disagrees++
+		default:
+			panel.Unsure++
+		}
+	}
+	available := panel.Agrees + panel.Disagrees + panel.Unsure
+	panel.HasMajority = panel.Agrees*2 > available || panel.Disagrees*2 > available
+	panel.MajoritySaysCorrect = panel.Agrees > panel.Disagrees
+	switch {
+	case available == 0:
+		panel.Summary = "No judge returned a usable decision."
+	case !panel.HasMajority:
+		panel.Summary = fmt.Sprintf("No majority: RIGHT %d · WRONG %d · UNSURE %d.", panel.Agrees, panel.Disagrees, panel.Unsure)
+	case panel.MajoritySaysCorrect:
+		panel.Summary = fmt.Sprintf("Panel majority: FILTER RIGHT (%d/%d available).", panel.Agrees, available)
+	default:
+		panel.Summary = fmt.Sprintf("Panel majority: FILTER WRONG (%d/%d available).", panel.Disagrees, available)
+	}
+	return panel
+}
+
+func distillQualityJudgeAdmissionV1(packet distillQualityPanelPacketV1, verdict distillQualityPanelVerdictV1) (string, string, bool) {
+	if verdict.State != distillQualityVerdictCompletedV1 {
+		return "", "", false
+	}
+	for _, score := range verdict.Scores {
+		if score.Dimension != distillQualityDimensionAdmissionV1 {
+			continue
+		}
+		var raw struct {
+			ShouldAdmit string `json:"should_admit"`
+		}
+		if json.Unmarshal(score.RawScore, &raw) != nil || (raw.ShouldAdmit != "yes" && raw.ShouldAdmit != "no" && raw.ShouldAdmit != "unclear") {
+			return "", "", false
+		}
+		return raw.ShouldAdmit, distillQualityHumanJudgeRationaleV1(packet, score.Rationale), true
+	}
+	return "", "", false
+}
+
+func distillQualityJudgeFilterPositionV1(candidateAdmitted bool, recommendation string) string {
+	if recommendation == "unclear" {
+		return "unsure"
+	}
+	if (recommendation == "yes") == candidateAdmitted {
+		return "agrees_with_filter"
+	}
+	return "disagrees_with_filter"
+}
+
+func distillQualityFilterAssessmentFromAnswerV1(panel distillQualityFilterPanelSummaryV1, answer string) (bool, string, error) {
+	if !panel.HasMajority {
+		switch answer {
+		case "yes":
+			return true, "Judges had no majority; reviewer judged the filter decision correct.", nil
+		case "no":
+			return false, "Judges had no majority; reviewer judged the filter decision incorrect.", nil
+		default:
+			return false, "", fmt.Errorf("quality adjudication: expected yes or no for a split panel")
+		}
+	}
+	switch answer {
+	case "agree":
+		return panel.MajoritySaysCorrect, "Agreed with the available judges' majority.", nil
+	case "disagree":
+		return !panel.MajoritySaysCorrect, "Disagreed with the available judges' majority.", nil
+	default:
+		return false, "", fmt.Errorf("quality adjudication: expected agree or disagree with the panel majority")
+	}
+}
+
 func distillQualitySelectorReasonV1(item distillQualityAdjudicateItemV1) string {
 	authority := "assistant context"
 	if stringSliceContainsV1(item.Authorities, "direct_user") {
@@ -165,7 +263,7 @@ func distillQualitySelectorReasonV1(item distillQualityAdjudicateItemV1) string 
 		authority = "context-only text"
 	}
 	if !item.CandidateAdmitted {
-		return "The automatic filter kept this statement out because it found no durable-memory cue. Source: " + authority + "."
+		return "Kept out: no durable-memory cue was found in " + authority + "."
 	}
 	cues := make([]string, 0, len(item.Cues))
 	for _, cue := range item.Cues {
@@ -194,7 +292,7 @@ func distillQualitySelectorReasonV1(item distillQualityAdjudicateItemV1) string 
 	if len(cues) > 0 {
 		matched = strings.Join(cues, ", ")
 	}
-	return "Selected after matching " + matched + " in " + authority + ". Verify that it is genuinely long-term knowledge."
+	return "Selected after matching " + matched + " in " + authority + "."
 }
 
 func distillQualityReviewScoreSummaryV1(score distillQualityPanelScoreV1) (string, string) {

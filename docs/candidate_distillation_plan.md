@@ -164,24 +164,26 @@ The default session is a deterministic 20-item calibration batch balanced
 across invalid, admitted-critical, filtered-critical, disagreement, and clean
 items. On a terminal it opens a responsive full-screen workspace. Each screen
 starts with the exact human statement selected or filtered by candidate
-admission; surrounding assistant conversation is explicitly not the item under
-review and remains hidden unless the reviewer requests it. Fragmented packet
-payloads are reassembled before turn isolation, and truncated or ambiguous
-speaker shapes fail closed instead of becoming transcript dumps. The workspace
-then explains the selector in plain language and presents compact Copilot,
-Cursor, and Claude recommendations; detailed rationales and local source
-information are optional views. The reviewer explicitly answers whether the
-statement should be remembered for future work, whether the user said or
-explicitly approved it, and whether it is safe evidence rather than one-off or
-generated material. Answers may be entered with `y`, `n`, or `u`, or selected
-with left/right and submitted with Enter; up/down scrolls the detail. No answer
-is prefilled from the panel. A separate confirmation step is the only save action.
-`x` skips without writing, `q` discards only the current partial decision, and
-every prior confirmed answer remains durable. `--plain` retains the same
-proposition-first contract in the line-oriented accessibility/non-TTY fallback.
+admission. Fragmented packet payloads are reassembled before turn isolation,
+and truncated or ambiguous speaker shapes fail closed instead of becoming
+transcript dumps. The workspace then shows the filter decision and only the
+available Copilot, Cursor, and Claude decisions, each reduced to “agrees with
+filter,” “disagrees with filter,” or “unsure” plus its bounded reason. Missing
+or invalid judges are omitted instead of occupying review space.
 
-Each explicit human answer is validated, bound to the immutable packet and
-advisory digests, written atomically to a private per-reviewer JSONL file, and
+The fixed action bar asks one question: whether the reviewer agrees with the
+available judges' majority. `y`/`n` save immediately; left/right plus Enter are
+equivalent, up/down scrolls, `x` skips, and `q` exits. When the judges have no
+majority, the action bar instead asks directly whether the filter decision is
+correct. The stored human record claims only the resulting admission label;
+authority, safety, and downstream fact-quality dimensions remain unclaimed.
+Human disagreements with the panel majority are recorded explicitly in the
+bounded rationale so they can be discussed as a separate follow-up set.
+Existing saved records remain valid and are skipped on resume. `--plain`
+remains the line-oriented accessibility/non-TTY fallback.
+
+Each explicit human answer is validated, bound to the packet and advisory
+digests, written atomically to a private per-reviewer JSONL file, and
 skipped on resume. `--queue critical|invalid|disagreement|clean|all` and
 `--limit 1..100` provide later bounded sessions without turning the 719-packet
 archive into one reading task. No panel consensus becomes a default or bulk

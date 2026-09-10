@@ -32,15 +32,18 @@ const (
 )
 
 type distillQualityAdjudicateResultV1 struct {
-	RunID           string `json:"run_id"`
-	AdjudicatorID   string `json:"adjudicator_id"`
-	Total           int    `json:"total"`
-	AlreadyReviewed int    `json:"already_reviewed"`
-	Presented       int    `json:"presented"`
-	Reviewed        int    `json:"reviewed"`
-	Remaining       int    `json:"remaining"`
-	Quit            bool   `json:"quit"`
-	OutputPath      string `json:"output_path"`
+	RunID              string `json:"run_id"`
+	AdjudicatorID      string `json:"adjudicator_id"`
+	Total              int    `json:"total"`
+	AlreadyReviewed    int    `json:"already_reviewed"`
+	Presented          int    `json:"presented"`
+	Reviewed           int    `json:"reviewed"`
+	Remaining          int    `json:"remaining"`
+	Quit               bool   `json:"quit"`
+	OutputPath         string `json:"output_path"`
+	PanelAgreements    int    `json:"panel_agreements,omitempty"`
+	PanelDisagreements int    `json:"panel_disagreements,omitempty"`
+	DirectAssessments  int    `json:"direct_assessments,omitempty"`
 }
 
 type distillQualityAdjudicateItemV1 struct {
@@ -209,6 +212,19 @@ func (session *distillQualityAdjudicationSessionV1) close() error {
 
 func (session *distillQualityAdjudicationSessionV1) save(item distillQualityAdjudicateItemV1, admission, authority, safety, rationale string, at time.Time) error {
 	record := makeDistillQualityHumanAdjudicationV1(session.manifest.RunID, session.result.AdjudicatorID, item, admission, authority, safety, rationale, at.UTC())
+	return session.saveRecord(item, record)
+}
+
+// saveFilterAssessment records the single proposition the admission review can
+// establish: whether the deterministic filter made the right keep/drop choice.
+// It deliberately leaves authority, safety, and fact-quality proof dimensions
+// unclaimed; those require different evidence and later adjudication.
+func (session *distillQualityAdjudicationSessionV1) saveFilterAssessment(item distillQualityAdjudicateItemV1, filterCorrect bool, rationale string, at time.Time) error {
+	record := makeDistillQualityHumanFilterAssessmentV1(session.manifest.RunID, session.result.AdjudicatorID, item, filterCorrect, rationale, at.UTC())
+	return session.saveRecord(item, record)
+}
+
+func (session *distillQualityAdjudicationSessionV1) saveRecord(item distillQualityAdjudicateItemV1, record distillQualityHumanAdjudicationV1) error {
 	if err := validateDistillQualityHumanAdjudicationV1(item.Packet, item.Aggregate, record); err != nil {
 		return err
 	}
@@ -234,13 +250,12 @@ func newFactsDistillQualityAdjudicateCommand(opts Options) *cobra.Command {
 	var fullEvidence, plain bool
 	cmd := &cobra.Command{
 		Use:   "adjudicate",
-		Short: "Review a readable, resumable batch of advisory packets",
+		Short: "Compare filter decisions with a readable advisory panel",
 		Long: `adjudicate opens a full-screen human review workspace over a bounded
-Phase 2 quality batch. It shows the one statement under review first, keeps
-surrounding conversation hidden unless requested, presents compact
-Copilot/Cursor/Claude advice, records explicit human decisions,
-and a confirmation step. Every confirmed decision is saved immediately and a
-later invocation resumes without repeating it.
+Phase 2 quality batch. Each screen shows one statement, the deterministic
+filter decision, and each available Copilot/Cursor/Claude decision with its
+reason. A single agree/disagree answer at the bottom is saved immediately; a
+later invocation resumes without repeating it. Unavailable judges are omitted.
 
 On a non-TTY, or with --plain, it uses the deterministic line-oriented fallback.`,
 		Args: cobra.NoArgs,
@@ -259,6 +274,9 @@ On a non-TTY, or with --plain, it uses the deterministic line-oriented fallback.
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "\nSession complete: %d decisions saved from %d presented; %d of %d packets remain.\n", result.Reviewed, result.Presented, result.Remaining, result.Total)
+			if result.PanelAgreements+result.PanelDisagreements+result.DirectAssessments > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Panel comparison: %d agreed, %d flagged for disagreement follow-up, %d decided directly because the judges had no majority.\n", result.PanelAgreements, result.PanelDisagreements, result.DirectAssessments)
+			}
 			if result.AlreadyReviewed+result.Reviewed == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "The first decision will create: %s\n", result.OutputPath)
 			} else {
@@ -749,6 +767,29 @@ func makeDistillQualityHumanAdjudicationV1(runID, adjudicatorID string, item dis
 		ItemDigest: item.Packet.Item.Digest, PromptDigest: item.Packet.Prompt.Digest, PayloadDigest: item.Packet.Payload.Digest,
 		AdvisoryDigest: distillQualityPanelAggregateDigestV1(item.Aggregate), AdjudicatorID: adjudicatorID,
 		AdjudicatedAt: at.Truncate(time.Second).Format(time.RFC3339), Decision: decision, Dimensions: dimensions,
+		Rationale: strings.TrimSpace(rationale),
+	}
+}
+
+func makeDistillQualityHumanFilterAssessmentV1(runID, adjudicatorID string, item distillQualityAdjudicateItemV1, filterCorrect bool, rationale string, at time.Time) distillQualityHumanAdjudicationV1 {
+	shouldAdmit := item.CandidateAdmitted == filterCorrect
+	admission := "no"
+	decision := distillQualityHumanRejectV1
+	if shouldAdmit {
+		admission = "yes"
+		decision = distillQualityHumanAcceptV1
+	}
+	identity := distillQualitySHA256V1([]byte(strings.Join([]string{runID, adjudicatorID, item.Packet.PacketID}, "\x00")))
+	return distillQualityHumanAdjudicationV1{
+		SchemaVersion: distillQualityPanelSchemaVersion,
+		RecordID:      "human-v1:" + strings.TrimPrefix(identity, "sha256:"),
+		PacketID:      item.Packet.PacketID, PacketDigest: item.Packet.PacketDigest,
+		ItemDigest: item.Packet.Item.Digest, PromptDigest: item.Packet.Prompt.Digest, PayloadDigest: item.Packet.Payload.Digest,
+		AdvisoryDigest: distillQualityPanelAggregateDigestV1(item.Aggregate), AdjudicatorID: adjudicatorID,
+		AdjudicatedAt: at.Truncate(time.Second).Format(time.RFC3339), Decision: decision,
+		Dimensions: []distillQualityHumanDimensionV1{{
+			Dimension: distillQualityDimensionAdmissionV1, ProofLabel: distillQualityAdmissionProofV1(admission, item.CandidateAdmitted),
+		}},
 		Rationale: strings.TrimSpace(rationale),
 	}
 }

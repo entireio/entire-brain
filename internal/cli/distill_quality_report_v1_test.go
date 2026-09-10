@@ -30,9 +30,14 @@ func TestRenderDistillQualityHumanReviewV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Human Review", "do **not** need to read", "distill-quality adjudicate", "20-item calibration", "full-screen terminal workspace", "--plain", distillQualityAuditArchiveFileV1} {
+	for _, want := range []string{"Human Review", "do **not** need to read", "distill-quality adjudicate", "20-item calibration", "full-screen terminal workspace", "judges' majority", "Human disagreements", "--plain", distillQualityAuditArchiveFileV1} {
 		if !strings.Contains(string(review), want) {
 			t.Fatalf("review missing %q:\n%s", want, review)
+		}
+	}
+	for _, old := range []string{"press `c`", "whether the user said", "confirmation step"} {
+		if strings.Contains(string(review), old) {
+			t.Fatalf("review retained obsolete workflow text %q:\n%s", old, review)
 		}
 	}
 	if strings.Contains(string(review), "sessions/main/local-1.jsonl") || strings.Count(string(review), "\n") > 40 {
