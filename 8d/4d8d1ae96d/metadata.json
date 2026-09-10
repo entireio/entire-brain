@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "8d4d8d1ae96d",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_endpoint_path_test.go",
+    "internal/cli/semantic_stream.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8d/4d8d1ae96d/0/metadata.json",
+      "transcript": "/8d/4d8d1ae96d/0/full.jsonl",
+      "compact_transcript": "/8d/4d8d1ae96d/0/transcript.jsonl",
+      "content_hash": "/8d/4d8d1ae96d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9032,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1114112,
+    "output_tokens": 1997,
+    "api_call_count": 8
+  }
+}
