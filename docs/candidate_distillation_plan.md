@@ -1,10 +1,48 @@
 # Candidate-First Distillation Plan
 
 Status: Phase 3 conservative-write exit gate complete. Phase 2 has a sealed
-advisory multi-model pre-adjudication package, a resumable human review
-workspace, and one completed 20-item selector calibration. The representative
-human-labeled audit, paired fact-quality runs, and retrieval gates remain
-pending and block default promotion (2026-09-10).
+three-judge agentic evidence package and one completed historical 20-item human
+selector calibration. The remaining implementation, quality, retrieval, and
+operational gates are agentically scored; no further human checkpoint occurs
+before the final Phase 5 default-promotion audit. That final audit recomputes
+the retained metrics from human labels and is the only human approval gate
+(2026-09-10).
+
+### Delivery and acceptance model
+
+The main Codex agent owns scope, decomposition, evidence contracts,
+orchestration, integration judgment, and phase acceptance. It does not perform
+the primary implementation work. Each bounded implementation or test task is
+delegated to a cheaper Sol, Terra, or Luna subagent with explicit file/module
+ownership. The main agent integrates compatible work, verifies the retained
+evidence, reports performance, quality, and progress against this plan at every
+phase judgment, and rejects or re-scopes changes that exceed the admitted task;
+it does not turn reviewer suggestions into an unbounded implementation loop.
+
+Every Phase 0–4 acceptance gate is independently scored from the same sealed,
+redacted evidence digest by Claude, Copilot, and Cursor. Each judge reports
+performance, quality, and progress against the phase contract. Each is blind
+to the other verdicts and prior acceptance. Three matching valid verdicts, a
+valid two-to-one majority, or two matching valid verdicts when the third judge
+is unavailable are decisive unless a dissent marks a critical safety, privacy,
+authority, or source-faithfulness concern. A split without a majority or a
+critical dissent invokes Codex Astra: Astra receives the sealed evidence,
+rubric, all available primary verdicts, and their bounded rationales, then
+records one digest-bound tie-break judgment of pass, fail, or
+insufficient-evidence. Fewer than two valid primary verdicts fails closed.
+Astra is never a fourth routine vote or a substitute for missing coverage.
+
+Each gate produces a content-free evidence digest that pins revisions, corpus,
+packet, rubric, judge-model, prompt, payload, telemetry, and verdict digests.
+Only changed packets or changed evaluation inputs are rejudged; unchanged valid
+verdicts are reused after digest verification. One bounded recovery request per
+invalid/unavailable judge is allowed. If the resulting panel plus Astra cannot
+produce a decisive valid result, the gate fails closed and records the missing
+coverage. A failed gate permits one predeclared corrective implementation
+slice, followed by one delta-only rejudgment; it does not authorize iterative
+local prompt, selector, or rubric optimization against the same judge feedback.
+All quantitative thresholds below are provisional agentic gates until the
+final Phase 5 human recomputation and approval.
 
 The first implementation slice on `feat/candidate-first-distillation` adds the
 opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
@@ -121,80 +159,61 @@ suppressed rather than promoted as a standing rule.
 
 This passes the implementation, isolation, fixed-policy call-count, and small
 real-provider protocol checks. It does **not** pass Phase 2's full exit gate:
-one manually inspected fact is not a labeled corpus. Promotion beyond shadow
-still requires the human-labeled span recall/precision audit, filtered-out
-negative sample, repeated paired legacy/candidate provider runs, source-anchor
-faithfulness review, and observed provider token/latency totals described below.
+one manually inspected fact is not a sealed agentic evaluation. Promotion
+beyond shadow still requires the agentically scored span-recall/precision set,
+filtered-out negative sample, repeated paired legacy/candidate provider runs,
+source-anchor-faithfulness review, and observed provider token/latency totals
+described below. The final human audit occurs only after every such gate passes.
 
-#### Sealed advisory panel before human adjudication (2026-08-25)
+#### Sealed independent agentic panel (2026-08-25)
 
-The next Phase 2 slice adds a reproducible pre-adjudication workflow, not an
-automated proof label. `facts distill-quality prepare` seals one redacted local
-run containing every unique admitted candidate card plus a deterministic,
-stratified sample of 500 filtered exchanges. The retained `entire-graph` run
-contains 152 current session views, 219 admitted packets, 500 filtered packets,
-and 719 total packets. Its manifest pins the evaluator and target revisions,
-dirty-state bit, corpus and packet digests, rubric/prompt digest, redaction
-version, item counts, and a separately protected private source-map digest.
-Public judge packets contain redacted evidence and opaque ids only; source
-paths, branches, session ids, checkpoints, cache keys, credentials, and human
-expectations are not sent to judges.
+Phase 2 uses reproducible agentic gate evidence, not an interim human
+checkpoint. `facts distill-quality prepare` seals one redacted local run
+containing every unique admitted candidate card plus a deterministic, stratified
+sample of 500 filtered exchanges. The retained `entire-graph` run contains 152
+current session views, 219 admitted packets, 500 filtered packets, and 719
+total packets. Its manifest pins evaluator and target revisions, dirty-state
+bit, corpus and packet digests, rubric/prompt digest, redaction version, item
+counts, and a separately protected private source-map digest. Public judge
+packets contain redacted evidence and opaque ids only; source paths, branches,
+session ids, checkpoints, cache keys, credentials, and prior human expectations
+are not sent to judges.
 
 `facts distill-quality judge` submits that identical sealed packet set to
 Copilot, Cursor, and Claude independently. It blinds every judge to the other
-verdicts and to eventual human labels, validates exact packet and payload
+verdicts and to any future human audit, validates exact packet and payload
 digests on return, and records every dimension score and bounded rationale.
-Provider work uses deterministic batches, one schema/transport retry, bounded
-parallelism, atomic parent-owned persistence, and an explicit one-time recovery
-lane for terminal invalid batches. Missing or malformed provider output becomes
-an `invalid` advisory verdict; it is never converted into a negative label.
+Provider work uses deterministic batches, bounded parallelism, atomic
+parent-owned persistence, and one schema/transport retry plus one recovery
+request. Missing or malformed provider output is `invalid`, never a negative
+label or a silent abstention.
 
-`facts distill-quality report` produces a concise `human-review.md` start page,
-the complete `human-review-audit.md` evidence archive, raw per-judge score
-aggregation, and a blank compatibility template. The audit Markdown is
-deliberately exhaustive and is **not** the human review interface.
-Human adjudication uses a bounded, resumable queue instead:
+The planned resolution workflow must emit a concise gate summary, exhaustive
+machine-readable evidence archive, and aggregate digest; it does not imply an
+existing `facts distill-quality resolve` command or named artifact. It applies
+the delivery-and-acceptance policy: matching valid verdicts or a non-critical
+valid two-to-one result are decisive. A split without a majority or a critical
+dissent invokes Codex Astra once. Fewer than two valid primary verdicts fails
+closed without asking Astra to replace missing coverage. Astra receives the
+sealed evidence, rubric, all available primary verdicts, and their bounded
+rationales, then records one digest-bound pass, fail, or insufficient-evidence
+judgment. Insufficient evidence leaves the gate open; it cannot fabricate a
+label or compensate for missing coverage.
 
-```sh
-entire brain facts distill-quality adjudicate \
-  --bundle <quality-run-directory> \
-  --adjudicator <reviewer-id>
-```
+The historic `facts distill-quality adjudicate` terminal workspace is reserved
+for the final Phase 5 human audit. It is not run in Phases 0–4 and no additional
+calibration or bulk human queue is created before that final gate. The final UI
+shows every available Claude, Copilot, Cursor, and Astra score with its concise
+rationale, omits unavailable judges, and works through bounded resumable
+batches. A second human review is required only for ambiguous or critical
+disagreements. Private reviewer records remain bound to packet and aggregate
+digests and are reused only after exact digest verification; software, rather
+than a reviewer, recomputes the final metrics from the human labels.
 
-The default session is a deterministic 20-item calibration batch balanced
-across invalid, admitted-critical, filtered-critical, disagreement, and clean
-items. On a terminal it opens a responsive full-screen workspace. Each screen
-starts with the exact human statement selected or filtered by candidate
-admission. Fragmented packet payloads are reassembled before turn isolation,
-and truncated or ambiguous speaker shapes fail closed instead of becoming
-transcript dumps. The workspace then shows the filter decision and only the
-available Copilot, Cursor, and Claude decisions, each reduced to “agrees with
-filter,” “disagrees with filter,” or “unsure” plus its bounded reason. Missing
-or invalid judges are omitted instead of occupying review space.
-
-The fixed action bar asks one question: whether the reviewer agrees with the
-available judges' majority. `y`/`n` save immediately; left/right plus Enter are
-equivalent, up/down scrolls, `x` skips, and `q` exits. When the judges have no
-majority, the action bar instead asks directly whether the filter decision is
-correct. The stored human record claims only the resulting admission label;
-authority, safety, and downstream fact-quality dimensions remain unclaimed.
-Human disagreements with the panel majority are recorded explicitly in the
-bounded rationale so they can be discussed as a separate follow-up set.
-Existing saved records remain valid and are skipped on resume. `--plain`
-remains the line-oriented accessibility/non-TTY fallback.
-
-Each explicit human answer is validated, bound to the packet and advisory
-digests, written atomically to a private per-reviewer JSONL file, and
-skipped on resume. `--queue critical|invalid|disagreement|clean|all` and
-`--limit 1..100` provide later bounded sessions without turning the 719-packet
-archive into one reading task. No panel consensus becomes a default or bulk
-acceptance.
-
-Every model score and rationale remains advisory only: it cannot populate
-proof labels, pass a Phase 2 gate, or replace the required human review. Final
-human decisions are the sole input to the candidate-admission metrics, and the
-paired legacy/candidate extraction and retrieval gates still follow that
-adjudication.
+Agentic scores and rationales are the provisional proof inputs for Phases 0–4.
+They may pass their named gate only through the independent-panel resolution
+above. The final Phase 5 human audit recomputes the same metrics and is the
+only approval that can promote the default.
 
 The completed sealed run is
 `quality-run-v1:33808625a097f0e5ab411a5cddb92c337257a7b4c62c7fad7c53852dee919868`.
@@ -211,7 +230,7 @@ and rubric/prompt digest
 The sealed artifacts, rather than a mutable branch name, are the evaluated
 input contract.
 
-The advisory result totals are shown as `pass / concern / critical`:
+The independent judge result totals are shown as `pass / concern / critical`:
 
 | Judge | Coverage | Admission | Authority | Safety |
 | --- | ---: | ---: | ---: | ---: |
@@ -219,13 +238,13 @@ The advisory result totals are shown as `pass / concern / critical`:
 | Cursor `composer-2.5` | 719 complete | 565 / 13 / 141 | 635 / 45 / 39 | 627 / 57 / 35 |
 | Claude `claude-haiku-4-5` | 687 complete, 32 invalid | 576 / 24 / 87 | 552 / 111 / 24 | 620 / 27 / 40 |
 
-The human report flags 221 packets with at least one critical advisory score,
-456 with judge disagreement, and 32 with an invalid Claude verdict. Split by
-the deterministic candidate decision, that is 190 of 219 admitted packets and
-31 of 500 filtered packets with at least one critical signal; 196 admitted and
-260 filtered packets have disagreement. These are attention-routing counts,
-not error rates, because no human proof labels exist yet. The adjudication
-template contains 719 null decisions and null labels by construction.
+The agentic report flags 221 packets with at least one critical score, 456 with
+judge disagreement, and 32 with an invalid Claude verdict. Split by the
+deterministic candidate decision, that is 190 of 219 admitted packets and 31 of
+500 filtered packets with at least one critical signal; 196 admitted and 260
+filtered packets have disagreement. These are attention-routing counts, not
+error rates; they require policy resolution before they can pass a provisional
+phase gate.
 
 Provider execution retained all call attempts. Copilot used 34 calls (29
 complete, five schema failures, three retry attempts, and eight one-time
@@ -241,16 +260,16 @@ Claude used bounded concurrency during the primary pass, so that sum is not
 wall-clock duration. A Claude Sonnet 5 diagnostic exceeded the ten-minute
 single-call ceiling and was excluded before the sealed Claude Haiku run.
 
-#### First human calibration and selector rebase (2026-09-10)
+#### Historical human calibration and selector rebase (2026-09-10)
 
 The simplified one-statement reviewer was completed for its first 20-item
 attention-weighted calibration. The reviewer agreed with the available judge
 majority on 17 items, disagreed on one, and directly decided two items whose
-judges had no majority. The resulting human admission labels judged the filter
+judges had no majority. The resulting historical labels judged the filter
 correct on 14 items and identified six false-positive admissions. This batch
 was deliberately sampled for attention, not prevalence, and contained no
-human-labeled filtered-out miss; it is a calibration result, not the Phase 2
-recall or precision estimate.
+human-labeled filtered-out miss; it is historical selector-calibration
+evidence, not a Phase 2 recall or precision estimate and not an interim gate.
 
 The six errors were current-work instructions: implement/test a plan, a long
 benchmark campaign runbook, review named trails, prepare a current Sonnet plan,
@@ -258,33 +277,33 @@ accept a one-off bot rerun with bare `Yes`, and implement/audit/open a PR while
 temporarily skipping benchmarks. Candidate schema v3 suppresses those bounded
 shapes before egress. Regression cases retain explicit lasting rules, durable
 project preferences, closed negatives, and genuine accepted technical
-decisions. The one panel disagreement remains human-owned: a direct request to
-choose the best clean-slate project approach is still admitted for extraction
-inspection even though two judges treated it as a one-off task. Admission does
-not itself authorize a durable write; the extraction protocol may still return
-`NO_FACTS`.
+decisions. The one historical panel disagreement remains recorded: a direct
+request to choose the best clean-slate project approach is still admitted for
+extraction inspection even though two judges treated it as a one-off task.
+Admission does not itself authorize a durable write; the extraction protocol may
+still return `NO_FACTS`.
 
-`distill-quality prepare --reuse-from <sealed-run>` now makes selector
-calibration incremental. It copies no provider-call telemetry and reuses a
-judge verdict only when packet id, packet digest, item digest, prompt digest,
-and payload digest all match. Human records additionally require an identical
-recomputed advisory aggregate; migrated record ids are rebound to the new run.
-Changed packets lose their old labels and are the only members of the new
-`adjudicate --queue delta` queue. A content-free `reuse-delta.json` sidecar
-records the exact partition and counts. Historical sealed candidate-schema
-versions remain readable, while future schemas and changed redaction versions
-fail closed.
+`distill-quality prepare --reuse-from <sealed-run>` makes evaluation
+incremental. It copies no provider-call telemetry and reuses a judge verdict
+only when packet id, packet digest, item digest, prompt digest, and payload
+digest all match. Changed packets lose their old verdicts and are the only
+members of the next agentic delta queue. A content-free `reuse-delta.json`
+sidecar records the exact partition and counts. Historical sealed
+candidate-schema versions remain readable, while future schemas and changed
+redaction versions fail closed. Historical human records are retained but are
+not consulted or expanded until the final Phase 5 audit.
 
 The current Brain had grown from 152 to 186 candidate session views, so the
 first live rebase separated 87 new/corpus-drift packets from 589 exact packet
 matches and reused 1,767 verdicts. Copilot and Claude completed all 87 new
 judgments. Cursor was unavailable at the transport layer; its 87 delta verdicts
-remain explicitly invalid after the one bounded recovery pass and are omitted
-from the human presentation. The final selector rebase contains 171 admitted
+remain explicitly invalid after the one bounded recovery pass. Under this plan
+they require Astra escalation or fail-closed treatment before a gate can pass;
+they are not silently omitted. The final selector rebase contains 171 admitted
 and 500 filtered packets. All 671 surviving packets and all 2,013 verdicts were
 exact matches to the immediately preceding sealed run, leaving zero unresolved
-delta packets; 18 unchanged human records migrated. No additional bulk human
-review was manufactured from corpus growth.
+delta packets; 18 unchanged historical human records migrated. No additional
+human review is created from corpus growth before Phase 5.
 
 On that 186-view corpus, the final candidate dry run has 267 cards, 173 unique
 members, 1,119,642 candidate bytes, and zero reconciliation calls. The
@@ -326,9 +345,10 @@ facts-before-receipt crash convergence.
 
 Phase 3A's synthetic evidence was necessary but not sufficient for the Phase 3
 exit. The final live-corpus and controlled-result acceptance is recorded below.
-The human-labeled Phase 2 recall and precision audit, repeated paired provider
-runs, filtered-negative audit, and retrieval evaluation remain required before
-promotion or any default change.
+The Phase 2 agentic recall and precision audit, repeated paired provider runs,
+filtered-negative audit, and retrieval evaluation remain required before
+promotion or any default change; the human recomputation follows them only in
+the final Phase 5 approval gate.
 
 ### Phase 3B evidence (2026-08-23)
 
@@ -337,7 +357,7 @@ Codex, Claude, Pi, and OpenCode positive and negative authority shapes. It
 locks deterministic candidate IDs, trigger anchors, role boundaries,
 checkpoint corroboration, accepted decisions, injected mechanics, task/review
 sessions, and one-off-request suppression. This is a regression fixture, not
-the full human-labeled Phase 2 corpus gate.
+the full agentically scored Phase 2 corpus gate.
 
 Synthetic bad-reconciliation coverage retains the two known failure shapes:
 `--no-network` and repository-key/symbol-ID facts may share a taxonomy path but
@@ -390,11 +410,13 @@ remained empty. Sanitized regressions retain the historical `--no-network`
 versus repository-key/symbol-ID corruption cases.
 
 Every live neutral relationship was joined back to its fact pair for manual
-inspection. One false observation used the generic product token `entire` to
-connect unrelated graph-index and semantic-snapshot gotchas; the strong-locus
-policy now rejects that token and retains the exact pair as a regression. The
-remaining seven observations across the two provider runs were narrow
-same-subject pairs (hook event mappings, graph-plugin release steps, and
+inspection. This historical inspection is supplemental evidence under the
+revised agentic-gate policy, not a claim that Phase 3 was agentically scored.
+One false observation used the generic product token `entire` to connect
+unrelated graph-index and semantic-snapshot gotchas; the strong-locus policy now
+rejects that token and retains the exact pair as a regression. The remaining
+seven observations across the two provider runs were narrow same-subject pairs
+(hook event mappings, graph-plugin release steps, and
 `internal/sem` boundaries). None altered facts or entered the executable
 proposal path. Relationship stores invalidated by a stricter policy now rebuild
 from current v2-owned facts with zero provider calls instead of blocking fact
@@ -515,7 +537,8 @@ visible conversation text.
   signal to an agent.
 - Preserve at least 98 percent candidate recall for explicit user standing
   rules, preferences, and closed negatives, and at least 95 percent candidate
-  recall across all human-labeled durable facts before the agent runs.
+  recall across all provisionally agentically scored durable facts before the
+  extraction agent runs; confirm both in the final Phase 5 human audit.
 - Preserve the existing silent quality gate: most candidate cards should still
   produce no fact.
 - Keep facts source-backed, branch-aware, content-addressed, locally
@@ -1043,7 +1066,10 @@ automatic paraphrase merge reports its rule and score.
 ### Step 3: Supersession
 
 The MVP performs no automatic supersession across different fact ids. It keeps
-both facts active, cross-links them, and queues a proposal.
+both facts active and separate. A different-id pair may create only the
+optional, local `possible_same_subject` relationship when its conservative
+branch/kind/taxonomy/strong-locus block qualifies. It never creates an
+executable merge or supersede proposal by default.
 
 A later phase may auto-supersede only when all of the following hold:
 
@@ -1052,22 +1078,23 @@ A later phase may auto-supersede only when all of the following hold:
 - old and new facts have the same normalized subject key and strong locus;
 - source chronology is unambiguous;
 - polarity/value analysis identifies the exact changed predicate;
-- the rule has 100 percent precision on the retained supersession gold set.
+- the rule has 100 percent precision on the retained supersession sealed
+  evaluation corpus.
 
-Any uncertainty produces a proposal, never a destructive status change. One
-wrong auto-supersede disables the rule until reviewed.
+Any uncertainty keeps the facts separate and may create only the qualifying
+local neutral relationship; its list view is non-mutating. One wrong
+auto-supersede disables the future rule until reviewed.
 
 ### Step 4: New fact
 
 If no exact or safe paraphrase relationship exists, add the candidate as new.
 Distinct facts are preferable to silently collapsing unrelated knowledge.
 
-### Review behavior
+### Relationship behavior
 
-Proposal dedup remains `(action, candidate, target)`. Repeated evidence can add
-provenance without creating repeated proposals. The review surface should show
-the deterministic subject block, similarity features, authority, and source
-chronology so a human can resolve it without rereading whole sessions.
+Neutral-relationship listing is read-only. Repeated qualifying evidence may add
+bounded local relationship ownership without changing either fact, creating an
+executable proposal, or requiring a review action.
 
 ## Branches, Checkpoints, And Provenance
 
@@ -1324,7 +1351,7 @@ No speed result can compensate for silently missing durable knowledge. Evaluate
 candidate generation separately from agent extraction so a model cannot hide a
 bad deterministic filter.
 
-### Gold corpus
+### Sealed provisional evaluation corpus
 
 Build exact-span labels across:
 
@@ -1355,34 +1382,54 @@ Labels record:
 - whether the fact is already available in code/docs/git;
 - expected relationship to existing facts.
 
-Use at least two reviewers for ambiguous durable/known/resolved labels and
-retain disagreements rather than silently forcing consensus.
+For Phases 0–4, label and score this corpus through the sealed independent
+Claude/Copilot/Cursor panel and the escalation policy above. Retain source
+disagreements rather than forcing consensus. In Phase 5 it becomes the final
+human-labeled evaluation corpus: human reviewers label the retained packets and
+software recomputes the provisional metrics from those labels and evidence.
+
+### Agentic scoring protocol
+
+The main agent seals each evaluation input before judging and accepts no score
+without the corresponding evidence digest. Claude, Copilot, and Cursor score
+candidate admission, fact quality, relationships, and retrieval independently
+against the same rubric. Codex Astra is called only for the defined escalation
+cases, with no access to an implementation diff beyond the sealed evidence.
+Judge availability is itself measured coverage: one bounded recovery is
+permitted, then the planned resolution workflow either records Astra's
+digest-bound escalation judgment or fails closed. A change to code, corpus,
+prompt, taxonomy, rubric, redaction, or provider configuration invalidates only
+its affected digest partition; all unchanged valid verdicts remain reusable.
+This bounded delta-only process prevents tuning a local result through repeated
+review cycles.
 
 ### Candidate-generation gates
 
 - At least 98 percent span recall for explicit human standing rules,
   preferences, explicit revisions, and closed negatives.
-- At least 95 percent span recall across all gold durable facts.
+- At least 95 percent span recall across all sealed-evaluation durable facts.
 - 100 percent rejection of proven system/developer/tool/hook/skill injections.
 - No direct-human turn may be reclassified as generated solely because it uses
   imperative language.
 - Candidate output and ids are byte-for-byte deterministic across repeated
   runs.
-- A stratified random audit of at least 500 filtered-out exchanges finds no
-  critical missed standing rule or closed negative. Any miss updates the gold
-  set and blocks default rollout until addressed.
+- The sealed, stratified 500-exchange filtered-out agentic audit finds no
+  critical missed standing rule or closed negative. Any miss updates the
+  provisional evaluation corpus and blocks the provisional gate until the one
+  permitted corrective slice and delta-only rejudgment complete.
 
 Because lexical cues can miss implicit decisions, retain a sampled shadow lane:
 for a fixed, deterministic fraction of below-threshold turns, run the legacy
-quality gate offline during evaluation. Review any fact it emits that candidate
-mode missed. This sampling lane is evaluation-only and budgeted; it is not a
-steady-state hidden cost.
+quality gate offline during evaluation. Have the independent panel score any
+fact it emits that candidate mode missed. This sampling lane is evaluation-only
+and budgeted; it is not a steady-state hidden cost.
 
 ### Fact-quality gates
 
 Run paired legacy and candidate extraction with the same prompt, taxonomy,
 model, effort, and source cutoff. Repeat provider runs at least three times when
-the provider is nondeterministic.
+the provider is nondeterministic. The independent panel scores the paired,
+sealed outputs before any human review.
 
 Measure:
 
@@ -1405,15 +1452,16 @@ Required gates:
 - Deterministic paraphrase merge precision is at least 99 percent on labeled
   pairs; otherwise ship exact-only.
 - Automatic supersession precision is 100 percent. The MVP reaches this
-  trivially by queuing all different-id supersessions.
+  vacuously: it performs no automatic different-id supersession or proposal.
 - Review-origin hypotheses never become active solely from review prose.
 
 ### Retrieval gates
 
-Run the existing facts evaluation arms on the resulting stores. Compare useful
-facts per 1,000 tokens, precision, recall, and answer support. Candidate mode
-must not claim a retrieval win unless proof-labeled paired evaluation supports
-it under the existing release evidence policy.
+Run the existing facts evaluation arms on the resulting stores. The independent
+panel compares useful facts per 1,000 tokens, precision, recall, and answer
+support. Candidate mode must not claim a retrieval win unless the sealed agentic
+paired evaluation supports it; the final Phase 5 human recomputation must then
+confirm that result under the existing release evidence policy.
 
 At minimum:
 
@@ -1445,27 +1493,34 @@ Retain exact duplicate, continued-session, model-change, prompt-change,
 taxonomy-change, branch-filter, session-filter, force, tombstone, purge, and
 corrupt-cache scenarios as integration tests.
 
+All candidate-generation, fact-quality, retrieval, and operational thresholds
+in this section are provisional agentic gates in Phases 0–4. They require the
+sealed independent-panel resolution and evidence digest, not an interim human
+score. Phase 5 repeats the calculations from a final human-labeled corpus and
+requires explicit human approval before changing the default.
+
 ## Rollout Plan
 
 ### Phase 0: Measurement-only candidate planner
 
-- Add typed normalization and candidate planning behind candidate-mode dry run.
+- Delegate typed normalization and candidate planning behind candidate-mode dry
+  run to a Sol, Terra, or Luna implementation subagent.
 - Emit the full funnel and projected packs without making an agent call or
   writing v2 cache/facts.
 - Reproduce the measured `entire-graph` baseline in a retained, auditable
   artifact.
-- Build the span-labeled gold and negative-audit sets.
+- Build the sealed provisional span-label and negative-audit packet sets; do not
+  request human labels.
 
 Exit gate: canonical read safety and dry-run determinism pass; candidate recall
-meets the pre-agent gates on fixtures and the first gold slice.
+meets the provisional agentic gates on fixtures and the first sealed corpus
+slice.
 
 ### Phase 1: Typed turns and content-addressed discovery cache
 
-- Factor reusable visible-turn normalization from `conversation.go` without
-  changing conversation retrieval behavior.
-- Implement prompt-id/slash-command collapse and authority/origin tags.
-- Persist content-free turn and candidate state.
-- Implement append-boundary reuse and purge integration.
+- Delegate reusable visible-turn normalization, prompt-id/slash-command
+  collapse, authority/origin tags, content-free state, append-boundary reuse,
+  and purge integration to bounded Sol, Terra, or Luna work items.
 
 Likely files:
 
@@ -1475,59 +1530,86 @@ Likely files:
   shared;
 - privacy lifecycle integration and tests.
 
-Exit gate: no plaintext card cache, no privacy regression, exact duplicate and
-continued-session reuse proven.
+Exit gate: no plaintext card cache, no privacy regression, and exact duplicate
+and continued-session reuse are proven by tests and a sealed agentic gate.
 
 ### Phase 2: Candidate-pack extraction, shadow only
 
-- Add candidate-id input/output framing to a new prompt version.
-- Add deterministic pack construction, member-level results, split retry, and
-  usage accounting.
+- Delegate candidate-id framing, deterministic pack construction, member-level
+  results, split retry, and usage accounting to bounded Sol, Terra, or Luna
+  work items.
 - Run candidate extraction in shadow against selected sessions; do not mutate
   the active fact store.
-- Compare outputs with legacy extraction and human labels.
+- Compare outputs with legacy extraction through the independent agentic panel.
 
-Exit gate: candidate and fact-quality gates pass on the full labeled corpus;
-token/call accounting is complete.
+Exit gate: candidate and fact-quality provisional agentic gates pass on the
+full sealed corpus; token/call accounting is complete. Human scoring remains
+deferred to Phase 5.
 
 ### Phase 3: Conservative reconciliation and opt-in writes
 
-- Enable `--pipeline candidates` fact writes.
+- Delegate `--pipeline candidates` fact writes and lifecycle tests to bounded
+  Sol, Terra, or Luna work items.
 - Phase 3A ships exact-only reconciliation first and keeps all different ids
   separate. It does not overload merge/supersede proposals as neutral links.
 - Keep the Phase 3B evidence-bearing neutral relationship store local,
   list-only, capacity-bounded, and separate from executable proposals.
-- Validate neutral relationship precision and lifecycle parity on the labeled
-  and live corpora before considering any downstream consumer.
-- Add safe paraphrase merging only after its pairwise precision gate passes.
+- Validate neutral relationship precision and lifecycle parity through sealed
+  agentic scoring before considering any downstream consumer.
+- Treat neutral-relationship consumers as optional research: the required
+  default path remains exact-only writes with no different-id automation.
+- Keep safe paraphrase merging as optional research, only after its pairwise
+  precision gate passes; exact-only is the required shipping path.
 - Preserve legacy facts on incremental candidate runs.
 
 Exit gate (met 2026-08-23): all live-corpus bad-reconcile fixtures pass,
 force/incremental lifecycle parity holds for identical extraction results, and
-no wrong automatic supersession is observed. Provider-output repeatability is
-tracked separately by the still-open Phase 2 quality gate.
+no wrong automatic supersession is observed. This is historical Phase 3 exit
+evidence, not a retroactive acceptance through the new sealed agentic panel;
+any new Phase 3 delta follows the current agentic policy. Provider-output
+repeatability is tracked separately by the still-open Phase 2 quality gate.
 
 ### Phase 4: Session-end incremental candidate distill
 
-- Route the existing single-session hook through candidate discovery.
-- Parse only the append boundary and new turns.
-- Share extraction results across repeated branch exports.
+- Delegate the session-end hook, append-only parsing, and cross-export result
+  reuse to bounded Sol, Terra, or Luna work items.
 - Keep watch budget, interval, and no-egress policy unchanged.
 
 Exit gate: no-candidate session end is zero-call and one-candidate session end is
-at most one pack call under normal cache state.
+at most one pack call under normal cache state, verified by tests and a sealed
+agentic gate.
 
 ### Phase 5: Default rollout
 
 - Retain candidate dry-run and paired release evidence on a small, medium, and
   large corpus.
-- Make candidate mode the default only after all quality, retrieval,
-  operational, privacy, and migration gates pass.
+- After all implementation and provisional agentic gates pass, run the only
+  human scoring/adjudication process: independently label the final sealed
+  evaluation corpus; software recomputes every quantitative quality and
+  retrieval threshold from those labels, then humans explicitly approve or
+  reject default promotion. It includes the representative
+  span corpus, the 500 filtered-out exchanges, paired legacy/candidate outputs,
+  source anchors, authority, taxonomy, exclusions, and retrieval support. The
+  review adjudicates disagreements but does not start ad hoc implementation
+  tuning inside the scoring session.
+- A human rejection blocks promotion and produces one consolidated,
+  evidence-bound remediation scope. After that bounded slice, rerun the
+  affected agentic gates and only the changed human-evaluation delta; do not
+  enter an unbounded tuning or review loop.
+- Make candidate mode the default only after that final human approval confirms
+  all quality, retrieval, operational, privacy, and migration gates.
 - Keep `--pipeline legacy` for at least one release cycle and document rollback.
 - Do not describe distillation as fast, cheaper, or recall-preserving beyond the
   exact retained evidence scope.
 
 ## Implementation Order And Test Map
+
+The main agent decomposes this order into bounded, non-overlapping Sol, Terra,
+or Luna implementation tasks and owns only orchestration, integration judgment,
+and phase acceptance. Each task returns its patch and deterministic test
+evidence to the main agent; independent Claude/Copilot/Cursor scoring is then
+run on the sealed phase evidence, rather than asking implementation subagents
+to self-accept their work.
 
 1. Extract a typed visible-turn iterator with parity tests against existing
    conversation exchanges.
@@ -1539,9 +1621,10 @@ at most one pack call under normal cache state.
 6. Version the extraction prompt and parser with candidate ids.
 7. Add deterministic packing, member cache, split retry, and concurrency tests.
 8. Add exact-only reconciliation and application receipts.
-9. Add optional safe paraphrase rules behind precision fixtures.
-10. Wire opt-in CLI, manifest/status fields, watch/session-end path, and release
-    evidence.
+9. Keep optional safe paraphrase rules behind precision fixtures, separate from
+   the required exact-only release path.
+10. Wire opt-in CLI, manifest/status fields, watch/session-end path, and
+    release evidence.
 
 Required test families:
 
@@ -1576,9 +1659,20 @@ Required test families:
 - Taxonomy path alone never defines a reconciliation subject.
 - The MVP makes no automatic different-id supersession.
 - Legacy mode remains available until candidate mode has retained quality and
-  operational evidence.
+  operational evidence and final human default-promotion approval.
+- Claude, Copilot, and Cursor are independent provisional gate judges; Codex
+  Astra is escalation-only, and human adjudication is Phase 5 only.
+- Exact-only writes are required default blockers; safe paraphrase merging and
+  downstream relationship consumers are optional research, not rollout
+  prerequisites.
 
 ## Open Questions To Resolve With Evidence
+
+Questions about implicit-decision recall, packing, known-from-code suppression,
+turn identity, context sufficiency, and cross-repository sharing are required
+default blockers when they prevent a sealed Phase 0–4 gate or final Phase 5
+human recomputation. Safe paraphrase and downstream relationship research are
+optional unless deliberately promoted into a future release scope.
 
 - Which implicit-decision forms lack reliable lexical cues, and what sampled
   shadow rate is needed to estimate their miss rate?
@@ -1587,7 +1681,8 @@ Required test families:
 - What deterministic known-from-code/docs/git threshold suppresses obvious
   restatements without hiding rationale?
 - Can a safe paraphrase rule clear 99 percent precision across repositories, or
-  should v1 remain exact-only indefinitely?
+  should v1 remain exact-only indefinitely? This is optional: v1 ships
+  exact-only if it does not clear the threshold.
 - Which source-provided turn ids are stable across every supported exporter,
   and where must normalized-content fallback identity remain explicit?
 - How much adjacent context is needed for closed negatives and human acceptance
@@ -1596,6 +1691,7 @@ Required test families:
   is identical? The initial answer is no: repository context and taxonomy are
   part of extraction semantics even when a sentence matches.
 
-These questions do not block Phase 0. They block progressively broader
-automation and the default switch, and each has an explicit measurement point
-in the rollout above.
+These questions do not block Phase 0. Required blockers gate progressively
+broader automation and the final default switch; optional relationship and
+paraphrase research never delays exact-only promotion once the required gates
+and final human approval pass.
