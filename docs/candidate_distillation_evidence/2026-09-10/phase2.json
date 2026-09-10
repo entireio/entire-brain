@@ -1,0 +1,201 @@
+{
+  "contract": "phase_gate_archive_v1",
+  "schema_version": 1,
+  "evidence": {
+    "contract": "phase_gate_evidence_v1",
+    "schema_version": 1,
+    "phase": 2,
+    "revision_digest": "sha256:694873f14ffd46447fd9aba716aa66e6e7ebc406913dec0e8e1c41b90a826390",
+    "artifact_digest": "sha256:e7bdf65139cf715b35c152cdffe5a3a56909c7ba829a14ce7f040a2605c09b40",
+    "base_artifacts": [
+      {
+        "name": "revision",
+        "path": "",
+        "digest": "sha256:694873f14ffd46447fd9aba716aa66e6e7ebc406913dec0e8e1c41b90a826390"
+      },
+      {
+        "name": "rubric",
+        "path": "",
+        "digest": "sha256:8b1108d4c66564d3ede5e003f3a881a1044c666318194bcb89078757f09466da"
+      },
+      {
+        "name": "input",
+        "path": "",
+        "digest": "sha256:78ed53cece4ea9199c62822b53b0c35898b12942a9790318ddefb3681a54fcf5"
+      },
+      {
+        "name": "evaluation",
+        "path": "",
+        "digest": "sha256:e7bdf65139cf715b35c152cdffe5a3a56909c7ba829a14ce7f040a2605c09b40"
+      }
+    ],
+    "judge_artifacts": [
+      {
+        "name": "judge/claude/prompt",
+        "path": "",
+        "digest": "sha256:b802a96e309bdc8d3becea18263e4bcfc71ad91c2a234e2ca7f05656637f038b"
+      },
+      {
+        "name": "judge/claude/payload",
+        "path": "",
+        "digest": "sha256:b97c8c54a29997bde5455d3e956500262d74d579217a49e2418d00970c3b23b5"
+      },
+      {
+        "name": "judge/claude/telemetry",
+        "path": "",
+        "digest": "sha256:9137401e39851060cc5bc8369abb69900c1f25c6ca51d1587884cec458a3bbfd"
+      },
+      {
+        "name": "judge/claude/rationale",
+        "path": "",
+        "digest": "sha256:3093ca9aa6905c17b11b5fb85acb11760cd3313630c3af97a4573e0387c720fd"
+      },
+      {
+        "name": "judge/copilot/prompt",
+        "path": "",
+        "digest": "sha256:b802a96e309bdc8d3becea18263e4bcfc71ad91c2a234e2ca7f05656637f038b"
+      },
+      {
+        "name": "judge/copilot/payload",
+        "path": "",
+        "digest": "sha256:59560958c3168344d745e34ad98916ee3a96954cec32e253a8cf21a57ac157ba"
+      },
+      {
+        "name": "judge/copilot/telemetry",
+        "path": "",
+        "digest": "sha256:9b0f4ed131be180659f765b71e35113b3c087184cd9198b9a7a31a074bea33f1"
+      },
+      {
+        "name": "judge/copilot/rationale",
+        "path": "",
+        "digest": "sha256:0a7499f431177077483984c7491a86db1f57564ca60403b6f1f89ebb42519f25"
+      },
+      {
+        "name": "judge/cursor/prompt",
+        "path": "",
+        "digest": "sha256:b802a96e309bdc8d3becea18263e4bcfc71ad91c2a234e2ca7f05656637f038b"
+      },
+      {
+        "name": "judge/cursor/payload",
+        "path": "",
+        "digest": "sha256:876c06dce7567bee4494b39161ea0409423bb7f3044bbb81c28fcd883d5d6407"
+      },
+      {
+        "name": "judge/cursor/telemetry",
+        "path": "",
+        "digest": "sha256:3050040d5d091b40add938e2afa35fdbc86290eaa1c93194d973f4dcaa1386b8"
+      },
+      {
+        "name": "judge/cursor/rationale",
+        "path": "",
+        "digest": "sha256:e6d1b976d0478080e7487cd1b10bf2ea333c0efedcd36d6f9e5c485917ca4c6c"
+      }
+    ],
+    "rubric_digest": "sha256:8b1108d4c66564d3ede5e003f3a881a1044c666318194bcb89078757f09466da",
+    "input_digest": "sha256:78ed53cece4ea9199c62822b53b0c35898b12942a9790318ddefb3681a54fcf5",
+    "evidence_digest": "sha256:53fc86a8714b41f960acd80253d4281a2e184a15dff5eeb201b3e1ff80269c8d",
+    "primary_verdicts": [
+      {
+        "judge": "claude",
+        "model": "claude-haiku-4-5",
+        "evidence_digest": "sha256:53fc86a8714b41f960acd80253d4281a2e184a15dff5eeb201b3e1ff80269c8d",
+        "verdict": "fail",
+        "dimensions": [
+          {
+            "name": "performance",
+            "verdict": "insufficient_evidence"
+          },
+          {
+            "name": "quality",
+            "verdict": "fail"
+          },
+          {
+            "name": "progress",
+            "verdict": "fail"
+          }
+        ],
+        "prompt_digest": "sha256:b802a96e309bdc8d3becea18263e4bcfc71ad91c2a234e2ca7f05656637f038b",
+        "payload_digest": "sha256:b97c8c54a29997bde5455d3e956500262d74d579217a49e2418d00970c3b23b5",
+        "telemetry_digest": "sha256:9137401e39851060cc5bc8369abb69900c1f25c6ca51d1587884cec458a3bbfd",
+        "rationale_digest": "sha256:3093ca9aa6905c17b11b5fb85acb11760cd3313630c3af97a4573e0387c720fd",
+        "verdict_digest": "sha256:52661b676f81ac8fbd86bfca3a0e14f4c4b3e3d28953e9d963e21a387d8b3810"
+      },
+      {
+        "judge": "copilot",
+        "model": "gpt-5.4",
+        "evidence_digest": "sha256:53fc86a8714b41f960acd80253d4281a2e184a15dff5eeb201b3e1ff80269c8d",
+        "verdict": "fail",
+        "dimensions": [
+          {
+            "name": "performance",
+            "verdict": "fail"
+          },
+          {
+            "name": "quality",
+            "verdict": "fail"
+          },
+          {
+            "name": "progress",
+            "verdict": "fail"
+          }
+        ],
+        "prompt_digest": "sha256:b802a96e309bdc8d3becea18263e4bcfc71ad91c2a234e2ca7f05656637f038b",
+        "payload_digest": "sha256:59560958c3168344d745e34ad98916ee3a96954cec32e253a8cf21a57ac157ba",
+        "telemetry_digest": "sha256:9b0f4ed131be180659f765b71e35113b3c087184cd9198b9a7a31a074bea33f1",
+        "rationale_digest": "sha256:0a7499f431177077483984c7491a86db1f57564ca60403b6f1f89ebb42519f25",
+        "verdict_digest": "sha256:3f02aba84ffb7756047fafe1ff06d0af906971fec5e09ba1f8e40b7e053b4054"
+      },
+      {
+        "judge": "cursor",
+        "model": "composer-2.5",
+        "evidence_digest": "sha256:53fc86a8714b41f960acd80253d4281a2e184a15dff5eeb201b3e1ff80269c8d",
+        "verdict": "insufficient_evidence",
+        "dimensions": [
+          {
+            "name": "performance",
+            "verdict": "pass"
+          },
+          {
+            "name": "quality",
+            "verdict": "insufficient_evidence"
+          },
+          {
+            "name": "progress",
+            "verdict": "insufficient_evidence"
+          }
+        ],
+        "prompt_digest": "sha256:b802a96e309bdc8d3becea18263e4bcfc71ad91c2a234e2ca7f05656637f038b",
+        "payload_digest": "sha256:876c06dce7567bee4494b39161ea0409423bb7f3044bbb81c28fcd883d5d6407",
+        "telemetry_digest": "sha256:3050040d5d091b40add938e2afa35fdbc86290eaa1c93194d973f4dcaa1386b8",
+        "rationale_digest": "sha256:e6d1b976d0478080e7487cd1b10bf2ea333c0efedcd36d6f9e5c485917ca4c6c",
+        "verdict_digest": "sha256:66317362582815fb630952bf6b073bb50073eb4f63659078dcb2c9ab92ce84e4"
+      }
+    ],
+    "primary_coverage": [
+      {
+        "judge": "claude",
+        "status": "completed"
+      },
+      {
+        "judge": "copilot",
+        "status": "completed"
+      },
+      {
+        "judge": "cursor",
+        "status": "completed"
+      }
+    ]
+  },
+  "summary": {
+    "phase": 2,
+    "state": "fail",
+    "reason": "decisive primary majority",
+    "evidence_digest": "sha256:53fc86a8714b41f960acd80253d4281a2e184a15dff5eeb201b3e1ff80269c8d",
+    "primaries_digest": "sha256:74ff4e96a417d0c16dbe60f51281bf3073f725cb92c621e28755d6733eb41473",
+    "valid_primaries": 3,
+    "missing_primaries": 0,
+    "critical_dissent": false,
+    "aggregate_digest": "sha256:33fac968af098edef9dfd17cc50bd33a039403d130ba882e4d600fdd54aa3bcd",
+    "archive_path": "/tmp/candidate-distill-implementation.tjw1ob/phase2-readiness/resolution/archive.json"
+  }
+}

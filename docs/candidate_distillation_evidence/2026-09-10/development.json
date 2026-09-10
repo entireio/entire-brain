@@ -1,0 +1,159 @@
+{
+  "contract": "candidate-development-evidence-summary/v1",
+  "partition": "development_only",
+  "source_label_results": [
+    {
+      "scope": "zero-candidate",
+      "judge": "claude",
+      "state": "invalid"
+    },
+    {
+      "scope": "zero-candidate",
+      "judge": "copilot",
+      "state": "invalid"
+    },
+    {
+      "scope": "zero-candidate",
+      "judge": "cursor",
+      "state": "completed",
+      "turns": 53,
+      "reference_facts": 15
+    },
+    {
+      "scope": "candidate",
+      "judge": "claude",
+      "state": "invalid"
+    },
+    {
+      "scope": "candidate",
+      "judge": "copilot",
+      "state": "invalid"
+    },
+    {
+      "scope": "candidate",
+      "judge": "cursor",
+      "state": "invalid"
+    }
+  ],
+  "admission_panel": {
+    "packets": 671,
+    "admitted": 171,
+    "filtered": 500,
+    "claude": {
+      "completed": 556,
+      "invalid": 17,
+      "unjudged_cancelled": 98
+    },
+    "copilot": {
+      "completed": 671,
+      "invalid": 0
+    },
+    "cursor": {
+      "completed": 616,
+      "invalid": 55
+    },
+    "interrupted_claude_packets": 16,
+    "interrupted_token_usage": "unknown_not_zero"
+  },
+  "paired_extraction": [
+    {
+      "scope": "zero-candidate",
+      "pipeline": "legacy",
+      "repetitions": 3,
+      "facts_per_repetition": [
+        1,
+        1,
+        1
+      ],
+      "calls_per_repetition": [
+        1,
+        1,
+        1
+      ],
+      "input_tokens_per_repetition": [
+        6943,
+        6943,
+        6943
+      ],
+      "provider_usage_complete": true
+    },
+    {
+      "scope": "zero-candidate",
+      "pipeline": "candidates",
+      "repetitions": 3,
+      "facts_per_repetition": [
+        0,
+        0,
+        0
+      ],
+      "calls_per_repetition": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_repetition": [
+        0,
+        0,
+        0
+      ],
+      "provider_usage_complete": true
+    },
+    {
+      "scope": "candidate",
+      "pipeline": "legacy",
+      "repetitions": 3,
+      "facts_per_repetition": [
+        4,
+        4,
+        4
+      ],
+      "calls_per_repetition": [
+        2,
+        2,
+        2
+      ],
+      "input_tokens_per_repetition": [
+        26423,
+        26423,
+        26423
+      ],
+      "provider_usage_complete": true
+    },
+    {
+      "scope": "candidate",
+      "pipeline": "candidates",
+      "repetitions": 3,
+      "facts_per_repetition": [
+        4,
+        4,
+        4
+      ],
+      "calls_per_repetition": [
+        1,
+        1,
+        1
+      ],
+      "input_tokens_per_repetition": [
+        2710,
+        2710,
+        2710
+      ],
+      "provider_usage_complete": true
+    }
+  ],
+  "release_gate_evidence": false,
+  "limitations": [
+    "No resolved reference corpus, recall/precision estimates, retrieval comparison, power calculation or untouched confirmation.",
+    "The development runner recorded corrections for actual arm order and fact artifact inventory; original receipts were retained.",
+    "The original snapshot scope identity was supplemented with identical full source-manifest hashes. The shipped snapshot command now binds authority metadata directly."
+  ],
+  "private_artifact_digests": {
+    "source-labels-development/summary.json": "sha256:c92db5fcdb999d9d11c923d1d12c1b2d0135c2a9c386605731e9c9734aea56b2",
+    "paired-extraction-development/declaration.json": "sha256:c7b8c7fe1546ca7e24fdcc6c3039aecf51a640867747ead77d140079b1615358",
+    "paired-extraction-development/declaration-correction.json": "sha256:ba5601429af57c8ad8b1c9939f9cda8b99cc6fa2ab1405ffeae6a29b850eb31a",
+    "paired-extraction-development/receipts.json": "sha256:4a7dd8cc04eab1a02089c0a6871d1372e544c2f7e20088537ad22c6aef3ce5bb",
+    "paired-extraction-development/fact-output-artifacts.json": "sha256:9ba0d0e671187461b968aaa912f5abfa8cf54ee6d7d1f5901fd1d22c61978786",
+    "paired-extraction-development/source-manifest-binding.json": "sha256:6d3727228f7f57924ffc201e7807403cedb464de07069d0100949f81f6ddd419",
+    "admission-cancellation.json": "sha256:032c7ccb6f1fc93319e652339ae33db7fd27a2539a059f8d2281f7efd0ec53a9"
+  }
+}

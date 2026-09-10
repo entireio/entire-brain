@@ -1,5 +1,12 @@
 # Candidate-First Distillation Plan
 
+Implementation update (2026-09-10 UTC): the strict-negative corrective slice
+and Phase 4 runtime now have independently resolved passing gates. Phase 2
+acceptance failed closed on missing validated full-source and quantitative proof;
+retrieval, confirmation, and default-promotion gates remain unaccepted.
+See [current implementation and evidence](candidate_distillation_implementation_status.md).
+The dated evidence below retains its original scope.
+
 Status: Phase 3 conservative-write exit gate complete. Phase 2 has a sealed
 three-judge agentic evidence package and one completed historical 20-item human
 selector calibration. The remaining implementation, quality, retrieval, and

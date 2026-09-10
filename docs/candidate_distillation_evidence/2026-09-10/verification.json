@@ -1,0 +1,65 @@
+{
+  "contract": "candidate-distillation-verification-receipt/v1",
+  "runtime_commit": "540d66885ecae00e9ef704855f1974c363eeb9fe",
+  "runtime_tree": "feae75d4cd34c8098c5dae65e26c0c956afe3d16",
+  "snapshot_commit": "b4e498b4",
+  "checks": [
+    {
+      "artifact": "release-race.log",
+      "sha256": "sha256:ecd9c60fd7652c21d81a1910c533f9634b59a551ec323381ed679075ed4d5285",
+      "result": "pass"
+    },
+    {
+      "artifact": "release-focused.log",
+      "sha256": "sha256:d79c47718019c674a6ddd19ccce4ea252c64d61be2e3b4315bc1f78aad0a903c",
+      "result": "pass"
+    },
+    {
+      "artifact": "release-cgo-focused.log",
+      "sha256": "sha256:63b6f3f11b2f0efbf7c0f2850925df9eb21830b399fee95893df5799d64670c8",
+      "result": "pass"
+    },
+    {
+      "artifact": "release-lint.log",
+      "sha256": "sha256:c5820fd7f8c8d08754dc47ad1cfb074c105d0978a43151c24a75489d5e75c9d5",
+      "result": "pass"
+    },
+    {
+      "artifact": "final-evaluator.log",
+      "sha256": "sha256:c508b762d573ce6226d88d761163cc8f945b378a423fdfbd79991ed5d7a2f723",
+      "result": "pass"
+    },
+    {
+      "artifact": "snapshot-final-race.log",
+      "sha256": "sha256:03a49bb28cfb8cbf8c9403cfe8679db821690c958139afe5f36785b8676e6875",
+      "result": "pass"
+    },
+    {
+      "artifact": "snapshot-vet.log",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "pass"
+    },
+    {
+      "artifact": "snapshot-crossbuild-isolated.log",
+      "sha256": "sha256:c448cb94b2b3dbc0dcd5b2d3bb5eea9dc27336e24f25ae44018e8bb2c2e3cdc1",
+      "result": "pass"
+    },
+    {
+      "artifact": "snapshot-lint-isolated.log",
+      "sha256": "sha256:baf89e60366fa86d84f7b2c4f442aa1b485ac92562add13c92eaa37d7fad84a1",
+      "result": "pass"
+    }
+  ],
+  "whole_check": {
+    "result": "fail",
+    "reason": "pre-existing CGO vector-store race",
+    "baseline_commit": "13f60d74",
+    "baseline_reproducer": "CGO_ENABLED=1 go test -race -tags \"brain_cgo sqlite_fts5\" ./internal/cli -run \"^TestVecStoreConcurrentSavePresentMergesUnderBrainLock$\" -count=5",
+    "baseline_log_sha256": "sha256:16b59af394bdd9fe3669542194e84488317d4fee62206c31d51c86491d343b12"
+  },
+  "limits": [
+    "Full race suite applies to runtime tree; snapshot command has focused race, vet, lint and cross-build checks.",
+    "Root checkout wildcard checks encounter ignored benchmark module caches; isolated tracked-file checkouts were used without deleting benchmark artifacts.",
+    "Private provider/source evidence remains outside the repository. No quantitative release-quality pass or human approval is represented."
+  ]
+}
