@@ -1048,7 +1048,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 		}
 		if record.ID != "" && record.semanticPath() != "" {
-			ignoredIDs[record.ID] = ignore.Ignored(record.semanticPath())
+			ignoredIDs[record.ID] = ignoredIDs[record.ID] || ignore.Ignored(record.semanticPath())
 		}
 	}
 	if err := scanner.Err(); err != nil {

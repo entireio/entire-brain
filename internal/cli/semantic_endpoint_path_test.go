@@ -179,3 +179,20 @@ func TestSemanticMultipleColonPathIgnoreDecisions(t *testing.T) {
 		t.Fatal("ignored relation retained")
 	}
 }
+
+func TestSemanticDuplicateIDCannotClearIgnoreVerdict(t *testing.T) {
+	lines := strings.Split(semanticColonPathSnapshot(), "\n")
+	duplicate := strings.Replace(lines[2], `"file_path":"od:d/mod.py"`, `"file_path":"secret/hidden.py"`, 1)
+	snapshot := lines[0] + "\n" + duplicate + "\n" + strings.Join(lines[1:], "\n")
+	manifest, _ := semanticEndpointPathIndex(t, "secret/\n", snapshot)
+	if manifest.Sources.Semantic.Relations != 0 {
+		t.Fatal("streaming ingest cleared the earlier ignore verdict")
+	}
+	_, counts, _, err := filterSemanticSnapshot([]byte(snapshot), brainIgnore{patterns: []string{"secret/"}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Relations != 0 {
+		t.Fatal("snapshot filtering cleared the earlier ignore verdict")
+	}
+}

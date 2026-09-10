@@ -197,7 +197,7 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 				return res, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 			}
 			if record.ID != "" && record.semanticPath() != "" {
-				ignoredIDs[record.ID] = cfg.ignore.Ignored(record.semanticPath())
+				ignoredIDs[record.ID] = ignoredIDs[record.ID] || cfg.ignore.Ignored(record.semanticPath())
 			}
 			if cfg.ignore.Ignored(record.semanticPath()) {
 				if record.ID != "" {
