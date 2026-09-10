@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -52,5 +53,27 @@ func TestDistillRebasePreservesReactivation(t *testing.T) {
 	}
 	if got[0].Status != factStatusActive {
 		t.Fatal("lost concurrent reactivation")
+	}
+}
+
+func TestDistillRebaseMergesRelatedIDs(t *testing.T) {
+	now := time.Now().UTC()
+	dir, seed, _ := distillConcurrentWriterFixture(t, now)
+	seed.RelatedIDs = []string{"keep", "removed-on-disk", "removed-locally"}
+	baseline := cloneDistillFacts([]factRecord{seed})
+	local := cloneDistillFacts(baseline)
+	local[0].RelatedIDs = []string{"keep", "removed-on-disk", "distill-added"}
+	disk := seed
+	disk.RelatedIDs = []string{"keep", "removed-locally", "concurrent-added"}
+	if err := writeFacts(dir, "main", []factRecord{disk}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rebaseFactsOntoDisk(dir, "main", local, baseline, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"keep", "concurrent-added", "distill-added"}
+	if !slices.Equal(got[0].RelatedIDs, want) {
+		t.Fatalf("related IDs = %v, want %v", got[0].RelatedIDs, want)
 	}
 }

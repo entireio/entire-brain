@@ -2163,6 +2163,7 @@ func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecor
 			}
 		}
 		out[i].Provenance = factmerge.UnionAnchors(record.Provenance, local.Provenance)
+		out[i].RelatedIDs = mergeDistillRelatedIDs(old.RelatedIDs, record.RelatedIDs, local.RelatedIDs)
 		if local.UpdatedAt.After(out[i].UpdatedAt) {
 			out[i].UpdatedAt = local.UpdatedAt
 		}
@@ -2173,4 +2174,22 @@ func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecor
 		return existed && !diskIDs[record.ID]
 	})
 	return out, nil
+}
+
+// Relationship links can be added by either writer, but admin resolution also
+// removes links. Preserve independent additions without resurrecting a link
+// that either side explicitly removed from the common baseline.
+func mergeDistillRelatedIDs(baseline, disk, local []string) []string {
+	var out []string
+	for _, ids := range [][]string{disk, local} {
+		for _, id := range ids {
+			if slices.Contains(baseline, id) && (!slices.Contains(disk, id) || !slices.Contains(local, id)) {
+				continue
+			}
+			if !slices.Contains(out, id) {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
 }
