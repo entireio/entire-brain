@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "09aeb05d8c4e",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_rebase_fields_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/09/aeb05d8c4e/0/metadata.json",
+      "transcript": "/09/aeb05d8c4e/0/full.jsonl",
+      "compact_transcript": "/09/aeb05d8c4e/0/transcript.jsonl",
+      "content_hash": "/09/aeb05d8c4e/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14580,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1415424,
+    "output_tokens": 4285,
+    "api_call_count": 11
+  }
+}
