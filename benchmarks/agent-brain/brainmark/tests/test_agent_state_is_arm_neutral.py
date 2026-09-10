@@ -98,6 +98,17 @@ class AdapterEnvIsArmNeutralTest(unittest.TestCase):
                     f"packet.txt within reach of the agent: {state}",
                 )
 
+    def test_independent_result_runs_do_not_share_agent_state(self):
+        a = _cell(self.tmp / "run-a", "no_brain")
+        b = _cell(self.tmp / "run-b", "no_brain")
+        state_a, _ = run_b.agent_state_path(a, PAIR_ID, "no_brain", 0)
+        state_b, _ = run_b.agent_state_path(b, PAIR_ID, "no_brain", 0)
+        self.assertNotEqual(state_a, state_b)
+        state_a.mkdir(parents=True)
+        (state_a / "session.json").write_text("old session")
+        self.assertFalse((state_b / "session.json").exists())
+        self.assertEqual(state_a, run_b.agent_state_path(a, PAIR_ID, "no_brain", 0)[0])
+
     def test_arms_get_distinct_state_dirs_and_the_key_is_stable(self):
         cell = _cell(self.tmp / "claude", "no_brain")
         paths = {arm: run_b.agent_state_path(cell, PAIR_ID, arm, None)[0] for arm in ARMS}

@@ -410,13 +410,15 @@ def agent_state_path(cell: pathlib.Path, pair_id: str, arm: str,
     exactly the reason the worktree does, and the environment is strictly more
     visible than the cwd.
 
+    The resolved cell namespaces independent result runs while keeping resumes
+    stable. Only its digest is exposed to the agent.
     The key is salted apart from `worktree_key` so a cell's state dir and its
     worktree can never resolve to the same directory.
     """
     if os.environ.get(AGENT_STATE_IN_CELL_ENV) == "1":
         return cell / "agent-home", False
     key = hashlib.sha256(
-        f"agent-home|{pair_id}|{arm}|{rep}".encode("utf-8")
+        json.dumps(["agent-home", str(cell.resolve()), pair_id, arm, rep]).encode("utf-8")
     ).hexdigest()[:16]
     return worktree_root() / "bm-agent" / key, True
 
