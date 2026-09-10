@@ -17,7 +17,11 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"slices"
+
+	"github.com/ashtom/entire-brain/internal/factmerge"
 	"sort"
 	"strings"
 	"time"
@@ -709,6 +713,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(sessions))}
 
 	byBranch := map[string][]factRecord{}
+	baselineByBranch := map[string][]factRecord{}
 	proposalsByBranch := map[string][]factProposal{}
 	loaded := map[string]bool{}
 	// dirtyBranches tracks branches whose in-memory facts/proposals have
@@ -765,6 +770,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if loadErr != nil {
 			warnings = append(warnings, fmt.Sprintf("load facts for %s: %v", branch, loadErr))
 		}
+		baselineByBranch[branch] = cloneDistillFacts(existing)
 		if distillOpts.force {
 			kept := existing[:0]
 			for _, record := range existing {
@@ -807,7 +813,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// applied, a settlement `facts sync` mirrored back. Those writers hold
 			// the same brain write lock this flush does, so the lock alone cannot
 			// see them: the run's read-modify-write spans the whole run.
-			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, branch, byBranch[branch], distillOpts.force)
+			rebased, rebaseErr := rebaseFactsOntoDisk(brainDir, branch, byBranch[branch], baselineByBranch[branch], distillOpts.force)
 			if rebaseErr != nil {
 				return rebaseErr
 			}
@@ -815,6 +821,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if err := writeFacts(brainDir, branch, byBranch[branch]); err != nil {
 				return err
 			}
+			baselineByBranch[branch] = cloneDistillFacts(byBranch[branch])
 			// Union this run's proposals with any already queued. Re-loading on
 			// every flush is idempotent: earlier flushes' proposals come back as
 			// priors and dedupe away. A --force rebuild starts fresh (it rebuilds
@@ -2104,37 +2111,67 @@ func loopbackOnlyDialContext(ctx context.Context, network, address string) (net.
 	return nil, fmt.Errorf("ollama dial target is not loopback-only: %s", address)
 }
 
-// rebaseFactsOntoDisk folds concurrent on-disk changes into a distill run's
-// in-memory fact set, so a flush publishes the run's work without reverting
-// anyone else's. It is deliberately MONOTONE — it only adopts records the run
-// never saw and only moves a fact from active to retracted/superseded — so it
-// can never undo one of this run's own decisions, and re-running it over the
-// same inputs is a no-op.
-//
-// force is threaded through because a --force rebuild deliberately dropped the
-// ACTIVE distilled facts it is regenerating; re-adopting those would turn the
-// rebuild back into an append. Everything else on disk is another writer's work.
-func rebaseFactsOntoDisk(brainDir, branch string, inMemory []factRecord, force bool) ([]factRecord, error) {
+// cloneDistillFacts freezes the last observed disk state. Reconciliation may
+// reuse record slices, so a shallow copy would change the merge baseline.
+func cloneDistillFacts(records []factRecord) []factRecord {
+	out := slices.Clone(records)
+	for i := range out {
+		out[i].Paths = slices.Clone(out[i].Paths)
+		out[i].Locus = slices.Clone(out[i].Locus)
+		out[i].Provenance = slices.Clone(out[i].Provenance)
+		out[i].RelatedIDs = slices.Clone(out[i].RelatedIDs)
+	}
+	return out
+}
+
+// rebaseFactsOntoDisk performs a three-way merge under the writer lock. Fields
+// changed on disk since the previous read/flush win conflicts; unchanged fields
+// retain this run's reconciliation. Provenance is additive on both sides.
+func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecord, force bool) ([]factRecord, error) {
 	onDisk, err := loadFacts(brainDir, branch)
 	if err != nil {
 		return nil, err
 	}
-	out := inMemory
+	before := make(map[string]factRecord, len(baseline))
+	for _, record := range baseline {
+		before[record.ID] = record
+	}
+	diskIDs := make(map[string]bool, len(onDisk))
+	out := cloneDistillFacts(inMemory)
 	for _, record := range onDisk {
+		diskIDs[record.ID] = true
+		old, existed := before[record.ID]
 		i := indexOfFact(out, record.ID)
 		if i < 0 {
-			if force && record.Origin == factOriginDistilled && record.Status == factStatusActive {
-				continue // this run is rebuilding exactly these
+			if force && record.Origin == factOriginDistilled && record.Status == factStatusActive && existed && reflect.DeepEqual(old, record) {
+				continue // only discard the unchanged facts this force run owns
 			}
 			out = append(out, record)
 			continue
 		}
-		if record.Status != factStatusActive && out[i].Status == factStatusActive {
-			// Somebody retired this fact while the run was in flight.
-			out[i].Status = record.Status
-			out[i].SupersededBy = record.SupersededBy
-			out[i].UpdatedAt = record.UpdatedAt
+		local := out[i]
+		if !existed {
+			// Concurrent insertion of the same content-derived ID: retain the
+			// committed record and combine the independent source anchors.
+			out[i] = record
+		} else {
+			merged := reflect.ValueOf(&out[i]).Elem()
+			original, current := reflect.ValueOf(old), reflect.ValueOf(record)
+			for field := 0; field < merged.NumField(); field++ {
+				if !reflect.DeepEqual(original.Field(field).Interface(), current.Field(field).Interface()) {
+					merged.Field(field).Set(current.Field(field))
+				}
+			}
+		}
+		out[i].Provenance = factmerge.UnionAnchors(record.Provenance, local.Provenance)
+		if local.UpdatedAt.After(out[i].UpdatedAt) {
+			out[i].UpdatedAt = local.UpdatedAt
 		}
 	}
+	// A record removed from the disk since our baseline must not be resurrected.
+	out = slices.DeleteFunc(out, func(record factRecord) bool {
+		_, existed := before[record.ID]
+		return existed && !diskIDs[record.ID]
+	})
 	return out, nil
 }
