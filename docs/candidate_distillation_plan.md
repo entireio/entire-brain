@@ -91,9 +91,17 @@ unused by candidate mode.
 Real local-model acceptance showed that Qwen 2.5 7B does not reliably complete
 larger framed packs even at temperature zero. The Ollama adapter therefore caps
 candidate packs at two members while other providers retain the 32-member
-ceiling. A normally stopped malformed Ollama singleton settles conservatively
-as `NO_FACTS`; length-truncated transport output is still rejected. Invalid or
-unattributable text is never persisted as a fact.
+ceiling. The retained implementation converts normally stopped malformed Ollama
+singletons, omitted members, and invalid taxonomy output to `NO_FACTS`. This is
+an outstanding correctness gap, not an accepted negative-result contract.
+Before further write-mode acceptance, those cases must become explicit failed
+members: no successful extraction-cache entry, no retraction of an existing
+application, and no credit as a quality-gate rejection. A normal transport stop
+does not prove a semantic negative. Only an explicit, protocol-valid `NO_FACTS`
+may be cached as empty and retract a v2-owned application. Invalid or
+unattributable text is never persisted as a fact; truncated output remains a
+failure. Historical Phase 3 evidence remains scoped to the implementation tested
+and does not discharge this corrective slice.
 
 Relationship discovery is advisory and cannot make primary fact application
 fail merely because a subject is broad. It indexes exact subject blocks, sorts
@@ -679,6 +687,12 @@ pack. It records one of:
 - `facts`: validated fact output lines plus the candidate id they cite;
 - `failed`: never persisted as a cache hit.
 
+A failed member preserves its prior application and remains unresolved in run
+accounting. Bounded failure metadata may quarantine it from automatic retry
+storms, but cannot masquerade as an empty result or a completed run. Report its
+opaque id and reason, and require an explicit retry or changed extraction input
+to retry after the bounded recovery allowance is exhausted.
+
 Caching individual member results means a retry or a later packing policy does
 not repeat successful candidates merely because their neighbors changed.
 
@@ -928,8 +942,10 @@ taxonomy instructions. It needs an additive candidate-card contract:
   output is a protocol failure, never implicit success.
 
 The parser strips the candidate id before passing the current
-`kind<TAB>path<TAB>fact` fields to fact construction. Unknown, repeated, or
-missing candidate ids are warnings and do not create facts.
+`kind<TAB>path<TAB>fact` fields to fact construction. Unknown or missing candidate
+ids and conflicting completions fail the pack before bounded isolation. Multiple
+valid fact lines may repeat their member id. These rules apply to every provider;
+neither malformed framing nor invalid taxonomy is an implicit negative result.
 
 ### Pack construction
 
@@ -954,6 +970,15 @@ misconfiguration.
 Successful empty output is persisted for each candidate member. Successful
 facts are also persisted per candidate member. This makes repacking,
 concurrency changes, and an appended neighbor free on the next run.
+
+Here, empty means an explicit validated `NO_FACTS`, never blank or discarded
+output. Force must stage replacement results before removing prior ownership:
+failed selected members retain their existing applications. Invalidate historical
+Ollama extraction-cache entries whose empty results cannot be distinguished from
+this fallback, using a versioned extraction policy; do not replay them as valid
+negatives. Regression tests must cover malformed, omitted, truncated, and invalid
+taxonomy output in cold, cached, incremental, and force runs, including a prior
+valid fact, bounded recovery exhaustion, and a later explicit negative result.
 
 ### Expected call shape
 
@@ -1256,16 +1281,20 @@ An opt-in candidate run is additive:
 - preserve authored facts;
 - preserve existing legacy-distilled facts;
 - exact candidate matches union provenance;
-- uncertain duplicates or contradictions queue proposals;
+- uncertain duplicates or contradictions remain separate; only qualifying local
+  neutral relationships may be recorded, never executable proposals;
 - do not retract legacy facts merely because no v2 candidate regenerated them.
 
-Only an explicit `--force --pipeline candidates` may rebuild the distilled
-layer solely from candidate inputs. It must display that scope in dry run and
-preserve authored facts and attributed cross-member proposals exactly as the
-current force path does. An unscoped candidate force also inventories orphaned
-fact and proposal-only branches. Historical branchless or mismatched proposal
-stores are cleaned by physical identity; member-attributed proposals survive.
-A branch- or session-scoped force never expands into unrelated orphan stores.
+`--force --pipeline candidates` refreshes candidate extraction and rebuilds only
+v2-owned applications in the selected scope. It preserves authored facts, legacy
+facts and anchors, and existing executable proposals. Successful replacements,
+explicit negatives, and removed candidates may retire only their v2 ownership;
+failed members preserve prior applications. Dry run must display this scope.
+An unscoped force discovers stale v2 ownership through receipts and application
+anchors; it does not authorize cleanup of unrelated fact or proposal stores.
+A branch- or session-scoped force never expands into unrelated stores. A rebuild
+that deletes legacy-distilled knowledge requires a separate migration contract
+and is outside this plan.
 
 ### Cache
 
@@ -1288,8 +1317,9 @@ semantics.
 - `--max-chunk-bytes` remains a legacy option. Candidate mode exposes an
   additive pack-byte limit only if measurement shows the default cannot be
   fixed safely.
-- `--force` invalidates all v2 stages in selected scope and rebuilds distilled
-  facts, while authored facts survive.
+- `--force` refreshes v2 stages in selected scope and rebuilds v2-owned
+  applications only; authored and legacy facts survive, as do prior applications
+  for members whose replacement extraction fails.
 - A future stage-specific repair command may invalidate normalize, candidate,
   extract, or apply independently. It is not required for the MVP CLI.
 - Changing `--confidence` replays application without agent calls.
@@ -1388,6 +1418,65 @@ disagreements rather than forcing consensus. In Phase 5 it becomes the final
 human-labeled evaluation corpus: human reviewers label the retained packets and
 software recomputes the provisional metrics from those labels and evidence.
 
+### Quantitative acceptance contract
+
+Before scoring, seal a development corpus and a disjoint confirmation corpus.
+Keep re-exports, continued sessions, and duplicate source content in the same
+partition. Historical calibration items and any items used to change selectors,
+prompts, or rubrics belong to development. Pin the split seed, source cutoff,
+strata, corpus sizes, provider repetitions, metric implementation, and numerical
+sample-size calculation in the evidence manifest before confirmation outputs or
+labels are inspected. An incomplete contract is insufficient evidence.
+
+Use fully labeled source sessions for the primary span and fact-recall gates:
+enumerate durable facts and their supporting spans from all eligible source
+turns, independently of whether the selector admitted them. The denominator is
+the complete labeled durable-fact set in that sealed corpus. Candidate span
+recall counts a fact only if an admitted card preserves its required supporting
+span and qualifiers. Report the 98 percent authority-class subset separately
+from the 95 percent all-fact denominator. Extraction recall counts each reference
+fact once if a faithful output expresses it; precision divides supported durable
+outputs by all emitted outputs. Report duplicates separately. Missing provider
+results remain missing coverage and cannot be excluded to improve a score.
+
+The all-admitted plus 500-filtered packet set is a diagnostic negative audit,
+not a corpus-recall estimator. Keep its critical-miss veto. If a supplementary
+sample-based population estimate is reported, retain each stratum's population
+size and inclusion probability and use inverse-probability-weighted totals;
+unweighted packet rates must not be described as corpus rates. The primary
+fully labeled corpus results describe that fixed corpus, not unseen repositories.
+
+Compute paired candidate-minus-legacy differences on identical source sessions
+and retrieval tasks. Retain the existing retrieval evaluator's metric definitions
+and pin its version; useful-per-1k is supported useful facts per 1,000 returned
+tokens. For stochastic provider comparisons, use a predeclared paired stratified
+cluster bootstrap with 10,000 resamples and a fixed seed: resample independent
+session families (task families for retrieval), keeping both pipeline arms and
+their paired provider repetitions together. Seal the repetition count, at least
+three for nondeterministic providers, before scoring. Use development-only
+variance estimates to choose enough independent families for at least 80 percent
+power at one-sided alpha 0.05 for the two-point recall non-inferiority margin;
+retain the calculation and resulting numerical counts. Do not stop early after
+a favorable run or add samples after inspecting confirmation scores.
+
+The one-sided 95 percent lower bound must be at least -0.02 for fact and retrieval
+recall differences, and at least zero for durable-precision and useful-per-1k
+differences. This defines the retrieval no-regression gate; failure to detect a
+significant loss is not a pass. Fixed-corpus span recall must meet its stated
+thresholds exactly. Zero denominators, inadequate independent families, missing
+coverage, or an uncertainty method unsupported by the observed data yield
+insufficient evidence. Safety requirements stated as 100 percent mean zero
+observed violations across the retained fixtures and labeled corpus, not a claim
+of a zero population error rate.
+
+Delta-only rejudgment is for development and exact artifact reuse. Freeze the
+implementation before evaluating confirmation; withhold confirmation judgments
+from corrective work until its verdict is recorded. A failed confirmation set
+becomes development evidence. Any permitted corrective slice must then pass a
+new disjoint, predeclared confirmation set. Phase 5 recomputes the same frozen
+metrics from human labels; a correction after human rejection likewise requires
+fresh confirmation, even when unchanged development labels remain reusable.
+
 ### Agentic scoring protocol
 
 The main agent seals each evaluation input before judging and accepts no score
@@ -1400,8 +1489,8 @@ permitted, then the planned resolution workflow either records Astra's
 digest-bound escalation judgment or fails closed. A change to code, corpus,
 prompt, taxonomy, rubric, redaction, or provider configuration invalidates only
 its affected digest partition; all unchanged valid verdicts remain reusable.
-This bounded delta-only process prevents tuning a local result through repeated
-review cycles.
+This bounded delta-only process limits development review cycles. It does not
+replace the untouched confirmation requirement above.
 
 ### Candidate-generation gates
 
@@ -1465,7 +1554,7 @@ confirm that result under the existing release evidence policy.
 
 At minimum:
 
-- no significant useful-per-1k regression;
+- no useful-per-1k regression under the paired lower-bound test above;
 - no more than a two-percentage-point absolute recall loss against legacy
   facts;
 - regression tasks for every current live-corpus quality failure;
@@ -1594,8 +1683,10 @@ agentic gate.
   tuning inside the scoring session.
 - A human rejection blocks promotion and produces one consolidated,
   evidence-bound remediation scope. After that bounded slice, rerun the
-  affected agentic gates and only the changed human-evaluation delta; do not
-  enter an unbounded tuning or review loop.
+  affected agentic gates and changed human-evaluation delta, then evaluate a
+  fresh disjoint confirmation corpus under the sealed quantitative contract.
+  Reuse unchanged development labels, not a failed confirmation set as release
+  proof; do not enter an unbounded tuning or review loop.
 - Make candidate mode the default only after that final human approval confirms
   all quality, retrieval, operational, privacy, and migration gates.
 - Keep `--pipeline legacy` for at least one release cycle and document rollback.
