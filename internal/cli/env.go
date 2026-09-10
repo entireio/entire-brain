@@ -395,6 +395,22 @@ func canonicalExistingLocalRepoDir(repoDir string) (string, error) {
 }
 
 func repoKeyFromRemote(configDir, remote string) (string, bool, error) {
+	remote = strings.TrimSpace(remote)
+	if parsed, err := url.Parse(remote); err == nil && strings.EqualFold(parsed.Scheme, "entire") {
+		if parsed.Hostname() == "" {
+			return "", false, nil
+		}
+		components := normalizeRepoPath(parsed.Path)
+		if len(components) < 3 {
+			return "", false, nil
+		}
+		key := strings.Join(components, "/")
+		if components[0] == workspaceDirName {
+			return "", true, fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+		}
+		return key, true, nil
+	}
+
 	host, repoPath, ok := parseRepoRemote(remote)
 	if !ok {
 		return "", false, nil
