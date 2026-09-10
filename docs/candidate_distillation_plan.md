@@ -162,16 +162,20 @@ entire brain facts distill-quality adjudicate \
 
 The default session is a deterministic 20-item calibration batch balanced
 across invalid, admitted-critical, filtered-critical, disagreement, and clean
-items. On a terminal it opens a responsive full-screen workspace: a bounded
-queue and scrollable evidence/detail panes on wide screens, and a single
-evidence-focused pane on narrow screens. It presents one redacted packet at a
-time, uses human-readable summaries instead of raw score JSON, and retains the
-complete Copilot, Cursor, and Claude rationales in the scrollable detail. The
-reviewer explicitly answers admission, authority, and safety with `y`, `n`, or
-`u`; no answer is prefilled from the panel. A separate confirmation step is the
-only save action. `x` skips without writing, `q` discards only the current
-partial decision, and every prior confirmed answer remains durable. `--plain`
-retains the deterministic line-oriented accessibility/non-TTY fallback.
+items. On a terminal it opens a responsive full-screen workspace. Each screen
+starts with the exact human statement selected or filtered by candidate
+admission; surrounding assistant conversation is explicitly not the item under
+review and remains hidden unless the reviewer requests it. Fragmented packet
+payloads are reassembled before turn isolation, and truncated or ambiguous
+speaker shapes fail closed instead of becoming transcript dumps. The workspace
+then explains the selector in plain language and presents compact Copilot,
+Cursor, and Claude recommendations; detailed rationales and local source
+information are optional views. The reviewer explicitly answers long-term
+value, human authority, and source safety with `y`, `n`, or `u`; no answer is
+prefilled from the panel. A separate confirmation step is the only save action.
+`x` skips without writing, `q` discards only the current partial decision, and
+every prior confirmed answer remains durable. `--plain` retains the same
+proposition-first contract in the line-oriented accessibility/non-TTY fallback.
 
 Each explicit human answer is validated, bound to the immutable packet and
 advisory digests, written atomically to a private per-reviewer JSONL file, and

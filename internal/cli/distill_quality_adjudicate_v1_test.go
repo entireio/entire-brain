@@ -20,7 +20,7 @@ func TestRunDistillQualityAdjudicationV1SavesAndResumes(t *testing.T) {
 	if result.Reviewed != 1 || result.Presented != 1 || result.AlreadyReviewed != 0 || result.Remaining != len(packets)-1 {
 		t.Fatalf("result = %+v", result)
 	}
-	for _, want := range []string{"Candidate: ADMITTED", "Advisory scores", "copilot", "cursor", "claude", "Saved. Progress"} {
+	for _, want := range []string{"SELECTED FOR EXTRACTION", "STATEMENT UNDER REVIEW", "INDEPENDENT MODEL ADVICE", "copilot", "cursor", "claude", "Saved. Progress"} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("output missing %q:\n%s", want, output.String())
 		}
@@ -89,7 +89,7 @@ func TestRunDistillQualityAdjudicationV1CanViewEvidenceRepeatedly(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Reviewed != 1 || strings.Count(output.String(), "Evidence:\n") != 3 {
+	if result.Reviewed != 1 || strings.Count(output.String(), "STATEMENT UNDER REVIEW\n") != 3 {
 		t.Fatalf("result=%+v output=\n%s", result, output.String())
 	}
 }
@@ -152,8 +152,8 @@ func TestMakeDistillQualityReviewV1IsReadableAndKeepsAdvisoriesSeparate(t *testi
 		t.Fatalf("review items=%d lookup=%d", len(review.Items), len(byID))
 	}
 	item := review.Items[0]
-	if !strings.Contains(item.Candidate, "Candidate filter: ADMITTED") || len(item.Evidence) == 0 {
-		t.Fatalf("candidate/evidence was not human-readable: %+v", item)
+	if item.Selector != "SELECTED" || len(item.Focus) == 0 || !strings.Contains(item.SelectorReason, "rule-like wording") {
+		t.Fatalf("selector/focus was not human-readable: %+v", item)
 	}
 	if len(item.Judges) != len(distillQualityPanelJudgesV1) {
 		t.Fatalf("judges=%d want=%d", len(item.Judges), len(distillQualityPanelJudgesV1))
@@ -166,6 +166,9 @@ func TestMakeDistillQualityReviewV1IsReadableAndKeepsAdvisoriesSeparate(t *testi
 			if score.Summary == "" || strings.Contains(score.Summary, "{") {
 				t.Fatalf("judge %s exposed unreadable score %q", judge.Name, score.Summary)
 			}
+		}
+		if judge.State == string(distillQualityVerdictCompletedV1) && (judge.Recommendation == "" || judge.Authority == "" || judge.Safety == "") {
+			t.Fatalf("judge %s lacks plain-language summary: %+v", judge.Name, judge)
 		}
 	}
 	if got := review.Progress; got.Reviewer != "reviewer" || got.Queue != distillQualityAdjudicateQueueCalV1 || got.Remaining == 0 {
@@ -182,6 +185,83 @@ func TestDistillQualityTerminalTextV1MakesControlsInert(t *testing.T) {
 	}
 	if got != "safe�]52;c;clipboard��rewritten�trick" {
 		t.Fatalf("terminal text = %q", got)
+	}
+}
+
+func TestDistillQualityReviewFocusV1IsolatesHumanStatementAcrossFragments(t *testing.T) {
+	packet := distillQualityPanelPacketV1{Payload: distillQualityPanelPayloadV1{Fragments: []distillQualityPanelFragmentV1{
+		{Text: "assistant: a very long prior analysis that is not being judged\nuser: alright now make a concrete sonnet pl"},
+		{Text: "an, don't rush\nassistant: I will read the existing plan first"},
+	}}}
+	metadata := distillQualityAdjudicateMetadataV1{
+		CandidateAdmitted: true,
+		Roles:             []string{"user"},
+		Authorities:       []string{"direct_user"},
+		Cues:              []string{"rule"},
+	}
+	focus, context, err := distillQualityReviewFocusV1(packet, metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(focus) != 1 || focus[0].Role != "user" || focus[0].Text != "alright now make a concrete sonnet plan, don't rush" {
+		t.Fatalf("focus = %+v", focus)
+	}
+	if len(context) != 2 || strings.Contains(focus[0].Text, "prior analysis") {
+		t.Fatalf("context = %+v focus=%+v", context, focus)
+	}
+}
+
+func TestDistillQualityReviewFocusV1KeepsAcceptedProposalWithConfirmation(t *testing.T) {
+	packet := distillQualityPanelPacketV1{Payload: distillQualityPanelPayloadV1{Fragments: []distillQualityPanelFragmentV1{{
+		Text: "assistant: Use PostgreSQL for durable storage.\nuser: Sounds good.\nassistant: I will implement it.",
+	}}}}
+	metadata := distillQualityAdjudicateMetadataV1{
+		CandidateAdmitted: true,
+		Roles:             []string{"user"},
+		Authorities:       []string{"direct_user"},
+		Cues:              []string{string(distillCandidateCueAcceptanceV1)},
+	}
+	focus, context, err := distillQualityReviewFocusV1(packet, metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(focus) != 2 || focus[0].Role != "assistant" || focus[1].Role != "user" || focus[1].Text != "Sounds good." {
+		t.Fatalf("focus = %+v", focus)
+	}
+	if len(context) != 1 || context[0].Text != "I will implement it." {
+		t.Fatalf("context = %+v", context)
+	}
+}
+
+func TestDistillQualityReviewFocusV1RefusesAmbiguousOrIncompleteEvidence(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		metadata distillQualityAdjudicateMetadataV1
+	}{
+		{
+			name:     "duplicate trigger role",
+			text:     "user: first\nassistant: context\nuser: second",
+			metadata: distillQualityAdjudicateMetadataV1{CandidateAdmitted: true, Roles: []string{"user"}},
+		},
+		{
+			name:     "filtered packet with context",
+			text:     "user: focus\nassistant: unexpected context",
+			metadata: distillQualityAdjudicateMetadataV1{Roles: []string{"user"}},
+		},
+		{
+			name:     "truncated",
+			text:     "user: incomplete",
+			metadata: distillQualityAdjudicateMetadataV1{Roles: []string{"user"}, EvidenceTruncated: true},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			packet := distillQualityPanelPacketV1{Payload: distillQualityPanelPayloadV1{Fragments: []distillQualityPanelFragmentV1{{Text: test.text}}}}
+			if _, _, err := distillQualityReviewFocusV1(packet, test.metadata); err == nil {
+				t.Fatal("expected ambiguous evidence to be refused")
+			}
+		})
 	}
 }
 

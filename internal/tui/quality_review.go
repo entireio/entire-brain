@@ -28,12 +28,13 @@ type QualityReview struct {
 
 // QualityReviewItem is one candidate in the human-review queue.
 type QualityReviewItem struct {
-	ID        string
-	Candidate string
-	Stratum   string
-	Evidence  []QualityReviewEvidence
-	Judges    []QualityReviewJudge
-	Sources   []QualityReviewSource
+	ID             string
+	Selector       string
+	SelectorReason string
+	Focus          []QualityReviewEvidence
+	Context        []QualityReviewEvidence
+	Judges         []QualityReviewJudge
+	Sources        []QualityReviewSource
 }
 
 // QualityReviewEvidence is a readable, redacted evidence fragment.
@@ -46,11 +47,15 @@ type QualityReviewEvidence struct {
 // QualityReviewJudge is one advisory judge's result. State is rendered as a
 // word as well as a color, so it remains understandable without color.
 type QualityReviewJudge struct {
-	Name      string
-	Model     string
-	State     string
-	Scores    []QualityReviewScore
-	Rationale string
+	Name                    string
+	Model                   string
+	State                   string
+	Recommendation          string
+	Authority               string
+	Safety                  string
+	RecommendationRationale string
+	Scores                  []QualityReviewScore
+	Rationale               string
 }
 
 // QualityReviewScore is a compact, human-readable advisory assessment. Summary
@@ -142,8 +147,7 @@ func RunQualityReview(input io.Reader, output io.Writer, theme Theme, review Qua
 type qualityReviewStage int
 
 const (
-	qualityReviewStart qualityReviewStage = iota
-	qualityReviewAdmission
+	qualityReviewAdmission qualityReviewStage = iota
 	qualityReviewAuthority
 	qualityReviewSafety
 	qualityReviewRationaleChoice
@@ -167,6 +171,8 @@ type QualityReviewModel struct {
 	decision QualityReviewDecision
 	err      error
 	help     bool
+	context  bool
+	details  bool
 
 	viewport      viewport.Model
 	rationale     textinput.Model
@@ -193,6 +199,8 @@ func NewQualityReviewModel(review QualityReview, theme Theme, save QualityReview
 	}
 	if len(items) == 0 {
 		m.stage = qualityReviewDone
+	} else {
+		m.stage = qualityReviewAdmission
 	}
 	m.resize()
 	m.refreshDetail()
@@ -227,6 +235,17 @@ func (m QualityReviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.String() == "?" {
 			m.help = !m.help
+			return m, nil
+		}
+		if msg.String() == "c" {
+			m.context = !m.context
+			m.refreshDetail()
+			m.viewport.GotoTop()
+			return m, nil
+		}
+		if msg.String() == "p" {
+			m.details = !m.details
+			m.refreshDetail()
 			return m, nil
 		}
 		if m.stage == qualityReviewDone {
@@ -272,10 +291,6 @@ func (m QualityReviewModel) updateRationale(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 func (m QualityReviewModel) updateDecision(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch m.stage {
-	case qualityReviewStart:
-		if msg.Type == tea.KeyEnter || key == "d" {
-			m.stage = qualityReviewAdmission
-		}
 	case qualityReviewAdmission:
 		if answer, ok := qualityAnswerForKey(key); ok {
 			m.decision.Admission, m.stage = answer, qualityReviewAuthority
@@ -353,11 +368,13 @@ func (m *QualityReviewModel) advanceSkipped() {
 func (m *QualityReviewModel) resetDecision() {
 	m.decision = QualityReviewDecision{}
 	m.rationale.SetValue("")
+	m.context = false
+	m.details = false
 	m.viewport.GotoTop()
 	if m.position >= len(m.review.Items) {
 		m.stage = qualityReviewDone
 	} else {
-		m.stage = qualityReviewStart
+		m.stage = qualityReviewAdmission
 	}
 	m.refreshDetail()
 }
@@ -428,13 +445,13 @@ func (m QualityReviewModel) View() string {
 	} else {
 		body = m.theme.paneStyle(true).Width(m.width - 2).Height(m.viewport.Height).Render(m.viewport.View())
 	}
-	footerText := "↑/k ↓/j scroll  ·  d start  ·  x skip (unsaved)  ·  q quit (unsaved)  ·  ? help"
+	footerText := "↑↓/jk scroll · c context · p details · x skip · q quit · ? help"
 	if m.stage == qualityReviewRationaleEdit {
 		footerText = "type rationale  ·  Enter continue  ·  Esc cancel edit  ·  Ctrl-C quit (unsaved)"
 	}
 	footer := m.theme.dimStyle().Render(footerText)
 	if m.help {
-		footer += "\n" + m.theme.dimStyle().Render("Flow: d/Enter → admission y/n/u → authority y/n/u → safety y/n/u → rationale → confirm y saves. e edits a rationale; s/Enter skips it.")
+		footer += "\n" + m.theme.dimStyle().Render("Your job is to judge the highlighted statement, not the transcript. Answer y/n/u three times, optionally add a note, then confirm. No panel answer is preselected.")
 	}
 	if m.err != nil {
 		footer = m.theme.flagStyle().Render("SAVE ERROR: "+qualityTerminalText(m.err.Error())+" — correct or cancel; this item remains unsaved.") + "\n" + footer
@@ -447,7 +464,7 @@ func (m QualityReviewModel) progressText() string {
 	if total < m.review.Progress.AlreadyReviewed+len(m.review.Items) {
 		total = m.review.Progress.AlreadyReviewed + len(m.review.Items)
 	}
-	s := fmt.Sprintf("Saved %d/%d", m.review.Progress.AlreadyReviewed+m.saved, total)
+	s := fmt.Sprintf("Overall reviewed %d/%d", m.review.Progress.AlreadyReviewed+m.saved, total)
 	if m.review.Progress.Reviewer != "" {
 		s += " · reviewer: " + qualityTerminalText(m.review.Progress.Reviewer)
 	}
@@ -522,8 +539,8 @@ func (m QualityReviewModel) queueView(width int) string {
 			marker = "> "
 		}
 		label := qualityTerminalText(item.ID)
-		if item.Stratum != "" {
-			label += " · " + qualityTerminalText(item.Stratum)
+		if item.Selector != "" {
+			label += " · " + qualityTerminalText(item.Selector)
 		}
 		line := truncate(marker+label, width)
 		if i == m.position && m.stage != qualityReviewDone {
@@ -546,54 +563,56 @@ func (m QualityReviewModel) detailView() string {
 	item := m.current()
 	var b strings.Builder
 	b.WriteString(m.theme.titleStyle().Render(orDash(qualityTerminalText(item.ID))))
-	if item.Stratum != "" {
-		b.WriteString("\n" + m.theme.dimStyle().Render("stratum: "+qualityTerminalText(item.Stratum)))
-	}
-	b.WriteString("\n\n")
-	if item.Candidate != "" {
-		b.WriteString(m.theme.headingStyle().Render("Candidate"))
-		b.WriteString("\n")
-		b.WriteString(qualityWrap(m.theme, item.Candidate, width))
-		b.WriteString("\n\n")
-	}
-	b.WriteString(m.theme.headingStyle().Render("Evidence"))
-	b.WriteString("\n")
-	if len(item.Evidence) == 0 {
-		b.WriteString(m.theme.dimStyle().Render("No evidence supplied."))
+	b.WriteString("\n\n" + m.theme.headingStyle().Render("Statement under review") + "\n")
+	if len(item.Focus) == 0 {
+		b.WriteString(m.theme.dimStyle().Render("No isolated statement is available. Skip this item."))
 	} else {
-		for _, evidence := range item.Evidence {
+		for _, evidence := range item.Focus {
 			label := orDash(qualityTerminalText(evidence.Label))
 			if evidence.Kind != "" {
 				label += " (" + qualityTerminalText(evidence.Kind) + ")"
 			}
-			b.WriteString(m.theme.textStyle().Render("• "+label) + "\n")
+			b.WriteString(m.theme.headingStyle().Render(label) + "\n")
 			b.WriteString(qualityWrap(m.theme, evidence.Text, width))
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\n" + m.theme.headingStyle().Render("Advisory judge summaries") + "\n")
+	b.WriteString("\n" + m.theme.headingStyle().Render("What the automatic filter did") + "\n")
+	b.WriteString(m.theme.textStyle().Bold(true).Render(orDash(qualityTerminalText(item.Selector))))
+	if item.SelectorReason != "" {
+		b.WriteString("\n" + qualityWrap(m.theme, item.SelectorReason, width))
+	}
+
+	b.WriteString("\n\n" + m.theme.headingStyle().Render("Independent model advice — no answer is preselected") + "\n")
 	if len(item.Judges) == 0 {
-		b.WriteString(m.theme.dimStyle().Render("No advisory judge result."))
+		b.WriteString(m.theme.dimStyle().Render("No model advice is available."))
 	} else {
 		for _, judge := range item.Judges {
 			b.WriteString(m.judgeView(judge, width))
 		}
 	}
-	b.WriteString("\n" + m.theme.headingStyle().Render("Source context") + "\n")
-	if len(item.Sources) == 0 {
-		b.WriteString(m.theme.dimStyle().Render("No local source context supplied."))
+
+	b.WriteString("\n" + m.theme.headingStyle().Render("Surrounding context") + "\n")
+	if len(item.Context) == 0 {
+		b.WriteString(m.theme.dimStyle().Render("No surrounding turns."))
+	} else if !m.context {
+		b.WriteString(m.theme.dimStyle().Render(fmt.Sprintf("Hidden (%d turn(s)). Press c only if the statement is ambiguous.", len(item.Context))))
 	} else {
-		for _, source := range item.Sources {
-			line := "• " + orDash(qualityTerminalText(source.Label))
-			if source.Path != "" {
-				line += ": " + qualityTerminalText(source.Path)
-			}
-			if source.Lines != "" {
-				line += " " + qualityTerminalText(source.Lines)
-			}
-			b.WriteString(m.theme.textStyle().Render(truncate(line, width)) + "\n")
-			if source.Detail != "" {
-				b.WriteString(qualityWrap(m.theme, source.Detail, width) + "\n")
+		for _, evidence := range item.Context {
+			b.WriteString(m.theme.dimStyle().Render(orDash(qualityTerminalText(evidence.Label))) + "\n")
+			b.WriteString(qualityWrap(m.theme, evidence.Text, width) + "\n")
+		}
+		if len(item.Sources) > 0 {
+			b.WriteString("\n" + m.theme.headingStyle().Render("Local source") + "\n")
+			for _, source := range item.Sources {
+				line := "• " + orDash(qualityTerminalText(source.Label))
+				if source.Path != "" {
+					line += ": " + qualityTerminalText(source.Path)
+				}
+				if source.Lines != "" {
+					line += " " + qualityTerminalText(source.Lines)
+				}
+				b.WriteString(m.theme.textStyle().Render(truncate(line, width)) + "\n")
 			}
 		}
 	}
@@ -609,18 +628,29 @@ func (m QualityReviewModel) judgeView(judge QualityReviewJudge, width int) strin
 	}
 	state := strings.ToUpper(orDash(qualityTerminalText(judge.State)))
 	b.WriteString(m.theme.textStyle().Render(name) + "  " + m.theme.dimStyle().Render("["+state+"]") + "\n")
-	if len(judge.Scores) == 0 {
-		b.WriteString(m.theme.dimStyle().Render("  no score supplied") + "\n")
-	}
-	for _, score := range judge.Scores {
-		line := fmt.Sprintf("  %-12s %-10s %s", truncate(orDash(qualityTerminalText(score.Dimension)), 12), strings.ToUpper(orDash(qualityTerminalText(score.Label))), qualityTerminalText(score.Summary))
-		b.WriteString(m.theme.textStyle().Render(truncate(line, width)) + "\n")
-		if score.Rationale != "" {
-			b.WriteString(qualityWrap(m.theme, "    rationale: "+score.Rationale, width) + "\n")
+	if strings.ToLower(strings.TrimSpace(judge.State)) != "completed" {
+		reason := strings.TrimSpace(judge.Rationale)
+		if reason == "" {
+			reason = "No usable advisory verdict was returned."
 		}
+		b.WriteString(qualityWrap(m.theme, "  Unavailable: "+reason, width) + "\n")
+		return b.String()
 	}
-	if judge.Rationale != "" {
-		b.WriteString(qualityWrap(m.theme, "  assessment: "+judge.Rationale, width) + "\n")
+	line := fmt.Sprintf("  long-term: %s · authority: %s · source safe: %s", orDash(judge.Recommendation), orDash(judge.Authority), orDash(judge.Safety))
+	b.WriteString(m.theme.textStyle().Render(truncate(qualityTerminalText(line), width)) + "\n")
+	if judge.RecommendationRationale != "" {
+		b.WriteString(qualityWrap(m.theme, "  Why: "+judge.RecommendationRationale, width) + "\n")
+	}
+	if m.details {
+		for _, score := range judge.Scores {
+			if score.Rationale == "" || score.Dimension == "admission" {
+				continue
+			}
+			b.WriteString(qualityWrap(m.theme, "  "+score.Dimension+": "+score.Rationale, width) + "\n")
+		}
+		if judge.Rationale != "" {
+			b.WriteString(qualityWrap(m.theme, "  Provider note: "+judge.Rationale, width) + "\n")
+		}
 	}
 	return b.String()
 }
@@ -633,21 +663,19 @@ func (m QualityReviewModel) decisionView() string {
 		return m.theme.headingStyle().Render("Your decision") + "\n" + m.theme.textStyle().Render(m.stagePrompt())
 	}
 	return m.theme.headingStyle().Render("Confirm human decision") + "\n" +
-		m.theme.textStyle().Render("admission: "+string(m.decision.Admission)+" · authority: "+string(m.decision.Authority)+" · safety: "+string(m.decision.Safety)) + "\n" +
+		m.theme.textStyle().Render("long-term knowledge: "+string(m.decision.Admission)+" · human authority: "+string(m.decision.Authority)+" · safe source: "+string(m.decision.Safety)) + "\n" +
 		m.theme.dimStyle().Render("rationale: "+orDash(m.decision.Rationale)) + "\n" +
 		m.theme.textStyle().Render("Press y to save this complete decision, or n/Esc to edit it. This is the only save action.")
 }
 
 func (m QualityReviewModel) stageName() string {
 	switch m.stage {
-	case qualityReviewStart:
-		return "Start decision"
 	case qualityReviewAdmission:
-		return "Admission"
+		return "1/3 · Long-term value"
 	case qualityReviewAuthority:
-		return "Authority"
+		return "2/3 · Human authority"
 	case qualityReviewSafety:
-		return "Safety"
+		return "3/3 · Source safety"
 	case qualityReviewRationaleChoice, qualityReviewRationaleEdit:
 		return "Rationale"
 	case qualityReviewConfirm:
@@ -659,14 +687,12 @@ func (m QualityReviewModel) stageName() string {
 
 func (m QualityReviewModel) stagePrompt() string {
 	switch m.stage {
-	case qualityReviewStart:
-		return "Enter begins · x skips unsaved."
 	case qualityReviewAdmission:
-		return "Admit as durable knowledge? y yes · n no · u unclear"
+		return "Should this be potential long-term project knowledge? y yes · n no · u unsure"
 	case qualityReviewAuthority:
-		return "Adequate human/corroborated authority? y yes · n no · u unclear"
+		return "Is this the human's own statement or an explicitly accepted proposal? y yes · n no · u unsure"
 	case qualityReviewSafety:
-		return "Safe from injection/pasted/one-off/review text? y yes · n no · u unclear"
+		return "Safe to learn from—not one-off, pasted, injected, system, tool, or review-only text? y yes · n no · u unsure"
 	case qualityReviewRationaleChoice:
 		return "Optional rationale: [e]dit, or [s]kip / Enter to continue."
 	case qualityReviewRationaleEdit:
@@ -681,13 +707,13 @@ func (m QualityReviewModel) stagePrompt() string {
 func (m QualityReviewModel) choiceSummary() string {
 	var choices []string
 	if m.decision.Admission != "" {
-		choices = append(choices, "admission="+string(m.decision.Admission))
+		choices = append(choices, "long-term="+string(m.decision.Admission))
 	}
 	if m.decision.Authority != "" {
-		choices = append(choices, "authority="+string(m.decision.Authority))
+		choices = append(choices, "human-owned="+string(m.decision.Authority))
 	}
 	if m.decision.Safety != "" {
-		choices = append(choices, "safety="+string(m.decision.Safety))
+		choices = append(choices, "safe-source="+string(m.decision.Safety))
 	}
 	if len(choices) == 0 {
 		return ""

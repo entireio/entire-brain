@@ -23,7 +23,6 @@ const (
 	distillQualityHumanMaxBytesV1        = 16 << 20
 	distillQualityAdjudicateDefaultV1    = 20
 	distillQualityAdjudicateMaxV1        = 100
-	distillQualityAdjudicateExcerptV1    = 2400
 	distillQualityAdjudicateQueueAllV1   = "all"
 	distillQualityAdjudicateQueueCalV1   = "calibration"
 	distillQualityAdjudicateQueueCritV1  = "critical"
@@ -49,7 +48,16 @@ type distillQualityAdjudicateItemV1 struct {
 	Aggregate         distillQualityPanelAggregateV1
 	Sources           []distillQualityPrivateSourceRecordV1
 	CandidateAdmitted bool
-	Stratum           string
+	Roles             []string
+	Authorities       []string
+	Cues              []string
+	Focus             []distillQualityReviewTurnV1
+	Context           []distillQualityReviewTurnV1
+}
+
+type distillQualityReviewTurnV1 struct {
+	Role string
+	Text string
 }
 
 type distillQualityAdjudicateMetadataV1 struct {
@@ -60,6 +68,123 @@ type distillQualityAdjudicateMetadataV1 struct {
 	Cues              []string `json:"cues"`
 	EvidenceBytes     int      `json:"evidence_bytes"`
 	EvidenceTruncated bool     `json:"evidence_truncated"`
+}
+
+// distillQualityReviewFocusV1 recovers the exact turn the deterministic
+// selector judged. Candidate cards contain one trigger-role turn plus, at most,
+// adjacent opposite-role context. Filtered packets contain one turn. Refusing
+// an ambiguous shape is safer than asking a human to infer the proposition
+// from a transcript dump.
+func distillQualityReviewFocusV1(packet distillQualityPanelPacketV1, metadata distillQualityAdjudicateMetadataV1) ([]distillQualityReviewTurnV1, []distillQualityReviewTurnV1, error) {
+	if metadata.EvidenceTruncated {
+		return nil, nil, errors.New("cannot isolate a statement from truncated evidence")
+	}
+	if len(metadata.Roles) != 1 || (metadata.Roles[0] != "user" && metadata.Roles[0] != "assistant") {
+		return nil, nil, errors.New("requires exactly one user or assistant trigger role")
+	}
+	var evidence strings.Builder
+	for _, fragment := range packet.Payload.Fragments {
+		evidence.WriteString(fragment.Text)
+	}
+	turns, err := splitDistillQualityReviewTurnsV1(evidence.String())
+	if err != nil {
+		return nil, nil, err
+	}
+	if !metadata.CandidateAdmitted && len(turns) != 1 {
+		return nil, nil, errors.New("filtered evidence must contain exactly one statement")
+	}
+	if metadata.CandidateAdmitted {
+		if len(turns) > 3 {
+			return nil, nil, errors.New("selected evidence contains too many speaker turns")
+		}
+		for index := 1; index < len(turns); index++ {
+			if turns[index].Role == turns[index-1].Role {
+				return nil, nil, errors.New("selected evidence contains adjacent same-role turns")
+			}
+		}
+	}
+	trigger := -1
+	for index, turn := range turns {
+		if turn.Role != metadata.Roles[0] {
+			continue
+		}
+		if trigger >= 0 {
+			return nil, nil, fmt.Errorf("trigger role %q appears more than once", metadata.Roles[0])
+		}
+		trigger = index
+	}
+	if trigger < 0 {
+		return nil, nil, fmt.Errorf("trigger role %q is absent", metadata.Roles[0])
+	}
+	focusIndexes := map[int]bool{trigger: true}
+	if metadata.CandidateAdmitted && stringSliceContainsV1(metadata.Cues, string(distillCandidateCueAcceptanceV1)) {
+		if trigger == 0 || turns[trigger-1].Role != "assistant" {
+			return nil, nil, errors.New("accepted proposal has no preceding assistant statement")
+		}
+		focusIndexes[trigger-1] = true
+	}
+	var focus, context []distillQualityReviewTurnV1
+	for index, turn := range turns {
+		if focusIndexes[index] {
+			focus = append(focus, turn)
+		} else {
+			context = append(context, turn)
+		}
+	}
+	return focus, context, nil
+}
+
+func splitDistillQualityReviewTurnsV1(value string) ([]distillQualityReviewTurnV1, error) {
+	type marker struct {
+		start, textStart int
+		role             string
+	}
+	var markers []marker
+	for start := 0; start < len(value); {
+		lineEnd := strings.IndexByte(value[start:], '\n')
+		if lineEnd < 0 {
+			lineEnd = len(value)
+		} else {
+			lineEnd += start
+		}
+		line := value[start:lineEnd]
+		for _, role := range []string{"user", "assistant"} {
+			prefix := role + ": "
+			if strings.HasPrefix(line, prefix) {
+				markers = append(markers, marker{start: start, textStart: start + len(prefix), role: role})
+				break
+			}
+		}
+		if lineEnd == len(value) {
+			break
+		}
+		start = lineEnd + 1
+	}
+	if len(markers) == 0 || markers[0].start != 0 {
+		return nil, errors.New("evidence does not begin with a recognized speaker")
+	}
+	turns := make([]distillQualityReviewTurnV1, 0, len(markers))
+	for index, current := range markers {
+		end := len(value)
+		if index+1 < len(markers) {
+			end = markers[index+1].start
+		}
+		text := strings.TrimSpace(value[current.textStart:end])
+		if text == "" {
+			return nil, fmt.Errorf("%s evidence turn is empty", current.role)
+		}
+		turns = append(turns, distillQualityReviewTurnV1{Role: current.role, Text: text})
+	}
+	return turns, nil
+}
+
+func stringSliceContainsV1(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // distillQualityAdjudicationSessionV1 owns the immutable review inputs, the
@@ -111,8 +236,9 @@ func newFactsDistillQualityAdjudicateCommand(opts Options) *cobra.Command {
 		Use:   "adjudicate",
 		Short: "Review a readable, resumable batch of advisory packets",
 		Long: `adjudicate opens a full-screen human review workspace over a bounded
-Phase 2 quality batch. It shows one candidate at a time with wrapped redacted
-evidence, compact Copilot/Cursor/Claude assessments, explicit human decisions,
+Phase 2 quality batch. It shows the one statement under review first, keeps
+surrounding conversation hidden unless requested, presents compact
+Copilot/Cursor/Claude advice, records explicit human decisions,
 and a confirmation step. Every confirmed decision is saved immediately and a
 later invocation resumes without repeating it.
 
@@ -147,7 +273,7 @@ On a non-TTY, or with --plain, it uses the deterministic line-oriented fallback.
 	cmd.Flags().IntVar(&limit, "limit", distillQualityAdjudicateDefaultV1, "Maximum items presented in this session (1..100)")
 	cmd.Flags().StringVar(&themeName, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
 	cmd.Flags().BoolVar(&plain, "plain", false, "Use the line-oriented reviewer instead of the full-screen TUI")
-	cmd.Flags().BoolVar(&fullEvidence, "full-evidence", false, "In --plain mode, show complete evidence instead of a head/tail preview")
+	cmd.Flags().BoolVar(&fullEvidence, "full-evidence", false, "In --plain mode, show surrounding context and local source details")
 	_ = cmd.MarkFlagRequired("bundle")
 	_ = cmd.MarkFlagRequired("adjudicator")
 	return cmd
@@ -191,7 +317,7 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 			case "skip":
 				skip = true
 			case "full":
-				renderDistillQualityEvidenceV1(output, item.Packet, true)
+				renderDistillQualityReviewEvidenceV1(output, item, true)
 				continue
 			}
 			break
@@ -202,7 +328,7 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 		if skip {
 			continue
 		}
-		authority, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Adequate direct-human or corroborated authority? [y/n/u/q]: ")
+		authority, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Is this the human's own statement or an explicitly accepted proposal? [y/n/u/q]: ")
 		if err != nil {
 			return session.result, err
 		}
@@ -210,7 +336,7 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 			session.result.Quit = true
 			break
 		}
-		safety, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Safe to admit (not injection, pasted instruction, one-off task, or review prose)? [y/n/u/q]: ")
+		safety, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Safe to learn from—not one-off, pasted, injected, system, tool, or review-only text? [y/n/u/q]: ")
 		if err != nil {
 			return session.result, err
 		}
@@ -383,9 +509,15 @@ func buildDistillQualityAdjudicateItemsV1(packets []distillQualityPanelPacketV1,
 		if err := decodeDistillQualityStrictJSONV1([]byte(packet.Item.Text), &metadata); err != nil {
 			return nil, fmt.Errorf("quality adjudication packet %q metadata: %w", packet.PacketID, err)
 		}
+		focus, context, err := distillQualityReviewFocusV1(packet, metadata)
+		if err != nil {
+			return nil, fmt.Errorf("quality adjudication packet %q focus: %w", packet.PacketID, err)
+		}
 		items = append(items, distillQualityAdjudicateItemV1{
 			Packet: packet, Aggregate: aggregates[packet.PacketID], Sources: byPublicID[packet.Item.ID],
-			CandidateAdmitted: metadata.CandidateAdmitted, Stratum: metadata.Stratum,
+			CandidateAdmitted: metadata.CandidateAdmitted,
+			Roles:             append([]string(nil), metadata.Roles...), Authorities: append([]string(nil), metadata.Authorities...),
+			Cues: append([]string(nil), metadata.Cues...), Focus: focus, Context: context,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -454,28 +586,36 @@ func validDistillQualityAdjudicateQueueV1(queue string) bool {
 }
 
 func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityAdjudicateItemV1, index, total int, fullEvidence bool) {
-	decision := "FILTERED"
+	decision := "FILTERED BEFORE EXTRACTION"
 	if item.CandidateAdmitted {
-		decision = "ADMITTED"
+		decision = "SELECTED FOR EXTRACTION"
 	}
-	fmt.Fprintf(output, "\n=== Item %d/%d · %s ===\nCandidate: %s · Stratum: %s\nAttention: %s\n", index, total, item.Packet.PacketID, decision, distillQualityTerminalTextV1(item.Stratum), reportDistillQualityAttentionTextV1(item.Aggregate))
-	renderDistillQualityEvidenceV1(output, item.Packet, fullEvidence)
-	fmt.Fprintln(output, "\nAdvisory scores (input only; you own the decision):")
-	fmt.Fprintln(output, "judge     state      admission  authority  safety")
+	fmt.Fprintf(output, "\n=== Item %d/%d ===\n\nYOUR TASK\nDecide whether the statement below is potential long-term project knowledge. Do not judge the surrounding conversation.\n\nWHAT THE AUTOMATIC FILTER DID\n%s\n%s\n", index, total, decision, distillQualityTerminalTextV1(distillQualitySelectorReasonV1(item)))
+	renderDistillQualityReviewEvidenceV1(output, item, fullEvidence)
+	fmt.Fprintln(output, "\nINDEPENDENT MODEL ADVICE (advisory only; no answer is preselected)")
 	for _, verdict := range item.Aggregate.Verdicts {
+		if verdict.State != distillQualityVerdictCompletedV1 {
+			reason := distillQualityTerminalTextV1(distillQualityHumanVerdictNoteV1(verdict.Rationale))
+			if strings.TrimSpace(reason) == "" {
+				reason = "no usable verdict"
+			}
+			fmt.Fprintf(output, "%-9s %-11s %s\n", verdict.Judge, strings.ToUpper(string(verdict.State)), reason)
+			continue
+		}
 		labels := map[distillQualityDimensionV1]string{}
+		why := ""
 		for _, score := range verdict.Scores {
-			labels[score.Dimension] = string(score.Label)
+			_, labels[score.Dimension] = distillQualityReviewScoreSummaryV1(score)
+			if score.Dimension == distillQualityDimensionAdmissionV1 {
+				why = distillQualityHumanJudgeRationaleV1(item.Packet, score.Rationale)
+			}
 		}
-		fmt.Fprintf(output, "%-9s %-10s %-10s %-10s %-10s\n", verdict.Judge, verdict.State, emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAdmissionV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAuthorityV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionSafetyV1]))
-		if verdict.Rationale != "" {
-			fmt.Fprintf(output, "  %s: %s\n", verdict.Judge, distillQualityTerminalTextV1(verdict.Rationale))
-		}
-		for _, score := range verdict.Scores {
-			fmt.Fprintf(output, "  %s/%s [%s] %s · %s\n", verdict.Judge, score.Dimension, score.Label, distillQualityReviewScoreSummaryV1(score), distillQualityTerminalTextV1(score.Rationale))
+		fmt.Fprintf(output, "%-9s long-term: %-7s human authority: %-7s source safe: %-7s\n", verdict.Judge, emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAdmissionV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAuthorityV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionSafetyV1]))
+		if why != "" {
+			fmt.Fprintf(output, "          Why: %s\n", distillQualityTerminalTextV1(why))
 		}
 	}
-	if len(item.Sources) > 0 {
+	if fullEvidence && len(item.Sources) > 0 {
 		source := item.Sources[0]
 		fmt.Fprintf(output, "Source: %s:%d-%d (%s", distillQualityTerminalTextV1(filepath.ToSlash(source.TranscriptPath)), source.StartLine, source.EndLine, distillQualityTerminalTextV1(source.Branch))
 		if len(item.Sources) > 1 {
@@ -485,19 +625,34 @@ func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityA
 	}
 }
 
-func renderDistillQualityEvidenceV1(output io.Writer, packet distillQualityPanelPacketV1, full bool) {
-	var evidence strings.Builder
-	for _, fragment := range packet.Payload.Fragments {
-		fmt.Fprintf(&evidence, "[%s]\n%s\n", fragment.ID, distillQualityTerminalTextV1(fragment.Text))
+func renderDistillQualityReviewEvidenceV1(output io.Writer, item distillQualityAdjudicateItemV1, full bool) {
+	fmt.Fprintln(output, "\nSTATEMENT UNDER REVIEW")
+	acceptance := stringSliceContainsV1(item.Cues, string(distillCandidateCueAcceptanceV1))
+	for _, turn := range item.Focus {
+		label := "HUMAN STATEMENT"
+		if acceptance && turn.Role == "assistant" {
+			label = "ASSISTANT PROPOSAL"
+		} else if acceptance && turn.Role == "user" {
+			label = "HUMAN CONFIRMATION"
+		} else if turn.Role == "assistant" {
+			label = "ASSISTANT STATEMENT"
+		}
+		fmt.Fprintf(output, "%s\n%s\n", label, distillQualityTerminalTextV1(turn.Text))
 	}
-	value := strings.TrimSpace(evidence.String())
-	runes := []rune(value)
-	if full || len(runes) <= distillQualityAdjudicateExcerptV1 {
-		fmt.Fprintf(output, "\nEvidence:\n%s\n", value)
+	if !full {
+		if len(item.Context) > 0 {
+			fmt.Fprintf(output, "\nSurrounding context hidden (%d turn(s)); enter v if the statement is ambiguous.\n", len(item.Context))
+		}
 		return
 	}
-	half := distillQualityAdjudicateExcerptV1 / 2
-	fmt.Fprintf(output, "\nEvidence preview:\n%s\n\n[… %d runes hidden; enter v at the decision prompt to show all …]\n\n%s\n", string(runes[:half]), len(runes)-2*half, string(runes[len(runes)-half:]))
+	fmt.Fprintln(output, "\nSURROUNDING CONTEXT (NOT THE STATEMENT UNDER REVIEW)")
+	if len(item.Context) == 0 {
+		fmt.Fprintln(output, "None.")
+		return
+	}
+	for _, turn := range item.Context {
+		fmt.Fprintf(output, "%s CONTEXT\n%s\n", strings.ToUpper(turn.Role), distillQualityTerminalTextV1(turn.Text))
+	}
 }
 
 func emptyDistillQualityAdvisoryV1(value string) string {
@@ -509,7 +664,7 @@ func emptyDistillQualityAdvisoryV1(value string) string {
 
 func readDistillQualityAdmissionChoiceV1(reader *bufio.Reader, output io.Writer) (string, string, error) {
 	for {
-		fmt.Fprint(output, "Should this evidence be admitted as durable knowledge? [y/n/u/s/v/q]: ")
+		fmt.Fprint(output, "Should this be potential long-term project knowledge? [y/n/u/s/v/q]: ")
 		value, eof, err := readDistillQualityInputLineV1(reader)
 		if err != nil {
 			return "", "", err
