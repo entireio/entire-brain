@@ -24,6 +24,9 @@ func TestSemanticEndpointPathRecoversFieldsAroundColons(t *testing.T) {
 	}{
 		{"symbol", "gh/ashtom/entire-brain", "gh/ashtom/entire-brain:Go:cmd/entire-brain/main.go:function:main", "cmd/entire-brain/main.go"},
 		{"symbol lowercase language", "gh/example/repo", "gh/example/repo:go:secret/config.go:function:Secret", "secret/config.go"},
+		{"future kind", "gh/example/repo", "gh/example/repo:Go:main.go:future_kind:F", "main.go"},
+		{"multiple colons in file path", "gh/example/repo", "gh/example/repo:Go:dir:a:b/file.go:function:F", "dir:a:b/file.go"},
+		{"ambiguous kind markers", "gh/example/repo", "gh/example/repo:Go:dir:function:file.go:function:F", ""},
 		{"colon in file path", "gh/example/repo", "gh/example/repo:Python:od:d/mod.py:function:f", "od:d/mod.py"},
 		{"colon in file path, dotted leaf", "gh/example/repo", "gh/example/repo:Python:od:mod.py:function:f", "od:mod.py"},
 		{"colon in repo key", "local/My:Repo", "local/My:Repo:Go:main.go:function:main", "main.go"},
@@ -162,5 +165,17 @@ func TestFilterSemanticSnapshotHonorsColonPathEndpoints(t *testing.T) {
 	}
 	if strings.Contains(string(filtered), "od:d/mod.py") {
 		t.Fatalf("ignored path leaked into the filtered snapshot:\n%s", filtered)
+	}
+}
+
+func TestSemanticMultipleColonPathIgnoreDecisions(t *testing.T) {
+	snapshot := strings.ReplaceAll(semanticColonPathSnapshot(), "od:d/mod.py", "dir:a:b/file.go")
+	manifest, _ := semanticEndpointPathIndex(t, "dir\n", snapshot)
+	if manifest.Sources.Semantic.Relations == 0 {
+		t.Fatal("allowed relation was dropped")
+	}
+	manifest, _ = semanticEndpointPathIndex(t, "dir:a:b/\n", snapshot)
+	if manifest.Sources.Semantic.Relations != 0 {
+		t.Fatal("ignored relation retained")
 	}
 }

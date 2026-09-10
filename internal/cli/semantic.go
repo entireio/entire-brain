@@ -1032,7 +1032,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 	if marshalErr != nil {
 		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode filtered semantic snapshot header: %w", marshalErr)
 	}
-	ignoredIDs := make(map[string]struct{})
+	ignoredIDs := make(map[string]bool)
 	line := 1
 	for scanner.Scan() {
 		line++
@@ -1047,8 +1047,8 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		if err := validateSemanticRecordPath(&record); err != nil {
 			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 		}
-		if ignore.Ignored(record.semanticPath()) && record.ID != "" {
-			ignoredIDs[record.ID] = struct{}{}
+		if record.ID != "" && record.semanticPath() != "" {
+			ignoredIDs[record.ID] = ignore.Ignored(record.semanticPath())
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -1202,30 +1202,38 @@ func semanticEndpointPath(repoKey, id string) string {
 	return semanticSymbolIDPath(rest)
 }
 
-// semanticSymbolIDPath resolves the path in the "<path>:<kind>:<qualified-name>"
-// tail of a symbol ID. Both the path and the qualified name may contain ":";
-// the kind never does, and is always a bare token — no "/" and no "." — so the
-// first split whose kind field is a bare token is the real field boundary.
-// Scanning left to right keeps a colon in the qualified name from stealing the
-// split (a "route" kind is accepted before "/users/:id" can be read as one),
-// while a colon in the path is skipped because the segment following it still
-// carries the rest of the path and so is not a bare token.
+// semanticSymbolIDPath recognizes provider kind markers, not arbitrary bare
+// path segments. Unescaped IDs are ambiguous when both the path and name
+// contain a kind marker; return no guess then and use snapshot ID metadata.
 func semanticSymbolIDPath(rest string) string {
+	result := ""
+	fallback, candidates := "", 0
 	for i := 0; i < len(rest); i++ {
-		if rest[i] != ':' {
-			continue
-		}
-		path := rest[:i]
-		if path == "" {
+		if rest[i] != ':' || i == 0 {
 			continue
 		}
 		kind, _, ok := strings.Cut(rest[i+1:], ":")
-		if !ok || kind == "" || strings.ContainsAny(kind, "/.") {
+		if !ok {
 			continue
 		}
-		return path
+		if kind != "" && !strings.ContainsAny(kind, "/.") {
+			fallback = rest[:i]
+			candidates++
+		}
+		switch kind {
+		case "function", "method", "class", "struct", "interface", "enum", "type", "type_alias", "variable", "constant", "const", "field", "property", "module", "namespace", "package", "constructor", "trait", "impl", "macro", "test", "route", "cli_command", "workflow", "job", "tool":
+		default:
+			continue
+		}
+		if result != "" {
+			return ""
+		}
+		result = rest[:i]
 	}
-	return ""
+	if result == "" && candidates == 1 {
+		return fallback
+	}
+	return result
 }
 
 func (r *semanticRecord) setSemanticPath(path string) {
