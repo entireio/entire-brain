@@ -173,6 +173,7 @@ type QualityReviewModel struct {
 	help     bool
 	context  bool
 	details  bool
+	answer   int
 
 	viewport      viewport.Model
 	rationale     textinput.Model
@@ -192,6 +193,7 @@ func NewQualityReviewModel(review QualityReview, theme Theme, save QualityReview
 		review:    review,
 		theme:     theme,
 		save:      save,
+		answer:    -1,
 		viewport:  viewport.New(70, 20),
 		rationale: ti,
 		width:     100,
@@ -258,10 +260,8 @@ func (m QualityReviewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.advanceSkipped()
 			return m, nil
 		}
-		if isQualityScroll(msg) {
-			var cmd tea.Cmd
-			m.viewport, cmd = m.viewport.Update(msg)
-			return m, cmd
+		if applyQualityScroll(&m.viewport, msg) {
+			return m, nil
 		}
 		return m.updateDecision(msg)
 	}
@@ -290,18 +290,45 @@ func (m QualityReviewModel) updateRationale(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 
 func (m QualityReviewModel) updateDecision(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m.stage == qualityReviewAdmission || m.stage == qualityReviewAuthority || m.stage == qualityReviewSafety {
+		switch msg.Type {
+		case tea.KeyLeft:
+			if m.answer < 0 {
+				m.answer = 2
+			} else {
+				m.answer = (m.answer + 2) % 3
+			}
+			m.refreshDetail()
+			return m, nil
+		case tea.KeyRight:
+			if m.answer < 0 {
+				m.answer = 0
+			} else {
+				m.answer = (m.answer + 1) % 3
+			}
+			m.refreshDetail()
+			return m, nil
+		case tea.KeyEnter:
+			if m.answer >= 0 {
+				key = []string{"y", "n", "u"}[m.answer]
+			}
+		}
+	}
 	switch m.stage {
 	case qualityReviewAdmission:
 		if answer, ok := qualityAnswerForKey(key); ok {
 			m.decision.Admission, m.stage = answer, qualityReviewAuthority
+			m.answer = -1
 		}
 	case qualityReviewAuthority:
 		if answer, ok := qualityAnswerForKey(key); ok {
 			m.decision.Authority, m.stage = answer, qualityReviewSafety
+			m.answer = -1
 		}
 	case qualityReviewSafety:
 		if answer, ok := qualityAnswerForKey(key); ok {
 			m.decision.Safety, m.stage = answer, qualityReviewRationaleChoice
+			m.answer = -1
 		}
 	case qualityReviewRationaleChoice:
 		switch {
@@ -370,6 +397,7 @@ func (m *QualityReviewModel) resetDecision() {
 	m.rationale.SetValue("")
 	m.context = false
 	m.details = false
+	m.answer = -1
 	m.viewport.GotoTop()
 	if m.position >= len(m.review.Items) {
 		m.stage = qualityReviewDone
@@ -386,9 +414,21 @@ func (m QualityReviewModel) current() QualityReviewItem {
 	return QualityReviewItem{}
 }
 
-func isQualityScroll(msg tea.KeyMsg) bool {
-	key := msg.String()
-	if key != "up" && key != "k" && key != "down" && key != "j" && key != "pgup" && key != "pgdown" && key != "home" && key != "end" {
+func applyQualityScroll(model *viewport.Model, msg tea.KeyMsg) bool {
+	switch msg.String() {
+	case "up", "k":
+		model.LineUp(1)
+	case "down", "j":
+		model.LineDown(1)
+	case "pgup":
+		model.ViewUp()
+	case "pgdown", " ":
+		model.ViewDown()
+	case "home":
+		model.GotoTop()
+	case "end":
+		model.GotoBottom()
+	default:
 		return false
 	}
 	return true
@@ -445,13 +485,13 @@ func (m QualityReviewModel) View() string {
 	} else {
 		body = m.theme.paneStyle(true).Width(m.width - 2).Height(m.viewport.Height).Render(m.viewport.View())
 	}
-	footerText := "↑↓/jk scroll · c context · p details · x skip · q quit · ? help"
+	footerText := "↑↓ scroll · ←→ choose · Enter · y/n/u · c context · x skip · q quit · ? help"
 	if m.stage == qualityReviewRationaleEdit {
 		footerText = "type rationale  ·  Enter continue  ·  Esc cancel edit  ·  Ctrl-C quit (unsaved)"
 	}
 	footer := m.theme.dimStyle().Render(footerText)
 	if m.help {
-		footer += "\n" + m.theme.dimStyle().Render("Your job is to judge the highlighted statement, not the transcript. Answer y/n/u three times, optionally add a note, then confirm. No panel answer is preselected.")
+		footer += "\n" + m.theme.dimStyle().Render("Judge the highlighted statement, not the transcript. Up/down scroll; left/right choose an answer; Enter submits it; p toggles extra judge explanations. No panel answer is preselected.")
 	}
 	if m.err != nil {
 		footer = m.theme.flagStyle().Render("SAVE ERROR: "+qualityTerminalText(m.err.Error())+" — correct or cancel; this item remains unsaved.") + "\n" + footer
@@ -636,7 +676,7 @@ func (m QualityReviewModel) judgeView(judge QualityReviewJudge, width int) strin
 		b.WriteString(qualityWrap(m.theme, "  Unavailable: "+reason, width) + "\n")
 		return b.String()
 	}
-	line := fmt.Sprintf("  long-term: %s · authority: %s · source safe: %s", orDash(judge.Recommendation), orDash(judge.Authority), orDash(judge.Safety))
+	line := fmt.Sprintf("  remember: %s · user endorsed: %s · safe evidence: %s", orDash(judge.Recommendation), orDash(judge.Authority), orDash(judge.Safety))
 	b.WriteString(m.theme.textStyle().Render(truncate(qualityTerminalText(line), width)) + "\n")
 	if judge.RecommendationRationale != "" {
 		b.WriteString(qualityWrap(m.theme, "  Why: "+judge.RecommendationRationale, width) + "\n")
@@ -663,7 +703,7 @@ func (m QualityReviewModel) decisionView() string {
 		return m.theme.headingStyle().Render("Your decision") + "\n" + m.theme.textStyle().Render(m.stagePrompt())
 	}
 	return m.theme.headingStyle().Render("Confirm human decision") + "\n" +
-		m.theme.textStyle().Render("long-term knowledge: "+string(m.decision.Admission)+" · human authority: "+string(m.decision.Authority)+" · safe source: "+string(m.decision.Safety)) + "\n" +
+		m.theme.textStyle().Render("remember: "+string(m.decision.Admission)+" · user endorsed: "+string(m.decision.Authority)+" · safe evidence: "+string(m.decision.Safety)) + "\n" +
 		m.theme.dimStyle().Render("rationale: "+orDash(m.decision.Rationale)) + "\n" +
 		m.theme.textStyle().Render("Press y to save this complete decision, or n/Esc to edit it. This is the only save action.")
 }
@@ -671,9 +711,9 @@ func (m QualityReviewModel) decisionView() string {
 func (m QualityReviewModel) stageName() string {
 	switch m.stage {
 	case qualityReviewAdmission:
-		return "1/3 · Long-term value"
+		return "1/3 · Remember it?"
 	case qualityReviewAuthority:
-		return "2/3 · Human authority"
+		return "2/3 · Said or approved?"
 	case qualityReviewSafety:
 		return "3/3 · Source safety"
 	case qualityReviewRationaleChoice, qualityReviewRationaleEdit:
@@ -688,11 +728,11 @@ func (m QualityReviewModel) stageName() string {
 func (m QualityReviewModel) stagePrompt() string {
 	switch m.stage {
 	case qualityReviewAdmission:
-		return "Should this be potential long-term project knowledge? y yes · n no · u unsure"
+		return m.answerPrompt("Should this be remembered for future project work?")
 	case qualityReviewAuthority:
-		return "Is this the human's own statement or an explicitly accepted proposal? y yes · n no · u unsure"
+		return m.answerPrompt("Did the user say this themselves, or explicitly approve it?")
 	case qualityReviewSafety:
-		return "Safe to learn from—not one-off, pasted, injected, system, tool, or review-only text? y yes · n no · u unsure"
+		return m.answerPrompt("Is this safe evidence—not one-off, pasted/generated, or system/tool/review text?")
 	case qualityReviewRationaleChoice:
 		return "Optional rationale: [e]dit, or [s]kip / Enter to continue."
 	case qualityReviewRationaleEdit:
@@ -707,18 +747,26 @@ func (m QualityReviewModel) stagePrompt() string {
 func (m QualityReviewModel) choiceSummary() string {
 	var choices []string
 	if m.decision.Admission != "" {
-		choices = append(choices, "long-term="+string(m.decision.Admission))
+		choices = append(choices, "remember="+string(m.decision.Admission))
 	}
 	if m.decision.Authority != "" {
-		choices = append(choices, "human-owned="+string(m.decision.Authority))
+		choices = append(choices, "user-endorsed="+string(m.decision.Authority))
 	}
 	if m.decision.Safety != "" {
-		choices = append(choices, "safe-source="+string(m.decision.Safety))
+		choices = append(choices, "safe-evidence="+string(m.decision.Safety))
 	}
 	if len(choices) == 0 {
 		return ""
 	}
 	return " · " + strings.Join(choices, " · ")
+}
+
+func (m QualityReviewModel) answerPrompt(question string) string {
+	choices := []string{"yes", "no", "unsure"}
+	if m.answer >= 0 && m.answer < len(choices) {
+		choices[m.answer] = "[" + strings.ToUpper(choices[m.answer]) + "]"
+	}
+	return question + "  " + strings.Join(choices, " · ") + "  ←/→ choose · Enter answer · y/n/u shortcuts"
 }
 
 func qualityWrap(theme Theme, value string, width int) string {

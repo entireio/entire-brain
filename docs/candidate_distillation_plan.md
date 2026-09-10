@@ -170,9 +170,12 @@ payloads are reassembled before turn isolation, and truncated or ambiguous
 speaker shapes fail closed instead of becoming transcript dumps. The workspace
 then explains the selector in plain language and presents compact Copilot,
 Cursor, and Claude recommendations; detailed rationales and local source
-information are optional views. The reviewer explicitly answers long-term
-value, human authority, and source safety with `y`, `n`, or `u`; no answer is
-prefilled from the panel. A separate confirmation step is the only save action.
+information are optional views. The reviewer explicitly answers whether the
+statement should be remembered for future work, whether the user said or
+explicitly approved it, and whether it is safe evidence rather than one-off or
+generated material. Answers may be entered with `y`, `n`, or `u`, or selected
+with left/right and submitted with Enter; up/down scrolls the detail. No answer
+is prefilled from the panel. A separate confirmation step is the only save action.
 `x` skips without writing, `q` discards only the current partial decision, and
 every prior confirmed answer remains durable. `--plain` retains the same
 proposition-first contract in the line-oriented accessibility/non-TTY fallback.

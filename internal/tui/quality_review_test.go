@@ -55,7 +55,7 @@ func TestQualityReviewWideAndNarrowViewsAreReadable(t *testing.T) {
 	m := NewQualityReviewModel(qualityReviewFixture(), themes["default"], func(string, string, string, string, string) error { return nil })
 	m = updateQuality(t, m, tea.WindowSizeMsg{Width: 120, Height: 34})
 	wide := m.View()
-	for _, want := range []string{"Phase 2 human adjudication", "Overall reviewed 1/4", "Decision: 1/3 · Long-term value", "Queue", "Statement under review", "HUMAN STATEMENT", "Independent model advice", "long-term: NO", "This looks like a one-off request", "Surrounding context", "Hidden (1 turn"} {
+	for _, want := range []string{"Phase 2 human adjudication", "Overall reviewed 1/4", "Decision: 1/3 · Remember it?", "Queue", "Statement under review", "HUMAN STATEMENT", "Independent model advice", "remember: NO", "This looks like a one-off request", "Surrounding context", "Hidden (1 turn"} {
 		if !strings.Contains(wide, want) {
 			t.Errorf("wide view missing %q:\n%s", want, wide)
 		}
@@ -74,7 +74,7 @@ func TestQualityReviewWideAndNarrowViewsAreReadable(t *testing.T) {
 
 	m = updateQuality(t, m, tea.WindowSizeMsg{Width: 60, Height: 28})
 	narrow := m.View()
-	for _, want := range []string{"item: 1/2", "packet-001", "Statement under review", "Long-term value"} {
+	for _, want := range []string{"item: 1/2", "packet-001", "Statement under review", "Remember it?"} {
 		if !strings.Contains(narrow, want) {
 			t.Errorf("narrow view missing %q:\n%s", want, narrow)
 		}
@@ -109,6 +109,31 @@ func TestQualityReviewDecisionSavesOnlyAfterExplicitConfirm(t *testing.T) {
 	}
 	if result := m.Result(); result.Presented != 2 || result.Saved != 1 || result.Quit {
 		t.Errorf("result = %+v", result)
+	}
+}
+
+func TestQualityReviewArrowKeysSelectAnswersWithoutDefault(t *testing.T) {
+	m := NewQualityReviewModel(qualityReviewFixture(), themes["default"], func(string, string, string, string, string) error { return nil })
+	m = updateQuality(t, m, tea.WindowSizeMsg{Width: 110, Height: 30})
+	if m.answer != -1 || strings.Contains(m.stagePrompt(), "[YES]") || strings.Contains(m.stagePrompt(), "[NO]") {
+		t.Fatalf("review opened with a selected answer: cursor=%d prompt=%q", m.answer, m.stagePrompt())
+	}
+	m = updateQuality(t, m, tea.KeyMsg{Type: tea.KeyLeft})
+	if m.answer != 2 || !strings.Contains(m.stagePrompt(), "[UNSURE]") {
+		t.Fatalf("left arrow did not select unsure: cursor=%d prompt=%q", m.answer, m.stagePrompt())
+	}
+	m = updateQuality(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.decision.Admission != QualityReviewUnclear || m.stage != qualityReviewAuthority || m.answer != -1 {
+		t.Fatalf("enter did not submit highlighted answer: decision=%+v stage=%v cursor=%d", m.decision, m.stage, m.answer)
+	}
+	m = updateQuality(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	m = updateQuality(t, m, tea.KeyMsg{Type: tea.KeyRight})
+	if m.answer != 1 || !strings.Contains(m.stagePrompt(), "[NO]") {
+		t.Fatalf("right arrows did not select no: cursor=%d prompt=%q", m.answer, m.stagePrompt())
+	}
+	m = updateQuality(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.decision.Authority != QualityReviewNo || m.stage != qualityReviewSafety {
+		t.Fatalf("authority selection = %+v stage=%v", m.decision, m.stage)
 	}
 }
 
@@ -185,7 +210,7 @@ func TestQualityReviewAnswersKeepEvidencePositionAndBoundQueue(t *testing.T) {
 	if m.viewport.YOffset != 1 {
 		t.Fatalf("answering admission moved evidence viewport to %d", m.viewport.YOffset)
 	}
-	if view := m.View(); !strings.Contains(view, "long-term=yes") {
+	if view := m.View(); !strings.Contains(view, "remember=yes") {
 		t.Fatalf("fixed decision line did not preserve prior answer:\n%s", view)
 	}
 }

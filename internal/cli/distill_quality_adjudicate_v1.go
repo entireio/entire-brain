@@ -328,7 +328,7 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 		if skip {
 			continue
 		}
-		authority, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Is this the human's own statement or an explicitly accepted proposal? [y/n/u/q]: ")
+		authority, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Did the user say this themselves, or explicitly approve it? [y/n/u/q]: ")
 		if err != nil {
 			return session.result, err
 		}
@@ -336,7 +336,7 @@ func runDistillQualityAdjudicationV1(bundleDir, adjudicatorID, queue string, lim
 			session.result.Quit = true
 			break
 		}
-		safety, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Safe to learn from—not one-off, pasted, injected, system, tool, or review-only text? [y/n/u/q]: ")
+		safety, quit, err := readDistillQualityTernaryChoiceV1(reader, output, "Is this safe evidence—not one-off, pasted/generated, or system/tool/review text? [y/n/u/q]: ")
 		if err != nil {
 			return session.result, err
 		}
@@ -590,7 +590,7 @@ func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityA
 	if item.CandidateAdmitted {
 		decision = "SELECTED FOR EXTRACTION"
 	}
-	fmt.Fprintf(output, "\n=== Item %d/%d ===\n\nYOUR TASK\nDecide whether the statement below is potential long-term project knowledge. Do not judge the surrounding conversation.\n\nWHAT THE AUTOMATIC FILTER DID\n%s\n%s\n", index, total, decision, distillQualityTerminalTextV1(distillQualitySelectorReasonV1(item)))
+	fmt.Fprintf(output, "\n=== Item %d/%d ===\n\nYOUR TASK\nDecide whether the statement below should be remembered for future project work. Do not judge the surrounding conversation.\n\nWHAT THE AUTOMATIC FILTER DID\n%s\n%s\n", index, total, decision, distillQualityTerminalTextV1(distillQualitySelectorReasonV1(item)))
 	renderDistillQualityReviewEvidenceV1(output, item, fullEvidence)
 	fmt.Fprintln(output, "\nINDEPENDENT MODEL ADVICE (advisory only; no answer is preselected)")
 	for _, verdict := range item.Aggregate.Verdicts {
@@ -610,7 +610,7 @@ func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityA
 				why = distillQualityHumanJudgeRationaleV1(item.Packet, score.Rationale)
 			}
 		}
-		fmt.Fprintf(output, "%-9s long-term: %-7s human authority: %-7s source safe: %-7s\n", verdict.Judge, emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAdmissionV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAuthorityV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionSafetyV1]))
+		fmt.Fprintf(output, "%-9s remember: %-7s user endorsed: %-7s safe evidence: %-7s\n", verdict.Judge, emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAdmissionV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionAuthorityV1]), emptyDistillQualityAdvisoryV1(labels[distillQualityDimensionSafetyV1]))
 		if why != "" {
 			fmt.Fprintf(output, "          Why: %s\n", distillQualityTerminalTextV1(why))
 		}
@@ -664,7 +664,7 @@ func emptyDistillQualityAdvisoryV1(value string) string {
 
 func readDistillQualityAdmissionChoiceV1(reader *bufio.Reader, output io.Writer) (string, string, error) {
 	for {
-		fmt.Fprint(output, "Should this be potential long-term project knowledge? [y/n/u/s/v/q]: ")
+		fmt.Fprint(output, "Should this be remembered for future project work? [y/n/u/s/v/q]: ")
 		value, eof, err := readDistillQualityInputLineV1(reader)
 		if err != nil {
 			return "", "", err
