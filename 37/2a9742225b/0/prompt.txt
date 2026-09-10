@@ -1,5 +1,14 @@
-Review the plan in docs/candidate_distillation_plan.md
+commit/push, then implement the plan
 
 ---
 
-Ignore 4 and 5, fix the others
+<environment_context>
+  <current_date>2026-09-11</current_date>
+  <timezone>Europe/Berlin</timezone>
+  <filesystem><workspace_roots><root>/Users/thomi/Projects/entire-brain</root></workspace_roots><permission_profile type="disabled"><file_system type="unrestricted" /></permission_profile></filesystem>
+  <subagents>
+    <agent name="/root/evaluation_contract" />
+    <agent name="/root/extraction_failures" />
+    <agent name="/root/phase4_inventory" />
+  </subagents>
+</environment_context>
