@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -223,26 +224,55 @@ func newDocEmbedStore(brainDir, modelID string, dim int) *embedStore {
 // (os.IsNotExist is skipped, not raised), so without this check a deleted or
 // unreadable index is indistinguishable from "nothing matched".
 func verifyDeclaredDocIndex(brainDir string) error {
-	// Nonblocking open makes the descriptor check safe even if the leaf is
-	// replaced with a FIFO immediately before opening it.
-	f, err := os.OpenFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), os.O_RDONLY|memoryStateReadOpenFlags(), 0)
+	f, err := openDeclaredDocIndex(brainDir)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	info, err := f.Stat()
+	return f.Close()
+}
+
+// Both diagnostics and queries must validate the descriptor they actually use.
+func openDeclaredDocIndex(brainDir string) (*os.File, error) {
+	path := filepath.Join(brainDir, filepath.FromSlash(docIndexPath))
+	if err := rejectExistingSymlinkPathComponents(brainDir, docIndexPath); err != nil {
+		return nil, err
+	}
+	before, err := os.Lstat(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", docIndexPath)
+	if !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", docIndexPath)
 	}
-	return nil
+	// Nonblocking/no-follow open also covers a swap after the path checks.
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		f.Close()
+		return nil, fmt.Errorf("%s changed while opening", docIndexPath)
+	}
+	if err := rejectOpenFileAlias(path, f, docIndexPath); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 func loadDocIndex(brainDir string) (docIndex, error) {
 	var index docIndex
-	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)))
+	f, err := openDeclaredDocIndex(brainDir)
+	if err != nil {
+		return index, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return index, err
 	}
