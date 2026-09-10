@@ -24,10 +24,12 @@ type Runner interface {
 // copying it into the delta document's producer_version would have recorded a
 // number that means something else.
 type graphResult struct {
-	ProducerVersion string            `json:"producer_version"`
-	Base            string            `json:"base"`
-	Head            string            `json:"head"`
-	Files           []graphFileChange `json:"files"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
+	Warnings         []json.RawMessage `json:"warnings,omitempty"`
+	ProducerVersion  string            `json:"producer_version"`
+	Base             string            `json:"base"`
+	Head             string            `json:"head"`
+	Files            []graphFileChange `json:"files"`
 }
 
 type graphFileChange struct {
@@ -59,6 +61,10 @@ type graphEntityChange struct {
 // commit is a root: the empty tree is used so its entities are recorded as
 // added rather than dropped.
 func DiffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, head string, now time.Time) (Delta, error) {
+	return diffCommit(ctx, runner, repoDir, graphBinary, base, head, now, false, "")
+}
+
+func diffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, head string, now time.Time, strict bool, revision string) (Delta, error) {
 	if runner == nil {
 		return Delta{}, fmt.Errorf("entityindex: command runner is required")
 	}
@@ -80,6 +86,34 @@ func DiffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 	stdout, _, err := runner.Run(ctx, repoDir, graphBinary, args...)
 	if err != nil {
 		return Delta{}, fmt.Errorf("entityindex: graph diff %s..%s: %w", short(base), short(head), err)
+	}
+	// Even a legacy fallback must not write explicitly revisioned output into
+	// legacy keys. A failed version probe is not proof of legacy parser rules.
+	var envelope graphResult
+	decodeErr := json.Unmarshal(stdout, &envelope)
+	if decodeErr == nil && envelope.IdentityRevision != revision {
+		return Delta{}, fmt.Errorf("graph diff identity revision changed during indexing")
+	}
+	if strict || revision != "" {
+		if err := decodeErr; err != nil {
+			return Delta{}, fmt.Errorf("migration requires a valid graph diff envelope: %w", err)
+		}
+		if strict {
+			var fields map[string]json.RawMessage
+			_ = json.Unmarshal(stdout, &fields)
+			if _, ok := fields["files"]; !ok {
+				return Delta{}, fmt.Errorf("migration graph diff is missing files")
+			}
+			if len(envelope.Warnings) > 0 {
+				return Delta{}, fmt.Errorf("migration graph diff has warnings; refusing potentially incomplete history: %s", envelope.Warnings[0])
+			}
+			// Entity mapping has the same tolerant rules in migration and
+			// backfill. File-only/unkeyable changes are skipped by ParseDiff;
+			// envelope/provenance and partial-output validation remain strict.
+		}
+		if envelope.Base != base || envelope.Head != head {
+			return Delta{}, fmt.Errorf("migration graph diff did not attest requested base/head")
+		}
 	}
 	return ParseDiff(stdout, base, head, now)
 }

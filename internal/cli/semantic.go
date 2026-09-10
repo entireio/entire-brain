@@ -24,6 +24,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/ashtom/entire-brain/internal/entityindex"
 	"github.com/spf13/cobra"
 )
 
@@ -85,6 +86,7 @@ type semanticSourceManifest struct {
 	DirtyWorktree    bool              `json:"dirty_worktree"`
 	Provider         string            `json:"provider,omitempty"`
 	ProviderVersion  string            `json:"provider_version,omitempty"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
 	SchemaVersion    string            `json:"schema_version,omitempty"`
 	SnapshotPath     string            `json:"snapshot_path,omitempty"`
 	StorePath        string            `json:"store_path,omitempty"`
@@ -192,18 +194,19 @@ func (w *semanticWarning) UnmarshalJSON(data []byte) error {
 }
 
 type semanticHeader struct {
-	SchemaVersion   string            `json:"schema_version"`
-	Provider        string            `json:"provider"`
-	ProviderVersion string            `json:"provider_version"`
-	RepoRoot        string            `json:"repo_root,omitempty"`
-	RepoKey         string            `json:"repo_key"`
-	Commit          string            `json:"commit"`
-	Tree            string            `json:"tree"`
-	Languages       []string          `json:"languages"`
-	LanguageTiers   map[string]string `json:"language_tiers,omitempty"`
-	Capabilities    []string          `json:"capabilities"`
-	Warnings        []semanticWarning `json:"warnings"`
-	PartialFailures []semanticWarning `json:"partial_failures"`
+	SchemaVersion    string            `json:"schema_version"`
+	Provider         string            `json:"provider"`
+	ProviderVersion  string            `json:"provider_version"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
+	RepoRoot         string            `json:"repo_root,omitempty"`
+	RepoKey          string            `json:"repo_key"`
+	Commit           string            `json:"commit"`
+	Tree             string            `json:"tree"`
+	Languages        []string          `json:"languages"`
+	LanguageTiers    map[string]string `json:"language_tiers,omitempty"`
+	Capabilities     []string          `json:"capabilities"`
+	Warnings         []semanticWarning `json:"warnings"`
+	PartialFailures  []semanticWarning `json:"partial_failures"`
 
 	// Aggregate metadata carried by the authoritative trailing summary record
 	// (see semanticSummary / mergeSemanticSummary). These are omitempty so a
@@ -242,13 +245,14 @@ type semanticRecord struct {
 	// Schema 1.1 fields. These are omitempty so older (1.0) snapshots round-trip
 	// unchanged, but they must be modeled so the streaming filter does not
 	// silently drop them when re-marshaling file/symbol/relation records.
-	Bytes         int                `json:"bytes,omitempty"`          // file record: source size
-	ContainerID   string             `json:"container_id,omitempty"`   // symbol record: enclosing symbol
-	BodyHash      string             `json:"body_hash,omitempty"`      // symbol record: content hash
-	RelationScope string             `json:"relation_scope,omitempty"` // relation record: file|external|...
-	Resolution    string             `json:"resolution,omitempty"`     // relation record: exact|type_inferred|name_only
-	TargetKind    string             `json:"target_kind,omitempty"`    // relation record: symbol|external
-	Evidence      []semanticEvidence `json:"evidence,omitempty"`       // relation record: supporting spans
+	Bytes           int                `json:"bytes,omitempty"`            // file record: source size
+	ContainerID     string             `json:"container_id,omitempty"`     // symbol record: enclosing symbol
+	BodyHash        string             `json:"body_hash,omitempty"`        // symbol record: content hash
+	RelationScope   string             `json:"relation_scope,omitempty"`   // relation record: file|external|...
+	Resolution      string             `json:"resolution,omitempty"`       // relation record: exact|type_inferred|name_only
+	TargetKind      string             `json:"target_kind,omitempty"`      // relation record: symbol|external
+	Evidence        []semanticEvidence `json:"evidence,omitempty"`         // relation record: supporting spans
+	EvidenceDropped int                `json:"evidence_dropped,omitempty"` // relation record: supporting spans omitted by provider limit
 }
 
 // semanticEvidence is a single supporting span for a relation (schema 1.1).
@@ -624,6 +628,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		DirtyWorktree:    dirty,
 		Provider:         header.Provider,
 		ProviderVersion:  header.ProviderVersion,
+		IdentityRevision: header.IdentityRevision,
 		SchemaVersion:    header.SchemaVersion,
 		SnapshotPath:     snapshotRel,
 		StorePath:        filepath.ToSlash(filepath.Join(generation, semanticSQLiteName)),
@@ -2405,6 +2410,12 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["provider"] = staleAxis{State: "degraded", Detail: "provider no-egress status was not verified"}
 	} else {
 		axes["provider"] = staleAxis{State: "ok", Detail: source.Provider + " " + source.ProviderVersion}
+		revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+		if identityErr != nil {
+			axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
+		} else if revision != source.IdentityRevision {
+			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+		}
 	}
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
 		axes["semantic_completeness"] = staleAxis{State: "unsafe", Detail: "semantic facts unavailable"}
@@ -6381,6 +6392,9 @@ func validateSemanticSourceMatchesSnapshot(source *semanticSourceManifest, heade
 	}
 	if source.Provider != "" && header.Provider != "" && header.Provider != source.Provider {
 		return fmt.Errorf("provider %q does not match snapshot %q", source.Provider, header.Provider)
+	}
+	if source.IdentityRevision != header.IdentityRevision {
+		return fmt.Errorf("identity_revision differs between manifest and snapshot")
 	}
 	if source.ProviderVersion != "" && header.ProviderVersion != "" && header.ProviderVersion != source.ProviderVersion {
 		return fmt.Errorf("provider_version %q does not match snapshot %q", source.ProviderVersion, header.ProviderVersion)
