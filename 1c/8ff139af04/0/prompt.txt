@@ -1,0 +1,9 @@
+The TUI is bad for doing this. Make it way simpler: Remove the queue list, show the statement under review, what the filter decided, the judges decisions and why (in a way I can quickly grasp it), skip jugdes that weren't available, then ask me at the bottom if I agree with the judges or not. Stores these decisions and then we can discuss what we do with those I didn't agree with.
+
+---
+
+The TUI is still a bit clunky, but I finished the 20 panels.
+
+---
+
+Make it so
