@@ -1,0 +1,5 @@
+Review all open PRs and Entire trails for this repo
+
+---
+
+Let's start with the five: Inspect the Entire trail for each, update the branch if it's behind, review and address any open findings, push fixes, keep looping until all findings are clear and CI is green, then give me the link to the trail with a judgement if it can be merged,
