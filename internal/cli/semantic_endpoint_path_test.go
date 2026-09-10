@@ -24,6 +24,8 @@ func TestSemanticEndpointPathRecoversFieldsAroundColons(t *testing.T) {
 	}{
 		{"symbol", "gh/ashtom/entire-brain", "gh/ashtom/entire-brain:Go:cmd/entire-brain/main.go:function:main", "cmd/entire-brain/main.go"},
 		{"symbol lowercase language", "gh/example/repo", "gh/example/repo:go:secret/config.go:function:Secret", "secret/config.go"},
+		{"kind marker in path before future kind", "gh/example/repo", "gh/example/repo:Go:dir:function:file.go:new_kind:F", ""},
+		{"ambiguous qualified name", "gh/example/repo", "gh/example/repo:Go:file.go:function:Name:Part", ""},
 		{"future kind", "gh/example/repo", "gh/example/repo:Go:main.go:future_kind:F", "main.go"},
 		{"multiple colons in file path", "gh/example/repo", "gh/example/repo:Go:dir:a:b/file.go:function:F", "dir:a:b/file.go"},
 		{"ambiguous kind markers", "gh/example/repo", "gh/example/repo:Go:dir:function:file.go:function:F", ""},

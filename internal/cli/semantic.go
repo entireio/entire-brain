@@ -1217,6 +1217,11 @@ func semanticSymbolIDPath(rest string) string {
 			continue
 		}
 		if kind != "" && !strings.ContainsAny(kind, "/.") {
+			// A later bare token may be the real (possibly future) kind, or
+			// part of the qualified name. Neither interpretation is provable.
+			if result != "" {
+				return ""
+			}
 			fallback = rest[:i]
 			candidates++
 		}
