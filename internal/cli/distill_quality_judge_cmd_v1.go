@@ -60,6 +60,18 @@ func runDistillQualityJudgeWithInvokerConcurrencyV1(ctx context.Context, bundleD
 	if err := ensureDistillQualityPanelDirV1(panelDir); err != nil {
 		return distillQualityJudgeResultV1{}, err
 	}
+	// Exact reused invalid/abstain verdicts retain terminal recovery lineage.
+	// Calls are deliberately not copied, so this content-free metadata is the
+	// only way to avoid granting a fresh retry budget after each rebase.
+	terminalReuse := map[string]bool{}
+	if metadata, metadataErr := loadDistillQualityReuseMetadataV1(bundleDir); metadataErr == nil {
+		prefix := string(judge) + ":"
+		for _, key := range metadata.RecoveryTerminalKeys {
+			if strings.HasPrefix(key, prefix) {
+				terminalReuse[strings.TrimPrefix(key, prefix)] = true
+			}
+		}
+	}
 	packetByID := make(map[string]distillQualityPanelPacketV1, len(packets))
 	for _, packet := range packets {
 		packetByID[packet.PacketID] = packet
@@ -79,6 +91,11 @@ func runDistillQualityJudgeWithInvokerConcurrencyV1(ctx context.Context, bundleD
 	}
 	recoveryCallsByPacket := make(map[string]int)
 	recoveryTerminal := make(map[string]bool)
+	for _, verdict := range verdicts {
+		if terminalReuse[verdict.PacketID] {
+			recoveryTerminal[verdict.PacketID] = true
+		}
+	}
 	for _, call := range calls {
 		if !call.Recovery {
 			continue

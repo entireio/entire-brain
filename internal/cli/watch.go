@@ -37,6 +37,7 @@ type watchCommandOptions struct {
 	distill          bool
 	distillEvery     time.Duration
 	distillAgent     string
+	pipeline         string
 	distillJobs      int
 	seedAgent        string
 	model            string
@@ -93,6 +94,7 @@ func defaultWatchOptions() watchCommandOptions {
 		consolidateEvery: 30 * time.Minute,
 		distillEvery:     24 * time.Hour,
 		distillAgent:     "codex",
+		pipeline:         distillPipelineLegacy,
 		distillJobs:      1,
 		seedAgent:        "none",
 	}
@@ -107,6 +109,7 @@ func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().BoolVar(&w.distill, "distill", false, "Run distill (SPENDS TOKENS) when new sessions land — gated by --distill-every + --budget")
 	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
 	cmd.Flags().StringVar(&w.distillAgent, "agent", w.distillAgent, "Agent for the distill step (used only with --distill)")
+	cmd.Flags().StringVar(&w.pipeline, "pipeline", w.pipeline, "Distillation input pipeline: legacy or candidates (experimental; used only with --distill)")
 	cmd.Flags().IntVar(&w.distillJobs, "jobs", w.distillJobs, "Parallel distill extraction jobs when --distill is enabled; reconciliation and writes remain deterministic")
 	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
@@ -133,6 +136,11 @@ func newWatchCommand(opts Options) *cobra.Command {
 }
 
 func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, target string) error {
+	pipeline, err := normalizeDistillPipeline(w.pipeline)
+	if err != nil {
+		return err
+	}
+	w.pipeline = pipeline
 	if w.interval <= 0 {
 		w.interval = 5 * time.Minute
 	}
@@ -566,6 +574,7 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		maxChunkBytes:       defaultDistillChunkSize,
 		confidenceThreshold: defaultFactConfidenceThreshold,
 		jobs:                jobs,
+		pipeline:            w.pipeline,
 	}
 }
 

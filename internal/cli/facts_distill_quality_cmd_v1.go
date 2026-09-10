@@ -91,16 +91,17 @@ type distillQualityPrivateSourceRecordV1 struct {
 }
 
 type distillQualityPrepareResultV1 struct {
-	RunID                string `json:"run_id"`
-	OutputDir            string `json:"output_dir"`
-	SessionViews         int    `json:"session_views"`
-	AdmittedItems        int    `json:"admitted_items"`
-	FilteredItems        int    `json:"filtered_items"`
-	Packets              int    `json:"packets"`
-	HumanLabels          bool   `json:"human_labels"`
-	ReusedVerdicts       int    `json:"reused_verdicts,omitempty"`
-	DeltaPackets         int    `json:"delta_packets,omitempty"`
-	MigratedHumanRecords int    `json:"migrated_human_records,omitempty"`
+	RunID                  string `json:"run_id"`
+	OutputDir              string `json:"output_dir"`
+	SessionViews           int    `json:"session_views"`
+	AdmittedItems          int    `json:"admitted_items"`
+	FilteredItems          int    `json:"filtered_items"`
+	Packets                int    `json:"packets"`
+	HumanLabels            bool   `json:"human_labels"`
+	ReusedVerdicts         int    `json:"reused_verdicts,omitempty"`
+	CarriedInvalidVerdicts int    `json:"carried_invalid_verdicts,omitempty"`
+	DeltaPackets           int    `json:"delta_packets,omitempty"`
+	MigratedHumanRecords   int    `json:"migrated_human_records,omitempty"`
 }
 
 type distillQualityJudgeResultV1 struct {
@@ -157,6 +158,42 @@ func newFactsDistillQualityCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsDistillQualityJudgeCommand(opts))
 	cmd.AddCommand(newFactsDistillQualityReportCommand(opts))
 	cmd.AddCommand(newFactsDistillQualityAdjudicateCommand(opts))
+	cmd.AddCommand(newFactsDistillQualityResolveCommand(opts))
+	cmd.AddCommand(newFactsDistillQualityCorpusCommand(opts))
+	return cmd
+}
+
+func newFactsDistillQualityResolveCommand(opts Options) *cobra.Command {
+	var evidencePath, outDir, astraVerdictPath string
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "resolve",
+		Short: "Resolve a digest-bound Phase 0-4 quality gate",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			result, err := resolveDistillPhaseGateV1(evidencePath, astraVerdictPath, outDir)
+			if err != nil {
+				return err
+			}
+			if jsonOut {
+				if err := writeJSON(cmd, result); err != nil {
+					return err
+				}
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "phase %d gate: %s (%s); %d valid, %d missing; archive %s\n", result.Phase, result.State, result.Reason, result.ValidPrimaries, result.MissingPrimaries, result.ArchivePath)
+			}
+			if result.State != "pass" {
+				return fmt.Errorf("phase %d gate unresolved: %s", result.Phase, result.State)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&evidencePath, "evidence", "", "Sealed content-free phase evidence JSON (required)")
+	cmd.Flags().StringVar(&outDir, "out", "", "Fresh output directory for summary and archive (required)")
+	cmd.Flags().StringVar(&astraVerdictPath, "astra-verdict", "", "Digest-bound Astra escalation judgment JSON")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the gate summary as JSON")
+	_ = cmd.MarkFlagRequired("evidence")
+	_ = cmd.MarkFlagRequired("out")
 	return cmd
 }
 
@@ -185,7 +222,7 @@ func newFactsDistillQualityPrepareCommand(opts Options) *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "prepared %d advisory packets (%d admitted, %d filtered) at %s\n", result.Packets, result.AdmittedItems, result.FilteredItems, result.OutputDir)
 			if result.ReusedVerdicts > 0 || result.DeltaPackets > 0 || result.MigratedHumanRecords > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "reused %d verdicts; %d delta packets; migrated %d human records (see %s)\n", result.ReusedVerdicts, result.DeltaPackets, result.MigratedHumanRecords, distillQualityReuseFileV1)
+				fmt.Fprintf(cmd.OutOrStdout(), "reused %d completed verdicts; carried %d invalid/abstain verdicts; %d delta packets; migrated %d human records (see %s)\n", result.ReusedVerdicts, result.CarriedInvalidVerdicts, result.DeltaPackets, result.MigratedHumanRecords, distillQualityReuseFileV1)
 			}
 			return nil
 		},
@@ -388,17 +425,18 @@ func prepareDistillQualityRunWithReuseV1(ctx context.Context, opts Options, targ
 			return distillQualityPrepareResultV1{}, err
 		}
 	}
-	var reusedVerdicts, deltaPackets, migratedHumanRecords int
+	var reusedVerdicts, carriedInvalidVerdicts, deltaPackets, migratedHumanRecords int
 	if strings.TrimSpace(reuseFrom) != "" {
 		reuseResult, err := reuseDistillQualityBundleV1(reuseFrom, outDir)
 		if err != nil {
 			return distillQualityPrepareResultV1{}, err
 		}
 		reusedVerdicts = reuseResult.ReusedVerdicts
+		carriedInvalidVerdicts = reuseResult.CarriedInvalidVerdicts
 		deltaPackets = reuseResult.DeltaPackets
 		migratedHumanRecords = reuseResult.MigratedHumanRecords
 	}
-	return distillQualityPrepareResultV1{RunID: bundle.RunID, OutputDir: outDir, SessionViews: len(sessions), AdmittedItems: len(bundle.Admission), FilteredItems: len(bundle.Filtered), Packets: len(packets), HumanLabels: false, ReusedVerdicts: reusedVerdicts, DeltaPackets: deltaPackets, MigratedHumanRecords: migratedHumanRecords}, nil
+	return distillQualityPrepareResultV1{RunID: bundle.RunID, OutputDir: outDir, SessionViews: len(sessions), AdmittedItems: len(bundle.Admission), FilteredItems: len(bundle.Filtered), Packets: len(packets), HumanLabels: false, ReusedVerdicts: reusedVerdicts, CarriedInvalidVerdicts: carriedInvalidVerdicts, DeltaPackets: deltaPackets, MigratedHumanRecords: migratedHumanRecords}, nil
 }
 
 func buildDistillQualityBundleFromBrainV1(ctx context.Context, brainDir string, manifest *exportManifest, sessions []exportSession, filteredLimit int) (distillQualityBundleV1, string, error) {

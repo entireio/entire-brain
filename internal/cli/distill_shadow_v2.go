@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	distillCandidatePromptVersionV2    = "candidate-extraction-v2"
-	distillCandidateRedactionVersionV2 = "redaction-v1"
+	distillCandidatePromptVersionV2       = "candidate-extraction-v2"
+	distillCandidateOllamaPromptVersionV2 = "candidate-extraction-v3-strict-negative"
+	distillCandidateRedactionVersionV2    = "redaction-v1"
 
 	// The local entire-brain distillation model defaults to num_predict=512.
 	// That is sufficient for a single legacy chunk but can cut off a valid
@@ -272,38 +273,39 @@ func runDistillCandidateExtractionV2(
 
 	totalCalls := int(prefetch.Launched.Load()) + splitCalls
 	source := &factSourceManifest{
-		GeneratedAt:           now,
-		TaxonomyPath:          factsTaxonomyPath,
-		ChunksScanned:         len(packs),
-		ChunksDistilled:       packCompleted,
-		CacheHits:             cacheHits,
-		FailedChunks:          failedCalls,
-		CandidateBytes:        candidateBytes,
-		CandidateCards:        admittedCards,
-		CandidateSessions:     selectedSessions,
-		CandidatePacks:        len(packs),
-		CandidatePacksDone:    packCompleted,
-		CandidateMembers:      len(ordered),
-		CandidateCacheHits:    cacheHits,
-		CandidateCacheMisses:  len(misses),
-		CandidateSplitCalls:   splitCalls,
-		CandidateEmptyResults: emptyResults,
-		Agent:                 strings.TrimSpace(opts.agent),
-		Model:                 strings.TrimSpace(opts.model),
-		Effort:                strings.TrimSpace(opts.effort),
-		Pipeline:              distillPipelineCandidates,
-		Branch:                strings.TrimSpace(opts.branch),
-		Force:                 opts.force,
-		Jobs:                  distillRequestedJobs(opts),
-		ExtractionJobsCap:     distillEffectiveExtractionJobs(len(packs), opts),
-		MaxChunkBytes:         distillCandidatePackMaxRenderedBytesV2,
-		ExtractionCalls:       totalCalls,
-		TotalAgentCalls:       totalCalls,
-		TokenUsage:            usageCollector.summary(totalCalls),
-		ExtractionWaitSeconds: time.Since(providerStarted).Seconds(),
-		TotalSeconds:          time.Since(runStarted).Seconds(),
-		Warnings:              capWarnings(warnings, maxDistillWarnings),
-		Shadow:                opts.shadow,
+		GeneratedAt:                now,
+		TaxonomyPath:               factsTaxonomyPath,
+		ChunksScanned:              len(packs),
+		ChunksDistilled:            packCompleted,
+		CacheHits:                  cacheHits,
+		FailedChunks:               failedCalls,
+		CandidateBytes:             candidateBytes,
+		CandidateCards:             admittedCards,
+		CandidateSessions:          selectedSessions,
+		CandidatePacks:             len(packs),
+		CandidatePacksDone:         packCompleted,
+		CandidateMembers:           len(ordered),
+		CandidateUnresolvedMembers: unresolvedMembers,
+		CandidateCacheHits:         cacheHits,
+		CandidateCacheMisses:       len(misses),
+		CandidateSplitCalls:        splitCalls,
+		CandidateEmptyResults:      emptyResults,
+		Agent:                      strings.TrimSpace(opts.agent),
+		Model:                      strings.TrimSpace(opts.model),
+		Effort:                     strings.TrimSpace(opts.effort),
+		Pipeline:                   distillPipelineCandidates,
+		Branch:                     strings.TrimSpace(opts.branch),
+		Force:                      opts.force,
+		Jobs:                       distillRequestedJobs(opts),
+		ExtractionJobsCap:          distillEffectiveExtractionJobs(len(packs), opts),
+		MaxChunkBytes:              distillCandidatePackMaxRenderedBytesV2,
+		ExtractionCalls:            totalCalls,
+		TotalAgentCalls:            totalCalls,
+		TokenUsage:                 usageCollector.summary(totalCalls),
+		ExtractionWaitSeconds:      time.Since(providerStarted).Seconds(),
+		TotalSeconds:               time.Since(runStarted).Seconds(),
+		Warnings:                   capWarnings(warnings, maxDistillWarnings),
+		Shadow:                     opts.shadow,
 	}
 	if opts.shadow {
 		source.ShadowFacts = shadowFacts
@@ -319,6 +321,7 @@ func distillSessionSelectedForOptionsV2(session exportSession, branch string, op
 }
 
 type distillCandidateCacheBaseIdentityV2Value struct {
+	PromptVersion      string
 	PromptDigest       string
 	TaxonomyDigest     string
 	AgentCommandDigest string
@@ -335,7 +338,12 @@ func distillCandidateCacheBaseIdentityV2(prompt string, taxonomy factTaxonomy, a
 	if effort == "" {
 		effort = "(default)"
 	}
+	promptVersion := distillCandidatePromptVersionV2
+	if len(args) > 0 && args[0] == "ollama" {
+		promptVersion = distillCandidateOllamaPromptVersionV2
+	}
 	return distillCandidateCacheBaseIdentityV2Value{
+		PromptVersion:      promptVersion,
 		PromptDigest:       distillCandidateCacheDigestV2(prompt),
 		TaxonomyDigest:     distillCandidateCacheDigestV2(factTaxonomyBlock(taxonomy)),
 		AgentCommandDigest: distillCandidateCacheDigestV2(strings.Join(args, "\x00")),
@@ -347,7 +355,7 @@ func distillCandidateCacheBaseIdentityV2(prompt string, taxonomy factTaxonomy, a
 func (base distillCandidateCacheBaseIdentityV2Value) withCard(renderedCard string) distillCandidateCacheIdentityV2 {
 	return distillCandidateCacheIdentityV2{
 		CardDigest:         distillCandidateCacheDigestV2(renderedCard),
-		PromptVersion:      distillCandidatePromptVersionV2,
+		PromptVersion:      base.PromptVersion,
 		PromptDigest:       base.PromptDigest,
 		TaxonomyDigest:     base.TaxonomyDigest,
 		AgentCommandDigest: base.AgentCommandDigest,
@@ -410,31 +418,13 @@ func runDistillCandidatePackAttemptV2(ctx context.Context, repoDir string, args 
 		results, err = parseDistillCandidateMemberResultsV2(expected, out)
 	}
 	if err != nil {
-		if len(args) > 0 && args[0] == "ollama" && len(expected) == 1 {
-			// The transport has already proved a normal, non-length-limited stop.
-			// If the local model still cannot frame a singleton response, there is
-			// no safe fact to attribute. Settle that isolated member as NO_FACTS
-			// instead of retrying it forever; multi-member failures must still be
-			// split so a malformed neighbor cannot erase valid output.
-			return distillCandidatePackAttemptV2{Results: []distillCandidateMemberResultV2{{
-				CandidateID: expected[0],
-				NoFacts:     true,
-			}}}
-		}
 		return distillCandidatePackAttemptV2{Err: err}
 	}
 	// Taxonomy/redaction validation is part of the atomic pack protocol. A
 	// syntactically framed response with one semantically invalid member must be
 	// isolated before any neighbor is cached.
-	for index, result := range results {
+	for _, result := range results {
 		if _, err := canonicalDistillCandidateCacheResultV2(result, taxonomy); err != nil {
-			if len(args) > 0 && args[0] == "ollama" {
-				// A syntactically attributable local-model line may still invent an
-				// unknown taxonomy path or redact down to no usable text. Discard that
-				// member conservatively instead of failing its protocol-valid neighbor.
-				results[index] = distillCandidateMemberResultV2{CandidateID: result.CandidateID, NoFacts: true}
-				continue
-			}
 			return distillCandidatePackAttemptV2{Err: err}
 		}
 	}

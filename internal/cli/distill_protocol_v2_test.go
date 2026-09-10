@@ -214,37 +214,25 @@ func TestParseDistillCandidateMemberResultsV2ToleratesOnlyTrailingRedundantNoFac
 	}
 }
 
-func TestParseDistillCandidateMemberResultsOllamaV2TreatsOmissionAsNoFacts(t *testing.T) {
+func TestParseDistillCandidateMemberResultsOllamaV2RequiresExplicitValidCompletion(t *testing.T) {
 	const (
 		candidateA = "candidate-a"
 		candidateB = "candidate-b"
 	)
 	line := candidateB + "\tconvention\tworkflow.testing.rules\tAlways run race tests before merging."
-	got, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, line)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, line); err == nil || !strings.Contains(err.Error(), "missing completion") {
+		t.Fatalf("Ollama omission error = %v, want missing completion", err)
 	}
-	if len(got) != 2 || got[0].CandidateID != candidateA || !got[0].NoFacts || len(got[0].Facts) != 0 || got[1].CandidateID != candidateB || len(got[1].Facts) != 1 {
-		t.Fatalf("Ollama omission results = %+v", got)
-	}
-	empty, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(empty) != 2 || !empty[0].NoFacts || !empty[1].NoFacts {
-		t.Fatalf("blank Ollama completion was not conservative empty: %+v", empty)
+	if _, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, ""); err == nil || !strings.Contains(err.Error(), "blank output") {
+		t.Fatalf("blank Ollama completion error = %v, want blank output", err)
 	}
 	if _, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA}, "unknown\tNO_FACTS"); err == nil {
 		t.Fatal("Ollama compatibility accepted an unknown candidate ID")
 	}
 	separated := candidateB + "\tgotcha\tconstraints.invariants.general\tA supported fact.\n\n" +
 		candidateB + "\tconvention\tworkflow.testing.rules\tA second supported fact."
-	got, err = parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, separated)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got[0].NoFacts || len(got[1].Facts) != 2 {
-		t.Fatalf("Ollama blank-line compatibility changed attribution: %+v", got)
+	if _, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, separated); err == nil || !strings.Contains(err.Error(), "blank line") {
+		t.Fatalf("Ollama blank-line error = %v, want blank line", err)
 	}
 	malformedExpected := strings.Join([]string{
 		candidateA + "\tacceptance\tconstraints.invariants.general\tUnsupported kind.",
@@ -252,12 +240,8 @@ func TestParseDistillCandidateMemberResultsOllamaV2TreatsOmissionAsNoFacts(t *te
 		candidateA + "\tnot a framed fact",
 		candidateB + "\tconvention\tworkflow.testing.rules\tKeep the valid attributed fact.",
 	}, "\n")
-	got, err = parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, malformedExpected)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got[0].NoFacts || len(got[1].Facts) != 1 {
-		t.Fatalf("Ollama malformed-line discard changed valid neighbor: %+v", got)
+	if _, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA, candidateB}, malformedExpected); err == nil || !strings.Contains(err.Error(), "invalid fact kind") {
+		t.Fatalf("Ollama invalid-taxonomy error = %v, want invalid fact kind", err)
 	}
 	if _, err := parseDistillCandidateMemberResultsOllamaV2([]string{candidateA}, "unframed prose"); err == nil {
 		t.Fatal("Ollama compatibility accepted unframed prose")

@@ -495,6 +495,11 @@ type distillCommandOptions struct {
 	// preflight. Execution consumes these bytes instead of re-reading transcript
 	// paths that refresh may atomically replace while provider work is running.
 	candidateSnapshots map[string]candidateDistillInputSnapshot
+	// discoveryCache is content-free normalization/candidate metadata loaded
+	// after the privacy boundary. Dry runs may read it but never persist it.
+	discoveryCache *distillDiscoveryCacheV1
+	discoveryDirty *bool
+	discoveryStats *distillDiscoveryReuseStatsV1
 }
 
 // distillProgress reports how far the distillation loop has advanced. Distill
@@ -598,6 +603,11 @@ type distillDryRunReport struct {
 	CandidatePacksIfUncached      int                    `json:"candidate_packs_if_uncached,omitempty"`
 	CandidateCacheHits            int                    `json:"candidate_cache_hits,omitempty"`
 	CandidateCacheMisses          int                    `json:"candidate_cache_misses,omitempty"`
+	DiscoveryExactHits            int                    `json:"discovery_exact_hits"`
+	DiscoveryAppendResumed        int                    `json:"discovery_append_resumed"`
+	DiscoveryFullRescans          int                    `json:"discovery_full_rescans"`
+	DiscoveryNormalizedRecords    int                    `json:"discovery_normalized_records"`
+	DiscoveryCorruptRebuilds      int                    `json:"discovery_corrupt_rebuilds"`
 	Chunks                        int                    `json:"chunks"`
 	ChunksIfUncached              int                    `json:"chunks_if_uncached"`
 	ExtractionAgentCalls          int                    `json:"extraction_agent_calls"`
@@ -656,7 +666,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&distillOpts.branch, "branch", "", "Limit distillation to a single branch (default: all exported branches)")
 	cmd.Flags().StringVar(&distillOpts.session, "session", "", "Limit distillation to a single session id (the fast per-session path; incompatible with --force)")
-	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute all distilled facts from scratch instead of skipping unchanged sessions")
+	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute the selected pipeline instead of using cached results (candidate mode replaces only v2-owned applications)")
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the fact source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
@@ -941,13 +951,30 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	resolveBranch := func(session exportSession) string {
 		return resolveDistillBranch(manifest, session)
 	}
+	var discoveryDirty bool
+	discoveryStats := distillDiscoveryReuseStatsV1{}
+	if pipeline == distillPipelineCandidates {
+		discovery, corrupt := loadDistillDiscoveryCacheV1WithStatus(brainDir)
+		if corrupt {
+			discoveryStats.CorruptRebuilds++
+		}
+		distillOpts.discoveryCache = &discovery
+		distillOpts.discoveryDirty = &discoveryDirty
+		distillOpts.discoveryStats = &discoveryStats
+	}
 	candidateSnapshots, err := validateDistillCanonicalInputs(ctx, brainDir, sessions, distillOpts, resolveBranch)
 	if err != nil {
 		return nil, err
 	}
 	distillOpts.candidateSnapshots = candidateSnapshots
+	if discoveryDirty {
+		if err := withBrainWriteLock(brainDir, func() error { return saveDistillDiscoveryCacheV1(brainDir, *distillOpts.discoveryCache) }); err != nil {
+			return nil, err
+		}
+	}
 	if pipeline == distillPipelineCandidates {
 		source, err := runDistillCandidateExtractionV2(ctx, repoDir, brainDir, args, prompt, taxonomy, sessions, candidateSnapshots, distillOpts, resolveBranch, usageCollector, runStarted, now)
+		applyDistillDiscoveryStatsV1(source, discoveryStats)
 		if err != nil || distillOpts.shadow {
 			return source, err
 		}
@@ -1457,6 +1484,15 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		return distillDryRunReport{}, err
 	}
 	cacheSalt := distillCacheSalt(prompt, reconcilePrompt(), distillConfidenceThreshold(distillOpts), distillOpts)
+	if mustDistillPipeline(distillOpts.pipeline) == distillPipelineCandidates {
+		discovery, corrupt := loadDistillDiscoveryCacheV1WithStatus(brainDir)
+		discoveryStats := distillDiscoveryReuseStatsV1{}
+		if corrupt {
+			discoveryStats.CorruptRebuilds++
+		}
+		distillOpts.discoveryCache = &discovery // read/rebuild in memory only; dry-run never saves it
+		distillOpts.discoveryStats = &discoveryStats
+	}
 	plan, err := buildDistillPlanContext(ctx, brainDir, manifest, distillOpts, cacheSalt)
 	if err != nil {
 		return distillDryRunReport{}, err
@@ -1537,6 +1573,11 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		CandidatePacksIfUncached:      candidatePacksIfUncached,
 		CandidateCacheHits:            candidateCacheHits,
 		CandidateCacheMisses:          candidateCacheMisses,
+		DiscoveryExactHits:            discoveryStatsFromOptionsV1(distillOpts).ExactHits,
+		DiscoveryAppendResumed:        discoveryStatsFromOptionsV1(distillOpts).AppendHits,
+		DiscoveryFullRescans:          discoveryStatsFromOptionsV1(distillOpts).FullFallbacks,
+		DiscoveryNormalizedRecords:    discoveryStatsFromOptionsV1(distillOpts).ParsedRecords,
+		DiscoveryCorruptRebuilds:      discoveryStatsFromOptionsV1(distillOpts).CorruptRebuilds,
 		Chunks:                        plan.Chunks,
 		ChunksIfUncached:              plan.ChunksIfUncached,
 		ExtractionAgentCalls:          extractionCalls,
@@ -1676,6 +1717,8 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 		fmt.Fprintf(out, "candidate packs: %d scheduled, %d if uncached (fixed %d-byte / %d-member policy)\n",
 			report.CandidatePacks, report.CandidatePacksIfUncached, distillCandidatePackMaxRenderedBytesV2, distillCandidatePackMaxMembersV2)
 		fmt.Fprintf(out, "candidate member cache: %d hits, %d misses\n", report.CandidateCacheHits, report.CandidateCacheMisses)
+		fmt.Fprintf(out, "candidate discovery: %d exact hits, %d append-resumed, %d full rescans, %d suffix records normalized, %d corrupt-cache rebuilds\n",
+			report.DiscoveryExactHits, report.DiscoveryAppendResumed, report.DiscoveryFullRescans, report.DiscoveryNormalizedRecords, report.DiscoveryCorruptRebuilds)
 		if report.Force {
 			fmt.Fprintf(out, "forced candidate rebuild: replaces %d existing distilled facts on selected branches; facts not re-emitted by candidate cards are removed\n", report.ExistingDistilledFactsAtRisk)
 		}
@@ -2311,7 +2354,37 @@ func prepareDistillSessionInput(session exportSession, branch, content string, o
 		}
 	}
 
-	normalized := normalizeDistillTranscriptV1(session, branch, content)
+	var normalized distillNormalizedTranscriptV1
+	var cards []distillCandidateCardV1
+	cacheKey := strings.TrimSpace(session.SessionID)
+	if opts.discoveryCache != nil && !opts.force {
+		if entry, ok := opts.discoveryCache.Entries[cacheKey]; ok {
+			if restored, hit := restoreDistillDiscoveryV1(session, branch, content, entry); hit {
+				cards = restored
+				normalized = distillNormalizedTranscriptV1{Recognized: true}
+				if opts.discoveryStats != nil {
+					opts.discoveryStats.ExactHits++
+				}
+			} else if appended, updated, parsed, hit := appendDistillDiscoveryV1(session, branch, content, entry); hit {
+				cards = appended
+				normalized = distillNormalizedTranscriptV1{Recognized: true}
+				opts.discoveryCache.Entries[cacheKey] = updated
+				if opts.discoveryDirty != nil {
+					*opts.discoveryDirty = true
+				}
+				if opts.discoveryStats != nil {
+					opts.discoveryStats.AppendHits++
+					opts.discoveryStats.ParsedRecords += parsed
+				}
+			}
+		}
+	}
+	if !normalized.Recognized {
+		if opts.discoveryStats != nil {
+			opts.discoveryStats.FullFallbacks++
+		}
+		normalized = normalizeDistillTranscriptV1(session, branch, content)
+	}
 	if normalized.Overflow {
 		return preparedDistillSessionInput{Err: fmt.Errorf("candidate pipeline transcript exceeds normalization limits for %s", filepath.ToSlash(session.TranscriptPath))}
 	}
@@ -2321,9 +2394,18 @@ func prepareDistillSessionInput(session exportSession, branch, content string, o
 	if !normalized.Recognized {
 		return preparedDistillSessionInput{Err: fmt.Errorf("candidate pipeline does not recognize transcript format for %s", filepath.ToSlash(session.TranscriptPath))}
 	}
-	cards, overflow := selectDistillCandidateCardsLimitedV1(normalized, distillCandidateMaxCards)
-	if overflow {
-		return preparedDistillSessionInput{Err: fmt.Errorf("candidate pipeline selected more than %d cards for %s", distillCandidateMaxCards, filepath.ToSlash(session.TranscriptPath))}
+	if cards == nil {
+		var overflow bool
+		cards, overflow = selectDistillCandidateCardsLimitedV1(normalized, distillCandidateMaxCards)
+		if overflow {
+			return preparedDistillSessionInput{Err: fmt.Errorf("candidate pipeline selected more than %d cards for %s", distillCandidateMaxCards, filepath.ToSlash(session.TranscriptPath))}
+		}
+		if opts.discoveryCache != nil {
+			opts.discoveryCache.Entries[cacheKey] = buildDistillDiscoveryEntryV1(session, content, normalized, cards)
+			if opts.discoveryDirty != nil {
+				*opts.discoveryDirty = true
+			}
+		}
 	}
 	// Candidate v2 freezes one policy across shadow and write modes. A complete
 	// card must fit the same hard ceiling as a pack; no silent trigger trim.

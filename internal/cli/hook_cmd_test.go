@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func hookTestFacts(now time.Time) []factRecord {
@@ -17,6 +22,14 @@ func hookTestFacts(now time.Time) []factRecord {
 		{ID: "f:file", Kind: factKindDecision, Paths: []string{"architecture.boundaries.rationale"},
 			Text: "`history_fts.go` keeps the BM25 relevance cutoff relative to the top score, not absolute.", Status: factStatusActive, UpdatedAt: now},
 	}
+}
+
+func stubHookMemoryWorkerLaunch(t *testing.T) {
+	t.Helper()
+	oldLaunch, oldLaunchAfter := memoryWorkerLaunch, memoryWorkerLaunchAfter
+	memoryWorkerLaunch = func(string) error { return nil }
+	memoryWorkerLaunchAfter = func(string, time.Duration) error { return nil }
+	t.Cleanup(func() { memoryWorkerLaunch, memoryWorkerLaunchAfter = oldLaunch, oldLaunchAfter })
 }
 
 func TestHookMatchFailureKindsAndThreshold(t *testing.T) {
@@ -110,5 +123,98 @@ func TestHookNeverFailsOutsideARepo(t *testing.T) {
 	// Flag misuse still errors (hand-testing stays debuggable).
 	if _, err := execute(t, newHookCommand(opts), "pre-edit"); err == nil {
 		t.Fatal("pre-edit without --file should error")
+	}
+}
+
+func TestHookSessionEndRejectsInvalidPipelineBeforeLifecycleWork(t *testing.T) {
+	opts := Options{Env: EntireEnv{RepoRoot: t.TempDir()}, Runner: ExecRunner{}, Now: time.Now}
+	if _, err := execute(t, newHookCommand(opts), "session-end", "--session", "s1", "--pipeline", "bad"); err == nil || !strings.Contains(err.Error(), "--pipeline") {
+		t.Fatalf("invalid pipeline should fail before hook work, got %v", err)
+	}
+}
+
+func TestHookSessionEndForwardsCandidatePipelineAndCapturedBranch(t *testing.T) {
+	stubHookMemoryWorkerLaunch(t)
+	repo := t.TempDir()
+	var got distillCommandOptions
+	calls := 0
+	cmd := newHookSessionEndCommandWithDistillAndDelta(
+		Options{Env: EntireEnv{RepoRoot: repo}, Now: time.Now},
+		func(_ context.Context, _ *cobra.Command, _ Options, options distillCommandOptions, target string) error {
+			calls++
+			got = options
+			if target != repo {
+				t.Fatalf("distill target = %q, want %q", target, repo)
+			}
+			return nil
+		},
+		func(context.Context, *cobra.Command, Options, string) (shortTermStats, error) {
+			return shortTermStats{}, nil
+		},
+	)
+	if _, err := execute(t, cmd, "--session", "s1", "--branch", "feature", "--pipeline", "candidates"); err != nil {
+		t.Fatalf("session-end: %v", err)
+	}
+	if calls != 1 || got.pipeline != distillPipelineCandidates || got.session != "s1" || got.branch != "feature" {
+		t.Fatalf("hook did not forward candidate scope: calls=%d options=%+v", calls, got)
+	}
+}
+
+func TestHookSessionEndCandidateProviderLifecycle(t *testing.T) {
+	stubHookMemoryWorkerLaunch(t)
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeSingleSessionFixture(t, now, `{"type":"event_msg","payload":{"type":"user_message","message":"Thanks."}}`+"\n")
+	var providerCalls int
+	var received []distillCommandOptions
+	var sources []*factSourceManifest
+	runner := func(_ context.Context, _ *cobra.Command, _ Options, options distillCommandOptions, _ string) error {
+		received = append(received, options)
+		options.agent = "command"
+		options.agentCommand = []string{"fake"}
+		options.run = func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+			providerCalls++
+			ids := phase3BIDsByCardText(t, input)
+			lines := make([]string, 0, len(ids))
+			for id := range ids {
+				lines = append(lines, id+"\tpreference\tworkflow.testing.rules\tAlways keep migrations reversible.")
+			}
+			return strings.Join(lines, "\n"), nil
+		}
+		source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, options, now)
+		sources = append(sources, source)
+		if err == nil && len(received) == 2 && source.ExtractionCalls == 0 {
+			t.Fatalf("candidate was not selected: %+v", source)
+		}
+		return err
+	}
+	cmd := newHookSessionEndCommandWithDistillAndDelta(
+		Options{Env: EntireEnv{RepoRoot: t.TempDir()}, Now: func() time.Time { return now }}, runner,
+		func(context.Context, *cobra.Command, Options, string) (shortTermStats, error) {
+			return shortTermStats{}, nil
+		},
+	)
+	run := func() {
+		if _, err := execute(t, cmd, "--session", "s1", "--branch", "main", "--pipeline", "candidates"); err != nil {
+			t.Fatalf("session-end: %v", err)
+		}
+	}
+	run()
+	if providerCalls != 0 {
+		t.Fatalf("no-candidate session called provider %d times", providerCalls)
+	}
+	path := filepath.Join(brainDir, "sessions", "main", "s1.jsonl")
+	if err := os.WriteFile(path, []byte(`{"type":"event_msg","payload":{"type":"user_message","message":"Thanks."}}`+"\n"+`{"type":"event_msg","payload":{"type":"user_message","message":"Always keep migrations reversible."}}`+"\n"+`{"type":"event_msg","payload":{"type":"agent_message","message":"Understood."}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	if providerCalls != 1 {
+		t.Fatalf("isolated candidate provider calls = %d, want 1; sources=%+v options=%+v", providerCalls, sources, received)
+	}
+	run()
+	if providerCalls != 1 {
+		t.Fatalf("replay provider calls = %d, want 1", providerCalls)
+	}
+	if len(received) != 3 || received[0].pipeline != distillPipelineCandidates || received[0].session != "s1" || received[0].branch != "main" {
+		t.Fatalf("hook candidate scope = %+v", received)
 	}
 }

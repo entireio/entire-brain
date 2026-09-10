@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -74,13 +75,26 @@ func newHookCommand(opts Options) *cobra.Command {
 // rest of the hook contract: stdout stays empty (a one-line summary goes to
 // stderr), and environment problems (no repo, no brain, no agent on PATH)
 // are silence, never an error.
+type hookDistillRunner func(context.Context, *cobra.Command, Options, distillCommandOptions, string) error
+
 func newHookSessionEndCommand(opts Options) *cobra.Command {
+	return newHookSessionEndCommandWithDistillAndDelta(opts, runDistill, watchShortTermDelta)
+}
+
+// newHookSessionEndCommandWithDistill keeps the production hook unchanged while
+// allowing the lifecycle wiring to be exercised without an external provider.
+func newHookSessionEndCommandWithDistill(opts Options, distill hookDistillRunner) *cobra.Command {
+	return newHookSessionEndCommandWithDistillAndDelta(opts, distill, watchShortTermDelta)
+}
+
+func newHookSessionEndCommandWithDistillAndDelta(opts Options, distill hookDistillRunner, delta func(context.Context, *cobra.Command, Options, string) (shortTermStats, error)) *cobra.Command {
 	var (
 		sessionID string
 		branch    string
 		agent     string
 		model     string
 		effort    string
+		pipeline  string
 	)
 	cmd := &cobra.Command{
 		Use:   "session-end --session <id>",
@@ -89,6 +103,10 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(sessionID) == "" {
 				return fmt.Errorf("--session <id> is required")
+			}
+			normalizedPipeline, err := normalizeDistillPipeline(pipeline)
+			if err != nil {
+				return err
 			}
 			if memoryWorkerOrigin() {
 				return nil
@@ -107,14 +125,14 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			sub.SetContext(cmd.Context())
 			sub.SetOut(cmd.ErrOrStderr())
 			sub.SetErr(cmd.ErrOrStderr())
-			_, deltaErr := watchShortTermDelta(cmd.Context(), sub, perRepo, repoDir)
+			_, deltaErr := delta(cmd.Context(), sub, perRepo, repoDir)
 
 			// Record the lifecycle event even when export failed. The hint is
 			// content-free and durable; startup/watch reconciliation or a later
 			// worker pass can repair the missed export without retaining content.
+			resolvedBranch := strings.TrimSpace(branch)
 			storage, storageErr := repoStoragePaths(cmd.Context(), perRepo.Runner, perRepo.Env, repoDir)
 			if storageErr == nil {
-				resolvedBranch := strings.TrimSpace(branch)
 				if resolvedBranch == "" {
 					if current, gitErr := gitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 						resolvedBranch = strings.TrimSpace(current)
@@ -147,11 +165,13 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 				agent:               agent,
 				model:               model,
 				effort:              effort,
+				pipeline:            normalizedPipeline,
+				branch:              resolvedBranch,
 				timeout:             defaultDistillTimeout,
 				maxChunkBytes:       defaultDistillChunkSize,
 				confidenceThreshold: defaultFactConfidenceThreshold,
 			}
-			if err := runDistill(cmd.Context(), sub, opts, distillOpts, repoDir); err != nil {
+			if err := distill(cmd.Context(), sub, opts, distillOpts, repoDir); err != nil {
 				// No agent on PATH, session not exported yet, etc.: report on
 				// stderr for the curious, succeed for the harness.
 				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: distill skipped: %v\n", err)
@@ -164,6 +184,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Distill agent: auto, codex, claude-code, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Cheap/fast model override for the distill agent (recommended)")
 	cmd.Flags().StringVar(&effort, "effort", "", "Reasoning-effort override (e.g. low) — pairs with --model for a cheap run")
+	cmd.Flags().StringVar(&pipeline, "pipeline", distillPipelineLegacy, "Distillation input pipeline: legacy or candidates (experimental)")
 	return cmd
 }
 

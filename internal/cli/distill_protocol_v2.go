@@ -51,21 +51,14 @@ type distillCandidateMemberResultV2 struct {
 // The function is intentionally pure and does not inspect a taxonomy or create
 // fact records. That lets the caller apply its normal provenance and durable
 // fact policy only after protocol completion is proven.
-func parseDistillCandidateMemberResultsV2(expectedCandidateIDs []string, output string) ([]distillCandidateMemberResultV2, error) {
-	return parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs, output, false)
-}
-
-// parseDistillCandidateMemberResultsOllamaV2 keeps fact-bearing lines under
-// the strict candidate-ID protocol while treating an omitted expected member
-// as conservative NO_FACTS. The local deterministic model uses silence for
-// rejected candidates even when instructed to spell out a sentinel. A normal
-// Ollama stop is validated by the transport before this function is called, so
-// omission cannot hide a length-truncated response.
+// parseDistillCandidateMemberResultsOllamaV2 intentionally uses the same
+// negative-result contract as every other provider. Only an explicit,
+// protocol-valid NO_FACTS completion is a successful empty extraction.
 func parseDistillCandidateMemberResultsOllamaV2(expectedCandidateIDs []string, output string) ([]distillCandidateMemberResultV2, error) {
-	return parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs, output, true)
+	return parseDistillCandidateMemberResultsV2(expectedCandidateIDs, output)
 }
 
-func parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs []string, output string, allowImplicitNoFacts bool) ([]distillCandidateMemberResultV2, error) {
+func parseDistillCandidateMemberResultsV2(expectedCandidateIDs []string, output string) ([]distillCandidateMemberResultV2, error) {
 	_, err := validateDistillCandidateExpectedIDsV2(expectedCandidateIDs)
 	if err != nil {
 		return nil, err
@@ -75,10 +68,7 @@ func parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs []strin
 	// record. Any other blank line is a malformed member response.
 	output = strings.TrimSuffix(output, "\n")
 	output = strings.TrimSuffix(output, "\r")
-	if output == "" || (allowImplicitNoFacts && strings.TrimSpace(output) == "") {
-		if allowImplicitNoFacts {
-			return implicitNoFactsResultsV2(expectedCandidateIDs), nil
-		}
+	if output == "" {
 		return nil, fmt.Errorf("candidate extraction protocol v%d: blank output", distillCandidateExtractionProtocolV2)
 	}
 
@@ -91,9 +81,6 @@ func parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs []strin
 	for lineNumber, raw := range strings.Split(output, "\n") {
 		line := strings.TrimSuffix(raw, "\r")
 		if line == "" || strings.TrimSpace(line) == "" {
-			if allowImplicitNoFacts {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "blank line")
 		}
 		fields := strings.Split(line, "\t")
@@ -105,17 +92,11 @@ func parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs []strin
 			// prose is still refused.
 			path, text, ok := strings.Cut(fields[2], " ")
 			if !ok || strings.TrimSpace(text) == "" {
-				if allowImplicitNoFacts && distillCandidateExpectedLineV2(fields, byID) {
-					continue
-				}
 				return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "three-column response must contain path followed by a space and fact")
 			}
 			fields = append(fields[:2], path, text)
 		}
 		if len(fields) != 2 && len(fields) != 4 {
-			if allowImplicitNoFacts && distillCandidateExpectedLineV2(fields, byID) {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "expected candidate_id, NO_FACTS or candidate_id, kind, path, fact")
 		}
 		candidateID := fields[0]
@@ -129,15 +110,9 @@ func parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs []strin
 
 		if len(fields) == 2 {
 			if fields[1] != "NO_FACTS" {
-				if allowImplicitNoFacts {
-					continue
-				}
 				return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "two-column response must use NO_FACTS")
 			}
 			if result.NoFacts || trailingEmpty[candidateID] {
-				if allowImplicitNoFacts {
-					continue
-				}
 				return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "duplicate or conflicting completion for candidate "+fmt.Sprintf("%q", candidateID))
 			}
 			if len(result.Facts) > 0 {
@@ -155,39 +130,21 @@ func parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs []strin
 
 		kind, path, text := fields[1], fields[2], fields[3]
 		if trailingEmpty[candidateID] {
-			if allowImplicitNoFacts {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "fact follows trailing NO_FACTS for candidate "+fmt.Sprintf("%q", candidateID))
 		}
 		if strings.TrimSpace(kind) != kind || kind != strings.ToLower(kind) || !validFactKind(kind) {
-			if allowImplicitNoFacts {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "invalid fact kind")
 		}
 		if strings.TrimSpace(path) != path || !validFactPath(path) {
-			if allowImplicitNoFacts {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "invalid fact path")
 		}
 		if strings.TrimSpace(text) == "" {
-			if allowImplicitNoFacts {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "blank fact")
 		}
 		if result.NoFacts {
-			if allowImplicitNoFacts {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, "NO_FACTS conflicts with facts for candidate "+fmt.Sprintf("%q", candidateID))
 		}
 		if len(result.Facts) >= factsMaxPerChunk {
-			if allowImplicitNoFacts {
-				continue
-			}
 			return nil, distillCandidateProtocolLineErrorV2(lineNumber+1, fmt.Sprintf("candidate %q produced more than %d facts", candidateID, factsMaxPerChunk))
 		}
 		result.Facts = append(result.Facts, distillCandidateMemberFactV2{Kind: kind, Path: path, Text: text})
@@ -197,30 +154,11 @@ func parseDistillCandidateMemberResultsWithPolicyV2(expectedCandidateIDs []strin
 	for _, candidateID := range expectedCandidateIDs {
 		result := byID[candidateID]
 		if !result.NoFacts && len(result.Facts) == 0 {
-			if !allowImplicitNoFacts {
-				return nil, fmt.Errorf("candidate extraction protocol v%d: missing completion for candidate %q", distillCandidateExtractionProtocolV2, candidateID)
-			}
-			result.NoFacts = true
+			return nil, fmt.Errorf("candidate extraction protocol v%d: missing completion for candidate %q", distillCandidateExtractionProtocolV2, candidateID)
 		}
 		results = append(results, *result)
 	}
 	return results, nil
-}
-
-func distillCandidateExpectedLineV2(fields []string, byID map[string]*distillCandidateMemberResultV2) bool {
-	if len(fields) == 0 {
-		return false
-	}
-	_, ok := byID[fields[0]]
-	return ok
-}
-
-func implicitNoFactsResultsV2(candidateIDs []string) []distillCandidateMemberResultV2 {
-	results := make([]distillCandidateMemberResultV2, 0, len(candidateIDs))
-	for _, candidateID := range candidateIDs {
-		results = append(results, distillCandidateMemberResultV2{CandidateID: candidateID, NoFacts: true})
-	}
-	return results
 }
 
 func validateDistillCandidateExpectedIDsV2(candidateIDs []string) (map[string]struct{}, error) {

@@ -917,6 +917,9 @@ type sessionPurgePlan struct {
 	// session ID, it is a performance hint containing derived text; retaining
 	// any part of it after an exclusion is not worth a selective-pruning bug.
 	DistillCandidateCacheV2Reset *purgeArtifact `json:"distill_candidate_cache_v2_reset,omitempty"`
+	// DistillDiscoveryCacheV1Reset reports the content-free normalization and
+	// candidate-discovery cache that cleanup deletes wholesale.
+	DistillDiscoveryCacheV1Reset *purgeArtifact `json:"distill_discovery_cache_v1_reset,omitempty"`
 	// DistillApplicationReceiptsV2Reset reports the disposable branch/application
 	// receipt artifact. Receipts are reset wholesale because facts/provenance
 	// anchors are already purged by session and selective ownership repair is
@@ -1017,6 +1020,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		}
 		if plan.DistillCandidateCacheV2Reset != nil {
 			fmt.Fprintf(out, "  distill candidate cache %s (%d bytes, reset wholesale)\n", plan.DistillCandidateCacheV2Reset.Path, plan.DistillCandidateCacheV2Reset.Bytes)
+		}
+		if plan.DistillDiscoveryCacheV1Reset != nil {
+			fmt.Fprintf(out, "  distill discovery cache %s (%d bytes, reset wholesale)\n", plan.DistillDiscoveryCacheV1Reset.Path, plan.DistillDiscoveryCacheV1Reset.Bytes)
 		}
 		if plan.DistillApplicationReceiptsV2Reset != nil {
 			fmt.Fprintf(out, "  distill application receipts %s (%d bytes, reset wholesale)\n", plan.DistillApplicationReceiptsV2Reset.Path, plan.DistillApplicationReceiptsV2Reset.Bytes)
@@ -1285,6 +1291,13 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	}
 	if candidateCachePresent {
 		plan.DistillCandidateCacheV2Reset = &purgeArtifact{Path: distillCandidateResultCacheV2Path, Bytes: candidateCacheInfo.Size()}
+	}
+	discoveryInfo, discoveryPresent, discoveryErr := inspectPrivacyArtifactOpened(brainDir, distillDiscoveryCacheRelV1, "distill discovery cache")
+	if discoveryErr != nil {
+		return plan, discoveryErr
+	}
+	if discoveryPresent {
+		plan.DistillDiscoveryCacheV1Reset = &purgeArtifact{Path: distillDiscoveryCacheRelV1, Bytes: discoveryInfo.Size()}
 	}
 	receiptInfo, receiptPresent, receiptErr := inspectPrivacyArtifactOpened(brainDir, distillApplicationReceiptsV2Path, "distill application receipts")
 	if receiptErr != nil {
@@ -1640,7 +1653,8 @@ func isCandidateAtomicTempArtifactRel(rel string) bool {
 	case len(parts) == 3 && parts[0] == factsDirName && parts[1] != "":
 		return isAtomicTempLeafForBase(parts[2], factsFileName) || isAtomicTempLeafForBase(parts[2], factsProposalsFileName) ||
 			(parts[1] == "distill-v2" && (isAtomicTempLeafForBase(parts[2], filepath.Base(distillApplicationReceiptsV2Path)) ||
-				isAtomicTempLeafForBase(parts[2], filepath.Base(distillRelationshipStoreV2Path))))
+				isAtomicTempLeafForBase(parts[2], filepath.Base(distillRelationshipStoreV2Path)) ||
+				isAtomicTempLeafForBase(parts[2], filepath.Base(distillDiscoveryCacheRelV1))))
 	default:
 		return false
 	}
@@ -1995,6 +2009,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if plan.DistillCandidateCacheV2Reset != nil {
 		tx.Artifacts = append(tx.Artifacts, *plan.DistillCandidateCacheV2Reset)
 	}
+	if plan.DistillDiscoveryCacheV1Reset != nil {
+		tx.Artifacts = append(tx.Artifacts, *plan.DistillDiscoveryCacheV1Reset)
+	}
 	if plan.DistillApplicationReceiptsV2Reset != nil {
 		tx.Artifacts = append(tx.Artifacts, *plan.DistillApplicationReceiptsV2Reset)
 	}
@@ -2077,6 +2094,9 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		return err
 	}
 	if err := purgeDistillCandidateResultCacheV2(brainDir); err != nil {
+		return err
+	}
+	if err := purgeDistillDiscoveryCacheV1(brainDir); err != nil {
 		return err
 	}
 	if err := purgeDistillApplicationReceiptsV2(brainDir); err != nil {

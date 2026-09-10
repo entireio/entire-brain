@@ -164,12 +164,16 @@ func TestWatchDistillOptionsDefaultAndExplicitJobs(t *testing.T) {
 	if defaultOpts.jobs != 1 {
 		t.Fatalf("default watch distill jobs = %d, want 1", defaultOpts.jobs)
 	}
+	if defaultOpts.pipeline != distillPipelineLegacy {
+		t.Fatalf("default watch pipeline = %q, want legacy", defaultOpts.pipeline)
+	}
 	explicit := defaultWatchOptions()
 	explicit.distillJobs = 4
 	explicit.distillAgent = "ollama"
 	explicit.model = "local-model"
+	explicit.pipeline = distillPipelineCandidates
 	got := watchDistillOptions(explicit)
-	if got.jobs != 4 || got.agent != "ollama" || got.model != "local-model" {
+	if got.jobs != 4 || got.agent != "ollama" || got.model != "local-model" || got.pipeline != distillPipelineCandidates {
 		t.Fatalf("watch distill options not propagated: %+v", got)
 	}
 }
@@ -189,6 +193,21 @@ func TestRunWatchRejectsInvalidJobsBeforeWork(t *testing.T) {
 	}
 	if out.Len() != 0 {
 		t.Fatalf("watch should fail before printing/running work, got %q", out.String())
+	}
+}
+
+func TestRunWatchRejectsInvalidPipelineBeforeWork(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := runWatch(context.Background(), cmd, Options{}, watchCommandOptions{
+		once: true, distill: true, pipeline: "not-a-pipeline", distillJobs: 1, seedAgent: "none",
+	}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "--pipeline") {
+		t.Fatalf("expected invalid pipeline error, got %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("watch should reject invalid pipeline before printing/running work, got %q", out.String())
 	}
 }
 

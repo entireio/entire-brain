@@ -19,7 +19,7 @@ import (
 // A change that can alter turn/card IDs or the bytes sent to the extraction
 // agent must bump this value.
 const (
-	distillCandidateSchemaVersion = 3
+	distillCandidateSchemaVersion = 4
 	// Candidate calls deliberately use one bounded card each. This keeps the
 	// existing six-fact output cap and one-anchor parser meaningful until a
 	// future candidate-ID-framed output protocol can attribute multi-card packs.
@@ -532,16 +532,25 @@ func normalizeDistillCandidateTextV1(text string) string {
 	var normalized strings.Builder
 	normalized.Grow(min(len(text), distillCandidateMaxRecordBytes))
 	pendingSpace := false
+	pendingNewlines := 0
 	for _, char := range text {
 		if unicode.IsSpace(char) {
 			if normalized.Len() > 0 {
 				pendingSpace = true
+				if char == '\n' {
+					pendingNewlines++
+				}
 			}
 			continue
 		}
 		if pendingSpace {
-			normalized.WriteByte(' ')
+			if pendingNewlines >= 2 {
+				normalized.WriteString("\n\n")
+			} else {
+				normalized.WriteByte(' ')
+			}
 			pendingSpace = false
+			pendingNewlines = 0
 		}
 		normalized.WriteRune(char)
 	}
@@ -549,6 +558,7 @@ func normalizeDistillCandidateTextV1(text string) string {
 }
 
 var distillSlashCommandV1 = regexp.MustCompile(`^/[A-Za-z][A-Za-z0-9:_-]*(?:\s|$)`)
+var distillCandidateCrossParagraphReferenceV1 = regexp.MustCompile(`(?i)\b(?:above|previous|preceding|following|former|latter|this|these|those)\b`)
 var distillCommandArgsV1 = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
 var distillUserQueryV1 = regexp.MustCompile(`(?is)^\s*(?:<timestamp\b[^>]*>.*?</timestamp\s*>\s*)?<user_query\s*>\s*(.*?)\s*</user_query\s*>\s*$`)
 var distillCandidateInjectedSpanPatternsV1 = []*regexp.Regexp{
@@ -1145,6 +1155,10 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 		index    int
 		cues     []distillCandidateCueV1
 		evidence distillCandidateEvidenceV1
+		// turn is set only when one oversized source turn was safely divided at
+		// explicit paragraph boundaries. Its source lines remain those of the
+		// original JSONL record; only its content-derived identity is narrower.
+		turn *distillNormalizedTurnV1
 	}
 	var triggers []triggerAt
 	for index, turn := range transcript.Turns {
@@ -1161,6 +1175,18 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 				}
 			}
 			if len(cues) == 0 {
+				continue
+			}
+			pieces := splitOversizedDistillCandidateTriggerV1(turn)
+			if len(pieces) > 1 {
+				for pieceIndex := range pieces {
+					piece := pieces[pieceIndex]
+					pieceCues := distillCandidateCuesV1(piece.Text)
+					triggers = append(triggers, triggerAt{index: index, cues: pieceCues, turn: &piece})
+					if limit > 0 && len(triggers) > limit {
+						return nil, true
+					}
+				}
 				continue
 			}
 			trigger = triggerAt{index: index, cues: cues}
@@ -1228,6 +1254,9 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 			}
 		}
 		turns := append([]distillNormalizedTurnV1(nil), transcript.Turns[start:end+1]...)
+		if trigger.turn != nil {
+			turns[trigger.index-start] = *trigger.turn
+		}
 		acceptance := distillCandidateCueSliceContainsV1(trigger.cues, distillCandidateCueAcceptanceV1)
 		for index := range turns {
 			var cues []distillCandidateCueV1
@@ -1247,6 +1276,9 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 			}
 		}
 		triggerTurn := transcript.Turns[trigger.index]
+		if trigger.turn != nil {
+			triggerTurn = *trigger.turn
+		}
 		cardTriggers := []distillCandidateTriggerV1{{
 			TurnID:                triggerTurn.ID,
 			Role:                  triggerTurn.Role,
@@ -1273,6 +1305,11 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 		if trigger.evidence.SameLocus {
 			idParts = append(idParts, "same_locus")
 		}
+		if trigger.turn != nil {
+			// Distinguish paragraph cards while keeping the parent turn ID as the
+			// private quality source-map join key.
+			idParts = append(idParts, distillCandidateStableIDV1("paragraph-v1:", triggerTurn.ID, triggerTurn.Text))
+		}
 		cards = append(cards, distillCandidateCardV1{
 			SchemaVersion: distillCandidateSchemaVersion,
 			ID:            distillCandidateStableIDV1("candidate-v1:", idParts...),
@@ -1285,6 +1322,47 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 		})
 	}
 	return cards, false
+}
+
+// splitOversizedDistillCandidateTriggerV1 safely narrows a very large direct
+// user turn only when every non-empty paragraph independently carries a
+// durable cue and fits well below the provider ceiling. That condition avoids
+// promoting neutral pasted prose to direct authority and avoids silently
+// dropping connective or qualifying paragraphs. An indivisible or ambiguous
+// turn is returned unchanged so the existing bounded renderer rejects it.
+//
+// A JSONL message has one source-line anchor even when its decoded text has
+// embedded newlines. Split pieces therefore retain the original line metadata
+// and derive their IDs from the parent turn plus complete paragraph text.
+func splitOversizedDistillCandidateTriggerV1(turn distillNormalizedTurnV1) []distillNormalizedTurnV1 {
+	const maxParagraphBytes = 24 << 10
+	redacted := redactText(turn.Text)
+	if len(redacted) <= maxParagraphBytes {
+		return []distillNormalizedTurnV1{turn}
+	}
+	paragraphs := regexp.MustCompile(`\n[\t ]*\n+`).Split(redacted, -1)
+	if len(paragraphs) < 2 {
+		return []distillNormalizedTurnV1{turn}
+	}
+	pieces := make([]distillNormalizedTurnV1, 0, len(paragraphs))
+	for _, paragraph := range paragraphs {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			continue
+		}
+		if len(paragraph) > maxParagraphBytes || len(distillCandidateCuesV1(paragraph)) == 0 || distillCandidateCrossParagraphReferenceV1.MatchString(paragraph) {
+			return []distillNormalizedTurnV1{turn}
+		}
+		piece := turn
+		piece.Text = paragraph
+		piece.Origins = append([]distillTranscriptOriginV1(nil), turn.Origins...)
+		piece.SourceLines = append([]int(nil), turn.SourceLines...)
+		pieces = append(pieces, piece)
+	}
+	if len(pieces) < 2 {
+		return []distillNormalizedTurnV1{turn}
+	}
+	return pieces
 }
 
 func boundDistillCandidateTextV1(text string, cues []distillCandidateCueV1, maxRunes int) string {

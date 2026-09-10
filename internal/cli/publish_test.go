@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -113,6 +114,9 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 	writePublishFile(t,
 		filepath.Join(brainDir, filepath.FromSlash(distillRelationshipStoreV2Path)),
 		[]byte("RELATIONSHIP_STORE_CANARY\n"))
+	writePublishFile(t,
+		filepath.Join(brainDir, filepath.FromSlash(distillDiscoveryCacheRelV1)),
+		[]byte(fmt.Sprintf(`{"version":1,"candidate_schema":%d,"entries":{"DISCOVERY_CACHE_CANARY":{"source_sha256":"%s","source_bytes":0,"source_lines":0,"complete_newline":false,"evidence_sha256":"%s","turns":[],"cards":[]}}}`+"\n", distillCandidateSchemaVersion, strings.Repeat("a", 64), strings.Repeat("b", 64))))
 }
 
 func writePublishFile(t *testing.T, path string, data []byte) {
@@ -403,7 +407,7 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	if err := json.Unmarshal(captured.rawBodie[0], &decoded); err != nil {
 		t.Fatalf("decode captured body: %v", err)
 	}
-	if strings.Contains(string(captured.rawBodie[0]), "APPLICATION_RECEIPT_CANARY") || strings.Contains(string(captured.rawBodie[0]), "CANDIDATE_CACHE_CANARY") || strings.Contains(string(captured.rawBodie[0]), "RELATIONSHIP_STORE_CANARY") {
+	if strings.Contains(string(captured.rawBodie[0]), "APPLICATION_RECEIPT_CANARY") || strings.Contains(string(captured.rawBodie[0]), "CANDIDATE_CACHE_CANARY") || strings.Contains(string(captured.rawBodie[0]), "RELATIONSHIP_STORE_CANARY") || strings.Contains(string(captured.rawBodie[0]), "DISCOVERY_CACHE_CANARY") {
 		t.Fatal("publish bundle included disposable distill-v2 state")
 	}
 

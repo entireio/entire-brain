@@ -38,13 +38,18 @@ type distillQualityReuseMetadataV1 struct {
 	ReusedPacketIDs      []string `json:"reused_packet_ids"`
 	DeltaPacketIDs       []string `json:"delta_packet_ids"`
 	MigratedHumanRecords int      `json:"migrated_human_records"`
+	// RecoveryTerminalKeys records unchanged invalid/abstain verdict lineage as
+	// judge:packet-id. It carries no provider telemetry and prevents a rebase
+	// from replenishing the bounded recovery allowance.
+	RecoveryTerminalKeys []string `json:"recovery_terminal_keys,omitempty"`
 }
 
 type distillQualityReuseResultV1 struct {
-	Metadata             distillQualityReuseMetadataV1
-	ReusedVerdicts       int
-	DeltaPackets         int
-	MigratedHumanRecords int
+	Metadata               distillQualityReuseMetadataV1
+	ReusedVerdicts         int
+	CarriedInvalidVerdicts int
+	DeltaPackets           int
+	MigratedHumanRecords   int
 }
 
 type distillQualityReusePacketIdentityV1 struct {
@@ -116,6 +121,7 @@ func reuseDistillQualityBundleV1(baseDir, targetDir string) (distillQualityReuse
 	// A packet is reusable only if all five identity fields match.  A shared
 	// packet ID with even one changed digest is delta work.
 	var reusedIDs, deltaIDs []string
+	var recoveryTerminalKeys []string
 	for _, packet := range targetPackets {
 		base, ok := baseByID[packet.PacketID]
 		if ok && distillQualityReuseIdentityEqualV1(makeDistillQualityReusePacketIdentityV1(packet), makeDistillQualityReusePacketIdentityV1(base)) {
@@ -146,12 +152,19 @@ func reuseDistillQualityBundleV1(baseDir, targetDir string) (distillQualityReuse
 				return result, fmt.Errorf("quality reuse %s packet %s: %w", judge, verdict.PacketID, err)
 			}
 			copied = append(copied, verdict)
+			if verdict.State == distillQualityVerdictCompletedV1 {
+				result.ReusedVerdicts++
+			} else {
+				result.CarriedInvalidVerdicts++
+			}
+			if verdict.State == distillQualityVerdictInvalidV1 || verdict.State == distillQualityVerdictAbstainV1 {
+				recoveryTerminalKeys = append(recoveryTerminalKeys, string(judge)+":"+verdict.PacketID)
+			}
 		}
 		if len(copied) > 0 {
 			if err := saveDistillQualityJudgeVerdictsV1(targetAbs, judge, copied); err != nil {
 				return result, err
 			}
-			result.ReusedVerdicts += len(copied)
 		}
 	}
 
@@ -162,6 +175,7 @@ func reuseDistillQualityBundleV1(baseDir, targetDir string) (distillQualityReuse
 		return result, err
 	}
 	result.MigratedHumanRecords = migrated
+	sort.Strings(recoveryTerminalKeys)
 	result.Metadata = distillQualityReuseMetadataV1{
 		Contract: distillQualityReuseContractV1, SchemaVersion: 1,
 		BaseRunID:          baseManifest.RunID,
@@ -170,6 +184,7 @@ func reuseDistillQualityBundleV1(baseDir, targetDir string) (distillQualityReuse
 		BasePacketCount: len(basePackets), TargetRunID: targetManifest.RunID,
 		TargetPacketCount: len(targetPackets), ReusedPacketIDs: reusedIDs, DeltaPacketIDs: deltaIDs,
 		MigratedHumanRecords: migrated,
+		RecoveryTerminalKeys: recoveryTerminalKeys,
 	}
 	data, err := json.MarshalIndent(result.Metadata, "", "  ")
 	if err != nil {

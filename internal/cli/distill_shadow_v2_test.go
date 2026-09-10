@@ -192,7 +192,7 @@ func TestCandidatePackAttemptV2UsesProtocolOutputBudget(t *testing.T) {
 	}
 }
 
-func TestCandidatePackAttemptV2SettlesNormallyStoppedMalformedOllamaSingletonAsEmpty(t *testing.T) {
+func TestCandidatePackAttemptV2RejectsMalformedOllamaSingleton(t *testing.T) {
 	member := distillCandidatePackMemberV2{
 		CandidateID:  "candidate-v1:" + strings.Repeat("b", 64),
 		RenderedCard: "card\n",
@@ -206,8 +206,8 @@ func TestCandidatePackAttemptV2SettlesNormallyStoppedMalformedOllamaSingletonAsE
 		},
 	}
 	attempt := runDistillCandidatePackAttemptV2(context.Background(), t.TempDir(), []string{"ollama", "test-model", "prompt"}, pack, defaultFactTaxonomy(time.Now()), opts)
-	if attempt.Err != nil || len(attempt.Results) != 1 || attempt.Results[0].CandidateID != member.CandidateID || !attempt.Results[0].NoFacts {
-		t.Fatalf("malformed normally stopped singleton attempt = %+v", attempt)
+	if attempt.Err == nil || len(attempt.Results) != 0 {
+		t.Fatalf("malformed normally stopped singleton was accepted: %+v", attempt)
 	}
 
 	opts.run = func(context.Context, string, []string, []byte, time.Duration) (string, error) {
@@ -234,6 +234,39 @@ func TestDistillCandidateOllamaNumPredictV2ScalesAndCaps(t *testing.T) {
 		if got := distillCandidateOllamaNumPredictV2(tc.members); got != tc.want {
 			t.Errorf("members=%d num_predict=%d, want %d", tc.members, got, tc.want)
 		}
+	}
+}
+
+func TestDistillCandidateCacheIdentityInvalidatesHistoricalOllamaEmptyResults(t *testing.T) {
+	brainDir := t.TempDir()
+	taxonomy := defaultFactTaxonomy(time.Now())
+	command := distillCandidateCacheBaseIdentityV2("prompt", taxonomy, []string{"fake"}, distillCommandOptions{model: "model", effort: "low"}).withCard("card")
+	if command.PromptVersion != distillCandidatePromptVersionV2 {
+		t.Fatalf("command prompt version = %q", command.PromptVersion)
+	}
+	ollama := distillCandidateCacheBaseIdentityV2("prompt", taxonomy, []string{"ollama", "model", "prompt"}, distillCommandOptions{model: "model", effort: "low"}).withCard("card")
+	if ollama.PromptVersion != distillCandidateOllamaPromptVersionV2 {
+		t.Fatalf("Ollama prompt version = %q", ollama.PromptVersion)
+	}
+
+	historical := ollama
+	historical.PromptVersion = distillCandidatePromptVersionV2
+	cache := newDistillCandidateResultCacheV2()
+	if err := cache.PutSuccess("candidate-a", "session-a", historical, distillCandidateCacheResultV2{Empty: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveDistillCandidateResultCacheV2(brainDir, cache); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := loadDistillCandidateResultCacheV2(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if historicalResult, hit := reloaded.LookupSuccess("candidate-a", historical); !hit || !historicalResult.Empty {
+		t.Fatalf("historical fixture did not survive persistence: result=%+v hit=%t", historicalResult, hit)
+	}
+	if _, hit := reloaded.LookupSuccess("candidate-a", ollama); hit {
+		t.Fatal("historical Ollama empty result survived strict-negative policy migration")
 	}
 }
 
@@ -292,7 +325,7 @@ func TestCandidateShadowV2CachesSuccessfulSplitNeighborOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.CandidatePacksDone != 0 || first.CandidateCacheHits != 0 || first.CandidateCacheMisses != 2 || first.CandidateEmptyResults != 1 || calls.Load() != 3 {
+	if first.CandidatePacksDone != 0 || first.CandidateUnresolvedMembers != 1 || first.CandidateCacheHits != 0 || first.CandidateCacheMisses != 2 || first.CandidateEmptyResults != 1 || calls.Load() != 3 {
 		t.Fatalf("partial split did not isolate cacheable neighbor: calls=%d source=%+v", calls.Load(), first)
 	}
 
@@ -308,7 +341,7 @@ func TestCandidateShadowV2CachesSuccessfulSplitNeighborOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.CandidateCacheHits != 1 || second.CandidateCacheMisses != 1 || second.ExtractionCalls != 1 || calls.Load() != 4 {
+	if second.CandidateUnresolvedMembers != 0 || second.CandidateCacheHits != 1 || second.CandidateCacheMisses != 1 || second.ExtractionCalls != 1 || calls.Load() != 4 {
 		t.Fatalf("retry did not reuse successful split neighbor: calls=%d source=%+v", calls.Load(), second)
 	}
 }

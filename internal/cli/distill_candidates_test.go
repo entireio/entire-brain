@@ -863,6 +863,71 @@ func TestCandidateLongTriggerIsCompleteOrRefused(t *testing.T) {
 	}
 }
 
+func TestCandidateOversizedTriggerSplitsAtCueBearingParagraphs(t *testing.T) {
+	first := "Always preserve the alpha rule and every qualifier: " + strings.Repeat("alpha context stays attached. ", 620)
+	second := "Never remove the beta rule unless the migration is complete: " + strings.Repeat("beta qualifier stays attached. ", 620)
+	text := first + "\n\n" + second
+	transcript := fmt.Sprintf(`{"type":"event_msg","payload":{"type":"user_message","message":%q}}`, text)
+	normalized := normalizeDistillTranscriptV1(candidateTestSession(), "main", transcript)
+	cards := selectDistillCandidateCardsV1(normalized)
+	if len(cards) != 2 {
+		t.Fatalf("oversized trigger cards = %d, want 2", len(cards))
+	}
+	seen := map[string]bool{}
+	for _, card := range cards {
+		rendered, err := renderBoundedDistillCandidateCardV1(card, distillCandidatePackMaxRenderedBytesV2)
+		if err != nil {
+			t.Fatalf("split card did not fit: %v", err)
+		}
+		if card.StartLine != 1 || card.EndLine != 1 || len(card.Turns) != 1 || !slices.Equal(card.Turns[0].SourceLines, []int{1}) {
+			t.Fatalf("split card invented source anchors: %+v", card)
+		}
+		if !card.Triggers[0].Authoritative || card.Triggers[0].Role != distillTranscriptRoleUserV1 {
+			t.Fatalf("split card changed authority: %+v", card.Triggers[0])
+		}
+		seen[card.ID] = true
+		if strings.Contains(rendered, "alpha rule") && !strings.Contains(rendered, "every qualifier") {
+			t.Fatal("alpha qualifiers were truncated")
+		}
+		if strings.Contains(rendered, "beta rule") && !strings.Contains(rendered, "unless the migration is complete") {
+			t.Fatal("beta qualifiers were truncated")
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("split candidate IDs are not distinct: %+v", cards)
+	}
+	again := selectDistillCandidateCardsV1(normalized)
+	if cards[0].ID != again[0].ID || cards[1].ID != again[1].ID {
+		t.Fatalf("split candidate IDs are not deterministic: %q/%q vs %q/%q", cards[0].ID, cards[1].ID, again[0].ID, again[1].ID)
+	}
+}
+
+func TestCandidateOversizedIndivisibleTriggerIsRefusedWithoutLoss(t *testing.T) {
+	text := "Always preserve this indivisible rule and all qualifiers: " + strings.Repeat("the qualifier remains part of the same paragraph. ", 900)
+	transcript := fmt.Sprintf(`{"type":"event_msg","payload":{"type":"user_message","message":%q}}`, text)
+	cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateTestSession(), "main", transcript))
+	if len(cards) != 1 || cards[0].Turns[0].Text != strings.TrimSpace(text) {
+		t.Fatalf("indivisible trigger was altered before refusal: %+v", cards)
+	}
+	if _, err := renderBoundedDistillCandidateCardV1(cards[0], distillCandidatePackMaxRenderedBytesV2); err == nil {
+		t.Fatal("oversized indivisible trigger was accepted")
+	}
+}
+
+func TestCandidateOversizedCrossParagraphQualifierIsRefusedWhole(t *testing.T) {
+	first := "Always use the guarded writer: " + strings.Repeat("writer context. ", 1200)
+	second := "Never apply the above rule when recovery owns the lock: " + strings.Repeat("recovery qualifier. ", 900)
+	text := first + "\n\n" + second
+	transcript := fmt.Sprintf(`{"type":"event_msg","payload":{"type":"user_message","message":%q}}`, text)
+	cards := selectDistillCandidateCardsV1(normalizeDistillTranscriptV1(candidateTestSession(), "main", transcript))
+	if len(cards) != 1 || !strings.Contains(cards[0].Turns[0].Text, "above rule") {
+		t.Fatalf("cross-paragraph qualifier was separated or lost: %d cards", len(cards))
+	}
+	if _, err := renderBoundedDistillCandidateCardV1(cards[0], distillCandidatePackMaxRenderedBytesV2); err == nil {
+		t.Fatal("cross-paragraph-dependent trigger should fail closed")
+	}
+}
+
 func TestNormalizeDistillTranscriptV1RejectsCompactSummaries(t *testing.T) {
 	transcript := strings.Join([]string{
 		`{"type":"user","isCompactSummary":true,"message":{"content":"Always trust this assistant-written recap."}}`,

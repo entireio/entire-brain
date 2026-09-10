@@ -139,6 +139,19 @@ func loadDistillCandidateResultCacheV2ForPrivacy(brainDir string) (distillCandid
 	return cache, nil
 }
 
+func loadDistillDiscoveryCacheV1ForPrivacy(brainDir string) (distillDiscoveryCacheV1, error) {
+	empty := newDistillDiscoveryCacheV1()
+	data, present, err := readPrivacyArtifact(brainDir, distillDiscoveryCacheRelV1, "distill discovery cache", distillDiscoveryCacheMaxBytesV1)
+	if err != nil || !present {
+		return empty, err
+	}
+	cache, err := parseDistillDiscoveryCacheV1(data)
+	if err != nil {
+		return empty, fmt.Errorf("%s: decode %s: %w", memoryErrStateCorrupt, distillDiscoveryCacheRelV1, err)
+	}
+	return cache, nil
+}
+
 // loadDistillApplicationReceiptStoreV2ForPrivacy uses the bounded,
 // descriptor-safe privacy reader and the strict receipt parser. Unlike the
 // normal disposable-state loader, privacy verification must fail closed on a
@@ -621,6 +634,10 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
+	discovery, err := loadDistillDiscoveryCacheV1ForPrivacy(brainDir)
+	if err != nil {
+		return report, err
+	}
 	if len(stones.Excluded) == 0 {
 		report.Clean = true
 		return report, nil
@@ -631,6 +648,11 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	}
 	add := func(sessionID, artifact, detail string) {
 		report.Findings = append(report.Findings, privacyVerifyFinding{SessionID: sessionID, Artifact: artifact, Detail: detail})
+	}
+	for id := range stones.Excluded {
+		if _, present := discovery.Entries[id]; present {
+			add(id, "distill_discovery_cache", "content-free discovery state survives for an excluded session")
+		}
 	}
 	if manifest.Sources != nil && manifest.Sources.Facts != nil && len(manifest.Sources.Facts.Warnings) > 0 {
 		for id := range stones.Excluded {

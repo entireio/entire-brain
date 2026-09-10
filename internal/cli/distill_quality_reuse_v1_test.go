@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -209,6 +210,51 @@ func TestReusedDistillQualityJudgeInvokesOnlyChangedPacket(t *testing.T) {
 	}
 	if providerCalls != 1 || result.Completed != len(targetPackets) || result.ProviderCalls != 1 {
 		t.Fatalf("provider calls=%d result=%+v", providerCalls, result)
+	}
+}
+
+func TestReuseCarriesInvalidRecoveryTerminalAcrossRebases(t *testing.T) {
+	base, packets := reportFixtureRunV1(t)
+	judge := distillQualityJudgeCopilotV1
+	invalids := make([]distillQualityPanelVerdictV1, 0, len(packets))
+	for _, packet := range packets {
+		invalids = append(invalids, invalidDistillQualityJudgeVerdictV1(packet, judge, "gpt-test"))
+	}
+	if err := saveDistillQualityJudgeVerdictsV1(base, judge, invalids); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := reportFixtureRunV1(t)
+	if _, err := reuseDistillQualityBundleV1(base, first); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := reportFixtureRunV1(t)
+	secondPackets := append([]distillQualityPanelPacketV1(nil), packets...)
+	secondPackets[0].Payload.Fragments[0].Text += " changed"
+	secondPackets[0].Payload.Fragments[0].Digest = distillQualityPanelFragmentDigestV1(secondPackets[0].Payload.Fragments[0])
+	secondPackets[0].Payload.Digest = distillQualityPanelPayloadDigestV1(secondPackets[0].Payload)
+	secondPackets[0].PacketDigest = distillQualityPanelPacketDigestV1(secondPackets[0])
+	writeReuseFixturePacketsV1(t, second, secondPackets)
+	if _, err := reuseDistillQualityBundleV1(first, second); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	result, err := runDistillQualityJudgeWithInvokerV1(context.Background(), second, judge, "gpt-test", time.Minute, time.Now, func(_ context.Context, _ string, _ distillQualityJudgeV1, _ string, prompt []byte, _ time.Duration) (distillQualityJudgeProcessResultV1, error) {
+		calls++
+		var request distillQualityJudgeBatchRequestV1
+		if err := json.Unmarshal(prompt, &request); err != nil {
+			t.Fatal(err)
+		}
+		if len(request.Packets) != 1 || request.Packets[0].PacketID != secondPackets[0].PacketID {
+			t.Fatalf("fresh recovery packets=%+v", request.Packets)
+		}
+		return distillQualityJudgeProcessResultV1{}, errors.New("bounded fresh recovery failure")
+	}, true)
+	if err != nil || calls != 2 || result.Invalid != len(packets) {
+		t.Fatalf("rebase recovery calls=%d result=%+v err=%v", calls, result, err)
+	}
+	metadata, err := loadDistillQualityReuseMetadataV1(second)
+	if err != nil || len(metadata.RecoveryTerminalKeys) != len(packets)-1 {
+		t.Fatalf("terminal lineage = %+v err=%v", metadata, err)
 	}
 }
 

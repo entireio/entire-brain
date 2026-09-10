@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -182,6 +183,58 @@ func TestCandidateApplyV2RelocationUsesCacheAndUpdatesOnlyV2Anchor(t *testing.T)
 	facts, err = loadFacts(brainDir, "main")
 	if err != nil || len(facts) != 1 || len(facts[0].Provenance) != 1 || facts[0].Provenance[0].Line != 2 {
 		t.Fatalf("relocated v2 provenance = %+v err=%v", facts, err)
+	}
+}
+
+func TestCandidateApplyV2ExtractionFailurePreservesPriorApplication(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(fmt.Sprintf("force=%t", force), func(t *testing.T) {
+			now := time.Date(2026, time.August, 23, 15, 30, 0, 0, time.UTC)
+			brainDir := writeSingleSessionFixture(t, now, `{"type":"event_msg","payload":{"type":"user_message","message":"Always keep migrations reversible."}}`)
+			opts := distillCommandOptions{
+				agent: "command", agentCommand: []string{"fake"}, pipeline: distillPipelineCandidates,
+				model: "model-a", effort: "low", timeout: time.Minute,
+				run: func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+					id := candidateIDsFromPackedInputV2(t, input)[0]
+					return id + "\tconvention\tworkflow.testing.rules\tAlways keep migrations reversible.", nil
+				},
+			}
+			if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main"))))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			opts.model = "model-b"
+			opts.force = force
+			opts.run = func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+				id := candidateIDsFromPackedInputV2(t, input)[0]
+				return id + "\tconvention\tunknown.category.path\tInvented taxonomy path.", nil
+			}
+			if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now.Add(time.Minute)); err == nil || !strings.Contains(err.Error(), "unresolved") {
+				t.Fatalf("unknown-taxonomy extraction error = %v, want unresolved", err)
+			}
+			after, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main"))))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("failed extraction changed prior application\nbefore=%s\nafter=%s", before, after)
+			}
+
+			opts.run = func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+				return candidateIDsFromPackedInputV2(t, input)[0] + "\tNO_FACTS", nil
+			}
+			if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now.Add(2*time.Minute)); err != nil {
+				t.Fatalf("explicit NO_FACTS rerun: %v", err)
+			}
+			facts, err := loadFacts(brainDir, "main")
+			if err != nil || len(facts) != 0 {
+				t.Fatalf("explicit NO_FACTS did not retract prior v2 application: facts=%+v err=%v", facts, err)
+			}
+		})
 	}
 }
 

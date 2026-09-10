@@ -52,8 +52,14 @@ type factSourceManifest struct {
 	CandidatePacks                     int                       `json:"candidate_packs,omitempty"`
 	CandidatePacksDone                 int                       `json:"candidate_packs_completed,omitempty"`
 	CandidateMembers                   int                       `json:"candidate_members,omitempty"`
+	CandidateUnresolvedMembers         int                       `json:"candidate_unresolved_members,omitempty"`
 	CandidateCacheHits                 int                       `json:"candidate_cache_hits,omitempty"`
 	CandidateCacheMisses               int                       `json:"candidate_cache_misses,omitempty"`
+	DiscoveryExactHits                 int                       `json:"discovery_exact_hits,omitempty"`
+	DiscoveryAppendResumed             int                       `json:"discovery_append_resumed,omitempty"`
+	DiscoveryFullRescans               int                       `json:"discovery_full_rescans,omitempty"`
+	DiscoveryNormalizedRecords         int                       `json:"discovery_normalized_records,omitempty"`
+	DiscoveryCorruptRebuilds           int                       `json:"discovery_corrupt_rebuilds,omitempty"`
 	CandidateSplitCalls                int                       `json:"candidate_split_calls,omitempty"`
 	CandidateEmptyResults              int                       `json:"candidate_empty_results,omitempty"`
 	CandidateRelationships             int                       `json:"candidate_relationships,omitempty"`
