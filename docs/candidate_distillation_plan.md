@@ -1,9 +1,10 @@
 # Candidate-First Distillation Plan
 
 Status: Phase 3 conservative-write exit gate complete. Phase 2 has a sealed
-advisory multi-model pre-adjudication package and a full-screen resumable human
-review workspace; human labels, paired fact-quality runs, and retrieval gates
-remain pending and block default promotion (2026-08-28).
+advisory multi-model pre-adjudication package, a resumable human review
+workspace, and one completed 20-item selector calibration. The representative
+human-labeled audit, paired fact-quality runs, and retrieval gates remain
+pending and block default promotion (2026-09-10).
 
 The first implementation slice on `feat/candidate-first-distillation` adds the
 opt-in `--pipeline candidates` path: typed/role-aware normalization, bounded
@@ -239,6 +240,62 @@ durations are 3,701,209 ms, 4,476,095 ms, and 27,475,944 ms respectively;
 Claude used bounded concurrency during the primary pass, so that sum is not
 wall-clock duration. A Claude Sonnet 5 diagnostic exceeded the ten-minute
 single-call ceiling and was excluded before the sealed Claude Haiku run.
+
+#### First human calibration and selector rebase (2026-09-10)
+
+The simplified one-statement reviewer was completed for its first 20-item
+attention-weighted calibration. The reviewer agreed with the available judge
+majority on 17 items, disagreed on one, and directly decided two items whose
+judges had no majority. The resulting human admission labels judged the filter
+correct on 14 items and identified six false-positive admissions. This batch
+was deliberately sampled for attention, not prevalence, and contained no
+human-labeled filtered-out miss; it is a calibration result, not the Phase 2
+recall or precision estimate.
+
+The six errors were current-work instructions: implement/test a plan, a long
+benchmark campaign runbook, review named trails, prepare a current Sonnet plan,
+accept a one-off bot rerun with bare `Yes`, and implement/audit/open a PR while
+temporarily skipping benchmarks. Candidate schema v3 suppresses those bounded
+shapes before egress. Regression cases retain explicit lasting rules, durable
+project preferences, closed negatives, and genuine accepted technical
+decisions. The one panel disagreement remains human-owned: a direct request to
+choose the best clean-slate project approach is still admitted for extraction
+inspection even though two judges treated it as a one-off task. Admission does
+not itself authorize a durable write; the extraction protocol may still return
+`NO_FACTS`.
+
+`distill-quality prepare --reuse-from <sealed-run>` now makes selector
+calibration incremental. It copies no provider-call telemetry and reuses a
+judge verdict only when packet id, packet digest, item digest, prompt digest,
+and payload digest all match. Human records additionally require an identical
+recomputed advisory aggregate; migrated record ids are rebound to the new run.
+Changed packets lose their old labels and are the only members of the new
+`adjudicate --queue delta` queue. A content-free `reuse-delta.json` sidecar
+records the exact partition and counts. Historical sealed candidate-schema
+versions remain readable, while future schemas and changed redaction versions
+fail closed.
+
+The current Brain had grown from 152 to 186 candidate session views, so the
+first live rebase separated 87 new/corpus-drift packets from 589 exact packet
+matches and reused 1,767 verdicts. Copilot and Claude completed all 87 new
+judgments. Cursor was unavailable at the transport layer; its 87 delta verdicts
+remain explicitly invalid after the one bounded recovery pass and are omitted
+from the human presentation. The final selector rebase contains 171 admitted
+and 500 filtered packets. All 671 surviving packets and all 2,013 verdicts were
+exact matches to the immediately preceding sealed run, leaving zero unresolved
+delta packets; 18 unchanged human records migrated. No additional bulk human
+review was manufactured from corpus growth.
+
+On that 186-view corpus, the final candidate dry run has 267 cards, 173 unique
+members, 1,119,642 candidate bytes, and zero reconciliation calls. The
+provider-neutral 32-member policy plans 25 extraction calls; the proven local
+Ollama two-member policy plans 87. The current legacy control has 36,415,818
+preprocessed bytes, 801 extraction calls, and a 1,602-call
+extraction-plus-reconciliation ceiling. Candidate mode therefore sends 96.93
+percent fewer preprocessed bytes and, under provider-neutral packing, schedules
+96.88 percent fewer extraction calls (98.44 percent below the legacy total-call
+ceiling). Ollama's conservative policy remains 89.14 percent below legacy
+extraction calls and 94.57 percent below the total-call ceiling.
 
 Same-branch re-exports are coalesced only inside the active branch/session
 selection. A later timestamp wins; at an equal timestamp, one normalized turn

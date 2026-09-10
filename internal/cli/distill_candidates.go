@@ -19,7 +19,7 @@ import (
 // A change that can alter turn/card IDs or the bytes sent to the extraction
 // agent must bump this value.
 const (
-	distillCandidateSchemaVersion = 2
+	distillCandidateSchemaVersion = 3
 	// Candidate calls deliberately use one bounded card each. This keeps the
 	// existing six-fact output cap and one-anchor parser meaningful until a
 	// future candidate-ID-framed output protocol can attribute multi-card packs.
@@ -687,6 +687,7 @@ func isRecognizedDistillCandidateResponseMechanicV1(typeName string) bool {
 func isRecognizedDistillCandidateTopLevelMechanicV1(typeName string) bool {
 	switch typeName {
 	case "session_meta", "turn_context", "system", "summary", "queue_operation",
+		"token_usage_record",
 		"permission-mode", "progress", "file-history-snapshot", "queue-operation",
 		"session", "model_change", "thinking_level_change", "compaction", "compacted", "branch_summary", "result",
 		"attachment", "last-prompt", "ai-title", "pr-link", "mode", "agent-name", "bridge-session",
@@ -987,7 +988,10 @@ type distillCandidateCueMatcherV1 struct {
 }
 
 var distillCandidateCueRulesV1 = []distillCandidateCueMatcherV1{
-	{distillCandidateCueRuleV1, regexp.MustCompile(`(?i)\b(?:always|never|make sure|from now on|going forward|whenever|every time|do not|don't|requirement|source of truth)\b`)},
+	// "make sure" is deliberately absent here. It overwhelmingly introduces a
+	// current-task request; the durable forms remain covered by always/never and
+	// the other explicit temporal markers below.
+	{distillCandidateCueRuleV1, regexp.MustCompile(`(?i)\b(?:always|never|from now on|going forward|whenever|every time|do not|don't|requirement|source of truth)\b`)},
 	{distillCandidateCuePreferenceV1, regexp.MustCompile(`(?i)\b(?:i|we)\s+(?:prefer|would rather|do not want|don't want|like)\b|\bi(?:'d| would) rather\b|\b(?:my|our) preference is\b|\bi want\b|\buse\b.{0,80}\b(?:over|rather than|instead of|not)\b`)},
 	{distillCandidateCueCorrectionV1, regexp.MustCompile(`(?i)^no[,!.:]?\s+(?:use|keep|do|make|choose|prefer|replace|instead)\b|^(?:actually|instead|correction)\b|\b(?:i meant|not what i asked|that's wrong|that is wrong|you missed|stop doing|undo that|revert that|ignore the previous|replace\b.{0,80}\bwith)\b`)},
 	{distillCandidateCueDecisionV1, regexp.MustCompile(`(?i)\b(?:decided|decision is|we agreed|agreed to|settled on|chosen|chose|go with|we'll use|we will use|we'll stick with|we will stick with|let's use|lets use|we no longer|instead of|tradeoff|replace\b.{0,80}\bwith)\b`)},
@@ -998,8 +1002,9 @@ var distillCandidateCueRulesV1 = []distillCandidateCueMatcherV1{
 }
 
 var distillCandidateQuestionV1 = regexp.MustCompile(`(?i)^(?:should|must|can|could|would|do|does|did|is|are|what|how|why|when)\b.*\?\s*$`)
-var distillCandidateStrongQuestionDirectiveV1 = regexp.MustCompile(`(?i)\b(?:always|never|make sure|from now on|going forward|whenever|every time)\b`)
+var distillCandidateStrongQuestionDirectiveV1 = regexp.MustCompile(`(?i)\b(?:always|never|from now on|going forward|whenever|every time)\b`)
 var distillCandidateAdjacentAcceptanceV1 = regexp.MustCompile(`(?i)^(?:yes|correct|that works|go ahead|do that)[.!]?\s*$`)
+var distillCandidateBareYesV1 = regexp.MustCompile(`(?i)^yes[.!]?\s*$`)
 var distillCandidateOneOffWantV1 = regexp.MustCompile(`(?i)\bi want\s+(?:you\s+)?to\b`)
 var distillCandidateOneOffMutationDirectiveV1 = regexp.MustCompile(`(?i)\b(?:do not|don't)\s+(?:change|modify|edit|write|touch|create|delete|remove|commit|push)\s+(?:(?:any|the|these|those)\s+)?(?:files?|code|repository|repo|branch|commits?)\b`)
 
@@ -1008,6 +1013,29 @@ var distillCandidateOneOffMutationDirectiveV1 = regexp.MustCompile(`(?i)\b(?:do 
 // "invariant", acceptance criteria, and verification commands, but those are
 // task requirements rather than durable repository knowledge.
 var distillCandidateOneOffPlanSpecRequestV1 = regexp.MustCompile(`(?i)^\s*(?:please\s+)?(?:implement|execute|apply|carry out|complete)\s+(?:this|the following|the attached)\s+(?:plan|spec(?:ification)?|request)\s*[:.]`)
+
+// These are action-shaped requests even when they do not use the more formal
+// "Implement this plan:" heading above. They are intentionally limited to
+// task nouns and operational targets, leaving lasting user decisions and
+// invariants for the extraction gate.
+var distillCandidateOneOffActionAssignmentV1 = regexp.MustCompile(`(?i)^\s*(?:please\s+)?(?:implement|test|verify|execute|apply|carry out|complete)\s+(?:(?:the|this)\s+)?(?:whole\s+)?(?:plan|spec(?:ification)?|request)\b|^\s*(?:please\s+)?(?:review|audit)\s+(?:(?:entire\s+)?trails?\s+[0-9][0-9,\s-]*|(?:pr|pull request)\s*#?\d+|(?:the\s+)?(?:named\s+)?audit\b)`)
+
+var distillCandidateOneOffPlanningRequestV1 = regexp.MustCompile(`(?i)^\s*(?:(?:alright|ok(?:ay)?|then|now|please|so|great|good|fine|got it|sounds good)\b[\s,]*)*(?:make|create|write|draft)\s+(?:a\s+)?(?:[a-z][a-z0-9_-]*\s+){0,3}plan\b`)
+
+// A campaign/runnable work block is useful only for the current execution.
+// This requires the conventional header, not an incidental use of the word
+// "goal" in an otherwise durable statement.
+var distillCandidateOneOffCampaignRunbookV1 = regexp.MustCompile(`(?is)^\s*(?:#{1,6}\s*)?(?:goal|runbook|campaign)\s*:\s*.*\b(?:phase\s*\d+|deliverable|current\s+measured\s+standing|do\s+not\s+restart)\b`)
+
+// "for now" and imperative "don't run" are current-run constraints. A
+// direct "I want" project goal is left to extraction even when it happens to
+// include those words: admission is deliberately broader than final memory.
+var distillCandidateTemporaryRunConstraintV1 = regexp.MustCompile(`(?i)\b(?:for\s+now|right\s+now)\b|\b(?:do\s+not|don't)\s+(?:run|rush|hurry)\b|^\s*(?:please\s+)?(?:implement|test|verify|review|audit|run|re-?run|fix|update|create|delete|merge|push)\b.{0,240}\bnow\b`)
+
+// Bare Yes is only a decision confirmation when the preceding assistant
+// proposal is itself a decision. This recognizes operational offers without
+// treating a generic "Want me to?" as a reason to discard a durable choice.
+var distillCandidateOneOffAssistantOfferV1 = regexp.MustCompile(`(?is)\b(?:want\s+me\s+to|shall\s+i|should\s+i|would\s+you\s+like\s+me\s+to|may\s+i)\b.{0,240}\b(?:re-?run|run|push|commit|merge|review|audit|implement|test|verify|fix|update|create|delete|close)\b|\b(?:re-?run|run|push|commit|merge|review|audit|implement|test|verify|fix|update|create|delete|close)\b.{0,240}\b(?:want\s+me\s+to|shall\s+i|should\s+i|would\s+you\s+like\s+me\s+to|may\s+i)\b`)
 
 // Task briefs and continuation commands are another high-precision one-off
 // shape. They commonly contain "must", "make sure", acceptance criteria, and
@@ -1026,6 +1054,14 @@ func distillCandidateCuesV1(text string) []distillCandidateCueV1 {
 		return nil
 	}
 	if distillCandidateOneOffPlanSpecRequestV1.MatchString(trimmed) || distillCandidateOneOffTaskBriefV1.MatchString(trimmed) {
+		return nil
+	}
+	if distillCandidateOneOffActionAssignmentV1.MatchString(trimmed) || distillCandidateOneOffPlanningRequestV1.MatchString(trimmed) || distillCandidateOneOffCampaignRunbookV1.MatchString(trimmed) {
+		return nil
+	}
+	if distillCandidateTemporaryRunConstraintV1.MatchString(trimmed) &&
+		!strings.Contains(strings.ToLower(trimmed), "i want") &&
+		!distillCandidateStrongQuestionDirectiveV1.MatchString(trimmed) {
 		return nil
 	}
 	var cues []distillCandidateCueV1
@@ -1120,7 +1156,9 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 			}
 			cues := distillCandidateCuesV1(turn.Text)
 			if len(cues) == 0 && index > 0 && transcript.Turns[index-1].Role == distillTranscriptRoleAssistantV1 && distillCandidateAdjacentAcceptanceV1.MatchString(strings.TrimSpace(turn.Text)) {
-				cues = []distillCandidateCueV1{distillCandidateCueAcceptanceV1}
+				if !distillCandidateBareYesV1.MatchString(strings.TrimSpace(turn.Text)) || !distillCandidateOneOffAssistantOfferV1.MatchString(transcript.Turns[index-1].Text) {
+					cues = []distillCandidateCueV1{distillCandidateCueAcceptanceV1}
+				}
 			}
 			if len(cues) == 0 {
 				continue
@@ -1142,7 +1180,9 @@ func selectDistillCandidateCardsLimitedV1(transcript distillNormalizedTranscript
 			if index+1 < len(transcript.Turns) && transcript.Turns[index+1].Role == distillTranscriptRoleUserV1 && transcript.Turns[index+1].DirectUser {
 				nextCues := distillCandidateCuesV1(transcript.Turns[index+1].Text)
 				if len(nextCues) == 0 && distillCandidateAdjacentAcceptanceV1.MatchString(strings.TrimSpace(transcript.Turns[index+1].Text)) {
-					nextCues = []distillCandidateCueV1{distillCandidateCueAcceptanceV1}
+					if !distillCandidateBareYesV1.MatchString(strings.TrimSpace(transcript.Turns[index+1].Text)) || !distillCandidateOneOffAssistantOfferV1.MatchString(turn.Text) {
+						nextCues = []distillCandidateCueV1{distillCandidateCueAcceptanceV1}
+					}
 				}
 				if distillCandidateCueSliceContainsV1(nextCues, distillCandidateCueAcceptanceV1) || distillCandidateCueSliceContainsV1(nextCues, distillCandidateCueCorrectionV1) {
 					continue

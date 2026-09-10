@@ -140,7 +140,11 @@ func validateDistillQualityRunManifestV1(manifest distillQualityRunManifestV1) e
 			return fmt.Errorf("quality run manifest has invalid %s", field)
 		}
 	}
-	if manifest.CandidateSchemaVersion != distillCandidateSchemaVersion || manifest.RedactionVersion != distillCandidateRedactionVersionV2 {
+	// A sealed quality packet is self-validating and remains useful after the
+	// candidate selector advances. Keep historical schemas readable for exact
+	// digest-based comparison, but never accept a future schema this binary does
+	// not understand or a different redaction boundary.
+	if manifest.CandidateSchemaVersion <= 0 || manifest.CandidateSchemaVersion > distillCandidateSchemaVersion || manifest.RedactionVersion != distillCandidateRedactionVersionV2 {
 		return errors.New("quality run manifest candidate or redaction version mismatch")
 	}
 	if manifest.SessionViews <= 0 || manifest.AdmittedItems < 0 || manifest.FilteredItems <= 0 || manifest.FilteredRequested <= 0 || manifest.FilteredItems > manifest.FilteredRequested || manifest.PrivateSourceRecords < manifest.AdmittedItems+manifest.FilteredItems {

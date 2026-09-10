@@ -29,6 +29,7 @@ const (
 	distillQualityAdjudicateQueueInvV1   = "invalid"
 	distillQualityAdjudicateQueueDisV1   = "disagreement"
 	distillQualityAdjudicateQueueCleanV1 = "clean"
+	distillQualityAdjudicateQueueDeltaV1 = "delta"
 )
 
 type distillQualityAdjudicateResultV1 struct {
@@ -287,7 +288,7 @@ On a non-TTY, or with --plain, it uses the deterministic line-oriented fallback.
 	}
 	cmd.Flags().StringVar(&bundleDir, "bundle", "", "Prepared Phase 2 quality bundle directory (required)")
 	cmd.Flags().StringVar(&adjudicatorID, "adjudicator", "", "Stable human reviewer id (required)")
-	cmd.Flags().StringVar(&queue, "queue", distillQualityAdjudicateQueueCalV1, "Queue: calibration, all, critical, invalid, disagreement, or clean")
+	cmd.Flags().StringVar(&queue, "queue", distillQualityAdjudicateQueueCalV1, "Queue: calibration, delta, all, critical, invalid, disagreement, or clean")
 	cmd.Flags().IntVar(&limit, "limit", distillQualityAdjudicateDefaultV1, "Maximum items presented in this session (1..100)")
 	cmd.Flags().StringVar(&themeName, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
 	cmd.Flags().BoolVar(&plain, "plain", false, "Use the line-oriented reviewer instead of the full-screen TUI")
@@ -418,6 +419,38 @@ func openDistillQualityAdjudicationSessionV1(bundleDir, adjudicatorID, queue str
 	items, err := buildDistillQualityAdjudicateItemsV1(packets, sources, aggregates, byRecordPacket)
 	if err != nil {
 		return fail(err)
+	}
+	if queue == distillQualityAdjudicateQueueDeltaV1 {
+		metadata, err := loadDistillQualityReuseMetadataV1(bundleDir)
+		if err != nil {
+			return fail(fmt.Errorf("quality adjudication delta queue: %w", err))
+		}
+		if err := validateDistillQualityReuseTargetV1(metadata, manifest, packets); err != nil {
+			return fail(fmt.Errorf("quality adjudication delta queue: %w", err))
+		}
+		if metadata.TargetPacketCount != len(packets) {
+			return fail(errors.New("quality adjudication delta queue: reuse metadata packet count mismatch"))
+		}
+		knownPackets := make(map[string]bool, len(packets))
+		for _, packet := range packets {
+			knownPackets[packet.PacketID] = true
+		}
+		for _, id := range append(append([]string(nil), metadata.ReusedPacketIDs...), metadata.DeltaPacketIDs...) {
+			if !knownPackets[id] {
+				return fail(fmt.Errorf("quality adjudication delta queue: metadata references unknown packet %q", id))
+			}
+		}
+		delta := make(map[string]bool, len(metadata.DeltaPacketIDs))
+		for _, id := range metadata.DeltaPacketIDs {
+			delta[id] = true
+		}
+		filtered := items[:0]
+		for _, item := range items {
+			if delta[item.Packet.PacketID] {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
 	}
 	items = selectDistillQualityAdjudicateQueueV1(items, queue, limit)
 	result := distillQualityAdjudicateResultV1{
@@ -585,6 +618,7 @@ func selectDistillQualityAdjudicateQueueV1(items []distillQualityAdjudicateItemV
 	selected := make([]distillQualityAdjudicateItemV1, 0, limit)
 	for _, item := range items {
 		match := queue == distillQualityAdjudicateQueueAllV1 ||
+			queue == distillQualityAdjudicateQueueDeltaV1 ||
 			queue == distillQualityAdjudicateQueueCritV1 && item.Aggregate.Critical ||
 			queue == distillQualityAdjudicateQueueInvV1 && item.Aggregate.Invalid ||
 			queue == distillQualityAdjudicateQueueDisV1 && item.Aggregate.Disagreement ||
@@ -600,7 +634,7 @@ func selectDistillQualityAdjudicateQueueV1(items []distillQualityAdjudicateItemV
 }
 
 func validDistillQualityAdjudicateQueueV1(queue string) bool {
-	return queue == distillQualityAdjudicateQueueCalV1 || queue == distillQualityAdjudicateQueueAllV1 || queue == distillQualityAdjudicateQueueCritV1 || queue == distillQualityAdjudicateQueueInvV1 || queue == distillQualityAdjudicateQueueDisV1 || queue == distillQualityAdjudicateQueueCleanV1
+	return queue == distillQualityAdjudicateQueueCalV1 || queue == distillQualityAdjudicateQueueAllV1 || queue == distillQualityAdjudicateQueueCritV1 || queue == distillQualityAdjudicateQueueInvV1 || queue == distillQualityAdjudicateQueueDisV1 || queue == distillQualityAdjudicateQueueCleanV1 || queue == distillQualityAdjudicateQueueDeltaV1
 }
 
 func renderDistillQualityAdjudicateItemV1(output io.Writer, item distillQualityAdjudicateItemV1, index, total int, fullEvidence bool) {
