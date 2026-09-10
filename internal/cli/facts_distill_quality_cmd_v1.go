@@ -160,6 +160,7 @@ func newFactsDistillQualityCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsDistillQualityAdjudicateCommand(opts))
 	cmd.AddCommand(newFactsDistillQualityResolveCommand(opts))
 	cmd.AddCommand(newFactsDistillQualityCorpusCommand(opts))
+	cmd.AddCommand(newFactsDistillQualitySnapshotCommand(opts))
 	return cmd
 }
 

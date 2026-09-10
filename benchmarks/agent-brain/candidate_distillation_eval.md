@@ -23,6 +23,32 @@ excludes known family identities and exact duplicate source digests. The
 operator must also account for related families that lack shared identifiers,
 freeze the split before judgments, and retain the preconfirmation seal.
 
+To prepare isolated extraction stores from the same selected canonical source:
+
+```sh
+entire-brain facts distill-quality snapshot /path/to/repo \
+  --out /private/fresh-paired-snapshot --branch BRANCH --json
+```
+
+The private snapshot contains separate `legacy` and `candidate` plugin roots,
+identical source-only manifests and transcripts, and the same taxonomy. It
+copies no active facts, proposals, or caches. Its scope digest binds transcript
+bytes and session authority metadata. The aggregate raw-source limit is 1 GiB;
+narrow the branch/session scope when it is exceeded.
+
+For each arm, set `ENTIRE_PLUGIN_CONFIG_DIR`, `ENTIRE_PLUGIN_DATA_DIR`,
+`ENTIRE_PLUGIN_STATE_DIR`, and `ENTIRE_PLUGIN_CACHE_DIR` to the paths in its
+snapshot manifest, then run the ordinary distill command with that pipeline.
+First verify `distill --dry-run --json` reports the arm's `brain_dir`. Use a
+fresh copy of the empty arm for every cold repetition. The snapshot is private
+source material and has neither reference labels nor release approval.
+
+The existing `facts eval` arms can inspect each resulting store with the same
+task file. `facts eval-compare` intentionally treats different Brain manifests
+as diagnostic unless its release identity requirements are met; do not bypass
+that check to claim a paired release result. Bind common source/task identities
+and both treatment artifacts separately in the quantitative evidence below.
+
 Run `python3 benchmarks/agent-brain/candidate_distillation_eval.py EVIDENCE.json`.
 It accepts a single strict JSON artifact with schema
 `candidate-distillation-quantitative-evidence/v1` and writes a deterministic
