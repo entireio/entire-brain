@@ -223,7 +223,9 @@ func newDocEmbedStore(brainDir, modelID string, dim int) *embedStore {
 // (os.IsNotExist is skipped, not raised), so without this check a deleted or
 // unreadable index is indistinguishable from "nothing matched".
 func verifyDeclaredDocIndex(brainDir string) error {
-	f, err := os.Open(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)))
+	// Nonblocking open makes the descriptor check safe even if the leaf is
+	// replaced with a FIFO immediately before opening it.
+	f, err := os.OpenFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), os.O_RDONLY|memoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return err
 	}
