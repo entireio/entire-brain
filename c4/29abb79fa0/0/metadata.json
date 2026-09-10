@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "c429abb79fa0",
+  "session_id": "01a08d14-5229-77a0-87ad-3b12e24ca4ca",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-10T22:28:42.446106Z",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/candidate_distillation_implementation_status.md",
+    "docs/candidate_distillation_plan.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "ce78777b6131",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 467518,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 33858304,
+    "output_tokens": 113680,
+    "api_call_count": 301
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-10T22:28:42.236958Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 985,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 985,
+    "total_lines_changed": 985,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
