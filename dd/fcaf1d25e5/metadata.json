@@ -1,0 +1,19 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "ddfcaf1d25e5",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/factmerge/ndjson.go",
+    "internal/factmerge/ndjson_boundary_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/dd/fcaf1d25e5/0/metadata.json",
+      "transcript": "/dd/fcaf1d25e5/0/full.jsonl",
+      "compact_transcript": "/dd/fcaf1d25e5/0/transcript.jsonl",
+      "content_hash": "/dd/fcaf1d25e5/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
