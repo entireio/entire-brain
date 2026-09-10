@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "5e4e420ff60f",
+  "session_id": "01a0200a-63d8-7b21-adef-c3850aecebf7",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-10T20:44:48.065034Z",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "d181b3a644ac",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 14005045,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 973996672,
+    "output_tokens": 1574408,
+    "api_call_count": 6953
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-10T20:44:44.925959Z",
+    "agent_lines": 267,
+    "agent_removed": 171,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 267,
+    "total_lines_changed": 438,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

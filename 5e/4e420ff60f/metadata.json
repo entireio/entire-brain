@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "5e4e420ff60f",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5e/4e420ff60f/0/metadata.json",
+      "transcript": "/5e/4e420ff60f/0/full.jsonl",
+      "compact_transcript": "/5e/4e420ff60f/0/transcript.jsonl",
+      "content_hash": "/5e/4e420ff60f/0/content_hash.txt",
+      "prompt": "/5e/4e420ff60f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14005045,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 973996672,
+    "output_tokens": 1574408,
+    "api_call_count": 6953
+  }
+}

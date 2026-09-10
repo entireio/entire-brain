@@ -1,0 +1,9 @@
+Make it so
+
+---
+
+What is left from the original plan?
+
+---
+
+Rework this plan to put the human scoring all the way to the end as the final gate. Complete all other phases only with agentic scoring, i.e. through Claude, Copilot, and Cursor, with Codex Astra as tie breaker. Also encode in the plan that subagents on cheapers model (Sol, Terra, Luna) are used for implementation work, while the main agent is orchestrating and judging.
