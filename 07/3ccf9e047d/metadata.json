@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "073ccf9e047d",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "benchmarks/agent-brain/candidate_distillation_eval.md",
+    "benchmarks/agent-brain/candidate_distillation_eval.py",
+    "benchmarks/agent-brain/test_candidate_distillation_eval.py",
+    "docs/candidate_distillation_gate_evidence.md",
+    "internal/cli/distill_apply_runner_v2.go",
+    "internal/cli/distill_apply_runner_v2_test.go",
+    "internal/cli/distill_candidates.go",
+    "internal/cli/distill_candidates_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_discovery_cache_v1.go",
+    "internal/cli/distill_discovery_cache_v1_test.go",
+    "internal/cli/distill_protocol_v2.go",
+    "internal/cli/distill_protocol_v2_test.go",
+    "internal/cli/distill_quality_corpus_v1.go",
+    "internal/cli/distill_quality_corpus_v1_test.go",
+    "internal/cli/distill_quality_gate_v1.go",
+    "internal/cli/distill_quality_gate_v1_test.go",
+    "internal/cli/distill_quality_judge_cmd_v1.go",
+    "internal/cli/distill_quality_reuse_v1.go",
+    "internal/cli/distill_quality_reuse_v1_test.go",
+    "internal/cli/distill_shadow_v2.go",
+    "internal/cli/distill_shadow_v2_test.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_distill_quality_cmd_v1.go",
+    "internal/cli/hook_cmd.go",
+    "internal/cli/hook_cmd_test.go",
+    "internal/cli/publish_test.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/session_privacy_discovery_cache_v1_test.go",
+    "internal/cli/session_privacy_verify.go",
+    "internal/cli/watch.go",
+    "internal/cli/watch_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/07/3ccf9e047d/0/metadata.json",
+      "transcript": "/07/3ccf9e047d/0/full.jsonl",
+      "compact_transcript": "/07/3ccf9e047d/0/transcript.jsonl",
+      "content_hash": "/07/3ccf9e047d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 286492,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 25523328,
+    "output_tokens": 64675,
+    "api_call_count": 236
+  }
+}
