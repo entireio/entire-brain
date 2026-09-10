@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "08e6e3efe25b",
+  "strategy": "manual-commit",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "benchmarks/agent-brain/candidate_distillation_eval.md",
+    "internal/cli/distill_quality_snapshot_v1.go",
+    "internal/cli/distill_quality_snapshot_v1_test.go",
+    "internal/cli/facts_distill_quality_cmd_v1.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/08/e6e3efe25b/0/metadata.json",
+      "transcript": "/08/e6e3efe25b/0/full.jsonl",
+      "compact_transcript": "/08/e6e3efe25b/0/transcript.jsonl",
+      "content_hash": "/08/e6e3efe25b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 433550,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 29714944,
+    "output_tokens": 87794,
+    "api_call_count": 278
+  }
+}

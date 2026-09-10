@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "08e6e3efe25b",
+  "session_id": "01a08d14-5229-77a0-87ad-3b12e24ca4ca",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-10T22:14:03.706005Z",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/candidate_distillation_eval.md",
+    "internal/cli/distill_quality_snapshot_v1.go",
+    "internal/cli/distill_quality_snapshot_v1_test.go",
+    "internal/cli/facts_distill_quality_cmd_v1.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "ce78777b6131",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 433550,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 29714944,
+    "output_tokens": 87794,
+    "api_call_count": 278
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-10T22:14:03.145281Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 517,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 517,
+    "total_lines_changed": 517,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
