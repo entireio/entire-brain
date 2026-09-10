@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
+  "checkpoint_id": "bd62f9ced436",
+  "session_id": "01a0200a-63d8-7b21-adef-c3850aecebf7",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-10T13:50:10.799043Z",
+  "branch": "feat/candidate-distillation-quality-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/candidate_distillation_plan.md",
+    "internal/cli/distill_quality_adjudicate_v1.go",
+    "internal/cli/distill_quality_report_v1.go",
+    "internal/tui/quality_review.go",
+    "internal/tui/quality_review_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "63d7dbce6226",
+  "checkpoint_transcript_start": 36166,
+  "transcript_lines_at_start": 36166,
+  "compact_transcript_start": 5841,
+  "token_usage": {
+    "input_tokens": 31211,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5894144,
+    "output_tokens": 13707,
+    "api_call_count": 29
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-10T13:50:07.884708Z",
+    "agent_lines": 107,
+    "agent_removed": 31,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 107,
+    "total_lines_changed": 138,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
