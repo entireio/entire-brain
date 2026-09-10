@@ -4471,7 +4471,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		report.Live = live
 	}
 	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
-		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, repoDir, manifest, report.Live)
+		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live)
 		if report.Retrieval != nil {
 			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
 		}
@@ -4487,7 +4487,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	return report, nil
 }
 
-func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
+func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
@@ -4527,7 +4527,18 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDi
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
 		report.DocsRecords = docs.Records
 		report.DocsFiles = docs.Files
-		if docs.GeneratedAt.IsZero() {
+		if err := verifyDeclaredDocIndex(brainDir); err != nil {
+			// The manifest declaring a docs index is not evidence the index is
+			// on disk, and retrieval skips a missing index silently. Freshness
+			// must not claim "ok" for a docs layer that will contribute nothing.
+			state := "unsafe"
+			detail := "docs index declared in the manifest but unreadable: " + err.Error()
+			if os.IsNotExist(err) {
+				state = "missing"
+				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run entire brain refresh --agent none"
+			}
+			axes["docs"] = staleAxis{State: state, Detail: detail}
+		} else if docs.GeneratedAt.IsZero() {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp"}
 		} else if manifest.Sources.Seed == nil {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}
