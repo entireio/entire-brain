@@ -20,12 +20,11 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
-
-	"github.com/ashtom/entire-brain/internal/factmerge"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/ashtom/entire-brain/internal/factmerge"
 	"github.com/spf13/cobra"
 )
 
