@@ -57,7 +57,7 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:ae387fc610d9bc763e6e7320a4faf0a9279d5b9329850d5c98e33218cb8e0999"
+    "sha256": "sha256:8932b395b918304b7b27366ad9627b051ce75a1d04b7c0e97571489bbd170c9a"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -124,6 +124,6 @@
   ],
   "schema": 1,
   "source_drift_paths": [],
-  "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
+  "source_head": "d35e7ae53a5f3ab26418407f51369a2da19638c3",
   "warnings": []
 }

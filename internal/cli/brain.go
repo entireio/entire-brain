@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -121,27 +122,120 @@ func withBrainManifestWriteLock(brainDir string, fn func() error) error {
 	return fn()
 }
 
+// loadBrainManifest reads the manifest for the callers that only consume it —
+// status, doctor, the MCP surface, the memory worker, distillation, search.
+//
+// It tolerates fields it does not declare. Manifest fields are added and retired
+// without a schema bump (history_coverage.checkpointed_unexported_commits was
+// retired at version 3), so every manifest written before such a change carries
+// a field a later build has never heard of. Rejecting those bytes reported the
+// whole brain as memory_state_corrupt: all sources off, no facts, and the memory
+// worker failing on its retry loop indefinitely, for state that was merely
+// written by a different build and is entirely readable.
+//
+// Writers must not be this forgiving — see loadBrainManifestForReplace.
 func loadBrainManifest(outputDir string) (*exportManifest, error) {
+	manifest, _, err := readBrainManifest(outputDir, true)
+	return manifest, err
+}
+
+// loadBrainManifestForReplace reads the manifest on behalf of a writer about to
+// overwrite it, and refuses fields it cannot round-trip: re-encoding from a
+// struct that never saw them erases what another build recorded. Availability is
+// the reader's concern; not destroying state is this one's.
+func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
+	manifest, _, err := readBrainManifest(outputDir, false)
+	return manifest, err
+}
+
+// readBrainManifest also reports whether it dropped fields written by another
+// build, so status and doctor can recommend a refresh instead of staying silent.
+func readBrainManifest(outputDir string, tolerateUnknownFields bool) (*exportManifest, bool, error) {
 	data, present, err := readMemoryStateFile(outputDir, exportManifestFileName, "brain manifest", maxManifestBytes)
 	if err != nil {
-		return nil, fmt.Errorf("read brain manifest: %w", err)
+		return nil, false, fmt.Errorf("read brain manifest: %w", err)
 	}
 	if !present {
-		return &exportManifest{SchemaVersion: brainManifestSchemaVersion}, nil
+		return &exportManifest{SchemaVersion: brainManifestSchemaVersion}, false, nil
 	}
 	var manifest exportManifest
-	version, err := decodeStrictVersionedJSON(data, &manifest, brainManifestSchemaVersion, "brain manifest")
+	version, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest")
 	if err != nil {
-		return nil, fmt.Errorf("parse brain manifest: %w", err)
+		return nil, false, fmt.Errorf("parse brain manifest: %w", err)
+	}
+	droppedUnknownFields, err := decodeVersionedJSONBody(data, &manifest, tolerateUnknownFields)
+	if err != nil {
+		if errors.Is(err, errTrailingJSONData) {
+			return nil, false, fmt.Errorf("parse brain manifest: %s: brain manifest contains trailing JSON data", memoryErrStateCorrupt)
+		}
+		return nil, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
 	}
 	// Versionless legacy exports predate the top-level schema field and adapt as
 	// v1. Explicit v1-v3 documents are supported; no writer may down-convert a
 	// vNext manifest or silently discard additive fields.
 	if version < 0 || version > brainManifestSchemaVersion {
-		return nil, fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
+		return nil, false, fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
 	}
 	normalizeBrainManifest(&manifest)
-	return &manifest, nil
+	return &manifest, droppedUnknownFields, nil
+}
+
+// errManifestRoundTrips reports a manifest this build can already rewrite, so
+// there is nothing for a forced refresh to discard.
+var errManifestRoundTrips = errors.New("manifest round-trips")
+
+// discardManifestThisBuildCannotRewrite removes a manifest whose only defect is
+// fields this build cannot name, so an explicit forced refresh can rebuild it.
+//
+// Every writer refuses such a manifest deliberately: re-encoding from a struct
+// that never saw a field erases it. That leaves a brain readable but frozen,
+// and until now the only way out was for a person to delete the file by hand.
+// An operator asking for a forced refresh is asking for exactly that
+// replacement, rebuilt from canonical sources -- but only for this one cause:
+//
+//   - a newer schema stays. Down-converting a vNext manifest is the loss the
+//     version check exists to prevent, and --force does not overrule it.
+//   - genuine corruption stays. That is a diagnosis for the operator, not bytes
+//     to delete on a guess.
+//
+// The removal runs under the manifest write lock and through the checked
+// remover, so it inherits the same symlink and file-identity guarantees as
+// every other cooperative manifest mutation.
+func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
+	unrewritable := false
+	err := withBrainManifestWriteLock(brainDir, func() error {
+		return removeCheckedMemoryStateFile(brainDir, exportManifestFileName, "brain manifest", maxManifestBytes, func(data []byte) error {
+			version, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest")
+			if err != nil {
+				return err
+			}
+			// The same range the reader enforces. checkedVersionedJSONHeader only
+			// rejects versions newer than this build, so without this a negative
+			// or otherwise out-of-range version reaches the delete -- state the
+			// reader already calls unsupported, which is exactly the "genuine
+			// corruption stays" case above.
+			if version < 0 || version > brainManifestSchemaVersion {
+				return fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
+			}
+			var manifest exportManifest
+			droppedUnknownFields, decodeErr := decodeVersionedJSONBody(data, &manifest, true)
+			if decodeErr != nil {
+				return fmt.Errorf("%s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, decodeErr)
+			}
+			if !droppedUnknownFields {
+				return errManifestRoundTrips
+			}
+			unrewritable = true
+			return nil
+		})
+	})
+	if errors.Is(err, errManifestRoundTrips) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return unrewritable, nil
 }
 
 func normalizeBrainManifest(manifest *exportManifest) {
@@ -284,7 +378,7 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		// to exclude hostile non-cooperating filesystem mutation, but no current
 		// writer can down-convert a vNext or erase unrecognized current bytes it
 		// observed.
-		if _, err := loadBrainManifest(outputDir); err != nil {
+		if _, err := loadBrainManifestForReplace(outputDir); err != nil {
 			return err
 		}
 		normalizeBrainManifest(&manifest)
