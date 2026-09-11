@@ -160,6 +160,9 @@ func parseLeafPath(path string) (leafRecord, error) {
 			return leafRecord{}, fmt.Errorf("path target missing %s", PathTargetSeparator)
 		}
 		target = Target{Type: TargetPath, Value: decodePathTargetSegments(comps[1:sepIdx])}
+		if encodePathTargetValue(target.Value) != strings.Join(comps[1:sepIdx], "/") {
+			return leafRecord{}, fmt.Errorf("non-canonical path target encoding")
+		}
 		// The tree is untrusted input on a shared ref: reject at the READ boundary
 		// a target value the serializer could not have produced, so it is
 		// classified as ErrMalformedTree (a permanent failure the consumer drops)
