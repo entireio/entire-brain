@@ -111,6 +111,11 @@ func ParseTarget(s string) (Target, error) {
 	if tt == TargetProject {
 		return Target{Type: TargetProject}, nil
 	}
+	// Path values are not sharded, but the text parser has always required
+	// the same minimum length for every non-project target.
+	if tt == TargetPath && len(value) < MinTargetValueLen {
+		return Target{}, fmt.Errorf("%s target value %q must be at least %d characters", tt, value, MinTargetValueLen)
+	}
 	t := Target{Type: tt, Value: value}
 	if err := ValidateTargetValue(t); err != nil {
 		return Target{}, err
