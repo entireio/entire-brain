@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "916919cb9aab",
+  "strategy": "manual-commit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_cross_repo_scope_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/91/6919cb9aab/0/metadata.json",
+      "transcript": "/91/6919cb9aab/0/full.jsonl",
+      "compact_transcript": "/91/6919cb9aab/0/transcript.jsonl",
+      "content_hash": "/91/6919cb9aab/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12536,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2672896,
+    "output_tokens": 3410,
+    "api_call_count": 14
+  }
+}
