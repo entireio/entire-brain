@@ -56,7 +56,7 @@ Prerequisites:
 - Entire already enabled in the repository you want to use
 - The target agent hooks already installed for that repository
 - Git
-- Go 1.26 toolchain for `entire-brain`
+- Go 1.27 toolchain for `entire-brain`
 - A cgo-capable compiler/toolchain for `entire-graph`
 
 ### 1. Clone the repositories

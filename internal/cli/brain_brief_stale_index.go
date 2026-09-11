@@ -46,10 +46,14 @@ func brainBriefPromotePostIndexFiles(
 	task string,
 	report *brainBriefReport,
 ) {
+	brainBriefPromotePostIndexFilesWithTimeout(ctx, runner, status, task, report, brainBriefPostIndexTimeout)
+}
+
+func brainBriefPromotePostIndexFilesWithTimeout(ctx context.Context, runner CommandRunner, status brainStatusReport, task string, report *brainBriefReport, timeout time.Duration) {
 	if report == nil {
 		return
 	}
-	editFiles, testFiles := brainBriefPostIndexFiles(ctx, runner, status, task)
+	editFiles, testFiles := brainBriefPostIndexFilesWithTimeout(ctx, runner, status, task, timeout)
 	if len(editFiles) == 0 && len(testFiles) == 0 {
 		return
 	}
@@ -59,6 +63,12 @@ func brainBriefPromotePostIndexFiles(
 }
 
 func brainBriefPostIndexFiles(ctx context.Context, runner CommandRunner, status brainStatusReport, task string) ([]string, []string) {
+	return brainBriefPostIndexFilesWithTimeout(ctx, runner, status, task, brainBriefPostIndexTimeout)
+}
+
+// Keep the product latency budget separate from real-Git integration tests:
+// process startup under Windows race instrumentation can exceed 500ms alone.
+func brainBriefPostIndexFilesWithTimeout(ctx context.Context, runner CommandRunner, status brainStatusReport, task string, timeout time.Duration) ([]string, []string) {
 	if runner == nil {
 		return nil, nil
 	}
@@ -71,7 +81,7 @@ func brainBriefPostIndexFiles(ctx context.Context, runner CommandRunner, status 
 		return nil, nil
 	}
 
-	boundedCtx, cancel := context.WithTimeout(ctx, brainBriefPostIndexTimeout)
+	boundedCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if _, _, err := runner.Run(boundedCtx, repoRoot, "git", "merge-base", "--is-ancestor", indexed, current); err != nil {
 		return nil, nil
