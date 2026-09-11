@@ -1,0 +1,29 @@
+Review all open PRs and Entire trails for this repo
+
+---
+
+Let's start with the five: Inspect the Entire trail for each, update the branch if it's behind, review and address any open findings, push fixes, keep looping until all findings are clear and CI is green, then give me the link to the trail with a judgement if it can be merged,
+
+---
+
+Review trail 181 next
+
+---
+
+For the above 5, check which are still open and re-run their monitors
+
+---
+
+Check again
+
+---
+
+Review PRs 129 and 140 and their trails next. Fix all findings until no more findings are found. They are all part of the same stack, bottom being 126.
+
+---
+
+Merged. Pick the next 5.
+
+---
+
+Ok, do the same review protocol with them
