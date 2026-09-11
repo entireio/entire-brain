@@ -1032,7 +1032,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 	if marshalErr != nil {
 		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode filtered semantic snapshot header: %w", marshalErr)
 	}
-	ignoredIDs := make(map[string]struct{})
+	ignoredIDs := make(map[string]bool)
 	line := 1
 	for scanner.Scan() {
 		line++
@@ -1047,8 +1047,8 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		if err := validateSemanticRecordPath(&record); err != nil {
 			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 		}
-		if ignore.Ignored(record.semanticPath()) && record.ID != "" {
-			ignoredIDs[record.ID] = struct{}{}
+		if record.ID != "" && record.semanticPath() != "" {
+			ignoredIDs[record.ID] = ignoredIDs[record.ID] || ignore.Ignored(record.semanticPath())
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -1083,7 +1083,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			if ignore.Ignored(record.semanticPath()) {
 				continue
 			}
-			if record.RecordType == "relation" && relationEndpointIgnored(record, ignore, ignoredIDs) {
+			if record.RecordType == "relation" && relationEndpointIgnored(record, header.RepoKey, ignore, ignoredIDs) {
 				continue
 			}
 			switch record.RecordType {
@@ -1150,21 +1150,95 @@ func (r semanticRecord) semanticPath() string {
 }
 
 // semanticEndpointPath extracts the repository-relative file path encoded in a
-// semantic relation endpoint ID, or "" when the ID carries no path. Internal
-// IDs are "<repo-key>:<lang>:<path>:<kind>:<name>"; the repo key, language, and
-// kind segments never contain ":", so the path is always the third field.
-// External endpoints ("external:<kind>:<value>") carry no file path. Endpoint
-// IDs are filtered against the ignore set by file path so a substring in the
-// repo key or symbol name cannot accidentally redact unrelated relations.
-func semanticEndpointPath(id string) string {
+// semantic relation endpoint ID, or "" when the ID carries no path or the path
+// cannot be recovered from the ID alone.
+//
+// entire-graph builds endpoint IDs by joining unescaped fields with ":":
+//
+//	symbol:   "<repo-key>:<language>:<path>:<kind>:<qualified-name>"
+//	file:     "<repo-key>:file:<path>"
+//	external: "external:<kind>:<value>"          (carries no file path)
+//
+// A file path may legitimately contain ":" ("od:d/mod.py"), a local repo key is
+// "local/<directory name>" and so may contain ":" too, and a qualified name
+// routinely does (an Express route symbol is named "/users/:id"). Splitting on
+// ":" and taking a fixed field therefore reads the wrong segment: it turned
+// "od:d/mod.py" into "od" and a colon in the repo key into the language. That
+// path is what the ignore set is matched against, so a mis-read segment either
+// redacts relations whose file is not ignored or keeps relations whose file is.
+//
+// A relation record carries no file_path of its own — entire-graph's
+// RelationRecord has only from_id/to_id — so the path cannot simply be read off
+// the record; it has to come out of the ID. The parse below is therefore
+// anchored on the two fields that are known to be free of ":": the repo key
+// (known from the snapshot header) and the kind, which is always a bare token.
+func semanticEndpointPath(repoKey, id string) string {
 	if id == "" || strings.HasPrefix(id, "external:") {
 		return ""
 	}
-	parts := strings.Split(id, ":")
-	if len(parts) < 5 {
+	if repoKey == "" {
+		// Without the header's repo key the leading field cannot be delimited,
+		// so no parse is trustworthy. Endpoints then fall back to the ignored-ID
+		// set, which is exact. (A snapshot with no repo_key is rejected by
+		// validateSemanticSnapshotHeader anyway.)
 		return ""
 	}
-	return parts[2]
+	rest, ok := strings.CutPrefix(id, repoKey+":")
+	if !ok {
+		// An endpoint from another repository: it names no file in this one.
+		return ""
+	}
+	// File endpoint: everything after the "file:" marker is the path, colons
+	// included, so this shape is always exact.
+	if path, ok := strings.CutPrefix(rest, "file:"); ok {
+		return path
+	}
+	// Symbol endpoint: the language never contains ":", so it always ends at the
+	// first colon.
+	_, rest, ok = strings.Cut(rest, ":")
+	if !ok {
+		return ""
+	}
+	return semanticSymbolIDPath(rest)
+}
+
+// semanticSymbolIDPath recognizes provider kind markers, not arbitrary bare
+// path segments. Unescaped IDs are ambiguous when both the path and name
+// contain a kind marker; return no guess then and use snapshot ID metadata.
+func semanticSymbolIDPath(rest string) string {
+	result := ""
+	fallback, candidates := "", 0
+	for i := 0; i < len(rest); i++ {
+		if rest[i] != ':' || i == 0 {
+			continue
+		}
+		kind, _, ok := strings.Cut(rest[i+1:], ":")
+		if !ok {
+			continue
+		}
+		if kind != "" && !strings.ContainsAny(kind, "/.") {
+			// A later bare token may be the real (possibly future) kind, or
+			// part of the qualified name. Neither interpretation is provable.
+			if result != "" {
+				return ""
+			}
+			fallback = rest[:i]
+			candidates++
+		}
+		switch kind {
+		case "function", "method", "class", "struct", "interface", "enum", "type", "type_alias", "variable", "constant", "const", "field", "property", "module", "namespace", "package", "constructor", "trait", "impl", "macro", "test", "route", "cli_command", "workflow", "job", "tool":
+		default:
+			continue
+		}
+		if result != "" {
+			return ""
+		}
+		result = rest[:i]
+	}
+	if result == "" && candidates == 1 {
+		return fallback
+	}
+	return result
 }
 
 func (r *semanticRecord) setSemanticPath(path string) {
