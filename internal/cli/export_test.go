@@ -88,6 +88,9 @@ func (r *fakeCommandRunner) run(ctx context.Context, dir string, env map[string]
 				return []byte(response.stdout), []byte(response.stderr), response.err
 			}
 		}
+		if key == fakeCommandKey("entire", "graph", "version", "--json") {
+			return []byte(`{"provider":"entire-graph","version":"test"}`), nil, nil
+		}
 		return nil, nil, errors.New("unexpected command: " + key)
 	}
 	return []byte(response.stdout), []byte(response.stderr), response.err

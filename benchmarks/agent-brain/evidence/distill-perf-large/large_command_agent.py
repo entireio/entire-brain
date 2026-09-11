@@ -42,11 +42,35 @@ PREFIXES = [
     "constraints.invariants",
 ]
 
-# A small leaf vocabulary so a large corpus clusters onto a few dozen distinct
-# three-level paths (9 prefixes x these leaves). That keeps enough facts per
+# A leaf vocabulary sized so a large corpus clusters onto ~144 distinct
+# three-level paths (9 prefixes x these 16 leaves). That keeps enough facts per
 # path to exercise the per-chunk reconcile path while staying well under the
 # 50-per-path reconcile scaling notice.
-LEAVES = ["primary", "secondary", "tertiary", "general"]
+#
+# Facts are stored per branch, so what matters is the busiest branch, not the
+# corpus total: four leaves left the entireio/cli `main` branch over 50 facts on
+# some paths and the runs came back with reconcile scaling warnings, which the
+# auditor rejects. Sixteen leaves divides the byte the index is drawn from
+# exactly, so the spread stays uniform and deterministic, and leaves headroom
+# for a corpus that keeps growing.
+LEAVES = [
+    "primary",
+    "secondary",
+    "tertiary",
+    "general",
+    "quaternary",
+    "auxiliary",
+    "baseline",
+    "extended",
+    "supplemental",
+    "adjacent",
+    "derived",
+    "residual",
+    "peripheral",
+    "ancillary",
+    "supporting",
+    "collateral",
+]
 
 
 def candidate_count(reconcile_input: str) -> int:

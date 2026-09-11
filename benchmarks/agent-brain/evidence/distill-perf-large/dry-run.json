@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-16T17:05:51.829925Z",
+  "generated_at": "2026-09-05T13:58:08.48397Z",
   "brain_path": "/tmp/distill-large-evidence/repos/gh/entireio/cli",
   "force": true,
   "agent": "command",
@@ -8,17 +8,17 @@
   "extraction_jobs_cap": 1,
   "max_chunk_bytes": 262144,
   "confidence_threshold": 0.75,
-  "sessions": 2080,
+  "sessions": 2375,
   "cached_sessions": 0,
-  "sessions_to_distill": 2080,
+  "sessions_to_distill": 2375,
   "missing_transcripts": 0,
-  "raw_bytes": 3705016920,
-  "preprocessed_bytes": 93223332,
-  "chunks": 2104,
-  "chunks_if_uncached": 2104,
-  "extraction_agent_calls": 2104,
-  "reconcile_agent_calls_upper_bound": 2104,
-  "estimated_agent_calls_upper_bound": 4208,
+  "raw_bytes": 4198054600,
+  "preprocessed_bytes": 117311688,
+  "chunks": 2435,
+  "chunks_if_uncached": 2435,
+  "extraction_agent_calls": 2435,
+  "reconcile_agent_calls_upper_bound": 2435,
+  "estimated_agent_calls_upper_bound": 4870,
   "branches": [
     {
       "branch": "20260205-gitleaks",
@@ -66,6 +66,15 @@
       "preprocessed_bytes": 19859
     },
     {
+      "branch": "add-entire-checkpoint-config",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 733500
+    },
+    {
       "branch": "add-thinking-lines-compact-transcript",
       "sessions": 2,
       "cached_sessions": 0,
@@ -82,6 +91,15 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 43445
+    },
+    {
+      "branch": "agent-fallback-instructions",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 36356
     },
     {
       "branch": "agent-improvements",
@@ -444,6 +462,24 @@
       "preprocessed_bytes": 47409
     },
     {
+      "branch": "checkpoint-policy-command-semver",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 408730
+    },
+    {
+      "branch": "checkpoint-policy-semver",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 531884
+    },
+    {
       "branch": "checkpoint-version",
       "sessions": 3,
       "cached_sessions": 0,
@@ -471,6 +507,15 @@
       "preprocessed_bytes": 29946
     },
     {
+      "branch": "cli-claude-statusline",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16964
+    },
+    {
       "branch": "cli-completion-updater",
       "sessions": 2,
       "cached_sessions": 0,
@@ -478,6 +523,15 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 11321
+    },
+    {
+      "branch": "cli-onboard",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 228070
     },
     {
       "branch": "cli-trail-branches-optional",
@@ -489,13 +543,13 @@
       "preprocessed_bytes": 6121
     },
     {
-      "branch": "codex/entire-blame-why",
-      "sessions": 2,
+      "branch": "cli-trail-merge",
+      "sessions": 1,
       "cached_sessions": 0,
-      "sessions_to_distill": 2,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 48114
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 8010
     },
     {
       "branch": "codex/remove-v2-transcript-fallback",
@@ -568,6 +622,15 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 36966
+    },
+    {
+      "branch": "copilot-vscode-hooks",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 93804
     },
     {
       "branch": "cor-389-control-plane-context-aware",
@@ -729,7 +792,7 @@
       "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 47085
+      "preprocessed_bytes": 46991
     },
     {
       "branch": "feat/advanced-entire-activity-key-bindings",
@@ -768,6 +831,24 @@
       "preprocessed_bytes": 488582
     },
     {
+      "branch": "feat/api-checkpoint-contract",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 70891
+    },
+    {
+      "branch": "feat/api-checkpoint-contract-v2",
+      "sessions": 13,
+      "cached_sessions": 0,
+      "sessions_to_distill": 13,
+      "chunks": 13,
+      "chunks_if_uncached": 13,
+      "preprocessed_bytes": 417024
+    },
+    {
       "branch": "feat/best-effort-transcript-capture",
       "sessions": 4,
       "cached_sessions": 0,
@@ -777,6 +858,69 @@
       "preprocessed_bytes": 506090
     },
     {
+      "branch": "feat/checkpoint-detangle-types",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 38032
+    },
+    {
+      "branch": "feat/checkpoint-git-refs",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 171942
+    },
+    {
+      "branch": "feat/checkpoint-migrate",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 372456
+    },
+    {
+      "branch": "feat/checkpoint-migrate-to-ulid",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 576632
+    },
+    {
+      "branch": "feat/checkpoint-persistent-rename",
+      "sessions": 13,
+      "cached_sessions": 0,
+      "sessions_to_distill": 13,
+      "chunks": 13,
+      "chunks_if_uncached": 13,
+      "preprocessed_bytes": 417024
+    },
+    {
+      "branch": "feat/checkpoint-refs-resolver",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 82098
+    },
+    {
+      "branch": "feat/checkpoint-rewrite",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 385946
+    },
+    {
       "branch": "feat/checkpoints-v2-validation",
       "sessions": 2,
       "cached_sessions": 0,
@@ -784,6 +928,24 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 156478
+    },
+    {
+      "branch": "feat/control-plane-crud-gaps",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 9437
+    },
+    {
+      "branch": "feat/control-plane-friendly-names",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 18587
     },
     {
       "branch": "feat/detect-hook-managers",
@@ -858,6 +1020,15 @@
       "preprocessed_bytes": 333499
     },
     {
+      "branch": "feat/metadata-point-transcript-jsonl",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 0,
+      "chunks_if_uncached": 0,
+      "preprocessed_bytes": 303
+    },
+    {
       "branch": "feat/openai-privacy-filter",
       "sessions": 2,
       "cached_sessions": 0,
@@ -876,6 +1047,15 @@
       "preprocessed_bytes": 15322
     },
     {
+      "branch": "feat/remove-checkpoints-v1.1-overhead",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 161607
+    },
+    {
       "branch": "feat/review-base-flag-mainline-default",
       "sessions": 2,
       "cached_sessions": 0,
@@ -883,6 +1063,15 @@
       "chunks": 3,
       "chunks_if_uncached": 3,
       "preprocessed_bytes": 359014
+    },
+    {
+      "branch": "feat/review-child-context",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 406743
     },
     {
       "branch": "feat/review-pr2-verify",
@@ -895,12 +1084,30 @@
     },
     {
       "branch": "feat/review-pr3a-dashboard",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 353200
+    },
+    {
+      "branch": "feat/review-skill-fanout",
       "sessions": 1,
       "cached_sessions": 0,
       "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 253425
+      "preprocessed_bytes": 250075
+    },
+    {
+      "branch": "feat/split-store-interface",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 479094
     },
     {
       "branch": "feat/trail-api-migration",
@@ -957,6 +1164,15 @@
       "preprocessed_bytes": 16438
     },
     {
+      "branch": "fix-shallow-merge-base-false-positive-in-metadata-disconnection-check",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 81509
+    },
+    {
       "branch": "fix-slow-v2-pushes",
       "sessions": 3,
       "cached_sessions": 0,
@@ -982,15 +1198,6 @@
       "chunks": 1,
       "chunks_if_uncached": 1,
       "preprocessed_bytes": 2934
-    },
-    {
-      "branch": "fix-trail-list-empty-state",
-      "sessions": 1,
-      "cached_sessions": 0,
-      "sessions_to_distill": 1,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 19710
     },
     {
       "branch": "fix-tty-detection",
@@ -1054,6 +1261,33 @@
       "chunks": 6,
       "chunks_if_uncached": 6,
       "preprocessed_bytes": 147922
+    },
+    {
+      "branch": "fix/codex-windows-hook-fallback",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 166098
+    },
+    {
+      "branch": "fix/coldpath-failover-test-flake",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 55637
+    },
+    {
+      "branch": "fix/corecmd-test-writejson-helper",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 52607
     },
     {
       "branch": "fix/e2e-gemini-interactive-attribution-prompt",
@@ -1135,6 +1369,15 @@
       "chunks": 1,
       "chunks_if_uncached": 1,
       "preprocessed_bytes": 176433
+    },
+    {
+      "branch": "fix/mirror-list-header-env-token",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 43980
     },
     {
       "branch": "fix/slow-integration-tests",
@@ -1299,6 +1542,24 @@
       "preprocessed_bytes": 173525
     },
     {
+      "branch": "investigate/factory-droid-e2e",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 32168
+    },
+    {
+      "branch": "jakub-nespor/readme-update",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 881
+    },
+    {
       "branch": "keyboard-exit-behavior",
       "sessions": 1,
       "cached_sessions": 0,
@@ -1327,12 +1588,12 @@
     },
     {
       "branch": "main",
-      "sessions": 1394,
+      "sessions": 1605,
       "cached_sessions": 0,
-      "sessions_to_distill": 1394,
-      "chunks": 1405,
-      "chunks_if_uncached": 1405,
-      "preprocessed_bytes": 57519346
+      "sessions_to_distill": 1605,
+      "chunks": 1637,
+      "chunks_if_uncached": 1637,
+      "preprocessed_bytes": 74012736
     },
     {
       "branch": "migrate-force-fixups",
@@ -1443,13 +1704,67 @@
       "preprocessed_bytes": 35304
     },
     {
-      "branch": "paul/cor-393-demolish-auth-fallbacks",
+      "branch": "patch-1",
       "sessions": 1,
       "cached_sessions": 0,
       "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 91682
+      "preprocessed_bytes": 13402
+    },
+    {
+      "branch": "paul/cor-471-mirror-jurisdiction-421",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 36969
+    },
+    {
+      "branch": "paul/mirror-create-suspended-warning",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6805
+    },
+    {
+      "branch": "paul/mirror-remove-collaborator-verbs",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 15572
+    },
+    {
+      "branch": "paxos/cli-trail-body-markdown",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 106939
+    },
+    {
+      "branch": "paxos/trail-update-nit-fixes",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 40902
+    },
+    {
+      "branch": "paxos/trail-update-review-fixes",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 18219
     },
     {
       "branch": "perf/force-condense-ended-sessions",
@@ -1605,13 +1920,22 @@
       "preprocessed_bytes": 56433
     },
     {
-      "branch": "push-compact-for-v1",
-      "sessions": 5,
+      "branch": "prompt-logging-in-when-listing-trails",
+      "sessions": 1,
       "cached_sessions": 0,
-      "sessions_to_distill": 5,
-      "chunks": 0,
-      "chunks_if_uncached": 0,
-      "preprocessed_bytes": 297
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 17746
+    },
+    {
+      "branch": "rebuild-pr1400-after-trail542",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 640943
     },
     {
       "branch": "redact-2",
@@ -1677,6 +2001,15 @@
       "preprocessed_bytes": 27742
     },
     {
+      "branch": "return-remote-from-create",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 4861
+    },
+    {
       "branch": "review-876",
       "sessions": 1,
       "cached_sessions": 0,
@@ -1713,22 +2046,13 @@
       "preprocessed_bytes": 79032
     },
     {
-      "branch": "review-pi-reviewer",
-      "sessions": 1,
-      "cached_sessions": 0,
-      "sessions_to_distill": 1,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "preprocessed_bytes": 115285
-    },
-    {
       "branch": "review-profiles",
-      "sessions": 3,
+      "sessions": 2,
       "cached_sessions": 0,
-      "sessions_to_distill": 3,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "preprocessed_bytes": 155540
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 191916
     },
     {
       "branch": "review-review",
@@ -2001,6 +2325,15 @@
       "preprocessed_bytes": 19491
     },
     {
+      "branch": "soph/cli-me-endpoints-to-entire-api",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 91694
+    },
+    {
       "branch": "soph/codex-e2e-fix",
       "sessions": 3,
       "cached_sessions": 0,
@@ -2053,6 +2386,15 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 33046
+    },
+    {
+      "branch": "soph/deslop",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6473
     },
     {
       "branch": "soph/enable-codex-e2e",
@@ -2143,6 +2485,33 @@
       "chunks": 1,
       "chunks_if_uncached": 1,
       "preprocessed_bytes": 76584
+    },
+    {
+      "branch": "soph/git-remote-test-coverage",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 162284
+    },
+    {
+      "branch": "soph/git-remote-tests-2-p0",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 111388
+    },
+    {
+      "branch": "soph/git-remote-tests-3-divergence",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 111388
     },
     {
       "branch": "soph/gmeta",
@@ -2334,6 +2703,15 @@
       "preprocessed_bytes": 6798
     },
     {
+      "branch": "soph/resume-improve",
+      "sessions": 4,
+      "cached_sessions": 0,
+      "sessions_to_distill": 4,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 428235
+    },
+    {
       "branch": "soph/resume-session-ordering",
       "sessions": 1,
       "cached_sessions": 0,
@@ -2343,6 +2721,15 @@
       "preprocessed_bytes": 57582
     },
     {
+      "branch": "soph/session-liveness-pid",
+      "sessions": 3,
+      "cached_sessions": 0,
+      "sessions_to_distill": 3,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 146484
+    },
+    {
       "branch": "soph/settings-v2",
       "sessions": 2,
       "cached_sessions": 0,
@@ -2350,6 +2737,15 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 95582
+    },
+    {
+      "branch": "soph/shallow-metadata-disconnect-false-positive",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 74726
     },
     {
       "branch": "soph/skip-ephemeral-codex-session",
@@ -2379,6 +2775,24 @@
       "preprocessed_bytes": 21698
     },
     {
+      "branch": "soph/trail-agent-guide",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 24238
+    },
+    {
+      "branch": "soph/trail-finding-selected-text",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 60394
+    },
+    {
       "branch": "soph/trail-runner",
       "sessions": 3,
       "cached_sessions": 0,
@@ -2386,6 +2800,24 @@
       "chunks": 3,
       "chunks_if_uncached": 3,
       "preprocessed_bytes": 100830
+    },
+    {
+      "branch": "soph/trail-tune",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 214275
+    },
+    {
+      "branch": "soph/treeless-fetch-no-ref-poison",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 102485
     },
     {
       "branch": "soph/update-go-git",
@@ -2487,31 +2919,22 @@
       "preprocessed_bytes": 907843
     },
     {
-      "branch": "tokens",
-      "sessions": 4,
-      "cached_sessions": 0,
-      "sessions_to_distill": 4,
-      "chunks": 5,
-      "chunks_if_uncached": 5,
-      "preprocessed_bytes": 447726
-    },
-    {
-      "branch": "tokens-agent-brief",
+      "branch": "tokens-labs",
       "sessions": 1,
       "cached_sessions": 0,
       "sessions_to_distill": 1,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 393947
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 71550
     },
     {
-      "branch": "tokens-profile",
-      "sessions": 3,
+      "branch": "tokens-labs-main",
+      "sessions": 1,
       "cached_sessions": 0,
-      "sessions_to_distill": 3,
-      "chunks": 4,
-      "chunks_if_uncached": 4,
-      "preprocessed_bytes": 448230
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 76004
     },
     {
       "branch": "trail-watch-review-session-events",
@@ -2577,6 +3000,24 @@
       "preprocessed_bytes": 104607
     },
     {
+      "branch": "vendor/openapi-jq-format",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 4991
+    },
+    {
+      "branch": "vscode-claude-hooks",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 86844
+    },
+    {
       "branch": "vscode-copilot-compat",
       "sessions": 3,
       "cached_sessions": 0,
@@ -2597,6 +3038,46 @@
   ],
   "largest_sessions": [
     {
+      "session_id": "019ed5fe-ec49-7a72-89fd-f38e323f5448",
+      "branch": "main",
+      "transcript": "sessions/main/20260623T034928Z_codex_019ed5fe-ec49-7a72-89fd-f38e323f5448_433a8df1c11a.jsonl",
+      "cached": false,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "raw_bytes": 21219830,
+      "preprocessed_bytes": 1161312
+    },
+    {
+      "session_id": "019ef5f3-3472-7f70-82f7-6f0ce46691f4",
+      "branch": "main",
+      "transcript": "sessions/main/20260629T214947Z_codex_019ef5f3-3472-7f70-82f7-6f0ce46691f4_ce73f53d18de.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 19053507,
+      "preprocessed_bytes": 971665
+    },
+    {
+      "session_id": "019ef111-70d5-7203-b653-e4834b8b92c0",
+      "branch": "main",
+      "transcript": "sessions/main/20260623T225402Z_codex_019ef111-70d5-7203-b653-e4834b8b92c0_95d54474361d.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 11192185,
+      "preprocessed_bytes": 943384
+    },
+    {
+      "session_id": "019ef09e-1621-7183-8205-646a383a2faf",
+      "branch": "main",
+      "transcript": "sessions/main/20260629T161233Z_codex_019ef09e-1621-7183-8205-646a383a2faf_0ed46044b4c8.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 18565199,
+      "preprocessed_bytes": 925378
+    },
+    {
       "session_id": "867880db-f612-4ff9-8ec6-3804423d1849",
       "branch": "agent-improvements",
       "transcript": "sessions/branches/agent-improvements-e840281b/20260505T193238Z_gemini-cli_867880db-f612-4ff9-8ec6-3804423d1849_848b4623396a.jsonl",
@@ -2605,6 +3086,16 @@
       "chunks_if_uncached": 4,
       "raw_bytes": 866113,
       "preprocessed_bytes": 866113
+    },
+    {
+      "session_id": "019f05ad-eea0-7202-a508-ec34d069a2d2",
+      "branch": "main",
+      "transcript": "sessions/main/20260630T163209Z_codex_019f05ad-eea0-7202-a508-ec34d069a2d2_07130ba2ded6.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 10798834,
+      "preprocessed_bytes": 853072
     },
     {
       "session_id": "019db237-74fc-7f23-91ee-b21f5ed5af04",
@@ -2645,56 +3136,6 @@
       "chunks_if_uncached": 3,
       "raw_bytes": 7305797,
       "preprocessed_bytes": 3983797
-    },
-    {
-      "session_id": "019df9cd-55af-78a1-ba56-85910d0fd078",
-      "branch": "main",
-      "transcript": "sessions/main/20260507T213012Z_codex_019df9cd-55af-78a1-ba56-85910d0fd078_cd3fb9643dcc.jsonl",
-      "cached": false,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "raw_bytes": 30770310,
-      "preprocessed_bytes": 786429
-    },
-    {
-      "session_id": "019db1cd-719a-7850-97d8-b287ad51e7a0",
-      "branch": "feat/entire-why",
-      "transcript": "sessions/branches/feat-entire-why-004b289f/20260428T230133Z_codex_019db1cd-719a-7850-97d8-b287ad51e7a0_0d943b07d60c.jsonl",
-      "cached": false,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "raw_bytes": 20232364,
-      "preprocessed_bytes": 715321
-    },
-    {
-      "session_id": "019db1cd-719a-7850-97d8-b287ad51e7a0",
-      "branch": "feat/entire-why-prototype",
-      "transcript": "sessions/branches/feat-entire-why-prototype-954e262e/20260427T213810Z_codex_019db1cd-719a-7850-97d8-b287ad51e7a0_39e3a74b26e9.jsonl",
-      "cached": false,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "raw_bytes": 19614291,
-      "preprocessed_bytes": 660878
-    },
-    {
-      "session_id": "019dd0f5-bf9d-7521-a357-f745b5c66cf7",
-      "branch": "feat/entire-why",
-      "transcript": "sessions/branches/feat-entire-why-004b289f/20260501T224811Z_codex_019dd0f5-bf9d-7521-a357-f745b5c66cf7_a854cf6329c2.jsonl",
-      "cached": false,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "raw_bytes": 32103190,
-      "preprocessed_bytes": 596697
-    },
-    {
-      "session_id": "a654b6ca-4957-4d7c-8c99-62db313ff0a0",
-      "branch": "main",
-      "transcript": "sessions/main/20260504T213425Z_claude-code_a654b6ca-4957-4d7c-8c99-62db313ff0a0_beb9e66203f5.jsonl",
-      "cached": false,
-      "chunks": 3,
-      "chunks_if_uncached": 3,
-      "raw_bytes": 13614317,
-      "preprocessed_bytes": 533877
     }
   ]
 }

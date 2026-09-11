@@ -1,0 +1,3 @@
+go test fuzz v1
+[]byte("{\"manIfest\":{\"repo_key\":\"EVIL\",\"generated_at\":\"2026-01-02T03:04:05Z\",\"brain_schema_version\":\"1.0\"}}")
+[]byte("{\"manIfest\":{\"repo_key\":\"EVIL\",\"generated_at\":\"2026-01-02T03:04:05Z\",\"brain_schema_version\":\"1.0\"}}")

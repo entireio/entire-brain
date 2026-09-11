@@ -58,15 +58,64 @@ type mcpResponseTransport struct {
 type mcpResponseTransportContextKey struct{}
 
 func newMCPCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
+	var printConfig bool
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve local brain tools over MCP stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if printConfig {
+				return printMCPServerConfig(cmd.OutOrStdout())
+			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
+	cmd.Flags().BoolVar(&printConfig, "print-config", false,
+		"Print an MCP server entry that launches this binary directly, for a host agent's config")
+	return cmd
+}
+
+// mcpServerName is the key host agents register this server under.
+const mcpServerName = "entire-brain"
+
+// printMCPServerConfig writes an MCP server entry naming this executable by
+// absolute path.
+//
+// Hosts are usually registered with `entire brain mcp`, which asks the Entire
+// CLI to resolve `brain` as a plugin at spawn time. That resolution depends on
+// which entire is first on PATH and on the environment the host spawns with; it
+// resolves HOME to find the plugin, so a spawn without it exits with
+//
+//	Error: Invalid usage: unknown command "brain" for "entire"
+//
+// and the host surfaces only CONNECTION_CLOSED -- which names neither the
+// command nor the cause, and is why this was hard to diagnose from the agent
+// side. Naming this binary directly removes the lookup, so the entry keeps
+// working regardless of PATH order or spawn environment.
+func printMCPServerConfig(out io.Writer) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve this executable: %w", err)
+	}
+	// Deliberately not resolved through symlinks: the managed install path is
+	// the stable one, while its target moves whenever the plugin is rebuilt.
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			mcpServerName: map[string]any{
+				"type":    "stdio",
+				"command": executable,
+				"args":    []string{"mcp"},
+				"env":     map[string]string{},
+			},
+		},
+	}
+	encoded, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode MCP server config: %w", err)
+	}
+	_, err = fmt.Fprintln(out, string(encoded))
+	return err
 }
 
 func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
@@ -1341,17 +1390,115 @@ func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspace
 	if storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts); storageErr == nil && bound {
 		boundKey = storage.Key
 	}
+
+	// RULE 1 -- MEMBERSHIP, which is what actually carries the confused-deputy
+	// protection. An agent bound to repo A may fan out over a workspace only if A
+	// is a member of it. Naming some OTHER workspace is precisely "an agent in
+	// repo A acting on unrelated repo B", and the operator's own `workspace add`
+	// is the declaration that these repos belong together.
+	if !workspaceIncludesBoundRepo(manifest, boundKey, opts.Env.RepoRoot) {
+		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q does not include the bound repository", manifest.Name), boundKey)
+	}
+
+	// RULE 2 -- LOCALITY, scoped to the bound repo's PARENT rather than to the
+	// bound repo itself.
+	//
+	// Requiring every member to live INSIDE the bound root refused the only
+	// layout a workspace is ever built from. Checkouts sit side by side --
+	//
+	//	devenv/cli        <- bound here
+	//	devenv/entiredb   <- a member
+	//
+	// -- and a sibling is never inside its sibling, so all three workspace tools
+	// refused the standard setup they exist to serve. That is the normal case,
+	// not an edge case.
+	scopeRoot := workspaceScopeRoot(opts.Env.RepoRoot)
 	for _, repo := range manifest.Repos {
 		if boundKey != "" && repo.RepoKey == boundKey {
 			continue
 		}
 		hint := strings.TrimSpace(repo.LocalPathHint)
-		if hint != "" && enforceIndexContainment(opts.Env.RepoRoot, hint) == nil {
-			continue
+		if hint == "" {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q member %q has no local path, so its location cannot be checked", manifest.Name, repo.RepoKey), boundKey)
 		}
-		return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside that root", manifest.Name, repo.RepoKey), boundKey)
+		if enforceIndexContainment(scopeRoot, hint) != nil {
+			return mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
+		}
 	}
 	return nil
+}
+
+// workspaceIncludesBoundRepo reports whether the bound repository is a member of
+// manifest. The repo key is the primary match; the local path is the fallback,
+// because a member added under a different key spelling (a remote renamed since
+// `workspace add`, or a manifest written by another brain version) is still the
+// same checkout on disk.
+func workspaceIncludesBoundRepo(manifest workspaceManifest, boundKey, repoRoot string) bool {
+	for _, repo := range manifest.Repos {
+		if boundKey != "" && repo.RepoKey == boundKey {
+			return true
+		}
+		hint := strings.TrimSpace(repo.LocalPathHint)
+		if hint == "" {
+			continue
+		}
+		if samePathOnDisk(hint, repoRoot) {
+			return true
+		}
+	}
+	return false
+}
+
+// samePathOnDisk compares two paths after making them absolute and resolving
+// symlinks, so /var and /private/var (or a checkout reached through a symlinked
+// parent) are recognized as the same directory.
+//
+// The final comparison goes through filepath.Rel rather than string equality,
+// because string equality is not the host's rule. Windows compares paths
+// case-insensitively; symlink resolution only hides that while both paths exist
+// on disk, and a manifest's local path hint routinely names a checkout that has
+// been moved or not cloned yet. For such a path only Abs runs, which preserves
+// case, so `C:\dev\cli` and `C:\Dev\CLI` -- the same path on Windows -- compared
+// unequal and the bound repository was not recognized as a member of its own
+// workspace. filepath.Rel folds case on Windows and only on Windows, so this
+// applies each host's own rule.
+func samePathOnDisk(a, b string) bool {
+	resolve := func(p string) string {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return p
+		}
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			return resolved
+		}
+		return abs
+	}
+	rel, err := filepath.Rel(resolve(a), resolve(b))
+	return err == nil && rel == "."
+}
+
+// workspaceScopeRoot is the directory that bounds an MCP workspace fan-out: the
+// bound repository's PARENT, so sibling checkouts under a common parent are in
+// scope.
+//
+// It deliberately widens by exactly one level. Two levels would put unrelated
+// project trees in scope, and no widening at all refuses every real workspace.
+// A repository checked out at the top of a volume does not widen, so a shallow
+// path cannot put the whole filesystem in scope.
+func workspaceScopeRoot(repoRoot string) string {
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return repoRoot
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	parent := filepath.Dir(abs)
+	if parent == abs || filepath.Dir(parent) == parent {
+		// abs is a filesystem/volume root, or its parent is -- do not widen.
+		return abs
+	}
+	return parent
 }
 
 func mcpGraphBinary() string {
