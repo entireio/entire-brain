@@ -272,3 +272,26 @@ func TestWorkspaceCLIStaysCrossRepoWithoutGate(t *testing.T) {
 		t.Fatalf("CLI workspace review must stay cross-repo: %v", err)
 	}
 }
+
+func TestMCPWorkspaceScopeRejectsUnavailableBoundRepository(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(parent, "missing-checkout")
+	opts, env := mcpScopeTestOptions(t, root)
+	manifest := workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: "missing-bound", Repos: []workspaceRepo{{RepoKey: "gh/example/bound", LocalPathHint: root}}}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
+		err := mcpEnforceWorkspaceScope(context.Background(), opts, tool, manifest.Name)
+		if err == nil || !strings.Contains(err.Error(), "bound repository root is not a local repository") {
+			t.Errorf("%s: expected bound resolution error, got %v", tool, err)
+		}
+	}
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
+	if err := mcpEnforceWorkspaceScope(context.Background(), opts, "brain_workspace_graph", manifest.Name); err != nil {
+		t.Fatalf("explicit override: %v", err)
+	}
+}
