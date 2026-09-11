@@ -76,6 +76,8 @@ func FuzzVerifyBytesRejectsTamper(f *testing.F) {
 func FuzzUnknownFieldsCannotSmuggle(f *testing.F) {
 	base := `{"manifest":{"repo_key":"gh/o/r","generated_at":"2026-01-02T03:04:05Z","brain_schema_version":"1.0"}}`
 	f.Add([]byte(base), []byte(base))
+	folded := []byte(`{"manIfest":{"repo_key":"other","generated_at":"2026-01-02T03:04:05Z","brain_schema_version":"1.0"}}`)
+	f.Add(folded, folded)
 	f.Add([]byte(base), []byte(`{"manifest":{"repo_key":"gh/o/r","generated_at":"2026-01-02T03:04:05Z","brain_schema_version":"1.0"},"future":1}`))
 	f.Add([]byte(`{"manifest":{"repo_key":"a","generated_at":"2026-01-02T03:04:05Z","brain_schema_version":"1.0","future":"x"}}`),
 		[]byte(`{"manifest":{"repo_key":"b","generated_at":"2026-01-02T03:04:05Z","brain_schema_version":"1.0","future":"x"}}`))
@@ -102,6 +104,29 @@ func FuzzUnknownFieldsCannotSmuggle(f *testing.F) {
 		if err := CanonicalUnmarshal(rawB, &b); err != nil {
 			t.Fatalf("verified bytes failed to decode: %v", err)
 		}
+		// Compare the raw Go decoder with the canonical decoder too. Comparing
+		// only two canonical decodes misses case-folded keys that both normalize
+		// away, which is the cross-parser bug this target is meant to catch.
+		for _, raw := range [][]byte{rawA, rawB} {
+			var plain, normalized BrainArtifact
+			if err := json.Unmarshal(raw, &plain); err != nil {
+				continue // the canonical decoder also accepts normalized time syntax
+			}
+			if err := CanonicalUnmarshal(raw, &normalized); err != nil {
+				t.Fatal(err)
+			}
+			plainBytes, err := CanonicalMarshal(plain)
+			if err != nil {
+				continue
+			}
+			normalizedBytes, err := CanonicalMarshal(normalized)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(plainBytes, normalizedBytes) {
+				t.Fatalf("raw and canonical decoders disagree: raw=%q plain=%s canonical=%s", raw, plainBytes, normalizedBytes)
+			}
+		}
 		jsonA, _ := json.Marshal(a)
 		jsonB, _ := json.Marshal(b)
 		if !bytes.Equal(jsonA, jsonB) {
@@ -121,7 +146,11 @@ func FuzzSignatureEnvelope(f *testing.F) {
 	f.Add([]byte(`{"alg":"ed25519\n","key_id":"x","canonical_encoding":"brainwire-canonical/1","sig":"!!!"}`))
 	f.Add([]byte(`{"alg":"ed25519","key_id":"ed25519:00","canonical_encoding":"brainwire-canonical/2","sig":"AA=="}`))
 
-	signer := mustFuzzSigner(f)
+	// A fixed test key keeps valid envelope seeds reproducible in fuzz workers.
+	signer, err := NewEd25519Signer(ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)))
+	if err != nil {
+		f.Fatal(err)
+	}
 	canon, err := Canonicalize([]byte(`{"manifest":{"repo_key":"r","generated_at":"2026-01-02T03:04:05Z","brain_schema_version":"1.0"}}`))
 	if err != nil {
 		f.Fatalf("seed canonicalize: %v", err)
@@ -130,6 +159,20 @@ func FuzzSignatureEnvelope(f *testing.F) {
 	if err != nil {
 		f.Fatalf("seed sign: %v", err)
 	}
+
+	goodJSON, err := json.Marshal(good)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(goodJSON)
+	// Base64 permits newlines: equivalent encodings are not forged signatures.
+	wrapped := good
+	wrapped.Sig = good.Sig[:16] + "\n" + good.Sig[16:]
+	wrappedJSON, err := json.Marshal(wrapped)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(wrappedJSON)
 
 	f.Fuzz(func(t *testing.T, envJSON []byte) {
 		var env Signature
@@ -143,9 +186,11 @@ func FuzzSignatureEnvelope(f *testing.F) {
 			t.Fatalf("Validate accepted an envelope SigningInput rejected: %#v (%v)", env, inputErr)
 		}
 		if err := VerifyCanonical(canon, env, signer.Public()); err == nil {
-			// The only envelope that may verify is the honest one.
+			// Bound metadata and decoded signature bytes must match the honest envelope.
+			actualSig, decodeErr := base64.StdEncoding.DecodeString(env.Sig)
+			expectedSig, _ := base64.StdEncoding.DecodeString(good.Sig)
 			if env.Alg != good.Alg || env.KeyID != good.KeyID ||
-				env.CanonicalEncoding != good.CanonicalEncoding || env.Sig != good.Sig {
+				env.CanonicalEncoding != good.CanonicalEncoding || decodeErr != nil || !bytes.Equal(actualSig, expectedSig) {
 				t.Fatalf("a forged envelope verified: %#v (honest: %#v)", env, good)
 			}
 		}

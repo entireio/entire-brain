@@ -2,6 +2,7 @@ package factmerge
 
 import (
 	"bytes"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ func FuzzParseNDJSON(f *testing.F) {
 	f.Add([]byte(`{"id":`))
 	f.Add([]byte("\x00\x01 not json"))
 	f.Add([]byte(`{"created_at":"not-a-time"}`))
+	f.Add([]byte(`{"text":"` + strings.Repeat("<", MaxLineBytes/6+1) + `"}`))
 	f.Add(append([]byte(`{"id":"`), append(bytes.Repeat([]byte("x"), 70*1024), []byte(`"}`)...)...))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -29,10 +31,17 @@ func FuzzParseNDJSON(f *testing.F) {
 		if err != nil {
 			return
 		}
-		// Anything the parser accepted must survive a write/read round trip;
-		// otherwise the store can persist a fact-set it cannot read back.
+		// Re-encoding can expand a compact input through HTML escaping and
+		// required fields. A size refusal is valid, but a successful write
+		// must always be readable.
 		var buf bytes.Buffer
 		if err := WriteNDJSON(&buf, records); err != nil {
+			if errors.Is(err, ErrRecordTooLarge) {
+				if buf.Len() != 0 {
+					t.Fatal("size refusal wrote a partial batch")
+				}
+				return
+			}
 			t.Fatalf("WriteNDJSON rejected records ParseNDJSON accepted: %v", err)
 		}
 		again, err := ParseNDJSON(bytes.NewReader(buf.Bytes()))
