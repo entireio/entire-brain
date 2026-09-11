@@ -1372,10 +1372,14 @@ func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspace
 	if err != nil {
 		return err
 	}
-	boundKey := ""
-	if storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts); storageErr == nil && bound {
-		boundKey = storage.Key
+	storage, bound, storageErr := mcpBoundRepoStorage(ctx, opts)
+	if storageErr != nil {
+		return storageErr
 	}
+	if !bound {
+		return mcpCrossRepoRefusal(tool, "cannot resolve the bound repository", "")
+	}
+	boundKey := storage.Key
 
 	// RULE 1 -- MEMBERSHIP, which is what actually carries the confused-deputy
 	// protection. An agent bound to repo A may fan out over a workspace only if A
