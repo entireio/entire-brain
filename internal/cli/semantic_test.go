@@ -1446,21 +1446,10 @@ func TestSemanticIndexKeepsRelationsWhenIgnorePatternMatchesRepoKey(t *testing.T
 	}
 }
 
-func TestSemanticEndpointPath(t *testing.T) {
-	cases := map[string]string{
-		"gh/ashtom/entire-brain:Go:cmd/entire-brain/main.go:function:main": "cmd/entire-brain/main.go",
-		"gh/example/repo:go:secret/config.go:function:Secret":              "secret/config.go",
-		"external:import:archive/tar":                                      "",
-		"external:route:/repo":                                             "",
-		"public":                                                           "",
-		"":                                                                 "",
-	}
-	for id, want := range cases {
-		if got := semanticEndpointPath(id); got != want {
-			t.Fatalf("semanticEndpointPath(%q) = %q, want %q", id, got, want)
-		}
-	}
-}
+// TestSemanticEndpointPath is superseded by
+// TestSemanticEndpointPathRecoversFieldsAroundColons in
+// semantic_endpoint_path_test.go, which covers every case below plus the ID
+// shapes whose fields contain ":".
 
 func TestSemanticIndexDoesNotTreatSecretDirectoryAsDefaultIgnore(t *testing.T) {
 	repoDir := t.TempDir()

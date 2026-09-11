@@ -58,15 +58,64 @@ type mcpResponseTransport struct {
 type mcpResponseTransportContextKey struct{}
 
 func newMCPCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
+	var printConfig bool
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve local brain tools over MCP stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if printConfig {
+				return printMCPServerConfig(cmd.OutOrStdout())
+			}
 			nudgeMemoryAtStartup(cmd.Context(), opts)
 			return runMCP(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), opts)
 		},
 	}
+	cmd.Flags().BoolVar(&printConfig, "print-config", false,
+		"Print an MCP server entry that launches this binary directly, for a host agent's config")
+	return cmd
+}
+
+// mcpServerName is the key host agents register this server under.
+const mcpServerName = "entire-brain"
+
+// printMCPServerConfig writes an MCP server entry naming this executable by
+// absolute path.
+//
+// Hosts are usually registered with `entire brain mcp`, which asks the Entire
+// CLI to resolve `brain` as a plugin at spawn time. That resolution depends on
+// which entire is first on PATH and on the environment the host spawns with; it
+// resolves HOME to find the plugin, so a spawn without it exits with
+//
+//	Error: Invalid usage: unknown command "brain" for "entire"
+//
+// and the host surfaces only CONNECTION_CLOSED -- which names neither the
+// command nor the cause, and is why this was hard to diagnose from the agent
+// side. Naming this binary directly removes the lookup, so the entry keeps
+// working regardless of PATH order or spawn environment.
+func printMCPServerConfig(out io.Writer) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve this executable: %w", err)
+	}
+	// Deliberately not resolved through symlinks: the managed install path is
+	// the stable one, while its target moves whenever the plugin is rebuilt.
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			mcpServerName: map[string]any{
+				"type":    "stdio",
+				"command": executable,
+				"args":    []string{"mcp"},
+				"env":     map[string]string{},
+			},
+		},
+	}
+	encoded, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode MCP server config: %w", err)
+	}
+	_, err = fmt.Fprintln(out, string(encoded))
+	return err
 }
 
 func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {

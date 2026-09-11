@@ -591,3 +591,29 @@ func TestScanSemanticStreamPreservesSchema11Fields(t *testing.T) {
 		}
 	}
 }
+
+func TestScanSemanticStreamPreservesEvidenceDropped(t *testing.T) {
+	input := strings.Join([]string{
+		semanticStreamLeanHeader,
+		`{"record_type":"relation","from_id":"caller","to_id":"callee","type":"DATA_FLOWS","confidence":1,"warning_codes":["EVIDENCE_TRUNCATED"],"evidence":[{"kind":"read","file_path":"internal/a.go","start_line":7,"end_line":7}],"evidence_dropped":3}`,
+	}, "\n") + "\n"
+
+	out := &bytes.Buffer{}
+	if _, err := scanSemanticStream(strings.NewReader(input), out, semanticStreamScanConfig{}); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("filtered stream has %d lines, want 2:\n%s", len(lines), out.String())
+	}
+	var relation struct {
+		EvidenceDropped int `json:"evidence_dropped"`
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &relation); err != nil {
+		t.Fatalf("decode filtered relation: %v", err)
+	}
+	if relation.EvidenceDropped != 3 {
+		t.Fatalf("evidence_dropped = %d, want 3; filtered relation: %s", relation.EvidenceDropped, lines[1])
+	}
+}

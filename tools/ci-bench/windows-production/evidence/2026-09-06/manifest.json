@@ -1,0 +1,61 @@
+{
+  "schema": "entire-brain.windows-ci.vm-validation.v1",
+  "passed": true,
+  "date": "2026-09-06",
+  "source": {
+    "baseCommit": "d35e7ae53a5f3ab26418407f51369a2da19638c3",
+    "snapshotCommit": "20865b7c8440643ed49e8b4b4d7ed5d2ea58c2a1",
+    "snapshotTree": "914dc72c228569faee4ab04dc1d9f99cf2e3948a",
+    "filesSha256": {
+      ".github/workflows/test.yml": "1a8a01a32e1c3b48c2bd6eb5f9ba5666cc0f67f65b756383e2efd05bcefc9f1c",
+      "tools/ci-bench/windows-production/verify_results.py": "52929359f95e78c2fe956ecadd3bdd9a33fecd1f506ddd5cbee93180b8f20989",
+      "tools/ci-bench/windows-production/settings.json": "9679975316bffc12b7ffedc56bf0f4edaafa87610a351a118d0c770aebcb4a18",
+      "tools/ci-bench/windows-production/inventory_testmain.go": "e1fab05ab1b723412baaa9a049e0b0912af044e475c654891558ac419e04265e",
+      "tools/ci-bench/windows-production/run_shard.py": "3da7d72ad8bfb386d857fb693b8b2eb42aa3f3299c4c885346b7572adda7f7dc",
+      "tools/ci-bench/windows-production/run_other.py": "e5b4456335c5923aec6112c9a60e131d07b7e63ad3ba71ad998afba396e348af",
+      "tools/ci-bench/windows-production/plan_shards.py": "1ca5d56e56e80da9e847d06f9e06066dafb8f41dedbb617f1d7f3ed21b3af907",
+      "tools/ci-bench/windows-production/historical-weights.json": "71fe0d84b42a66eef878ce8b57ef85275115861b44078407ffb56b2d90dd953a",
+      "tools/ci-bench/windows-production/prepare.py": "be3d1ead275a18453630963a775e8754e7d63cd720e11f44358d5be425e66f3f",
+      "tools/ci-bench/windows-production/tests/test_workflow_contract.py": "47b9e3b99cfbdce544ad2112e43da65d929a202730e4649b7df081ef5dfdb630",
+      "tools/ci-bench/windows-production/tests/test_verify_results.py": "c1da1504762d4e0c3217771e345e9478a9161084ea0ec99bb8d0812b9da8c140",
+      "tools/ci-bench/windows-production/tests/test_plan_shards.py": "518f0bbc8fbdd8a06b4f937080e8c88ba8c1704aa8184d9b29afba173bc87f29",
+      "tools/ci-bench/windows-production/tests/test_testmain_inventory.py": "8390a9f31eebeb02b1f34d3521babf90b15f54a735f469f2bb6620975ff6627a"
+    }
+  },
+  "environment": {
+    "vm": "pr132win25",
+    "size": "Standard_D4s_v5",
+    "os": "Windows Server 2025 Datacenter Azure Edition",
+    "go": "1.26.2 windows/amd64",
+    "python": "3.12.10",
+    "raceEnabled": true,
+    "parallelShardsOnSingleVM": 2,
+    "isolatedWorktreePerShard": true
+  },
+  "results": {
+    "harnessTestsPassed": 27,
+    "shardsPassed": 8,
+    "cliRootOutcomes": {
+      "pass": 1700,
+      "skip": 18
+    },
+    "packageCount": 12,
+    "vetPassed": true,
+    "coverageAndIntegrityPassed": true,
+    "executionSecondsExcludingBootstrap": 813.527
+  },
+  "scope": {
+    "githubActionsWorkflowExecuted": false,
+    "hostedRunnerSpeedupMeasured": false,
+    "separatePhase1MatrixRerun": false,
+    "notes": "Native verification of the default Windows race-test path. Setup used privately transferred pinned runtimes and Go module downloads. No code changes were needed after the native run."
+  },
+  "evidence": {
+    "verification": "verification.json",
+    "execution": "execution.json",
+    "archiveSha256": "d11910a1fd642e69da4732c0196b13259a215b4eb0a7f8dea3295ce22ffcf8f1",
+    "archiveIncludesCompiledBinaries": false,
+    "retainedVmDirectory": "C:\\brain-ci-20260906",
+    "localArchive": "/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/brain-windows-verify-l4hblcpf/evidence.zip"
+  }
+}

@@ -88,9 +88,14 @@ type Target struct {
 	Value string // empty only for project targets
 }
 
+// MinTargetValueLen is the fewest characters a non-project target value may
+// carry, matching the reference implementation. It is also a hard structural
+// requirement for commit targets, whose tree path shards on Value[:2].
+const MinTargetValueLen = 3
+
 // ParseTarget parses a target in "type:value" form (e.g. "commit:abc123"), or
-// the bare "project". The value must be at least 3 characters for non-project
-// targets, matching the reference implementation.
+// the bare "project". The value must be at least MinTargetValueLen characters
+// for non-project targets, matching the reference implementation.
 func ParseTarget(s string) (Target, error) {
 	if s == string(TargetProject) {
 		return Target{Type: TargetProject}, nil
@@ -106,8 +111,10 @@ func ParseTarget(s string) (Target, error) {
 	if tt == TargetProject {
 		return Target{Type: TargetProject}, nil
 	}
-	if len(value) < 3 {
-		return Target{}, fmt.Errorf("target value must be at least 3 characters, got: %s", value)
+	// Path values are not sharded, but the text parser has always required
+	// the same minimum length for every non-project target.
+	if tt == TargetPath && len(value) < MinTargetValueLen {
+		return Target{}, fmt.Errorf("%s target value %q must be at least %d characters", tt, value, MinTargetValueLen)
 	}
 	t := Target{Type: tt, Value: value}
 	if err := ValidateTargetValue(t); err != nil {
@@ -139,20 +146,68 @@ func ParseTarget(s string) (Target, error) {
 // scheme would risk silently diverging from the reference format with no test to
 // catch it. Rejecting loudly is strictly safer than the current silent
 // corruption and keeps byte-compat intact for the values that do round-trip.
+//
+// It also enforces MinTargetValueLen, the minimum ParseTarget has always
+// documented. That check used to live ONLY in ParseTarget, so a Target built any
+// other way — most importantly the one materialize.go reconstructs from a tree
+// leaf path, which is bytes another member wrote — skipped it entirely and reached
+// TreeBasePath, whose commit-target sharding slices Value[:2] and PANICS on a
+// shorter value. Serialize is the only gate between a materialized State and the
+// tree, so the check belongs here, where every write path passes through it.
 func ValidateTargetValue(t Target) error {
-	if t.Type == TargetProject || t.Type == TargetPath {
+	if t.Type == TargetProject {
 		return nil
+	}
+	if t.Type == TargetPath {
+		return ValidatePathTargetValue(t.Value)
 	}
 	v := t.Value
 	switch {
 	case v == "":
 		return fmt.Errorf("%s target value cannot be empty", t.Type)
+	case len(v) < MinTargetValueLen:
+		return fmt.Errorf("%s target value %q must be at least %d characters", t.Type, v, MinTargetValueLen)
 	case strings.Contains(v, "/"):
 		return fmt.Errorf("%s target value %q must not contain '/'", t.Type, v)
 	case v == "." || v == "..":
 		return fmt.Errorf("%s target value %q is not allowed", t.Type, v)
 	case strings.Contains(v, "\x00"):
 		return fmt.Errorf("%s target value %q must not contain null byte", t.Type, v)
+	}
+	return nil
+}
+
+// ValidatePathTargetValue checks a path target's value, which is the ONE target
+// value that legitimately contains '/': it is stored as nested, escaped segments
+// under the __target__ sentinel, so every segment must itself be a legal tree
+// component.
+//
+// Path targets used to be exempt from validation entirely, which left every
+// segment rule unenforced: a value with an empty segment ("/", "a//b", a leading
+// or trailing slash) encodes to a tree path with an EMPTY component
+// ("path///__target__/k/__value"). BuildTree then refuses that path — and it
+// refuses the whole Serialize call, not just the offending record, so a single
+// such record makes the entire store unwritable for every writer that
+// materializes it. '.' and '..' segments are rejected for the same one-component
+// safety reasons ValidateKey enforces on key segments, and NUL is never a legal
+// tree component.
+//
+// The entire-api copy of this engine already carries a check of this name; this
+// vendored copy had lost it (see the divergence note at the top of the file).
+func ValidatePathTargetValue(value string) error {
+	if value == "" {
+		return fmt.Errorf("%s target value cannot be empty", TargetPath)
+	}
+	if strings.Contains(value, "\x00") {
+		return fmt.Errorf("%s target value %q must not contain null byte", TargetPath, value)
+	}
+	for _, seg := range strings.Split(value, "/") {
+		switch {
+		case seg == "":
+			return fmt.Errorf("%s target value %q has an empty segment", TargetPath, value)
+		case seg == "." || seg == "..":
+			return fmt.Errorf("%s target value %q has a %q segment, which is not allowed", TargetPath, value, seg)
+		}
 	}
 	return nil
 }
