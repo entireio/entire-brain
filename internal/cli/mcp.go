@@ -504,7 +504,7 @@ func mcpToolDefinitions() []map[string]any {
 					"description": "Adjacent earlier exchanges to include (conversation: ids only)"},
 				"context_after": map[string]any{"type": "integer", "title": "context_after", "minimum": 0, "maximum": conversationContextMax,
 					"description": "Adjacent later exchanges to include (conversation: ids only)"},
-				"after_turn": map[string]any{"type": "integer", "title": "after_turn", "minimum": 0, "maximum": mcpIntegerArgMax,
+				"after_turn": map[string]any{"type": "integer", "title": "after_turn", "minimum": 0, "maximum": mcpTurnCursorMax,
 					"description": "Outline cursor: entries after this turn ordinal (conversation-session: ids only)"},
 				"limit": map[string]any{"type": "integer", "title": "limit", "minimum": 1, "maximum": conversationOutlineMaxLimit,
 					"description": "Outline entries per page (conversation-session: ids only)"},

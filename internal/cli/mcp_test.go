@@ -2144,8 +2144,8 @@ func TestMCPToolSurfaceGolden(t *testing.T) {
 // a -32000 tool error, but the schema used to declare a floor and no ceiling.
 // A schema-validating MCP client therefore believed limit=1000000 was a legal
 // call and only discovered the real ceiling by being refused at runtime. Every
-// integer property must now declare a maximum, and no tool may advertise a
-// ceiling above the one the handler will actually accept.
+// integer property declares the maximum its handler accepts; the turn cursor
+// has a separate bound because it does not size an allocation.
 func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
 	t.Parallel()
 
@@ -2188,6 +2188,18 @@ func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
 			maximum, ok := arg["maximum"].(int)
 			if !ok {
 				t.Errorf("%s.%s declares no maximum; the handler rejects values above %d, so the schema understates the contract", name, key, mcpIntegerArgMax)
+				continue
+			}
+			if name == "brain_get" && key == "after_turn" {
+				if maximum != mcpTurnCursorMax {
+					t.Errorf("cursor maximum = %d, want %d", maximum, mcpTurnCursorMax)
+				}
+				if _, err := mcpNonNegativeIntMax(map[string]any{key: float64(maximum)}, key, 0, mcpTurnCursorMax); err != nil {
+					t.Error(err)
+				}
+				if _, err := mcpNonNegativeIntMax(map[string]any{key: float64(maximum) + 1}, key, 0, mcpTurnCursorMax); err == nil {
+					t.Error("cursor parser accepted a value above its schema maximum")
+				}
 				continue
 			}
 			if maximum > mcpIntegerArgMax {
