@@ -144,8 +144,10 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 	// earlier measurement and are NOT re-measured here, because the pinned
 	// o200k_base asset is deliberately not a test dependency. Across the whole
 	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
-	if len(got) != 1003 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1003", len(got))
+	// The workspace membership/sibling description is now explicit; byte count
+	// below is re-measured, while the token counts above remain historical.
+	if len(got) != 1059 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1059", len(got))
 	}
 }
 

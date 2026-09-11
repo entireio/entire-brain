@@ -964,7 +964,7 @@
     "name": "brain_review"
   },
   {
-    "description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+    "description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1005,7 +1005,7 @@
     "name": "brain_workspace_regressions"
   },
   {
-    "description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+    "description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1030,7 +1030,7 @@
     "name": "brain_workspace_graph"
   },
   {
-    "description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+    "description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

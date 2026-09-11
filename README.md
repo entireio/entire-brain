@@ -704,7 +704,7 @@ required for normal use.
 | `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 | `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | (unset) | Lets the MCP `brain_index_repository` tool index a path outside the bound repository root (`ENTIRE_REPO_ROOT`). |
-| `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO` | (unset) | Lets MCP tools act outside the bound repository: `brain_delete_project` with a foreign `repo_key`, `brain_list_projects` returning every local project, and and the `brain_workspace_*` tools on a workspace the bound repository is not a member of, or one whose repos live outside the bound repository's parent directory (so sibling checkouts under a common parent are in scope by default). Off by default — the MCP surface is driven by an agent whose context can be poisoned, and deleting a brain is irreversible. The plain CLI is unaffected. |
+| `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO` | (unset) | Lets MCP tools act outside the bound repository: `brain_delete_project` with a foreign `repo_key`, `brain_list_projects` returning every local project, and the `brain_workspace_*` tools on a workspace the bound repository is not a member of, or one whose repos live outside the bound repository's parent directory (so sibling checkouts under a common parent are in scope by default). Off by default — the MCP surface is driven by an agent whose context can be poisoned, and deleting a brain is irreversible. The plain CLI is unaffected. |
 
 ## Development
 

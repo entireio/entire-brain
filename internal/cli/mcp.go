@@ -627,17 +627,17 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_workspace_regressions",
-			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
 			"name":        "brain_workspace_graph",
-			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
 			"inputSchema": objectSchema([]string{"workspace"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "limit": integerArg("limit", "Maximum contracts/cross_edges")}),
 		},
 		{
 			"name":        "brain_workspace_review",
-			"description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Needs ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO for repos outside the bound repository.",
+			"description": "Cross-repo diff-less review (versioned contract) of each local workspace repo's current tree against its brain memory. Returns severity-ranked suspected regressions per repo. Allows registered sibling checkouts when the bound repo is a workspace member; other workspaces need ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
 		{
