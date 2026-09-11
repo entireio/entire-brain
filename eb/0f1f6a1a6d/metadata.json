@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "eb0f1f6a1a6d",
+  "strategy": "manual-commit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/factgitmeta/gitmeta/materialize.go",
+    "internal/factgitmeta/gitmeta/path_target_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/eb/0f1f6a1a6d/0/metadata.json",
+      "transcript": "/eb/0f1f6a1a6d/0/full.jsonl",
+      "compact_transcript": "/eb/0f1f6a1a6d/0/transcript.jsonl",
+      "content_hash": "/eb/0f1f6a1a6d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5640,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 573440,
+    "output_tokens": 887,
+    "api_call_count": 5
+  }
+}
