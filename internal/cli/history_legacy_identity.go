@@ -101,7 +101,10 @@ func persistHistoryLegacyIdentity(brainDir string, identity *historyLegacyIdenti
 	}
 	defer unlock()
 
-	manifest, err := loadBrainManifest(brainDir)
+	// Strict: this migration rewrites the manifest from this struct further
+	// down, so a field this build cannot name must stop it rather than be
+	// dropped on the way through.
+	manifest, err := loadBrainManifestForReplace(brainDir)
 	if err != nil {
 		return err
 	}

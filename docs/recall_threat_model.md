@@ -120,8 +120,12 @@ Enforced:
   refuses a `repo_key` other than the bound repo's (`confirm=true` is not a
   defence — the same injected agent supplies it), `brain_list_projects` returns
   only the bound project instead of enumerating every local repo's key, path,
-  and counts, and the `brain_workspace_*` fan-out refuses a workspace whose
-  repos live outside the bound root. Each is opt-out via
+  and counts, and the `brain_workspace_*` fan-out refuses a workspace the bound
+  repository is not a member of (membership is what stops an agent in repo A
+  reaching an unrelated repo B), or one whose repos live outside the bound
+  repository's parent directory — sibling checkouts under a common parent stay
+  in scope, since that is the layout every real workspace has. Each is opt-out
+  via
   `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`, and each applies to the MCP surface only:
   the `entire brain ...` CLI stays cross-repo because the operator there is a
   human, not a deputy acting on injected instructions.
