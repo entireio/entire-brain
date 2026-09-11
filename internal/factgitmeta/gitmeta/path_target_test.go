@@ -1,6 +1,8 @@
 package gitmeta
 
 import (
+	"errors"
+	"github.com/go-git/go-git/v6/plumbing/object"
 	"strings"
 	"testing"
 
@@ -63,5 +65,38 @@ func TestParseTargetRejectsMalformedPathValues(t *testing.T) {
 	}
 	if _, err := ParseTarget("path:src/main.rs"); err != nil {
 		t.Errorf("ParseTarget rejected a legal path target: %v", err)
+	}
+}
+
+func TestMaterializeRejectsNonCanonicalPathEscapes(t *testing.T) {
+	for _, encoded := range []string{"~foo", "__reserved", "foo/~bar"} {
+		store := memory.NewStorage()
+		root, err := BuildTree([]blobFile{{path: "path/" + encoded + "/__target__/k/__value", content: "v"}}, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree, err := object.GetTree(store, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Materialize(tree); !errors.Is(err, ErrMalformedTree) {
+			t.Errorf("%q: want malformed tree, got %v", encoded, err)
+		}
+	}
+	for _, value := range []string{"a", "foo/bar", "~foo", "__reserved", "foo/__target__/~bar"} {
+		want := State{Strings: []StringVal{{Target: Target{Type: TargetPath, Value: value}, Key: "k", Value: "v"}}}
+		store := memory.NewStorage()
+		root, err := Serialize(want, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree, err := object.GetTree(store, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := Materialize(tree)
+		if err != nil || len(got.Strings) != 1 || got.Strings[0] != want.Strings[0] {
+			t.Errorf("%q roundtrip: %#v, %v", value, got, err)
+		}
 	}
 }
