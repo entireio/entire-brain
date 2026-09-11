@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "b68314ba7336",
+  "strategy": "manual-commit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/brainwire/wire_fuzz_test.go",
+    "internal/factmerge/ndjson_fuzz_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b6/8314ba7336/0/metadata.json",
+      "transcript": "/b6/8314ba7336/0/full.jsonl",
+      "compact_transcript": "/b6/8314ba7336/0/transcript.jsonl",
+      "content_hash": "/b6/8314ba7336/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 115361,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3057024,
+    "output_tokens": 7826,
+    "api_call_count": 298
+  }
+}
