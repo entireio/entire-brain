@@ -71,11 +71,18 @@ class ClaudeAdapter(AgentAdapter):
         cmd.append(prompt)
         return cmd
 
-    def prepare_env(self, env: dict[str, str], out_dir: pathlib.Path) -> tuple[dict[str, str], dict]:
+    def prepare_env(self, env: dict[str, str], out_dir: pathlib.Path,
+                    state_dir: pathlib.Path | None = None) -> tuple[dict[str, str], dict]:
         """A per-cell CLAUDE_CONFIG_DIR: isolation, and the only way session A's
-        native JSONL is harvestable without touching the operator's own sessions."""
+        native JSONL is harvestable without touching the operator's own sessions.
+
+        CLAUDE_CONFIG_DIR reaches the model's shell, so its VALUE is an
+        arm-visible cue; `state_dir` lets a session-B caller supply an
+        arm-neutral path. Defaulting to `<out_dir>/claude-config` keeps session
+        A -- one directory per pair, no arms -- exactly where
+        harvest_native_jsonl() looks for it."""
         env = dict(env)
-        config_dir = pathlib.Path(out_dir) / "claude-config"
+        config_dir = pathlib.Path(state_dir) if state_dir else pathlib.Path(out_dir) / "claude-config"
         config_dir.mkdir(parents=True, exist_ok=True)
         env["CLAUDE_CONFIG_DIR"] = str(config_dir)
         return env, {"backend": "claude", "CLAUDE_CONFIG_DIR": str(config_dir)}

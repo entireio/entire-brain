@@ -71,6 +71,15 @@ worktree_add/remove and collect_patch all take the path as an argument. Set
 BM_WORKTREE_IN_CELL=1 to restore the old in-cell layout for debugging; it is
 recorded in meta.json as `worktree_arm_neutral: false` so a run made that way
 can never be mistaken for a clean one.
+
+THE AGENT'S OWN STATE DIR IS THE SAME FAIRNESS PROPERTY, and the environment is
+strictly more visible than the cwd. CODEX_HOME and CLAUDE_CONFIG_DIR are handed
+to the model's shell, so an in-cell value prints
+`.../<pair_id>/<arm>/codex-home` on a bare `env`: the arm name, the pair id and
+a path straight into the results tree. `agent_state_path(...)` gives it the
+same opaque, arm-neutral treatment as the worktree, under the same root, with
+the same debug opt-in (BM_AGENT_STATE_IN_CELL=1) and the same
+`agent_state_arm_neutral` stamp in meta.json.
 """
 
 from __future__ import annotations
@@ -359,6 +368,9 @@ def read_isolation(config: dict, worktree: pathlib.Path, env: dict[str, str]):
 WORKTREE_IN_CELL_ENV = "BM_WORKTREE_IN_CELL"
 #: Parent dir for the opaque worktrees. Unset -> the OS temp dir.
 WORKTREE_ROOT_ENV = "BM_WORKTREE_ROOT"
+#: Set to 1 to put the agent's own state dir (CODEX_HOME / CLAUDE_CONFIG_DIR)
+#: back inside the cell. DEBUG ONLY -- same arm-name cue, same stamp.
+AGENT_STATE_IN_CELL_ENV = "BM_AGENT_STATE_IN_CELL"
 
 
 def worktree_key(pair_id: str, arm: str, rep: int | None) -> str:
@@ -384,6 +396,31 @@ def worktree_path(cell: pathlib.Path, pair_id: str, arm: str,
     if os.environ.get(WORKTREE_IN_CELL_ENV) == "1":
         return cell / "worktree", False
     return worktree_root() / "bm-wt" / worktree_key(pair_id, arm, rep), True
+
+
+def agent_state_path(cell: pathlib.Path, pair_id: str, arm: str,
+                     rep: int | None) -> tuple[pathlib.Path, bool]:
+    """(path, arm_neutral) for the agent's OWN state dir. Same rule as worktrees.
+
+    CODEX_HOME / CLAUDE_CONFIG_DIR are handed to the model's shell, so an
+    in-cell value prints `.../<pair_id>/<arm>/codex-home` on a bare `env` --
+    the arm name, the pair id, and a path into the results tree where every
+    sibling arm's packet.txt and prompt.txt sit. That fails the standard
+    fairness test ("would this sentence help an arm with no memory?") for
+    exactly the reason the worktree does, and the environment is strictly more
+    visible than the cwd.
+
+    The resolved cell namespaces independent result runs while keeping resumes
+    stable. Only its digest is exposed to the agent.
+    The key is salted apart from `worktree_key` so a cell's state dir and its
+    worktree can never resolve to the same directory.
+    """
+    if os.environ.get(AGENT_STATE_IN_CELL_ENV) == "1":
+        return cell / "agent-home", False
+    key = hashlib.sha256(
+        json.dumps(["agent-home", str(cell.resolve()), pair_id, arm, rep]).encode("utf-8")
+    ).hexdigest()[:16]
+    return worktree_root() / "bm-agent" / key, True
 
 
 def run_cell(
@@ -414,6 +451,8 @@ def run_cell(
     (cell / "prompt_sym.sha256").write_text(symmetry_sha + "\n", encoding="utf-8")
 
     worktree, worktree_arm_neutral = worktree_path(cell, pair["pair_id"], arm, rep)
+    agent_state, agent_state_arm_neutral = agent_state_path(
+        cell, pair["pair_id"], arm, rep)
     env, env_prov = session_env(config, cell)
     profile, iso_prov = read_isolation(config, worktree, env)
     sandbox_wrapper = (
@@ -437,6 +476,8 @@ def run_cell(
         "stub_only": stub_only,
         "worktree": str(worktree),
         "worktree_arm_neutral": worktree_arm_neutral,
+        "agent_state_dir": str(agent_state),
+        "agent_state_arm_neutral": agent_state_arm_neutral,
     }
 
     _repo.worktree_add(graphmark_root, cache, worktree, pair["b"]["base_commit"])
@@ -452,6 +493,7 @@ def run_cell(
                 graphmark_root, cache, wt, out
             ),
             sandbox_wrapper=sandbox_wrapper,
+            state_dir=agent_state,
             max_turns=int(config["agent"]["max_turns"]),
         )
     finally:
