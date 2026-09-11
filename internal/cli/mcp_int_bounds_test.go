@@ -64,3 +64,21 @@ func TestMCPToolCallRejectsOversizedLimit(t *testing.T) {
 		t.Fatalf("error = %s", data)
 	}
 }
+
+func TestMCPTurnCursorBounds(t *testing.T) {
+	for _, value := range []any{float64(10001), int(10001), float64(math.MaxInt32), int(math.MaxInt32)} {
+		if _, err := mcpNonNegativeIntMax(map[string]any{"after_turn": value}, "after_turn", 0, mcpTurnCursorMax); err != nil {
+			t.Errorf("valid cursor %v: %v", value, err)
+		}
+	}
+	for _, value := range []any{float64(math.MaxInt32) + 1, -1, 1.5, math.Inf(1), math.NaN(), "10001"} {
+		if _, err := mcpNonNegativeIntMax(map[string]any{"after_turn": value}, "after_turn", 0, mcpTurnCursorMax); err == nil {
+			t.Errorf("accepted invalid cursor %v", value)
+		}
+	}
+	view := conversationSessionView{Records: []historyRecord{{TurnOrdinal: 10001}, {TurnOrdinal: 10002}, {TurnOrdinal: 10003}}}
+	page := conversationSessionOutline(view, 10001, 1)
+	if len(page.Turns) != 1 || page.Turns[0].TurnOrdinal != 10002 || page.NextTurn != 10002 {
+		t.Fatalf("large cursor pagination: %+v", page)
+	}
+}

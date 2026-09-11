@@ -2010,13 +2010,16 @@ func TestMCPConversationNavigation(t *testing.T) {
 	}) + frameMCPJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
 		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "context_before": 1}},
+	}) + frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "after_turn": 10001, "limit": 1}},
 	})
 	out.Reset()
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp navigation: %v", err)
 	}
 	responses = readMCPResponses(t, out.String())
-	if len(responses) != 3 {
+	if len(responses) != 4 {
 		t.Fatalf("responses = %d", len(responses))
 	}
 
@@ -2036,6 +2039,14 @@ func TestMCPConversationNavigation(t *testing.T) {
 	turns, _ := outlineRow["turns"].([]any)
 	if len(turns) != 1 {
 		t.Fatalf("outline turns: %+v", outlineRow)
+	}
+
+	// A cursor is an ordinal, not an allocation size. An exhausted large
+	// cursor returns a valid empty outline rather than an argument error.
+	large := mcpTextJSONPayload(t, responses[3])
+	largeRow := large["results"].([]any)[0].(map[string]any)
+	if largeRow["heading"] != "session_outline" {
+		t.Fatalf("large cursor: %+v", largeRow)
 	}
 
 	// Type mismatch is a structured error, never an ignored option.
