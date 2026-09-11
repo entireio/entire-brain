@@ -71,7 +71,7 @@ var ErrInvalidUTF8 = errors.New("factmerge: record contains invalid UTF-8")
 // WHY THE BATCH IS ALL-OR-NOTHING. Refusing mid-loop left every record sorted
 // before the offender already written to w and every record after it silently
 // unattempted. The caller then held a truncated fact-set with no way to tell.
-// WriteNDJSON now validates and marshals the whole batch before writing a byte,
+// WriteNDJSON now preflights the whole batch before writing a byte,
 // so a failure leaves the destination untouched and the caller's retry is a
 // retry, not a resume.
 //
@@ -210,13 +210,9 @@ func ParseNDJSON(r io.Reader) ([]Record, error) {
 // a store that writes what it cannot read is unrecoverable from the reading side.
 func WriteNDJSON(w io.Writer, records []Record) error {
 	Sort(records)
-	// Validate and marshal the WHOLE batch first: a writer that reports failure
-	// must leave the destination untouched, or the caller is left holding a
-	// half-written fact-set it cannot distinguish from a complete one. See
-	// InvalidUTF8Error for the reasoning. The marshalled bytes are retained
-	// rather than re-marshalled, which costs nothing in practice -- every caller
-	// writes into a bytes.Buffer, so the serialized form is held either way.
-	lines := make([][]byte, 0, len(records))
+	// Preflight every record before writing, so validation failures leave the
+	// destination untouched. Discard each encoding after checking its size:
+	// retaining the full batch would duplicate the caller's output buffer.
 	for i, record := range records {
 		if field, value := invalidUTF8Field(record); field != "" {
 			return &InvalidUTF8Error{RecordID: record.ID, Index: i, Field: field, Value: value}
@@ -228,9 +224,14 @@ func WriteNDJSON(w io.Writer, records []Record) error {
 		if len(data) > MaxLineBytes {
 			return fmt.Errorf("%w: %s is %d bytes, maximum %d", ErrRecordTooLarge, record.ID, len(data), MaxLineBytes)
 		}
-		lines = append(lines, data)
 	}
-	for _, data := range lines {
+	// Re-encode one record at a time after the batch passes validation.
+	// Records must not be modified concurrently, as with the in-place Sort.
+	for _, record := range records {
+		data, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
 		if _, err := w.Write(data); err != nil {
 			return err
 		}
