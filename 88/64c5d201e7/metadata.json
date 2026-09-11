@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "8864c5d201e7",
+  "strategy": "manual-commit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/factmerge/ndjson.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/88/64c5d201e7/0/metadata.json",
+      "transcript": "/88/64c5d201e7/0/full.jsonl",
+      "compact_transcript": "/88/64c5d201e7/0/transcript.jsonl",
+      "content_hash": "/88/64c5d201e7/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7914,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1194880,
+    "output_tokens": 2476,
+    "api_call_count": 10
+  }
+}
