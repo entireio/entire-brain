@@ -365,7 +365,7 @@
       "properties": {
         "after_turn": {
           "description": "Outline cursor: entries after this turn ordinal (conversation-session: ids only)",
-          "maximum": 10000,
+          "maximum": 2147483647,
           "minimum": 0,
           "title": "after_turn",
           "type": "integer"
