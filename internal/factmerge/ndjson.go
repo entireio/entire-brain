@@ -50,11 +50,14 @@ func (e *ParseError) Unwrap() error { return e.Err }
 // path handling — callers open the reader.
 func ParseNDJSON(r io.Reader) ([]Record, error) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 8*1024), MaxLineBytes)
+	scanner.Buffer(make([]byte, 0, 8*1024), MaxLineBytes+2) // reserve the optional CR and newline
 	var records []Record
 	line := 0
 	for scanner.Scan() {
 		line++
+		if len(scanner.Bytes()) > MaxLineBytes {
+			return nil, &ParseError{Line: line, Err: fmt.Errorf("line exceeds the maximum of %d bytes", MaxLineBytes)}
+		}
 		text := strings.TrimSpace(scanner.Text())
 		if text == "" {
 			continue

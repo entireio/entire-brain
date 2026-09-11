@@ -15,7 +15,7 @@ surfaces that agents and humans query. Everything it builds stays on your machin
   dispatches `entire brain`, and it is what captures the sessions the brain
   learns from.
 - Git.
-- A Go toolchain (1.26 or newer) if you install with `go install` or build from
+- A Go toolchain (1.27 or newer) if you install with `go install` or build from
   source. The prebuilt release archive does not need Go.
 - The `entire-graph` semantic provider, invoked as `entire graph`. The brain shells
   out to it (`entire graph snapshot`, `entire graph doctor`) to build the semantic

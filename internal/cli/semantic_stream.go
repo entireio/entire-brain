@@ -138,7 +138,7 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 		return res, nil
 	}
 
-	ignoredIDs := make(map[string]struct{})
+	ignoredIDs := make(map[string]bool)
 	files := make(map[string]struct{})
 	unknownTypes := make(map[string]struct{})
 	strict := semanticStrictIngest()
@@ -196,13 +196,16 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			if err := validateSemanticRecordPath(&record); err != nil {
 				return res, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 			}
+			if record.ID != "" && record.semanticPath() != "" {
+				ignoredIDs[record.ID] = ignoredIDs[record.ID] || cfg.ignore.Ignored(record.semanticPath())
+			}
 			if cfg.ignore.Ignored(record.semanticPath()) {
 				if record.ID != "" {
-					ignoredIDs[record.ID] = struct{}{}
+					ignoredIDs[record.ID] = true
 				}
 				break // skip ignored file/symbol record
 			}
-			if record.RecordType == "relation" && relationEndpointIgnored(record, cfg.ignore, ignoredIDs) {
+			if record.RecordType == "relation" && relationEndpointIgnored(record, res.header.RepoKey, cfg.ignore, ignoredIDs) {
 				break
 			}
 			switch record.RecordType {
@@ -297,18 +300,19 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 	return res, nil
 }
 
-func relationEndpointIgnored(record semanticRecord, ignore brainIgnore, ignoredIDs map[string]struct{}) bool {
-	if p := semanticEndpointPath(record.FromID); p != "" && ignore.Ignored(p) {
-		return true
-	}
-	if p := semanticEndpointPath(record.ToID); p != "" && ignore.Ignored(p) {
-		return true
-	}
-	if _, ok := ignoredIDs[record.FromID]; ok {
-		return true
-	}
-	if _, ok := ignoredIDs[record.ToID]; ok {
-		return true
+func relationEndpointIgnored(record semanticRecord, repoKey string, ignore brainIgnore, ignoredIDs map[string]bool) bool {
+	for _, id := range []string{record.FromID, record.ToID} {
+		// An explicit file/symbol path is authoritative, including an allowed
+		// path. Never override it with a heuristic parse of an unescaped ID.
+		if ignored, known := ignoredIDs[id]; known {
+			if ignored {
+				return true
+			}
+			continue
+		}
+		if p := semanticEndpointPath(repoKey, id); p != "" && ignore.Ignored(p) {
+			return true
+		}
 	}
 	return false
 }

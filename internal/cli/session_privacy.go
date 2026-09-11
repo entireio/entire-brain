@@ -238,20 +238,15 @@ func loadSessionTombstonesChecked(brainDir string) (sessionTombstones, sessionTo
 		}
 	}
 	var stones sessionTombstones
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&stones); err != nil {
-		state.State = sessionTombstoneCorrupt
-		return sessionTombstones{}, state, &sessionTombstoneLoadError{
-			Code: memoryErrStateCorrupt, State: state.State,
-			Err: errors.New("session tombstones cannot be parsed strictly"),
+	if _, err := decodeVersionedJSONBody(data, &stones, false); err != nil {
+		message := "session tombstones cannot be parsed strictly"
+		if errors.Is(err, errTrailingJSONData) {
+			message = "session tombstones contain trailing JSON data"
 		}
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		state.State = sessionTombstoneCorrupt
 		return sessionTombstones{}, state, &sessionTombstoneLoadError{
 			Code: memoryErrStateCorrupt, State: state.State,
-			Err: errors.New("session tombstones contain trailing JSON data"),
+			Err: errors.New(message),
 		}
 	}
 	if stones.Version != sessionTombstonesVersion {
