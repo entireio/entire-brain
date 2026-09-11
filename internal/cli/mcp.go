@@ -871,7 +871,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if gopts.ContextAfter, err = mcpNonNegativeInt(params.Arguments, "context_after", 0); err != nil {
 			break
 		}
-		if gopts.AfterTurn, err = mcpNonNegativeInt(params.Arguments, "after_turn", 0); err != nil {
+		if gopts.AfterTurn, err = mcpNonNegativeIntMax(params.Arguments, "after_turn", 0, mcpTurnCursorMax); err != nil {
 			break
 		}
 		if gopts.OutlineLimit, err = mcpNonNegativeInt(params.Arguments, "limit", 0); err != nil {
@@ -1424,6 +1424,30 @@ func mcpStringSlice(args map[string]any, key string) ([]string, error) {
 	return out, nil
 }
 
+// mcpIntegerArgMax caps integer arguments that bound work or allocations.
+//
+// The lower bounds below were always enforced; the UPPER bound was not, and it
+// is not a result-quality question. `limit` reaches make([]T, 0, limit) in the
+// retrieval layer (history_fts.go, doc_fts.go at limit*4) and `context_lines`
+// widens a snippet window, so a value like 1e9 asks the runtime for hundreds of
+// gigabytes. That is a fatal out-of-memory, which no recover() catches, and it
+// takes the whole brain MCP server down. A tools/call is one line of JSON from a
+// client whose agent carries untrusted repository text in its context, so the
+// ceiling belongs on the server.
+//
+// It is enforced here rather than declared in each inputSchema on purpose: the
+// tool definitions are sent on every tools/list and their size is budgeted in
+// tokens (see TestMCPBrainBriefToolDefinitionGolden), so adding a "maximum" to
+// ~25 properties would spend that budget to restate a bound the server has to
+// check itself regardless. 10000 is far above any useful result count, depth, or
+// context window.
+const mcpIntegerArgMax = 10000
+
+// Turn cursors are only compared with stored ordinals; they do not size a
+// result allocation. Keep them exactly representable in JSON and in an int
+// on every supported platform without imposing the result-count ceiling.
+const mcpTurnCursorMax = math.MaxInt32
+
 func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) {
 	value, ok := args[key]
 	if !ok {
@@ -1431,33 +1455,37 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 	}
 	switch typed := value.(type) {
 	case float64:
-		if typed >= 1 && typed <= float64(math.MaxInt) && math.Trunc(typed) == typed {
+		if typed >= 1 && typed <= float64(mcpIntegerArgMax) && math.Trunc(typed) == typed {
 			return int(typed), nil
 		}
 	case int:
-		if typed >= 1 {
+		if typed >= 1 && typed <= mcpIntegerArgMax {
 			return typed, nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be an integer greater than zero", key)
+	return 0, fmt.Errorf("%s must be an integer between 1 and %d", key, mcpIntegerArgMax)
 }
 
 func mcpNonNegativeInt(args map[string]any, key string, fallback int) (int, error) {
+	return mcpNonNegativeIntMax(args, key, fallback, mcpIntegerArgMax)
+}
+
+func mcpNonNegativeIntMax(args map[string]any, key string, fallback, maximum int) (int, error) {
 	value, ok := args[key]
 	if !ok {
 		return fallback, nil
 	}
 	switch typed := value.(type) {
 	case float64:
-		if typed >= 0 && typed <= float64(math.MaxInt) && math.Trunc(typed) == typed {
+		if typed >= 0 && typed <= float64(maximum) && math.Trunc(typed) == typed {
 			return int(typed), nil
 		}
 	case int:
-		if typed >= 0 {
+		if typed >= 0 && typed <= maximum {
 			return typed, nil
 		}
 	}
-	return 0, fmt.Errorf("%s must be a non-negative integer", key)
+	return 0, fmt.Errorf("%s must be an integer between 0 and %d", key, maximum)
 }
 
 // errMCPRecoverable marks a single malformed/oversized frame that should be
