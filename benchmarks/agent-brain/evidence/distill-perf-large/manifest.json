@@ -3,8 +3,8 @@
   "target": {
     "repo": "github.com/entireio/cli",
     "repo_key": "gh/entireio/cli",
-    "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
-    "brain_manifest_sha256": "sha256:7156602fcc33b4d19a06d0100bc08047b62968f51d9d32c7acf10a88c506e85a",
+    "source_head": "d35e7ae53a5f3ab26418407f51369a2da19638c3",
+    "brain_manifest_sha256": "sha256:72e8d1f0f1b758bdae49590ad049167641ac6e0944716ccf69d167f4c6d04b96",
     "claim_scope": "large-repo (entireio/cli) local command-agent distill extraction scheduling speedup"
   },
   "cache_state": "force_recomputed_each_run",
@@ -12,15 +12,15 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:9ece139178903ba15a491f3703cf2d000dddd81e44c0b5f3493fa753a3914cff",
-    "serial_run": "sha256:33cd919880871bd6990404e816d9b32b25e03311a23b3bc0d3e4dc400124116c",
-    "parallel_run": "sha256:93d12cc38e9b2547914b8e014099ac871ec0c7158abd3a091f24c58cb15775bc"
+    "dry_run": "sha256:33da96d2b352d1ec42aa2f36d5a27784fa4bd29340e6a2b862189db69295bdf1",
+    "serial_run": "sha256:5887b109774f0ee261a655ef826319a9497482b678fad1fa5688e0069ac12184",
+    "parallel_run": "sha256:611daeb5bba3d95db349fe381e23186941a2ab2af5edb85da58debf95e765606"
   },
   "source_sha256": {
     "internal/cli/distill.go": "sha256:ff21f1af55ff4d37c487b614fde9f25fea34b8c53ed842732a05d52508fc375d",
-    "internal/cli/distill_cmd.go": "sha256:4ab57f2745f83108525ad14b4c3291e64368823a7cfdca30fd77ba5a0ffd2406",
+    "internal/cli/distill_cmd.go": "sha256:b7e3d9df71c69484c37b470686fd9b954e7d4f438a20ea48ed9ad6bffdd3ec96",
     "internal/cli/distill_test.go": "sha256:9bc6541fea5e81ba91ab9420f0d392b4e2dca1cd9b353d7680dd80fe336d786c",
-    "internal/cli/distill_cmd_test.go": "sha256:ae798ca1de38ffe0c4fae20de2bbf18329ed32729eca6f4229a174911691e2cf",
+    "internal/cli/distill_cmd_test.go": "sha256:2480ca21e74e562133ecbd04678fef9871841c84c6e5df52cb0c8c8f5e923d9f",
     "benchmarks/agent-brain/audit_distill_perf.py": "sha256:6c4407791e83642db0c35c12a6e079fe4f78f8626105ca76a815fa1bc2ca560d",
     "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py": "sha256:a7bd42a7de1b482b79c3a757034714eee0b77826ad500e6e82806577f2a611ba"
   },
@@ -83,8 +83,8 @@
   },
   "local_ollama_contract": {
     "artifact": "go-test-internal-cli-ollama-distill.jsonl",
-    "sha256": "sha256:7e883ff66cbf54662d277dc62d17bd77639ee3036ba310d9075a3d97b62b659a",
-    "source_head": "52b7f835e0ae1537cba2efa10a1e8fa66257e51d",
+    "sha256": "sha256:6c29877b84bf860cec6a07b30743e5cd7047065375a1cada2ebd55586e48f7df",
+    "source_head": "d35e7ae53a5f3ab26418407f51369a2da19638c3",
     "source_paths": [
       "internal/cli/distill.go",
       "internal/cli/distill_cmd.go",
@@ -116,18 +116,17 @@
   "min_speedup": 1.5,
   "executed_agent": {
     "path": "benchmarks/agent-brain/evidence/distill-perf-large/large_command_agent.py",
-    "sha256": "sha256:79661f48d35b5b9272a251f99a4af4f983d42dded31ec3a3f2e01d0d99b3f354",
+    "sha256": "sha256:7eadd7dcccac826503661b1b662a9986240af17fdbd45ae8bdc4fde2c1caf4d6",
     "note": "deterministic offline command-agent actually executed for the three runs; spreads facts across a few dozen valid 3-level taxonomy paths so a large corpus exercises reconcile without tripping the >50-per-path reconcile scaling notice."
   },
   "notes": [
     "Collected offline from temporary fresh copies of the local entireio/cli brain store; facts were cleared before each run so the timing reflects a from-scratch large-repo backfill.",
     "Uses a deterministic local command agent to prove extraction-scheduler and reconcile mechanics at large-repo scale, not fact quality or hosted-model latency.",
     "Reuses the current-repo lane's retained fake loopback Ollama go-test artifact as the shared local-model wiring and no-egress safety contract.",
-    "Widens the retained distill-timing claim from current-repo to a large session repo (822 sessions, 838 chunks); it does NOT establish a hosted-model fact-quality or end-to-end latency claim, which remains pending."
+    "Widens the retained distill-timing claim from current-repo to a large session repo (2375 sessions, 2435 chunks); it does NOT establish a hosted-model fact-quality or end-to-end latency claim, which remains pending."
   ],
   "redactions": {
     "dry_run.brain_path": "redacted isolated temp store path; repo_key remains in the path suffix",
-    "branch_labels": "third-party contributor branch labels replaced with content-free branch-NNNN identifiers across all artifacts",
-    "largest_sessions": "transcript paths and session ids replaced with placeholders; only size/chunk counts retained"
+    "branch_labels": "one private cross-repository branch name replaced with 'redacted-private-branch' identically across all three artifacts, including the transcript paths derived from it; the remaining labels are ordinary entireio/cli branch names and are retained verbatim"
   }
 }

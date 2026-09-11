@@ -656,13 +656,11 @@ func loadMemoryMigrationProgress(brainDir string) (memoryMigrationProgress, bool
 		return memoryMigrationProgress{}, true, fmt.Errorf("%s: migration progress schema version %d is newer than supported version 1", memoryErrUnsupportedVersion, header.SchemaVersion)
 	}
 	var progress memoryMigrationProgress
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&progress); err != nil {
+	if _, err := decodeVersionedJSONBody(data, &progress, false); err != nil {
+		if errors.Is(err, errTrailingJSONData) {
+			return memoryMigrationProgress{}, true, fmt.Errorf("%s: migration progress has trailing JSON data", memoryErrStateCorrupt)
+		}
 		return memoryMigrationProgress{}, true, fmt.Errorf("%s: decode migration progress: %w", memoryErrStateCorrupt, err)
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return memoryMigrationProgress{}, true, fmt.Errorf("%s: migration progress has trailing JSON data", memoryErrStateCorrupt)
 	}
 	if progress.SchemaVersion != 1 || !strings.HasPrefix(progress.OperationID, "op:") || progress.StartedAt.IsZero() || len(progress.Completed) > memoryStateInventoryMaxEntries {
 		return memoryMigrationProgress{}, true, fmt.Errorf("%s: migration progress has invalid identity or bounds", memoryErrStateCorrupt)
@@ -1585,7 +1583,18 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 	}
 	health.Present = true
 	var manifest exportManifest
-	version, err := decodeStrictVersionedJSON(data, &manifest, brainManifestSchemaVersion, "brain manifest")
+	version, err := checkedVersionedJSONHeader(data, brainManifestSchemaVersion, "brain manifest")
+	// This inspection only reports; it never rewrites the manifest, so a field
+	// another build wrote is skew to surface, not corruption to fail on.
+	var droppedUnknownFields bool
+	if err == nil {
+		droppedUnknownFields, err = decodeVersionedJSONBody(data, &manifest, true)
+		if errors.Is(err, errTrailingJSONData) {
+			err = fmt.Errorf("%s: brain manifest contains trailing JSON data", memoryErrStateCorrupt)
+		} else if err != nil {
+			err = fmt.Errorf("%s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
+		}
+	}
 	health.SchemaVersion = version
 	if err == nil && version < 0 {
 		err = fmt.Errorf("%s: unsupported brain manifest schema version %d", memoryErrUnsupportedVersion, version)
@@ -1606,6 +1615,16 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 	health.State = "current"
 	health.SchemaVersion = manifest.SchemaVersion
 	health.RecommendedAction = "none"
+	if droppedUnknownFields {
+		// Fully readable, but a writer still refuses to re-encode fields it
+		// never saw, so this manifest is read-only in exactly the way the
+		// unsupported-version branch above describes. Removing it is safe and is
+		// the way out: it is derived state, and an absent manifest lets the next
+		// refresh rebuild it from canonical sources.
+		// State stays "current" on purpose: the manifest is present, usable and
+		// this build's supported schema, and callers switch on that string.
+		health.RecommendedAction = "written by a different build and read-only; run `entire brain refresh --force` to rebuild it from canonical sources"
+	}
 	return &manifest, health, nil
 }
 

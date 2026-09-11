@@ -321,8 +321,15 @@ func TestBuildBrainRetrievalStatus(t *testing.T) {
 	manifest := func(commit, mode, hash string, seedAt, docsAt time.Time) *exportManifest {
 		return &exportManifest{Sources: &brainSources{
 			Seed: &seedSourceManifest{GeneratedAt: seedAt, Commit: commit, WorktreeMode: mode, WorktreeHash: hash},
-			Docs: &docSourceManifest{GeneratedAt: docsAt, Records: 7, Files: 3},
+			Docs: &docSourceManifest{GeneratedAt: docsAt, IndexPath: docIndexPath, Records: 7, Files: 3},
 		}}
+	}
+	// The docs axis now reports the index retrieval will actually open, so the
+	// declared index has to exist for these cases to describe freshness rather
+	// than availability.
+	brainDir := t.TempDir()
+	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"generated_at":"2026-07-21T12:00:00Z","records":[]}`), 0o600); err != nil {
+		t.Fatalf("write doc index: %v", err)
 	}
 	tests := []struct {
 		name      string
@@ -355,7 +362,7 @@ func TestBuildBrainRetrievalStatus(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			report := buildBrainRetrievalStatus(context.Background(), runner, repoDir, test.manifest, test.live)
+			report := buildBrainRetrievalStatus(context.Background(), runner, brainDir, repoDir, test.manifest, test.live)
 			if report.Freshness.Severity != test.severity {
 				t.Fatalf("severity = %q, want %q: %+v", report.Freshness.Severity, test.severity, report.Freshness.Axes)
 			}

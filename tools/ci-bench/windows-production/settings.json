@@ -1,0 +1,18 @@
+{
+  "schema": "entire-brain.windows-ci.settings.v1",
+  "shardCount": 8,
+  "defaultWeightSeconds": 1.0,
+  "timeout": "20m",
+  "commandLineLimit": 30000,
+  "shuffle": "off",
+  "testParallel": null,
+  "goMaxProcs": null,
+  "heavyPackages": [
+    {
+      "argument": "./internal/cli",
+      "importPath": "github.com/ashtom/entire-brain/internal/cli",
+      "binaryName": "cli.test.exe",
+      "expectedTestMainDeclarations": []
+    }
+  ]
+}
