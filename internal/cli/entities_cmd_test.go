@@ -769,3 +769,53 @@ func TestBrainEntityHistoryMCPToolIsExposedAndAnswers(t *testing.T) {
 		t.Fatalf("tool occurrences = %+v", result.Matches[0].Occurrences)
 	}
 }
+
+func TestEntityCommandsWithoutIdentityProbe(t *testing.T) {
+	for _, revisionedDiff := range []bool{false, true} {
+		name := "legacy provider"
+		if revisionedDiff {
+			name = "revisioned diff cannot enter legacy history"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newEntityIndexFixture(t)
+			f.runner.responses[fakeCommandKey("entire", "graph", "version", "--json")] = fakeCommandResponse{err: errors.New("unknown graph version command")}
+			if revisionedDiff {
+				for key, response := range f.runner.responses {
+					if strings.Contains(key, "graph") && strings.Contains(key, "diff") {
+						response.stdout = strings.Replace(response.stdout, "{", `{"identity_revision":"scope-1",`, 1)
+						f.runner.responses[key] = response
+					}
+				}
+			}
+			stdout, stderr := f.run(t, "entities", "backfill", "--json")
+			var result entityindex.BuildResult
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stderr, "using legacy history") {
+				t.Fatalf("missing fallback warning: %s", stderr)
+			}
+			if revisionedDiff {
+				if result.Indexed != 0 || result.Failed != 2 {
+					t.Fatalf("revisioned output polluted legacy index: %+v", result)
+				}
+				return
+			}
+			if result.Indexed != 2 {
+				t.Fatalf("legacy backfill failed: %+v", result)
+			}
+			if err := os.Remove(filepath.Join(f.storage.BrainDir, entitiesCachePath)); err != nil {
+				t.Fatal(err)
+			}
+			// Equivalent to receiving durable git-meta without the optional local join.
+			stdout, stderr = f.run(t, "entities", "show", entityFixtureCommitB)
+			var delta entityindex.Delta
+			if err := json.Unmarshal([]byte(stdout), &delta); err != nil {
+				t.Fatal(err)
+			}
+			if delta.Head != entityFixtureCommitB || len(delta.Entities) != 2 || !strings.Contains(stderr, "provider unavailable") {
+				t.Fatalf("uncached legacy show: %+v %s", delta, stderr)
+			}
+		})
+	}
+}
