@@ -305,8 +305,13 @@ func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
 	// 3,509 -> 3,411 tokens. The pinned tokenizer asset (SHA-256
 	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
 	// is deliberately not a production or test dependency.
-	if len(got) != 747 {
-		t.Fatalf("brain_brief tool definition bytes = %d, want 747", len(got))
+	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
+	// argument. Byte counts below are re-measured; the token counts are the
+	// earlier measurement and are NOT re-measured here, because the pinned
+	// o200k_base asset is deliberately not a test dependency. Across the whole
+	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
+	if len(got) != 763 {
+		t.Fatalf("brain_brief tool definition bytes = %d, want 763", len(got))
 	}
 }
 
