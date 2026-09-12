@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/ashtom/entire-brain/internal/factmerge"
@@ -81,6 +82,13 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 	// head — no member's local filesystem path leaks cross-member (opaque ids are kept,
 	// so provenance still unions). Copies; the caller's local facts are not mutated.
 	local = SanitizeForEgress(local)
+	// Verify this member's own facts BEFORE publishing them. The head check below
+	// fails closed, so one malformed record reaching the shared head would break
+	// every other member's sync — a failure the member that produced it should
+	// take, and take here, rather than exporting it.
+	if err := factmerge.VerifyIdentities(local); err != nil {
+		return Result{}, fmt.Errorf("factsync: local fact set for %s/%s is not publishable: %w", repoID, branch, err)
+	}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ref, plaintext, found, err := srv.Current(ctx, repoID, branch)
 		if err != nil {
@@ -91,6 +99,17 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 			head, err = factmerge.ParseNDJSON(bytes.NewReader(plaintext))
 			if err != nil {
 				return Result{}, err
+			}
+			// The head is written by every member with push access, so nothing about
+			// it is authenticated by having arrived over the transport. Re-derive each
+			// record's content id before merging: without this, a record carrying
+			// ANOTHER member's id with attacker-chosen text makes Promote's id match
+			// read as "already present, union the provenance", silently discarding the
+			// victim's real statement and keeping the forgery — with the victim's own
+			// anchors attached to it. Fail closed rather than merge a head one record
+			// of which is provably not what it claims to be.
+			if err := factmerge.VerifyIdentities(head); err != nil {
+				return Result{}, fmt.Errorf("factsync: shared fact-set head for %s/%s is not trustworthy: %w", repoID, branch, err)
 			}
 		}
 
