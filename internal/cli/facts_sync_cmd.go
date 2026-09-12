@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ashtom/entire-brain/internal/apiurl"
 	"github.com/ashtom/entire-brain/internal/factgitmeta"
 	"github.com/ashtom/entire-brain/internal/factmerge"
 	"github.com/ashtom/entire-brain/internal/factsync"
@@ -67,7 +68,7 @@ Backends (--facts-backend, or ` + envFactsBackend + `):
 	cmd.Flags().StringVar(&syncOpts.backend, "facts-backend", "", "Fact-set backend: local-gitmeta (default) or http")
 	cmd.Flags().StringVar(&syncOpts.member, "member", "", "Member identity stamped on cross-member proposals (default: git user.email)")
 	cmd.Flags().StringVar(&syncOpts.repoID, "repo-id", "", "Target repo id for the http backend (overrides ENTIRE_REPO_ID)")
-	cmd.Flags().StringVar(&syncOpts.apiURL, "api-url", "", "Entire API base URL for the http backend (overrides ENTIRE_API_URL)")
+	cmd.Flags().StringVar(&syncOpts.apiURL, "api-url", "", "Entire API base URL for the http backend, https:// (overrides ENTIRE_API_URL)")
 	cmd.Flags().StringVar(&syncOpts.token, "token", "", "Entire API bearer token for the http backend (overrides ENTIRE_API_TOKEN)")
 	cmd.Flags().BoolVar(&syncOpts.jsonOut, "json", false, "Emit the sync result as JSON")
 	return cmd
@@ -565,6 +566,12 @@ func buildFactsSyncBackend(opts Options, backend string, storage repoStorage, sy
 		baseURL := publishFlagOrEnv(syncOpts.apiURL, envAPIBaseURL)
 		if baseURL == "" {
 			return nil, "", "", fmt.Errorf("facts sync: API base URL is required for the http backend; set --api-url or %s", envAPIBaseURL)
+		}
+		// The fact-set advance carries this member's facts and the bearer token, so
+		// the target must clear the scheme floor before the backend is built.
+		baseURL, urlErr := apiurl.Validate(baseURL)
+		if urlErr != nil {
+			return nil, "", "", fmt.Errorf("facts sync: %w", urlErr)
 		}
 		token := publishFlagOrEnv(syncOpts.token, envAPIToken)
 		if token == "" {
