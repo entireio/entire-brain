@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -113,8 +114,17 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	if err != nil {
 		return nil, err
 	}
-	url := strings.TrimRight(c.BaseURL, "/") + "/api/v1/repos/" + repoID + "/brain/mcp"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(buf))
+	// PathEscape keeps the repo id inside ONE path segment. Concatenated raw, a
+	// "/", "?", "#" or dot segment in the id rewrites the request target — and
+	// this request carries the caller's bearer token, so a rewritten target
+	// sends that token somewhere it was never meant to go. The id arrives from
+	// --repo-id or the environment, neither of which this package controls.
+	//
+	// publish.go already escapes its own repo id the same way; this was the one
+	// remaining site that did not. The local was named `url`, which shadowed
+	// the package, hence `endpoint`.
+	endpoint := strings.TrimRight(c.BaseURL, "/") + "/api/v1/repos/" + url.PathEscape(repoID) + "/brain/mcp"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
 		return nil, err
 	}

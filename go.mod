@@ -1,8 +1,8 @@
 module github.com/ashtom/entire-brain
 
-go 1.26
+go 1.27
 
-toolchain go1.26.2
+toolchain go1.27.1
 
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6

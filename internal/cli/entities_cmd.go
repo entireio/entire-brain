@@ -39,7 +39,7 @@ const (
 	entitiesDirName          = "entities"
 	entitiesCacheFileName    = "index.json"
 	entitiesCachePath        = entitiesDirName + "/" + entitiesCacheFileName
-	entityIndexCacheVersion  = 1
+	entityIndexCacheVersion  = 2
 	entityIndexCacheMaxKeys  = 50_000
 	entityIndexLogChunkSize  = 128
 	defaultEntitiesLimit     = 20
@@ -56,12 +56,14 @@ const (
 // git-meta reverse index. MetaTip pins it to the exact git-meta commit it was
 // built from: any index write moves the tip and the cache is rebuilt.
 type entityIndexCache struct {
-	SchemaVersion int                                `json:"schema_version"`
-	GeneratedAt   time.Time                          `json:"generated_at"`
-	MetaTip       string                             `json:"meta_tip"`
-	Truncated     bool                               `json:"truncated,omitempty"`
-	Entries       map[string][]entityIndexOccurrence `json:"entries"`
-	Aliases       map[string]string                  `json:"aliases,omitempty"`
+	NeedsMigration   bool                               `json:"needs_migration,omitempty"`
+	IdentityRevision string                             `json:"identity_revision,omitempty"`
+	SchemaVersion    int                                `json:"schema_version"`
+	GeneratedAt      time.Time                          `json:"generated_at"`
+	MetaTip          string                             `json:"meta_tip"`
+	Truncated        bool                               `json:"truncated,omitempty"`
+	Entries          map[string][]entityIndexOccurrence `json:"entries"`
+	Aliases          map[string]string                  `json:"aliases,omitempty"`
 }
 
 // entityIndexOccurrence is one commit that changed an entity, joined to the
@@ -103,6 +105,7 @@ refresh the watch loop and the session-end hook already run.`,
 		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(newEntitiesBackfillCommand(opts))
+	cmd.AddCommand(newEntitiesMigrateCommand(opts))
 	cmd.AddCommand(newEntitiesHistoryCommand(opts))
 	cmd.AddCommand(newEntitiesShowCommand(opts))
 	return cmd
@@ -187,14 +190,23 @@ func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return err
 	}
 	out := cmd.OutOrStdout()
+	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, backfillOpts.graphBinary)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		revision = ""
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: cannot verify parser identity; using legacy history and checking each diff identity: %v\n", err)
+	}
 	result, err := entityindex.Build(ctx, opts.Runner, store, entityindex.BuildOptions{
-		RepoDir:         repoDir,
-		GraphBinary:     backfillOpts.graphBinary,
-		Branch:          backfillOpts.branch,
-		Limit:           backfillOpts.limit,
-		CheckpointsOnly: backfillOpts.checkpointsOnly,
-		Full:            backfillOpts.full,
-		Now:             opts.Now,
+		IdentityRevision: revision,
+		RepoDir:          repoDir,
+		GraphBinary:      backfillOpts.graphBinary,
+		Branch:           backfillOpts.branch,
+		Limit:            backfillOpts.limit,
+		CheckpointsOnly:  backfillOpts.checkpointsOnly,
+		Full:             backfillOpts.full,
+		Now:              opts.Now,
 	})
 	if err != nil {
 		return err
@@ -419,7 +431,7 @@ func mergeEntityOccurrences(older, newer []entityIndexOccurrence) []entityIndexO
 }
 
 func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref string, summary bool, target string) error {
-	repoDir, _, store, err := openEntityIndexStore(ctx, opts, target)
+	repoDir, storage, store, err := openEntityIndexStore(ctx, opts, target)
 	if err != nil {
 		return err
 	}
@@ -427,7 +439,19 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 	if err != nil {
 		return err
 	}
-	snapshot := entityindex.Load(state)
+	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+	if err != nil {
+		cached, ok := loadEntityIndexCache(storage.BrainDir)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		revision = ""
+		if ok {
+			revision = cached.IdentityRevision
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: using entity history revision %q; provider unavailable: %v\n", revision, err)
+	}
+	snapshot := entityindex.LoadRevision(state, revision)
 	commit := strings.TrimSpace(ref)
 	if isCheckpointID(commit) {
 		view, viewErr := loadEntityIndexView(ctx, opts, repoDir)
@@ -533,12 +557,24 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 		return nil, err
 	}
 	view := &entityIndexView{}
+	revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+	if identityErr != nil {
+		view.warning = "cannot verify entity history parser identity: " + identityErr.Error()
+	}
 	previous, hasPrevious := loadEntityIndexCache(storage.BrainDir)
+	if identityErr != nil && hasPrevious {
+		revision = previous.IdentityRevision
+	}
+	// A provider change must invalidate the join even when git-meta did not move.
+	hasPrevious = hasPrevious && previous.IdentityRevision == revision
 	if hasPrevious && previous.MetaTip == tip && tip != "" {
 		view.cache = previous
+		if previous.NeedsMigration && view.warning == "" {
+			view.warning = "history from another parser revision is available; run `entire brain entities migrate` to carry it forward"
+		}
 		return view, nil
 	}
-	cache, err := rebuildEntityIndexCache(ctx, opts, repoDir, storage.BrainDir, store, tip)
+	cache, err := rebuildEntityIndexCache(ctx, opts, repoDir, storage.BrainDir, store, tip, revision)
 	if err != nil {
 		// The join could not be computed. NEVER persist a partial one: it would
 		// be pinned to the current git-meta tip and then served forever, so a
@@ -553,6 +589,9 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 		return nil, err
 	}
 	view.cache = cache
+	if cache.NeedsMigration && view.warning == "" {
+		view.warning = "history from another parser revision is available; run `entire brain entities migrate` to carry it forward"
+	}
 	view.rebuilt = true
 	// Persisting is an optimization, never a correctness requirement: a
 	// read-only brain dir must still answer queries.
@@ -565,23 +604,25 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 // rebuildEntityIndexCache materializes the git-meta index and joins each
 // indexed commit to its checkpoint trailer and the sessions those checkpoints
 // belong to.
-func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDir string, store *factgitmeta.MetaStore, tip string) (entityIndexCache, error) {
+func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDir string, store *factgitmeta.MetaStore, tip, revision string) (entityIndexCache, error) {
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
 	cache := entityIndexCache{
-		SchemaVersion: entityIndexCacheVersion,
-		GeneratedAt:   now().UTC(),
-		MetaTip:       tip,
-		Entries:       map[string][]entityIndexOccurrence{},
-		Aliases:       map[string]string{},
+		SchemaVersion:    entityIndexCacheVersion,
+		IdentityRevision: revision,
+		GeneratedAt:      now().UTC(),
+		MetaTip:          tip,
+		Entries:          map[string][]entityIndexOccurrence{},
+		Aliases:          map[string]string{},
 	}
 	state, err := store.State()
 	if err != nil {
 		return cache, err
 	}
-	snapshot := entityindex.Load(state)
+	snapshot := entityindex.LoadRevision(state, revision)
+	cache.NeedsMigration = entityindex.HasOtherHistory(state, revision)
 	if snapshot.Empty() {
 		return cache, nil
 	}
@@ -856,12 +897,17 @@ func refreshEntityIndexQuietly(ctx context.Context, opts Options, repoDir string
 	if err != nil {
 		return err
 	}
+	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+	if err != nil {
+		return err
+	}
 	result, err := entityindex.Build(ctx, opts.Runner, store, entityindex.BuildOptions{
-		RepoDir:     repoDir,
-		GraphBinary: "entire",
-		Limit:       entitiesFreshnessCommits,
-		NonBlocking: true,
-		Now:         opts.Now,
+		IdentityRevision: revision,
+		RepoDir:          repoDir,
+		GraphBinary:      "entire",
+		Limit:            entitiesFreshnessCommits,
+		NonBlocking:      true,
+		Now:              opts.Now,
 	})
 	if err != nil {
 		return err

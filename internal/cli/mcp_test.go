@@ -131,9 +131,11 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 	// and 226 -> 186 tokens; the full tools/list result is 15,864 -> 15,711
 	// bytes and 3,354 -> 3,314 tokens. The pinned tokenizer asset (SHA-256
 	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
-	// is deliberately not a production or test dependency.
-	if len(got) != 907 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 907", len(got))
+	// is deliberately not a production or test dependency. The +80 bytes over
+	// that 907-byte floor are the cross-repo scope gate, named in the
+	// description so an agent that hits the refusal knows the one knob.
+	if len(got) != 987 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 987", len(got))
 	}
 }
 
@@ -311,6 +313,9 @@ func TestMCPBrainRefreshRejectsSessionsAndHonorsTimeout(t *testing.T) {
 }
 
 func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC) }}
@@ -545,6 +550,62 @@ func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 	}
 }
 
+// TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum locks the schema for
+// the two integer params whose zero value the handler actually accepts as the
+// default (mcpNonNegativeInt): brain_search_graph's "offset" and
+// brain_get_code_snippet's "context_lines". Both previously declared
+// minimum:1 (the generic integerArg helper), which told a schema-validating
+// MCP client that 0 was invalid even though the server always treated it as
+// the default and never rejected it.
+func TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum(t *testing.T) {
+	wantMinZero := map[string]string{
+		"brain_search_graph":     "offset",
+		"brain_get_code_snippet": "context_lines",
+	}
+	for _, tool := range mcpToolDefinitions() {
+		name, _ := tool["name"].(string)
+		key, ok := wantMinZero[name]
+		if !ok {
+			continue
+		}
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		arg, ok := props[key].(map[string]any)
+		if !ok || arg["type"] != "integer" || arg["minimum"] != 0 {
+			t.Fatalf("%s.%s = %+v, want integer with minimum 0 (handler accepts and defaults to 0)", name, key, arg)
+		}
+		delete(wantMinZero, name)
+	}
+	for name := range wantMinZero {
+		t.Fatalf("tool %s not found in mcpToolDefinitions", name)
+	}
+}
+
+// Both names dispatch to runSemanticGraphSchema and must describe its metrics.
+func TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput(t *testing.T) {
+	for _, name := range []string{"brain_get_graph_schema", "brain_get_architecture"} {
+		t.Run(name, func(t *testing.T) {
+			var description string
+			for _, tool := range mcpToolDefinitions() {
+				if tool["name"] == name {
+					description, _ = tool["description"].(string)
+				}
+			}
+			if description == "" {
+				t.Fatal("tool definition missing")
+			}
+			if strings.Contains(strings.ToLower(description), "boundary count") {
+				t.Fatalf("description claims absent boundary counts: %q", description)
+			}
+			for _, want := range []string{"hotspots", "entry points"} {
+				if !strings.Contains(description, want) {
+					t.Fatalf("description missing %q: %q", want, description)
+				}
+			}
+		})
+	}
+}
+
 func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"scope regression","location_only":"true"}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"x","include_deletions":"yes"}}}`)
@@ -625,6 +686,9 @@ func TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly(t *testing.T) {
 }
 
 func TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	logPath := filepath.Join(t.TempDir(), "mcp.log")
 	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
 
@@ -735,6 +799,8 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 	})
 
 	t.Run("brain_workspace_review", func(t *testing.T) {
+		// Cross-repo workspace fan-out over MCP is operator-gated.
+		t.Setenv(mcpAllowCrossRepoEnv, "1")
 		logPath := filepath.Join(t.TempDir(), "mcp.log")
 		t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
 
@@ -957,6 +1023,9 @@ func TestMCPBrainReviewTool(t *testing.T) {
 }
 
 func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
@@ -1019,6 +1088,9 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 }
 
 func TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
@@ -1306,7 +1378,7 @@ func TestMCPToolCallRejectsInvalidIntegerArguments(t *testing.T) {
 			}
 			responses := readMCPResponses(t, out.String())
 			data, _ := json.Marshal(responses[0]["error"])
-			if !strings.Contains(string(data), "limit must be an integer greater than zero") {
+			if !strings.Contains(string(data), "limit must be an integer between 1 and") {
 				t.Fatalf("error = %s", data)
 			}
 		})
@@ -1321,7 +1393,7 @@ func TestMCPToolCallRejectsInvalidDepth(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["error"])
-	if !strings.Contains(string(data), "depth must be an integer greater than zero") {
+	if !strings.Contains(string(data), "depth must be an integer between 1 and") {
 		t.Fatalf("error = %s", data)
 	}
 }
@@ -1927,13 +1999,16 @@ func TestMCPConversationNavigation(t *testing.T) {
 	}) + frameMCPJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
 		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "context_before": 1}},
+	}) + frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "after_turn": 10001, "limit": 1}},
 	})
 	out.Reset()
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp navigation: %v", err)
 	}
 	responses = readMCPResponses(t, out.String())
-	if len(responses) != 3 {
+	if len(responses) != 4 {
 		t.Fatalf("responses = %d", len(responses))
 	}
 
@@ -1953,6 +2028,14 @@ func TestMCPConversationNavigation(t *testing.T) {
 	turns, _ := outlineRow["turns"].([]any)
 	if len(turns) != 1 {
 		t.Fatalf("outline turns: %+v", outlineRow)
+	}
+
+	// A cursor is an ordinal, not an allocation size. An exhausted large
+	// cursor returns a valid empty outline rather than an argument error.
+	large := mcpTextJSONPayload(t, responses[3])
+	largeRow := large["results"].([]any)[0].(map[string]any)
+	if largeRow["heading"] != "session_outline" {
+		t.Fatalf("large cursor: %+v", largeRow)
 	}
 
 	// Type mismatch is a structured error, never an ignored option.
