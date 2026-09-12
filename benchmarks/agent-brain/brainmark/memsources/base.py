@@ -22,6 +22,13 @@ backend calls its own `source`.
 rank-first, so a packet that overflows loses its WORST results, never its best,
 and never becomes malformed JSON.
 
+`_benchmark_delivery` is always present, truncated or not. run.py's bounder
+emits it only on the oversized path, which made the KEY ITSELF arm-correlated:
+an arm whose content fit never carried it, and the size-matched placebo
+carried it almost whenever its donor was richer than this pair's treatment.
+Seeding it makes the shape constant; its VALUES still say what really
+happened, because the oversized path overwrites the seed.
+
 THE PACKET IS THE PINNED ARTIFACT, NOT THE STORE. Every source returns a
 MemoryPacket whose `sha256` is recorded at prep time and re-checked at launch and
 at report time. Competitor ingest is nondeterministic (LLM extraction, ANN
@@ -107,7 +114,33 @@ def build_packet(
     # and in `meta`, never in the bytes the agent reads. `extra` is likewise
     # meta-only: a key that only one arm carries is a tell even when its value
     # is bland, so nothing here may vary in SHAPE between arms.
-    payload: dict[str, Any] = {"query": query, "results": results}
+    payload: dict[str, Any] = {
+        "query": query,
+        "results": results,
+        # ALWAYS PRESENT, so the delivered key set does not depend on whether
+        # this arm's content happened to overflow the budget. run.py's bounder
+        # adds `_benchmark_delivery` ONLY on the oversized path (run.py:4749)
+        # and returns an under-budget packet byte-for-byte, so without this
+        # seed the mere PRESENCE of the key told the agent something about its
+        # own condition -- and told it loudest exactly where it matters: the
+        # placebo is size-matched by TIGHTENING its budget to the treatment
+        # packet's length, so whenever the donor carried more content than this
+        # pair's treatment did, the placebo truncated and its treatment did
+        # not. The one arm whose value depends on being indistinguishable was
+        # the one reliably distinguishable.
+        #
+        # The oversized path rebuilds this key from the real delivery counts
+        # (it overwrites, it does not merge), so the seeded values only ever
+        # survive when they are true.
+        "_benchmark_delivery": {
+            "max_bytes": max_bytes,
+            "original_result_count": len(results),
+            "delivered_result_count": len(results),
+            "omitted_result_count": 0,
+            "partial_last_result": False,
+            "truncated": False,
+        },
+    }
 
     text, bound_meta = _harness.bound_memory_packet(
         _harness.canonical_json(payload), max_bytes
