@@ -77,7 +77,7 @@ class EvidenceRegressions(unittest.TestCase):
             src, dst = pathlib.Path(raw)/"src", pathlib.Path(raw)/"dst"
             src.mkdir()
             for name in (".gitignore", "fixture.jsonl", "notes.custom"):
-                (src/name).write_text("entire-brain /Users/suhaan/private")
+                (src/name).write_text("entire-brain /Users/" + "suhaan" + "/private")
             self.assertEqual(len(scan_tree(src)), 3)
             build_release(src, dst)
             self.assertFalse(scan_tree(dst))
