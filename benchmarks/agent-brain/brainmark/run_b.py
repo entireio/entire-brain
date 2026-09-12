@@ -319,6 +319,13 @@ def cell_is_complete(cell: pathlib.Path, backend: str | None = None) -> bool:
         payload = json.loads(cc_out.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return False
+    return result_is_complete(payload, backend)
+
+
+def result_is_complete(payload: dict, backend: str | None = None) -> bool:
+    """Shared terminal-success gate for resume, grading and reporting."""
+    if payload.get("is_error"):
+        return False
     if backend is None:
         backend = "codex" if payload.get("_synthesized_by") else "claude"
     if backend == "codex":

@@ -39,10 +39,10 @@ import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from brainmark import _harness, prompts, seal  # type: ignore[no-redef]
+    from brainmark import _harness, prompts, seal, run_b  # type: ignore[no-redef]
     from brainmark.mechmetrics import RATIO_OFFSET, session_metrics  # type: ignore[no-redef]
 else:
-    from . import _harness, prompts, seal
+    from . import _harness, prompts, seal, run_b
     from .mechmetrics import RATIO_OFFSET, session_metrics
 
 sys.path.insert(0, str(_harness.BRAINMARK_DIR / "vendor"))
@@ -153,14 +153,18 @@ def collect(results: pathlib.Path, arms: list[str],
                 session_metrics(stream) if stream.is_file() else {}
             )
             patch = cell / "patch.diff"
-            usd = float((meta.get("result_event") or {}).get("total_cost_usd") or 0)
+            result = meta.get("result_event") or {}
+            raw_usd = result.get("total_cost_usd")
+            usd = float(raw_usd) if raw_usd is not None else None
             table.setdefault(pair_dir.name, {})[arm] = {
                 "instance_id": meta.get("instance_id"),
                 "usd": usd,
                 "patch_bytes": patch.stat().st_size if patch.is_file() else 0,
                 "mech": mech,
                 "prep": (meta.get("packet_provenance") or {}).get("prep", {}),
-                "clean": usd > 0 and patch.is_file() and patch.stat().st_size > 0,
+                "clean": (run_b.result_is_complete(result, meta.get("backend"))
+                          and meta.get("returncode", 0) == 0
+                          and patch.is_file() and patch.stat().st_size > 0),
             }
 
     clean = sorted(

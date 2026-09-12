@@ -172,6 +172,22 @@ class ExecutionRegressions(unittest.TestCase):
                 (cell/"cc_out.json").write_text(json.dumps({"subtype":"error", "usage":{"output_tokens":1}}))
             self.assertEqual(eligible_ids(root, ["no_brain"]), [])
 
+    def test_report_accepts_costless_codex_and_rejects_paid_failure(self):
+        from brainmark.report import collect
+        with tempfile.TemporaryDirectory() as raw:
+            root = pathlib.Path(raw)
+            cell = root/"p"/"no_brain"
+            cell.mkdir(parents=True)
+            (cell/"patch.diff").write_text("patch")
+            meta = {"backend":"codex", "result_event":{"subtype":"success","usage":{"output_tokens":1}}}
+            (cell/"meta.json").write_text(json.dumps(meta))
+            clean, table = collect(root, ["no_brain"])
+            self.assertEqual(clean, ["p"])
+            self.assertIsNone(table["p"]["no_brain"]["usd"])
+            meta = {"backend":"claude", "result_event":{"subtype":"success","total_cost_usd":1}, "returncode":124}
+            (cell/"meta.json").write_text(json.dumps(meta))
+            self.assertEqual(collect(root,["no_brain"])[0], [])
+
     def test_null_control_invokes_real_builder(self):
         from brainmark import memsources
         from brainmark.memsources.base import build_packet
