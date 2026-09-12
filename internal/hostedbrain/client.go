@@ -58,9 +58,9 @@ type Client struct {
 
 func (c *Client) httpClient() *http.Client {
 	if c.HTTP != nil {
-		return c.HTTP
+		return apiurl.WithoutRedirects(c.HTTP)
 	}
-	return http.DefaultClient
+	return apiurl.WithoutRedirects(http.DefaultClient)
 }
 
 // ServerInfo is the hosted brain's initialize serverInfo, including the brain wire

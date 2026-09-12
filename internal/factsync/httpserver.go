@@ -39,9 +39,9 @@ type HTTPServer struct {
 
 func (h *HTTPServer) client() *http.Client {
 	if h.Client != nil {
-		return h.Client
+		return apiurl.WithoutRedirects(h.Client)
 	}
-	return http.DefaultClient
+	return apiurl.WithoutRedirects(http.DefaultClient)
 }
 
 func (h *HTTPServer) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
