@@ -1,0 +1,16 @@
+{"type": "thread.started", "thread_id": "th_9f21c0"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_0", "item_type": "reasoning", "text": "Find the widget renderer."}}
+{"type": "item.started", "item": {"id": "item_1", "item_type": "command_execution", "command": ["bash", "-lc", "ls src"], "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_1", "item_type": "command_execution", "command": ["bash", "-lc", "ls src"], "exit_code": 0, "aggregated_output": "widget.js\nrender.js\n", "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_2", "item_type": "command_execution", "command": ["bash", "-lc", "rg -n 'renderWidget' src"], "exit_code": 0, "aggregated_output": "src/widget.js:42:function renderWidget(", "status": "completed"}}
+{"type": "item.started", "item": {"id": "item_3", "item_type": "command_execution", "command": ["bash", "-lc", "cat src/widget.js"], "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_3", "item_type": "command_execution", "command": ["bash", "-lc", "cat src/widget.js"], "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_4", "item_type": "web_search", "query": "trailing newline widget renderer", "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_5", "item_type": "command_execution", "command": ["bash", "-lc", "sed -n '1,80p' src/render.js"], "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_6", "item_type": "command_execution", "command": ["bash", "-lc", "npm test -- widget"], "exit_code": 1, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_7", "item_type": "agent_message", "text": "Patching the renderer."}}
+{"type": "item.completed", "item": {"id": "item_8", "item_type": "file_change", "changes": [{"path": "src/widget.js", "kind": "update"}], "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_9", "item_type": "command_execution", "command": ["bash", "-lc", "grep -n 'newline' src/render.js"], "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_10", "item_type": "command_execution", "command": ["bash", "-lc", "npm test"], "exit_code": 0, "status": "completed"}}
+{"type": "turn.completed", "usage": {"input_tokens": 42000, "cached_input_tokens": 38000, "output_tokens": 900, "reasoning_output_tokens": 400}}

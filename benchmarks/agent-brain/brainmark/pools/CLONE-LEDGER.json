@@ -1,0 +1,501 @@
+{
+  "clone_filter": "blob:none",
+  "min_instances_per_repo": 2,
+  "pools": [
+    "swe_bench",
+    "swe_bench_multilingual",
+    "swe_bench_verified"
+  ],
+  "repo_cache": "~/devenv/graphmark/agentic-swebench/repo-cache",
+  "repos": {
+    "apache/druid": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/apache_druid",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "apache/lucene": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/apache_lucene",
+      "error": null,
+      "instances": 9,
+      "state": "ok"
+    },
+    "astral-sh/ruff": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/astral-sh_ruff",
+      "error": null,
+      "instances": 7,
+      "state": "ok"
+    },
+    "astropy/astropy": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/astropy_astropy",
+      "error": null,
+      "instances": 95,
+      "state": "ok"
+    },
+    "axios/axios": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/axios_axios",
+      "error": null,
+      "instances": 6,
+      "state": "ok"
+    },
+    "babel/babel": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/babel_babel",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "briannesbitt/carbon": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/briannesbitt_carbon",
+      "error": null,
+      "instances": 10,
+      "state": "ok"
+    },
+    "burntsushi/ripgrep": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/burntsushi_ripgrep",
+      "error": null,
+      "instances": 2,
+      "state": "ok"
+    },
+    "caddyserver/caddy": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/caddyserver_caddy",
+      "error": null,
+      "instances": 14,
+      "state": "ok"
+    },
+    "django/django": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/django_django",
+      "error": null,
+      "instances": 850,
+      "state": "ok"
+    },
+    "facebook/docusaurus": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/facebook_docusaurus",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "faker-ruby/faker": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/faker-ruby_faker",
+      "error": null,
+      "instances": 2,
+      "state": "ok"
+    },
+    "fastlane/fastlane": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/fastlane_fastlane",
+      "error": null,
+      "instances": 7,
+      "state": "ok"
+    },
+    "fluent/fluentd": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/fluent_fluentd",
+      "error": null,
+      "instances": 12,
+      "state": "ok"
+    },
+    "fmtlib/fmt": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/fmtlib_fmt",
+      "error": null,
+      "instances": 11,
+      "state": "ok"
+    },
+    "gin-gonic/gin": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/gin-gonic_gin",
+      "error": null,
+      "instances": 8,
+      "state": "ok"
+    },
+    "gohugoio/hugo": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/gohugoio_hugo",
+      "error": null,
+      "instances": 7,
+      "state": "ok"
+    },
+    "google/gson": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/google_gson",
+      "error": null,
+      "instances": 9,
+      "state": "ok"
+    },
+    "hashicorp/terraform": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/hashicorp_terraform",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "immutable-js/immutable-js": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/immutable-js_immutable-js",
+      "error": null,
+      "instances": 2,
+      "state": "ok"
+    },
+    "javaparser/javaparser": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/javaparser_javaparser",
+      "error": null,
+      "instances": 2,
+      "state": "ok"
+    },
+    "jekyll/jekyll": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/jekyll_jekyll",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "jordansissel/fpm": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/jordansissel_fpm",
+      "error": null,
+      "instances": 2,
+      "state": "ok"
+    },
+    "jqlang/jq": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/jqlang_jq",
+      "error": null,
+      "instances": 9,
+      "state": "ok"
+    },
+    "laravel/framework": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/laravel_framework",
+      "error": null,
+      "instances": 13,
+      "state": "ok"
+    },
+    "matplotlib/matplotlib": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/matplotlib_matplotlib",
+      "error": null,
+      "instances": 184,
+      "state": "ok"
+    },
+    "micropython/micropython": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/micropython_micropython",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "mrdoob/three.js": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/mrdoob_three.js",
+      "error": null,
+      "instances": 3,
+      "state": "ok"
+    },
+    "mwaskom/seaborn": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/mwaskom_seaborn",
+      "error": null,
+      "instances": 22,
+      "state": "ok"
+    },
+    "nlohmann/json": {
+      "action": "not_needed",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/nlohmann_json",
+      "error": null,
+      "instances": 1,
+      "state": "below_min_instances"
+    },
+    "nushell/nushell": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/nushell_nushell",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "pallets/flask": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/pallets_flask",
+      "error": null,
+      "instances": 11,
+      "state": "ok"
+    },
+    "php-cs-fixer/php-cs-fixer": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/php-cs-fixer_php-cs-fixer",
+      "error": null,
+      "instances": 10,
+      "state": "ok"
+    },
+    "phpoffice/phpspreadsheet": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/phpoffice_phpspreadsheet",
+      "error": null,
+      "instances": 10,
+      "state": "ok"
+    },
+    "preactjs/preact": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/preactjs_preact",
+      "error": null,
+      "instances": 17,
+      "state": "ok"
+    },
+    "projectlombok/lombok": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/projectlombok_lombok",
+      "error": null,
+      "instances": 17,
+      "state": "ok"
+    },
+    "prometheus/prometheus": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/prometheus_prometheus",
+      "error": null,
+      "instances": 8,
+      "state": "ok"
+    },
+    "psf/requests": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/psf_requests",
+      "error": null,
+      "instances": 44,
+      "state": "ok"
+    },
+    "pydata/xarray": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/pydata_xarray",
+      "error": null,
+      "instances": 110,
+      "state": "ok"
+    },
+    "pylint-dev/pylint": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/pylint-dev_pylint",
+      "error": null,
+      "instances": 57,
+      "state": "ok"
+    },
+    "pytest-dev/pytest": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/pytest-dev_pytest",
+      "error": null,
+      "instances": 119,
+      "state": "ok"
+    },
+    "reactivex/rxjava": {
+      "action": "not_needed",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/reactivex_rxjava",
+      "error": null,
+      "instances": 1,
+      "state": "below_min_instances"
+    },
+    "redis/redis": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/redis_redis",
+      "error": null,
+      "instances": 12,
+      "state": "ok"
+    },
+    "rubocop/rubocop": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/rubocop_rubocop",
+      "error": null,
+      "instances": 16,
+      "state": "ok"
+    },
+    "scikit-learn/scikit-learn": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/scikit-learn_scikit-learn",
+      "error": null,
+      "instances": 229,
+      "state": "ok"
+    },
+    "sharkdp/bat": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/sharkdp_bat",
+      "error": null,
+      "instances": 8,
+      "state": "ok"
+    },
+    "sphinx-doc/sphinx": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/sphinx-doc_sphinx",
+      "error": null,
+      "instances": 187,
+      "state": "ok"
+    },
+    "sympy/sympy": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/sympy_sympy",
+      "error": null,
+      "instances": 386,
+      "state": "ok"
+    },
+    "tokio-rs/axum": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/tokio-rs_axum",
+      "error": null,
+      "instances": 7,
+      "state": "ok"
+    },
+    "tokio-rs/tokio": {
+      "action": "already_present",
+      "attempts": 0,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/tokio-rs_tokio",
+      "error": null,
+      "instances": 9,
+      "state": "ok"
+    },
+    "uutils/coreutils": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/uutils_coreutils",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    },
+    "valkey-io/valkey": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/valkey-io_valkey",
+      "error": null,
+      "instances": 4,
+      "state": "ok"
+    },
+    "vuejs/core": {
+      "action": "cloned",
+      "attempts": 1,
+      "dir": "~/devenv/graphmark/agentic-swebench/repo-cache/vuejs_core",
+      "error": null,
+      "instances": 5,
+      "state": "ok"
+    }
+  },
+  "schema_version": 1,
+  "sources": [
+    {
+      "dataset_id": "swe-bench/SWE-bench_Multilingual",
+      "instances_in_file": 300,
+      "instances_new": 300,
+      "path": "tasks/multilingual_300.json",
+      "sha256": "d3036738b304469e2bd3d6fb2109eb8523e2199ec92673de3a79aef9c43292f7"
+    },
+    {
+      "dataset_id": "swe-bench/SWE-bench_Multilingual",
+      "instances_in_file": 303,
+      "instances_new": 3,
+      "path": "tasks/pilot_tasks.json",
+      "sha256": "1a6bde08fecf1db4050ec65caf1fa1524e2dbef8df35a939fb46a3dfb878b67a"
+    },
+    {
+      "dataset_id": null,
+      "instances_in_file": 3,
+      "instances_new": 0,
+      "path": "tasks/python_tasks.json",
+      "sha256": "2f3df480d0866f4b6a5f16fbb47b9e241dcc6538e7d137340962b14c0f3c509a"
+    },
+    {
+      "dataset_id": "princeton-nlp/SWE-bench_Verified",
+      "instances_in_file": 500,
+      "instances_new": 500,
+      "kind": "hf_pool",
+      "path": "pools/swe_bench_verified.json",
+      "pool": "swe_bench_verified",
+      "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+      "sha256": "5018900ed277df86dc72f8c04b057db3835891d33a450614cc80ddf1b9730f09",
+      "split": "test"
+    },
+    {
+      "dataset_id": "SWE-bench/SWE-bench_Multilingual",
+      "instances_in_file": 300,
+      "instances_new": 300,
+      "kind": "hf_pool",
+      "path": "pools/swe_bench_multilingual.json",
+      "pool": "swe_bench_multilingual",
+      "revision": "846e647b9f33c0b51b739d005d13d85493c9af09",
+      "sha256": "352e641422bbee6cef85c4b522dd2978bedb27f6acc5e1aa2415d911d60af882",
+      "split": "test"
+    },
+    {
+      "dataset_id": "princeton-nlp/SWE-bench",
+      "instances_in_file": 2294,
+      "instances_new": 1794,
+      "kind": "hf_pool",
+      "path": "pools/swe_bench.json",
+      "pool": "swe_bench",
+      "revision": "e48e2bd1e9fecd5bbd641e9414ac59da9f2e69f6",
+      "sha256": "992e28c108e3a2146856d94b4e31627935420244923dda4a60cd8d2880a171fb",
+      "split": "test"
+    }
+  ],
+  "summary": {
+    "below_min_instances": 2,
+    "failed": 0,
+    "ok": 51,
+    "pairable_repos_cached": 51,
+    "pending": 0,
+    "repos_total": 53
+  }
+}

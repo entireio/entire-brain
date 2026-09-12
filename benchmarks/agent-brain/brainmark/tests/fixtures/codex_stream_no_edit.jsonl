@@ -1,0 +1,9 @@
+{"type": "thread.started", "thread_id": "th_4b7ee1"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_0", "item_type": "command_execution", "command": ["bash", "-lc", "git grep -n widget"], "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_1", "item_type": "command_execution", "command": ["bash", "-lc", "find . -name 'widget*'"], "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_2", "item_type": "command_execution", "command": ["bash", "-lc", "git log --oneline -5"], "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_3", "item_type": "mcp_tool_call", "server": "docs", "tool": "lookup", "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_4", "item_type": "command_execution", "command": "head -40 src/widget.js", "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_5", "item_type": "agent_message", "text": "I could not find a safe fix."}}
+{"type": "turn.completed", "usage": {"input_tokens": 15000, "cached_input_tokens": 12000, "output_tokens": 300}}
