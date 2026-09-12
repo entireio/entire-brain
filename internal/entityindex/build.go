@@ -263,10 +263,26 @@ func Build(ctx context.Context, runner Runner, store *factgitmeta.MetaStore, opt
 		// concurrent writer may have indexed the same commits between our read
 		// and the CAS. A commit's records move together, so the WHOLE group is
 		// dropped — replaying only its reverse appends would duplicate entries.
+		//
+		// The one exception is a commit whose CURRENTLY stored document is
+		// itself a stale truncation (written under a lower maxDeltaEntities cap
+		// than is in effect now): that document does not satisfy today's cap
+		// either way, so it is not the "someone already indexed this" case the
+		// guard exists for, and the group is let through to replace it. A
+		// concurrent writer that already landed a fully-repaired document in
+		// the meantime still wins the drop, exactly as before.
 		pending := make([]gitmeta.Mutation, 0, b.mutCount+len(windowMut))
 		for _, group := range b.groups {
-			if current.HasKey(CommitTarget(group.sha), RevisionKey(ForwardKey, opts.IdentityRevision)) {
-				continue
+			forwardKey := RevisionKey(ForwardKey, opts.IdentityRevision)
+			if current.HasKey(CommitTarget(group.sha), forwardKey) {
+				// HasKey, not CurrentString, is the presence test: it also sees a
+				// list or set value, so a group is never let through to clobber a
+				// non-string value. The stored STRING is then consulted only to
+				// spot the stale-truncation exception above.
+				raw, isString := current.CurrentString(CommitTarget(group.sha), forwardKey)
+				if !isString || !deltaNeedsRepair(raw) {
+					continue
+				}
 			}
 			pending = append(pending, group.muts...)
 		}
@@ -499,22 +515,52 @@ func (b *builder) indexCheckpointCommits(head string) {
 	}
 }
 
-// alreadyIndexed reports whether a commit already carries a forward document.
-// It reads ONE record rather than materializing the whole state, and is only
-// ever asked about commits OUTSIDE the covered window — everything inside it is
-// indexed by the window's own definition.
+// alreadyIndexed reports whether a commit already carries a forward document
+// that fully reflects the CURRENT maxDeltaEntities cap. It reads ONE record
+// rather than materializing the whole state, and is only ever asked about
+// commits OUTSIDE the covered window — everything inside it is indexed by the
+// window's own definition.
+//
+// A commit whose stored document was truncated wrote EXACTLY maxDeltaEntities
+// entities at the time it was indexed (that is what truncation means). If the
+// cap has since risen, that stored length is now smaller than the current cap,
+// which is the one signal available without a second provider invocation that
+// re-diffing would recover more of the commit. Such a commit is reported as
+// NOT indexed so the ordinary re-diff path (idempotent; see indexCommit)
+// refreshes it instead of leaving it stuck at the old, lower cap forever. A
+// commit truncated at the SAME cap it still stores (no cap change) is left
+// alone: re-diffing it would only reproduce the identical truncation.
 func (b *builder) alreadyIndexed(sha string) bool {
 	if known, ok := b.indexed[sha]; ok {
 		return known
 	}
-	present, err := b.store.HasString(CommitTarget(sha), RevisionKey(ForwardKey, b.opts.IdentityRevision))
+	raw, present, err := b.store.ReadString(CommitTarget(sha), RevisionKey(ForwardKey, b.opts.IdentityRevision))
 	if err != nil {
 		// Treat an unreadable probe as "not indexed": re-indexing is idempotent
 		// (the pre-CAS re-check drops the duplicate), skipping is not.
 		present = false
 	}
+	if present && deltaNeedsRepair(raw) {
+		present = false
+	}
 	b.indexed[sha] = present
 	return present
+}
+
+// deltaNeedsRepair reports whether a stored forward-document JSON was
+// truncated under a LOWER maxDeltaEntities cap than is in effect now. A
+// truncated document always stores exactly the cap's worth of entities at the
+// time it was written, so a stored length below today's cap is the signal
+// that re-diffing could recover more of the commit; a stored length equal to
+// today's cap means the cap has not moved since, and re-diffing would only
+// reproduce the identical truncation. An undecodable document is treated as
+// NOT needing repair — an unknown shape is not evidence of a stale cap.
+func deltaNeedsRepair(raw string) bool {
+	var delta Delta
+	if json.Unmarshal([]byte(raw), &delta) != nil {
+		return false
+	}
+	return delta.Truncated && len(delta.Entities) < maxDeltaEntities
 }
 
 // indexCommit diffs one commit and stages its records. indexed=false means the
@@ -539,6 +585,8 @@ func (b *builder) indexCommit(commit commitInfo) (indexed bool, stop bool) {
 	b.consecutiveFailures = 0
 	if len(delta.Entities) > maxDeltaEntities {
 		b.result.Warnings = append(b.result.Warnings, fmt.Sprintf("commit %s changed %d entities; stored the first %d", short(commit.SHA), len(delta.Entities), maxDeltaEntities))
+		delta.Truncated = true
+		delta.EntityCount = len(delta.Entities)
 		delta.Entities = delta.Entities[:maxDeltaEntities]
 	}
 	delta.IdentityRevision = b.opts.IdentityRevision

@@ -83,7 +83,10 @@ const (
 )
 
 // Delta is one commit's entity-change document (schema_version "1.0"). Field
-// order matches the frozen contract.
+// order matches the frozen contract. Truncated/EntityCount are ADDITIVE
+// (schema_version stays "1.0"): a reader that does not know them still decodes
+// every other field, and their zero values (false / 0) are exactly what an
+// untruncated document already means, so they cost nothing on the common path.
 type Delta struct {
 	SchemaVersion    string        `json:"schema_version"`
 	Producer         string        `json:"producer"`
@@ -93,6 +96,18 @@ type Delta struct {
 	Head             string        `json:"head"`
 	ComputedAt       string        `json:"computed_at"`
 	Entities         []EntityDelta `json:"entities"`
+	// Truncated reports that Entities was capped at maxDeltaEntities and does
+	// NOT list every entity this commit actually changed. Omitted (false) on
+	// every document written before this field existed, which is the correct
+	// reading: nothing was ever truncated silently before the cap existed
+	// either. See EntityCount for the true total.
+	Truncated bool `json:"truncated,omitempty"`
+	// EntityCount is the TRUE number of entities this commit changed, recorded
+	// only when Truncated is true (0 otherwise, and absent from JSON). It lets
+	// a reader tell "this commit touched exactly maxDeltaEntities entities"
+	// apart from "this commit touched many more than we stored", and lets a
+	// later pass decide whether raising the cap would recover more of it.
+	EntityCount int `json:"entity_count,omitempty"`
 }
 
 // EntityDelta is one changed entity inside a Delta. Path/Name are the
