@@ -331,7 +331,21 @@ func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHisto
 		if left.Path != right.Path {
 			return left.Path < right.Path
 		}
-		return left.Line < right.Line
+		if left.Line != right.Line {
+			return left.Line < right.Line
+		}
+		// Kind and SourceDigest are the two remaining components of
+		// historyRecordReplacementKey. Without them the comparator is not a
+		// total order over its own fusion key: two entries the key deliberately
+		// keeps distinct (degraded, session-less copies of one exchange, whose
+		// key.Session falls back to the source digest; or ID-less legacy records
+		// differing only by digest) compare equal, and sort.SliceStable then
+		// leaves them in the order the fused map happened to range in — so the
+		// same query returns a different ranking from one call to the next.
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		return left.SourceDigest < right.SourceDigest
 	})
 	if len(out) > limit {
 		out = out[:limit]

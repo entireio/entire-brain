@@ -399,8 +399,13 @@ func TestMemoryJobFilenameIsPortable(t *testing.T) {
 	if strings.Contains(filepath.Base(rel), ":") {
 		t.Fatalf("job filename is not Windows-portable: %q", rel)
 	}
-	if rel != memoryJobRel("job:0123456789abcdef") {
-		t.Fatal("job filename must be deterministic")
+	// A literal, not a second call to memoryJobRel. The name is the durable
+	// on-disk key of a queued memory job: a job written by one version and read
+	// by another must land on the same path, or the queue silently loses work
+	// that is still sitting on disk. Comparing the function to itself cannot see
+	// a changed preimage; this does.
+	if rel != "history/work/v1/jobs/027020a20e04b7f380547f0065d96ecc4b3f8abc.json" {
+		t.Fatalf("memoryJobRel = %q, want history/work/v1/jobs/027020a20e04b7f380547f0065d96ecc4b3f8abc.json", rel)
 	}
 }
 
