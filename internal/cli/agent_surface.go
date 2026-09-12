@@ -673,7 +673,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section (default 3; raise only when the compact packet is insufficient)")
+	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
@@ -4471,7 +4471,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		report.Live = live
 	}
 	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
-		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, repoDir, manifest, report.Live)
+		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live)
 		if report.Retrieval != nil {
 			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
 		}
@@ -4487,7 +4487,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	return report, nil
 }
 
-func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
+func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
@@ -4527,7 +4527,18 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, repoDi
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
 		report.DocsRecords = docs.Records
 		report.DocsFiles = docs.Files
-		if docs.GeneratedAt.IsZero() {
+		if err := verifyDeclaredDocIndex(brainDir); err != nil {
+			// The manifest declaring a docs index is not evidence the index is
+			// on disk, and retrieval skips a missing index silently. Freshness
+			// must not claim "ok" for a docs layer that will contribute nothing.
+			state := "unsafe"
+			detail := "docs index declared in the manifest but unreadable: " + err.Error()
+			if os.IsNotExist(err) {
+				state = "missing"
+				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run entire brain refresh --agent none"
+			}
+			axes["docs"] = staleAxis{State: state, Detail: detail}
+		} else if docs.GeneratedAt.IsZero() {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp"}
 		} else if manifest.Sources.Seed == nil {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}

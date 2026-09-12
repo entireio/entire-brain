@@ -60,7 +60,7 @@ func TestBrainBriefPostIndexPromotionUsesCommittedTaskFiles(t *testing.T) {
 			}
 
 			candidate := report
-			brainBriefPromotePostIndexFiles(context.Background(), ExecRunner{}, status, task, &candidate)
+			brainBriefPromotePostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, task, &candidate, 30*time.Second)
 			brainBriefApplyLayoutGuidance(repoDir, task, &candidate)
 			if len(candidate.LikelyEditFiles) == 0 || candidate.LikelyEditFiles[0] != "internal/cli/brain_brief_compact_v3.go" {
 				t.Fatalf("post-index source rank = %v, want compact_v3.go first", candidate.LikelyEditFiles)
@@ -108,7 +108,7 @@ func TestBrainBriefPostIndexPromotionUsesNestedModuleAndLongTaskTail(t *testing.
 	if !slices.Contains(terms, "auth") || !slices.Contains(terms, "token") {
 		t.Fatalf("long-task tail locators were truncated: %v", terms)
 	}
-	edits, tests := brainBriefPostIndexFiles(context.Background(), ExecRunner{}, status, task)
+	edits, tests := brainBriefPostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, task, 30*time.Second)
 	if !slices.Equal(edits, []string{"src/auth/token.go"}) || !slices.Equal(tests, []string{"src/auth/token_test.go"}) {
 		t.Fatalf("nested module locator pair missed: edits=%v tests=%v terms=%v", edits, tests, terms)
 	}
@@ -175,7 +175,7 @@ func TestBrainBriefPostIndexRejectsNonAncestor(t *testing.T) {
 	writeBrainBriefPostIndexFiles(t, repoDir, map[string]string{"internal/cli/compact_v3_live.go": "package cli\n"})
 	current := commitBrainBriefPostIndexRepo(t, repoDir, "live side")
 	status := brainBriefPostIndexStatus(repoDir, indexed, current)
-	edits, tests := brainBriefPostIndexFiles(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum")
+	edits, tests := brainBriefPostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum", 30*time.Second)
 	if len(edits) != 0 || len(tests) != 0 {
 		t.Fatalf("non-ancestor semantic commit surfaced files: edits=%v tests=%v", edits, tests)
 	}
@@ -230,11 +230,11 @@ func TestBrainBriefPostIndexBenchmarkPenaltyAffectsMaxGroup(t *testing.T) {
 	current := commitBrainBriefPostIndexRepo(t, repoDir, "candidate group")
 	status := brainBriefPostIndexStatus(repoDir, indexed, current)
 
-	edits, tests := brainBriefPostIndexFiles(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum validation")
+	edits, tests := brainBriefPostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum validation", 30*time.Second)
 	if !slices.Equal(edits, []string{"internal/cli/compact_v3.go"}) || !slices.Equal(tests, []string{"internal/cli/compact_v3_test.go"}) {
 		t.Fatalf("benchmark raw-hit advantage excluded production group: edits=%v tests=%v", edits, tests)
 	}
-	performanceEdits, performanceTests := brainBriefPostIndexFiles(context.Background(), ExecRunner{}, status, "benchmark compact-v3 checksum allocations")
+	performanceEdits, performanceTests := brainBriefPostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, "benchmark compact-v3 checksum allocations", 30*time.Second)
 	if !slices.Equal(performanceEdits, []string{"internal/cli/compact_v3.go"}) ||
 		!slices.Equal(performanceTests, []string{"internal/cli/compact_v3_checksum_bench_test.go"}) {
 		t.Fatalf("performance benchmark erased source or lost test priority: edits=%v tests=%v", performanceEdits, performanceTests)
@@ -341,11 +341,11 @@ func TestBrainBriefPostIndexRejectsSymlinkAndNoMatch(t *testing.T) {
 	current := commitBrainBriefPostIndexRepo(t, repoDir, "unsafe candidates")
 	status := brainBriefPostIndexStatus(repoDir, indexed, current)
 
-	edits, tests := brainBriefPostIndexFiles(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum")
+	edits, tests := brainBriefPostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum", 30*time.Second)
 	if len(edits) != 0 || len(tests) != 0 {
 		t.Fatalf("symlink post-index candidate escaped regular-file boundary: edits=%v tests=%v", edits, tests)
 	}
-	edits, tests = brainBriefPostIndexFiles(context.Background(), ExecRunner{}, status, "fix quantum-v9 checksum")
+	edits, tests = brainBriefPostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, "fix quantum-v9 checksum", 30*time.Second)
 	if len(edits) != 0 || len(tests) != 0 {
 		t.Fatalf("no-match task surfaced unrelated post-index files: edits=%v tests=%v", edits, tests)
 	}
@@ -364,7 +364,7 @@ func BenchmarkBrainBriefPostIndexFiles(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		edits, tests := brainBriefPostIndexFiles(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum validation")
+		edits, tests := brainBriefPostIndexFilesWithTimeout(context.Background(), ExecRunner{}, status, "fix compact-v3 checksum validation", 30*time.Second)
 		if len(edits) != 1 || len(tests) != 1 {
 			b.Fatalf("unexpected candidates: edits=%v tests=%v", edits, tests)
 		}
@@ -484,4 +484,25 @@ func renderBrainBriefJSONForPostIndexTest(t *testing.T, report brainBriefReport)
 		t.Fatalf("render default JSON brief: %v", err)
 	}
 	return out.String()
+}
+
+// The integration-test allowance must not relax the production budget. Assert
+// the deadline delivered to Git without depending on host process startup time.
+func TestBrainBriefPostIndexProductionBudget(t *testing.T) {
+	status := brainBriefPostIndexStatus(t.TempDir(), strings.Repeat("a", 40), strings.Repeat("b", 40))
+	r := &brainBriefPostIndexDeadlineRunner{}
+	brainBriefPostIndexFiles(context.Background(), r, status, "fix auth token expiry")
+	if r.remaining <= 0 || r.remaining > brainBriefPostIndexTimeout {
+		t.Fatalf("production deadline = %s", r.remaining)
+	}
+}
+
+type brainBriefPostIndexDeadlineRunner struct{ remaining time.Duration }
+
+func (r *brainBriefPostIndexDeadlineRunner) Run(ctx context.Context, _ string, _ string, _ ...string) ([]byte, []byte, error) {
+	deadline, ok := ctx.Deadline()
+	if ok {
+		r.remaining = time.Until(deadline)
+	}
+	return nil, nil, context.DeadlineExceeded
 }

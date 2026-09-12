@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-16T17:00:59.573363Z",
+  "generated_at": "2026-09-11T23:32:20.586712Z",
   "brain_path": "/tmp/distill-evidence-data/repos/gh/ashtom/entire-brain",
   "force": true,
   "agent": "command",
@@ -8,18 +8,27 @@
   "extraction_jobs_cap": 1,
   "max_chunk_bytes": 262144,
   "confidence_threshold": 0.75,
-  "sessions": 186,
+  "sessions": 206,
   "cached_sessions": 0,
-  "sessions_to_distill": 186,
+  "sessions_to_distill": 206,
   "missing_transcripts": 0,
-  "raw_bytes": 521933198,
-  "preprocessed_bytes": 14448382,
-  "chunks": 216,
-  "chunks_if_uncached": 216,
-  "extraction_agent_calls": 216,
-  "reconcile_agent_calls_upper_bound": 216,
-  "estimated_agent_calls_upper_bound": 432,
+  "raw_bytes": 916058801,
+  "preprocessed_bytes": 18913982,
+  "chunks": 246,
+  "chunks_if_uncached": 246,
+  "extraction_agent_calls": 246,
+  "reconcile_agent_calls_upper_bound": 246,
+  "estimated_agent_calls_upper_bound": 492,
   "branches": [
+    {
+      "branch": "claude/cc-debug",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 96387
+    },
     {
       "branch": "claude/pr49-review-fixes",
       "sessions": 1,
@@ -37,6 +46,24 @@
       "chunks": 4,
       "chunks_if_uncached": 4,
       "preprocessed_bytes": 806422
+    },
+    {
+      "branch": "codex/benchmark-repair-integration",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 255557
+    },
+    {
+      "branch": "codex/current-main-source-of-truth",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 876706
     },
     {
       "branch": "codex/full-plan-implementation",
@@ -57,6 +84,177 @@
       "preprocessed_bytes": 849723
     },
     {
+      "branch": "codex/workstream7-ranking-gate",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 17536
+    },
+    {
+      "branch": "codex/ws2-treatment-isolation",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 29716
+    },
+    {
+      "branch": "codex/ws3-temporal-eligibility",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 18111
+    },
+    {
+      "branch": "codex/ws4-counterbalanced-runtime-controls",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 12303
+    },
+    {
+      "branch": "codex/ws5-evidence-provenance",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19989
+    },
+    {
+      "branch": "codex/ws6-preregistered-engine-matrix",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 21099
+    },
+    {
+      "branch": "docs/p0m5-install-docs",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 92828
+    },
+    {
+      "branch": "docs/readme-refresh",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 7,
+      "chunks_if_uncached": 7,
+      "preprocessed_bytes": 1574660
+    },
+    {
+      "branch": "feat/adaptive-project-memory-v2",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19089
+    },
+    {
+      "branch": "feat/brain-setup-onboarding",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 753746
+    },
+    {
+      "branch": "feat/candidate-distillation-phase2",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 182834
+    },
+    {
+      "branch": "feat/candidate-distillation-phase3",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 182834
+    },
+    {
+      "branch": "feat/candidate-first-distillation",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 180905
+    },
+    {
+      "branch": "feat/conversation-request-weighted-embed",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 41514
+    },
+    {
+      "branch": "feat/conversational-memory-phase1",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 5113
+    },
+    {
+      "branch": "feat/conversational-memory-phase2",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 20692
+    },
+    {
+      "branch": "feat/facts-gitmeta-local",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 115478
+    },
+    {
+      "branch": "feat/phase4-tail",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 39860
+    },
+    {
+      "branch": "feat/purge-gitmeta-sync-caveat",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 26907
+    },
+    {
       "branch": "feat/qmd-retrieval",
       "sessions": 1,
       "cached_sessions": 0,
@@ -73,6 +271,15 @@
       "chunks": 2,
       "chunks_if_uncached": 2,
       "preprocessed_bytes": 139192
+    },
+    {
+      "branch": "feat/short-term-memory",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 38756
     },
     {
       "branch": "feat/stage1a-derived-index",
@@ -93,6 +300,33 @@
       "preprocessed_bytes": 145175
     },
     {
+      "branch": "feat/temporal-memory-spike",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 32
+    },
+    {
+      "branch": "feat/watch-consolidation-cadence",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 39286
+    },
+    {
+      "branch": "feat/workspace-conversation-recall",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 42252
+    },
+    {
       "branch": "feat/workspace-dir-home",
       "sessions": 1,
       "cached_sessions": 0,
@@ -111,13 +345,31 @@
       "preprocessed_bytes": 85228
     },
     {
-      "branch": "fix/release-evidence-gate",
+      "branch": "fix/history-fts-duplicate-ids",
       "sessions": 1,
       "cached_sessions": 0,
       "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 160149
+      "preprocessed_bytes": 81389
+    },
+    {
+      "branch": "fix/release-evidence-gate",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 264743
+    },
+    {
+      "branch": "fix/semantic-completeness-policy-skips",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 104373
     },
     {
       "branch": "harvest/agent-ux-and-embedder-ux",
@@ -130,12 +382,21 @@
     },
     {
       "branch": "main",
-      "sessions": 171,
+      "sessions": 157,
       "cached_sessions": 0,
-      "sessions_to_distill": 171,
-      "chunks": 194,
-      "chunks_if_uncached": 194,
-      "preprocessed_bytes": 11262709
+      "sessions_to_distill": 157,
+      "chunks": 175,
+      "chunks_if_uncached": 175,
+      "preprocessed_bytes": 9139613
+    },
+    {
+      "branch": "p0p1/p1-new",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 753746
     },
     {
       "branch": "pr35-fixes",
@@ -145,6 +406,24 @@
       "chunks": 1,
       "chunks_if_uncached": 1,
       "preprocessed_bytes": 211823
+    },
+    {
+      "branch": "pr85",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 114636
+    },
+    {
+      "branch": "wip/memory-lifecycle-plan-handoff-20260712",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 725768
     }
   ],
   "largest_sessions": [
@@ -160,8 +439,18 @@
     },
     {
       "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+      "branch": "docs/readme-refresh",
+      "transcript": "sessions/branches/docs-readme-refresh-34418cab/20260705T215931Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_1f324c1e0b17.jsonl",
+      "cached": false,
+      "chunks": 7,
+      "chunks_if_uncached": 7,
+      "raw_bytes": 52419357,
+      "preprocessed_bytes": 1574660
+    },
+    {
+      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
       "branch": "main",
-      "transcript": "sessions/main/20260705T215931Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_1f324c1e0b17.jsonl",
+      "transcript": "sessions/main/20260618T230847Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_c858ba973162.jsonl",
       "cached": false,
       "chunks": 7,
       "chunks_if_uncached": 7,
@@ -180,8 +469,8 @@
     },
     {
       "session_id": "019f8699-0371-7851-a1ea-91e735789006",
-      "branch": "main",
-      "transcript": "sessions/main/20260724T195219Z_codex_019f8699-0371-7851-a1ea-91e735789006_a8a92a057db2.jsonl",
+      "branch": "codex/current-main-source-of-truth",
+      "transcript": "sessions/branches/codex-current-main-source-of-truth-ecd10ec2/20260724T195219Z_codex_019f8699-0371-7851-a1ea-91e735789006_a8a92a057db2.jsonl",
       "cached": false,
       "chunks": 4,
       "chunks_if_uncached": 4,
@@ -199,9 +488,29 @@
       "preprocessed_bytes": 806422
     },
     {
+      "session_id": "de272aad-c620-4d71-bbdd-27dd2d3dc8af",
+      "branch": "feat/brain-setup-onboarding",
+      "transcript": "sessions/branches/feat-brain-setup-onboarding-23d2d9ce/20260819T212417Z_claude-code_de272aad-c620-4d71-bbdd-27dd2d3dc8af_ca03a2aa13e0.jsonl",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "raw_bytes": 49784520,
+      "preprocessed_bytes": 753746
+    },
+    {
+      "session_id": "de272aad-c620-4d71-bbdd-27dd2d3dc8af",
+      "branch": "p0p1/p1-new",
+      "transcript": "sessions/branches/p0p1-p1-new-044b95e3/20260817T174229Z_claude-code_de272aad-c620-4d71-bbdd-27dd2d3dc8af_14ae70e977be.jsonl",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "raw_bytes": 49784520,
+      "preprocessed_bytes": 753746
+    },
+    {
       "session_id": "928f9558-c860-40f7-919a-be6fa62f3381",
-      "branch": "main",
-      "transcript": "sessions/main/20260715T082213Z_claude-code_928f9558-c860-40f7-919a-be6fa62f3381_d4d383d2bd17.jsonl",
+      "branch": "wip/memory-lifecycle-plan-handoff-20260712",
+      "transcript": "sessions/branches/wip-memory-lifecycle-plan-handoff-20260712-c3933a82/20260715T082213Z_claude-code_928f9558-c860-40f7-919a-be6fa62f3381_d4d383d2bd17.jsonl",
       "cached": false,
       "chunks": 3,
       "chunks_if_uncached": 3,
@@ -217,36 +526,6 @@
       "chunks_if_uncached": 3,
       "raw_bytes": 9232578,
       "preprocessed_bytes": 616181
-    },
-    {
-      "session_id": "7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35",
-      "branch": "main",
-      "transcript": "sessions/main/20260618T081610Z_claude-code_7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35_c8a94cbb6806.jsonl",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "raw_bytes": 16508099,
-      "preprocessed_bytes": 316362
-    },
-    {
-      "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
-      "branch": "main",
-      "transcript": "sessions/main/20260609T111243Z_claude-code_93850a3b-823a-4400-affb-afd0a1ad0282_fbed539c81af.jsonl",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "raw_bytes": 12985799,
-      "preprocessed_bytes": 306295
-    },
-    {
-      "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
-      "branch": "feat/qmd-retrieval",
-      "transcript": "sessions/branches/feat-qmd-retrieval-6e45b6af/20260609T103140Z_claude-code_93850a3b-823a-4400-affb-afd0a1ad0282_a108e53d0b64.jsonl",
-      "cached": false,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "raw_bytes": 12645268,
-      "preprocessed_bytes": 298305
     }
   ]
 }

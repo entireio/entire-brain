@@ -352,11 +352,38 @@ func normalizeObject(t *canonicalType, in map[string]any) (map[string]any, error
 	// CanonicalMarshal(CanonicalUnmarshal(b)) == b holds only for bytes whose keys are
 	// all known. The fixed point that matters for signing — Canonicalize being
 	// idempotent — holds either way; see the fuzz tests.
-	for k, v := range in {
-		if _, ok := known[k]; ok {
-			continue
+	//
+	// One class of unknown key is REJECTED rather than passed through: a key that
+	// is not a contract field but FOLDS to one under Unicode simple case folding
+	// ("manIfest", "REPO_KEY"). Go's encoding/json matches object members to
+	// struct fields case-insensitively, so such a key is unknown to this
+	// canonicalizer and IS the field to encoding/json — the same bytes then carry
+	// two different meanings depending on which decoder reads them:
+	//
+	//	raw = {"manIfest":{"repo_key":"EVIL",…}}
+	//	json.Unmarshal(raw, &BrainArtifact{})  -> RepoKey == "EVIL"
+	//	CanonicalUnmarshal(raw, &artifact)     -> RepoKey == ""   (zero-filled)
+	//
+	// and VerifyBytes accepts the bytes either way, because canonicalization
+	// preserves the unknown key verbatim. That is a signature-smuggling vector of
+	// exactly the kind duplicate members are rejected for above: one signature,
+	// two readings, decided by the consumer's parser rather than by the signer.
+	// Case-folded collisions are therefore not canonical, and never appear in
+	// legitimate artifacts, since every contract key is lowercase ASCII.
+	unknown := make([]string, 0, len(in))
+	for k := range in {
+		if _, ok := known[k]; !ok {
+			unknown = append(unknown, k)
 		}
-		out[k] = v
+	}
+	sort.Strings(unknown) // deterministic error for input with several collisions
+	for _, k := range unknown {
+		for _, f := range t.Fields {
+			if strings.EqualFold(k, f.Key) {
+				return nil, fmt.Errorf("brainwire: %s: member %q case-folds to the contract field %q (canonical form forbids case-folded duplicates)", t.Name, k, f.Key)
+			}
+		}
+		out[k] = in[k]
 	}
 	return out, nil
 }

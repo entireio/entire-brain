@@ -1,0 +1,90 @@
+{
+  "sha": "20865b7c8440643ed49e8b4b4d7ed5d2ea58c2a1",
+  "startedAt": 1788697507.4533281,
+  "state": "passed",
+  "stages": {
+    "harness": {
+      "state": "passed",
+      "startedAt": 1788697507.4533281,
+      "exitCode": 0,
+      "seconds": 31.439
+    },
+    "prepare": {
+      "state": "passed",
+      "startedAt": 1788697538.89872,
+      "exitCode": 0,
+      "seconds": 162.547
+    },
+    "shard-0": {
+      "state": "passed",
+      "startedAt": 1788697737.3827362,
+      "exitCode": 0,
+      "seconds": 207.595
+    },
+    "shard-1": {
+      "state": "passed",
+      "startedAt": 1788697737.3827362,
+      "exitCode": 0,
+      "seconds": 190.807
+    },
+    "shard-2": {
+      "state": "passed",
+      "startedAt": 1788697928.191563,
+      "exitCode": 0,
+      "seconds": 127.573
+    },
+    "shard-3": {
+      "state": "passed",
+      "startedAt": 1788697944.9786084,
+      "exitCode": 0,
+      "seconds": 130.723
+    },
+    "shard-4": {
+      "state": "passed",
+      "startedAt": 1788698055.7653303,
+      "exitCode": 0,
+      "seconds": 73.989
+    },
+    "shard-5": {
+      "state": "passed",
+      "startedAt": 1788698075.7033958,
+      "exitCode": 0,
+      "seconds": 96.799
+    },
+    "shard-6": {
+      "state": "passed",
+      "startedAt": 1788698129.7555969,
+      "exitCode": 0,
+      "seconds": 120.476
+    },
+    "shard-7": {
+      "state": "passed",
+      "startedAt": 1788698172.5035524,
+      "exitCode": 0,
+      "seconds": 114.352
+    },
+    "other": {
+      "state": "passed",
+      "startedAt": 1788698250.2327383,
+      "exitCode": 0,
+      "seconds": 43.598
+    },
+    "vet": {
+      "state": "passed",
+      "startedAt": 1788698293.8308856,
+      "exitCode": 0,
+      "seconds": 26.595
+    },
+    "verify": {
+      "state": "passed",
+      "startedAt": 1788698320.4290023,
+      "exitCode": 0,
+      "seconds": 0.549
+    },
+    "driver": {
+      "state": "passed"
+    }
+  },
+  "finishedAt": 1788698320.980505,
+  "seconds": 813.527
+}
