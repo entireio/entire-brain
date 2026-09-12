@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math"
@@ -114,11 +117,25 @@ func safeOpenRegularFile(path string) (*os.File, error) {
 // max <= 0 falls back to defaultMaxReadBytes. The path must be a regular file:
 // see safeOpenRegularFile for why the size ceiling alone is not a bound.
 func safeReadFile(path string, max int64) ([]byte, error) {
+	if max <= 0 {
+		max = defaultMaxReadBytes
+	}
 	f, err := safeOpenRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	// A regular file states its size before any of it is read, and that already
+	// decides the answer: refuse here so an oversized input costs nothing. Reading
+	// up to the ceiling first and only then rejecting still pays for the ceiling —
+	// and pays several times over, because the growing read buffer churns every
+	// intermediate size through the allocator on the way up. safeOpenRegularFile
+	// has already established that this descriptor IS a regular file, so the size
+	// it reports is meaningful; the streaming bound in safeReadAll stays the
+	// authority for a file that grows between this stat and the read.
+	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > max {
+		return nil, &readBoundExceededError{source: path, max: max}
+	}
 	return safeReadAll(f, max, path)
 }
 
@@ -157,4 +174,62 @@ func safeReadAll(r io.Reader, max int64, source string) ([]byte, error) {
 		return nil, &readBoundExceededError{source: source, max: max}
 	}
 	return data, nil
+}
+
+// readFilePrefix reads at most max bytes from path and reports whether the file has
+// more content beyond that. It is the truncating counterpart to safeReadFile: where
+// safeReadFile refuses an oversized input, callers that only ever keep a bounded
+// prefix (the seed document copier) can take that prefix without the file's full
+// size ever entering memory.
+func readFilePrefix(path string, max int) ([]byte, bool, error) {
+	// safeOpenRegularFile, not os.Open: this takes a repository file path, which is
+	// as caller-supplied as safeReadFile's, so it needs the same refusal of a FIFO
+	// or device that would park or never end.
+	f, err := safeOpenRegularFile(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer f.Close()
+	// One byte past max distinguishes "exactly max bytes" from "longer than max".
+	data, err := io.ReadAll(io.LimitReader(f, int64(max)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > max {
+		return data[:max], true, nil
+	}
+	return data, false, nil
+}
+
+// hashFileDetectingNUL streams path through sha256 and reports whether any NUL byte
+// was seen, returning the "sha256:"-prefixed digest in the same form as the callers'
+// previous sha256.Sum256 over the whole file. Streaming keeps peak memory at one
+// buffer regardless of file size while leaving the digest byte-identical.
+func hashFileDetectingNUL(path string) (digest string, binary bool, err error) {
+	// safeOpenRegularFile, not os.Open: hashing a FIFO or a character device would
+	// never terminate, and this runs over whatever files a repository contains.
+	f, err := safeOpenRegularFile(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+	hasher := sha256.New()
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := f.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			if !binary && bytes.IndexByte(chunk, 0) >= 0 {
+				binary = true
+			}
+			hasher.Write(chunk)
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return "", false, readErr
+		}
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), binary, nil
 }
