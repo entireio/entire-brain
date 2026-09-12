@@ -17,8 +17,14 @@ import (
 func TestProposalIDIsStableAndDiscriminating(t *testing.T) {
 	base := factmerge.Proposal{Action: factmerge.ActionSupersede, CandidateID: "fact:c", TargetID: "fact:t", Branch: "main", ProposedBy: "member-B"}
 	id := ProposalID(base)
-	if id != ProposalID(base) {
-		t.Fatal("ProposalID is not deterministic")
+	// A literal, not a second call. The per-field table below proves every field
+	// participates, but it cannot see a change to how the fields are COMBINED: a
+	// swap of CandidateID and TargetID in the hash order leaves every subtest
+	// passing while giving the same conflict a different id at a member running
+	// the other version — exactly the cross-member disagreement this id exists to
+	// prevent. Verified: that swap left all 2,450 tests in factsync and cli green.
+	if id != "prop-08bee2872733f11a" {
+		t.Fatalf("ProposalID = %q, want prop-08bee2872733f11a", id)
 	}
 	if !strings.HasPrefix(id, "prop-") || len(id) != len("prop-")+16 {
 		t.Fatalf("ProposalID = %q; want prop-<16 hex>", id)
