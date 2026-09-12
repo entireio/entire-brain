@@ -269,14 +269,28 @@ func repoStorageContainsState(storage repoStorage) (bool, error) {
 	return false, nil
 }
 
-func brainDirForKey(env EntireEnv, key string) (string, error) {
-	// "workspaces" is reserved in the repo keyspace: older builds stored
-	// workspace manifests at repos/workspaces/<name> (since relocated to a
-	// sibling of repos/), and a host slug or hand-edited DomainSlugs entry
-	// claiming the segment would collide with any legacy data still awaiting
-	// migration.
+// rejectReservedRepoKeySegment refuses a repo key whose first segment is
+// reserved in the repo keyspace.
+//
+// "workspaces" is reserved: older builds stored workspace manifests at
+// repos/workspaces/<name> (since relocated to a sibling of repos/), and a host
+// slug or hand-edited DomainSlugs entry claiming the segment would collide with
+// any legacy data still awaiting migration.
+//
+// This lives in one function because it is a property of the KEY, not of any one
+// consumer of it. It used to be inline in brainDirForKey only, which left the two
+// places that build a store path without that helper — `brain path`, and
+// headPathForKey — accepting a key every other command refuses.
+func rejectReservedRepoKeySegment(key string) error {
 	if first, _, _ := strings.Cut(key, "/"); first == workspaceDirName {
-		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+		return fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+	}
+	return nil
+}
+
+func brainDirForKey(env EntireEnv, key string) (string, error) {
+	if err := rejectReservedRepoKeySegment(key); err != nil {
+		return "", err
 	}
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {
@@ -290,11 +304,22 @@ func brainDirForKey(env EntireEnv, key string) (string, error) {
 }
 
 func headPathForKey(env EntireEnv, key string) (string, error) {
+	// Same guards as brainDirForKey. The head path is built from the same
+	// untrusted key and joined onto the same per-key directory, so accepting a
+	// key here that brainDirForKey refuses would put the two halves of a repo's
+	// storage under different rules.
+	if err := rejectReservedRepoKeySegment(key); err != nil {
+		return "", err
+	}
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dirs.State, repoStoreDirName, filepath.FromSlash(key), brainHeadFileName), nil
+	headRoot := filepath.Join(dirs.State, repoStoreDirName)
+	if err := rejectBrainRootPathSymlinks(headRoot, filepath.FromSlash(key)); err != nil {
+		return "", err
+	}
+	return filepath.Join(headRoot, filepath.FromSlash(key), brainHeadFileName), nil
 }
 
 func repoStorageKey(ctx context.Context, runner CommandRunner, configDir, repoDir string) (string, error) {
@@ -421,7 +446,16 @@ func repoKeyFromRemote(configDir, remote string) (string, bool, error) {
 	}
 	components := []string{slug}
 	components = append(components, repoPath...)
-	return strings.Join(components, "/"), true, nil
+	key := strings.Join(components, "/")
+	// Mint no key the store will not accept. The slug is generated as three
+	// letters, so this can only fire for a hand-edited DomainSlugs entry — the
+	// case brainDirForKey's reserved-segment refusal exists for. Catching it here
+	// reports the config that produced the key rather than failing later in
+	// whichever consumer happens to build a path first.
+	if err := rejectReservedRepoKeySegment(key); err != nil {
+		return "", true, err
+	}
+	return key, true, nil
 }
 
 func parseRepoRemote(remote string) (string, []string, bool) {

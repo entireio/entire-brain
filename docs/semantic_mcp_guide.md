@@ -308,6 +308,10 @@ that can reach past it are scoped to that repo by default:
   `devenv/entiredb`, the layout `entire brain workspace add` produces — are in
   scope without the opt-in.
 
+An unbound server refuses project listing, deletion, and workspace tools by
+default. Workspace keys must match their local checkouts, and execution uses
+the same manifest snapshot that passed the scope checks.
+
 Set `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO=1` on the server to opt back into
 cross-repo behaviour (the sibling of `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH`, which
 does the same for `brain_index_repository`'s path argument). The refusal message

@@ -15,7 +15,7 @@
     "sha256": "sha256:7eadd7dcccac826503661b1b662a9986240af17fdbd45ae8bdc4fde2c1caf4d6"
   },
   "min_speedup": 1.5,
-  "speedup": 1.7114243734688384,
+  "speedup": 1.793120038388398,
   "dry_run": {
     "sessions": 2375,
     "sessions_to_distill": 2375,
@@ -26,13 +26,13 @@
   "serial_run": {
     "jobs": 1,
     "extraction_jobs_cap": 1,
-    "total_seconds": 326.420891,
+    "total_seconds": 337.492863625,
     "total_agent_calls": 3955
   },
   "parallel_run": {
     "jobs": 4,
     "extraction_jobs_cap": 4,
-    "total_seconds": 190.730537709,
+    "total_seconds": 188.215432542,
     "total_agent_calls": 3955
   },
   "source_hashes": {
