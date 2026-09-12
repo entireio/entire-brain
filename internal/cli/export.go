@@ -1152,12 +1152,42 @@ func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDi
 	return ids, warnings
 }
 
+// checkpointEntriesFromIDs orders discovered checkpoint IDs newest-first and
+// applies the limit, which the caller documents as "inspect the most recent N".
+//
+// The two ID formats do not share an ordering. A ULID encodes a millisecond
+// timestamp in its leading characters, so it IS time-sortable; a legacy 12-hex
+// ID is random throughout and carries no time at all. Sorting the mixed set as
+// plain reversed strings therefore did not order by recency: hex IDs are
+// lowercase and ULIDs are uppercase Crockford base32, so in descending byte
+// order every hex ID beginning a-f outranks every ULID. Under a limit that
+// systematically discarded the newest checkpoints — the ULIDs the git-refs
+// backend mints — in favour of the oldest ones from the pre-migration branch.
+//
+// Order by the time the ID actually carries, then fall back to descending ID
+// for the legacy IDs that carry none. This is the same rule
+// loadLocalCheckpointUnionSnapshot already applies to the same two formats.
 func checkpointEntriesFromIDs(ids map[string]struct{}, limit int) []checkpointListEntry {
 	sorted := make([]string, 0, len(ids))
 	for id := range ids {
 		sorted = append(sorted, id)
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(sorted)))
+	sort.SliceStable(sorted, func(i, j int) bool {
+		iTime, iTimed := checkpointULIDTime(sorted[i])
+		jTime, jTimed := checkpointULIDTime(sorted[j])
+		switch {
+		case iTimed && jTimed:
+			if !iTime.Equal(jTime) {
+				return iTime.After(jTime)
+			}
+		case iTimed != jTimed:
+			// An ID whose creation time is recoverable outranks one whose is
+			// not; a legacy hex ID could be from any era and guessing places it
+			// above checkpoints known to be newer.
+			return iTimed
+		}
+		return sorted[i] > sorted[j]
+	})
 	if limit > 0 && len(sorted) > limit {
 		sorted = sorted[:limit]
 	}
