@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "f7f61ab1651d",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/proposal-queue-repair.md",
+    "internal/cli/facts_proposals_cmd.go",
+    "internal/cli/facts_proposals_cmd_test.go",
+    "internal/factsync/httpproposals.go",
+    "internal/factsync/proposal_repair.go",
+    "internal/factsync/proposal_repair_test.go",
+    "internal/hostedbrain/proposals.go",
+    "internal/hostedbrain/proposals_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f7/f61ab1651d/0/metadata.json",
+      "transcript": "/f7/f61ab1651d/0/full.jsonl",
+      "compact_transcript": "/f7/f61ab1651d/0/transcript.jsonl",
+      "content_hash": "/f7/f61ab1651d/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9341,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 933120,
+    "output_tokens": 3451,
+    "api_call_count": 5
+  }
+}

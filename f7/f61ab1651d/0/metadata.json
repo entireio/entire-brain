@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "f7f61ab1651d",
+  "session_id": "01a08c7d-721b-7952-8df2-510fa908151d",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-12T11:10:14.152111Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/proposal-queue-repair.md",
+    "internal/cli/facts_proposals_cmd.go",
+    "internal/cli/facts_proposals_cmd_test.go",
+    "internal/factsync/httpproposals.go",
+    "internal/factsync/proposal_repair.go",
+    "internal/factsync/proposal_repair_test.go",
+    "internal/hostedbrain/proposals.go",
+    "internal/hostedbrain/proposals_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "67110ae3ea31",
+  "checkpoint_transcript_start": 3852,
+  "transcript_lines_at_start": 3852,
+  "compact_transcript_start": 480,
+  "token_usage": {
+    "input_tokens": 9341,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 933120,
+    "output_tokens": 3451,
+    "api_call_count": 5
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-12T11:10:13.654081Z",
+    "agent_lines": 310,
+    "agent_removed": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 310,
+    "total_lines_changed": 314,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
