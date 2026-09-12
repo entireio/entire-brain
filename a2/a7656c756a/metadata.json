@@ -1,9 +1,8 @@
 {
-  "cli_version": "0.10.3-nightly.202608220610.6bf587d66",
+  "cli_version": "0.10.7-nightly.202609080625.78a655db4.0.20260908145503-8bbfeb6d3901+dirty",
   "checkpoint_id": "a2a7656c756a",
   "strategy": "manual-commit",
-  "branch": "codex/pr89-merge",
-  "checkpoints_count": 3,
+  "checkpoints_count": 5,
   "files_touched": [
     "internal/cli/memory_abstract_privacy_linearization_test.go",
     "internal/cli/setup_daemon_test.go"
@@ -15,13 +14,20 @@
       "compact_transcript": "/a2/a7656c756a/0/transcript.jsonl",
       "content_hash": "/a2/a7656c756a/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/a2/a7656c756a/1/metadata.json",
+      "transcript": "/a2/a7656c756a/1/full.jsonl",
+      "compact_transcript": "/a2/a7656c756a/1/transcript.jsonl",
+      "content_hash": "/a2/a7656c756a/1/content_hash.txt",
+      "prompt": "/a2/a7656c756a/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 42625,
+    "input_tokens": 274172,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 4814976,
-    "output_tokens": 3933,
-    "api_call_count": 29
+    "cache_read_tokens": 25896192,
+    "output_tokens": 40320,
+    "api_call_count": 181
   }
 }
