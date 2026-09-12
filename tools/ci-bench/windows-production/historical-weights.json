@@ -1,0 +1,5 @@
+{
+  "schema": "entire-brain.windows-ci.historical-weights.v1",
+  "source": "No Windows timings retained yet; all current runnable roots use equal default weights. Populate from verified Brain Windows shard events.",
+  "weights": []
+}
