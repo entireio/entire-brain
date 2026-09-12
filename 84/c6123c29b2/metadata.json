@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "84c6123c29b2",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/publish.go",
+    "internal/cli/publish_client_bound_test.go",
+    "internal/factsync/branch_limit_test.go",
+    "internal/factsync/error_body_test.go",
+    "internal/factsync/httpproposals.go",
+    "internal/factsync/httpproposals_test.go",
+    "internal/factsync/httpserver.go",
+    "internal/factsync/proposalid_segment_test.go",
+    "internal/factsync/proposals.go",
+    "internal/factsync/repoid_segment_test.go",
+    "internal/hostedbrain/proposals_test.go",
+    "internal/httpx/httpx.go",
+    "internal/httpx/httpx_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/84/c6123c29b2/0/metadata.json",
+      "transcript": "/84/c6123c29b2/0/full.jsonl",
+      "compact_transcript": "/84/c6123c29b2/0/transcript.jsonl",
+      "content_hash": "/84/c6123c29b2/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8576,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1287552,
+    "output_tokens": 3671,
+    "api_call_count": 8
+  }
+}
