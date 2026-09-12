@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "4b45afe5ed8b",
+  "session_id": "01a08c7d-721b-7952-8df2-510fa908151d",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-12T14:36:46.616393Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/git_harden.go",
+    "internal/cli/git_harden_filters.go",
+    "internal/cli/git_harden_security_test.go",
+    "internal/cli/git_harden_test.go",
+    "internal/cli/runner.go",
+    "internal/hostedbrain/client.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "2c3e63e35c9c",
+  "checkpoint_transcript_start": 4364,
+  "transcript_lines_at_start": 4364,
+  "compact_transcript_start": 549,
+  "token_usage": {
+    "input_tokens": 135981,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6557440,
+    "output_tokens": 15022,
+    "api_call_count": 59
+  },
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-12T14:36:46.03994Z",
+    "agent_lines": 931,
+    "agent_removed": 17,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 931,
+    "total_lines_changed": 948,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "4b45afe5ed8b",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/git_harden.go",
+    "internal/cli/git_harden_filters.go",
+    "internal/cli/git_harden_security_test.go",
+    "internal/cli/git_harden_test.go",
+    "internal/cli/runner.go",
+    "internal/hostedbrain/client.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4b/45afe5ed8b/0/metadata.json",
+      "transcript": "/4b/45afe5ed8b/0/full.jsonl",
+      "compact_transcript": "/4b/45afe5ed8b/0/transcript.jsonl",
+      "content_hash": "/4b/45afe5ed8b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 135981,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6557440,
+    "output_tokens": 15022,
+    "api_call_count": 59
+  }
+}
