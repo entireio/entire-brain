@@ -276,9 +276,12 @@ semantic context.
 
 `brain_refresh` is the deterministic local write tool for rebuilding
 code-derived sources when retrieval freshness is unsafe; it never runs seed
-agent synthesis and returns status JSON after completion. It includes current
-uncommitted content by default; set `worktree: false` only for committed HEAD.
-It refreshes seed/docs, skips checkpoint export/history, and has a 60-second
+agent synthesis and returns status JSON after completion. Its seed and docs
+include current uncommitted content by default; set `worktree: false` only for
+committed HEAD. `worktree` does not reach the semantic index: the index
+`semantic: true` rebuilds is always built from committed HEAD, so use
+`brain_index_repository` with `worktree: true` when you need a dirty semantic
+snapshot. It refreshes seed/docs, skips checkpoint export/history, and has a 60-second
 server-side deadline so the synchronous MCP connection cannot be held
 indefinitely. Set `semantic: true` only for small repositories; use
 `brain_index_repository` as a separate long-running step for large repositories.
