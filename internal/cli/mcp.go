@@ -567,7 +567,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get_graph_schema",
-			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary.",
+			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{

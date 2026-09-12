@@ -581,29 +581,28 @@ func TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum(t *testing.T) {
 	}
 }
 
-// TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput guards
-// against the description re-drifting from the handler: brain_get_architecture
-// and brain_get_graph_schema dispatch to the exact same runSemanticGraphSchema
-// call (see handleMCPToolCall), so brain_get_architecture's description must
-// not claim fields the report never carries (it previously claimed "boundary
-// counts", which semanticGraphSchemaReport/graphMetrics has never had).
+// Both names dispatch to runSemanticGraphSchema and must describe its metrics.
 func TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput(t *testing.T) {
-	var description string
-	for _, tool := range mcpToolDefinitions() {
-		if tool["name"] == "brain_get_architecture" {
-			description, _ = tool["description"].(string)
-		}
-	}
-	if description == "" {
-		t.Fatal("brain_get_architecture tool definition missing")
-	}
-	if strings.Contains(strings.ToLower(description), "boundary count") {
-		t.Fatalf("brain_get_architecture description claims boundary counts, a field semanticGraphSchemaReport never returns: %q", description)
-	}
-	for _, want := range []string{"hotspots", "entry points"} {
-		if !strings.Contains(description, want) {
-			t.Fatalf("brain_get_architecture description missing %q (a real graphMetrics field): %q", want, description)
-		}
+	for _, name := range []string{"brain_get_graph_schema", "brain_get_architecture"} {
+		t.Run(name, func(t *testing.T) {
+			var description string
+			for _, tool := range mcpToolDefinitions() {
+				if tool["name"] == name {
+					description, _ = tool["description"].(string)
+				}
+			}
+			if description == "" {
+				t.Fatal("tool definition missing")
+			}
+			if strings.Contains(strings.ToLower(description), "boundary count") {
+				t.Fatalf("description claims absent boundary counts: %q", description)
+			}
+			for _, want := range []string{"hotspots", "entry points"} {
+				if !strings.Contains(description, want) {
+					t.Fatalf("description missing %q: %q", want, description)
+				}
+			}
+		})
 	}
 }
 
