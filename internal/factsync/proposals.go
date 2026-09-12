@@ -51,8 +51,14 @@ var ErrProposalQueueUnsupported = errors.New("factsync: backend does not serve t
 // and the shared prefix itself carries zero discriminating information.
 const minProposalRefLen = 4
 
-// proposalIDPrefix is the fixed lead-in of every derived proposal id.
-const proposalIDPrefix = "prop-"
+// proposalIDPrefix is the fixed lead-in of every derived proposal id, and
+// proposalIDHexLen the number of hex digits that follow it. They are named because
+// validateProposalID checks against them: the accepted set and the set ProposalID
+// derives have to be the same set, and a change to one has to move the other.
+const (
+	proposalIDPrefix = "prop-"
+	proposalIDHexLen = 16
+)
 
 // OpenProposal is one entry of the hosted open set: the merge-core Proposal plus the
 // stable, content-derived id the transport addresses it by. factmerge.Proposal has no
@@ -85,7 +91,91 @@ func ProposalID(p factmerge.Proposal) string {
 		h.Write([]byte(field))
 		h.Write([]byte{0})
 	}
-	return "prop-" + hex.EncodeToString(h.Sum(nil))[:16]
+	return proposalIDPrefix + hex.EncodeToString(h.Sum(nil))[:proposalIDHexLen]
+}
+
+// ErrInvalidProposalID is returned before any request is built when a proposal id is
+// not one this client could have derived. Match it with errors.Is to tell a malformed
+// target apart from a transport failure or an already-settled proposal.
+var ErrInvalidProposalID = errors.New("factsync: invalid proposal id")
+
+// validateProposalID is the rule that makes ".../proposals/" + id safe to assemble by
+// concatenation: the id must be one this client itself could have derived.
+//
+// The id is interpolated into two request targets — GET .../proposals/{id} and POST
+// .../proposals/{id}/resolve — and the second carries the member's whole fact set
+// under their bearer token. Escaping does not make that safe: url.PathEscape is
+// defined over RFC 3986 unreserved characters and "." is unreserved, so
+// PathEscape("..") == "..", the ".." reaches the wire, and any dot-segment-normalizing
+// hop (net/http's ServeMux, nginx, a CDN, RFC 3986 §5.2.4) collapses
+//
+//	/api/v1/repos/{repo}/brain/facts/proposals/..
+//
+// onto /api/v1/repos/{repo}/brain/facts — the fact-set head route, read with the
+// member's token — and .../proposals/../resolve onto .../facts/resolve.
+//
+// The rule here is deliberately STRICTER than the one-safe-segment rule a repo id
+// gets. A repo id is an opaque server-issued value, so the most that can be demanded
+// of it is that it stay one segment. A proposal id is not opaque: it is derived
+// locally by ProposalID, and bindProposalID already refuses any served id that is not
+// the value its own content derives. So the set of ids this client can legitimately
+// address is exactly the set ProposalID produces — "prop-" followed by
+// proposalIDHexLen lowercase hex digits — and anything outside it is a target the
+// member never had, not merely an awkward one. Loosening to the repo-id rule to share
+// code would accept ids no legitimate flow can produce.
+//
+// A validated id is its own PathEscape (lowercase hex and "-" are unreserved), so
+// callers concatenate it raw: escaping would be a no-op, and leaving it out keeps it
+// obvious that the check, not the escape, is what makes the path safe.
+func validateProposalID(proposalID string) error {
+	if proposalID == "" {
+		return fmt.Errorf("%w: proposal id is required", ErrInvalidProposalID)
+	}
+	hexPart, ok := strings.CutPrefix(proposalID, proposalIDPrefix)
+	if !ok {
+		return fmt.Errorf("%w: %q does not start with %q, so it is not an id this client derives", ErrInvalidProposalID, proposalID, proposalIDPrefix)
+	}
+	if len(hexPart) != proposalIDHexLen {
+		return fmt.Errorf("%w: %q has %d characters after %q, want %d", ErrInvalidProposalID, proposalID, len(hexPart), proposalIDPrefix, proposalIDHexLen)
+	}
+	for _, r := range hexPart {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return fmt.Errorf("%w: %q contains %q, which is not a lowercase hex digit", ErrInvalidProposalID, proposalID, r)
+		}
+	}
+	return nil
+}
+
+// ErrProposalIDMismatch reports an open proposal whose id is not the id its own
+// content derives. Match it with errors.Is.
+var ErrProposalIDMismatch = errors.New("factsync: proposal id does not match its content")
+
+// bindProposalID makes an open proposal's id mean what it says.
+//
+// A proposal id is content-derived (see ProposalID), and that is the whole basis
+// for showing one to a human and accepting it back: "apply prop-abc123" is meant
+// to name one (action, candidate, target, branch, proposer) tuple and nothing
+// else. The open set, though, is served by the hosted brain, and settling is not
+// read-only — accept supersedes the target fact, a merge removes the candidate,
+// and the settled proposal is mirrored into the member's LOCAL fact store. A
+// server free to pick the id could therefore show one decision under an id and
+// execute a different one when the member confirmed it, against local facts of
+// the server's choosing.
+//
+// An absent id is still derived (older/looser servers omit it). A present one
+// must equal the derived value; anything else is refused rather than silently
+// corrected, because a corrected id would no longer resolve the reference the
+// member was given.
+func bindProposalID(p *OpenProposal) error {
+	want := ProposalID(p.Proposal)
+	if p.ID == "" {
+		p.ID = want
+		return nil
+	}
+	if p.ID != want {
+		return fmt.Errorf("%w: %s names %s/%s->%s, which derives %s", ErrProposalIDMismatch, p.ID, p.Proposal.Action, p.Proposal.CandidateID, p.Proposal.TargetID, want)
+	}
+	return nil
 }
 
 // OpenProposals stamps derived ids onto merge-core proposals, turning a Sync result's
@@ -400,6 +490,13 @@ func ResolveOpen(ctx context.Context, srv ProposalServer, repoID, branch, ref st
 		facts, err := factmerge.ParseNDJSON(bytes.NewReader(plaintext))
 		if err != nil {
 			return ResolveOpenResult{}, err
+		}
+		// Same trust boundary as Sync: the head is member-writable, so a record's
+		// id is only meaningful once it has been re-derived from its own content.
+		// Settling a proposal rewrites fact status, so an unverified head here
+		// would let a forged record decide which statement survives.
+		if err := factmerge.VerifyIdentities(facts); err != nil {
+			return ResolveOpenResult{}, fmt.Errorf("factsync: shared fact-set head for %s/%s is not trustworthy: %w", repoID, branch, err)
 		}
 
 		resolved, err := Resolve(facts, target.Proposal, decision, now)

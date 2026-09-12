@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ashtom/entire-brain/internal/factmerge"
+	"github.com/ashtom/entire-brain/internal/httpx"
 )
 
 // HTTPServer also drives the OPEN-PROPOSAL SET endpoints, symmetric with the fact-set
@@ -41,9 +42,54 @@ import (
 // local transcript path and line offset, so a resolution can never leak a member's
 // filesystem layout even if a caller hands the client unsanitized records.
 
+// notFound renders a 404 on a single proposal as ErrProposalNotFound, carrying the
+// server's account of why when it gave one.
+//
+// As with conflict(), the SENTINEL is the contract: the resolve loops treat
+// errors.Is(err, ErrProposalNotFound) as "another member already settled this", a
+// normal outcome they skip past rather than a failure. %w keeps that true while the
+// message grows.
+func notFound(resp *http.Response, proposalID string) error {
+	if detail := httpx.ErrorDetail(resp); detail != "" {
+		return fmt.Errorf("%w: %s: %s", ErrProposalNotFound, proposalID, detail)
+	}
+	return fmt.Errorf("%w: %s", ErrProposalNotFound, proposalID)
+}
+
 // proposalsPath is the collection endpoint for a repo's open proposal set.
-func proposalsPath(repoID string) string {
-	return fmt.Sprintf("/api/v1/repos/%s/brain/facts/proposals", url.PathEscape(repoID))
+//
+// It returns an error rather than a string because the repo id is interpolated into
+// the target by concatenation, and repoBasePath refuses an id that is not exactly one
+// safe path segment (see its comment in httpserver.go for why escaping is not enough:
+// url.PathEscape("..") == ".." and ".../proposals" under a ".." repo id normalizes to
+// a different route, reached with the member's bearer token). Every proposal endpoint
+// goes through here, so the refusal happens before any request is built.
+// It also applies the branch cap (requestTarget), so a branch the hosted API is known
+// to refuse never costs a round trip with the member's token attached.
+func proposalsPath(repoID, branch string) (string, error) {
+	base, err := requestTarget(repoID, branch)
+	if err != nil {
+		return "", err
+	}
+	return base + "/brain/facts/proposals", nil
+}
+
+// proposalPath is the ONE place a proposal id becomes part of a request target, and
+// the reason it returns an error rather than a string: the two endpoints addressed by
+// id cannot build a path without handling the refusal, so no call site has to remember
+// to check. See validateProposalID for why escaping is not the rule and why a proposal
+// id is held to a stricter one than a repo id.
+func proposalPath(repoID, branch, proposalID string) (string, error) {
+	if err := validateProposalID(proposalID); err != nil {
+		return "", err
+	}
+	// Concatenated raw: a validated id equals its own PathEscape, so escaping here
+	// would be a no-op that hides which line is actually doing the work.
+	collection, err := proposalsPath(repoID, branch)
+	if err != nil {
+		return "", err
+	}
+	return collection + "/" + proposalID, nil
 }
 
 // wireProposalSet is the list/get response envelope.
@@ -60,12 +106,16 @@ type wireProposalSet struct {
 // to review. Any non-200 is an error: the caller must not resolve against an unknown
 // open set.
 func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (ProposalSet, error) {
-	path := proposalsPath(repoID) + "?branch=" + url.QueryEscape(branch)
+	collection, err := proposalsPath(repoID, branch)
+	if err != nil {
+		return ProposalSet{}, err
+	}
+	path := collection + "?branch=" + url.QueryEscape(branch)
 	req, err := h.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return ProposalSet{}, err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: %w", repoID, branch, err)
 	}
@@ -79,9 +129,9 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 		// queue with a warning, which is right for an optional sub-feature — and the
 		// next sync re-checks, so a genuinely transient 503 costs one cycle, never a
 		// failed sync whose head-advance already succeeded.
-		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
+		return ProposalSet{}, fmt.Errorf("%w: GET proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	default:
-		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
+		return ProposalSet{}, fmt.Errorf("factsync: GET proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	}
 	var out wireProposalSet
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -90,10 +140,14 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 	set := ProposalSet{Branch: branch, Ref: out.Ref, Found: out.Found, Proposals: out.Proposals}
 	// A server that omits ids (older/looser implementation) still yields addressable
 	// proposals: the id is content-derived, so recomputing it is always correct.
+	var invalid []int
 	for i := range set.Proposals {
-		if set.Proposals[i].ID == "" {
-			set.Proposals[i].ID = ProposalID(set.Proposals[i].Proposal)
+		if err := bindProposalID(&set.Proposals[i]); err != nil {
+			invalid = append(invalid, i)
 		}
+	}
+	if len(invalid) != 0 {
+		return ProposalSet{}, &InvalidProposalSetError{Set: set, Invalid: invalid}
 	}
 	return set, nil
 }
@@ -102,12 +156,16 @@ func (h *HTTPServer) ListProposals(ctx context.Context, repoID, branch string) (
 // no proposal, is ErrProposalNotFound — the normal outcome when another member
 // already settled it.
 func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID string) (OpenProposal, error) {
-	path := proposalsPath(repoID) + "/" + url.PathEscape(proposalID) + "?branch=" + url.QueryEscape(branch)
+	target, err := proposalPath(repoID, branch, proposalID)
+	if err != nil {
+		return OpenProposal{}, err
+	}
+	path := target + "?branch=" + url.QueryEscape(branch)
 	req, err := h.newRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return OpenProposal{}, err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: %w", repoID, branch, proposalID, err)
 	}
@@ -115,9 +173,9 @@ func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusNotFound:
-		return OpenProposal{}, fmt.Errorf("%w: %s", ErrProposalNotFound, proposalID)
+		return OpenProposal{}, notFound(resp, proposalID)
 	default:
-		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: unexpected status %s", repoID, branch, proposalID, resp.Status)
+		return OpenProposal{}, fmt.Errorf("factsync: GET proposal %s/%s/%s: unexpected status %s%s", repoID, branch, proposalID, resp.Status, httpx.ErrorSuffix(resp))
 	}
 	var out wireProposalSet
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -127,8 +185,11 @@ func (h *HTTPServer) GetProposal(ctx context.Context, repoID, branch, proposalID
 		return OpenProposal{}, fmt.Errorf("%w: %s", ErrProposalNotFound, proposalID)
 	}
 	p := *out.Proposal
-	if p.ID == "" {
-		p.ID = ProposalID(p.Proposal)
+	if err := bindProposalID(&p); err != nil {
+		return OpenProposal{}, fmt.Errorf("factsync: proposal %s/%s/%s: %w", repoID, branch, proposalID, err)
+	}
+	if p.ID != proposalID {
+		return OpenProposal{}, fmt.Errorf("%w: requested %s but server returned %s", ErrProposalIDMismatch, proposalID, p.ID)
 	}
 	return p, nil
 }
@@ -145,6 +206,10 @@ type publishProposalsBody struct {
 // 412/409 → ErrConflict (another member changed the set first); a 200 reporting
 // changed=false → ErrNoChange, mirroring Advance's contract on the fact-set head.
 func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRef string, proposals []OpenProposal) (string, error) {
+	collection, err := proposalsPath(repoID, branch)
+	if err != nil {
+		return "", err
+	}
 	body := publishProposalsBody{Branch: branch, OldRef: oldRef, Proposals: proposals}
 	if body.Proposals == nil {
 		body.Proposals = []OpenProposal{}
@@ -153,11 +218,11 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 	if err != nil {
 		return "", err
 	}
-	req, err := h.newRequest(ctx, http.MethodPost, proposalsPath(repoID), bytes.NewReader(encoded))
+	req, err := h.newRequest(ctx, http.MethodPost, collection, bytes.NewReader(encoded))
 	if err != nil {
 		return "", err
 	}
-	resp, err := h.client().Do(req)
+	resp, err := h.do(req)
 	if err != nil {
 		return "", fmt.Errorf("factsync: POST proposals %s/%s: %w", repoID, branch, err)
 	}
@@ -180,13 +245,13 @@ func (h *HTTPServer) PublishProposals(ctx context.Context, repoID, branch, oldRe
 		}
 		return out.Ref, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
-		return "", ErrConflict
+		return "", conflict(resp)
 	case http.StatusNotFound, http.StatusNotImplemented, http.StatusServiceUnavailable:
 		// Same reading as the list path: no queue on this deployment, so the proposals
 		// stay local rather than failing a sync that already landed its facts.
-		return "", fmt.Errorf("%w: POST proposals %s/%s: %s", ErrProposalQueueUnsupported, repoID, branch, resp.Status)
+		return "", fmt.Errorf("%w: POST proposals %s/%s: %s%s", ErrProposalQueueUnsupported, repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	default:
-		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s", repoID, branch, resp.Status)
+		return "", fmt.Errorf("factsync: POST proposals %s/%s: unexpected status %s%s", repoID, branch, resp.Status, httpx.ErrorSuffix(resp))
 	}
 }
 
@@ -213,6 +278,13 @@ type resolveRequestBody struct {
 // over. changed=false is reported as-is (the caller keeps its refs); it is not an
 // error, because a re-pushed identical resolution is idempotent.
 func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalRequest) (ResolveProposalResponse, error) {
+	// Build the target first, before the resolution is serialized at all: this body
+	// carries the member's whole fact set, so the id that decides where it is POSTed
+	// has to be settled before there is anything to send.
+	target, err := proposalPath(req.RepoID, req.Branch, req.ProposalID)
+	if err != nil {
+		return ResolveProposalResponse{}, err
+	}
 	// Redact local-only provenance coordinates before the facts leave this member —
 	// the same guarantee Sync makes on its merged blob (see egress.go).
 	var buf bytes.Buffer
@@ -249,12 +321,12 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 	if err != nil {
 		return ResolveProposalResponse{}, err
 	}
-	path := proposalsPath(req.RepoID) + "/" + url.PathEscape(req.ProposalID) + "/resolve"
+	path := target + "/resolve"
 	httpReq, err := h.newRequest(ctx, http.MethodPost, path, bytes.NewReader(encoded))
 	if err != nil {
 		return ResolveProposalResponse{}, err
 	}
-	resp, err := h.client().Do(httpReq)
+	resp, err := h.do(httpReq)
 	if err != nil {
 		return ResolveProposalResponse{}, fmt.Errorf("factsync: POST resolve %s/%s/%s: %w", req.RepoID, req.Branch, req.ProposalID, err)
 	}
@@ -276,11 +348,11 @@ func (h *HTTPServer) ResolveProposal(ctx context.Context, req ResolveProposalReq
 		}
 		return ResolveProposalResponse{FactsRef: out.FactsRef, ProposalsRef: out.ProposalsRef, Changed: changed}, nil
 	case http.StatusPreconditionFailed, http.StatusConflict:
-		return ResolveProposalResponse{}, ErrConflict
+		return ResolveProposalResponse{}, conflict(resp)
 	case http.StatusNotFound:
-		return ResolveProposalResponse{}, fmt.Errorf("%w: %s", ErrProposalNotFound, req.ProposalID)
+		return ResolveProposalResponse{}, notFound(resp, req.ProposalID)
 	default:
-		return ResolveProposalResponse{}, fmt.Errorf("factsync: POST resolve %s/%s/%s: unexpected status %s",
-			req.RepoID, req.Branch, req.ProposalID, strings.TrimSpace(resp.Status))
+		return ResolveProposalResponse{}, fmt.Errorf("factsync: POST resolve %s/%s/%s: unexpected status %s%s",
+			req.RepoID, req.Branch, req.ProposalID, strings.TrimSpace(resp.Status), httpx.ErrorSuffix(resp))
 	}
 }

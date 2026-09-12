@@ -99,8 +99,13 @@ func TestMCPBrainReviewToolDefinitionGolden(t *testing.T) {
 	// bytes and 3,411 -> 3,354 tokens. The pinned tokenizer asset (SHA-256
 	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
 	// is deliberately not a production or test dependency.
-	if len(got) != 810 {
-		t.Fatalf("brain_review tool definition bytes = %d, want 810", len(got))
+	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
+	// argument. Byte counts below are re-measured; the token counts are the
+	// earlier measurement and are NOT re-measured here, because the pinned
+	// o200k_base asset is deliberately not a test dependency. Across the whole
+	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
+	if len(got) != 826 {
+		t.Fatalf("brain_review tool definition bytes = %d, want 826", len(got))
 	}
 }
 
@@ -131,9 +136,18 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 	// and 226 -> 186 tokens; the full tools/list result is 15,864 -> 15,711
 	// bytes and 3,354 -> 3,314 tokens. The pinned tokenizer asset (SHA-256
 	// 446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d)
-	// is deliberately not a production or test dependency.
-	if len(got) != 907 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 907", len(got))
+	// is deliberately not a production or test dependency. The +80 bytes over
+	// that 907-byte floor are the cross-repo scope gate, named in the
+	// description so an agent that hits the refusal knows the one knob.
+	// The declared integer ceiling (mcpIntegerArgMax) adds 16 bytes per integer
+	// argument. Byte counts below are re-measured; the token counts are the
+	// earlier measurement and are NOT re-measured here, because the pinned
+	// o200k_base asset is deliberately not a test dependency. Across the whole
+	// surface this is +432 bytes on the tools/list result (26,074 -> 26,506).
+	// The workspace membership/sibling description is now explicit; byte count
+	// below is re-measured, while the token counts above remain historical.
+	if len(got) != 1059 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1059", len(got))
 	}
 }
 
@@ -311,6 +325,9 @@ func TestMCPBrainRefreshRejectsSessionsAndHonorsTimeout(t *testing.T) {
 }
 
 func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC) }}
@@ -545,6 +562,62 @@ func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 	}
 }
 
+// TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum locks the schema for
+// the two integer params whose zero value the handler actually accepts as the
+// default (mcpNonNegativeInt): brain_search_graph's "offset" and
+// brain_get_code_snippet's "context_lines". Both previously declared
+// minimum:1 (the generic integerArg helper), which told a schema-validating
+// MCP client that 0 was invalid even though the server always treated it as
+// the default and never rejected it.
+func TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum(t *testing.T) {
+	wantMinZero := map[string]string{
+		"brain_search_graph":     "offset",
+		"brain_get_code_snippet": "context_lines",
+	}
+	for _, tool := range mcpToolDefinitions() {
+		name, _ := tool["name"].(string)
+		key, ok := wantMinZero[name]
+		if !ok {
+			continue
+		}
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		arg, ok := props[key].(map[string]any)
+		if !ok || arg["type"] != "integer" || arg["minimum"] != 0 {
+			t.Fatalf("%s.%s = %+v, want integer with minimum 0 (handler accepts and defaults to 0)", name, key, arg)
+		}
+		delete(wantMinZero, name)
+	}
+	for name := range wantMinZero {
+		t.Fatalf("tool %s not found in mcpToolDefinitions", name)
+	}
+}
+
+// Both names dispatch to runSemanticGraphSchema and must describe its metrics.
+func TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput(t *testing.T) {
+	for _, name := range []string{"brain_get_graph_schema", "brain_get_architecture"} {
+		t.Run(name, func(t *testing.T) {
+			var description string
+			for _, tool := range mcpToolDefinitions() {
+				if tool["name"] == name {
+					description, _ = tool["description"].(string)
+				}
+			}
+			if description == "" {
+				t.Fatal("tool definition missing")
+			}
+			if strings.Contains(strings.ToLower(description), "boundary count") {
+				t.Fatalf("description claims absent boundary counts: %q", description)
+			}
+			for _, want := range []string{"hotspots", "entry points"} {
+				if !strings.Contains(description, want) {
+					t.Fatalf("description missing %q: %q", want, description)
+				}
+			}
+		})
+	}
+}
+
 func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"scope regression","location_only":"true"}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"x","include_deletions":"yes"}}}`)
@@ -625,6 +698,9 @@ func TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly(t *testing.T) {
 }
 
 func TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	logPath := filepath.Join(t.TempDir(), "mcp.log")
 	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
 
@@ -735,6 +811,8 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 	})
 
 	t.Run("brain_workspace_review", func(t *testing.T) {
+		// Cross-repo workspace fan-out over MCP is operator-gated.
+		t.Setenv(mcpAllowCrossRepoEnv, "1")
 		logPath := filepath.Join(t.TempDir(), "mcp.log")
 		t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
 
@@ -957,6 +1035,9 @@ func TestMCPBrainReviewTool(t *testing.T) {
 }
 
 func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
@@ -1019,6 +1100,9 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 }
 
 func TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction(t *testing.T) {
+	// Cross-repo workspace fan-out over MCP is operator-gated; this fixture is
+	// the opted-in operator.
+	t.Setenv(mcpAllowCrossRepoEnv, "1")
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
@@ -1306,7 +1390,7 @@ func TestMCPToolCallRejectsInvalidIntegerArguments(t *testing.T) {
 			}
 			responses := readMCPResponses(t, out.String())
 			data, _ := json.Marshal(responses[0]["error"])
-			if !strings.Contains(string(data), "limit must be an integer greater than zero") {
+			if !strings.Contains(string(data), "limit must be an integer between 1 and") {
 				t.Fatalf("error = %s", data)
 			}
 		})
@@ -1321,7 +1405,7 @@ func TestMCPToolCallRejectsInvalidDepth(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["error"])
-	if !strings.Contains(string(data), "depth must be an integer greater than zero") {
+	if !strings.Contains(string(data), "depth must be an integer between 1 and") {
 		t.Fatalf("error = %s", data)
 	}
 }
@@ -1927,13 +2011,16 @@ func TestMCPConversationNavigation(t *testing.T) {
 	}) + frameMCPJSON(t, map[string]any{
 		"jsonrpc": "2.0", "id": 4, "method": "tools/call",
 		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "context_before": 1}},
+	}) + frameMCPJSON(t, map[string]any{
+		"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+		"params": map[string]any{"name": "brain_get", "arguments": map[string]any{"id": sessionRef, "after_turn": 10001, "limit": 1}},
 	})
 	out.Reset()
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp navigation: %v", err)
 	}
 	responses = readMCPResponses(t, out.String())
-	if len(responses) != 3 {
+	if len(responses) != 4 {
 		t.Fatalf("responses = %d", len(responses))
 	}
 
@@ -1953,6 +2040,14 @@ func TestMCPConversationNavigation(t *testing.T) {
 	turns, _ := outlineRow["turns"].([]any)
 	if len(turns) != 1 {
 		t.Fatalf("outline turns: %+v", outlineRow)
+	}
+
+	// A cursor is an ordinal, not an allocation size. An exhausted large
+	// cursor returns a valid empty outline rather than an argument error.
+	large := mcpTextJSONPayload(t, responses[3])
+	largeRow := large["results"].([]any)[0].(map[string]any)
+	if largeRow["heading"] != "session_outline" {
+		t.Fatalf("large cursor: %+v", largeRow)
 	}
 
 	// Type mismatch is a structured error, never an ignored option.
@@ -2002,5 +2097,279 @@ func TestMCPMultiConceptQuery(t *testing.T) {
 	// Concepts without the conversation source are a structured error.
 	if responses[1]["error"] == nil {
 		t.Fatalf("concepts without conversation source must error: %+v", responses[1])
+	}
+}
+
+// TestMCPToolSurfaceGolden pins the entire declared MCP tool surface — every
+// tool name, description, and JSON schema — in one file.
+//
+// The per-tool goldens above cover three tools chosen for their token budget.
+// This one exists for a different reason: the surface is about to be wrapped by
+// a separate unified-MCP layer, so any silent edit to a name, a description, or
+// a schema bound propagates into consumers that never see this repo. A reviewer
+// looking at a diff of this file sees the contract change itself rather than
+// having to infer it from a Go literal spanning 250 lines.
+//
+// Regenerate deliberately, never reflexively:
+//
+//	UPDATE_MCP_SURFACE_GOLDEN=1 go test ./internal/cli -run TestMCPToolSurfaceGolden
+func TestMCPToolSurfaceGolden(t *testing.T) {
+	t.Parallel()
+	const path = "testdata/mcp_tool_surface.golden.json"
+	got, err := json.MarshalIndent(mcpToolDefinitions(), "", "  ")
+	if err != nil {
+		t.Fatalf("marshal tool surface: %v", err)
+	}
+	got = append(got, '\n')
+	if os.Getenv("UPDATE_MCP_SURFACE_GOLDEN") != "" {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		t.Log("regenerated " + path)
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read tool surface golden: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("MCP tool surface changed; if the change is intended, regenerate with UPDATE_MCP_SURFACE_GOLDEN=1 and review the diff as a contract change")
+	}
+}
+
+// TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces ties every declared
+// integer bound to the bound that is actually enforced, so the two cannot drift
+// apart again.
+//
+// mcpPositiveInt/mcpNonNegativeInt reject anything above mcpIntegerArgMax with
+// a -32000 tool error, but the schema used to declare a floor and no ceiling.
+// A schema-validating MCP client therefore believed limit=1000000 was a legal
+// call and only discovered the real ceiling by being refused at runtime. Every
+// integer property declares the maximum its handler accepts; the turn cursor
+// has a separate bound because it does not size an allocation.
+func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
+	t.Parallel()
+
+	// Prove the generic ceiling is the one the parsers enforce, rather than
+	// asserting a constant against itself.
+	if _, err := mcpPositiveInt(map[string]any{"limit": float64(mcpIntegerArgMax)}, "limit", 1); err != nil {
+		t.Fatalf("mcpPositiveInt rejected the declared maximum %d: %v", mcpIntegerArgMax, err)
+	}
+	if _, err := mcpPositiveInt(map[string]any{"limit": float64(mcpIntegerArgMax + 1)}, "limit", 1); err == nil {
+		t.Fatalf("mcpPositiveInt accepted %d, one above the declared maximum", mcpIntegerArgMax+1)
+	}
+	if _, err := mcpNonNegativeInt(map[string]any{"offset": float64(mcpIntegerArgMax)}, "offset", 0); err != nil {
+		t.Fatalf("mcpNonNegativeInt rejected the declared maximum %d: %v", mcpIntegerArgMax, err)
+	}
+	if _, err := mcpNonNegativeInt(map[string]any{"offset": float64(mcpIntegerArgMax + 1)}, "offset", 0); err == nil {
+		t.Fatalf("mcpNonNegativeInt accepted %d, one above the declared maximum", mcpIntegerArgMax+1)
+	}
+
+	// A tool may declare a stricter ceiling than the MCP parser when a
+	// downstream validator enforces it. Those are enumerated here against the
+	// very constants that validator uses (conversation_session.go), so raising
+	// one without updating the other fails this test.
+	stricter := map[string]int{
+		"brain_get.context_before": conversationContextMax,
+		"brain_get.context_after":  conversationContextMax,
+		"brain_get.limit":          conversationOutlineMaxLimit,
+	}
+
+	seen := 0
+	for _, tool := range mcpToolDefinitions() {
+		name, _ := tool["name"].(string)
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		for key, raw := range props {
+			arg, ok := raw.(map[string]any)
+			if !ok || arg["type"] != "integer" {
+				continue
+			}
+			seen++
+			maximum, ok := arg["maximum"].(int)
+			if !ok {
+				t.Errorf("%s.%s declares no maximum; the handler rejects values above %d, so the schema understates the contract", name, key, mcpIntegerArgMax)
+				continue
+			}
+			if name == "brain_get" && key == "after_turn" {
+				if maximum != mcpTurnCursorMax {
+					t.Errorf("cursor maximum = %d, want %d", maximum, mcpTurnCursorMax)
+				}
+				if _, err := mcpNonNegativeIntMax(map[string]any{key: float64(maximum)}, key, 0, mcpTurnCursorMax); err != nil {
+					t.Error(err)
+				}
+				if _, err := mcpNonNegativeIntMax(map[string]any{key: float64(maximum) + 1}, key, 0, mcpTurnCursorMax); err == nil {
+					t.Error("cursor parser accepted a value above its schema maximum")
+				}
+				continue
+			}
+			if maximum > mcpIntegerArgMax {
+				t.Errorf("%s.%s declares maximum %d, above the %d the handler accepts", name, key, maximum, mcpIntegerArgMax)
+			}
+			if want, isStricter := stricter[name+"."+key]; isStricter {
+				if maximum != want {
+					t.Errorf("%s.%s declares maximum %d, want the %d its downstream validator enforces", name, key, maximum, want)
+				}
+				continue
+			}
+			if maximum != mcpIntegerArgMax {
+				t.Errorf("%s.%s declares maximum %d but nothing enforces it; either enforce it downstream and list it in the stricter map, or declare the %d ceiling the handler uses", name, key, maximum, mcpIntegerArgMax)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no integer tool arguments found; the walk is broken, not the schema")
+	}
+}
+
+// TestMCPRefreshWorktreeContractMatchesHandler pins brain_refresh's declared
+// contract to what mcpRefreshOptions actually builds.
+//
+// The description used to say, flatly, "Includes current worktree content by
+// default". The "worktree" argument only ever reaches seed and docs: the
+// handler leaves semanticWorktree false, so the semantic index brain_refresh
+// builds when semantic=true comes from committed HEAD. An agent reading the old
+// text had every reason to believe a brain_refresh(worktree=true,
+// semantic=true) left it with a semantic index of its uncommitted work. It did
+// not -- the same class of drift that shipped in the README (#141).
+//
+// This asserts both halves together so neither side can move alone.
+func TestMCPRefreshWorktreeContractMatchesHandler(t *testing.T) {
+	t.Parallel()
+
+	// Behaviour: worktree reaches seed, never the semantic snapshot, even in
+	// the exact combination the description discusses.
+	opts, err := mcpRefreshOptions(map[string]any{"worktree": true, "semantic": true})
+	if err != nil {
+		t.Fatalf("mcpRefreshOptions: %v", err)
+	}
+	if !opts.seed.worktree {
+		t.Fatal("worktree=true did not reach seed.worktree")
+	}
+	if !opts.semantic {
+		t.Fatal("semantic=true did not reach the semantic rebuild")
+	}
+	if opts.semanticWorktree {
+		t.Fatal("mcpRefreshOptions set semanticWorktree; if brain_refresh now really does index the worktree, this test and the tool description must change together")
+	}
+
+	// Default is worktree=true, which is what makes the old blanket wording so
+	// easy to read as covering everything the call rebuilds.
+	defaults, err := mcpRefreshOptions(map[string]any{})
+	if err != nil {
+		t.Fatalf("mcpRefreshOptions defaults: %v", err)
+	}
+	if !defaults.seed.worktree {
+		t.Fatal("brain_refresh no longer defaults to worktree=true; the description says it does")
+	}
+
+	// Declaration: the description must scope worktree to seed/docs and say
+	// where the semantic index actually comes from.
+	var toolDescription, worktreeDescription string
+	for _, tool := range mcpToolDefinitions() {
+		if tool["name"] != "brain_refresh" {
+			continue
+		}
+		toolDescription, _ = tool["description"].(string)
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		arg, _ := props["worktree"].(map[string]any)
+		worktreeDescription, _ = arg["description"].(string)
+	}
+	if toolDescription == "" || worktreeDescription == "" {
+		t.Fatal("brain_refresh tool definition missing")
+	}
+	for _, want := range []string{"Seed and docs include current worktree content", "committed HEAD"} {
+		if !strings.Contains(toolDescription, want) {
+			t.Errorf("brain_refresh description missing %q; it must not imply worktree content reaches the semantic index: %q", want, toolDescription)
+		}
+	}
+	if !strings.Contains(worktreeDescription, "seed and docs") || !strings.Contains(worktreeDescription, "committed HEAD") {
+		t.Errorf("brain_refresh worktree argument description must scope itself to seed and docs and name committed HEAD: %q", worktreeDescription)
+	}
+}
+
+// TestMCPIndexRepositoryDescribesForceAndPathScope pins brain_index_repository's
+// description to two things its handler really does and its old wording did not
+// mention: an existing index is not replaced without force=true, and the path
+// is confined to the bound repository root.
+//
+// The scoping half matters for consistency: every other path/repo-scoped tool
+// names its gate inline in the description (brain_delete_project,
+// brain_list_projects, the workspace tools), because an agent that hits the
+// refusal should learn the one knob from the surface it is already reading.
+// brain_index_repository was the one that did not.
+func TestMCPIndexRepositoryDescribesForceAndPathScope(t *testing.T) {
+	// No t.Parallel: this test uses t.Setenv to prove the gate lifts containment.
+
+	// Behaviour: a bound root confines the path, and the refusal is gated on
+	// exactly the env var the description now names.
+	env := EntireEnv{RepoRoot: "/repo"}
+	if _, contain := mcpResolveIndexPath(env, "/elsewhere"); contain != "/repo" {
+		t.Fatalf("mcpResolveIndexPath did not contain an absolute path to the bound root, got containRoot %q", contain)
+	}
+	if resolved, _ := mcpResolveIndexPath(env, "sub"); resolved != filepath.Join("/repo", "sub") {
+		t.Fatalf("relative path resolved to %q, want it joined onto the bound root", resolved)
+	}
+	t.Setenv("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH", "1")
+	if _, contain := mcpResolveIndexPath(env, "/elsewhere"); contain != "" {
+		t.Fatalf("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH did not lift containment, got containRoot %q", contain)
+	}
+
+	var toolDescription, pathDescription string
+	for _, tool := range mcpToolDefinitions() {
+		if tool["name"] != "brain_index_repository" {
+			continue
+		}
+		toolDescription, _ = tool["description"].(string)
+		schema, _ := tool["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		arg, _ := props["path"].(map[string]any)
+		pathDescription, _ = arg["description"].(string)
+	}
+	if toolDescription == "" || pathDescription == "" {
+		t.Fatal("brain_index_repository tool definition missing")
+	}
+	if !strings.Contains(toolDescription, "force=true") {
+		t.Errorf("brain_index_repository description must say an existing index needs force=true; runSemanticIndex errors otherwise: %q", toolDescription)
+	}
+	if strings.Contains(toolDescription, "Build or refresh") {
+		t.Errorf("brain_index_repository does not refresh by default -- it errors when an index exists: %q", toolDescription)
+	}
+	for _, description := range []string{toolDescription, pathDescription} {
+		if !strings.Contains(description, "ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
+			t.Errorf("brain_index_repository must name the gate that lifts path containment, as the other scoped tools do: %q", description)
+		}
+	}
+}
+
+// TestMCPBoundariesInvalidKindErrorNamesTheMCPArgument pins the brain_boundaries
+// error contract to the surface it is reached from.
+//
+// inspectBoundarySpec is shared by the `boundaries` CLI command and the
+// brain_boundaries MCP tool. Its rejection message used CLI flag syntax
+// ("--kind must be ..."), so an agent that sent {"kind":"controller"} over MCP
+// was told to fix a flag that does not exist on the MCP surface -- the argument
+// there is the JSON field "kind". The message must name the values without
+// naming a flag, so it reads correctly from both callers.
+func TestMCPBoundariesInvalidKindErrorNamesTheMCPArgument(t *testing.T) {
+	t.Parallel()
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_boundaries","arguments":{"kind":"controller"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	data, err := json.Marshal(responses[0])
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	message := string(data)
+	if strings.Contains(message, "--kind") {
+		t.Fatalf("brain_boundaries told an MCP caller to correct a CLI flag that does not exist on this surface: %s", message)
+	}
+	if !strings.Contains(message, "kind must be route, tool, or workflow") {
+		t.Fatalf("brain_boundaries did not name the accepted kind values: %s", message)
 	}
 }

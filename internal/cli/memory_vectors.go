@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 	"time"
@@ -375,13 +375,11 @@ func decodeMemoryVectorProgress(data []byte) (memoryVectorProgress, error) {
 		}
 	}
 	var progress memoryVectorProgress
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&progress); err != nil {
+	if _, err := decodeVersionedJSONBody(data, &progress, false); err != nil {
+		if errors.Is(err, errTrailingJSONData) {
+			return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress has trailing JSON data"), header.SchemaVersion)
+		}
 		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress cannot be parsed"), header.SchemaVersion)
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress has trailing JSON data"), header.SchemaVersion)
 	}
 	if progress.SchemaVersion != memoryVectorSchema || progress.ModelID == "" || progress.UpdatedAt.IsZero() || progress.HistoryAdded < 0 || progress.ConversationAdded < 0 || !validSHA256Identity(progress.SourceDigest) || (progress.CompleteSourceDigest != "" && !validSHA256Identity(progress.CompleteSourceDigest)) || (!progress.Pending && (!progress.ResetComplete || progress.CompleteSourceDigest != progress.SourceDigest)) || (progress.ErrorCode != "" && progress.ErrorCode != "memory_vector_sync_failed") {
 		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress has invalid identity or bounds"), header.SchemaVersion)

@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -112,6 +113,28 @@ func TestSemanticIndexStoresProviderSnapshotAndManifest(t *testing.T) {
 	}
 }
 
+func TestSemanticIndexAcceptsEntireProxyOrigin(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "entire://cluster.example/gh/example/repo\n"}
+	cmd := &cobra.Command{Use: "index"}
+
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{
+		Version: "test",
+		Env:     env,
+		Runner:  runner,
+		Now:     func() time.Time { return time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC) },
+	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	manifestPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", exportManifestFileName)
+	if _, err := os.Stat(manifestPath); err != nil {
+		t.Fatalf("manifest under canonical proxy path: %v", err)
+	}
+}
+
 func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 	repoDir := t.TempDir()
 	brainDir := t.TempDir()
@@ -152,16 +175,23 @@ func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 	}
 }
 
-func TestValidateLiveSemanticHeaderAcceptsRepoKeyCaseOnlyDifference(t *testing.T) {
-	err := validateLiveSemanticHeader(
-		semanticHeader{RepoKey: "gh/redacted-contributor/Ultron", Commit: "aaa111", Tree: "tree111"},
-		"gh/redacted-contributor/ultron",
-		"aaa111",
-		"tree111",
-		false,
+// TestSemanticProviderRepoKeyAcceptsCaseOnlyDifference: entire-graph preserves
+// the case of a github.com remote path while the brain folds its storage key to
+// lower case, so gh/Owner/Repo and gh/owner/repo name the same repository.
+//
+// This assertion used to live on validateLiveSemanticHeader, where it could not
+// fail: scanSemanticStream normalizes header.RepoKey to the storage key before
+// that function ever sees it. It belongs here, on the one comparison that reads
+// the provider's own untrusted spelling.
+func TestSemanticProviderRepoKeyAcceptsCaseOnlyDifference(t *testing.T) {
+	err := validateSemanticProviderRepoKey(
+		context.Background(), nil, t.TempDir(),
+		"gh/redacted-contributor/ultron", // the brain's storage key, folded
+		"gh/redacted-contributor/Ultron", // what the provider stamped
+		"", "entire",
 	)
 	if err != nil {
-		t.Fatalf("case-only repo key mismatch should be accepted: %v", err)
+		t.Fatalf("case-only repo key difference should be accepted: %v", err)
 	}
 }
 
@@ -411,25 +441,95 @@ func TestSemanticIndexFailsBeforeSnapshotWhenProviderRequiresNetwork(t *testing.
 }
 
 func TestSemanticIndexFailsClosedWhenProviderNoEgressUnknown(t *testing.T) {
-	for name, response := range map[string]fakeCommandResponse{
-		"doctor-failed":    {err: os.ErrNotExist},
-		"doctor-malformed": {stdout: `{not-json`},
-		"doctor-unknown":   {stdout: `{}`},
+	// Each case fails closed for a different underlying reason (the doctor
+	// call itself errored, its output didn't parse, or it simply said
+	// nothing about egress), so each gets its own expected substring instead
+	// of one blanket "no-egress" check — see
+	// TestSemanticIndexDoctorFailureNamesRootCause for the detailed root-cause
+	// coverage of these same failure modes.
+	for name, tc := range map[string]struct {
+		response    fakeCommandResponse
+		wantErrText string
+	}{
+		"doctor-failed":    {response: fakeCommandResponse{err: os.ErrNotExist}, wantErrText: "doctor failed to run graph binary"},
+		"doctor-malformed": {response: fakeCommandResponse{stdout: `{not-json`}, wantErrText: "returned output that could not be parsed"},
+		"doctor-unknown":   {response: fakeCommandResponse{stdout: `{}`}, wantErrText: "no-egress"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			repoDir := t.TempDir()
 			env := semanticTestEnv(t, repoDir)
 			runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-			runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = response
+			runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = tc.response
 			delete(runner.responses, fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"))
 
 			err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-			if err == nil || !strings.Contains(err.Error(), "no-egress") {
-				t.Fatalf("index err = %v", err)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErrText) {
+				t.Fatalf("index err = %v, want it to contain %q", err, tc.wantErrText)
 			}
 			for _, call := range runner.calls {
 				if call.name == "entire" && len(call.args) > 1 && call.args[0] == "graph" && call.args[1] == "snapshot" {
 					t.Fatalf("snapshot was called without verified no-egress")
+				}
+			}
+		})
+	}
+}
+
+// TestSemanticIndexDoctorFailureNamesRootCause locks down that a semantic
+// doctor failure surfaces WHY it failed, not just a blanket "no-egress status
+// is not verified" claim. Each doctor failure mode has a distinct underlying
+// cause (binary missing from PATH, malformed doctor JSON, provider declaring
+// it needs the network, doctor silent on egress) and an operator reading the
+// error must be able to tell which one happened and against which binary,
+// without re-running with extra flags to find out.
+func TestSemanticIndexDoctorFailureNamesRootCause(t *testing.T) {
+	for name, tc := range map[string]struct {
+		response       fakeCommandResponse
+		wantSubstrings []string
+	}{
+		"exec-not-found": {
+			response: fakeCommandResponse{err: errors.New(`entire [graph doctor --json]: exec: "entire": executable file not found in $PATH`)},
+			wantSubstrings: []string{
+				"entire",
+				"executable file not found in $PATH",
+			},
+		},
+		"malformed-json": {
+			response: fakeCommandResponse{stdout: `{not-json`},
+			wantSubstrings: []string{
+				"entire",
+				"invalid character",
+			},
+		},
+		"network-required": {
+			response: fakeCommandResponse{stdout: `{"requires_network":true}`},
+			wantSubstrings: []string{
+				"entire",
+				"provider doctor reports network access is required",
+			},
+		},
+		"egress-status-unreported": {
+			response: fakeCommandResponse{stdout: `{}`},
+			wantSubstrings: []string{
+				"entire",
+				"provider doctor did not report no-egress status",
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repoDir := t.TempDir()
+			env := semanticTestEnv(t, repoDir)
+			runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+			runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = tc.response
+			delete(runner.responses, fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"))
+
+			err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
+			if err == nil {
+				t.Fatalf("index err = nil, want a descriptive doctor-failure error")
+			}
+			for _, want := range tc.wantSubstrings {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("index err = %q, want it to contain %q", err.Error(), want)
 				}
 			}
 		})
@@ -990,6 +1090,86 @@ func TestSemanticRepairRebuildsMissingStoreFromActiveSnapshot(t *testing.T) {
 	}
 }
 
+// TestSemanticRepairIsNoOpWhenGenerationAlreadyValid guards against a
+// reproduced unbounded-growth bug: `semantic repair` used to unconditionally
+// rebuild a full new generation directory even when the active one was
+// already present and valid, because it never checked before doing the
+// work. On a real ~180MB semantic.sqlite store this permanently doubled disk
+// usage on every repair invocation (doctor suggests running repair
+// defensively, and nothing stops a user/agent from running it speculatively)
+// with no automatic cleanup of the orphaned generation (`semantic gc` is a
+// manual command, defaults to a 30-day age cutoff, so a same-day duplicate is
+// never pruned). Repair against a healthy store must be a true no-op: no new
+// generation directory, no manifest churn.
+func TestSemanticRepairIsNoOpWhenGenerationAlreadyValid(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	before, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
+	entriesBefore, err := os.ReadDir(generationsRoot)
+	if err != nil {
+		t.Fatalf("read generations dir: %v", err)
+	}
+	if len(entriesBefore) != 1 {
+		t.Fatalf("precondition: expected exactly one generation after index, got %d", len(entriesBefore))
+	}
+
+	out, err := execute(t, cmd, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "already valid; nothing to repair") {
+		t.Fatalf("repair against a healthy store must be a reported no-op, got: %q", out)
+	}
+	if strings.Contains(out, "repaired semantic brain") {
+		t.Fatalf("repair against a healthy store must not claim to have repaired it: %q", out)
+	}
+
+	entriesAfter, err := os.ReadDir(generationsRoot)
+	if err != nil {
+		t.Fatalf("read generations dir after repair: %v", err)
+	}
+	if len(entriesAfter) != 1 {
+		t.Fatalf("repair against a healthy store created an extra generation directory: before=%d after=%d (%v)",
+			len(entriesBefore), len(entriesAfter), entriesAfter)
+	}
+	if entriesAfter[0].Name() != entriesBefore[0].Name() {
+		t.Fatalf("repair replaced the active generation directory: before=%s after=%s", entriesBefore[0].Name(), entriesAfter[0].Name())
+	}
+
+	after, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest after repair: %v", err)
+	}
+	if after.Sources.Semantic.GenerationPath != before.Sources.Semantic.GenerationPath ||
+		after.Sources.Semantic.StorePath != before.Sources.Semantic.StorePath {
+		t.Fatalf("repair against a healthy store rewrote manifest pointers: before=%+v after=%+v",
+			before.Sources.Semantic, after.Sources.Semantic)
+	}
+
+	// Genuinely broken stores must still be repaired (unchanged behavior).
+	storePath := filepath.Join(brainDir, filepath.FromSlash(after.Sources.Semantic.StorePath))
+	if err := os.Remove(storePath); err != nil {
+		t.Fatalf("remove store: %v", err)
+	}
+	out, err = execute(t, cmd, "repair")
+	if err != nil {
+		t.Fatalf("repair after damage: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "repaired semantic brain") {
+		t.Fatalf("repair against a missing store must still rebuild it, got: %q", out)
+	}
+}
+
 func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -1255,7 +1435,11 @@ func TestSemanticIndexSanitizesAbsoluteProviderWarnings(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	absPath := filepath.ToSlash(filepath.Join(repoDir, "secret", "config.go"))
-	snapshot := strings.Replace(semanticFixtureSnapshot("1.0"), `"warnings":[],"partial_failures":[]`, `"warnings":[{"code":"absolute_path","severity":"warning","path":"`+absPath+`","effect":"read `+absPath+`","detail":"failed at D:/work/repo/file.go and `+absPath+`"}],"partial_failures":[{"code":"partial_absolute","severity":"warning","path":"`+absPath+`","detail":"`+absPath+`"}]`, 1)
+	// The trailing summary record is authoritative for warnings/partial_failures
+	// (mergeSemanticSummary overrides the header with it), so both the header
+	// and the summary copies of the empty arrays must be replaced for the
+	// injected warning to actually reach the manifest.
+	snapshot := strings.Replace(semanticFixtureSnapshot("1.0"), `"warnings":[],"partial_failures":[]`, `"warnings":[{"code":"absolute_path","severity":"warning","path":"`+absPath+`","effect":"read `+absPath+`","detail":"failed at D:/work/repo/file.go and `+absPath+`"}],"partial_failures":[{"code":"partial_absolute","severity":"warning","path":"`+absPath+`","detail":"`+absPath+`"}]`, -1)
 	runner := semanticFixtureRunner(repoDir, snapshot)
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Env: env, Runner: runner, Now: time.Now}
@@ -1424,21 +1608,10 @@ func TestSemanticIndexKeepsRelationsWhenIgnorePatternMatchesRepoKey(t *testing.T
 	}
 }
 
-func TestSemanticEndpointPath(t *testing.T) {
-	cases := map[string]string{
-		"gh/ashtom/entire-brain:Go:cmd/entire-brain/main.go:function:main": "cmd/entire-brain/main.go",
-		"gh/example/repo:go:secret/config.go:function:Secret":              "secret/config.go",
-		"external:import:archive/tar":                                      "",
-		"external:route:/repo":                                             "",
-		"public":                                                           "",
-		"":                                                                 "",
-	}
-	for id, want := range cases {
-		if got := semanticEndpointPath(id); got != want {
-			t.Fatalf("semanticEndpointPath(%q) = %q, want %q", id, got, want)
-		}
-	}
-}
+// TestSemanticEndpointPath is superseded by
+// TestSemanticEndpointPathRecoversFieldsAroundColons in
+// semantic_endpoint_path_test.go, which covers every case below plus the ID
+// shapes whose fields contain ":".
 
 func TestSemanticIndexDoesNotTreatSecretDirectoryAsDefaultIgnore(t *testing.T) {
 	repoDir := t.TempDir()
@@ -2490,6 +2663,7 @@ func semanticFixtureSnapshotWithCallerSymbol() string {
 {"record_type":"symbol","id":"target","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"caller","kind":"function","name":"HandleLogin","qualified_name":"api.HandleLogin","file_path":"internal/api/login.go","start_line":30,"end_line":50,"signature":"func HandleLogin() error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"target","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 }
 
@@ -4053,6 +4227,7 @@ func TestBundleExportPreservesDistinctRedactedRecordIDs(t *testing.T) {
 {"record_type":"symbol","id":"/private/local/repo/a.go:function:A","kind":"function","name":"A","qualified_name":"pkg.A","file_path":"internal/a.go","start_line":1,"end_line":2,"signature":"func A()","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"/private/local/repo/b.go:function:B","kind":"function","name":"B","qualified_name":"pkg.B","file_path":"internal/b.go","start_line":1,"end_line":2,"signature":"func B()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"/private/local/repo/a.go:function:A","to_id":"/private/local/repo/b.go:function:B","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 	runner := semanticFixtureRunner(repoDir, snapshot)
 	cmd := &cobra.Command{Use: "index"}
@@ -4593,6 +4768,7 @@ func semanticFixtureSnapshot(schema string) string {
 	return `{"schema_version":"` + schema + `","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+{"record_type":"summary","warnings":[],"partial_failures":[]}
 `
 }
 
@@ -4600,6 +4776,7 @@ func semanticChangesRangeFixtureSnapshot() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.PrepareToken","kind":"function","name":"PrepareToken","qualified_name":"auth.PrepareToken","file_path":"internal/auth/token.go","start_line":1,"end_line":5,"signature":"func PrepareToken()","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"summary"}
 `
 }
 
@@ -4608,6 +4785,7 @@ func semanticDataFlowFixtureSnapshot() string {
 {"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:run","kind":"function","name":"run","qualified_name":"flow.run","file_path":"flow.ts","start_line":1,"end_line":8,"signature":"function run(input: Input): string","language":"TypeScript","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:normalize","kind":"function","name":"normalize","qualified_name":"flow.normalize","file_path":"flow.ts","start_line":10,"end_line":12,"signature":"function normalize(value: string): string","language":"TypeScript","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:ts:flow.ts:function:run","to_id":"gh/example/repo:ts:flow.ts:function:normalize","type":"DATA_FLOWS","confidence":0.7,"reason":"caller parameter destructured alias forwarded into callee argument","relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"destructured_alias_forward_flow","file_path":"flow.ts","start_line":1,"end_line":8,"detail":"input -> value -> normalize()"}],"warning_codes":[]}
+{"record_type":"summary"}
 `
 }
 
@@ -4616,6 +4794,7 @@ func semanticResolvedImportFixtureSnapshot() string {
 {"record_type":"file","id":"gh/example/repo:file:apps/web/src/app.ts","path":"apps/web/src/app.ts","blob":"app","language":"TypeScript","bytes":96}
 {"record_type":"file","id":"gh/example/repo:file:packages/utils/src/index.ts","path":"packages/utils/src/index.ts","blob":"utils","language":"TypeScript","bytes":48}
 {"record_type":"relation","from_id":"gh/example/repo:file:apps/web/src/app.ts","to_id":"gh/example/repo:file:packages/utils/src/index.ts","type":"IMPORTS","confidence":0.91,"reason":"JS/TS workspace package export resolved through nested package.json","relation_scope":"module","resolution":"import_resolved","target_kind":"file","evidence":[{"kind":"package_workspace_exports_import","file_path":"apps/web/src/app.ts","start_line":1,"end_line":1,"detail":"@acme/utils"}],"warning_codes":[]}
+{"record_type":"summary"}
 `
 }
 
@@ -4624,6 +4803,7 @@ func semanticFixtureSnapshotWithQualifiedCallerSymbol() string {
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/caller.go:function:auth.CallValidateToken","kind":"function","name":"CallValidateToken","qualified_name":"auth.CallValidateToken","file_path":"internal/auth/caller.go","start_line":30,"end_line":40,"signature":"func CallValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/caller.go:function:auth.CallValidateToken","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 }
 
@@ -4637,15 +4817,22 @@ func semanticBoundaryFixtureSnapshot() string {
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:go:internal/http/routes.go:route:GET /tokens/{id}","type":"HANDLES_ROUTE","confidence":1}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:go:internal/cli/root.go:cli_command:brain refresh","type":"HANDLES_TOOL","confidence":0.8}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:yaml:.github/workflows/test.yml:workflow:token validation","type":"HANDLES_WORKFLOW","confidence":0.7}
+{"record_type":"summary"}
 `
 }
 
 func semanticBoundaryFixtureSnapshotWithExtraRoute() string {
-	return strings.TrimSuffix(semanticBoundaryFixtureSnapshot(), "\n") + `
-{"record_type":"symbol","id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","kind":"route","name":"POST /sessions","qualified_name":"POST /sessions","file_path":"internal/http/routes.go","start_line":6,"end_line":6,"signature":"POST /sessions","language":"Go","stable_id_version":"1"}
+	// The extra route/relation records must land before the terminating summary
+	// record, the same as a real provider stream: the summary is always last.
+	base := semanticBoundaryFixtureSnapshot()
+	before, after, found := strings.Cut(base, `{"record_type":"summary"}`)
+	if !found {
+		panic("semanticBoundaryFixtureSnapshot no longer ends with a summary record")
+	}
+	return before + `{"record_type":"symbol","id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","kind":"route","name":"POST /sessions","qualified_name":"POST /sessions","file_path":"internal/http/routes.go","start_line":6,"end_line":6,"signature":"POST /sessions","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/http/session.go:function:http.CreateSession","kind":"function","name":"CreateSession","qualified_name":"http.CreateSession","file_path":"internal/http/session.go","start_line":12,"end_line":24,"signature":"func CreateSession()","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:go:internal/http/session.go:function:http.CreateSession","to_id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","type":"HANDLES_ROUTE","confidence":1}
-`
+{"record_type":"summary"}` + after
 }
 
 func semanticFixtureSnapshotWithDelayedRelevantRelation() string {
@@ -4656,6 +4843,7 @@ func semanticFixtureSnapshotWithDelayedRelevantRelation() string {
 		fmt.Fprintf(&b, `{"record_type":"relation","from_id":"unrelated-%d","to_id":"other-%d","type":"CALLS","confidence":1}`+"\n", i, i)
 	}
 	b.WriteString(`{"record_type":"relation","from_id":"caller","to_id":"target","type":"CALLS","confidence":1}` + "\n")
+	b.WriteString(`{"record_type":"summary"}` + "\n")
 	return b.String()
 }
 
@@ -4664,18 +4852,24 @@ func semanticFixtureSnapshotWithIgnoredSecret() string {
 {"record_type":"symbol","id":"public","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"secret","kind":"const","name":"SECRET_TOKEN","qualified_name":"config.SECRET_TOKEN","file_path":"secret/config.go","start_line":1,"end_line":1,"signature":"const SECRET_TOKEN","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"public","to_id":"secret","type":"ACCESSES","confidence":1}
+{"record_type":"summary"}
 `
 }
 
 func semanticFixtureSnapshotWithIgnoredWarnings() string {
-	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[{"code":"kept","severity":"warning","path":"internal/auth/token.go","detail":"visible"},{"code":"ignored","severity":"warning","path":"secret/config.go","detail":"SECRET_TOKEN in secret/config.go"}],"partial_failures":[{"code":"ignored_failure","severity":"error","path":"secret/config.go","detail":"parse failed for SECRET_TOKEN"}]}
+	// The trailing summary record (not the lean header) is authoritative for
+	// warnings/partial_failures: mergeSemanticSummary overrides the header with
+	// it, so that is where a real provider reports them.
+	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"public","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"summary","warnings":[{"code":"kept","severity":"warning","path":"internal/auth/token.go","detail":"visible"},{"code":"ignored","severity":"warning","path":"secret/config.go","detail":"SECRET_TOKEN in secret/config.go"}],"partial_failures":[{"code":"ignored_failure","severity":"error","path":"secret/config.go","detail":"parse failed for SECRET_TOKEN"}]}
 `
 }
 
 func semanticFixtureSnapshotWithGitHubWorkflow() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["yaml"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"workflow","kind":"workflow","name":"ci","qualified_name":"ci","file_path":".github/workflows/ci.yml","start_line":1,"end_line":20,"signature":"ci","language":"YAML","stable_id_version":"1"}
+{"record_type":"summary"}
 `
 }
 
@@ -4683,6 +4877,7 @@ func semanticFixtureSnapshotWithIgnoredRelationID() string {
 	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"public","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"public","to_id":"gh/example/repo:go:secret/config.go:function:Secret","type":"CALLS","confidence":1}
+{"record_type":"summary"}
 `
 }
 

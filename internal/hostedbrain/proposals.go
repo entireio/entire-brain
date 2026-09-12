@@ -83,3 +83,11 @@ func (c *Client) resolve(ctx context.Context, repoID, branch, ref string, decisi
 	}
 	return factsync.ResolveOpen(ctx, c.factsyncServer(), repoID, branch, ref, decision, now)
 }
+
+// RepairProposalIDs previews or explicitly removes invalid queue entries.
+func (c *Client) RepairProposalIDs(ctx context.Context, repoID, branch string, apply bool, expectedRef string) (factsync.ProposalRepairResult, error) {
+	if noEgress() {
+		return factsync.ProposalRepairResult{}, ErrNoEgress
+	}
+	return c.factsyncServer().RepairProposalIDs(ctx, repoID, branch, apply, expectedRef)
+}

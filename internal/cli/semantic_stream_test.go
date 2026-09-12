@@ -279,7 +279,7 @@ func TestStreamSemanticSnapshotReportsProviderFailureAfterPartialOutput(t *testi
 		},
 	}}
 	out := &bytes.Buffer{}
-	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
+	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, "", semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
 	if err == nil {
 		t.Fatal("expected provider failure error")
 	}
@@ -476,11 +476,132 @@ func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
 	}
 }
 
+// TestStreamSemanticSnapshotFailsOnTruncatedEntireGraphStream proves the
+// confirmed truncation bug: a real entire-graph snapshot always ends with a
+// terminating "summary" record, emitted unconditionally right before the
+// provider process exits 0. A provider bug, short write, wrapper/shim that
+// swallows the real child's status, or a caught panic that still exits 0 can
+// produce header + records with NO summary, and exit 0. Before the fix,
+// streamSemanticSnapshot gated truncation detection solely on the exit code
+// and silently accepted this as a complete snapshot. The absence of the
+// terminating record is itself the truncation signal and must fail loudly for
+// the default/entire-graph provider.
+func TestStreamSemanticSnapshotFailsOnTruncatedEntireGraphStream(t *testing.T) {
+	repoDir := t.TempDir()
+	truncated := semanticStreamLeanHeader + "\n" +
+		`{"record_type":"symbol","id":"s1","kind":"function","name":"A","file_path":"a.go","stable_id_version":"1"}` + "\n" +
+		`{"record_type":"relation","from_id":"caller","to_id":"s1","type":"CALLS","confidence":1}` + "\n"
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {
+			stdout: truncated,
+			// No err: the child exits 0 despite never emitting its summary record.
+		},
+	}}
+	out := &bytes.Buffer{}
+	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, "", semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
+	if err == nil {
+		t.Fatalf("expected truncation error for a summary-less entire-graph stream, got success: %+v", res)
+	}
+	for _, want := range []string{"truncat", "summary"} {
+		if !strings.Contains(strings.ToLower(err.Error()), want) {
+			t.Fatalf("error should mention %q, got: %v", want, err)
+		}
+	}
+	// Record counts observed before the (missing) summary must be reported so
+	// the failure is actionable.
+	if !strings.Contains(err.Error(), "1") {
+		t.Fatalf("error should report the records observed, got: %v", err)
+	}
+	if res.stream.Symbols != 1 || res.stream.Relations != 1 {
+		t.Fatalf("expected partial counts to still be tracked: %+v", res.stream)
+	}
+}
+
+// TestStreamSemanticSnapshotFailsOnTruncatedStreamWithEmptyProvider confirms
+// the same truncation failure applies when the header omits "provider"
+// entirely: Brain defaults an empty provider to entire-graph, so a missing
+// summary must be treated as truncation there too.
+func TestStreamSemanticSnapshotFailsOnTruncatedStreamWithEmptyProvider(t *testing.T) {
+	repoDir := t.TempDir()
+	header := `{"schema_version":"1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111"}`
+	truncated := header + "\n" +
+		`{"record_type":"symbol","id":"s1","kind":"function","name":"A","file_path":"a.go","stable_id_version":"1"}` + "\n"
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {
+			stdout: truncated,
+		},
+	}}
+	out := &bytes.Buffer{}
+	_, err := streamSemanticSnapshot(context.Background(), runner, repoDir, "", semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
+	if err == nil {
+		t.Fatal("expected truncation error when provider is empty (defaults to entire-graph)")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "truncat") {
+		t.Fatalf("error should mention truncation, got: %v", err)
+	}
+}
+
+// TestStreamSemanticSnapshotWarnsOnMissingSummaryForThirdPartyProvider proves
+// the fix is safe in both version-skew directions: a third-party/unknown
+// provider that legitimately never implements the trailing summary record
+// must not be hard-failed. It succeeds, and the caller (runSemanticIndex)
+// surfaces a warning instead.
+func TestStreamSemanticSnapshotWarnsOnMissingSummaryForThirdPartyProvider(t *testing.T) {
+	repoDir := t.TempDir()
+	header := `{"schema_version":"1.0","provider":"other-sem-tool","provider_version":"9.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111"}`
+	noSummary := header + "\n" +
+		`{"record_type":"symbol","id":"s1","kind":"function","name":"A","file_path":"a.go","stable_id_version":"1"}` + "\n"
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {
+			stdout: noSummary,
+		},
+	}}
+	out := &bytes.Buffer{}
+	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, "", semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
+	if err != nil {
+		t.Fatalf("third-party provider without a summary record should not hard-fail: %v", err)
+	}
+	found := false
+	for _, w := range res.extraWarnings {
+		if w.Code == "provider_summary_missing" {
+			found = true
+			if w.Severity != "warning" {
+				t.Fatalf("expected warning severity, got %q", w.Severity)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a provider_summary_missing warning, got %+v", res.extraWarnings)
+	}
+}
+
+// TestSemanticIndexFailsOnTruncatedEntireGraphSnapshot is the end-to-end
+// version of the truncation test: the full `entire brain semantic index`
+// pipeline (not just the streaming layer) must reject a truncated
+// entire-graph snapshot rather than silently persisting it as complete.
+func TestSemanticIndexFailsOnTruncatedEntireGraphSnapshot(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	truncated := `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+`
+	runner := semanticFixtureRunner(repoDir, truncated)
+	cmd := &cobra.Command{Use: "index"}
+	err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
+	if err == nil {
+		t.Fatal("expected the index command to fail on a truncated entire-graph snapshot")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "truncat") {
+		t.Fatalf("index error should mention truncation, got: %v", err)
+	}
+}
+
 // TestStreamSemanticSnapshotRequiresStreamingRunner confirms semantic indexing
 // fails fast (rather than buffering) when given a runner that does not implement
 // CommandStreamer.
 func TestStreamSemanticSnapshotRequiresStreamingRunner(t *testing.T) {
-	_, err := streamSemanticSnapshot(context.Background(), nonStreamingRunner{}, t.TempDir(), semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, io.Discard)
+	_, err := streamSemanticSnapshot(context.Background(), nonStreamingRunner{}, t.TempDir(), "", semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "streaming command runner") {
 		t.Fatalf("expected streaming-required error, got %v", err)
 	}
@@ -589,5 +710,31 @@ func TestScanSemanticStreamPreservesSchema11Fields(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("filtered stream dropped %s", want)
 		}
+	}
+}
+
+func TestScanSemanticStreamPreservesEvidenceDropped(t *testing.T) {
+	input := strings.Join([]string{
+		semanticStreamLeanHeader,
+		`{"record_type":"relation","from_id":"caller","to_id":"callee","type":"DATA_FLOWS","confidence":1,"warning_codes":["EVIDENCE_TRUNCATED"],"evidence":[{"kind":"read","file_path":"internal/a.go","start_line":7,"end_line":7}],"evidence_dropped":3}`,
+	}, "\n") + "\n"
+
+	out := &bytes.Buffer{}
+	if _, err := scanSemanticStream(strings.NewReader(input), out, semanticStreamScanConfig{}); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("filtered stream has %d lines, want 2:\n%s", len(lines), out.String())
+	}
+	var relation struct {
+		EvidenceDropped int `json:"evidence_dropped"`
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &relation); err != nil {
+		t.Fatalf("decode filtered relation: %v", err)
+	}
+	if relation.EvidenceDropped != 3 {
+		t.Fatalf("evidence_dropped = %d, want 3; filtered relation: %s", relation.EvidenceDropped, lines[1])
 	}
 }

@@ -2,11 +2,13 @@ package cli
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Skill install destinations + skill-memory recording (Pattern Consolidation).
@@ -21,6 +23,14 @@ import (
 type skillDestination struct {
 	Agents []string `json:"agents"`
 	Path   string   `json:"path"`
+
+	// base and rel are the two halves of Path kept apart for the write
+	// boundary: base is the agent config root the skill belongs in, rel is the
+	// slash-style path under it. writeSkillFile needs them separately to prove
+	// the write lands inside base and passes through no symlink. They are
+	// unexported so the JSON shape is unchanged.
+	base string
+	rel  string
 }
 
 // recordSkillDecision upserts a skill-memory record by pattern/task id, preserving
@@ -55,6 +65,13 @@ func recordSkillDecision(brainDir string, rec skillMemoryRecord) error {
 // the holdouts get their own roots. "all" writes the minimal covering set.
 func skillDestinations(target, scope, name, repoDir string) ([]skillDestination, error) {
 	standardAgents := []string{"copilot-cli", "cursor", "gemini", "pi"}
+	// The name is parsed out of the synthesis agent's `name:` frontmatter, and
+	// that agent's input is session evidence — text a hostile repo can reach.
+	// path.Join COLLAPSES "..", it does not reject it, so an unsanitized name
+	// walks straight out of the skills directory and plants an
+	// agent-instruction file at a path of the attacker's choosing. Reduce it to
+	// exactly one safe path component first.
+	name = safeSkillNameComponent(name)
 	// Destination paths are kept slash-style for stable, cross-platform display
 	// and JSON; they are converted to an OS path only at the write boundary
 	// (skillFilePath). This keeps tests and output identical on Windows.
@@ -73,7 +90,7 @@ func skillDestinations(target, scope, name, repoDir string) ([]skillDestination,
 		default:
 			return skillDestination{}, fmt.Errorf("invalid scope %q (want global|repo)", scope)
 		}
-		return skillDestination{Agents: agents, Path: path.Join(base, rel)}, nil
+		return skillDestination{Agents: agents, Path: path.Join(base, rel), base: base, rel: rel}, nil
 	}
 
 	codexGlobal := filepath.ToSlash(os.Getenv("CODEX_HOME"))
@@ -112,13 +129,85 @@ func skillDestinations(target, scope, name, repoDir string) ([]skillDestination,
 	return dests, nil
 }
 
+// safeSkillNameComponent reduces a synthesized skill name to exactly one safe
+// path component.
+//
+// safePathComponent alone is enough for containment — its output is ASCII
+// [a-z0-9._-] trimmed of "-._", so it can never be empty, ".", ".." or carry a
+// separator. It is not enough for identity: a name with no representable
+// characters at all (an all-CJK name, say) collapses to the bare fallback, and
+// every such skill would then install over the same directory. Append a short
+// digest of the original name in exactly that case, so distinct names stay
+// distinct while every already-representable name keeps its plain slug and
+// existing installs do not move.
+func safeSkillNameComponent(name string) string {
+	const fallback = "skill"
+	slug := safePathComponent(name, fallback, 64)
+	if slug != fallback || strings.EqualFold(strings.TrimSpace(name), fallback) {
+		return slug
+	}
+	sum := sha256.Sum256([]byte(name))
+	return fallback + "-" + hex.EncodeToString(sum[:])[:8]
+}
+
 func overwriteHint(dests []skillDestination) string {
 	for _, d := range dests {
-		if _, err := os.Stat(skillFilePath(d.Path)); err == nil {
+		if skillFileExists(d.Path) {
 			return " (add --force to overwrite existing files)"
 		}
 	}
 	return ""
+}
+
+// skillFileExists reports whether anything already occupies a destination.
+// It Lstats: os.Stat resolves the link and reports a DANGLING symlink as "does
+// not exist", which would let the overwrite guard pass and the write then
+// create the file the link points at, outside the skills directory entirely.
+func skillFileExists(destPath string) bool {
+	_, err := os.Lstat(skillFilePath(destPath))
+	return err == nil
+}
+
+// writeSkillFile installs one rendered SKILL.md.
+//
+// A SKILL.md is an agent-instruction file, and its parent directories sit in
+// the repo working tree (repo scope) or a home agent config (global scope) —
+// places an untrusted checkout can pre-seed. Every component from the agent
+// root down to the leaf is checked for a symlink before anything is created, so
+// the write cannot be redirected out of the destination it reported in the
+// --yes preview. The leaf is included in that check, which is what stops a
+// dangling link from being written through.
+//
+// The base is checked separately, and must be: the per-component walk
+// EvalSymlinks-normalizes its own root before the containment test, so a base
+// that is ITSELF a link is treated as legitimate. Git stores symlinks, so an
+// untrusted checkout can ship ".claude -> $HOME/.claude" and turn a repo-scope
+// install into a write to the user's real home agent config.
+func writeSkillFile(d skillDestination, data []byte) error {
+	base := skillFilePath(d.base)
+	rel := filepath.FromSlash(d.rel)
+	if err := rejectSymlinkedBrainRoot(base); err != nil {
+		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
+	}
+	if err := rejectExistingSymlinkPathComponents(base, rel); err != nil {
+		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
+	}
+	abs := filepath.Join(base, rel)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return fmt.Errorf("create skill dir: %w", err)
+	}
+	// Re-check after MkdirAll: the directories that did not exist a moment ago
+	// do now, and creating them must not have traversed a link.
+	if err := rejectSymlinkedBrainRoot(base); err != nil {
+		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
+	}
+	if err := rejectExistingSymlinkPathComponents(base, rel); err != nil {
+		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
+	}
+	if err := os.WriteFile(abs, data, 0o644); err != nil {
+		return fmt.Errorf("write skill: %w", err)
+	}
+	return nil
 }
 
 // skillFilePath turns a slash-style destination path into an OS filesystem path,

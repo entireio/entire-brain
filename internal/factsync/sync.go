@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/ashtom/entire-brain/internal/factmerge"
@@ -81,6 +82,13 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 	// head — no member's local filesystem path leaks cross-member (opaque ids are kept,
 	// so provenance still unions). Copies; the caller's local facts are not mutated.
 	local = SanitizeForEgress(local)
+	// Verify this member's own facts BEFORE publishing them. The head check below
+	// fails closed, so one malformed record reaching the shared head would break
+	// every other member's sync — a failure the member that produced it should
+	// take, and take here, rather than exporting it.
+	if err := factmerge.VerifyIdentities(local); err != nil {
+		return Result{}, fmt.Errorf("factsync: local fact set for %s/%s is not publishable: %w", repoID, branch, err)
+	}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ref, plaintext, found, err := srv.Current(ctx, repoID, branch)
 		if err != nil {
@@ -92,11 +100,31 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 			if err != nil {
 				return Result{}, err
 			}
+			// The head is written by every member with push access, so nothing about
+			// it is authenticated by having arrived over the transport. Re-derive each
+			// record's content id before merging: without this, a record carrying
+			// ANOTHER member's id with attacker-chosen text makes Promote's id match
+			// read as "already present, union the provenance", silently discarding the
+			// victim's real statement and keeping the forgery — with the victim's own
+			// anchors attached to it. Fail closed rather than merge a head one record
+			// of which is provably not what it claims to be.
+			if err := factmerge.VerifyIdentities(head); err != nil {
+				return Result{}, fmt.Errorf("factsync: shared fact-set head for %s/%s is not trustworthy: %w", repoID, branch, err)
+			}
 		}
 
 		// Cross-member merge is structurally cross-branch promote: the member's local
 		// facts are the "source" promoted (keep-both) into the current head "target".
 		merged, proposals, _ := factmerge.Promote(local, head, "keep-both", branch, now)
+		// Promote only carries ACTIVE source facts, so a member's RETIREMENTS
+		// (a `facts retract`, or a supersede they applied in review) never reach
+		// the head on their own: the head keeps listing the statement as active,
+		// Advance sees byte-identical content and reports "no change", and every
+		// other member goes on reading a statement its owner declared false.
+		// Carry them over explicitly. Nothing is deleted — the record and its
+		// provenance stay and only the status is retired — so the keep-both
+		// guarantee (ADR-P1-G) holds.
+		merged = applyLocalRetirements(local, merged, now)
 		// Stamp routing: every conflict this member's sync raised is attributed to it.
 		for i := range proposals {
 			proposals[i].ProposedBy = memberID
@@ -128,4 +156,26 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 		}
 	}
 	return Result{}, ErrExhausted
+}
+
+// applyLocalRetirements folds a member's non-active local facts onto the merged
+// set: a record the shared head still lists as active is retired to the status
+// its owner gave it, carrying the SupersededBy pointer. It only ever moves a
+// fact from active to retracted/superseded — it never revives one and never
+// removes one — so the merge stays monotone and a second sync of the same local
+// state is a no-op.
+func applyLocalRetirements(local, merged []factmerge.Record, now time.Time) []factmerge.Record {
+	for _, l := range local {
+		if l.Status == "" || l.Status == factmerge.StatusActive {
+			continue
+		}
+		i := factmerge.IndexOf(merged, l.ID)
+		if i < 0 || merged[i].Status != factmerge.StatusActive {
+			continue
+		}
+		merged[i].Status = l.Status
+		merged[i].SupersededBy = l.SupersededBy
+		merged[i].UpdatedAt = now
+	}
+	return merged
 }

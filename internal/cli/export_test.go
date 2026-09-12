@@ -88,6 +88,9 @@ func (r *fakeCommandRunner) run(ctx context.Context, dir string, env map[string]
 				return []byte(response.stdout), []byte(response.stderr), response.err
 			}
 		}
+		if key == fakeCommandKey("entire", "graph", "version", "--json") {
+			return []byte(`{"provider":"entire-graph","version":"test"}`), nil, nil
+		}
 		return nil, nil, errors.New("unexpected command: " + key)
 	}
 	return []byte(response.stdout), []byte(response.stderr), response.err
@@ -181,7 +184,6 @@ func TestDiscoverCheckpointsUsesCompleteRoutedRemoteUnion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
   "enabled": true,
   "strategy_options": {
-    "checkpoints_version": 2,
     "checkpoint_remote": {
       "provider": "github",
       "repo": "entireio/cli-checkpoints"
@@ -192,7 +194,6 @@ func TestDiscoverCheckpointsUsesCompleteRoutedRemoteUnion(t *testing.T) {
 	}
 
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef):                  {err: errors.New("local v2 missing")},
 		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef):                  {err: errors.New("local v1 missing")},
 		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef):                {err: errors.New("local origin missing")},
 		fakeCommandKey("git", "for-each-ref", "--format=%(refname)", checkpointRefPrefix): {},
@@ -235,7 +236,6 @@ func TestListAllCheckpointRefsNoEgressSkipsCheckpointRemote(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
   "enabled": true,
   "strategy_options": {
-    "checkpoints_version": 2,
     "checkpoint_remote": {
       "provider": "github",
       "repo": "entireio/cli-checkpoints"
@@ -245,7 +245,6 @@ func TestListAllCheckpointRefsNoEgressSkipsCheckpointRemote(t *testing.T) {
 		t.Fatalf("write settings: %v", err)
 	}
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}, sequences: map[string][]fakeCommandResponse{
-		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {{err: errors.New("local v2 missing")}},
 		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef): {{err: errors.New("local v1 missing")}},
 	}}
 
@@ -322,7 +321,7 @@ func TestCheckpointIDFromRefNameValidatesLayoutAndShard(t *testing.T) {
 		{name: "ulid", ref: checkpointRefPrefix + "ZN/01KVBJCWYA4YW6J5M9GP655HZN", want: "01KVBJCWYA4YW6J5M9GP655HZN"},
 		{name: "migrated hex", ref: checkpointRefPrefix + "f6/a1b2c3d4e5f6", want: "a1b2c3d4e5f6"},
 		{name: "wrong shard", ref: checkpointRefPrefix + "AA/01KVBJCWYA4YW6J5M9GP655HZN"},
-		{name: "aggregate v2 ref", ref: v2MainRef},
+		{name: "aggregate v2 ref", ref: removedV2MainRef},
 		{name: "extra component", ref: checkpointRefPrefix + "ZN/extra/01KVBJCWYA4YW6J5M9GP655HZN"},
 		{name: "lowercase ulid", ref: checkpointRefPrefix + "zn/01kvbjcwya4yw6j5m9gp655hzn"},
 		{name: "overflow ulid", ref: checkpointRefPrefix + "ZN/81KVBJCWYA4YW6J5M9GP655HZN"},
@@ -586,7 +585,6 @@ func TestLoadConfiguredCheckpointSnapshotNoEgressSkipsRemoteFetch(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
   "enabled": true,
   "strategy_options": {
-    "checkpoints_version": 2,
     "checkpoint_remote": {
       "provider": "github",
       "repo": "entireio/cli-checkpoints"
@@ -597,7 +595,8 @@ func TestLoadConfiguredCheckpointSnapshotNoEgressSkipsRemoteFetch(t *testing.T) 
 	}
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "for-each-ref", "--format=%(refname)", checkpointRefPrefix): {},
-		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef):                  {err: errors.New("local v2 missing")},
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef):                  {err: errors.New("local v1 missing")},
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef):                {err: errors.New("local origin missing")},
 	}}
 
 	snapshot, warnings, err := loadConfiguredCheckpointSnapshot(context.Background(), runner, repoDir, false, 10, checkpointBranchDestinations{}, nil, nil)
@@ -1014,64 +1013,6 @@ func TestLoadConfiguredCheckpointSnapshotRoutesWhenRemoteIsLocalOnly(t *testing.
 	}
 }
 
-func TestLoadConfiguredCheckpointSnapshotDoesNotMaskGitRefsWithV2FastPath(t *testing.T) {
-	repoDir := t.TempDir()
-	settingsDir := filepath.Join(repoDir, ".entire")
-	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{"strategy_options":{"checkpoints_version":2},"checkpoints":{"primary":{"type":"git-branch"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {stdout: "aa/a111aaa111/metadata.json\n"},
-		fakeCommandKey("git", "for-each-ref", "--format=%(refname)", checkpointRefPrefix): {
-			stdout: checkpointRefPrefix + "ZN/01KVBJCWYA4YW6J5M9GP655HZN\n",
-		},
-	}}
-	snapshot, _, err := loadConfiguredCheckpointSnapshot(context.Background(), runner, repoDir, false, 10, checkpointBranchDestinations{}, nil, nil)
-	if snapshot != nil || !errors.Is(err, errCheckpointSnapshotUnavailable) || !strings.Contains(err.Error(), "mixed v2 and git-refs") {
-		t.Fatalf("v2 mixed topology = snapshot:%+v err:%v", snapshot, err)
-	}
-	if len(runner.calls) != 1 || runner.calls[0].args[0] != "for-each-ref" {
-		t.Fatalf("v2 topology probe should inspect names only: %+v", runner.calls)
-	}
-}
-
-func TestLoadConfiguredCheckpointSnapshotKeepsCompleteV2OnlyNoEgress(t *testing.T) {
-	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
-	repoDir := t.TempDir()
-	settingsDir := filepath.Join(repoDir, ".entire")
-	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{"strategy_options":{"checkpoints_version":2},"checkpoints":{"primary":{"type":"git-branch"}}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	root := checkpointPath("aaa111aaa111")
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "for-each-ref", "--format=%(refname)", checkpointRefPrefix): {},
-		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {
-			stdout: root + "/metadata.json\n" + root + "/0/metadata.json\n" + root + "/0/transcript.jsonl\n",
-		},
-		fakeCommandKey("git", "cat-file", "-p", v2MainRef+":"+root+"/metadata.json"): {
-			stdout: `{"branch":"main","sessions":[{"metadata":"/` + root + `/0/metadata.json","transcript":"/` + root + `/0/transcript.jsonl"}]}`,
-		},
-		fakeCommandKey("git", "cat-file", "-p", v2MainRef+":"+root+"/0/metadata.json"): {
-			stdout: `{"checkpoint_id":"aaa111aaa111","session_id":"v2-session","branch":"main","created_at":"2026-01-01T00:00:00Z"}`,
-		},
-	}}
-	snapshot, warnings, err := loadConfiguredCheckpointSnapshot(context.Background(), runner, repoDir, false, 10, checkpointBranchDestinations{}, nil, nil)
-	if err != nil || snapshot == nil || snapshot.TranscriptMode != "compact" || snapshot.CheckpointCount != 1 {
-		t.Fatalf("v2-only no-egress snapshot = %+v warnings:%v err:%v", snapshot, warnings, err)
-	}
-	for _, call := range runner.calls {
-		if call.env[gitNoLazyFetchEnv] != "1" {
-			t.Fatalf("v2-only no-egress read lacks lazy-fetch guard: %+v", call)
-		}
-	}
-}
-
 func TestExportNoEgressUsesOnlyLocalGitRefsObjects(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	const checkpointID = "01KVBJCWYA4YW6J5M9GP655HZN"
@@ -1261,7 +1202,7 @@ func TestDiscoverCheckpointsMirrorsV1Settings(t *testing.T) {
 			t.Fatalf("configured remotes must use complete routed discovery, got fetch: %+v", call)
 		}
 		for _, arg := range call.args {
-			if arg == v2MainRef || strings.Contains(arg, v2MainRef) {
+			if strings.Contains(arg, removedV2MainRef) {
 				t.Fatalf("v2 ref should not be used when repo settings default to v1, calls: %+v", runner.calls)
 			}
 		}
@@ -1418,7 +1359,7 @@ func TestExportUsesCompleteRoutedDiscoveryForConfiguredCheckpointRemote(t *testi
 			t.Fatalf("scope-all remote export must not perform aggregate-only fetches: %+v", call)
 		}
 		for _, arg := range call.args {
-			if arg == v2MainRef || strings.Contains(arg, v2MainRef) {
+			if strings.Contains(arg, removedV2MainRef) {
 				t.Fatalf("v2 ref should not be used for default v1 settings, calls: %+v", runner.calls)
 			}
 		}
@@ -1570,7 +1511,7 @@ func TestExportUsesLocalV1WithoutSettings(t *testing.T) {
 			t.Fatalf("local v1 direct export should not shell out to Entire, calls: %+v", runner.calls)
 		}
 		for _, arg := range call.args {
-			if arg == v2MainRef || strings.Contains(arg, v2MainRef) {
+			if strings.Contains(arg, removedV2MainRef) {
 				t.Fatalf("v2 ref should not be used when settings are absent and local v1 exists, calls: %+v", runner.calls)
 			}
 		}
@@ -1915,17 +1856,14 @@ func TestExportSelectsLatestCheckpointPerSession(t *testing.T) {
 	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
 		t.Fatalf("create settings dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{"enabled":true,"strategy_options":{"checkpoints_version":2}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{"enabled":true}`), 0o600); err != nil {
 		t.Fatalf("write settings: %v", err)
 	}
 
 	outputDir := filepath.Join(t.TempDir(), "export")
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {
-			stdout: "aa/a111aaa111/metadata.json\nbb/b222bbb222/metadata.json\nbb/b222bbb222/0/metadata.json\n",
-		},
 		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef): {
-			stdout: "aa/a111aaa111/metadata.json\n",
+			stdout: "aa/a111aaa111/metadata.json\nbb/b222bbb222/metadata.json\nbb/b222bbb222/0/metadata.json\n",
 		},
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
 			stdout: `{

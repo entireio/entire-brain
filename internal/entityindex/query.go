@@ -22,17 +22,33 @@ type Snapshot struct {
 	aliases         map[string]string
 	forward         map[string]string // commit sha -> raw delta document JSON
 	windows         map[string]IndexWindow
+	// lastTouch is the latest reverse-index entry timestamp (ms) recorded
+	// under each entity key. It exists ONLY to break a cycle in the alias
+	// graph (see resolveAlias) — the alias records themselves carry no
+	// "which edge is newer" information, but the reverse list entries do,
+	// because every push is stamped from the commit that produced it.
+	lastTouch map[string]int64
 }
 
 // Load materializes a Snapshot from a git-meta state.
-func Load(state gitmeta.State) *Snapshot {
+func Load(state gitmeta.State) *Snapshot { return LoadRevision(state, "") }
+
+// LoadRevision reads only one parser generation. Legacy readers continue to
+// see their original keys after a newer peer migrates and syncs its records.
+func LoadRevision(state gitmeta.State, revision string) *Snapshot {
 	snap := &Snapshot{
 		commitsByEntity: map[string][]string{},
 		aliases:         map[string]string{},
 		forward:         map[string]string{},
 		windows:         map[string]IndexWindow{},
+		lastTouch:       map[string]int64{},
 	}
 	for _, lv := range state.Lists {
+		var ok bool
+		lv.Key, ok = originalRevisionKey(lv.Key, revision)
+		if !ok {
+			continue
+		}
 		if lv.Target != projectTarget {
 			continue
 		}
@@ -44,7 +60,11 @@ func Load(state gitmeta.State) *Snapshot {
 		gitmeta.SortListEntries(entries)
 		commits := make([]string, 0, len(entries))
 		seen := map[string]struct{}{}
+		var latest int64
 		for _, e := range entries {
+			if e.Timestamp > latest {
+				latest = e.Timestamp
+			}
 			if _, dup := seen[e.Value]; dup {
 				continue
 			}
@@ -52,8 +72,14 @@ func Load(state gitmeta.State) *Snapshot {
 			commits = append(commits, e.Value)
 		}
 		snap.commitsByEntity[entityKey] = commits
+		snap.lastTouch[entityKey] = latest
 	}
 	for _, sv := range state.Strings {
+		var ok bool
+		sv.Key, ok = originalRevisionKey(sv.Key, revision)
+		if !ok {
+			continue
+		}
 		switch {
 		case sv.Target.Type == gitmeta.TargetCommit && sv.Key == ForwardKey:
 			snap.forward[sv.Target.Value] = sv.Value
@@ -105,45 +131,23 @@ func (s *Snapshot) Resolve(entityKey string) string {
 	if s == nil {
 		return entityKey
 	}
-	return resolveAlias(s.aliases, entityKey)
-}
-
-// AliasChain returns every key an entity has been known by from entityKey
-// forward to its current key, oldest spelling first. An unaliased key yields a
-// one-element chain.
-func AliasChain(aliases map[string]string, entityKey string) []string {
-	chain := []string{entityKey}
-	seen := map[string]struct{}{entityKey: {}}
-	current := entityKey
-	for hop := 0; hop < maxAliasHops; hop++ {
-		next, ok := aliases[current]
-		if !ok || next == current {
-			break
-		}
-		if _, cycle := seen[next]; cycle {
-			break
-		}
-		seen[next] = struct{}{}
-		chain = append(chain, next)
-		current = next
-	}
-	return chain
+	return resolveAlias(s.aliases, s.lastTouch, entityKey)
 }
 
 // Commits returns the commits that changed an entity in INDEX order — the order
 // the reverse list was appended in, which is the only order the exchange format
 // preserves (a late-arriving older entry is appended, not re-sorted). Callers
 // that need chronology sort by the commits' own dates. The WHOLE rename/move
-// chain from entityKey to its current key contributes, so asking by any
-// spelling the symbol ever had returns its full history — including the commits
-// recorded under intermediate names.
+// family contributes — the earlier spellings that resolve INTO entityKey as
+// well as the chain forward from it — so asking by any spelling the symbol ever
+// had, its current one included, returns its full history.
 func (s *Snapshot) Commits(entityKey string) []string {
 	if s == nil {
 		return nil
 	}
 	var out []string
 	seen := map[string]struct{}{}
-	for _, key := range AliasChain(s.aliases, entityKey) {
+	for _, key := range AliasFamily(s.aliases, entityKey) {
 		for _, commit := range s.commitsByEntity[key] {
 			if _, dup := seen[commit]; dup {
 				continue
@@ -151,6 +155,77 @@ func (s *Snapshot) Commits(entityKey string) []string {
 			seen[commit] = struct{}{}
 			out = append(out, commit)
 		}
+	}
+	return out
+}
+
+// AliasFamily returns every key one entity has ever been known by: the earlier
+// spellings that resolve INTO entityKey (oldest first), entityKey itself, then
+// the chain forward to its current key.
+//
+// Following the chain only FORWARD is not enough for a history lookup. Aliases
+// point old key -> new key, and the reverse list records a commit under the
+// entity's POST-change key, so the pre-rename commits live under the OLD key. A
+// forward-only walk therefore leaves a query by the entity's CURRENT name — the
+// one that actually exists in the tree, and therefore the one a human or an
+// agent types — seeing nothing before the rename, and answering with no warning
+// as if the symbol had no earlier history.
+//
+// Traversal is breadth-first over both directions with a visited set, so a
+// cycle (A -> B -> A, an entity renamed and then renamed back) terminates and
+// nothing is silently truncated: the family is bounded by the alias map itself.
+// Predecessors are sorted at every level, so the result is deterministic.
+func AliasFamily(aliases map[string]string, entityKey string) []string {
+	if len(aliases) == 0 {
+		return []string{entityKey}
+	}
+	predecessors := make(map[string][]string, len(aliases))
+	for oldKey, newKey := range aliases {
+		predecessors[newKey] = append(predecessors[newKey], oldKey)
+	}
+	for _, olds := range predecessors {
+		sort.Strings(olds)
+	}
+
+	seen := map[string]struct{}{entityKey: {}}
+	// Walk BACK level by level, then emit oldest level first, so a linear
+	// rename chain comes out in the order it was renamed in.
+	var levels [][]string
+	frontier := []string{entityKey}
+	for len(frontier) > 0 {
+		var next []string
+		for _, key := range frontier {
+			for _, older := range predecessors[key] {
+				if _, dup := seen[older]; dup {
+					continue
+				}
+				seen[older] = struct{}{}
+				next = append(next, older)
+			}
+		}
+		if len(next) == 0 {
+			break
+		}
+		sort.Strings(next)
+		levels = append(levels, next)
+		frontier = next
+	}
+	out := make([]string, 0, len(seen))
+	for i := len(levels) - 1; i >= 0; i-- {
+		out = append(out, levels[i]...)
+	}
+	out = append(out, entityKey)
+	for current := entityKey; ; {
+		next, ok := aliases[current]
+		if !ok {
+			break
+		}
+		if _, dup := seen[next]; dup {
+			break
+		}
+		seen[next] = struct{}{}
+		out = append(out, next)
+		current = next
 	}
 	return out
 }
@@ -182,7 +257,12 @@ type Match struct {
 // old spelling is reported under the CURRENT key with AliasOf set, so asking by
 // a symbol's former name still finds it. It is shared by the git-meta-backed
 // Snapshot and by any derived cache built from it so both rank identically.
-func SearchKeys(keys []string, aliases map[string]string, query string, limit int) []KeyMatch {
+//
+// lastTouch is the per-key recency signal resolveAlias needs to break a
+// rename-back cycle (see its doc comment); a nil or incomplete map only
+// degrades that ONE tie-break, never panics — every other key still ranks and
+// resolves normally.
+func SearchKeys(keys []string, aliases map[string]string, lastTouch map[string]int64, query string, limit int) []KeyMatch {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -207,7 +287,7 @@ func SearchKeys(keys []string, aliases map[string]string, query string, limit in
 		// A key that has since been renamed or moved is reported under its
 		// CURRENT spelling with the matched (old) key recorded, so a query never
 		// answers with a name that no longer exists in the tree.
-		if resolved := resolveAlias(aliases, key); resolved != key {
+		if resolved := resolveAlias(aliases, lastTouch, key); resolved != key {
 			rPath, rKind, rName, rOK := SplitEntityKey(resolved)
 			if !rOK {
 				rPath, rKind, rName = path, kind, name
@@ -230,7 +310,7 @@ func SearchKeys(keys []string, aliases map[string]string, query string, limit in
 		if _, matched := rankEntity(needle, oldKey, path, name); !matched {
 			continue
 		}
-		resolved := resolveAlias(aliases, oldKey)
+		resolved := resolveAlias(aliases, lastTouch, oldKey)
 		if resolved == oldKey {
 			continue
 		}
@@ -271,7 +351,7 @@ func (s *Snapshot) Search(query string, limit int) []Match {
 	if s == nil {
 		return nil
 	}
-	keyHits := SearchKeys(s.Keys(), s.aliases, query, limit)
+	keyHits := SearchKeys(s.Keys(), s.aliases, s.lastTouch, query, limit)
 	out := make([]Match, 0, len(keyHits))
 	for _, hit := range keyHits {
 		lookup := hit.EntityKey
@@ -290,6 +370,22 @@ func (s *Snapshot) Aliases() map[string]string {
 	}
 	out := make(map[string]string, len(s.aliases))
 	for k, v := range s.aliases {
+		out[k] = v
+	}
+	return out
+}
+
+// LastTouch returns a copy of the per-entity-key latest-reverse-index-entry
+// timestamp (ms). It is the recency signal a caller holding a derived copy of
+// Aliases (rather than the Snapshot itself) must carry alongside it to get the
+// same rename-back-cycle resolution SearchKeys/resolveAlias give a Snapshot —
+// see resolveAlias's doc comment.
+func (s *Snapshot) LastTouch() map[string]int64 {
+	if s == nil {
+		return map[string]int64{}
+	}
+	out := make(map[string]int64, len(s.lastTouch))
+	for k, v := range s.lastTouch {
 		out[k] = v
 	}
 	return out
@@ -317,7 +413,27 @@ func rankEntity(needle, key, path, name string) (int, bool) {
 
 // resolveAlias follows a rename/move chain with a hop budget, so a cycle can
 // never hang resolution.
-func resolveAlias(aliases map[string]string, entityKey string) string {
+//
+// A cycle is not merely a pathological safety valve here: a rename-BACK (A
+// renamed to B, and later B renamed back to A) genuinely produces one. Each
+// rename writes ONE alias record keyed by its OLD spelling
+// (AliasRecordKey(oldKey) = newKey), so after A -> B -> A the store holds BOTH
+// "A -> B" (from the first rename, now stale) and "B -> A" (from the second,
+// current) forever — nothing ever retracts the first edge, because the second
+// rename touches a different key. Chasing the chain from "A" therefore visits
+// "A -> B -> A" and closes a real 2-cycle; returning the pre-repeat node
+// (the old behavior) answers with "B", a spelling nothing in the tree is
+// called any more.
+//
+// The alias map alone cannot tell which edge is stale: both are ordinary,
+// individually-valid rename records with no "this one is newer" bit. The
+// reverse index does carry that signal, though — every entry is stamped from
+// the commit that produced it — so lastTouch (latest reverse-index entry per
+// key, see Snapshot.lastTouch) breaks the tie: whichever of the two keys that
+// closed the cycle was touched by a LATER commit is the one actually live in
+// the tree. A nil or incomplete lastTouch degrades to the old "return the
+// pre-repeat node" behavior rather than panicking.
+func resolveAlias(aliases map[string]string, lastTouch map[string]int64, entityKey string) string {
 	seen := map[string]struct{}{entityKey: {}}
 	current := entityKey
 	for hop := 0; hop < maxAliasHops; hop++ {
@@ -326,6 +442,9 @@ func resolveAlias(aliases map[string]string, entityKey string) string {
 			return current
 		}
 		if _, cycle := seen[next]; cycle {
+			if lastTouch[next] > lastTouch[current] {
+				return next
+			}
 			return current
 		}
 		seen[next] = struct{}{}
@@ -384,4 +503,22 @@ func (s *Snapshot) IndexedCommits() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// HasOtherHistory is used only while rebuilding the derived query cache, never
+// on a backfill/freshness tick. A missing commit can be carried forward from a
+// different revision by migration. No old parser output is served as current.
+func HasOtherHistory(state gitmeta.State, revision string) bool {
+	current := map[string]bool{}
+	for _, v := range state.Strings {
+		if v.Target.Type == gitmeta.TargetCommit && v.Key == RevisionKey(ForwardKey, revision) {
+			current[v.Target.Value] = true
+		}
+	}
+	for _, v := range state.Strings {
+		if v.Target.Type == gitmeta.TargetCommit && anyRevisionKey(v.Key) == ForwardKey && !current[v.Target.Value] {
+			return true
+		}
+	}
+	return false
 }

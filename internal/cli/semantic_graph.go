@@ -968,6 +968,17 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 	if err != nil {
 		return err
 	}
+	// Read and parse the caller-supplied trace file BEFORE taking the index lock.
+	// The path is untrusted (the brain_ingest_traces MCP tool accepts an arbitrary
+	// path), so any time spent on it must not be time the index lock is held —
+	// otherwise one hostile path denies the lock to every other caller on this
+	// brain. This does not weaken the reload invariant below: traces are input
+	// data, not brain state, and nothing staged or published is derived from the
+	// manifest read above.
+	traces, err := readRuntimeTraces(path)
+	if err != nil {
+		return err
+	}
 	unlock, err := acquireSemanticIndexLock(env.BrainDir)
 	if err != nil {
 		return err
@@ -977,10 +988,6 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 	// while we waited cannot be replaced by a trace generation cloned from stale
 	// manifest state.
 	env, err = loadSemanticEnv(cmd, opts)
-	if err != nil {
-		return err
-	}
-	traces, err := readRuntimeTraces(path)
 	if err != nil {
 		return err
 	}

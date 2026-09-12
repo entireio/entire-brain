@@ -24,22 +24,28 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/ashtom/entire-brain/internal/entityindex"
 	"github.com/spf13/cobra"
 )
 
 const (
-	semanticDirName                     = "semantic"
-	semanticSnapshotsDir                = "snapshots"
-	semanticGenerationsDir              = "generations"
-	semanticBundleDir                   = "bundles"
-	semanticAuditLogName                = "audit.jsonl"
-	semanticLockDir                     = "locks"
-	semanticIndexLockName               = "index.lock"
-	semanticSnapshotName                = "snapshot.ndjson"
-	semanticManifestName                = "manifest.json"
-	semanticSQLiteName                  = "semantic.sqlite"
-	semanticMetricsName                 = "metrics.json"
-	semanticSupportedMajor              = "1"
+	semanticDirName        = "semantic"
+	semanticSnapshotsDir   = "snapshots"
+	semanticGenerationsDir = "generations"
+	semanticBundleDir      = "bundles"
+	semanticAuditLogName   = "audit.jsonl"
+	semanticLockDir        = "locks"
+	semanticIndexLockName  = "index.lock"
+	semanticSnapshotName   = "snapshot.ndjson"
+	semanticManifestName   = "manifest.json"
+	semanticSQLiteName     = "semantic.sqlite"
+	semanticMetricsName    = "metrics.json"
+	semanticSupportedMajor = "1"
+	// semanticSchemaVersion is the newest provider schema this build knows how
+	// to ingest in full. A newer minor is still accepted (ADR 0001: minors are
+	// additive) but warns, because facts added after this version are dropped.
+	semanticSchemaVersion               = "1.1"
+	semanticSupportedSchemaRange        = "semantic schema >=1.0 <2.0"
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
 	semanticParseCacheMaxFile           = 16 * 1024 * 1024
@@ -85,6 +91,7 @@ type semanticSourceManifest struct {
 	DirtyWorktree    bool              `json:"dirty_worktree"`
 	Provider         string            `json:"provider,omitempty"`
 	ProviderVersion  string            `json:"provider_version,omitempty"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
 	SchemaVersion    string            `json:"schema_version,omitempty"`
 	SnapshotPath     string            `json:"snapshot_path,omitempty"`
 	StorePath        string            `json:"store_path,omitempty"`
@@ -192,18 +199,19 @@ func (w *semanticWarning) UnmarshalJSON(data []byte) error {
 }
 
 type semanticHeader struct {
-	SchemaVersion   string            `json:"schema_version"`
-	Provider        string            `json:"provider"`
-	ProviderVersion string            `json:"provider_version"`
-	RepoRoot        string            `json:"repo_root,omitempty"`
-	RepoKey         string            `json:"repo_key"`
-	Commit          string            `json:"commit"`
-	Tree            string            `json:"tree"`
-	Languages       []string          `json:"languages"`
-	LanguageTiers   map[string]string `json:"language_tiers,omitempty"`
-	Capabilities    []string          `json:"capabilities"`
-	Warnings        []semanticWarning `json:"warnings"`
-	PartialFailures []semanticWarning `json:"partial_failures"`
+	SchemaVersion    string            `json:"schema_version"`
+	Provider         string            `json:"provider"`
+	ProviderVersion  string            `json:"provider_version"`
+	IdentityRevision string            `json:"identity_revision,omitempty"`
+	RepoRoot         string            `json:"repo_root,omitempty"`
+	RepoKey          string            `json:"repo_key"`
+	Commit           string            `json:"commit"`
+	Tree             string            `json:"tree"`
+	Languages        []string          `json:"languages"`
+	LanguageTiers    map[string]string `json:"language_tiers,omitempty"`
+	Capabilities     []string          `json:"capabilities"`
+	Warnings         []semanticWarning `json:"warnings"`
+	PartialFailures  []semanticWarning `json:"partial_failures"`
 
 	// Aggregate metadata carried by the authoritative trailing summary record
 	// (see semanticSummary / mergeSemanticSummary). These are omitempty so a
@@ -242,13 +250,14 @@ type semanticRecord struct {
 	// Schema 1.1 fields. These are omitempty so older (1.0) snapshots round-trip
 	// unchanged, but they must be modeled so the streaming filter does not
 	// silently drop them when re-marshaling file/symbol/relation records.
-	Bytes         int                `json:"bytes,omitempty"`          // file record: source size
-	ContainerID   string             `json:"container_id,omitempty"`   // symbol record: enclosing symbol
-	BodyHash      string             `json:"body_hash,omitempty"`      // symbol record: content hash
-	RelationScope string             `json:"relation_scope,omitempty"` // relation record: file|external|...
-	Resolution    string             `json:"resolution,omitempty"`     // relation record: exact|type_inferred|name_only
-	TargetKind    string             `json:"target_kind,omitempty"`    // relation record: symbol|external
-	Evidence      []semanticEvidence `json:"evidence,omitempty"`       // relation record: supporting spans
+	Bytes           int                `json:"bytes,omitempty"`            // file record: source size
+	ContainerID     string             `json:"container_id,omitempty"`     // symbol record: enclosing symbol
+	BodyHash        string             `json:"body_hash,omitempty"`        // symbol record: content hash
+	RelationScope   string             `json:"relation_scope,omitempty"`   // relation record: file|external|...
+	Resolution      string             `json:"resolution,omitempty"`       // relation record: exact|type_inferred|name_only
+	TargetKind      string             `json:"target_kind,omitempty"`      // relation record: symbol|external
+	Evidence        []semanticEvidence `json:"evidence,omitempty"`         // relation record: supporting spans
+	EvidenceDropped int                `json:"evidence_dropped,omitempty"` // relation record: supporting spans omitted by provider limit
 }
 
 // semanticEvidence is a single supporting span for a relation (schema 1.1).
@@ -509,18 +518,16 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return errors.New("--graph-binary must not be empty")
 		}
 		var doctorWarnings []semanticWarning
+		var doctorReport semanticDoctorReport
 		indexOpts.reportPhase("verifying provider")
-		noEgress, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.graphBinary)
+		doctorReport, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.graphBinary)
+		noEgress = doctorReport.NoEgress
 		warnings = append(warnings, doctorWarnings...)
 		if !noEgress {
-			code := "provider_no_egress_unverified"
-			if len(doctorWarnings) > 0 && doctorWarnings[0].Code != "" {
-				code = doctorWarnings[0].Code
-			}
-			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
+			return semanticDoctorFailureError(indexOpts.graphBinary, doctorWarnings)
 		}
 		indexOpts.reportPhase("parsing sources")
-		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, providerIgnoreFiles, ignore, out)
+		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, providerIgnoreFiles, ignore, out)
 		if serr != nil && len(providerIgnoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(serr) {
 			warnings = append(warnings, semanticWarning{
 				Code:     "provider_ignore_file_unsupported",
@@ -531,7 +538,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			if err := resetSnapshotTempFile(tmp, hasher); err != nil {
 				return err
 			}
-			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts, nil, ignore, out)
+			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, nil, ignore, out)
 		}
 		if serr != nil {
 			return serr
@@ -548,7 +555,13 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		if err := validateSemanticSchema(header.SchemaVersion); err != nil {
 			return err
 		}
-		if err := validateLiveSemanticHeader(header, storage.Key, head, tree, indexOpts.worktree && dirty); err != nil {
+		if skew := semanticSchemaMinorSkewWarning(header.SchemaVersion); skew != nil {
+			warnings = append(warnings, *skew)
+		}
+		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, doctorReport.RepoKey, indexOpts.graphBinary); err != nil {
+			return err
+		}
+		if err := validateLiveSemanticHeader(header, head, tree, indexOpts.worktree && dirty); err != nil {
 			return err
 		}
 		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
@@ -624,6 +637,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		DirtyWorktree:    dirty,
 		Provider:         header.Provider,
 		ProviderVersion:  header.ProviderVersion,
+		IdentityRevision: header.IdentityRevision,
 		SchemaVersion:    header.SchemaVersion,
 		SnapshotPath:     snapshotRel,
 		StorePath:        filepath.ToSlash(filepath.Join(generation, semanticSQLiteName)),
@@ -702,6 +716,30 @@ func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, ta
 		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	source := manifest.Sources.Semantic
+	// Repair is meant to regenerate a missing/corrupt generation from the
+	// durable snapshot; it must not run when the active generation is
+	// already healthy. Without this check, running `semantic repair`
+	// against a fine store (doctor suggests it defensively, and nothing
+	// stops a user or agent from invoking it speculatively) unconditionally
+	// rebuilds and rewrites a full new generation directory: on a real repo
+	// this duplicated a 178MB semantic.sqlite for no reason, and the old one
+	// is never cleaned up automatically (`semantic gc` is manual, defaults
+	// to a 30-day age cutoff, so a same-day duplicate is never pruned). See
+	// TestSemanticRepairIsNoOpWhenGenerationAlreadyValid.
+	if source.GenerationPath != "" && source.StorePath != "" {
+		if generationPath, genErr := validateSemanticGenerationPath(source.GenerationPath); genErr == nil {
+			if storePath, storeErr := validateSemanticGenerationFilePath(source.StorePath, generationPath, semanticSQLiteName); storeErr == nil {
+				if rejectSymlinkPathComponents(storage.BrainDir, storePath) == nil {
+					fullStorePath := filepath.Join(storage.BrainDir, storePath)
+					if validateSemanticSQLiteStore(fullStorePath, source.Symbols, source.Relations) == nil {
+						fmt.Fprintf(cmd.OutOrStdout(), "semantic generation already valid; nothing to repair: %s\n", storage.BrainDir)
+						fmt.Fprintf(cmd.OutOrStdout(), "store: %s\n", source.StorePath)
+						return nil
+					}
+				}
+			}
+		}
+	}
 	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
 	if err != nil {
 		return err
@@ -937,7 +975,21 @@ func acquireSemanticIndexLock(brainDir string) (func(), error) {
 	return func() { _ = lock.Close() }, nil
 }
 
-func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graphBinary string) (bool, []semanticWarning) {
+// semanticDoctorReport is what the brain learns from `graph doctor --json`
+// before it spends a snapshot run.
+//
+// RepoKey is the provider's answer to "what repo_key will you stamp on this
+// repository". It is AUTHORITATIVE when present: the provider is the process
+// that writes the header, so it cannot be wrong about its own rule, whereas
+// providerRepoKeyFromRemotes is a mirror that drifts the moment entire-graph
+// changes. It is empty when the installed provider predates the handshake, and
+// the mirror is the fallback for exactly that case.
+type semanticDoctorReport struct {
+	NoEgress bool
+	RepoKey  string
+}
+
+func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graphBinary string) (semanticDoctorReport, []semanticWarning) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -945,22 +997,95 @@ func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graph
 	defer cancel()
 	stdout, _, err := runner.Run(runCtx, repoDir, graphBinary, "graph", "doctor", "--json")
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		return false, []semanticWarning{{Code: "provider_doctor_timeout", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: fmt.Sprintf("semantic provider doctor timed out after %s", semanticDoctorTimeout)}}
+		return semanticDoctorReport{}, []semanticWarning{{Code: "provider_doctor_timeout", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: fmt.Sprintf("semantic provider doctor timed out after %s", semanticDoctorTimeout)}}
 	}
 	if err != nil {
-		return false, []semanticWarning{{Code: "provider_doctor_failed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
+		return semanticDoctorReport{}, []semanticWarning{{Code: "provider_doctor_failed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
 	}
 	var data map[string]any
 	if err := json.Unmarshal(stdout, &data); err != nil {
-		return false, []semanticWarning{{Code: "provider_doctor_malformed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
+		return semanticDoctorReport{}, []semanticWarning{{Code: "provider_doctor_malformed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
 	}
+	report := semanticDoctorReport{RepoKey: strings.TrimSpace(stringValue(data, "repo_key"))}
 	if boolValue(data, "network_egress") || boolValue(data, "requires_network") || boolValue(data, "network_required") {
-		return false, []semanticWarning{{Code: "provider_network_required", Severity: "error", Effect: "phase 1 local-only guarantee not verified", Detail: "provider doctor reports network access is required"}}
+		return report, []semanticWarning{{Code: "provider_network_required", Severity: "error", Effect: "phase 1 local-only guarantee not verified", Detail: "provider doctor reports network access is required"}}
 	}
 	if boolValue(data, "no_egress") || boolValue(data, "no_egress_verified") || boolValue(data, "local_only") {
-		return true, nil
+		report.NoEgress = true
+		return report, nil
 	}
-	return false, []semanticWarning{{Code: "provider_no_egress_unknown", Severity: "warning", Effect: "phase 1 local-only guarantee not fully verified", Detail: "provider doctor did not report no-egress status"}}
+	return report, []semanticWarning{{Code: "provider_no_egress_unknown", Severity: "warning", Effect: "phase 1 local-only guarantee not fully verified", Detail: "provider doctor did not report no-egress status"}}
+}
+
+func stringValue(data map[string]any, key string) string {
+	value, ok := data[key]
+	if !ok {
+		return ""
+	}
+	s, _ := value.(string)
+	return s
+}
+
+// semanticDoctorFailureError turns a failed no-egress verification into an
+// error that names the actual root cause instead of a single generic
+// "no-egress status is not verified" claim. runSemanticDoctor already
+// distinguishes several unrelated failure modes (binary missing or not
+// executable, malformed doctor output, a provider that openly requires
+// network access, a doctor that is simply silent about egress) and captures
+// the real reason in each warning's Detail; this only got discarded before
+// reaching the operator. The code prefix from the first warning is preserved
+// so existing callers matching on it keep working.
+func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWarning) error {
+	code := "provider_no_egress_unverified"
+	detail := ""
+	if len(doctorWarnings) > 0 {
+		if doctorWarnings[0].Code != "" {
+			code = doctorWarnings[0].Code
+		}
+		detail = doctorWarnings[0].Detail
+	}
+	switch code {
+	case "provider_doctor_failed":
+		switch {
+		case semanticDetailMeansBinaryNotFound(detail):
+			return fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)
+		case semanticDetailMeansBinaryNotExecutable(detail):
+			return fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)
+		default:
+			return fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
+		}
+	case "provider_doctor_timeout":
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s", code, graphBinary, detail)
+	case "provider_doctor_malformed":
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q returned output that could not be parsed: %s", code, graphBinary, detail)
+	case "provider_network_required":
+		return fmt.Errorf("%s: semantic provider graph binary %q reports it requires network access, which local-only indexing does not allow: %s", code, graphBinary, detail)
+	case "provider_no_egress_unknown":
+		return fmt.Errorf("%s: semantic provider graph binary %q did not confirm a no-egress guarantee: %s", code, graphBinary, detail)
+	default:
+		if detail != "" {
+			return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q: %s", code, graphBinary, detail)
+		}
+		return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q", code, graphBinary)
+	}
+}
+
+// semanticDetailMeansBinaryNotFound reports whether a runSemanticDoctor
+// failure detail indicates the configured --graph-binary does not exist on
+// PATH (or a same-named impostor tool shadowed the real one so badly the
+// shell itself could not locate an executable), as opposed to some other
+// doctor failure.
+func semanticDetailMeansBinaryNotFound(detail string) bool {
+	d := strings.ToLower(detail)
+	return strings.Contains(d, "executable file not found") || strings.Contains(d, "no such file or directory")
+}
+
+// semanticDetailMeansBinaryNotExecutable reports whether a runSemanticDoctor
+// failure detail indicates the configured --graph-binary exists but could not
+// be executed (wrong permissions, wrong architecture, etc.).
+func semanticDetailMeansBinaryNotExecutable(detail string) bool {
+	d := strings.ToLower(detail)
+	return strings.Contains(d, "permission denied") || strings.Contains(d, "exec format error")
 }
 
 func boolValue(data map[string]any, key string) bool {
@@ -984,7 +1109,20 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 			strings.Contains(text, "flag provided but not defined"))
 }
 
-func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree string, allowWorktreeTree bool) error {
+// validateLiveSemanticHeader checks the header the brain is about to persist:
+// that it names a commit and a tree, and that both agree with the live
+// repository.
+//
+// It deliberately does NOT check repo_key. scanSemanticStream has already
+// rewritten header.RepoKey to the brain's canonical storage key, so comparing it
+// against that same storage key here compared a value with itself and could not
+// fail for any input -- protection in appearance only. The two places where a
+// repo_key is genuinely untrusted each have a real check:
+//
+//	validateSemanticProviderRepoKey   the spelling the provider stamped
+//	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
+//	validateImportedBundle            (another brain's bundle, an older snapshot)
+func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
 		return errors.New("semantic snapshot header missing commit")
 	}
@@ -993,9 +1131,6 @@ func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree str
 	}
 	if header.RepoKey == "" {
 		return errors.New("semantic snapshot header missing repo_key")
-	}
-	if !semanticRepoKeyEqual(header.RepoKey, repoKey) {
-		return fmt.Errorf("semantic snapshot repo_key %q does not match current repo %q", header.RepoKey, repoKey)
 	}
 	if header.Commit != "" && commit != "" && header.Commit != commit {
 		return fmt.Errorf("semantic snapshot commit %q does not match HEAD %q", header.Commit, commit)
@@ -1027,7 +1162,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 	if marshalErr != nil {
 		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode filtered semantic snapshot header: %w", marshalErr)
 	}
-	ignoredIDs := make(map[string]struct{})
+	ignoredIDs := make(map[string]bool)
 	line := 1
 	for scanner.Scan() {
 		line++
@@ -1042,8 +1177,8 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		if err := validateSemanticRecordPath(&record); err != nil {
 			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 		}
-		if ignore.Ignored(record.semanticPath()) && record.ID != "" {
-			ignoredIDs[record.ID] = struct{}{}
+		if record.ID != "" && record.semanticPath() != "" {
+			ignoredIDs[record.ID] = ignoredIDs[record.ID] || ignore.Ignored(record.semanticPath())
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -1078,7 +1213,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			if ignore.Ignored(record.semanticPath()) {
 				continue
 			}
-			if record.RecordType == "relation" && relationEndpointIgnored(record, ignore, ignoredIDs) {
+			if record.RecordType == "relation" && relationEndpointIgnored(record, header.RepoKey, ignore, ignoredIDs) {
 				continue
 			}
 			switch record.RecordType {
@@ -1145,21 +1280,95 @@ func (r semanticRecord) semanticPath() string {
 }
 
 // semanticEndpointPath extracts the repository-relative file path encoded in a
-// semantic relation endpoint ID, or "" when the ID carries no path. Internal
-// IDs are "<repo-key>:<lang>:<path>:<kind>:<name>"; the repo key, language, and
-// kind segments never contain ":", so the path is always the third field.
-// External endpoints ("external:<kind>:<value>") carry no file path. Endpoint
-// IDs are filtered against the ignore set by file path so a substring in the
-// repo key or symbol name cannot accidentally redact unrelated relations.
-func semanticEndpointPath(id string) string {
+// semantic relation endpoint ID, or "" when the ID carries no path or the path
+// cannot be recovered from the ID alone.
+//
+// entire-graph builds endpoint IDs by joining unescaped fields with ":":
+//
+//	symbol:   "<repo-key>:<language>:<path>:<kind>:<qualified-name>"
+//	file:     "<repo-key>:file:<path>"
+//	external: "external:<kind>:<value>"          (carries no file path)
+//
+// A file path may legitimately contain ":" ("od:d/mod.py"), a local repo key is
+// "local/<directory name>" and so may contain ":" too, and a qualified name
+// routinely does (an Express route symbol is named "/users/:id"). Splitting on
+// ":" and taking a fixed field therefore reads the wrong segment: it turned
+// "od:d/mod.py" into "od" and a colon in the repo key into the language. That
+// path is what the ignore set is matched against, so a mis-read segment either
+// redacts relations whose file is not ignored or keeps relations whose file is.
+//
+// A relation record carries no file_path of its own — entire-graph's
+// RelationRecord has only from_id/to_id — so the path cannot simply be read off
+// the record; it has to come out of the ID. The parse below is therefore
+// anchored on the two fields that are known to be free of ":": the repo key
+// (known from the snapshot header) and the kind, which is always a bare token.
+func semanticEndpointPath(repoKey, id string) string {
 	if id == "" || strings.HasPrefix(id, "external:") {
 		return ""
 	}
-	parts := strings.Split(id, ":")
-	if len(parts) < 5 {
+	if repoKey == "" {
+		// Without the header's repo key the leading field cannot be delimited,
+		// so no parse is trustworthy. Endpoints then fall back to the ignored-ID
+		// set, which is exact. (A snapshot with no repo_key is rejected by
+		// validateSemanticSnapshotHeader anyway.)
 		return ""
 	}
-	return parts[2]
+	rest, ok := strings.CutPrefix(id, repoKey+":")
+	if !ok {
+		// An endpoint from another repository: it names no file in this one.
+		return ""
+	}
+	// File endpoint: everything after the "file:" marker is the path, colons
+	// included, so this shape is always exact.
+	if path, ok := strings.CutPrefix(rest, "file:"); ok {
+		return path
+	}
+	// Symbol endpoint: the language never contains ":", so it always ends at the
+	// first colon.
+	_, rest, ok = strings.Cut(rest, ":")
+	if !ok {
+		return ""
+	}
+	return semanticSymbolIDPath(rest)
+}
+
+// semanticSymbolIDPath recognizes provider kind markers, not arbitrary bare
+// path segments. Unescaped IDs are ambiguous when both the path and name
+// contain a kind marker; return no guess then and use snapshot ID metadata.
+func semanticSymbolIDPath(rest string) string {
+	result := ""
+	fallback, candidates := "", 0
+	for i := 0; i < len(rest); i++ {
+		if rest[i] != ':' || i == 0 {
+			continue
+		}
+		kind, _, ok := strings.Cut(rest[i+1:], ":")
+		if !ok {
+			continue
+		}
+		if kind != "" && !strings.ContainsAny(kind, "/.") {
+			// A later bare token may be the real (possibly future) kind, or
+			// part of the qualified name. Neither interpretation is provable.
+			if result != "" {
+				return ""
+			}
+			fallback = rest[:i]
+			candidates++
+		}
+		switch kind {
+		case "function", "method", "class", "struct", "interface", "enum", "type", "type_alias", "variable", "constant", "const", "field", "property", "module", "namespace", "package", "constructor", "trait", "impl", "macro", "test", "route", "cli_command", "workflow", "job", "tool":
+		default:
+			continue
+		}
+		if result != "" {
+			return ""
+		}
+		result = rest[:i]
+	}
+	if result == "" && candidates == 1 {
+		return fallback
+	}
+	return result
 }
 
 func (r *semanticRecord) setSemanticPath(path string) {
@@ -1214,15 +1423,80 @@ func validateSemanticProviderPath(providerPath string) (string, error) {
 	return cleanSlash, nil
 }
 
-func validateSemanticSchema(version string) error {
-	major, _, ok := strings.Cut(version, ".")
+// parseSemanticSchemaVersion splits a provider schema_version into its major
+// and minor numbers. ADR 0001 fixes the shape as major.minor, so anything that
+// is not two non-negative integers is not a version this reader can reason
+// about: the old implementation only looked at the text before the first dot,
+// which silently accepted "1.abc" and "1." as if they were ordinary 1.x minors
+// and let a malformed header ride straight into the store.
+func parseSemanticSchemaVersion(version string) (int, int, error) {
+	majorText, rest, ok := strings.Cut(version, ".")
 	if !ok {
-		return fmt.Errorf("unsupported semantic schema version %q", version)
+		return 0, 0, fmt.Errorf("semantic schema version %q is not major.minor", version)
 	}
-	if major != semanticSupportedMajor {
-		return fmt.Errorf("unsupported semantic schema major version %q", major)
+	// A trailing patch component is tolerated and ignored: it is additive, and
+	// refusing it would violate the tolerant-reader rule.
+	minorText, _, _ := strings.Cut(rest, ".")
+	major, err := strconv.Atoi(majorText)
+	if err != nil || major < 0 {
+		return 0, 0, fmt.Errorf("semantic schema version %q has a non-numeric major", version)
+	}
+	minor, err := strconv.Atoi(minorText)
+	if err != nil || minor < 0 {
+		return 0, 0, fmt.Errorf("semantic schema version %q has a non-numeric minor", version)
+	}
+	return major, minor, nil
+}
+
+// validateSemanticSchema applies ADR 0001's compatibility boundary: refuse an
+// unknown major, accept every minor within the supported major.
+func validateSemanticSchema(version string) error {
+	major, _, err := parseSemanticSchemaVersion(version)
+	if err != nil {
+		return fmt.Errorf("%w (this build reads %s)", err, semanticSupportedSchemaRange)
+	}
+	if strconv.Itoa(major) != semanticSupportedMajor {
+		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s", strconv.Itoa(major), semanticSupportedSchemaRange)
 	}
 	return nil
+}
+
+// semanticSchemaMinorSkewWarning implements ADR 0001 rule 3: a newer minor
+// within the supported major is accepted, but the reader must WARN, because the
+// producer may have emitted additive facts this build does not know how to
+// ingest. Accepting silently is not compliance — the whole point of the warning
+// is that the resulting index is quietly less complete than the snapshot.
+//
+// This is the single implementation of that rule, applied at every place a
+// schema_version crosses into this build alongside validateSemanticSchema:
+//
+//  1. runSemanticIndex — a live `entire graph snapshot` header, recorded as an
+//     index warning on the persisted manifest;
+//  2. semanticStaleReport — the "provider" freshness axis reported by brain
+//     doctor/status and every semantic read command, degraded rather than ok;
+//  3. validateImportedBundle — an imported bundle manifest, warning appended to
+//     the semantic source that is then persisted.
+//
+// It returns nil for an unparseable or non-supported-major version:
+// validateSemanticSchema is the sole authority on rejecting those outright, and
+// each call site runs it first.
+func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
+	major, minor, err := parseSemanticSchemaVersion(version)
+	if err != nil {
+		return nil
+	}
+	knownMajor, knownMinor, err := parseSemanticSchemaVersion(semanticSchemaVersion)
+	if err != nil || strconv.Itoa(major) != semanticSupportedMajor || minor <= knownMinor || major != knownMajor {
+		return nil
+	}
+	return &semanticWarning{
+		Code:     "provider_schema_newer_minor",
+		Severity: "warning",
+		Effect:   "additive semantic facts introduced after " + semanticSchemaVersion + " may not have been ingested",
+		Detail: fmt.Sprintf(
+			"semantic provider emitted schema_version %q but this build reads %s; minors are additive, so the snapshot is usable, but upgrade entire-brain to ingest everything %q carries",
+			version, semanticSchemaVersion, version),
+	}
 }
 
 // buildSemanticGeneration ingests the filtered snapshot into a fresh SQLite
@@ -2340,10 +2614,23 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["provider"] = staleAxis{State: "degraded", Detail: "semantic provider was skipped"}
 	} else if err := validateSemanticSchema(source.SchemaVersion); err != nil {
 		axes["provider"] = staleAxis{State: "unsafe", Detail: err.Error()}
+	} else if skew := semanticSchemaMinorSkewWarning(source.SchemaVersion); skew != nil {
+		// The recorded index came from a newer provider minor, so it is
+		// knowingly less complete than its snapshot. Every reader of this
+		// report (brain doctor/status and the semantic query, context, impact,
+		// changes, boundary and tests commands) must see that as degraded
+		// rather than a clean "ok".
+		axes["provider"] = staleAxis{State: "degraded", Detail: skew.Detail}
 	} else if !source.NoEgressVerified {
 		axes["provider"] = staleAxis{State: "degraded", Detail: "provider no-egress status was not verified"}
 	} else {
 		axes["provider"] = staleAxis{State: "ok", Detail: source.Provider + " " + source.ProviderVersion}
+		revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+		if identityErr != nil {
+			axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
+		} else if revision != source.IdentityRevision {
+			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+		}
 	}
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
 		axes["semantic_completeness"] = staleAxis{State: "unsafe", Detail: "semantic facts unavailable"}
@@ -2365,11 +2652,29 @@ func semanticWarningsContainCode(warnings []semanticWarning, code string) bool {
 	return false
 }
 
-// semanticParseErrorCode marks files where the tree-sitter parse produced error
-// nodes but symbols were still extracted (error-tolerant parse). A small number
-// of these is expected for any real codebase — newer language syntax the bundled
-// grammar version predates — and does not make the indexed facts unsafe to use.
-const semanticParseErrorCode = "E_PARSE_ERROR"
+const (
+	// semanticParseErrorCode marks files where the tree-sitter parse produced error
+	// nodes but symbols were still extracted (error-tolerant parse). A small number
+	// of these is expected for any real codebase — newer language syntax the bundled
+	// grammar version predates — and does not make the indexed facts unsafe to use.
+	semanticParseErrorCode = "E_PARSE_ERROR"
+
+	// These codes mirror entire-graph's intentional-skip contract. The provider
+	// emits a file record and preserves the partial failure for visibility, but
+	// excludes the record from its completeness-failure count because parsing was
+	// deliberately skipped by policy rather than attempted and failed.
+	semanticFileTooLargeCode = "E_FILE_TOO_LARGE"
+	semanticMinifiedCode     = "E_MINIFIED"
+)
+
+func semanticIntentionalSkipCode(code string) bool {
+	switch code {
+	case semanticFileTooLargeCode, semanticMinifiedCode:
+		return true
+	default:
+		return false
+	}
+}
 
 // semanticParseErrorTolerance is the fraction of indexed files that may carry
 // only benign parse errors before the brain is reported as degraded. Below this
@@ -2378,24 +2683,48 @@ const semanticParseErrorCode = "E_PARSE_ERROR"
 // volume is high enough to suspect a grammar/provider problem worth surfacing.
 const semanticParseErrorTolerance = 0.10
 
-// semanticCompletenessAxis classifies partial provider failures. Failures that
-// are exclusively benign parse errors and stay under the tolerance fraction keep
-// the axis ok; anything else (a non-parse failure code, an uncountable file set,
-// or too many parse errors) degrades the brain.
+// semanticCompletenessAxis classifies partial provider failures. Intentional
+// provider policy skips remain recorded but do not count against completeness.
+// Of the remaining failures, exclusively benign parse errors under the tolerance
+// fraction keep the axis ok; anything else (a non-parse failure code, an
+// uncountable file set, or too many parse errors) degrades the brain.
 func semanticCompletenessAxis(source *semanticSourceManifest) staleAxis {
 	failures := len(source.PartialFailures)
+	completenessFailures := 0
 	parseErrors := 0
+	intentionalSkips := 0
 	for _, failure := range source.PartialFailures {
+		if semanticIntentionalSkipCode(failure.Code) {
+			intentionalSkips++
+			continue
+		}
+		completenessFailures++
 		if failure.Code == semanticParseErrorCode {
 			parseErrors++
 		}
 	}
-	if parseErrors == failures && source.Files > 0 {
-		fraction := float64(failures) / float64(source.Files)
-		if fraction < semanticParseErrorTolerance {
-			return staleAxis{State: "ok", Detail: fmt.Sprintf("%d/%d files had tolerated parse errors", failures, source.Files)}
+	if failures > 0 && source.Files <= 0 {
+		return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
+	}
+	if intentionalSkips > 0 && source.Files > 0 {
+		unparsedFiles := min(intentionalSkips, source.Files)
+		parsedFiles := source.Files - unparsedFiles
+		if parsedFiles < unparsedFiles {
+			return staleAxis{State: "unsafe", Detail: fmt.Sprintf("%d/%d files were intentionally skipped by semantic provider", unparsedFiles, source.Files)}
 		}
-		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", failures, fraction*100)}
+		if parsedFiles > 0 && source.Symbols == 0 {
+			return staleAxis{State: "degraded", Detail: "semantic provider emitted zero symbols for parsed files"}
+		}
+	}
+	if completenessFailures == 0 {
+		return staleAxis{State: "ok"}
+	}
+	if parseErrors == completenessFailures && source.Files > 0 {
+		fraction := float64(parseErrors) / float64(source.Files)
+		if fraction < semanticParseErrorTolerance {
+			return staleAxis{State: "ok", Detail: fmt.Sprintf("%d/%d files had tolerated parse errors", parseErrors, source.Files)}
+		}
+		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", parseErrors, fraction*100)}
 	}
 	return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
 }
@@ -5382,7 +5711,13 @@ func sanitizeSemanticRecordID(value, repoDir string, idMap map[string]string) st
 
 func rejectSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
+	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
+	// falls through this whole test. The per-component walk below then Lstats
+	// the PARENT of root — a real directory, not a symlink — and passes it, and
+	// the closing containment check returns nil early whenever root does not
+	// exist yet. One level up is exactly the escape the guard exists to stop.
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path is outside root: %s", rel)
 	}
 	current := root
@@ -5412,7 +5747,13 @@ func rejectSymlinkPathComponents(root, rel string) error {
 
 func rejectExistingSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
+	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
+	// falls through this whole test. The per-component walk below then Lstats
+	// the PARENT of root — a real directory, not a symlink — and passes it, and
+	// the closing containment check returns nil early whenever root does not
+	// exist yet. One level up is exactly the escape the guard exists to stop.
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path is outside root: %s", rel)
 	}
 	current := root
@@ -5973,6 +6314,13 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if err := validateSemanticSchema(manifest.Sources.Semantic.SchemaVersion); err != nil {
 		return nil, fmt.Errorf("bundle semantic schema unsupported: %w", err)
 	}
+	if skew := semanticSchemaMinorSkewWarning(manifest.Sources.Semantic.SchemaVersion); skew != nil {
+		// A bundle carries a snapshot this build ingests only partially, exactly
+		// like a live provider on a newer minor. Record the warning on the
+		// manifest that writeBrainSemanticSource persists, so the imported index
+		// is not silently trusted as complete.
+		manifest.Sources.Semantic.Warnings = append(manifest.Sources.Semantic.Warnings, *skew)
+	}
 	snapshotPath := manifest.Sources.Semantic.SnapshotPath
 	if snapshotPath == "" {
 		return nil, errors.New("bundle manifest missing semantic snapshot_path")
@@ -6320,6 +6668,9 @@ func validateSemanticSourceMatchesSnapshot(source *semanticSourceManifest, heade
 	}
 	if source.Provider != "" && header.Provider != "" && header.Provider != source.Provider {
 		return fmt.Errorf("provider %q does not match snapshot %q", source.Provider, header.Provider)
+	}
+	if source.IdentityRevision != header.IdentityRevision {
+		return fmt.Errorf("identity_revision differs between manifest and snapshot")
 	}
 	if source.ProviderVersion != "" && header.ProviderVersion != "" && header.ProviderVersion != source.ProviderVersion {
 		return fmt.Errorf("provider_version %q does not match snapshot %q", source.ProviderVersion, header.ProviderVersion)
