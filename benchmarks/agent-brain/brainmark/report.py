@@ -132,10 +132,15 @@ def collect(results: pathlib.Path, arms: list[str],
                 session_metrics(stream) if stream.is_file() else {}
             )
             patch = cell / "patch.diff"
-            usd = float((meta.get("result_event") or {}).get("total_cost_usd") or 0)
+            result_event = meta.get("result_event") or {}
+            usd = float(result_event.get("total_cost_usd") or 0)
             table.setdefault(pair_dir.name, {})[arm] = {
                 "instance_id": meta.get("instance_id"),
                 "usd": usd,
+                # The session's own terminal status, recorded but NOT gated on:
+                # the pre-registered gate is usd>0 + non-empty patch and is not
+                # changed here. See `errored_cells` in build_report().
+                "subtype": result_event.get("subtype"),
                 "patch_bytes": patch.stat().st_size if patch.is_file() else 0,
                 "mech": mech,
                 "prep": (meta.get("packet_provenance") or {}).get("prep", {}),
@@ -294,6 +299,23 @@ def render_markdown(report: dict) -> str:
     lines.append(_comparison_table(list(report["competitors"].values())))
     lines.append("")
 
+    if report.get("errored_cells"):
+        lines.append("## Sensitivity -- cells that did not end in success")
+        lines.append("")
+        lines.append(
+            f"{sum(len(v) for v in report['errored_cells'].values())} cell(s) ended "
+            f"with a non-success subtype yet passed the pre-registered gate "
+            f"(`usd>0` + non-empty patch). Per arm: "
+            + ", ".join(f"`{arm}`={len(pairs)}"
+                        for arm, pairs in sorted(report["errored_cells"].items()))
+            + f". Pairs where every arm succeeded: "
+              f"**{report.get('n_clean_all_arms_success')}**."
+        )
+        lines.append("")
+        if report.get("headline_excluding_errored"):
+            lines.append(_comparison_table([report["headline_excluding_errored"]]))
+            lines.append("")
+
     if report.get("no_edit_cells"):
         lines.append("## Sensitivity -- cells with no EDIT event")
         lines.append("")
@@ -418,6 +440,33 @@ def build_report(results: pathlib.Path, config: dict, arms: list[str],
     ]
     report["n_clean_all_arms_edited"] = len(fully_edited)
 
+    # NON-SUCCESS EXPOSURE. The pre-registered per-session gate is `usd > 0`
+    # and a non-empty patch (PREREGISTRATION.md section 5) -- it does NOT
+    # include subtype=="success". On the primary backend that is looser than it
+    # reads: codex reports no cost, so its `total_cost_usd` is tokens x the
+    # UNVERIFIED_PLACEHOLDER rate card in backends.json, and `usd > 0` reduces
+    # to "burned tokens". A session killed at the wall-clock timeout
+    # (returncode 124) or ending error_max_turns still writes a stream, still
+    # has tokens, and collect_patch still collects its partial edits -- so it
+    # passes, and its locate count is measured on a truncated session.
+    #
+    # That is an arm confound whenever failure rate tracks the arm: a bigger
+    # packet is a slower session is a likelier timeout. The gate stays as
+    # pre-registered; this makes the exposure countable.
+    report["errored_cells"] = {
+        arm: cells
+        for arm in arms
+        if (cells := sorted(
+            pair for pair in clean
+            if (table[pair][arm].get("subtype") or "success") != "success"))
+    }
+    successful = [
+        pair for pair in clean
+        if all((table[pair][arm].get("subtype") or "success") == "success"
+               for arm in arms)
+    ]
+    report["n_clean_all_arms_success"] = len(successful)
+
     report["headline"] = compare(table, clean, HEADLINE, BASELINE)
     report["competitors"] = {
         arm: compare(table, clean, HEADLINE, arm)
@@ -427,6 +476,19 @@ def build_report(results: pathlib.Path, config: dict, arms: list[str],
         arm: compare(table, clean, arm, BASELINE)
         for arm in arms if arm != BASELINE
     }
+
+    if report["errored_cells"]:
+        affected = sum(len(v) for v in report["errored_cells"].values())
+        warnings.append(
+            f"subtype: {affected} cell(s) across {sorted(report['errored_cells'])} "
+            f"did NOT end subtype==success but still passed the pre-registered "
+            f"gate (usd>0 + non-empty patch). On codex `usd` is tokens x a "
+            f"placeholder rate card, so that gate does not test success. See "
+            f"`headline_excluding_errored`."
+        )
+        if successful:
+            report["headline_excluding_errored"] = compare(
+                table, successful, HEADLINE, BASELINE)
 
     if report["no_edit_cells"]:
         affected = sum(len(v) for v in report["no_edit_cells"].values())
