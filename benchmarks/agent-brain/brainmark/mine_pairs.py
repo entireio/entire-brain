@@ -53,9 +53,9 @@ import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from brainmark import _harness, pool_loaders  # type: ignore[no-redef]
+    from brainmark import _harness, pool_loaders, _repo  # type: ignore[no-redef]
 else:
-    from . import _harness, pool_loaders
+    from . import _harness, pool_loaders, _repo
 
 MINER_VERSION = 1
 
@@ -171,7 +171,7 @@ def load_instances(graphmark_root: pathlib.Path, globs: list[str]) -> tuple[dict
 
 def cache_dir_for(repo_cache: pathlib.Path, repo: str) -> pathlib.Path:
     """graphmark convention (run_3arm.sh:56): repo-cache/<owner>_<name>."""
-    return repo_cache / repo.replace("/", "_")
+    return _repo.cache_dir_for(repo_cache, repo)
 
 
 class AncestryOracle:

@@ -10,6 +10,14 @@ from brainmark import _repo, mechmetrics, power_analysis, run_b
 from brainmark.agents.claude_adapter import ClaudeAdapter
 
 class ReviewRegressions(unittest.TestCase):
+    def test_untrusted_repo_names_cannot_escape_cache(self):
+        from brainmark import mine_pairs
+        for helper in (_repo.cache_dir_for, mine_pairs.cache_dir_for):
+            for repo in ("..", ".", "../repo", "owner/..", "/absolute", "owner/repo/child", "owner\\repo"):
+                with self.subTest(repo=repo), self.assertRaises(ValueError):
+                    helper(pathlib.Path("/cache"), repo)
+            self.assertEqual(helper(pathlib.Path("/cache"), "owner/repo"), pathlib.Path("/cache/owner_repo"))
+
     def test_lock_timeout_preserves_other_owner(self):
         with tempfile.TemporaryDirectory() as raw:
             root = pathlib.Path(raw)

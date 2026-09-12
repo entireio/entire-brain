@@ -29,6 +29,7 @@ from __future__ import annotations
 import contextlib
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import time
@@ -40,6 +41,10 @@ LOCK_POLL_S = 0.2
 
 def cache_dir_for(repo_cache: pathlib.Path, repo: str) -> pathlib.Path:
     """graphmark convention (run_3arm.sh:56): repo-cache/<owner>_<name>."""
+    if (not isinstance(repo, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+", repo)
+            or repo.split("/")[1] in {".", ".."}):
+        raise ValueError(f"invalid repository name (expected owner/repository): {repo!r}")
     return pathlib.Path(repo_cache) / repo.replace("/", "_")
 
 

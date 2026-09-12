@@ -49,9 +49,9 @@ import sys
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-    from brainmark import _harness  # type: ignore[no-redef]
+    from brainmark import _harness, _repo  # type: ignore[no-redef]
 else:
-    from . import _harness
+    from . import _harness, _repo
 
 LOADER_VERSION = 1
 
@@ -155,6 +155,10 @@ def normalize_row(row: dict, pool: str) -> dict | None:
     for required in ("instance_id", "repo", "base_commit", "patch"):
         if not out.get(required):
             return None
+    try:
+        _repo.cache_dir_for(pathlib.Path("."), out["repo"])
+    except ValueError:
+        return None
     out["pool"] = pool
     return out
 
