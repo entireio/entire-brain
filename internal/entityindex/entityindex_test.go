@@ -433,6 +433,99 @@ func TestBuildRecordsRenameAndMoveAliases(t *testing.T) {
 	}
 }
 
+// TestResolveAliasSurvivesARenameBackCycle pins entity-index audit fix (b): an
+// entity renamed A -> B and later renamed BACK B -> A must resolve to A, the
+// spelling that actually exists in the tree at HEAD — not B, a name nothing is
+// called any more. AliasRecordKey(A) ("A -> B", from the first rename) and
+// AliasRecordKey(B) ("B -> A", from the second) BOTH persist forever — nothing
+// ever retracts the first edge, because the second rename touches a different
+// key — so the alias graph genuinely contains a 2-cycle; the fix is
+// resolveAlias breaking it with the reverse index's per-key recency instead of
+// returning whichever node it happened to visit right before detecting the
+// repeat.
+func TestResolveAliasSurvivesARenameBackCycle(t *testing.T) {
+	t.Parallel()
+	runner := newFakeRunner()
+	commits := []commitInfo{
+		{SHA: "1111111111111111111111111111111111111111", Parent: "", CommittedAt: commitAt(0), Message: "add\n"},
+		{SHA: "2222222222222222222222222222222222222222", Parent: "1111111111111111111111111111111111111111", CommittedAt: commitAt(1), Message: "rename A to B\n"},
+		{SHA: "3333333333333333333333333333333333333333", Parent: "2222222222222222222222222222222222222222", CommittedAt: commitAt(2), Message: "rename B back to A\n"},
+	}
+	scriptRepo(runner, "main", commits)
+	runner.set(graphDiffKey(EmptyTreeSHA, commits[0].SHA), graphOutput(EmptyTreeSHA, commits[0].SHA, graphFileChange{
+		Path:    "pkg.go",
+		Changes: []graphEntityChange{{Type: "added", Kind: "function", Name: "A", AfterStartLine: 3}},
+	}))
+	runner.set(graphDiffKey(commits[0].SHA, commits[1].SHA), graphOutput(commits[0].SHA, commits[1].SHA, graphFileChange{
+		Path:    "pkg.go",
+		Changes: []graphEntityChange{{Type: "renamed", Kind: "function", Name: "B", OldName: "A", NewName: "B", AfterStartLine: 3}},
+	}))
+	runner.set(graphDiffKey(commits[1].SHA, commits[2].SHA), graphOutput(commits[1].SHA, commits[2].SHA, graphFileChange{
+		Path:    "pkg.go",
+		Changes: []graphEntityChange{{Type: "renamed", Kind: "function", Name: "A", OldName: "B", NewName: "A", AfterStartLine: 3}},
+	}))
+
+	store := newTestStore(t)
+	if _, err := Build(context.Background(), runner, store, BuildOptions{RepoDir: testRepoDir, Limit: 100, Now: fixedNow()}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	snap := loadSnapshot(t, store)
+
+	a := EntityKey("pkg.go", "function", "A")
+	b := EntityKey("pkg.go", "function", "B")
+	if got := snap.Resolve(a); got != a {
+		t.Fatalf("Resolve(%q) = %q, want %q (the live spelling, back where it started)", a, got, a)
+	}
+	if got := snap.Resolve(b); got != a {
+		t.Fatalf("Resolve(%q) = %q, want %q (an old spelling must resolve to the live one)", b, got, a)
+	}
+	// Confirm the premise: the alias graph genuinely holds BOTH edges (a real
+	// 2-cycle), so the assertions above are exercising the tie-break, not some
+	// other mechanism that happens to avoid the cycle entirely.
+	aliases := snap.Aliases()
+	if aliases[a] != b || aliases[b] != a {
+		t.Fatalf("alias map = %+v, want a real A<->B cycle (both edges present)", aliases)
+	}
+	// A query by the old name must still find the entity, reported under its
+	// current (and, here, original) key.
+	matches := snap.Search("B", 10)
+	if len(matches) != 1 || matches[0].EntityKey != a || matches[0].AliasOf != b {
+		t.Fatalf("search by the intermediate name = %+v", matches)
+	}
+	// The whole history is still reachable from any spelling it was ever
+	// known by — order is not chronological across keys (Commits' own
+	// contract: sort by commit date if you need that), so compare as a set.
+	want := []string{commits[0].SHA, commits[1].SHA, commits[2].SHA}
+	if got := snap.Commits(a); !sameSet(got, want) {
+		t.Fatalf("commits via the current key = %v, want the set %v", got, want)
+	}
+	if got := snap.Commits(b); !sameSet(got, want) {
+		t.Fatalf("commits via the intermediate key = %v, want the set %v", got, want)
+	}
+}
+
+// sameSet reports whether got and want hold the same elements, ignoring order
+// and duplicate count.
+func sameSet(got, want []string) bool {
+	g := map[string]struct{}{}
+	for _, v := range got {
+		g[v] = struct{}{}
+	}
+	w := map[string]struct{}{}
+	for _, v := range want {
+		w[v] = struct{}{}
+	}
+	if len(g) != len(w) {
+		return false
+	}
+	for v := range w {
+		if _, ok := g[v]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func TestBuildCheckpointsOnlySkipsPlainCommits(t *testing.T) {
 	t.Parallel()
 	runner := newFakeRunner()
