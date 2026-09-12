@@ -320,6 +320,24 @@ def render_markdown(report: dict) -> str:
     lines.append(_comparison_table(list(report["competitors"].values())))
     lines.append("")
 
+    if report.get("no_edit_cells"):
+        lines.append("## Sensitivity -- cells with no EDIT event")
+        lines.append("")
+        lines.append(
+            f"{sum(len(v) for v in report['no_edit_cells'].values())} cell(s) emitted "
+            f"no EDIT event, so their locate count spans the whole session rather "
+            f"than the pre-edit prefix. They still pass the gate, because an edit "
+            f"made through the shell produces a patch. Per arm: "
+            + ", ".join(f"`{arm}`={len(pairs)}"
+                        for arm, pairs in sorted(report["no_edit_cells"].items()))
+            + f". Pairs where every arm emitted a real edit: "
+              f"**{report.get('n_clean_all_arms_edited')}**."
+        )
+        lines.append("")
+        if report.get("headline_excluding_no_edit"):
+            lines.append(_comparison_table([report["headline_excluding_no_edit"]]))
+            lines.append("")
+
     lines.append("## Power")
     lines.append("")
     lines.append(
@@ -412,6 +430,25 @@ def build_report(results: pathlib.Path, config: dict, arms: list[str],
     if problems:
         return report
 
+    # NO-EDIT EXPOSURE. `locate_calls_pre_edit` counts locate calls before the
+    # first EDIT event; a session with none has no cutoff, so the metric is
+    # measured over the WHOLE session. An edit made through the shell (`sed
+    # -i`, a heredoc) is not an EDIT event on either backend but still produces
+    # a non-empty patch, so such a cell PASSES the pair gate. The gate is
+    # pre-registered and stays exactly as written -- this only makes the
+    # exposure visible, and prices it.
+    report["no_edit_cells"] = {
+        arm: cells
+        for arm in arms
+        if (cells := sorted(p for p in clean
+                            if (table[p][arm]["mech"] or {}).get("no_edit")))
+    }
+    fully_edited = [
+        pair for pair in clean
+        if not any((table[pair][arm]["mech"] or {}).get("no_edit") for arm in arms)
+    ]
+    report["n_clean_all_arms_edited"] = len(fully_edited)
+
     report["headline"] = compare(table, clean, HEADLINE, BASELINE)
     report["competitors"] = {
         arm: compare(table, clean, HEADLINE, arm)
@@ -421,6 +458,24 @@ def build_report(results: pathlib.Path, config: dict, arms: list[str],
         arm: compare(table, clean, arm, BASELINE)
         for arm in arms if arm != BASELINE
     }
+
+    if report["no_edit_cells"]:
+        affected = sum(len(v) for v in report["no_edit_cells"].values())
+        warnings.append(
+            f"no_edit: {affected} cell(s) across "
+            f"{sorted(report['no_edit_cells'])} emitted no EDIT event, so their "
+            f"locate count was measured over the WHOLE session rather than up to "
+            f"a first edit. They passed the gate (non-empty patch), which the "
+            f"mechmetrics docstring said they could not. See "
+            f"`headline_excluding_no_edit` for the estimate without them."
+        )
+        if fully_edited:
+            report["headline_excluding_no_edit"] = compare(
+                table, fully_edited, HEADLINE, BASELINE)
+            report["competitors_excluding_no_edit"] = {
+                arm: compare(table, fully_edited, HEADLINE, arm)
+                for arm in arms if arm not in (BASELINE, HEADLINE)
+            }
     return report
 
 
