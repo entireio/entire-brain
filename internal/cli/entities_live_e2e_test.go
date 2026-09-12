@@ -53,7 +53,20 @@ func liveGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	// The identity is pinned but the CONFIG was not, and this test is
+	// feature-detected rather than opt-in: it runs on any machine that has the
+	// provider installed, i.e. every developer box in this org. The developer's
+	// own global config therefore applied to these commits. `commit.gpgsign =
+	// true` — a common setting — makes the first commit here fail outright:
+	//
+	//	error: Couldn't load public key ...: No such file or directory?
+	//	fatal: failed to write commit object
+	//
+	// and core.hooksPath, init.templateDir and an includeIf block are all equally
+	// able to change what this test is measuring. Neutralize both config layers,
+	// as internal/factgitmeta/gitmeta/golden_test.go already does.
 	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull,
 		"GIT_AUTHOR_NAME=Entity Index", "GIT_AUTHOR_EMAIL=entity@entire.local",
 		"GIT_COMMITTER_NAME=Entity Index", "GIT_COMMITTER_EMAIL=entity@entire.local",
 	)
